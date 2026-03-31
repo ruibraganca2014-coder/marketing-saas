@@ -73,6 +73,7 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSource, setFilterSource] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -144,6 +145,30 @@ export default function ContactsPage() {
     const supabase = createClient();
     await supabase.from("mkt_contacts").delete().eq("id", id);
     setMenuOpen(null);
+    loadContacts();
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((c) => c.id)));
+    }
+  }
+
+  async function handleBulkDelete() {
+    if (!confirm(`Eliminar ${selected.size} contatos?`)) return;
+    const supabase = createClient();
+    await supabase.from("mkt_contacts").delete().in("id", Array.from(selected));
+    setSelected(new Set());
     loadContacts();
   }
 
@@ -278,10 +303,32 @@ export default function ContactsPage() {
             </p>
           </div>
         ) : (
+          <>
+          {/* Bulk Action Bar */}
+          {selected.size > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg border" style={{ borderColor: "var(--primary)", background: "rgba(59,130,246,0.05)" }}>
+              <span className="text-sm font-medium">{selected.size} selecionado{selected.size !== 1 ? "s" : ""}</span>
+              <Button size="sm" variant="danger" onClick={handleBulkDelete}>
+                <Trash2 size={12} /> Eliminar
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setSelected(new Set())}>
+                Cancelar
+              </Button>
+            </div>
+          )}
+
           <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)" }}>
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: "var(--secondary)" }}>
+                  <th className="w-10 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === filtered.length && filtered.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded"
+                    />
+                  </th>
                   <th className="text-left px-4 py-3 font-medium">Nome</th>
                   <th className="text-left px-4 py-3 font-medium">Email</th>
                   <th className="text-left px-4 py-3 font-medium">Empresa</th>
@@ -293,7 +340,15 @@ export default function ContactsPage() {
               </thead>
               <tbody>
                 {filtered.map((c) => (
-                  <tr key={c.id} className="border-t" style={{ borderColor: "var(--border)" }}>
+                  <tr key={c.id} className={`border-t ${selected.has(c.id) ? "bg-blue-500/5" : ""}`} style={{ borderColor: "var(--border)" }}>
+                    <td className="w-10 px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => toggleSelect(c.id)}
+                        className="rounded"
+                      />
+                    </td>
                     <td className="px-4 py-3 font-medium">
                       <a href={`/contacts/${c.id}`} className="hover:underline" style={{ color: "var(--primary)" }}>
                         {c.first_name} {c.last_name}
@@ -344,6 +399,7 @@ export default function ContactsPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

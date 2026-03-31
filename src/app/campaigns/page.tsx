@@ -4,7 +4,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Calendar, Trash2, Pencil } from "lucide-react";
+import { Plus, Calendar, Trash2, Pencil, Copy } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@/hooks/use-organization";
 import { createClient } from "@/lib/supabase";
@@ -124,6 +124,25 @@ export default function CampaignsPage() {
     loadCampaigns();
   }
 
+  async function handleClone(c: Campaign) {
+    if (!organization) return;
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from("mkt_campaigns").insert({
+      org_id: organization.id,
+      name: c.name + " (copia)",
+      description: c.description,
+      objective: c.objective,
+      status: "planning",
+      budget_planned: c.budget_planned,
+      budget_spent: 0,
+      start_date: null,
+      end_date: null,
+      created_by: user?.id || null,
+    });
+    loadCampaigns();
+  }
+
   if (orgLoading || loading) {
     return (
       <AppLayout>
@@ -180,10 +199,13 @@ export default function CampaignsPage() {
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
                         {config.label}
                       </span>
-                      <button onClick={() => openEdit(c)} className="p-1 rounded hover:bg-gray-100">
+                      <button onClick={() => openEdit(c)} className="p-1 rounded hover:bg-gray-100" title="Editar">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => handleDelete(c.id)} className="p-1 rounded hover:bg-gray-100 text-red-500">
+                      <button onClick={() => handleClone(c)} className="p-1 rounded hover:bg-gray-100" title="Duplicar">
+                        <Copy size={14} />
+                      </button>
+                      <button onClick={() => handleDelete(c.id)} className="p-1 rounded hover:bg-gray-100 text-red-500" title="Eliminar">
                         <Trash2 size={14} />
                       </button>
                     </div>
