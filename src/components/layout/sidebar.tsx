@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, Megaphone, Share2, Mail, Settings,
   LogOut, ChevronLeft, ChevronRight, Kanban, Sun, Moon, Menu, X,
+  BarChart3, Zap, Bell,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
@@ -19,6 +20,8 @@ const navItems = [
   { href: "/campaigns", label: "Campanhas", icon: Megaphone },
   { href: "/social", label: "Social Media", icon: Share2 },
   { href: "/email", label: "Email Marketing", icon: Mail },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/automations", label: "Automacoes", icon: Zap },
   { href: "/settings", label: "Configuracoes", icon: Settings },
 ];
 
