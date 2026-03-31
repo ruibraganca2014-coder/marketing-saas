@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { PerformanceChart } from "@/components/dashboard/performance-chart";
 import { ChannelsChart } from "@/components/dashboard/channels-chart";
 import { CampaignROIChart } from "@/components/dashboard/campaign-roi-chart";
+import { ActivityFeed } from "@/components/dashboard/activity-feed";
 
 type DashboardStats = {
   totalContacts: number;
@@ -154,6 +155,9 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Activity Feed */}
+        <ActivityFeed orgId={organization.id} />
       </div>
     </AppLayout>
   );

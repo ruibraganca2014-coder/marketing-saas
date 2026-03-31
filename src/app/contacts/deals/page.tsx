@@ -92,7 +92,11 @@ export default function DealsPage() {
     );
   }
 
-  const totalValue = deals.filter((d) => d.status === "open").reduce((sum, d) => sum + (d.value || 0), 0);
+  const openDeals = deals.filter((d) => d.status === "open");
+  const wonDeals = deals.filter((d) => d.status === "won");
+  const totalValue = openDeals.reduce((sum, d) => sum + (d.value || 0), 0);
+  const weightedValue = openDeals.reduce((sum, d) => sum + (d.value || 0) * ((d.probability || 0) / 100), 0);
+  const winRate = deals.length > 0 ? Math.round((wonDeals.length / deals.length) * 100) : 0;
 
   return (
     <AppLayout>
@@ -101,7 +105,7 @@ export default function DealsPage() {
           <div>
             <h1 className="text-2xl font-bold">Pipeline de Vendas</h1>
             <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-              {deals.length} deal{deals.length !== 1 ? "s" : ""} | Valor total: {totalValue.toLocaleString("pt-PT")} EUR
+              {deals.length} deal{deals.length !== 1 ? "s" : ""}
             </p>
           </div>
           <div className="flex gap-2">
@@ -112,6 +116,26 @@ export default function DealsPage() {
               <Plus size={16} />
               Novo Deal
             </Button>
+          </div>
+        </div>
+
+        {/* Pipeline KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="rounded-xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Valor Total</p>
+            <p className="text-xl font-bold mt-1">{totalValue.toLocaleString("pt-PT")} EUR</p>
+          </div>
+          <div className="rounded-xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Valor Ponderado</p>
+            <p className="text-xl font-bold mt-1">{Math.round(weightedValue).toLocaleString("pt-PT")} EUR</p>
+          </div>
+          <div className="rounded-xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Deals Abertos</p>
+            <p className="text-xl font-bold mt-1">{openDeals.length}</p>
+          </div>
+          <div className="rounded-xl border p-4" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Win Rate</p>
+            <p className="text-xl font-bold mt-1">{winRate}%</p>
           </div>
         </div>
 

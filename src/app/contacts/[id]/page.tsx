@@ -256,17 +256,49 @@ export default function ContactDetailPage() {
             {/* Tags */}
             <div className="rounded-xl border p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
               <h3 className="text-sm font-semibold mb-3">Tags</h3>
-              {(!contact.tags || contact.tags.length === 0) ? (
-                <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>Sem tags</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {contact.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-1 rounded-full text-xs" style={{ background: "var(--secondary)" }}>
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {(contact.tags || []).map((tag) => (
+                  <span key={tag} className="flex items-center gap-1 px-2 py-1 rounded-full text-xs" style={{ background: "var(--secondary)" }}>
+                    {tag}
+                    <button
+                      onClick={async () => {
+                        const supabase = createClient();
+                        const newTags = (contact.tags || []).filter((t) => t !== tag);
+                        await supabase.from("mkt_contacts").update({ tags: newTags }).eq("id", contact.id);
+                        toast("Tag removida");
+                        load();
+                      }}
+                      className="hover:text-red-500 ml-0.5"
+                    >x</button>
+                  </span>
+                ))}
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const input = (e.target as HTMLFormElement).elements.namedItem("newTag") as HTMLInputElement;
+                  const val = input.value.trim();
+                  if (!val || (contact.tags || []).includes(val)) return;
+                  const supabase = createClient();
+                  const newTags = [...(contact.tags || []), val];
+                  await supabase.from("mkt_contacts").update({ tags: newTags }).eq("id", contact.id);
+                  input.value = "";
+                  toast("Tag adicionada!");
+                  load();
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  name="newTag"
+                  type="text"
+                  placeholder="Nova tag..."
+                  className="flex-1 px-2 py-1 rounded-lg border text-xs outline-none"
+                  style={{ borderColor: "var(--border)", background: "var(--background)" }}
+                />
+                <button type="submit" className="px-2 py-1 rounded-lg text-xs font-medium" style={{ background: "var(--primary)", color: "white" }}>
+                  +
+                </button>
+              </form>
             </div>
           </div>
         </div>

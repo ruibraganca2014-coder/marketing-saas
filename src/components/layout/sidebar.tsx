@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { useOrganization } from "@/hooks/use-organization";
 import { useTheme } from "@/hooks/use-theme";
+import { NotificationsDropdown } from "./notifications-dropdown";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -76,6 +77,13 @@ export function Sidebar() {
             <span className="flex-1 text-left">Pesquisar...</span>
             <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-white/20">Ctrl+K</kbd>
           </button>
+        </div>
+      )}
+
+      {/* Notifications */}
+      {!collapsed && organization && (
+        <div className="mx-2 mb-1">
+          <NotificationsDropdown orgId={organization.id} />
         </div>
       )}
 
