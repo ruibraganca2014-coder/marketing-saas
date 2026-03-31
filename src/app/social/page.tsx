@@ -4,7 +4,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Calendar, Clock, Eye, Heart, MessageCircle, Trash2, Pencil, Globe, Hash, AtSign } from "lucide-react";
+import { Plus, Calendar, Clock, Eye, Heart, MessageCircle, Trash2, Pencil, Globe, Hash, AtSign, Copy } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { CalendarView } from "@/components/social/calendar-view";
 import { AICopilot } from "@/components/ui/ai-copilot";
@@ -120,6 +120,22 @@ export default function SocialPage() {
     load();
   }
 
+  async function handleClone(p: SocialPost) {
+    if (!organization) return;
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from("mkt_social_posts").insert({
+      org_id: organization.id,
+      content: p.content,
+      platforms: p.platforms,
+      status: "draft",
+      scheduled_at: null,
+      campaign_id: p.campaign_id,
+      created_by: user?.id || null,
+    });
+    load();
+  }
+
   async function handleDelete(id: string) {
     if (!confirm("Eliminar este post?")) return;
     const supabase = createClient();
@@ -194,10 +210,13 @@ export default function SocialPage() {
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${config.color}`}>
                         {config.label}
                       </span>
-                      <button onClick={() => openEdit(post)} className="p-1 rounded hover:bg-gray-100">
+                      <button onClick={() => openEdit(post)} className="p-1 rounded hover:bg-gray-100" title="Editar">
                         <Pencil size={12} />
                       </button>
-                      <button onClick={() => handleDelete(post.id)} className="p-1 rounded hover:bg-gray-100 text-red-500">
+                      <button onClick={() => handleClone(post)} className="p-1 rounded hover:bg-gray-100" title="Duplicar">
+                        <Copy size={12} />
+                      </button>
+                      <button onClick={() => handleDelete(post.id)} className="p-1 rounded hover:bg-gray-100 text-red-500" title="Eliminar">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -220,13 +239,33 @@ export default function SocialPage() {
 
       <Modal open={showModal} onClose={() => setShowModal(false)} title={editingId ? "Editar Post" : "Novo Post"} wide>
         <div className="space-y-4">
-          <Textarea
-            label="Conteudo"
-            value={form.content}
-            onChange={(e) => setForm({ ...form, content: (e.target as HTMLTextAreaElement).value })}
-            placeholder="Escreva o conteudo do post..."
-            rows={4}
-          />
+          <div>
+            <Textarea
+              label="Conteudo"
+              value={form.content}
+              onChange={(e) => setForm({ ...form, content: (e.target as HTMLTextAreaElement).value })}
+              placeholder="Escreva o conteudo do post..."
+              rows={4}
+            />
+            <div className="flex items-center gap-3 mt-1.5 text-xs" style={{ color: "var(--muted-foreground)" }}>
+              <span>{form.content.length} caracteres</span>
+              {form.platforms.includes("twitter") && (
+                <span className={form.content.length > 280 ? "text-red-500 font-medium" : ""}>
+                  X: {form.content.length}/280
+                </span>
+              )}
+              {form.platforms.includes("linkedin") && (
+                <span className={form.content.length > 3000 ? "text-red-500 font-medium" : ""}>
+                  LinkedIn: {form.content.length}/3000
+                </span>
+              )}
+              {form.platforms.includes("instagram") && (
+                <span className={form.content.length > 2200 ? "text-red-500 font-medium" : ""}>
+                  Instagram: {form.content.length}/2200
+                </span>
+              )}
+            </div>
+          </div>
           <AICopilot
             type="social_post"
             onInsert={(content) => setForm({ ...form, content })}

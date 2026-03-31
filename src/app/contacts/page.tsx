@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@/hooks/use-organization";
 import { createClient } from "@/lib/supabase";
 import { ImportCSVModal } from "@/components/contacts/import-csv-modal";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import type { Contact } from "@/types/database";
 
 const statusOptions = [
@@ -203,8 +204,10 @@ export default function ContactsPage() {
   if (orgLoading || loading) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <p style={{ color: "var(--muted-foreground)" }}>A carregar...</p>
+        <div className="space-y-6">
+          <div className="h-8 w-48 rounded-lg animate-pulse" style={{ background: "var(--secondary)" }} />
+          <div className="h-10 w-full rounded-lg animate-pulse" style={{ background: "var(--secondary)" }} />
+          <TableSkeleton rows={5} />
         </div>
       </AppLayout>
     );

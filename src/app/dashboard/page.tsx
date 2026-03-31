@@ -10,6 +10,7 @@ import { PerformanceChart } from "@/components/dashboard/performance-chart";
 import { ChannelsChart } from "@/components/dashboard/channels-chart";
 import { CampaignROIChart } from "@/components/dashboard/campaign-roi-chart";
 import { ActivityFeed } from "@/components/dashboard/activity-feed";
+import { DashboardSkeleton } from "@/components/ui/skeleton";
 
 type DashboardStats = {
   totalContacts: number;
@@ -67,9 +68,7 @@ export default function DashboardPage() {
   if (orgLoading) {
     return (
       <AppLayout>
-        <div className="flex items-center justify-center h-64">
-          <p style={{ color: "var(--muted-foreground)" }}>A carregar...</p>
-        </div>
+        <DashboardSkeleton />
       </AppLayout>
     );
   }
