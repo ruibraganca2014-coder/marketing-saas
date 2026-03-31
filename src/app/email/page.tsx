@@ -126,10 +126,15 @@ export default function EmailPage() {
               {emailCampaigns.length} campanha{emailCampaigns.length !== 1 ? "s" : ""} de email
             </p>
           </div>
-          <Button onClick={openCreate}>
-            <Plus size={16} />
-            Nova Campanha Email
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => window.location.href = "/email/templates"}>
+              Templates
+            </Button>
+            <Button onClick={openCreate}>
+              <Plus size={16} />
+              Nova Campanha Email
+            </Button>
+          </div>
         </div>
 
         {emailCampaigns.length === 0 ? (

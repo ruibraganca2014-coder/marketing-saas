@@ -8,6 +8,7 @@ import { Plus, Calendar, Clock, Eye, Heart, MessageCircle, Trash2, Pencil, Globe
 import { useState, useEffect, useCallback } from "react";
 import { CalendarView } from "@/components/social/calendar-view";
 import { AICopilot } from "@/components/ui/ai-copilot";
+import { PostPreview } from "@/components/social/post-preview";
 import { useOrganization } from "@/hooks/use-organization";
 import { createClient } from "@/lib/supabase";
 import type { SocialPost, Campaign } from "@/types/database";
@@ -314,6 +315,11 @@ export default function SocialPage() {
             />
           )}
         </div>
+        {/* Live Preview */}
+        {form.content && form.platforms.length > 0 && (
+          <PostPreview content={form.content} platforms={form.platforms} orgName={organization?.name} />
+        )}
+
         <div className="flex justify-end gap-2 mt-6">
           <Button variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Button>
           <Button onClick={handleSave} loading={saving} disabled={!form.content || form.platforms.length === 0}>

@@ -5,7 +5,8 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Users, Megaphone, Share2, Mail } from "lucide-react";
 import { useOrganization } from "@/hooks/use-organization";
 import { createClient } from "@/lib/supabase";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useRealtime } from "@/hooks/use-realtime";
 import { PerformanceChart } from "@/components/dashboard/performance-chart";
 import { ChannelsChart } from "@/components/dashboard/channels-chart";
 import { CampaignROIChart } from "@/components/dashboard/campaign-roi-chart";
@@ -31,39 +32,38 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadStats = useCallback(async () => {
     if (!organization) return;
+    const supabase = createClient();
+    const orgId = organization.id;
 
-    async function loadStats() {
-      const supabase = createClient();
-      const orgId = organization!.id;
+    const [contacts, campaigns, posts, emails] = await Promise.all([
+      supabase.from("mkt_contacts").select("id", { count: "exact", head: true }).eq("org_id", orgId),
+      supabase.from("mkt_campaigns").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "active"),
+      supabase.from("mkt_social_posts").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "scheduled"),
+      supabase.from("mkt_email_campaigns").select("total_sent").eq("org_id", orgId),
+    ]);
 
-      const [contacts, campaigns, posts, emails, activity] = await Promise.all([
-        supabase.from("mkt_contacts").select("id", { count: "exact", head: true }).eq("org_id", orgId),
-        supabase.from("mkt_campaigns").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "active"),
-        supabase.from("mkt_social_posts").select("id", { count: "exact", head: true }).eq("org_id", orgId).eq("status", "scheduled"),
-        supabase.from("mkt_email_campaigns").select("total_sent").eq("org_id", orgId),
-        supabase.from("mkt_activity_log").select("*").eq("org_id", orgId).order("created_at", { ascending: false }).limit(5),
-      ]);
+    const totalEmailsSent = (emails.data || []).reduce((sum, e) => sum + (e.total_sent || 0), 0);
 
-      const totalEmailsSent = (emails.data || []).reduce((sum, e) => sum + (e.total_sent || 0), 0);
-
-      setStats({
-        totalContacts: contacts.count || 0,
-        activeCampaigns: campaigns.count || 0,
-        scheduledPosts: posts.count || 0,
-        emailsSent: totalEmailsSent,
-        recentActivity: (activity.data || []).map((a: Record<string, unknown>) => ({
-          action: String(a.action || ""),
-          detail: JSON.stringify(a.details || {}),
-          time: new Date(String(a.created_at)).toLocaleString("pt-PT"),
-        })),
-      });
-      setLoading(false);
-    }
-
-    loadStats();
+    setStats({
+      totalContacts: contacts.count || 0,
+      activeCampaigns: campaigns.count || 0,
+      scheduledPosts: posts.count || 0,
+      emailsSent: totalEmailsSent,
+      recentActivity: [],
+    });
+    setLoading(false);
   }, [organization]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  // Realtime: refresh KPIs when data changes
+  useRealtime("mkt_contacts", organization?.id, loadStats);
+  useRealtime("mkt_campaigns", organization?.id, loadStats);
+  useRealtime("mkt_social_posts", organization?.id, loadStats);
 
   if (orgLoading) {
     return (
