@@ -85,16 +85,16 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="pt-32 pb-20 px-6">
         <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
-            <Sparkles size={14} />
+          <div className="animate-fade-up inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-6" style={{ background: "var(--secondary)", color: "var(--primary)" }}>
+            <Sparkles size={14} className="animate-float" />
             Com AI Copilot integrado
           </div>
-          <h1 className="text-5xl md:text-6xl font-bold leading-tight mb-6">
+          <h1 className="animate-fade-up animate-fade-up-delay-1 text-5xl md:text-6xl font-bold leading-tight mb-6">
             Toda a sua gestao de
             <br />
             <span style={{ color: "var(--primary)" }}>marketing num so lugar</span>
           </h1>
-          <p className="text-lg max-w-2xl mx-auto mb-8" style={{ color: "var(--muted-foreground)" }}>
+          <p className="animate-fade-up animate-fade-up-delay-2 text-lg max-w-2xl mx-auto mb-8" style={{ color: "var(--muted-foreground)" }}>
             CRM, campanhas, social media e email marketing. Tudo integrado com analytics em tempo real e AI para gerar conteudo.
           </p>
           <div className="flex items-center justify-center gap-4">
@@ -151,8 +151,35 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Testimonials */}
+      <section className="py-20 px-6" style={{ background: "var(--secondary)" }}>
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold mb-3">O que dizem os nossos clientes</h2>
+            <p style={{ color: "var(--muted-foreground)" }}>Empresas que transformaram o seu marketing connosco</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { name: "Ana Rodrigues", role: "CMO, TechStartup", text: "O MarketingSaaS centralizou tudo. Antes usavamos 5 ferramentas diferentes. Agora e tudo num so lugar com analytics em tempo real." },
+              { name: "Pedro Santos", role: "CEO, AgenciaDigital", text: "O pipeline Kanban e o AI Copilot mudaram completamente a forma como gerimos campanhas. ROI aumentou 40% no primeiro trimestre." },
+              { name: "Sofia Ferreira", role: "Head of Marketing, E-Corp", text: "A API REST permitiu-nos integrar com o nosso CRM interno. O calendário editorial e fantastico para planear conteudo." },
+            ].map((t) => (
+              <div key={t.name} className="rounded-xl border p-6" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+                <p className="text-sm mb-4 leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
+                  &ldquo;{t.text}&rdquo;
+                </p>
+                <div>
+                  <p className="text-sm font-semibold">{t.name}</p>
+                  <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>{t.role}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Pricing */}
-      <section id="pricing" className="py-20 px-6" style={{ background: "var(--secondary)" }}>
+      <section id="pricing" className="py-20 px-6">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold mb-3">Precos simples e transparentes</h2>
