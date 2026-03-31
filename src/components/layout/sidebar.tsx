@@ -13,11 +13,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Kanban,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import { useOrganization } from "@/hooks/use-organization";
+import { useTheme } from "@/hooks/use-theme";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -34,6 +37,7 @@ export function Sidebar() {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const { organization } = useOrganization();
+  const { theme, setTheme } = useTheme();
 
   async function handleLogout() {
     const supabase = createClient();
@@ -89,10 +93,18 @@ export function Sidebar() {
           </div>
         )}
         <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-400 hover:bg-white/10 hover:text-white transition-all w-full"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-white/10 hover:text-white transition-all w-full"
+          title={theme === "dark" ? "Modo claro" : "Modo escuro"}
         >
-          <LogOut size={20} className="shrink-0" />
+          {theme === "dark" ? <Sun size={18} className="shrink-0" /> : <Moon size={18} className="shrink-0" />}
+          {!collapsed && <span>{theme === "dark" ? "Modo Claro" : "Modo Escuro"}</span>}
+        </button>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-white/10 hover:text-white transition-all w-full"
+        >
+          <LogOut size={18} className="shrink-0" />
           {!collapsed && <span>Sair</span>}
         </button>
       </div>

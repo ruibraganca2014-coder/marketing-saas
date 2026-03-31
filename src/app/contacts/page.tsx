@@ -4,10 +4,11 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Plus, Search, Trash2, Pencil, MoreHorizontal } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, MoreHorizontal, Upload, Filter, X } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@/hooks/use-organization";
 import { createClient } from "@/lib/supabase";
+import { ImportCSVModal } from "@/components/contacts/import-csv-modal";
 import type { Contact } from "@/types/database";
 
 const statusOptions = [
@@ -71,6 +72,10 @@ export default function ContactsPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterSource, setFilterSource] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
 
   const loadContacts = useCallback(async () => {
     if (!organization) return;
@@ -159,11 +164,16 @@ export default function ContactsPage() {
     URL.revokeObjectURL(url);
   }
 
-  const filtered = contacts.filter((c) =>
-    `${c.first_name} ${c.last_name} ${c.email} ${c.company}`
+  const filtered = contacts.filter((c) => {
+    const matchesSearch = `${c.first_name} ${c.last_name} ${c.email} ${c.company}`
       .toLowerCase()
-      .includes(search.toLowerCase())
-  );
+      .includes(search.toLowerCase());
+    const matchesStatus = !filterStatus || c.status === filterStatus;
+    const matchesSource = !filterSource || c.source === filterSource;
+    return matchesSearch && matchesStatus && matchesSource;
+  });
+
+  const activeFilters = [filterStatus, filterSource].filter(Boolean).length;
 
   if (orgLoading || loading) {
     return (
@@ -186,6 +196,10 @@ export default function ContactsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setShowImport(true)}>
+              <Upload size={14} />
+              Importar
+            </Button>
             <Button variant="secondary" onClick={exportCSV}>
               Exportar CSV
             </Button>
@@ -196,18 +210,65 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted-foreground)" }} />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Pesquisar contatos..."
-            className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm outline-none focus:ring-2"
-            style={{ borderColor: "var(--border)", background: "var(--card)" }}
-          />
+        {/* Search + Filters */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted-foreground)" }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Pesquisar contatos..."
+              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm outline-none focus:ring-2"
+              style={{ borderColor: "var(--border)", background: "var(--card)" }}
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
+            style={{ borderColor: activeFilters > 0 ? "var(--primary)" : "var(--border)", background: "var(--card)" }}
+          >
+            <Filter size={14} />
+            Filtros
+            {activeFilters > 0 && (
+              <span className="w-5 h-5 rounded-full text-xs flex items-center justify-center text-white" style={{ background: "var(--primary)" }}>
+                {activeFilters}
+              </span>
+            )}
+          </button>
         </div>
+
+        {showFilters && (
+          <div className="flex items-center gap-3 p-3 rounded-lg border" style={{ borderColor: "var(--border)", background: "var(--card)" }}>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-1.5 rounded-lg border text-sm"
+              style={{ borderColor: "var(--border)", background: "var(--background)" }}
+            >
+              <option value="">Todos os status</option>
+              {statusOptions.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            <select
+              value={filterSource}
+              onChange={(e) => setFilterSource(e.target.value)}
+              className="px-3 py-1.5 rounded-lg border text-sm"
+              style={{ borderColor: "var(--border)", background: "var(--background)" }}
+            >
+              <option value="">Todas as origens</option>
+              {sourceOptions.filter((s) => s.value).map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            {activeFilters > 0 && (
+              <button
+                onClick={() => { setFilterStatus(""); setFilterSource(""); }}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-gray-100/10"
+                style={{ color: "var(--muted-foreground)" }}
+              >
+                <X size={12} /> Limpar
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Table */}
         {filtered.length === 0 ? (
@@ -313,6 +374,15 @@ export default function ContactsPage() {
           </Button>
         </div>
       </Modal>
+
+      {organization && (
+        <ImportCSVModal
+          open={showImport}
+          onClose={() => setShowImport(false)}
+          orgId={organization.id}
+          onImported={loadContacts}
+        />
+      )}
     </AppLayout>
   );
 }
