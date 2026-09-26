@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Só a janela (antes do Compose): fundo creme / floresta noturna, sem barra de ação. -->
+    <style name="Theme.Domus" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/fundo</item>
+        <item name="android:colorAccent">@color/musgo</item>
+    </style>
+</resources>

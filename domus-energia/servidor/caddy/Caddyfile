@@ -1,0 +1,57 @@
+# Domus Energia — Caddy
+# HTTPS automático (Let's Encrypt / ZeroSSL) para DOMUS_HOST e ntfy.DOMUS_HOST.
+#   https://HOST/            -> site estático (pasta ../web)
+#   wss://HOST/mqtt          -> Mosquitto (WebSocket, porta interna 9001)
+#   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
+#   https://ntfy.HOST/       -> ntfy (notificações)
+#
+# Porque é que o ntfy está num subdomínio e não em /ntfy? O ntfy não suporta
+# ser servido num sub-caminho: recusa arrancar com base-url com caminho
+# ("hosting ntfy on a sub-path is not supported") e a app web dele pede sempre
+# os ficheiros a partir de "/". Com sslip.io o subdomínio funciona sozinho
+# (ntfy.51-38-10-20.sslip.io aponta para 51.38.10.20); com domínio próprio é
+# preciso um registo DNS para ntfy.<domínio> (ver README).
+
+{$DOMUS_HOST} {
+	@mqtt path /mqtt /mqtt/*
+	handle @mqtt {
+		reverse_proxy mosquitto:9001
+	}
+
+	# Compatibilidade com o formato https://HOST/ntfy/<tópico> do protocolo v2.
+	handle_path /ntfy/* {
+		redir https://ntfy.{$DOMUS_HOST}{uri} 302
+	}
+	redir /ntfy https://ntfy.{$DOMUS_HOST}/ 302
+
+	handle {
+		root * /srv/web
+		encode zstd gzip
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+ntfy.{$DOMUS_HOST} {
+	# O ntfy usa ligações longas (WebSocket/stream); o Caddy trata disso sozinho.
+	reverse_proxy ntfy:80
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

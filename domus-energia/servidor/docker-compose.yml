@@ -1,0 +1,117 @@
+# Domus Energia — servidor (Mosquitto + Caddy + ntfy + motor)
+# Uso: cp .env.example .env  (e editar)  &&  docker compose up -d --build
+# Contrato: ../docs/PROTOCOLO-MQTT.md (v1) e ../docs/PROTOCOLO-MQTT-v2.md (v2)
+#
+#   https://HOST/          -> site (pasta ../web, só de leitura)
+#   wss://HOST/mqtt        -> Mosquitto (WebSocket interno, porta 9001)
+#   https://ntfy.HOST/     -> ntfy (notificações). O ntfy NÃO suporta ser servido
+#                             num sub-caminho (/ntfy), por isso usa um subdomínio.
+#   HOST:1883              -> MQTT simples para os aparelhos
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    # Garante que seguranca/passwd e seguranca/acl existem (mesmo vazios) antes
+    # de arrancar, com o dono e as permissões que o Mosquitto 2 exige. O
+    # Mosquitto arranca como root, lê a configuração e passa a correr como o
+    # utilizador "mosquitto" (o domus.sh também altera os ficheiros como ele).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /mosquitto/config/seguranca
+        cd /mosquitto/config/seguranca
+        touch passwd acl
+        chown -R mosquitto:mosquitto .
+        chmod 0700 .
+        chmod 0600 passwd acl
+        chown -R mosquitto:mosquitto /mosquitto/data
+        exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
+    ports:
+      - "1883:1883"      # MQTT simples para os aparelhos (OpenBeken, Shelly)
+    expose:
+      - "9001"           # WebSocket, só na rede interna (o Caddy faz o HTTPS)
+    environment:
+      TZ: Europe/Lisbon
+    volumes:
+      - ./mosquitto:/mosquitto/config        # mosquitto.conf e seguranca/{passwd,acl}
+      - ./dados/mosquitto:/mosquitto/data    # persistência: mensagens retidas e sessões
+    logging: &registos
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ntfy:
+    image: binwiederhier/ntfy
+    restart: unless-stopped
+    command: ["serve"]
+    environment:
+      TZ: Europe/Lisbon
+      # O ntfy recusa base-url com caminho ("hosting ntfy on a sub-path is not
+      # supported"), por isso vive em ntfy.<DOMUS_HOST>.
+      NTFY_BASE_URL: https://ntfy.${DOMUS_HOST:?Define DOMUS_HOST no ficheiro .env}
+      NTFY_LISTEN_HTTP: ":80"
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/lib/ntfy/cache.db
+      NTFY_CACHE_DURATION: "24h"
+      NTFY_AUTH_FILE: /var/lib/ntfy/auth.db
+      # Qualquer pessoa pode SUBSCREVER (os tópicos têm um segredo aleatório no
+      # nome: domus-<cliente>-<segredo>); só o utilizador "motor" pode PUBLICAR
+      # (criado pelo ./domus.sh motor com permissão write-only em domus-*).
+      NTFY_AUTH_DEFAULT_ACCESS: read-only
+      NTFY_ENABLE_SIGNUP: "false"
+      # Opcional: notificações instantâneas no iPhone (reencaminha só um "toque"
+      # pelo ntfy.sh, sem o conteúdo). Deixar vazio para desligar.
+      NTFY_UPSTREAM_BASE_URL: ${NTFY_UPSTREAM_BASE_URL:-}
+    expose:
+      - "80"
+    volumes:
+      - ./dados/ntfy:/var/lib/ntfy           # utilizadores (auth.db) e cache
+    logging: *registos
+
+  motor:
+    build: ../motor
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - ntfy
+    environment:
+      TZ: Europe/Lisbon
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USER: motor
+      MQTT_PASS: ${MOTOR_MQTT_PASS:?Define MOTOR_MQTT_PASS no ficheiro .env}
+      DADOS_DIR: /dados
+      NTFY_URL: http://ntfy
+      NTFY_USER: motor
+      NTFY_PASS: ${NTFY_MOTOR_PASS:?Define NTFY_MOTOR_PASS no ficheiro .env}
+      NTFY_PUBLIC_URL: https://ntfy.${DOMUS_HOST}
+      # Se o ficheiro não existir, o FCM fica desligado (sem erro).
+      FCM_SERVICE_ACCOUNT: /dados/firebase-service-account.json
+    volumes:
+      - ./dados/motor:/dados                 # estado do motor + conta de serviço Firebase
+    logging: *registos
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+      - ntfy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"    # HTTP/3
+    environment:
+      DOMUS_HOST: ${DOMUS_HOST}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../web:/srv/web:ro                  # site público + área de cliente
+      - caddy_data:/data                    # certificados HTTPS (não apagar)
+      - caddy_config:/config
+    logging: *registos
+
+volumes:
+  caddy_data:
+  caddy_config:

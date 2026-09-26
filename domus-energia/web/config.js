@@ -1,6 +1,10 @@
 // Configuração da Domus Energia — muda estes valores para os teus.
 window.DOMUS = {
-  // Supabase → Project Settings → API
+  // Servidor MQTT da área de cliente (app e site). Usa o mesmo host que
+  // DOMUS_HOST em servidor/.env, ex.: "wss://mqtt.domusenergia.pt/mqtt".
+  mqttUrl: "wss://SEU-SERVIDOR/mqtt",
+
+  // Supabase → Project Settings → API (usado só pelo formulário de orçamento)
   supabaseUrl: "https://SEU-PROJETO.supabase.co",
   supabaseAnonKey: "COLAR_A_ANON_KEY_AQUI",
 

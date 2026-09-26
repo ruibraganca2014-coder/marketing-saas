@@ -8,3 +8,6 @@
 /captures
 .externalNativeBuild
 .cxx
+
+# Configuração do Firebase (específica de cada instalação; ver README.md)
+/app/google-services.json

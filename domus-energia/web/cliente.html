@@ -5,29 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Área de cliente — Domus Energia</title>
   <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topo">
     <div class="wrap">
-      <a class="marca" href="index.html"><span class="logo">⚡</span><span>Domus <b>Energia</b></span></a>
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
       <nav>
-        <button class="btn sec" id="sair" hidden>Sair</button>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <button class="btn sec pequeno" id="sair" hidden>Sair</button>
       </nav>
     </div>
   </header>
 
-  <main class="painel">
+  <main class="painel" id="painel">
     <div class="wrap">
       <!-- Login -->
       <div class="cartao caixa-login" id="vista-login" hidden>
         <h2>Área de cliente</h2>
-        <p class="sub" style="margin-bottom:20px">Entre com o email e a palavra-passe que recebeu da Domus Energia.</p>
+        <p class="sub" style="margin-bottom:20px">Entre com o código de cliente e a palavra-passe que recebeu da Domus Energia.</p>
         <form id="form-login">
-          <label>Email<input name="email" type="email" required autocomplete="email"></label>
+          <label>Código de cliente<input name="codigo" type="text" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
           <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password"></label>
+          <label class="lembrar"><input name="lembrar" type="checkbox"> Lembrar-me neste dispositivo</label>
           <button class="btn" type="submit">Entrar</button>
           <div class="msg erro" id="login-erro" hidden></div>
         </form>
@@ -37,23 +43,84 @@
       <div id="vista-painel" hidden>
         <div class="cabecalho-painel">
           <div>
-            <h2>Os meus circuitos</h2>
-            <small class="sub" id="utilizador"></small>
+            <h1>A minha casa</h1>
+            <div class="linha-estado">
+              <span id="utilizador"></span>
+              <span class="ligacao" id="ligacao" role="status"></span>
+              <span>Aparelhos online: <b class="num" id="total-online">—</b></span>
+            </div>
           </div>
-          <button class="btn sec" id="atualizar">↻ Atualizar</button>
+          <button class="btn sec pequeno" id="atualizar">Atualizar</button>
         </div>
-        <div class="resumo">
-          <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
-          <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Circuitos ligados</div></div>
-          <div class="cartao"><div class="valor" id="total-online">—</div><div class="rotulo">Aparelhos online</div></div>
+
+        <div class="separadores" role="tablist" aria-label="Secções">
+          <button class="separador" role="tab" id="tab-casa" aria-controls="sec-casa" aria-selected="true" data-sec="casa">Casa</button>
+          <button class="separador" role="tab" id="tab-automacoes" aria-controls="sec-automacoes" aria-selected="false" data-sec="automacoes" tabindex="-1">Automações</button>
+          <button class="separador" role="tab" id="tab-historico" aria-controls="sec-historico" aria-selected="false" data-sec="historico" tabindex="-1">Histórico</button>
         </div>
-        <div class="msg erro" id="painel-erro" hidden></div>
-        <div class="aparelhos" id="lista"></div>
+
+        <div class="msg erro" id="painel-erro" role="alert" hidden></div>
+
+        <!-- Casa -->
+        <section class="seccao" id="sec-casa" role="tabpanel" aria-labelledby="tab-casa">
+          <div class="cartao cartao-alarme" id="alarme">
+            <div id="alarme-ilus"></div>
+            <div>
+              <h2>Alarme</h2>
+              <div class="alarme-estado" id="alarme-estado" role="status">A obter estado…</div>
+            </div>
+            <div class="alarme-acoes">
+              <button class="btn" id="alarme-botao" type="button" disabled>Ativar</button>
+            </div>
+            <div class="confirmar" id="alarme-confirmar" hidden>
+              <p id="alarme-pergunta"></p>
+              <div class="botoes">
+                <button class="btn" id="alarme-sim" type="button">Confirmar</button>
+                <button class="btn sec" id="alarme-nao" type="button">Cancelar</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="resumo">
+            <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
+            <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Luzes e circuitos ligados</div></div>
+            <div class="cartao" id="resumo-portas"><div class="valor" id="total-portas">—</div><div class="rotulo">Portas abertas</div></div>
+            <div class="cartao" id="resumo-alarme"><div class="valor" id="total-alarme">—</div><div class="rotulo">Alarme</div></div>
+          </div>
+          <div class="aparelhos" id="lista"></div>
+        </section>
+
+        <!-- Automações -->
+        <section class="seccao" id="sec-automacoes" role="tabpanel" aria-labelledby="tab-automacoes" hidden>
+          <div class="seccao-topo">
+            <h2>Automações</h2>
+            <button class="btn pequeno" id="nova-automacao" type="button">Nova automação</button>
+          </div>
+          <div class="msg" id="auto-estado" role="status" hidden></div>
+          <div id="form-automacao-caixa"></div>
+          <div class="automacoes" id="lista-automacoes"></div>
+        </section>
+
+        <!-- Histórico -->
+        <section class="seccao" id="sec-historico" role="tabpanel" aria-labelledby="tab-historico" hidden>
+          <div class="cartao ntfy" id="ntfy" hidden>
+            <h2>Notificações no telemóvel</h2>
+            <p>Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.</p>
+            <div class="ntfy-linha">
+              <code class="ntfy-url" id="ntfy-url"></code>
+              <button class="btn sec pequeno" id="ntfy-copiar" type="button">Copiar</button>
+            </div>
+            <small class="vazio" id="ntfy-msg" role="status"></small>
+          </div>
+          <div class="seccao-topo"><h2>Histórico</h2></div>
+          <ul class="historico" id="lista-historico"></ul>
+        </section>
       </div>
     </div>
   </main>
 
   <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <script type="module" src="cliente.js"></script>
 </body>
 </html>

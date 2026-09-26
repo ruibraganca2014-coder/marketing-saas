@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tema "Terra" (docs/TEMA.md). As cores da interface estão em ui/tema/Tema.kt; estas são para
+     a janela antes do Compose arrancar e para as notificações. -->
+<resources>
+    <color name="fundo">#FEFAE0</color>
+    <color name="musgo">#606C38</color>
+    <color name="alarme">#A4372A</color>
+</resources>

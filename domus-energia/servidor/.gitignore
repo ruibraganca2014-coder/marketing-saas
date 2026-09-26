@@ -1,0 +1,12 @@
+# Estado e segredos do servidor — nunca vão para o git
+.env
+dados/
+# passwd e acl do Mosquitto (gerados pelo domus.sh)
+mosquitto/seguranca/
+mosquitto/passwd
+mosquitto/acl
+mosquitto/data/
+mosquitto/log/
+# certificados e configuração do Caddy (se forem montados como pastas)
+caddy/data/
+caddy/config/

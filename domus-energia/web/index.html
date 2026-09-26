@@ -5,19 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Domus Energia — Eletricidade e automação</title>
   <meta name="description" content="Instalações elétricas, quadros inteligentes e casa inteligente em todo o país. Controle a eletricidade da sua casa a partir do telemóvel.">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topo">
     <div class="wrap">
-      <a class="marca" href="#"><span class="logo">⚡</span><span>Domus <b>Energia</b></span></a>
+      <a class="marca" href="#"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
       <nav>
         <a class="link" href="#servicos">Serviços</a>
         <a class="link" href="#como-funciona">Como funciona</a>
         <a class="link" href="#contactos">Contactos</a>
-        <a class="btn sec" href="cliente.html">Área de cliente</a>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
       </nav>
     </div>
   </header>
@@ -25,13 +30,40 @@
   <main>
     <div class="hero">
       <div class="wrap">
-        <div class="selo">🇵🇹 A trabalhar em todo o país</div>
-        <h1>A eletricidade da sua casa,<br><em>na palma da mão.</em></h1>
-        <p>Instalações elétricas certificadas e quadros inteligentes: ligue e desligue circuitos, veja o consumo em tempo real e poupe na fatura a partir do telemóvel.</p>
-        <div class="acoes">
-          <a class="btn" href="#orcamento">Pedir orçamento grátis</a>
-          <a class="btn sec js-whatsapp" href="#">💬 Falar no WhatsApp</a>
+        <div>
+          <div class="selo">A trabalhar em todo o país</div>
+          <h1>A eletricidade da sua casa,<br><em>na palma da mão.</em></h1>
+          <p>Instalações elétricas certificadas e quadros inteligentes: ligue e desligue circuitos, veja o consumo em tempo real e poupe na fatura a partir do telemóvel.</p>
+          <div class="acoes">
+            <a class="btn" href="#orcamento">Pedir orçamento grátis</a>
+            <a class="btn sec js-whatsapp" href="#">Falar no WhatsApp</a>
+          </div>
         </div>
+        <!-- Casa em traço, desenhada à mão; janelas acesas a areia. -->
+        <svg class="casa" viewBox="0 0 360 300" role="img" aria-label="Desenho de uma casa com as janelas acesas">
+          <path class="fumo" d="M262 58c-6-7 4-12-1-19s4-11 0-17"/>
+          <circle class="luz-janela" cx="118" cy="191" r="34"/>
+          <circle class="luz-janela" cx="242" cy="191" r="34"/>
+          <circle class="luz-janela" cx="180" cy="120" r="24"/>
+          <path class="folhas" d="M36 206c-15-4-20-22-10-33-6-15 8-29 22-24 9-11 29-8 33 7 13 3 16 22 6 30 3 14-12 25-24 19-8 7-22 7-27 1z"/>
+          <path class="traco" d="M36 206c-15-4-20-22-10-33-6-15 8-29 22-24 9-11 29-8 33 7 13 3 16 22 6 30 3 14-12 25-24 19-8 7-22 7-27 1z"/>
+          <path class="traco" d="M55 212c.5 17 .2 33-.6 50M55 226l-9-9M55 234l10-10"/>
+          <path class="traco" d="M246 94.4V64.6c7-.6 14.2-.5 21.4.2l.5 46.5"/>
+          <path class="traco" d="M54 151.8C95 118 137 84 180.4 51.6 223.6 84.5 266 118 306.6 152"/>
+          <path class="traco" d="M78.4 132.8c-.8 43.4-.5 86.4.3 129.6M282.6 133.5c.8 43 .6 86-.2 128.9"/>
+          <circle class="janela" cx="180" cy="120" r="13"/>
+          <path class="traco fino" d="M180 107v26M167 120h26"/>
+          <circle class="traco" cx="180" cy="120" r="14"/>
+          <path class="janela" d="M97 172.6c14.2-.6 28.3-.6 42.4 0 .5 12.8.4 25.6 0 38.4-14 .5-28.2.5-42.3 0-.6-12.8-.6-25.6-.1-38.4z"/>
+          <path class="traco" d="M97 172.6c14.2-.6 28.3-.6 42.4 0 .5 12.8.4 25.6 0 38.4-14 .5-28.2.5-42.3 0-.6-12.8-.6-25.6-.1-38.4zM118.3 172.4v38.9M97.3 191.9h42.2M92.4 216.4c17.3-.6 34.6-.5 51.8.2"/>
+          <path class="janela" d="M221 172.6c14.2-.6 28.3-.6 42.4 0 .5 12.8.4 25.6 0 38.4-14 .5-28.2.5-42.3 0-.6-12.8-.6-25.6-.1-38.4z"/>
+          <path class="traco" d="M221 172.6c14.2-.6 28.3-.6 42.4 0 .5 12.8.4 25.6 0 38.4-14 .5-28.2.5-42.3 0-.6-12.8-.6-25.6-.1-38.4zM242.3 172.4v38.9M221.3 191.9h42.2M216.4 216.4c17.3-.6 34.6-.5 51.8.2"/>
+          <path class="traco" d="M160.2 262.2v-50.5c0-11.6 8.8-20.4 19.9-20.4s20 8.9 20.1 20.5l.2 50.3"/>
+          <circle class="janela" cx="192.4" cy="229" r="2.6"/>
+          <path class="traco" d="M154 262.6c4.4-.4 48-.4 52.6.1"/>
+          <path class="traco" d="M20 263.4c50-2.4 100-1 150-.8 58 .3 115-.7 170 1.2"/>
+          <path class="traco fino" d="M303 262c-.4-9 7-14 12-10 3-8 14-7 15 1 7-1 10 6 6 10"/>
+        </svg>
       </div>
     </div>
 
@@ -41,22 +73,22 @@
         <p class="sub">Da instalação elétrica à casa totalmente automatizada, com um só contacto.</p>
         <div class="grelha">
           <div class="cartao">
-            <div class="icone">🎛️</div>
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="6" y="5" width="24" height="26" rx="3"/><path d="M11 11v6M16 11v6M21 11v6M26 11v6M10 23h16"/><rect class="cheio" x="14.6" y="12.4" width="2.8" height="3.4" rx=".6"/></svg></div>
             <h3>Quadros inteligentes</h3>
             <p>Disjuntores Wi-Fi em cada circuito. Ligue, desligue e programe horários pela app Domus Energia.</p>
           </div>
           <div class="cartao">
-            <div class="icone">🔌</div>
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="7" y="7" width="22" height="22" rx="6"/><circle cx="18" cy="18" r="6"/><path d="M15.8 17.6v.1M20.2 17.6v.1"/></svg></div>
             <h3>Instalações elétricas</h3>
             <p>Instalações novas, remodelações, reparações e certificação, feitas por técnicos habilitados.</p>
           </div>
           <div class="cartao">
-            <div class="icone">🏠</div>
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M6 17 18 7l12 10M9 14.6V29h18V14.6"/><rect class="cheio" x="14" y="18" width="8" height="6" rx="1"/><path d="M14 18h8v6h-8z"/></svg></div>
             <h3>Casa inteligente</h3>
-            <p>Iluminação, estores, tomadas e cenas automáticas ("Sair de casa", "Noite", "Férias").</p>
+            <p>Iluminação, estores, sensores de portas e movimento, alarme e automações ("Sair de casa", "Noite", "Férias").</p>
           </div>
           <div class="cartao">
-            <div class="icone">📊</div>
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M6 29h24M9 29V19M15 29V12M21 29v-9M27 29V8"/><circle class="cheio" cx="27" cy="8" r="2.4"/></svg></div>
             <h3>Monitorização de energia</h3>
             <p>Veja quanto gasta cada circuito, descubra os consumos escondidos e reduza a sua fatura.</p>
           </div>
@@ -70,9 +102,9 @@
         <p class="sub">Simples, rápido e sem obras de grande dimensão.</p>
         <div class="grelha passos">
           <div class="cartao"><h3>Visita e orçamento</h3><p>Avaliamos o seu quadro e a instalação e apresentamos um orçamento sem compromisso.</p></div>
-          <div class="cartao"><h3>Instalação</h3><p>Instalamos disjuntores inteligentes certificados, normalmente num só dia.</p></div>
+          <div class="cartao"><h3>Instalação</h3><p>Instalamos disjuntores e sensores inteligentes certificados, normalmente num só dia.</p></div>
           <div class="cartao"><h3>Configuração da app</h3><p>Damos-lhe o acesso à app e à área de cliente, com os circuitos já identificados.</p></div>
-          <div class="cartao"><h3>Controlo total</h3><p>Controle tudo à distância e receba alertas de consumo. Estamos sempre disponíveis para apoio.</p></div>
+          <div class="cartao"><h3>Controlo total</h3><p>Controle tudo à distância e receba alertas no telemóvel. Estamos sempre disponíveis para apoio.</p></div>
         </div>
       </div>
     </section>
@@ -83,9 +115,9 @@
         <p class="sub">Fale connosco da forma que preferir. Respondemos rapidamente.</p>
         <div class="contactos">
           <div class="lista-contactos">
-            <a class="js-whatsapp" href="#"><span style="font-size:1.6rem">💬</span><span><b>WhatsApp</b><small>Resposta mais rápida</small></span></a>
-            <a class="js-telefone" href="#"><span style="font-size:1.6rem">📞</span><span><b class="js-telefone-texto">Telefone</b><small>Ligar agora</small></span></a>
-            <a class="js-email" href="#"><span style="font-size:1.6rem">✉️</span><span><b class="js-email-texto">Email</b><small>Enviar email</small></span></a>
+            <a class="js-whatsapp" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.6 18.6z"/></svg></span><span><b>WhatsApp</b><small>Resposta mais rápida</small></span></a>
+            <a class="js-telefone" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 3.8 9 4.3l1.3 4-1.8 1.4a11 11 0 0 0 5.8 5.8l1.4-1.8 4 1.3.5 2.4c.2 1-.6 2-1.7 2A15.9 15.9 0 0 1 4.6 5.5c0-1.1 1-1.9 2-1.7z"/></svg></span><span><b class="js-telefone-texto">Telefone</b><small>Ligar agora</small></span></a>
+            <a class="js-email" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="m4.5 7 7.5 6 7.5-6"/></svg></span><span><b class="js-email-texto">Email</b><small>Enviar email</small></span></a>
           </div>
 
           <div class="cartao" id="orcamento">
@@ -125,7 +157,7 @@
     </div>
   </footer>
 
-  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp">💬</a>
+  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4.5A11.5 11.5 0 0 0 6.2 22l-1.6 5.6 5.8-1.5A11.5 11.5 0 1 0 16 4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12.2 10.6c.4-.4 1-.3 1.2.2l1 2.2c.2.4 0 .8-.3 1.1l-.6.6c.8 1.7 2.1 3 3.8 3.8l.6-.6c.3-.3.8-.4 1.1-.2l2.2 1c.5.2.6.9.2 1.2-2.4 2.6-6 1-8.2-1.2s-3.9-5.7-1-8.1z" fill="currentColor"/></svg></a>
 
   <script src="config.js"></script>
   <script type="module" src="site.js"></script>

@@ -3,87 +3,163 @@ package pt.domusenergia.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import pt.domusenergia.app.data.ApiException
-import pt.domusenergia.app.data.DomusApi
-import pt.domusenergia.app.tuya.Device
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
+import pt.domusenergia.app.data.Aparelho
+import pt.domusenergia.app.data.Automacao
+import pt.domusenergia.app.data.Automacoes
+import pt.domusenergia.app.data.Comandos
+import pt.domusenergia.app.data.DomusMqtt
+import pt.domusenergia.app.data.Ligacao
+import pt.domusenergia.app.data.MqttException
+import pt.domusenergia.app.data.Sessao
+import pt.domusenergia.app.notificacoes.Fcm
 
-data class UiState(
-    val loggedIn: Boolean,
-    val email: String = "",
-    val devices: List<Device> = emptyList(),
-    val loading: Boolean = false,
-    val error: String? = null,
-)
+class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
 
-class DevicesViewModel(app: Application) : AndroidViewModel(app) {
+    private val sessao = Sessao(app)
+    private val mqtt = DomusMqtt()
 
-    private val api = DomusApi(app)
+    private val _state = MutableStateFlow(UiState(loggedIn = sessao.isLoggedIn, codigo = sessao.codigo.orEmpty()))
+    val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private val _state = MutableStateFlow(UiState(loggedIn = api.isLoggedIn, email = api.email))
-    val state: StateFlow<UiState> = _state
+    /** Saída em curso (retira o token FCM antes de desligar); uma nova entrada espera por ela. */
+    private var saida: Job? = null
 
-    fun login(email: String, password: String) {
+    init {
+        // O MQTT é "push": o estado chega sozinho quando muda, não há atualização periódica.
+        viewModelScope.launch { mqtt.estado.collect { e -> _state.update { it.copy(estado = e) } } }
         viewModelScope.launch {
-            _state.update { it.copy(loading = true, error = null) }
-            try {
-                api.login(email, password)
-                _state.update { it.copy(loggedIn = true, email = api.email, loading = false) }
-            } catch (e: Exception) {
-                _state.update { it.copy(loading = false, error = "Email ou palavra-passe errados.") }
+            mqtt.ligacao.collect { l ->
+                if (l == Ligacao.RECUSADO && _state.value.loggedIn) {
+                    // A palavra-passe mudou com a sessão aberta: volta ao ecrã de entrada.
+                    mqtt.desligar()
+                    sessao.limpar()
+                    _state.value = UiState(loggedIn = false, erroLogin = "Código ou palavra-passe errados.")
+                } else {
+                    _state.update { it.copy(ligacao = l) }
+                }
+            }
+        }
+        // Notificações: regista o token FCM deste telemóvel sempre que a ligação (re)abre.
+        Fcm.carregar(app)
+        viewModelScope.launch {
+            combine(mqtt.ligacao, Fcm.token) { l, t -> if (l == Ligacao.LIGADO) t else null }.collect { token ->
+                if (token != null) runCatching { mqtt.registarFcm(token) }
+            }
+        }
+
+        val codigo = sessao.codigo
+        val password = sessao.password
+        if (codigo != null && password != null) {
+            viewModelScope.launch {
+                try {
+                    // Sessão guardada: continua a tentar mesmo sem rede (o ecrã mostra "A religar…").
+                    mqtt.ligar(codigo, password, insistir = true)
+                } catch (e: MqttException) {
+                    // Palavra-passe recusada: tratado acima (Ligacao.RECUSADO). Outros: a sessão foi terminada.
+                }
             }
         }
     }
 
-    fun logout() {
-        api.logout()
+    override fun login(codigo: String, password: String) {
+        val c = codigo.trim().lowercase()
+        viewModelScope.launch {
+            saida?.join()
+            _state.update { it.copy(loading = true, erroLogin = null) }
+            try {
+                mqtt.ligar(c, password)
+                sessao.guardar(c, password)
+                _state.update { it.copy(loggedIn = true, codigo = c, loading = false) }
+            } catch (e: MqttException) {
+                mqtt.desligar()
+                _state.update { it.copy(loading = false, erroLogin = e.message) }
+            }
+        }
+    }
+
+    override fun logout() {
+        sessao.limpar()
         _state.value = UiState(loggedIn = false)
+        val token = Fcm.token.value
+        saida = viewModelScope.launch {
+            // Deixa de receber notificações deste cliente neste telemóvel.
+            if (token != null && mqtt.ligacao.value == Ligacao.LIGADO) {
+                runCatching { withTimeout(3_000) { mqtt.registarFcm(token, remover = true) } }
+            }
+            mqtt.desligar()
+        }
     }
 
-    fun refresh(silent: Boolean = false) {
-        if (!_state.value.loggedIn) return
+    private fun comando(bloco: suspend () -> Unit) {
         viewModelScope.launch {
-            if (!silent) _state.update { it.copy(loading = true) }
             try {
-                val devices = api.listDevices()
-                _state.update { it.copy(devices = devices, loading = false, error = null) }
-            } catch (e: Exception) {
-                handleError(e)
+                bloco()
+            } catch (e: MqttException) {
+                _state.update { it.copy(aviso = e.message) }
             }
         }
     }
 
-    fun toggle(device: Device) {
-        val code = device.switchCode ?: return
-        val newValue = !device.isOn
-        // Atualiza logo o ecrã; se o comando falhar, volta a ler o estado real.
-        setLocalSwitch(device.id, code, newValue)
+    override fun ligar(a: Aparelho, n: Int, ligado: Boolean) = comando { mqtt.setLigado(a, n, ligado) }
+
+    override fun brilho(a: Aparelho, n: Int, brilho: Int) = comando { mqtt.setBrilho(a, n, brilho) }
+
+    override fun estore(a: Aparelho, n: Int, posicao: Int) = comando { mqtt.setEstore(a, n, posicao) }
+
+    override fun moverEstore(a: Aparelho, n: Int, mov: Comandos.MovimentoEstore) = comando { mqtt.moverEstore(a, n, mov) }
+
+    override fun alarme(ativo: Boolean) = comando { mqtt.setAlarme(ativo) }
+
+    override fun guardarAutomacoes(lista: List<Automacao>, aoGuardar: () -> Unit) {
+        val erros = Automacoes.validarLista(lista)
+        if (erros.isNotEmpty()) {
+            _state.update { it.copy(aviso = erros.first()) }
+            return
+        }
+        if (_state.value.aGuardar) return
+        _state.update { it.copy(aGuardar = true) }
         viewModelScope.launch {
             try {
-                api.setSwitch(device.id, code, newValue)
-            } catch (e: Exception) {
-                handleError(e)
-                refresh(silent = true)
+                val antes = mqtt.estado.value.recebidasAutomacoes
+                mqtt.guardarAutomacoes(lista)
+                // O motor responde com a lista (retida) ou, se recusar, com um evento "erro" seguido da lista antiga.
+                val resposta = withTimeoutOrNull(10_000) {
+                    mqtt.estado.first { it.recebidasAutomacoes > antes || it.ultimoErro != null }
+                }
+                if (resposta != null && resposta.ultimoErro == null) delay(300) // o "erro" pode vir logo a seguir
+                val erro = mqtt.estado.value.ultimoErro
+                when {
+                    resposta == null -> _state.update { it.copy(aviso = "O servidor não respondeu. Tente outra vez.") }
+                    erro != null -> _state.update { it.copy(aviso = "Não guardado: ${erro.mensagem}") }
+                    else -> {
+                        _state.update { it.copy(aviso = "Automações guardadas.") }
+                        aoGuardar()
+                    }
+                }
+            } catch (e: MqttException) {
+                _state.update { it.copy(aviso = e.message) }
+            } finally {
+                _state.update { it.copy(aGuardar = false) }
             }
         }
     }
 
-    private fun handleError(e: Exception) {
-        if (e is ApiException && e.sessionExpired) {
-            _state.value = UiState(loggedIn = false, error = e.message)
-        } else {
-            _state.update { it.copy(loading = false, error = e.message ?: e.toString()) }
-        }
-    }
+    override fun limparAviso() = _state.update { it.copy(aviso = null) }
 
-    private fun setLocalSwitch(deviceId: String, code: String, value: Boolean) {
-        _state.update { s ->
-            s.copy(devices = s.devices.map { d ->
-                if (d.id == deviceId) d.copy(status = d.status + (code to value)) else d
-            })
-        }
+    override fun limparErroAutomacoes() = mqtt.limparErro()
+
+    override fun onCleared() {
+        mqtt.desligar()
     }
 }
