@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Área de cliente — Domus Energia</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo">⚡</span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <button class="btn sec" id="sair" hidden>Sair</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="painel">
+    <div class="wrap">
+      <!-- Login -->
+      <div class="cartao caixa-login" id="vista-login" hidden>
+        <h2>Área de cliente</h2>
+        <p class="sub" style="margin-bottom:20px">Entre com o email e a palavra-passe que recebeu da Domus Energia.</p>
+        <form id="form-login">
+          <label>Email<input name="email" type="email" required autocomplete="email"></label>
+          <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password"></label>
+          <button class="btn" type="submit">Entrar</button>
+          <div class="msg erro" id="login-erro" hidden></div>
+        </form>
+      </div>
+
+      <!-- Painel -->
+      <div id="vista-painel" hidden>
+        <div class="cabecalho-painel">
+          <div>
+            <h2>Os meus circuitos</h2>
+            <small class="sub" id="utilizador"></small>
+          </div>
+          <button class="btn sec" id="atualizar">↻ Atualizar</button>
+        </div>
+        <div class="resumo">
+          <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
+          <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Circuitos ligados</div></div>
+          <div class="cartao"><div class="valor" id="total-online">—</div><div class="rotulo">Aparelhos online</div></div>
+        </div>
+        <div class="msg erro" id="painel-erro" hidden></div>
+        <div class="aparelhos" id="lista"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="config.js"></script>
+  <script type="module" src="cliente.js"></script>
+</body>
+</html>
