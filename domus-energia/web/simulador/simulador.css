@@ -19,6 +19,11 @@
 .sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
 .sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
 .sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+/* "Começar de novo" sempre à mão, por baixo dos passos (com confirmação na página). */
+.sim-recomecar { display: grid; justify-items: end; gap: 6px; margin-top: 6px; }
+.sim-recomecar .confirmar { justify-self: stretch; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--areia-suave); }
+.sim-recomecar .confirmar p { margin: 0 0 8px; font-weight: 600; }
+.sim-recomecar .botoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .sim-passo-botao { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-height: 44px; padding: 4px 2px; border: 0; background: transparent; color: var(--texto-suave); font: 600 .8rem/1.2 var(--letra); text-align: center; border-radius: 12px; }
 button.sim-passo-botao { cursor: pointer; color: var(--texto); }
 button.sim-passo-botao:hover { background: var(--musgo-claro); }
@@ -82,7 +87,9 @@ input, select { min-height: 44px; }
 .editor { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 980px) { .editor { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
 .editor-principal { display: grid; gap: 10px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.editor-ferramentas { display: grid; gap: 10px; min-width: 0; }
 .editor-barra { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.editor-barra[hidden] { display: none; }
 @media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; } }
 .ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 78px; min-height: 64px; padding: 6px 4px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; }
 .ferramenta svg { width: 28px; height: 28px; color: var(--texto); }
@@ -95,9 +102,8 @@ input, select { min-height: 44px; }
 .ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; text-align: left; }
 .ferramenta.tipo-divisao svg { width: 20px; height: 20px; flex: none; }
 .tipo-divisao-nome { white-space: nowrap; }
-/* Telecomunicações ("brevemente"): tracejado, fora do preço. */
-.ferramenta.telecom { border-style: dashed; }
-.editor-telecom { align-items: center; }
+/* Máquinas (fila "Máquinas:"): um botão com o desenho de cada modelo, como os das divisões. */
+.ferramenta.maquina-ferramenta svg { width: 26px; height: 26px; }
 .editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .editor-barra2 .btn { min-width: 44px; }
 /* Altura reservada: a dica muda de tamanho a cada ação e a planta, por baixo, não pode saltar
@@ -278,14 +284,20 @@ input, select { min-height: 44px; }
 .editor-piso[aria-selected="true"] small { color: var(--sobre-musgo); }
 .editor-piso:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
 /* Ecrã inteiro: só a planta e as ferramentas (Fullscreen API ou, sem ela, a classe .ecra-inteiro). */
-.editor-principal:fullscreen, .editor-principal.ecra-inteiro { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--fundo); overflow: auto; }
+.editor-principal:fullscreen, .editor-principal.ecra-inteiro { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; background: var(--fundo); overflow: hidden; }
 .editor-principal.ecra-inteiro { position: fixed; inset: 0; z-index: 50; }
 .editor-principal:fullscreen .editor-area, .editor-principal.ecra-inteiro .editor-area { flex: 1 1 auto; height: auto; min-height: 240px; }
 .editor-principal:fullscreen .editor-ajuda, .editor-principal.ecra-inteiro .editor-ajuda { display: none; }
-.editor-principal:fullscreen .editor-dica, .editor-principal.ecra-inteiro .editor-dica { min-height: 0; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .88rem; }
-/* Barras numa só linha (deslizam para o lado): sobra mais altura para a planta. */
-.editor-principal:fullscreen :is(.editor-barra, .editor-barra2), .editor-principal.ecra-inteiro :is(.editor-barra, .editor-barra2) { flex-wrap: nowrap; overflow-x: auto; flex: none; }
-.editor-principal:fullscreen .editor-barra2 .btn, .editor-principal.ecra-inteiro .editor-barra2 .btn { flex: none; }
+.editor-principal:fullscreen .editor-dica, .editor-principal.ecra-inteiro .editor-dica { min-height: 0; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .85rem; line-height: 1.3; }
+.editor-principal:fullscreen :is(.editor-selecao, .editor-pisos), .editor-principal.ecra-inteiro :is(.editor-selecao, .editor-pisos) { flex: none; min-height: 44px; }
+/* Todas as barras numa só fila que desliza para o lado (Anular, zoom e "Sair" à frente): a planta fica com
+   a maior parte da altura (≥ 65 %, também no telemóvel). Os botões ficam baixos, o desenho ao lado do nome. */
+.editor-principal:fullscreen .editor-ferramentas, .editor-principal.ecra-inteiro .editor-ferramentas { display: flex; flex: none; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: thin; }
+.editor-principal:fullscreen :is(.editor-barra, .editor-barra2), .editor-principal.ecra-inteiro :is(.editor-barra, .editor-barra2) { flex: none; flex-wrap: nowrap; overflow: visible; padding: 0; gap: 6px; align-items: center; }
+.editor-principal:fullscreen .editor-barra2, .editor-principal.ecra-inteiro .editor-barra2 { order: -1; }
+.editor-principal:fullscreen .editor-barra2 .btn, .editor-principal.ecra-inteiro .editor-barra2 .btn { flex: none; white-space: nowrap; }
+.editor-principal:fullscreen .ferramenta, .editor-principal.ecra-inteiro .ferramenta { flex-direction: row; width: auto; min-height: 44px; padding: 4px 10px; gap: 6px; font-size: .78rem; white-space: nowrap; }
+.editor-principal:fullscreen .ferramenta svg, .editor-principal.ecra-inteiro .ferramenta svg { width: 22px; height: 22px; }
 .editor-principal:fullscreen::backdrop { background: var(--fundo); }
 html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Em ecrã inteiro o "Sair" fica à frente na barra (no telemóvel não há Esc). */
@@ -299,8 +311,13 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 .editor-cantos-sec > summary { cursor: pointer; font-weight: 800; min-height: 44px; display: flex; align-items: center; }
 .editor-cantos-sec[open] > summary { margin-bottom: 6px; }
 .editor-cantos-sec > .form-botoes { margin-top: 8px; }
-/* "O que quer": máquina marcada com quantas (− n +) e o piso. */
+/* "O que quer": máquina marcada com quantas (− n +); nas casas com pisos, um separador por piso. */
 .quer-item { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.escolha .escolha-icone { width: 34px; height: 34px; justify-self: center; color: var(--texto); }
+.quer-painel { display: grid; gap: 16px; min-width: 0; }
+.quer-pisos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 0; border-bottom: 2px solid var(--musgo); scrollbar-width: thin; }
+.quer-pisos[hidden], .quer-resumo[hidden] { display: none; }
+.quer-resumo { margin: 0; }
 .quer-extra { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; }
 .quer-extra[hidden] { display: none; }
 .quer-extra select { min-width: 0; max-width: 100%; }

@@ -48,6 +48,7 @@
       <nav class="sim-progresso" aria-label="Passos do simulador">
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
         <ol id="sim-passos"></ol>
+        <div class="sim-recomecar"><button class="btn sec pequeno" id="sim-recomecar-topo" type="button">Começar de novo</button></div>
       </nav>
 
       <form id="sim-form" novalidate>
@@ -81,14 +82,19 @@
         <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
           <h2 id="titulo-1" tabindex="-1">2. O que quer</h2>
           <p class="sub-passo">Diga-nos que máquinas tem (ou vai ter) e o que quer fazer. Com isto já desenhamos a planta e preenchemos as divisões e o quadro — pode mudar tudo depois.</p>
-          <fieldset class="escolhas">
-            <legend>Máquinas grandes <small class="ajuda">Cada uma costuma ter um circuito próprio no quadro.</small></legend>
-            <div class="escolhas-grelha" id="quer-maquinas"></div>
-          </fieldset>
-          <fieldset class="escolhas">
-            <legend>Máquinas pequenas <small class="ajuda">Ligam-se às tomadas (sem circuito próprio): pomo-las na divisão certa e contamos a potência.</small></legend>
-            <div class="quer-grupos" id="quer-pequenas"></div>
-          </fieldset>
+          <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
+          <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
+          <div class="quer-painel" id="quer-painel">
+            <fieldset class="escolhas">
+              <legend>Máquinas grandes <small class="ajuda">Cada uma costuma ter um circuito próprio no quadro.</small></legend>
+              <div class="escolhas-grelha" id="quer-maquinas"></div>
+            </fieldset>
+            <fieldset class="escolhas">
+              <legend>Máquinas pequenas <small class="ajuda">Ligam-se às tomadas (sem circuito próprio): pomo-las na divisão certa e contamos a potência.</small></legend>
+              <div class="quer-grupos" id="quer-pequenas"></div>
+            </fieldset>
+          </div>
+          <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
           <fieldset class="escolhas">
             <legend>O que quer fazer</legend>
             <div class="escolhas-grelha" id="quer-objetivos"></div>
@@ -165,7 +171,6 @@
             </table>
           </div>
           <p class="sim-nota" id="preco-nota"></p>
-          <p class="msg info" id="preco-telecom"></p>
           <h3>Plano mensal sugerido</h3>
           <div class="sim-planos" id="preco-planos"></div>
           <h3>Avisos sobre a instalação</h3>

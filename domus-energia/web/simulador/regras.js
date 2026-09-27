@@ -103,18 +103,17 @@ export const MAQUINAS_PEQUENAS = {
   habitacao: [
     ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira"]],
     ["Sala e quartos", ["televisao", "computador", "consola", "desumidificador", "aquecedor_portatil"]],
-    ["Telecomunicações", ["box_router", "repetidor_wifi", "nas", "camara"]],
-    ["Exterior e outros", ["portao", "rega", "iluminacao_jardim", "aspirador_robo"]],
+    ["Exterior e outros", ["portao", "rega", "iluminacao_jardim", "aspirador_robo", "box_router", "repetidor_wifi", "nas", "camara"]],
   ],
   servicos: [
     ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
     ["Copa", ["frigorifico", "micro_ondas", "cafeteira"]],
-    ["Telecomunicações", ["box_router", "repetidor_wifi", "nas", "camara"]],
+    ["Exterior e outros", ["box_router", "repetidor_wifi", "nas", "camara"]],
   ],
   industrial: [
     ["Oficina", ["ferramentas", "aspirador_industrial", "carregador_baterias"]],
     ["Escritório e vestiários", ["computador", "impressora", "micro_ondas", "frigorifico", "cafeteira"]],
-    ["Telecomunicações e exterior", ["box_router", "repetidor_wifi", "camara", "iluminacao_jardim"]],
+    ["Exterior e outros", ["box_router", "repetidor_wifi", "camara", "iluminacao_jardim"]],
   ],
 };
 const unicos = (l) => [...new Set(l)];
@@ -162,16 +161,10 @@ export const ELEMENTOS = {
   maquina: { nome: "Máquina", roda: false, props: { modelo: "termoacumulador", potencia_w: 2000 } },
   sensor_porta: { nome: "Sensor de porta/janela", roda: false, props: {} },
   sensor_movimento: { nome: "Sensor de movimento", roda: false, props: {} },
-  // Telecomunicações (ITED) — "brevemente": desenham-se, mas ficam fora do preço e dos circuitos.
-  telecom_ati: { nome: "ATI (armário de telecomunicações)", roda: false, props: {}, telecom: true },
-  telecom_rj45: { nome: "Tomada de dados (RJ45)", roda: true, props: {}, telecom: true },
-  telecom_coaxial: { nome: "Tomada de TV (coaxial)", roda: true, props: {}, telecom: true },
-  telecom_fibra: { nome: "Fibra ótica", roda: false, props: {}, telecom: true },
-  telecom_wifi: { nome: "Ponto de acesso Wi-Fi", roda: false, props: {}, telecom: true },
 };
+// As telecomunicações (telecom_*, "brevemente") saíram do simulador: os estados e as plantas antigas que as
+// tinham perdem-nas ao carregar (normalizarPlanta só aceita os tipos de ELEMENTOS).
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
-export const TIPOS_TELECOM = TIPOS_ELEMENTO.filter((t) => ELEMENTOS[t].telecom);
-export const ehTelecom = (tipo) => !!ELEMENTOS[tipo]?.telecom;
 export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "brilho", "botoes", "modelo", "potencia_w"];
 
 /**
@@ -187,12 +180,11 @@ export function alturaTipica(tipo, props = {}, tipoDiv = null) {
   switch (tipo) {
     case "interruptor": return 110;
     case "tomada": return tipoDiv === "cozinha" || tipoDiv === "sala_cozinha" ? 110 : 30;
-    case "luz": case "telecom_wifi": return PE_DIREITO_CM;
+    case "luz": return PE_DIREITO_CM;
     case "sensor_movimento": return 220;
     case "sensor_porta": return 200;
     case "janela": return 100;
-    case "quadro": case "telecom_ati": return 150;
-    case "telecom_rj45": case "telecom_coaxial": case "telecom_fibra": return 30;
+    case "quadro": return 150;
     case "maquina": return ALTURA_MAQUINA[props?.modelo] ?? 0;
     default: return null;
   }
@@ -516,22 +508,23 @@ const FORA = "__fora";
 
 /**
  * Contagem por divisão. Devolve uma linha por divisão da planta (pela ordem) e,
- * se houver elementos fora de todas as divisões, uma linha "Fora das divisões".
+ * se houver elementos fora de todas as divisões, uma linha "Fora das divisões" (`fora: true`, `id` null):
+ * conta para os circuitos, mas não é uma divisão (divisoesDaContagem não a passa ao passo "Divisões").
  */
+export const NOME_FORA = "Fora das divisões";
 export function contarPlanta(planta) {
   const linhas = new Map();
   const nova = (id, nome, piso = 0) => ({
     id, nome, piso, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, interruptores: [],
     janelas: 0, estores: 0, estores_sem_motor: 0, portas: 0, portas_entrada: 0,
-    sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0, telecom: 0,
+    sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0,
+    ...(id === null ? { fora: true } : {}),
   });
   const usados = new Set();
   for (const d of planta.divisoes) linhas.set(d.id, nova(d.id, d.nome || "Divisão", pisoDe(d)));
   for (const e of planta.elementos) {
     const id = e.divisao && linhas.has(e.divisao) ? e.divisao : FORA;
-    // Telecomunicações ("brevemente"): só se contam para mostrar; ficam fora dos circuitos e do preço.
-    if (ehTelecom(e.tipo)) { if (id !== FORA) linhas.get(id).telecom++; continue; }
-    if (!linhas.has(id)) linhas.set(id, nova(null, "Fora das divisões"));
+    if (!linhas.has(id)) linhas.set(id, nova(null, NOME_FORA));
     const l = linhas.get(id);
     const p = e.props || {};
     switch (e.tipo) {
@@ -576,9 +569,9 @@ const potencia = (p) => {
   return Number.isFinite(w) && w >= 0 ? Math.round(w) : (MODELOS[p.modelo]?.w ?? 0);
 };
 
-/** Linhas do passo "Divisões" a partir da contagem (porta da rua → sensor sugerido). */
+/** Linhas do passo "Divisões" a partir da contagem (porta da rua → sensor sugerido); "Fora das divisões" não é uma divisão. */
 export function divisoesDaContagem(contagem) {
-  return contagem.map((c) => ({
+  return contagem.filter((c) => !c.fora).map((c) => ({
     nome: c.nome,
     planta_id: c.id,
     piso: c.piso ?? 0,
@@ -601,6 +594,9 @@ export function divisaoVazia(nome = "") {
 /** Potência que a carga pode tirar a 80 % (W, inteiro: evita 1104,0000000000002). */
 export const limiteW = (amperes) => Math.round(FRACAO_SEGURA * amperes * TENSAO);
 
+/** Máquina acima de 7,4 kW (costuma ser trifásica). */
+export const trifasica = (m) => watts(m) > MAX_MONOFASICO_W;
+
 /** Potência de uma máquina para as contas: número finito ≥ 0 (senão 0). */
 export const watts = (m) => {
   const w = Number(m?.potencia_w);
@@ -618,16 +614,18 @@ export const circuitoProprio = (m) => MODELOS_DEDICADOS.includes(m?.modelo) || w
 /** Carga perigosa (≥ 2000 W): pede confirmação para ligar à distância. */
 export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
 
-/**
- * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (RTIEBT C3,
- * cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %.
- */
 const ehCarregador = (m) => m?.modelo === "carregador_ve" || m?.modelo === "carregador_ve_22";
 
-export function amperesMaquina(m) {
+/**
+ * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (RTIEBT C3,
+ * cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %. Numa casa trifásica (`fases` "tri") uma máquina
+ * trifásica (> 7,4 kW) reparte a potência pelas 3 fases: o disjuntor (tetrapolar) é o de um terço dela.
+ */
+export function amperesMaquina(m, fases = null) {
   if (ehCarregador(m)) return AMPERES_VE;
   if (m?.modelo === "placa") return AMPERES_PLACA;
   if (m?.modelo === "forno") return Math.max(AMPERES_PLACA, amperesPara(watts(m)));
+  if (fases === "tri" && trifasica(m)) return amperesPara(watts(m) / 3);
   return amperesPara(watts(m));
 }
 
@@ -665,8 +663,6 @@ export const formatarMm2 = (s) => `${String(s).replace(".", ",")} mm²`;
 /** Máquinas que não entram na conta dos 80 %: a placa (simultaneidade) e o carregador VE (limita a corrente). */
 const semSobrecarga = (m) => m?.modelo === "placa" || ehCarregador(m);
 
-/** Máquina acima de 7,4 kW (costuma ser trifásica). */
-export const trifasica = (m) => watts(m) > MAX_MONOFASICO_W;
 
 export function circuitoVazio(n, tipo = "misto") {
   return {
@@ -701,7 +697,7 @@ function agrupar(porDivisao, criar, somar, peso = () => 0, limite = Infinity) {
         atual._w += peso(pontos[i]);
         i++;
       }
-      if (!atual.divisoes.includes(nome)) atual.divisoes.push(nome);
+      if (nome && !atual.divisoes.includes(nome)) atual.divisoes.push(nome);
     }
   }
   for (const c of circuitos) { delete c._q; delete c._w; }
@@ -721,7 +717,7 @@ function nomear(circuitos, base) {
  */
 function porZonas(lista, fazer, dividir, noite) {
   if (!dividir || lista.length < 2) return fazer(lista);
-  let a = lista.filter((x) => !noite(x.nome)), b = lista.filter((x) => noite(x.nome));
+  let a = lista.filter((x) => !x.nome || !noite(x.nome)), b = lista.filter((x) => x.nome && noite(x.nome));
   if (!a.length || !b.length) { const m = Math.ceil(lista.length / 2); a = lista.slice(0, m); b = lista.slice(m); }
   return [...fazer(a), ...fazer(b)];
 }
@@ -740,13 +736,13 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
   const humida = typeof opcoes.humida === "function" ? opcoes.humida : () => false;
   const noite = typeof opcoes.noite === "function" ? opcoes.noite : () => false;
   const luzes = nomear(porZonas(
-    contagem.filter((c) => c.luzes > 0).map((c) => ({ nome: c.nome, pontos: Array(c.luzes).fill(1) })),
+    contagem.filter((c) => c.luzes > 0).map((c) => ({ nome: c.fora ? null : c.nome, pontos: Array(c.luzes).fill(1) })),
     (l) => agrupar(l, () => ({ ...circuitoVazio(0, "iluminacao") }), (c) => { c.itens.luzes++; }),
     opcoes.dividir, noite,
   ), "Iluminação");
   const pontosTomadas = contagem.map((c) => ({
-    nome: c.nome,
-    humida: humida(c.nome),
+    nome: c.fora ? null : c.nome,
+    humida: !c.fora && humida(c.nome),
     pontos: [...Array(c.tomadas).fill({ t: "tomada" }), ...c.maquinas.filter((m) => !circuitoProprio(m)).map((m) => ({ t: "maquina", m }))],
   })).filter((x) => x.pontos.length > 0);
   const agruparTomadas = (l, zonaHumida) => agrupar(
@@ -765,9 +761,9 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
       maquinas.push({
         ...circuitoVazio(0, "maquina"),
         ...(semInteligente ? { inteligente: false, medir: false } : {}),
-        amperes: amperesMaquina(m),
-        nome: `${nomeModelo(m.modelo)}, ${c.nome}`,
-        divisoes: [c.nome],
+        amperes: amperesMaquina(m, opcoes.fases),
+        nome: c.fora ? nomeModelo(m.modelo) : `${nomeModelo(m.modelo)}, ${c.nome}`,
+        divisoes: c.fora ? [] : [c.nome],
         itens: { luzes: 0, tomadas: 0, maquinas: [{ ...m }] },
       });
     }
@@ -805,11 +801,17 @@ const kva = (v) => `${String(v).replace(".", ",")} kVA`;
 export function avisosCircuito(c, opcoes = {}) {
   const r = [];
   const maqs = c.itens?.maquinas ?? [];
-  // A placa e o carregador VE não entram na conta dos 80 % (simultaneidade / limita a corrente).
-  const soma = maqs.filter((m) => !semSobrecarga(m)).reduce((s, m) => s + watts(m), 0);
+  // A placa e o carregador VE não entram na conta dos 80 % (simultaneidade / limita a corrente). As máquinas
+  // trifásicas (> 7,4 kW) também não: numa casa trifásica contam por fase (um terço em cada uma); nas outras
+  // já têm o aviso próprio (é preciso ligação trifásica).
+  const tri = opcoes.fases === "tri";
+  const soma = maqs.filter((m) => !semSobrecarga(m) && !trifasica(m)).reduce((s, m) => s + watts(m), 0);
+  const porFase = tri ? maqs.filter((m) => !semSobrecarga(m) && trifasica(m)).reduce((s, m) => s + watts(m) / 3, 0) : 0;
   const amperes = Number(c.amperes);
-  if (Number.isFinite(amperes) && amperes > 0 && soma > limiteW(amperes)) {
-    r.push(aviso(c, `Este circuito pode não aguentar: ${formatarW(soma)} para um disjuntor de ${c.amperes} A.`));
+  if (Number.isFinite(amperes) && amperes > 0 && soma + porFase > limiteW(amperes)) {
+    r.push(aviso(c, porFase
+      ? `Este circuito pode não aguentar: ${formatarW(soma + porFase)} por fase para um disjuntor de ${c.amperes} A.`
+      : `Este circuito pode não aguentar: ${formatarW(soma)} para um disjuntor de ${c.amperes} A.`));
   }
   const luzes = c.itens?.luzes ?? 0;
   const tomadas = c.itens?.tomadas ?? 0;

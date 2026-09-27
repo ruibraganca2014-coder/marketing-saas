@@ -3,13 +3,13 @@
 
 import {
   ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS, POTENCIAS_KVA, FASES,
-  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, TIPOS_TELECOM,
+  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, NOME_FORA,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
   TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
-import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina } from "./casa.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 
 export const VERSAO = 1;
@@ -66,7 +66,7 @@ export function estadoNovo({ cliente = false } = {}) {
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
     casa: casaNova(cliente),
     fasesEditadas: false,      // o cliente escolheu a ligação: já não a sugerimos
-    quer: { maquinas: [], pequenas: [], objetivos: [], quantidades: {}, pisos: {} },
+    quer: { maquinas: [], pequenas: [], objetivos: [], quantidades: {}, porPiso: {} },
     planta: plantaVazia(),
     plantaSaltada: false,
     plantaAuto: false,         // a planta é a que desenhámos a partir das divisões e o cliente ainda não lhe mexeu
@@ -205,7 +205,8 @@ export function normalizarCircuito(c, i) {
     amperes: AMPERES.includes(c.amperes) ? c.amperes : 16,
     tipo: TIPOS_CIRCUITO[c.tipo] ? c.tipo : "misto",
     nome: txt(c.nome, 60),
-    divisoes: lista(c.divisoes, MAX_DIVISOES).filter((x) => typeof x === "string").map((x) => x.slice(0, 60)),
+    // "Fora das divisões" não é uma divisão (circuitos de estados antigos podiam trazê-la).
+    divisoes: lista(c.divisoes, MAX_DIVISOES).filter((x) => typeof x === "string" && x !== NOME_FORA).map((x) => x.slice(0, 60)),
     itens: {
       luzes: int(it.luzes, 0, 99),
       tomadas: int(it.tomadas, 0, 99),
@@ -274,16 +275,30 @@ export function normalizarEstado(v) {
   };
   // Estado antigo: uma ligação já escolhida conta como escolhida pelo cliente; "Não sei" continua sugerível.
   e.fasesEditadas = v.fasesEditadas === undefined ? e.casa.fases !== null : bool(v.fasesEditadas);
-  e.quer = normalizarQuer(v.quer, tipo);
+  // "O que quer" por piso (`porPiso`); um estado antigo ({quantidades, pisos} por máquina) passa a ter a
+  // quantidade no piso escolhido, ou no típico (casa.js pisoTipicoMaquina).
+  const vq = v.quer && typeof v.quer === "object" ? v.quer : {};
+  const antigas = [...lista(vq.maquinas, 60), ...lista(vq.pequenas, 60)].filter((k) => typeof k === "string");
+  e.quer = normalizarQuer(vq, tipo, { pisos: pisosDaCasa(e.casa), pisoTipico: (k) => pisoTipicoMaquina(e.casa, k, antigas) });
   e.planta = normalizarPlanta(v.planta, { pisosAntigos });
   e.plantaSaltada = bool(v.plantaSaltada);
   e.plantaAuto = bool(v.plantaAuto);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   e.plantaBase = !migrar && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
+  // "O que quer" ainda sem pisos: a assinatura guardada tinha as máquinas à maneira antiga; se era a das
+  // máquinas de então, passa a ser a de agora (a planta não fica "desatualizada" só pela migração).
+  if (e.plantaBase && (!vq.porPiso || typeof vq.porPiso !== "object")) {
+    const comPisos = pisosDaCasa(e.casa) > 1;
+    const ps = vq.pisos && typeof vq.pisos === "object" ? vq.pisos : {};
+    const qt = vq.quantidades && typeof vq.quantidades === "object" ? vq.quantidades : {};
+    const velhas = maquinasEscolhidas(normalizarQuer({ maquinas: vq.maquinas, pequenas: vq.pequenas }, tipo)).map((k) => ({ modelo: k, qtd: int(qt[k], 1, MAX_QUANTIDADE, 1), piso: comPisos && Number.isInteger(ps[k]) ? ps[k] : null }));
+    if (e.plantaBase === assinaturaCasa(e.casa, velhas)) e.plantaBase = assinaturaCasa(e.casa, maquinasParaPlanta(e));
+  }
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
   e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q) };
   e.quadroEditado = bool(v.quadroEditado);
-  e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao);
+  // "Fora das divisões" (elementos fora de todas) não é uma divisão: estados antigos traziam-na na lista.
+  e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao).filter((d) => !ehFora(d));
   if (pisosAntigos) {
     // As divisões e os circuitos seguem a planta: escadas renomeadas; o piso vem da divisão da planta
     // (ou, sem planta, do nome das escadas — as outras ficam no r/c).
@@ -305,28 +320,57 @@ export function normalizarEstado(v) {
   return e;
 }
 
+/** Linha "Fora das divisões" (elementos fora de todas; regras.js contarPlanta): não é uma divisão. */
+const ehFora = (d) => d?.nome === NOME_FORA && !d?.planta_id;
+
 /**
  * Máquinas grandes, pequenas e objetivos do passo "O que quer": só as chaves conhecidas (as do perfil
- * do imóvel, quando `tipo` é dado), sem repetidos, pela ordem das listas. Cada máquina marcada tem
- * `quantidades[chave]` (1–10; estados antigos, só com a lista: 1) e, se o cliente escolheu, `pisos[chave]`
- * (0 = r/c … 3; sem escolha vale o piso típico, casa.js pisoTipicoMaquina).
+ * do imóvel, quando `tipo` é dado), sem repetidos, pela ordem das listas. As máquinas escolhem-se por piso:
+ * `porPiso[chave]` = {piso: n} (0 = r/c; 1–10 em cada piso) é o que conta; `maquinas`/`pequenas` (as chaves
+ * com alguma quantidade) e `quantidades` (o total da casa) saem daí.
+ * Estados antigos: {maquinas, pequenas, quantidades, pisos} (uma quantidade e, se o cliente escolheu, um piso
+ * por máquina) → essa quantidade no piso escolhido ou, sem escolha, no típico (`pisoTipico(chave)`; 0 sem ela).
+ * `pisos`: n.º de pisos da casa — o que estiver num piso acima do último passa para o último.
  */
 export const MAX_QUANTIDADE = 10;
-export function normalizarQuer(q, tipo = undefined) {
+export function normalizarQuer(q, tipo = undefined, { pisos = MAX_PISO + 1, pisoTipico = null } = {}) {
   const o = q && typeof q === "object" ? q : {};
   const so = (v, chaves) => (Array.isArray(v) ? chaves.filter((k) => v.includes(k)) : []);
   const porTipo = tipo !== undefined;
-  const maquinas = so(o.maquinas, porTipo ? maquinasGrandesDe(tipo) : MAQUINAS_QUER);
-  const pequenas = so(o.pequenas, porTipo ? maquinasPequenasDe(tipo) : PEQUENAS_QUER);
-  const qt = o.quantidades && typeof o.quantidades === "object" ? o.quantidades : {};
-  const ps = o.pisos && typeof o.pisos === "object" ? o.pisos : {};
-  const quantidades = {}, pisos = {};
-  for (const k of [...maquinas, ...pequenas]) {
-    quantidades[k] = int(qt[k], 1, MAX_QUANTIDADE, 1);
-    if (ps[k] !== undefined && ps[k] !== null && Number.isFinite(Number(ps[k]))) pisos[k] = int(ps[k], 0, MAX_PISO);
+  const grandes = porTipo ? maquinasGrandesDe(tipo) : MAQUINAS_QUER;
+  const peq = porTipo ? maquinasPequenasDe(tipo) : PEQUENAS_QUER;
+  const ultimo = int(pisos, 1, MAX_PISO + 1, 1) - 1;
+  const porPiso = {};
+  const somar = (k, p, n) => {
+    const m = (porPiso[k] ??= {});
+    const pp = Math.min(ultimo, p);
+    m[pp] = Math.min(MAX_QUANTIDADE, (m[pp] ?? 0) + n);
+  };
+  if (o.porPiso && typeof o.porPiso === "object") {
+    for (const k of new Set([...grandes, ...peq])) {
+      const m = o.porPiso[k];
+      if (!m || typeof m !== "object") continue;
+      for (const [p, n] of Object.entries(m)) {
+        const pi = Number(p), ni = Math.round(Number(n));
+        if (Number.isInteger(pi) && pi >= 0 && pi <= MAX_PISO && ni >= 1) somar(k, pi, Math.min(MAX_QUANTIDADE, ni));
+      }
+    }
+  } else {
+    const qt = o.quantidades && typeof o.quantidades === "object" ? o.quantidades : {};
+    const ps = o.pisos && typeof o.pisos === "object" ? o.pisos : {};
+    for (const k of new Set([...so(o.maquinas, grandes), ...so(o.pequenas, peq)])) {
+      const escolhido = ps[k] !== undefined && ps[k] !== null && Number.isFinite(Number(ps[k])) ? int(ps[k], 0, MAX_PISO) : null;
+      somar(k, escolhido ?? (pisoTipico ? int(pisoTipico(k), 0, MAX_PISO) : 0), int(qt[k], 1, MAX_QUANTIDADE, 1));
+    }
   }
-  return { maquinas, pequenas, objetivos: so(o.objetivos, porTipo ? objetivosDe(tipo) : Object.keys(OBJETIVOS)), quantidades, pisos };
+  const maquinas = grandes.filter((k) => porPiso[k]);
+  const pequenas = peq.filter((k) => porPiso[k] && !maquinas.includes(k));
+  const quantidades = Object.fromEntries([...maquinas, ...pequenas].map((k) => [k, Object.values(porPiso[k]).reduce((s, n) => s + n, 0)]));
+  return { maquinas, pequenas, objetivos: so(o.objetivos, porTipo ? objetivosDe(tipo) : Object.keys(OBJETIVOS)), quantidades, porPiso };
 }
+
+/** Quantas máquinas `k` estão escolhidas no piso `p` (0 se nenhuma). */
+export const quantidadeNoPiso = (quer, k, p) => Number(quer?.porPiso?.[k]?.[p]) || 0;
 
 /** Todas as máquinas escolhidas (grandes e pequenas; só as chaves): ligação sugerida, "Exterior", assinatura. */
 export const maquinasEscolhidas = (quer) => [...(quer?.maquinas ?? []), ...(quer?.pequenas ?? [])];
@@ -335,21 +379,18 @@ export const maquinasEscolhidas = (quer) => [...(quer?.maquinas ?? []), ...(quer
 export const pisosDaCasa = (casa) => (TIPOS_COM_PISOS.includes(casa?.tipo) ? int(casa?.pisos, 1, MAX_PISO + 1, 1) : 1);
 
 /**
- * Máquinas para desenhar a planta (casa.js plantaDaCasa): {modelo, qtd, piso} — piso só o escolhido pelo
- * cliente e só nos tipos com pisos (null = o típico).
+ * Máquinas para desenhar a planta (casa.js plantaDaCasa): {modelo, qtd, piso}, uma por piso onde o cliente as
+ * pôs (só nos tipos com mais de um piso; sem pisos, piso null).
  */
 export function maquinasParaPlanta(estado) {
   const q = estado.quer ?? {};
   const comPisos = pisosDaCasa(estado.casa) > 1;
-  return maquinasEscolhidas(q).map((k) => ({ modelo: k, qtd: q.quantidades?.[k] ?? 1, piso: comPisos && Number.isInteger(q.pisos?.[k]) ? q.pisos[k] : null }));
-}
-
-/** Piso de uma máquina escolhida: o que o cliente escolheu ou o típico (0 sem pisos), nunca acima do último. */
-export function pisoDaMaquina(estado, k) {
-  const n = pisosDaCasa(estado.casa);
-  if (n <= 1) return 0;
-  const p = estado.quer?.pisos?.[k];
-  return Math.min(n - 1, Number.isInteger(p) ? p : pisoTipicoMaquina(estado.casa, k, maquinasEscolhidas(estado.quer)));
+  return maquinasEscolhidas(q).flatMap((k) => {
+    const m = q.porPiso?.[k] ?? { 0: q.quantidades?.[k] ?? 1 };
+    const pisos = Object.keys(m).map(Number).filter((p) => Number(m[p]) > 0).sort((a, b) => a - b);
+    if (!comPisos) return [{ modelo: k, qtd: pisos.reduce((s, p) => s + Number(m[p]), 0), piso: null }];
+    return pisos.map((p) => ({ modelo: k, qtd: Number(m[p]), piso: p }));
+  });
 }
 
 /** Ligação sugerida pelo tipo e pelas máquinas (regras.js sugerirFases). */
@@ -507,16 +548,6 @@ export function casaParaEnvio(estado) {
   };
 }
 
-/**
- * Resumo das telecomunicações (ITED) desenhadas na planta — "brevemente": fora do preço e dos
- * circuitos, orçamentadas na visita. `pontos`: n.º de cada tipo (ati, rj45, coaxial, fibra, wifi).
- */
-export function telecomParaEnvio(estado) {
-  const els = estado.plantaSaltada ? [] : estado.planta?.elementos ?? [];
-  const pontos = Object.fromEntries(TIPOS_TELECOM.map((t) => [t.replace(/^telecom_/, ""), els.filter((e) => e.tipo === t).length]));
-  return { estado: "brevemente", texto: "Telecomunicações: brevemente — orçamento na visita.", pontos, total: Object.values(pontos).reduce((s, n) => s + n, 0) };
-}
-
 export const ESTADOS_DESLOCACAO = ["estimada", "visita", "sem_localidade", "fora_area"];
 
 /**
@@ -553,9 +584,8 @@ export function montarSimulacao(estado, preco, plano) {
     casa: casaParaEnvio(estado),
     quer: querParaEnvio(estado),
     planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
-    telecom: telecomParaEnvio(estado),
     quadro: quadroParaEnvio(estado, circuitos),
-    divisoes: estado.divisoes.map((d) => {
+    divisoes: estado.divisoes.filter((d) => !ehFora(d)).map((d) => {
       const n = normalizarDivisao(d);
       return {
         nome: textoSeguro(n.nome, 60) || "Divisão", piso: n.piso, interruptores: n.interruptores, estores: n.estores, estores_sem_motor: n.estores_sem_motor,
@@ -572,16 +602,16 @@ export function montarSimulacao(estado, preco, plano) {
 }
 
 /**
- * `simulacao.quer` (§6): as listas de chaves (como antes), `quantidades` de cada máquina marcada e, nos tipos
- * com pisos, `pisos` (o piso onde a pusemos: o escolhido ou o típico; null nos outros tipos).
+ * `simulacao.quer` (§6): as listas de chaves (como antes), `quantidades` (o total de cada máquina marcada) e,
+ * nos tipos com pisos, `pisos` = quantas em cada piso ({"ar_condicionado": {"0": 1, "1": 2}}; null nos outros).
  */
 export function querParaEnvio(estado) {
-  const q = normalizarQuer(estado.quer, estado.casa.tipo);
+  const q = normalizarQuer(estado.quer, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
   const chaves = [...q.maquinas, ...q.pequenas];
   return {
     maquinas: q.maquinas, pequenas: q.pequenas, objetivos: q.objetivos,
     quantidades: Object.fromEntries(chaves.map((k) => [k, q.quantidades[k]])),
-    pisos: TIPOS_COM_PISOS.includes(estado.casa.tipo) ? Object.fromEntries(chaves.map((k) => [k, pisoDaMaquina({ ...estado, quer: q }, k)])) : null,
+    pisos: TIPOS_COM_PISOS.includes(estado.casa.tipo) ? Object.fromEntries(chaves.map((k) => [k, { ...q.porPiso[k] }])) : null,
   };
 }
 

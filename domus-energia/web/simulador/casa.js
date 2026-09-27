@@ -6,7 +6,7 @@
 
 import {
   TIPOS_DIVISAO, TIPOS_DIVISAO_SERVICOS, TIPOS_DIVISAO_INDUSTRIAL, LIMITES_CASA, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, ESCALA_CM,
-  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA, MAX_PISO,
+  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA, MAX_PISO, pisoDe,
 } from "./regras.js";
 
 const MARGEM = 50;            // cm à volta da planta
@@ -216,8 +216,9 @@ const APARELHOS_TIPO = {
  * Aparelhos por omissão de uma divisão retangular (nome → tipo; caixa em cm), em sítios plausíveis e
  * afastados uns dos outros (≥ 65 cm nas divisões de tamanho típico): porta na parede de baixo com o
  * interruptor ao lado, janela na parede oposta (a de cima), luz ao centro (divisões grandes: uma por
- * cada 20 m², até 8, em grelha), sensor de movimento no canto de cima à esquerda (vê a porta), tomadas
- * nas paredes (esquerda, direita, baixo à direita, cima à esquerda) e a televisão na parede da direita.
+ * cada 20 m², até 8, em grelha), sensor de movimento no canto de cima à direita (vê a porta; o canto de
+ * cima à esquerda fica livre para o nome da divisão), tomadas nas paredes (esquerda, direita, baixo à
+ * direita, cima à direita) e a televisão na parede da direita, abaixo do meio.
  * Ficam 10 cm para dentro das paredes: numa parede partilhada contam nesta divisão. Usada pelo editor
  * (botões por tipo) e por plantaDaCasa. Devolve elementos sem id.
  */
@@ -233,11 +234,11 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
   const cols = Math.ceil(Math.sqrt((luzes * w) / h));
   const linhas = Math.ceil(luzes / cols);
   for (let i = 0; i < luzes; i++) add("luz", ((i % cols) + 0.5) * (w / cols), (Math.floor(i / cols) + 0.5) * (h / linhas));
-  add("sensor_movimento", 40, 40);
+  add("sensor_movimento", w - 40, 40);
   if (extra.janela) add("janela", w / 2, 10);
-  const tomadas = [[10, h / 2, 90], [w - 10, h / 2, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [Math.max(90, w * 0.2), 10, 0]];
+  const tomadas = [[10, h / 2, 90], [w - 10, h / 2, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.2), 10, 0]];
   for (const [dx, dy, rot] of tomadas.slice(0, extra.tomadas ?? 0)) add("tomada", dx, dy, rot);
-  if (extra.tv) add("maquina", w - 25, h * 0.25, 0, "televisao");
+  if (extra.tv) add("maquina", w - 25, h * 0.7, 0, "televisao");
   return r;
 }
 
@@ -376,14 +377,16 @@ export function plantaDaCasa(casa, maquinas = []) {
     const [x_cm, y_cm] = lugarParede(d, p.elementos.filter((q) => q.piso === d.piso));
     p.elementos.push({ id: `e${++e}`, tipo: "quadro", x_cm, y_cm, rot: 0, piso: d.piso, divisao: null, props: propsOmissao("quadro") });
   }
-  // Máquinas que já vão por omissão (ex.: a televisão da sala) contam como uma das pedidas.
+  // Máquinas que já vão por omissão (ex.: a televisão da sala) contam como uma das pedidas nesse piso.
   const jaPostas = {};
-  for (const x of p.elementos) if (x.tipo === "maquina") jaPostas[x.props.modelo] = (jaPostas[x.props.modelo] ?? 0) + 1;
+  const chaveJa = (modelo, piso) => `${modelo}@${piso}`;
+  for (const x of p.elementos) if (x.tipo === "maquina") jaPostas[chaveJa(x.props.modelo, x.piso)] = (jaPostas[chaveJa(x.props.modelo, x.piso)] ?? 0) + 1;
   const ultimoPiso = Math.max(0, ...p.divisoes.map((d) => d.piso));
   for (const m of escolhidas) {
-    const ja = Math.min(m.qtd, jaPostas[m.modelo] ?? 0);
-    jaPostas[m.modelo] = (jaPostas[m.modelo] ?? 0) - ja;
     const piso = Math.min(ultimoPiso, m.piso ?? divisaoParaMaquina(p.divisoes, m.modelo)?.piso ?? 0);
+    const k = chaveJa(m.modelo, piso);
+    const ja = Math.min(m.qtd, jaPostas[k] ?? 0);
+    jaPostas[k] = (jaPostas[k] ?? 0) - ja;
     const doPiso = p.divisoes.filter((d) => d.piso === piso);
     const onde = divisoesParaMaquina(doPiso.length ? doPiso : p.divisoes, m.modelo);
     for (let i = ja; i < m.qtd && onde.length && p.elementos.length < MAX_ELEMENTOS; i++) {
@@ -423,9 +426,13 @@ export function divisoesQuadro(divs, casa) {
   return r.filter(Boolean);
 }
 
-/** Sítio na parede (10 cm para dentro) da divisão `d` o mais longe possível dos `elementos` (grelha de 25 cm). */
+/**
+ * Sítio na parede (10 cm para dentro) da divisão `d` o mais longe possível dos `elementos` (grelha de 25 cm) e
+ * do canto de cima à esquerda, onde fica o nome da divisão.
+ */
 export function lugarParede(d, elementos) {
   const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
+  perto.push({ x_cm: d.x_cm + 40, y_cm: d.y_cm + 20 }, { x_cm: d.x_cm + 120, y_cm: d.y_cm + 20 });
   const x0 = d.x_cm + 10, x1 = d.x_cm + d.largura_cm - 10, y0 = d.y_cm + 10, y1 = d.y_cm + d.altura_cm - 10;
   const sitios = [];
   for (let x = x0 + 25; x <= x1 - 25; x += 25) sitios.push([x, y0], [x, y1]);
@@ -467,8 +474,9 @@ export function assinaturaCasa(casa, maquinas = []) {
 
 /**
  * Objetivos → aparelhos por divisão (passo "Divisões"), sem tirar nada do que já lá está:
- * - alarme: sensor de porta na entrada (entrada, corredor, receção, loja, sala ou nave) se ainda não
- *   houver nenhum; sensor de movimento em cada sala, corredor, loja, receção, nave e armazém;
+ * - alarme: sensor de porta na entrada (entrada, corredor, receção, loja, sala ou nave — primeiro as do
+ *   piso 0, onde fica a porta da rua) se ainda não houver nenhum; sensor de movimento em cada sala,
+ *   corredor, loja, receção, nave e armazém;
  * - estores: estores motorizados nas salas e quartos (com planta que tenha janelas: um por janela da divisão);
  * - luzes e horários de abertura: um interruptor inteligente em cada divisão interior que ainda não tenha;
  * - iluminação automática: um sensor de movimento em cada divisão interior que ainda não tenha.
@@ -482,7 +490,10 @@ export function aplicarObjetivos(divisoes, objetivos = [], contagem = null) {
   const plantaComJanelas = !!contagem?.some((c) => c.janelas > 0);
   if (quer("alarme")) {
     if (!divisoes.some((d) => d.sensores_porta > 0)) {
-      const alvo = ["entrada", "corredor", "rececao", "loja", "sala", "sala_cozinha", "nave"].map((t) => divisoes.find((d) => tipo(d) === t)).find(Boolean) ?? divisoes[0];
+      const tipos = ["entrada", "corredor", "rececao", "loja", "sala", "sala_cozinha", "nave"];
+      const noRc = divisoes.filter((d) => pisoDe(d) === 0);
+      const procurar = (l) => tipos.map((t) => l.find((d) => tipo(d) === t)).find(Boolean);
+      const alvo = procurar(noRc) ?? procurar(divisoes) ?? noRc[0] ?? divisoes[0];
       if (alvo) alvo.sensores_porta = 1;
     }
     for (const d of divisoes) if (["sala", "sala_cozinha", "corredor", "loja", "rececao", "nave", "armazem"].includes(tipo(d)) && !d.sensores_movimento) d.sensores_movimento = 1;

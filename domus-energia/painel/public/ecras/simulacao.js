@@ -44,8 +44,12 @@ const OBJETIVOS = {
   distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",
   horarios: "Horários de abertura", iluminacao_auto: "Iluminação automática", energia: "Controlo de energia", desligar: "Desligar tudo ao fechar",
 };
-// Telecomunicações (ITED), "brevemente": fora do preço (simulacao.telecom.pontos).
-const TELECOM = { ati: "ATI", rj45: "RJ45", coaxial: "TV coaxial", fibra: "fibra", wifi: "Wi-Fi" };
+// As telecomunicações (simulacao.telecom e os elementos telecom_* da planta) saíram do simulador: as
+// simulações antigas que as trazem já não as mostram.
+const ehTelecom = (e) => typeof e?.tipo === "string" && e.tipo.startsWith("telecom_");
+// kVA (10,35) e horas (39,25) sempre com até 2 casas decimais (formatador próprio: não depende de ui.js num).
+const fmt2 = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 2 });
+const num2 = (v) => { const n = numero(v); return n === null ? "—" : fmt2.format(n); };
 
 /**
  * Deslocação (simulacao.deslocacao, docs/SIMULADOR-ORCAMENTO.md §5.1): concelho reconhecido, distância
@@ -81,17 +85,9 @@ function areaTxt(casa) {
   const a = numero(casa.area_m2), e = numero(casa.espacos);
   return [a !== null ? `${num(a)} m²` : null, e !== null ? plural(e, "espaço", "espaços") : null].filter(Boolean).join(" · ");
 }
-/** "Brevemente — orçamento na visita (1 ATI, 3 RJ45)". */
-function telecomTxt(t) {
-  const p = obj(t.pontos);
-  const partes = Object.keys(TELECOM).filter((k) => numero(p[k])).map((k) => `${num(numero(p[k]))} ${TELECOM[k]}`);
-  return `Brevemente — orçamento na visita${partes.length ? ` (${partes.join(", ")})` : ""}`;
-}
 const NOMES_ELEMENTOS = {
   porta: "Portas", janela: "Janelas", quadro: "Quadro elétrico", tomada: "Tomadas", luz: "Pontos de luz", interruptor: "Interruptores",
   maquina: "Máquinas", sensor_porta: "Sensores de porta/janela", sensor_movimento: "Sensores de movimento",
-  telecom_ati: "ATI (brevemente)", telecom_rj45: "Tomadas RJ45 (brevemente)", telecom_coaxial: "Tomadas de TV (brevemente)",
-  telecom_fibra: "Fibra ótica (brevemente)", telecom_wifi: "Pontos de acesso Wi-Fi (brevemente)",
 };
 const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 export const CARGA_PERIGOSA_W = 2000;
@@ -110,7 +106,7 @@ export function limparPlanta(p) {
   const out = {
     escala_cm: numero(pl.escala_cm) ?? 50, largura_cm: numero(pl.largura_cm), altura_cm: numero(pl.altura_cm), fundo: null,
     divisoes: arr(pl.divisoes).slice(0, 40).filter((d) => d && typeof d === "object"),
-    elementos: arr(pl.elementos).slice(0, 400).filter((e) => e && typeof e === "object"),
+    elementos: arr(pl.elementos).slice(0, 400).filter((e) => e && typeof e === "object" && !ehTelecom(e)),
   };
   const f = typeof pl.fundo === "string" ? { imagem: pl.fundo } : obj(pl.fundo);
   if (typeof f.imagem === "string" && RE_IMAGEM.test(f.imagem)) {
@@ -207,20 +203,25 @@ export function vistaSimulacao(sim, catalogo = {}) {
   else if (numero(total) !== null) estimativa = euros(total);
   const casaTxt = [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null, casa.localidade].filter(Boolean).join(" · ");
   const kva = numero(casa.potencia_contratada_kva);
-  const instalacaoTxt = `${kva !== null ? `${num(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
+  const instalacaoTxt = `${kva !== null ? `${num2(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
   const quer = obj(sim.quer);
-  // "Ar condicionado ×2 (Piso 1)": quantidade (se > 1) e piso (casas com pisos) de cada máquina.
+  // "Ar condicionado ×3 · Piso 0 (r/c): 1, Piso 1: 2": quantidade (se > 1) e, nas casas com pisos, onde fica.
+  // `quer.pisos[m]` é {piso: n} (quantas em cada piso); nas simulações antigas, só o n.º do piso.
   const qtds = obj(quer.quantidades), pisosQ = obj(quer.pisos);
   const comPisos = (numero(casa.pisos) ?? 1) > 1;
   const maquinaTxt = (m) => {
     const q = numero(qtds[m]);
-    const p = numero(pisosQ[m]);
-    return `${MODELOS[m] ?? m}${q !== null && q > 1 ? ` ×${num(q)}` : ""}${comPisos && p !== null ? ` (${nomePiso(p)})` : ""}`;
+    const ps = pisosQ[m];
+    let onde = "";
+    if (comPisos && ps && typeof ps === "object") {
+      const l = Object.keys(ps).map(Number).filter((p) => Number.isInteger(p) && numero(ps[p]) > 0).sort((a, b) => a - b);
+      onde = l.length === 1 ? nomePiso(l[0]) : l.map((p) => `${nomePiso(p)}: ${num(numero(ps[p]))}`).join(", ");
+    } else if (comPisos && numero(ps) !== null) onde = nomePiso(numero(ps));
+    return `${MODELOS[m] ?? m}${q !== null && q > 1 ? ` ×${num(q)}` : ""}${onde ? ` · ${onde}` : ""}`;
   };
   const maquinasTxt = arr(quer.maquinas).filter((m) => typeof m === "string").map(maquinaTxt).join(", ");
   const pequenasTxt = arr(quer.pequenas).filter((m) => typeof m === "string").map(maquinaTxt).join(", ");
   const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
-  const telecom = sim.telecom && typeof sim.telecom === "object" ? sim.telecom : null;
   const deslTxt = deslocacaoTxt(sim.deslocacao);
 
   const partes = [
@@ -233,7 +234,6 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"]] : []),
       ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),
       ...(sim.quer !== undefined ? [["Objetivos", objetivosTxt || "Nenhum"]] : []),
-      ...(telecom ? [["Telecomunicações", telecomTxt(telecom)]] : []),
       ["Potência contratada e ligação", instalacaoTxt],
       ["Estimativa (c/ IVA)", estimativa],
       ["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"],
@@ -250,8 +250,8 @@ export function vistaSimulacao(sim, catalogo = {}) {
   if (circuitos.length) partes.push(tabelaCircuitos(circuitos, planta));
   const blocoQ = blocoQuadro(obj(sim.quadro), numero(casa.potencia_contratada_kva));
   if (blocoQ) partes.push(blocoQ);
-  const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object"
-    && !(d.nome === FORA && !["luzes_regulaveis", "estores", "estores_sem_motor", "sensores_porta", "sensores_movimento", "tomadas_inteligentes"].some((k) => contar(d[k])) && !arr(d.interruptores).length));
+  // "Fora das divisões" (elementos fora de todas, nas simulações antigas) não é uma divisão: não aparece.
+  const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object" && d.nome !== FORA);
   if (divs.length) partes.push(tabelaDivisoes(divs));
   if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta));
   partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é confirmado na visita técnica." }));
@@ -277,7 +277,7 @@ function tabelaItens(itens, mo, catalogo, desl = null) {
   const moValor = numero(mo.valor_iva);
   const pe = [h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Artigos" }), h("td", { class: "num", text: euros(soma) }))];
   if (moValor !== null || numero(mo.horas) !== null) {
-    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: "3", text: `Mão de obra${numero(mo.horas) !== null ? ` (${num(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
+    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: "3", text: `Mão de obra${numero(mo.horas) !== null ? ` (${num2(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
     if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: "3", text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
     pe.push(h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0)) })));
   }
@@ -346,7 +346,7 @@ function blocoQuadro(q, contratada) {
   if ((numero(m.parciais) ?? 0) > 0) linhas.push(["Quadros parciais", `Quadro geral (piso 0) + ${plural(numero(m.parciais), "quadro parcial", "quadros parciais")}${numero(m.tamanho_parcial) !== null ? ` de ${num(numero(m.tamanho_parcial))} módulos` : ""}`]);
   if (difs.length) linhas.push(["Grupos diferenciais", difs.slice(0, 20).map((d) => `${num(numero(d.n) ?? 0)}: ${arr(d.circuitos).filter((x) => numero(x) !== null).join(", ") || "—"}${d.carregador ? " (carregador)" : ""}`).join(" · ")]);
   if (kva !== null || carga !== null) {
-    linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""} `, curta ? selo("Contratada curta", "aviso") : null)]);
+    linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num2(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""} `, curta ? selo("Contratada curta", "aviso") : null)]);
   }
   const ml = arr(m.linhas).filter((l) => l && typeof l === "object").slice(0, 30);
   return h("div", { class: "sim-bloco", id: "sim-quadro" }, h("h4", { text: "Proteções e tamanho do quadro" }), dados(linhas),
@@ -528,7 +528,7 @@ function tipoArtigo(sku, art) {
  * - sensor de porta → openbeken porta + bateria ("entrada" se o elemento/porta da planta for de entrada);
  * - sensor de movimento → openbeken movimento + bateria;  tomada → openbeken com medidor;  regulador → canal "luz".
  * A quantidade de cada tipo vem dos artigos (itens); a planta e o quadro dão nomes, divisões e opções.
- * As telecomunicações (elementos telecom_*, "brevemente") não têm artigos nem aparelhos: nunca entram aqui.
+ * Os elementos telecom_* das simulações antigas (telecomunicações, que saíram do simulador) são ignorados.
  * - quadro: medidor geral Wi-Fi → openbeken medidor geral (sem canais); disjuntor geral Wi-Fi → openbeken com
  *   medidor e canal "Geral" carga=perigosa (geral só sem medidor geral); os outros artigos do quadro são só material.
  * Devolve [{id, tipo, nome, canais, divisao, medidor, geral, bateria, origem}].

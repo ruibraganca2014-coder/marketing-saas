@@ -67,11 +67,21 @@ export function protecoesDoPacote(pacote, idrWifi = false) {
   return { idr_wifi: !!idrWifi, ...Object.fromEntries(DOS_PACOTES.map((k) => [k, liga.includes(k)])) };
 }
 
-/** Pacote que corresponde às proteções escolhidas, ou "personalizado". */
-export function pacoteDe(p) {
-  for (const [k, v] of Object.entries(PACOTES)) if (DOS_PACOTES.every((x) => !!p?.[x] === v.liga.includes(x))) return k;
+/**
+ * Pacote que corresponde às proteções escolhidas, ou "personalizado". `ignorar`: proteções que não contam
+ * (o descarregador obrigatório com pára-raios não é uma personalização: pacoteDoQuadro).
+ */
+export function pacoteDe(p, ignorar = []) {
+  const conta = DOS_PACOTES.filter((x) => !ignorar.includes(x));
+  for (const [k, v] of Object.entries(PACOTES)) if (conta.every((x) => !!p?.[x] === v.liga.includes(x))) return k;
   return "personalizado";
 }
+
+/**
+ * Pacote do quadro pelas proteções que o cliente escolheu: com pára-raios ou linha aérea o descarregador é
+ * obrigatório (fica ligado e bloqueado) e não conta — "Essencial" com pára-raios continua "Essencial".
+ */
+export const pacoteDoQuadro = (q) => pacoteDe(q?.protecoes, q?.para_raios === "sim" ? ["descarregador"] : []);
 
 /** Respostas à pergunta "A casa tem pára-raios ou é alimentada por linha aérea?" e "O quadro atual serve?". */
 export const PARA_RAIOS = { sim: "Sim", nao: "Não" };                 // null = "Não sei"
@@ -86,10 +96,11 @@ export function normalizarProtecoes(q) {
   const b = quadroOmissao();
   const p = o.protecoes && typeof o.protecoes === "object" ? o.protecoes : null;
   const protecoes = p ? Object.fromEntries(CHAVES_PROTECOES.map((k) => [k, p[k] === true])) : b.protecoes;
+  const para_raios = PARA_RAIOS[o.para_raios] ? o.para_raios : null;
   return {
-    pacote: pacoteDe(protecoes),
+    pacote: pacoteDoQuadro({ protecoes, para_raios }),
     protecoes,
-    para_raios: PARA_RAIOS[o.para_raios] ? o.para_raios : null,
+    para_raios,
     quadro_novo: QUADRO_NOVO[o.quadro_novo] ? o.quadro_novo : null,
   };
 }
@@ -230,7 +241,7 @@ export function resumoQuadro(estado) {
   // Nem o de 48 deixa 25 % livres: vários quadros de 48 (cada um com 36 módulos ocupados no máximo).
   const quadros = tamanho !== null ? 1 : Math.ceil(ocupados / Math.floor(t * (1 - FRACAO_LIVRE)));
   return {
-    pacote: pacoteDe(prot), protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
+    pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
     disjuntores: disj, sy2, sy1,
     parciais: numeroQuadros(estado) - 1,

@@ -8,7 +8,7 @@ import {
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
   avisosCircuito, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
   perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
-  TIPOS_COM_PISOS, nomePiso, pisoDe,
+  TIPOS_COM_PISOS, nomePiso, pisoDe, NOME_FORA,
   RTIEBT, codigoCircuito, seccaoCabo, formatarMm2,
 } from "./regras.js";
 import {
@@ -21,14 +21,15 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, opcoesAvisos, potenciaContratada,
-  normalizarQuer, fasesSugeridas, telecomParaEnvio, avisosEstado,
-  maquinasParaPlanta, pisosDaCasa, pisoDaMaquina, MAX_QUANTIDADE,
+  normalizarQuer, fasesSugeridas, avisosEstado,
+  maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
 } from "./estado.js";
 import {
-  PROTECOES, PACOTES, PARA_RAIOS, QUADRO_NOVO, opcoesCircuitos, protecoesDoPacote, pacoteDe, protecoesEfetivas,
+  PROTECOES, PACOTES, PARA_RAIOS, QUADRO_NOVO, opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, protecoesEfetivas,
   resumoQuadro, levaQuadroNovo, pedidosQuadro, formatarKva, TAMANHO_PARCIAL,
 } from "./quadro.js";
 import { criarEditor } from "./editor.js";
+import { desenharIcone } from "./planta-svg.js";
 import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
 
 const cfg = window.DOMUS ?? {};
@@ -151,6 +152,7 @@ function mostrarPasso(foco = true) {
   if (p === P.planta) {
     if (preencherPlanta()) agendarGravacao();
     editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
+    editor.definirMaquinas(maquinasEditor());
     editor.definirPisos(pisosDaCasa(estado.casa));
     editor.abrir(estado.planta, { reiniciarVista: true });
     desenharContagem();
@@ -184,8 +186,8 @@ $("sim-seguinte").addEventListener("click", () => {
 });
 
 // ------------------------------------------------------------ 1. A casa
-/** Botão de escolha (rádio ou sim/não) no estilo .escolha, com texto de ajuda opcional. */
-function escolha(tipo, nome, valor, texto, ajuda, aoMudar) {
+/** Botão de escolha (rádio ou sim/não) no estilo .escolha, com texto de ajuda e desenho (por cima do nome) opcionais. */
+function escolha(tipo, nome, valor, texto, ajuda, aoMudar, icone = null) {
   const l = el("label", "escolha");
   const i = document.createElement("input");
   i.type = tipo;
@@ -193,10 +195,14 @@ function escolha(tipo, nome, valor, texto, ajuda, aoMudar) {
   i.value = valor;
   i.addEventListener("change", () => aoMudar(i.checked));
   const s = el("span", null, texto);
+  if (icone) { icone.classList.add("escolha-icone"); s.prepend(icone); }
   if (ajuda) s.append(el("small", null, ajuda));
   l.append(i, s);
   return l;
 }
+const svgNovo = () => document.createElementNS("http://www.w3.org/2000/svg", "svg");
+/** Desenho de uma máquina (o mesmo da planta; aria-hidden: o nome está no botão). */
+const iconeMaquina = (k) => desenharIcone(svgNovo(), "maquina", { modelo: k });
 
 // Contadores − n +: [chave, rótulo, ajuda, "Menos …", "Mais …"], todos em estado.casa e na mesma grelha
 // (os escondidos não deixam buracos). O dos quartos anda com os botões da tipologia.
@@ -232,8 +238,11 @@ function mudarTipologia(t) {
  */
 function mudarQuartos(n) {
   const c = estado.casa;
+  const antes = c.tipologia;
   c.quartos = n;
   c.tipologia = tipologiaDeQuartos(n);
+  // O corredor típico segue a regra do botão T (2 ou mais quartos) quando o contador muda a tipologia.
+  if (c.tipologia !== antes) c.extras.corredor = c.quartos >= 2;
 }
 
 /**
@@ -275,7 +284,13 @@ function desenharCasa() {
   const g = $("casa-tipos");
   if (!g.childElementCount) {
     for (const [k, nome] of Object.entries(TIPOS_CASA)) g.append(escolha("radio", "casa-tipo", k, nome, null, () => mudarTipo(k)));
-    for (const t of TIPOLOGIAS) $("casa-tipologias").append(escolha("radio", "casa-tipologia", t, t, null, (sim) => { if (sim) mudarTipologia(t); }));
+    for (const t of TIPOLOGIAS) {
+      const l = escolha("radio", "casa-tipologia", t, t, null, (sim) => { if (sim) mudarTipologia(t); });
+      // Tocar no botão que já está escolhido também repõe os valores típicos (aí o "change" não chega).
+      // O "click" vem antes do "change": num botão novo a tipologia ainda é a antiga e fica só o "change".
+      l.querySelector("input").addEventListener("click", () => { if (estado.casa.tipologia === t) mudarTipologia(t); });
+      $("casa-tipologias").append(l);
+    }
     for (const [k, texto, ajuda, menos, mais] of CONTADORES) {
       const caixa = el("div", "contador");
       caixa.id = `contador-${k}`;
@@ -323,6 +338,7 @@ function desenharCasa() {
 function sincronizarCasa() {
   const c = estado.casa;
   const neg = negocio();
+  acertarQuer();   // menos pisos: as máquinas dos pisos que saíram passam para o último
   for (const i of $("casa-tipologias").querySelectorAll("input")) i.checked = i.value === c.tipologia;
   for (const [k] of CONTADORES) {
     const [min, max] = LIMITES_CASA[k];
@@ -450,74 +466,143 @@ const OBJETIVOS_AJUDA = {
   desligar: "Um toque desliga o que ficou ligado",
 };
 const quer = (k) => estado.quer.objetivos.includes(k);
+let pisoQuer = 0;   // separador de "O que quer" à vista (casas com mais de um piso; 0 = r/c)
+
+/** Máquinas de "O que quer" a partir de `porPiso` (listas e totais), com os pisos da casa (estado.js normalizarQuer). */
+function acertarQuer() {
+  estado.quer = normalizarQuer(estado.quer, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
+}
 
 /**
- * Máquinas grandes, pequenas (por grupos) e objetivos do perfil do imóvel (casa, serviços ou industrial):
- * refeitos quando o perfil muda. As máquinas mudam a ligação sugerida (carregador de 22 kW → trifásica).
- * Tocar numa máquina marca-a ou desmarca-a; marcada, mostra por baixo quantas (− n +) e, nas casas com
- * mais de um piso, em que piso fica (por omissão o típico: estado.js pisoDaMaquina). A planta desenhada
- * põe esse número de máquinas nesse piso (casa.js plantaDaCasa).
+ * Máquinas grandes, pequenas (por grupos, cada uma com o seu desenho) e objetivos do perfil do imóvel (casa,
+ * serviços ou industrial): refeitos quando o perfil muda. As máquinas mudam a ligação sugerida (carregador de
+ * 22 kW → trifásica). Nas casas com mais de um piso há um separador por piso ("Piso 0 (r/c)", "Piso 1"…):
+ * em cada um marcam-se as máquinas desse piso e quantas (− n +); por baixo, o total da casa. Tocar numa
+ * máquina marca-a ou desmarca-a nesse piso. A planta desenhada põe-nas nesses pisos (casa.js plantaDaCasa).
+ * Os objetivos são da casa toda.
  */
 function desenharQuer() {
   const gm = $("quer-maquinas"), gp = $("quer-pequenas"), go = $("quer-objetivos");
   const perfil = perfilCasa(estado.casa.tipo);
+  const n = pisosDaCasa(estado.casa);
+  if (pisoQuer >= n) pisoQuer = 0;
   if (gm.dataset.perfil !== perfil) {
     gm.dataset.perfil = perfil;
-    const alternar = (lista, chaves, k) => (sim) => {
-      const s = new Set(estado.quer[lista]);
+    const alternarObjetivo = (chaves, k) => (sim) => {
+      const s = new Set(estado.quer.objetivos);
       if (sim) s.add(k); else s.delete(k);
-      estado.quer[lista] = chaves.filter((x) => s.has(x));   // sempre pela ordem da lista
-      if (lista !== "objetivos") {
-        // Marcada: 1 (o cliente muda no contador); desmarcada: esquece a quantidade e o piso.
-        if (sim) estado.quer.quantidades[k] = estado.quer.quantidades[k] ?? 1;
-        else { delete estado.quer.quantidades[k]; delete estado.quer.pisos[k]; }
-        sugerirLigacao();
-        desenharExtraQuer(k);
-      }
+      estado.quer.objetivos = chaves.filter((x) => s.has(x));   // sempre pela ordem da lista
       agendarGravacao();
     };
-    const maquina = (lista, chaves) => (k) => {
+    // Marcada no piso à vista: 1 (o cliente muda no contador); desmarcada: sai desse piso.
+    const alternarMaquina = (k) => (sim) => {
+      const m = { ...(estado.quer.porPiso[k] ?? {}) };
+      if (sim) m[pisoQuer] = m[pisoQuer] || 1; else delete m[pisoQuer];
+      estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
+      acertarQuer();
+      sugerirLigacao();
+      desenharExtraQuer(k);
+      desenharPisosQuer();
+      agendarGravacao();
+    };
+    const maquina = (lista) => (k) => {
       const caixaM = el("div", "quer-item");
       caixaM.dataset.maquina = k;
       const extra = el("div", "quer-extra");
       extra.id = `quer-extra-${k}`;
       extra.hidden = true;
-      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternar(lista, chaves, k)), extra);
+      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
       return caixaM;
     };
     const grandes = maquinasGrandesDe(estado.casa.tipo);
-    gm.replaceChildren(...grandes.map(maquina("maquinas", grandes)));
-    const pequenas = MAQUINAS_PEQUENAS[perfil].flatMap(([, l]) => l);
+    gm.replaceChildren(...grandes.map(maquina("maquinas")));
     gp.replaceChildren(...MAQUINAS_PEQUENAS[perfil].map(([titulo, chaves]) => {
       const f = el("fieldset", "escolhas quer-grupo");
       f.append(el("legend", null, titulo));
       const grelha = el("div", "escolhas-grelha");
-      grelha.append(...chaves.map(maquina("pequenas", pequenas)));
+      grelha.append(...chaves.map(maquina("pequenas")));
       f.append(grelha);
       return f;
     }));
     const objs = objetivosDe(estado.casa.tipo);
-    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternar("objetivos", objs, k))));
+    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternarObjetivo(objs, k))));
   }
-  for (const i of gm.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.maquinas.includes(i.value);
-  for (const i of gp.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.pequenas.includes(i.value);
+  for (const i of [...gm.querySelectorAll("input[type=checkbox]"), ...gp.querySelectorAll("input[type=checkbox]")]) i.checked = quantidadeNoPiso(estado.quer, i.value, pisoQuer) > 0;
   for (const i of go.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.objetivos.includes(i.value);
   for (const c of document.querySelectorAll("#passo-1 .quer-item")) desenharExtraQuer(c.dataset.maquina);
+  desenharPisosQuer();
 }
 
-/** Quantidade (− n +) e piso de uma máquina marcada em "O que quer"; escondido se não está marcada. */
+/** "r/c", "piso 1"… (resumo de "O que quer"). */
+const pisoCurto = (p) => (p > 0 ? `piso ${p}` : "r/c");
+
+/**
+ * Separadores por piso de "O que quer" (role tablist; as setas mudam de piso), cada um com o n.º de máquinas
+ * desse piso, e o resumo com o total da casa. Escondidos numa casa de um só piso.
+ */
+function desenharPisosQuer() {
+  const n = pisosDaCasa(estado.casa);
+  const caixa = $("quer-pisos"), resumo = $("quer-resumo"), painel = $("quer-painel");
+  caixa.hidden = n <= 1;
+  resumo.hidden = n <= 1;
+  if (n <= 1) {
+    caixa.replaceChildren();
+    painel.removeAttribute("role");
+    painel.removeAttribute("aria-labelledby");
+    return;
+  }
+  const q = estado.quer;
+  const chaves = [...q.maquinas, ...q.pequenas];
+  caixa.replaceChildren(...Array.from({ length: n }, (_, p) => {
+    const nm = chaves.reduce((s, k) => s + quantidadeNoPiso(q, k, p), 0);
+    const b = el("button", "editor-piso quer-piso");
+    b.type = "button";
+    b.id = `quer-piso-${p}`;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(p === pisoQuer));
+    b.setAttribute("aria-controls", "quer-painel");
+    b.tabIndex = p === pisoQuer ? 0 : -1;
+    b.append(el("span", null, nomePiso(p)), el("small", null, `${nm} ${nm === 1 ? "máquina" : "máquinas"}`));
+    b.addEventListener("click", () => mudarPisoQuer(p));
+    b.addEventListener("keydown", (ev) => {
+      const d = { ArrowRight: 1, ArrowLeft: -1, Home: -p, End: n - 1 - p }[ev.key];
+      if (d === undefined) return;
+      ev.preventDefault();
+      mudarPisoQuer((p + d + n) % n);
+      $(`quer-piso-${pisoQuer}`)?.focus();
+    });
+    return b;
+  }));
+  painel.setAttribute("role", "tabpanel");
+  painel.setAttribute("aria-labelledby", `quer-piso-${pisoQuer}`);
+  const partes = chaves.map((k) => {
+    const total = q.quantidades[k] ?? 0;
+    const pisos = Object.keys(q.porPiso[k] ?? {}).map(Number).sort((a, b) => a - b);
+    const onde = pisos.map((p) => (pisos.length > 1 ? `${pisoCurto(p)}: ${q.porPiso[k][p]}` : pisoCurto(p))).join(" · ");
+    return `${total > 1 ? `${total} × ` : ""}${MODELOS[k].nome.toLowerCase()} (${onde})`;
+  });
+  resumo.textContent = partes.length ? `Na casa toda: ${partes.join(", ")}.` : "Na casa toda: ainda não escolheu máquinas.";
+}
+
+function mudarPisoQuer(p) {
+  if (p === pisoQuer) return;
+  pisoQuer = p;
+  desenharQuer();
+}
+
+/** Quantidade (− n +) de uma máquina marcada em "O que quer", no piso à vista; escondido se não está marcada nele. */
 function desenharExtraQuer(k) {
   const extra = $(`quer-extra-${k}`);
   if (!extra) return;
-  const marcada = estado.quer.maquinas.includes(k) || estado.quer.pequenas.includes(k);
-  extra.hidden = !marcada;
+  const qtd = quantidadeNoPiso(estado.quer, k, pisoQuer);
+  extra.hidden = qtd <= 0;
   extra.replaceChildren();
-  if (!marcada) return;
+  if (qtd <= 0) return;
   const nome = MODELOS[k].nome;
-  const qtd = estado.quer.quantidades[k] ?? 1;
+  const noPiso = pisosDaCasa(estado.casa) > 1 ? ` no ${nomePiso(pisoQuer)}` : "";
   const grupo = el("div", "contador-caixa");
   grupo.setAttribute("role", "group");
-  grupo.setAttribute("aria-label", `Quantas: ${nome}`);
+  grupo.setAttribute("aria-label", `Quantas${noPiso}: ${nome}`);
   const valor = el("output", "contador-valor", String(qtd));
   valor.id = `quer-qtd-${k}`;
   valor.setAttribute("aria-live", "polite");
@@ -525,26 +610,30 @@ function desenharExtraQuer(k) {
     const b = el("button", "btn sec", sinal);
     b.type = "button";
     b.id = `quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`;
-    b.setAttribute("aria-label", `${rot}: ${nome}`);
+    b.setAttribute("aria-label", `${rot}${noPiso}: ${nome}`);
     b.disabled = d > 0 ? qtd >= MAX_QUANTIDADE : qtd <= 1;
     b.addEventListener("click", () => {
-      estado.quer.quantidades[k] = Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d));
+      estado.quer.porPiso = { ...estado.quer.porPiso, [k]: { ...estado.quer.porPiso[k], [pisoQuer]: Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d)) } };
+      acertarQuer();
       agendarGravacao();
       desenharExtraQuer(k);
+      desenharPisosQuer();
       $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`)?.focus();
     });
     return b;
   };
   grupo.append(botaoQ("−", "Menos uma", -1), valor, botaoQ("+", "Mais uma", 1));
   extra.append(grupo);
-  const n = pisosDaCasa(estado.casa);
-  if (n > 1) {
-    const s = selectCom(Array.from({ length: n }, (_, p) => [p, nomePiso(p)]), pisoDaMaquina(estado, k), `quer-piso-${k}`);
-    s.setAttribute("aria-label", `Piso: ${nome}`);
-    s.addEventListener("change", () => { estado.quer.pisos[k] = Number(s.value); agendarGravacao(); });
-    extra.append(s);
-  }
 }
+
+/**
+ * Botões da fila "Máquinas:" do editor: nas casas a TV e o frigorífico, as máquinas grandes do tipo de
+ * imóvel, as que o cliente escolheu em "O que quer" e "Outra".
+ */
+const maquinasEditor = () => [
+  ...(perfilCasa(estado.casa.tipo) === "habitacao" ? ["televisao", "frigorifico"] : []),
+  ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), "outro",
+];
 
 // ------------------------------------------------------------ 3. Planta (pré-desenhada) — docs §1.1
 const assinaturaBase = () => assinaturaCasa(estado.casa, maquinasParaPlanta(estado));
@@ -612,7 +701,6 @@ function desenharContagem() {
     add(l.sensores_movimento, "sensor de movimento", "sensores de movimento");
     add(l.quadros, "quadro elétrico", "quadros elétricos");
     for (const m of l.maquinas) partes.push(`${nomeModelo(m.modelo).toLowerCase()} (${formatarW(m.potencia_w)})`);
-    add(l.telecom, "ponto de telecomunicações (brevemente)", "pontos de telecomunicações (brevemente)");
     const li = el("li");
     li.append(el("b", null, `${l.nome}: `), document.createTextNode(partes.length ? partes.join(", ") : "nada ainda"));
     ul.append(li);
@@ -719,6 +807,7 @@ function nomesDivisoes() {
   for (const d of estado.divisoes) if (d.nome) s.add(d.nome);
   if (!estado.plantaSaltada) for (const d of estado.planta.divisoes) if (d.nome) s.add(d.nome);
   for (const c of estado.quadro.circuitos) for (const n of c.divisoes) s.add(n);
+  s.delete(NOME_FORA);   // não é uma divisão
   return [...s];
 }
 
@@ -933,7 +1022,6 @@ function montarProtecoes() {
     l.querySelector("span").append(el("small", "bloco-ajuda", p.ajuda));
     cb.addEventListener("change", () => {
       estado.quadro.protecoes = { ...estado.quadro.protecoes, [k]: cb.checked };
-      estado.quadro.pacote = pacoteDe(estado.quadro.protecoes);
       protecoesMudaram();
     });
     fsItens.append(l);
@@ -964,7 +1052,8 @@ function montarProtecoes() {
 function sincronizarProtecoes() {
   const q = estado.quadro;
   const efetivas = protecoesEfetivas(q);
-  const pacote = pacoteDe(efetivas);
+  // O descarregador obrigatório (pára-raios) não conta: "Essencial" com pára-raios continua "Essencial".
+  const pacote = pacoteDoQuadro(q);
   for (const i of document.querySelectorAll("input[name=quadro-pacote]")) i.checked = i.value === pacote;
   $("quadro-personalizado").textContent = pacote === "personalizado" ? "Personalizado: escolheu as proteções uma a uma (um pacote volta a pô-las como estavam nele)." : "Depois pode ligar ou desligar cada item.";
   for (const k of Object.keys(PROTECOES)) {
@@ -978,6 +1067,7 @@ function sincronizarProtecoes() {
 }
 
 function protecoesMudaram() {
+  estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
   agendarGravacao();
   sincronizarProtecoes();
   desenharAvisosQuadro();
@@ -1339,9 +1429,6 @@ function desenharPreco() {
   }
   // O texto da estimativa já está no cartão do total: aqui só o IVA (não se repete).
   $("preco-nota").textContent = "Preços com IVA incluído.";
-  // Telecomunicações (ITED): ainda fora do preço, orçamentadas na visita.
-  const tel = telecomParaEnvio(estado);
-  $("preco-telecom").textContent = `${tel.texto}${tel.total ? ` (${tel.total} ${tel.total === 1 ? "ponto desenhado" : "pontos desenhados"} na planta)` : ""}`;
 
   const pl = $("preco-planos");
   pl.replaceChildren();
@@ -1503,16 +1590,57 @@ function concluido(preco, semFundo) {
   $("titulo-fim").focus();
 }
 
-$("fim-nova").addEventListener("click", () => {
+/**
+ * "Começar de novo" (e "Fazer outra simulação"): apaga TUDO — a casa, o que quer, a planta (com o fundo, a
+ * calibração, o anular/refazer, o separador de piso e a vista: editor.limpar), as divisões, o quadro, o
+ * contacto e a localidade — e o que estava gravado neste navegador (a única chave é estado.js CHAVE; o
+ * código do cliente da área de cliente fica, não é da simulação).
+ */
+function recomecar() {
+  clearTimeout(temporizador);
+  temporizador = null;   // nada pendente: sair ou recarregar não volta a gravar a simulação antiga
+  apagarEstado(armazem ?? semArmazem);
   enviado = false;
+  aEnviar = false;
   estado = estadoInicial();
   visitado = PASSO_INICIAL;
   ultimoPreco = null;
+  pisoQuer = 0;
+  editor.limpar();
+  mostrarEnvio(null);
+  for (const c of document.querySelectorAll(".confirmar")) c.remove();
+  $("contacto-website").value = "";
+  $("sim-guardado").textContent = "";
+  $("quer-maquinas").dataset.perfil = "";   // "O que quer" refeito do zero
+}
+
+$("fim-nova").addEventListener("click", () => {
+  recomecar();
   $("passo-fim").hidden = true;
   $("sim-navegacao").hidden = false;
   document.querySelector(".sim-progresso").hidden = false;
-  mostrarEnvio(null);
   mostrarPasso();
+});
+
+// "Começar de novo" sempre à mão (por baixo dos passos), com confirmação na página.
+$("sim-recomecar-topo").addEventListener("click", () => {
+  const b = $("sim-recomecar-topo");
+  if (b.parentElement.querySelector(".confirmar")) return;
+  const c = el("div", "confirmar");
+  c.setAttribute("role", "alert");
+  c.append(el("p", null, "Isto apaga a simulação toda — a casa, o que quer, a planta, as divisões, o quadro e o contacto — também deste navegador. Continuar?"));
+  const bs = el("div", "botoes");
+  const sim = el("button", "btn pequeno", "Sim, começar de novo");
+  sim.type = "button";
+  sim.id = "sim-recomecar-sim";
+  const nao = el("button", "btn sec pequeno", "Cancelar");
+  nao.type = "button";
+  sim.addEventListener("click", () => { recomecar(); mostrarPasso(); });
+  nao.addEventListener("click", () => { c.remove(); b.focus(); });
+  bs.append(sim, nao);
+  c.append(bs);
+  b.parentElement.append(c);
+  sim.focus();
 });
 
 // ------------------------------------------------------------ arranque
@@ -1548,9 +1676,7 @@ function iniciar() {
       fecharRetomar();
     });
     $("sim-recomecar").addEventListener("click", () => {
-      apagarEstado(armazem ?? semArmazem);
-      estado = estadoInicial();
-      visitado = PASSO_INICIAL;
+      recomecar();
       fecharRetomar();
     });
     $("sim-continuar").focus();
