@@ -1,38 +1,43 @@
 // Núcleo do motor de regras da Domus Energia.
 //
 // Não sabe nada de rede nem de disco: recebe tudo por injeção (publicar,
-// notificar, relógio, armazenamento), o que permite testá-lo com um relógio
-// falso. O `index.js` liga-o ao MQTT, ao ntfy/FCM e ao ficheiro de estado.
+// notificar, relógio, armazenamento, gerador aleatório), o que permite
+// testá-lo com um relógio falso. O `index.js` liga-o ao MQTT, ao ntfy/FCM e
+// ao ficheiro de estado.
 //
-// Contrato: docs/PROTOCOLO-MQTT.md (v1) e docs/PROTOCOLO-MQTT-v2.md (v2).
+// Contrato: docs/PROTOCOLO-MQTT.md (v1), docs/PROTOCOLO-MQTT-v2.md (v2) e
+// docs/PROTOCOLO-MQTT-v3.md (v3). A lógica da v3 está repartida por:
+//   motor-casa.js        — _config, modos, alarme, presença, simulação de férias
+//   motor-automacoes.js  — automações v3, cenas, registo, pausa manual, sequências
+//   motor-saude.js       — _saude, _energia, energia reposta, relatório diário
 
-import {
-  CLIENTE_RE,
-  normalizarAparelhos,
-  nomeCanal,
-  comandosLigar,
-  comandosEstore,
-} from './aparelhos.js';
-import { validarAutomacoes, validarAutomacao } from './validacao.js';
+import { CLIENTE_RE, normalizarAparelhos } from './aparelhos.js';
+import { texto, lerJson, numero } from './util.js';
 import { partesLocais, dentroDoIntervalo, FUSO } from './tempo.js';
+import { normalizarConfig } from './casa.js';
+import { metodosCasa } from './motor-casa.js';
+import { metodosAutomacoes, MAX_EXECUCOES_MINUTO } from './motor-automacoes.js';
+import { metodosSaude } from './motor-saude.js';
 
 /** @typedef {import('./aparelhos.js').Aparelho} Aparelho */
 /** @typedef {import('./validacao.js').Automacao} Automacao */
+/** @typedef {import('./validacao.js').Cena} Cena */
+/** @typedef {import('./casa.js').ConfigCasa} ConfigCasa */
 
 export const MAX_HISTORICO = 100;
 export const MAX_TOKENS_FCM = 10;
 export const BATERIA_FRACA = 15;
 export const SILENCIO_MS = 24 * 3600 * 1000;
-/** Máximo de execuções de uma automação por minuto (proteção contra ciclos). */
-export const MAX_EXECUCOES_MINUTO = 20;
+export { MAX_EXECUCOES_MINUTO };
 
 /**
  * @typedef {object} Evento
  * @property {string} ts
- * @property {'alarme'|'sensor'|'automacao'|'aviso'|'erro'} tipo
+ * @property {'alarme'|'sensor'|'automacao'|'aviso'|'erro'|'modo'} tipo
  * @property {string} titulo
  * @property {string} mensagem
  * @property {string} [aparelho]
+ * @property {string} [por]
  */
 
 /**
@@ -61,6 +66,7 @@ export const MAX_EXECUCOES_MINUTO = 20;
  * @property {Armazenamento} [armazenamento]
  * @property {{info: Function, aviso: Function, erro: Function}} [log]
  * @property {number} [esperaArranqueMs] tempo a aguardar pelas mensagens retidas antes de publicar o estado
+ * @property {() => number} [aleatorio]  gerador [0, 1) da simulação de presença (injetável nos testes)
  */
 
 /**
@@ -81,6 +87,27 @@ export const MAX_EXECUCOES_MINUTO = 20;
  * @property {number} [correnteA]
  * @property {number} [energiaWh]
  * @property {Map<number, EstadoCanal>} canais
+ * @property {number|null} [offlineDesde]  aparelhos sem bateria: desde quando está offline
+ * @property {number|null} [voltouEm]      voltou a online (deteção de energia reposta)
+ * @property {number|null} [offlineAntes]  início do último período offline
+ * @property {number} [rssi]
+ * @property {number} [uptimeS]
+ * @property {number[]} [reinicios]        instantes dos reinícios (últimas 24 h)
+ * @property {[number, number][]} [amostras] amostras de bateria [ms, %]
+ * @property {number|null} [rssiFracoDesde]
+ * @property {Record<string, boolean>} [avisos] avisos de saúde já enviados (uma vez por ocorrência)
+ * @property {import('./energia.js').ContaEnergia} [energia]
+ */
+
+/**
+ * @typedef {object} Alarme
+ * @property {boolean} ativo
+ * @property {'desarmado'|'a_armar'|'armado'|'entrada'|'disparado'} estado
+ * @property {'total'|'perimetro'|null} tipo
+ * @property {string|null} desde
+ * @property {string|null} ate
+ * @property {{aparelho: string, canal: number}[]} ignorados
+ * @property {string|null} por
  */
 
 /**
@@ -88,13 +115,33 @@ export const MAX_EXECUCOES_MINUTO = 20;
  * @property {string} codigo
  * @property {Map<string, Aparelho>|null} aparelhos
  * @property {Map<string, EstadoAparelho>} estado
- * @property {{ativo: boolean, desde: string|null}|null} alarme       null = ainda desconhecido
+ * @property {Alarme|null} alarme                                      null = ainda desconhecido
+ * @property {{aparelho: string, nome: string}|null} alarmeGatilho      sensor que pôs o alarme em "entrada"
+ * @property {{modo: string, desde: string|null, por: string|null}|null} modo
+ * @property {ConfigCasa|null} config
  * @property {Automacao[]|null} automacoes                             null = ainda desconhecido
+ * @property {Cena[]|null} cenas
+ * @property {{pessoas: Record<string, {nome: string, em_casa: boolean, desde: string}>, alguem: boolean}|null} presenca
+ * @property {Record<string, any>|null} registo                         registo das automações (publicado)
+ * @property {Record<string, Record<string, number>>} contagens         execuções por automação e por dia
+ * @property {{ids: string[], mensagem: string}[]} avisosConflito
+ * @property {Record<string, number>} pausas                            "aparelho/canal" → fim da pausa manual (ms)
+ * @property {Record<string, {desde: number, disparado: boolean}>} duracoes  gatilhos sensor com durante_s
+ * @property {{canais: Record<string, {proxima: number, ligado: boolean}>}} simulacao
+ * @property {{aparelho: string, canal: number, valor: number|null, alvo: number|null, desde: number, ate: number, expira: number, automacao: string|null, teste: boolean, respondeu: boolean, avisado?: boolean}[]} esperas
+ *   comandos do motor à espera de confirmação (não persistido)
  * @property {Evento[]|null} historico                                 null = ainda desconhecido
  * @property {string|null} topicoNtfy   lido do `_ntfy` retido (criado pelo domus.sh)
  * @property {boolean} avisouSemNtfy
  * @property {string[]} tokensFcm
  * @property {Record<string, string>} horaDisparos  id da automação → "data hora" do último disparo
+ * @property {string|null} relatorioDia
+ * @property {boolean} avisoCasaOffline
+ * @property {boolean} registoSujo
+ * @property {boolean} saudeSuja
+ * @property {string|null} saudeAssinatura
+ * @property {string|null} saudeTexto
+ * @property {string|null} energiaTexto
  */
 
 const logPadrao = {
@@ -103,25 +150,7 @@ const logPadrao = {
   erro: (...a) => console.error(...a),
 };
 
-/** Converte o payload (Buffer/string) em texto. */
-const texto = (p) => (typeof p === 'string' ? p : Buffer.from(p ?? '').toString('utf8')).trim();
-
-/** JSON.parse que nunca lança. */
-function lerJson(p) {
-  try {
-    return JSON.parse(texto(p));
-  } catch {
-    return undefined;
-  }
-}
-
-/** Número finito a partir de texto ("123.4") ou undefined. */
-function numero(v) {
-  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined;
-  if (typeof v !== 'string' || v.trim() === '') return undefined;
-  const n = Number(v.trim());
-  return Number.isFinite(n) ? n : undefined;
-}
+export { texto, lerJson, numero };
 
 export class Motor {
   /** @param {OpcoesMotor} opcoes */
@@ -132,21 +161,32 @@ export class Motor {
     this.armazenamento = opcoes.armazenamento ?? null;
     this.log = opcoes.log ?? logPadrao;
     this.esperaArranqueMs = opcoes.esperaArranqueMs ?? 3000;
+    this.aleatorio = opcoes.aleatorio ?? Math.random;
 
     /** @type {Map<string, Cliente>} */
     this.clientes = new Map();
     /** Reversões pendentes de `durante_s` (persistidas). */
     /** @type {{cliente: string, aparelho: string, canal: number, ligar: boolean, quando: number, automacao: string}[]} */
     this.reversoes = [];
+    /**
+     * Sequências de ações à espera de um `esperar` (persistidas).
+     * @type {{cliente: string, origem: 'automacao'|'cena', ref: string, acoes: any[], quando: number, teste?: boolean, por?: string}[]}
+     */
+    this.sequencias = [];
     /** Estado das automações de potência: "cliente/id" → {desde, disparado}. */
     /** @type {Map<string, {desde: number, disparado: boolean}>} */
     this.potencia = new Map();
     /** Execuções recentes por automação (limite anti-ciclo). */
     /** @type {Map<string, number[]>} */
     this.execucoes = new Map();
+    /** Profundidade de execuções encadeadas (automação → modo → automação…). */
+    this.profundidade = 0;
     /** Clientes cujo estado retido ainda tem de ser (re)publicado. */
     /** @type {Set<string>} */
     this.porSincronizar = new Set();
+    /** Clientes já sincronizados pelo menos uma vez (estado próprio publicado). */
+    /** @type {Set<string>} */
+    this.sincronizados = new Set();
     this.ligadoEm = null;
     /** Último minuto (UTC, em minutos desde 1970) já tratado. */
     this.ultimoMinuto = null;
@@ -165,12 +205,31 @@ export class Motor {
         aparelhos: null,
         estado: new Map(),
         alarme: null,
+        alarmeGatilho: null,
+        modo: null,
+        config: null,
         automacoes: null,
+        cenas: null,
+        presenca: null,
+        registo: null,
+        contagens: {},
+        avisosConflito: [],
+        pausas: {},
+        duracoes: {},
+        simulacao: { canais: {} },
+        esperas: [],
         historico: null,
         topicoNtfy: null,
         avisouSemNtfy: false,
         tokensFcm: [],
         horaDisparos: {},
+        relatorioDia: null,
+        avisoCasaOffline: false,
+        registoSujo: false,
+        saudeSuja: false,
+        saudeAssinatura: null,
+        saudeTexto: null,
+        energiaTexto: null,
       };
       this.clientes.set(codigo, c);
     }
@@ -187,6 +246,16 @@ export class Motor {
     return e;
   }
 
+  /** Configuração da casa (por omissão enquanto não houver). @param {Cliente} c @returns {ConfigCasa} */
+  cfg(c) {
+    if (!c.config) c.config = normalizarConfig(null);
+    return c.config;
+  }
+
+  agoraIso() {
+    return new Date(this.relogio.agora()).toISOString();
+  }
+
   carregar() {
     let dados = null;
     try {
@@ -198,16 +267,37 @@ export class Motor {
     for (const [codigo, d] of Object.entries(dados.clientes ?? {})) {
       if (!CLIENTE_RE.test(codigo) || !d || typeof d !== 'object') continue;
       const c = this.cliente(codigo);
-      if (d.alarme && typeof d.alarme.ativo === 'boolean') c.alarme = { ativo: d.alarme.ativo, desde: d.alarme.desde ?? null };
+      if (d.alarme && typeof d.alarme.ativo === 'boolean') c.alarme = this.normalizarAlarme(d.alarme);
+      if (d.alarmeGatilho && typeof d.alarmeGatilho.nome === 'string') c.alarmeGatilho = d.alarmeGatilho;
+      if (d.modo && typeof d.modo.modo === 'string') c.modo = this.normalizarModo(d.modo);
+      if (d.config && typeof d.config === 'object') c.config = normalizarConfig(d.config);
       if (Array.isArray(d.automacoes)) c.automacoes = d.automacoes;
+      if (Array.isArray(d.cenas)) c.cenas = d.cenas;
+      if (d.presenca && typeof d.presenca.pessoas === 'object') c.presenca = d.presenca;
+      if (d.registo && typeof d.registo === 'object') c.registo = d.registo;
+      if (d.contagens && typeof d.contagens === 'object') c.contagens = d.contagens;
+      if (d.pausas && typeof d.pausas === 'object') c.pausas = { ...d.pausas };
+      if (d.duracoes && typeof d.duracoes === 'object') c.duracoes = { ...d.duracoes };
+      if (d.simulacao?.canais && typeof d.simulacao.canais === 'object') c.simulacao = { canais: { ...d.simulacao.canais } };
+      if (typeof d.relatorioDia === 'string') c.relatorioDia = d.relatorioDia;
+      if (d.avisoCasaOffline === true) c.avisoCasaOffline = true;
       if (Array.isArray(d.historico)) c.historico = d.historico.slice(0, MAX_HISTORICO);
       if (Array.isArray(d.tokensFcm)) c.tokensFcm = d.tokensFcm.filter((t) => typeof t === 'string').slice(-MAX_TOKENS_FCM);
       if (d.horaDisparos && typeof d.horaDisparos === 'object') c.horaDisparos = { ...d.horaDisparos };
       for (const [id, e] of Object.entries(d.aparelhos ?? {})) {
+        if (!e || typeof e !== 'object') continue;
         const ea = this.estadoAparelho(c, id);
         if (typeof e.ultimaNoticia === 'number') ea.ultimaNoticia = e.ultimaNoticia;
         if (e.avisoSilencio === true) ea.avisoSilencio = true;
         if (typeof e.avisoBateriaDia === 'string') ea.avisoBateriaDia = e.avisoBateriaDia;
+        if (typeof e.offlineDesde === 'number') ea.offlineDesde = e.offlineDesde;
+        if (typeof e.rssi === 'number') ea.rssi = e.rssi;
+        if (typeof e.uptimeS === 'number') ea.uptimeS = e.uptimeS;
+        if (Array.isArray(e.reinicios)) ea.reinicios = e.reinicios.filter((t) => typeof t === 'number');
+        if (Array.isArray(e.amostras)) ea.amostras = e.amostras.filter((a) => Array.isArray(a) && a.length === 2);
+        if (typeof e.rssiFracoDesde === 'number') ea.rssiFracoDesde = e.rssiFracoDesde;
+        if (e.avisos && typeof e.avisos === 'object') ea.avisos = { ...e.avisos };
+        if (e.energia && typeof e.energia.dia === 'string') ea.energia = { ...e.energia };
       }
     }
     if (Array.isArray(dados.reversoes)) {
@@ -215,7 +305,14 @@ export class Motor {
         (r) => r && CLIENTE_RE.test(r.cliente) && typeof r.aparelho === 'string' && Number.isInteger(r.canal) && typeof r.quando === 'number',
       );
     }
-    this.log.info(`[estado] carregado: ${this.clientes.size} cliente(s), ${this.reversoes.length} reversão(ões) pendente(s)`);
+    if (Array.isArray(dados.sequencias)) {
+      this.sequencias = dados.sequencias.filter(
+        (s) => s && CLIENTE_RE.test(s.cliente) && typeof s.ref === 'string' && Array.isArray(s.acoes) && typeof s.quando === 'number',
+      );
+    }
+    this.log.info(
+      `[estado] carregado: ${this.clientes.size} cliente(s), ${this.reversoes.length} reversão(ões) e ${this.sequencias.length} sequência(s) pendente(s)`,
+    );
   }
 
   /** Estado persistente, serializável em JSON. */
@@ -224,20 +321,42 @@ export class Motor {
     for (const c of this.clientes.values()) {
       const aparelhos = {};
       for (const [id, e] of c.estado) {
-        if (e.ultimaNoticia || e.avisoSilencio || e.avisoBateriaDia) {
-          aparelhos[id] = { ultimaNoticia: e.ultimaNoticia, avisoSilencio: e.avisoSilencio, avisoBateriaDia: e.avisoBateriaDia };
-        }
+        const x = {};
+        if (e.ultimaNoticia) x.ultimaNoticia = e.ultimaNoticia;
+        if (e.avisoSilencio) x.avisoSilencio = true;
+        if (e.avisoBateriaDia) x.avisoBateriaDia = e.avisoBateriaDia;
+        if (e.offlineDesde) x.offlineDesde = e.offlineDesde;
+        if (typeof e.rssi === 'number') x.rssi = e.rssi;
+        if (typeof e.uptimeS === 'number') x.uptimeS = e.uptimeS;
+        if (e.reinicios?.length) x.reinicios = e.reinicios;
+        if (e.amostras?.length) x.amostras = e.amostras;
+        if (e.rssiFracoDesde) x.rssiFracoDesde = e.rssiFracoDesde;
+        if (e.avisos && Object.values(e.avisos).some(Boolean)) x.avisos = e.avisos;
+        if (e.energia) x.energia = e.energia;
+        if (Object.keys(x).length) aparelhos[id] = x;
       }
       clientes[c.codigo] = {
         alarme: c.alarme,
+        alarmeGatilho: c.alarmeGatilho,
+        modo: c.modo,
+        config: c.config,
         automacoes: c.automacoes,
+        cenas: c.cenas,
+        presenca: c.presenca,
+        registo: c.registo,
+        contagens: c.contagens,
+        pausas: c.pausas,
+        duracoes: c.duracoes,
+        simulacao: c.simulacao,
+        relatorioDia: c.relatorioDia,
+        avisoCasaOffline: c.avisoCasaOffline,
         historico: c.historico,
         tokensFcm: c.tokensFcm,
         horaDisparos: c.horaDisparos,
         aparelhos,
       };
     }
-    return { versao: 1, clientes, reversoes: this.reversoes };
+    return { versao: 3, clientes, reversoes: this.reversoes, sequencias: this.sequencias };
   }
 
   guardar() {
@@ -265,19 +384,38 @@ export class Motor {
   }
 
   /**
-   * Publica (retido) o estado que pertence ao motor: `_alarme`, `_automacoes`
-   * e `_historico`. Só depois de receber as mensagens retidas, para
-   * poder adotar o que já lá estava se o estado local se tiver perdido.
+   * Publica (retido) o estado que pertence ao motor: `_config`, `_modo`,
+   * `_alarme`, `_automacoes` (+ `/avisos`, `/registo`), `_cenas`,
+   * `_presenca`, `_historico`, `_saude` e `_energia`. Só depois de receber as
+   * mensagens retidas, para poder adotar o que já lá estava se o estado local
+   * se tiver perdido.
    * @param {Cliente} c
    */
   sincronizar(c) {
-    if (!c.alarme) c.alarme = { ativo: false, desde: null };
+    this.cfg(c);
+    if (!c.alarme) c.alarme = this.normalizarAlarme(null);
+    if (!c.modo) c.modo = this.modoDoAlarme(c.alarme);
     if (!c.automacoes) c.automacoes = [];
+    if (!c.cenas) c.cenas = [];
+    if (!c.presenca) c.presenca = { pessoas: {}, alguem: false };
+    if (!c.registo) c.registo = {};
     if (!c.historico) c.historico = [];
+    this.sincronizados.add(c.codigo);
+    c.avisosConflito = this.calcularConflitos(c);
     const base = `domus/${c.codigo}`;
+    this.publicar(`${base}/_config`, c.config, true);
+    this.publicar(`${base}/_modo`, c.modo, true);
     this.publicar(`${base}/_alarme`, c.alarme, true);
     this.publicar(`${base}/_automacoes`, c.automacoes, true);
+    this.publicar(`${base}/_automacoes/avisos`, c.avisosConflito, true);
+    this.publicarRegisto(c);
+    this.publicar(`${base}/_cenas`, c.cenas, true);
+    this.publicar(`${base}/_presenca`, c.presenca, true);
     this.publicar(`${base}/_historico`, c.historico, true);
+    if (c.aparelhos) {
+      this.publicarSaude(c, true);
+      this.publicarEnergia(c, true);
+    }
     this.guardar();
   }
 
@@ -312,12 +450,36 @@ export class Motor {
           return retida && this.adotarAlarme(codigo, payload);
         case '_alarme/set':
           return !retida && this.aoAlarmeSet(codigo, payload);
+        case '_modo':
+          return retida && this.adotarModo(codigo, payload);
+        case '_modo/set':
+          return !retida && this.aoModoSet(codigo, payload);
+        case '_config':
+          return retida && this.adotarConfig(codigo, payload);
+        case '_config/set':
+          return !retida && this.aoConfigSet(codigo, payload);
         case '_automacoes':
           return retida && this.adotarAutomacoes(codigo, payload);
         case '_automacoes/set':
           return !retida && this.aoAutomacoesSet(codigo, payload);
         case '_automacoes/admin':
           return !retida && this.aoAutomacoesAdmin(codigo, payload);
+        case '_automacoes/executar':
+          return !retida && this.aoAutomacoesExecutar(codigo, payload);
+        case '_automacoes/registo':
+          return retida && this.adotarRegisto(codigo, payload);
+        case '_cenas':
+          return retida && this.adotarCenas(codigo, payload);
+        case '_cenas/set':
+          return !retida && this.aoCenasSet(codigo, payload);
+        case '_cenas/admin':
+          return !retida && this.aoCenasAdmin(codigo, payload);
+        case '_cenas/executar':
+          return !retida && this.aoCenasExecutar(codigo, payload);
+        case '_presenca':
+          return retida && this.adotarPresenca(codigo, payload);
+        case '_presenca/set':
+          return !retida && this.aoPresencaSet(codigo, payload);
         case '_historico':
           return retida && this.adotarHistorico(codigo, payload);
         case '_ntfy':
@@ -325,7 +487,7 @@ export class Motor {
         case '_fcm/registar':
           return !retida && this.aoFcm(codigo, payload);
         default:
-          return; // _eventos e outros: publicados por nós ou desconhecidos
+          return; // _eventos, _saude, _energia…: publicados por nós ou desconhecidos
       }
     }
 
@@ -348,27 +510,9 @@ export class Motor {
     const c = this.cliente(codigo);
     const novo = c.aparelhos === null;
     c.aparelhos = aparelhos;
+    c.saudeSuja = true;
     this.log.info(`[aparelhos] ${codigo}: ${aparelhos.size} aparelho(s)`);
     if (novo) this.porSincronizar.add(codigo);
-  }
-
-  adotarAlarme(codigo, payload) {
-    const c = this.cliente(codigo);
-    const v = lerJson(payload);
-    if (c.alarme || !v || typeof v.ativo !== 'boolean') return;
-    c.alarme = { ativo: v.ativo, desde: typeof v.desde === 'string' ? v.desde : null };
-    this.log.info(`[alarme] ${codigo}: estado adotado da mensagem retida (${v.ativo ? 'ativo' : 'desligado'})`);
-    this.guardar();
-  }
-
-  adotarAutomacoes(codigo, payload) {
-    const c = this.cliente(codigo);
-    if (c.automacoes) return;
-    const v = validarAutomacoes(lerJson(payload), { aparelhos: null, admin: true, verificarAparelhos: false });
-    if (!v.ok) return;
-    c.automacoes = v.lista;
-    this.log.info(`[automações] ${codigo}: ${v.lista.length} automação(ões) adotada(s) da mensagem retida`);
-    this.guardar();
   }
 
   adotarHistorico(codigo, payload) {
@@ -403,105 +547,6 @@ export class Motor {
     c.avisouSemNtfy = false;
   }
 
-  // ----------------------------------------------------------------- alarme
-
-  aoAlarmeSet(codigo, payload) {
-    const c = this.cliente(codigo);
-    const v = lerJson(payload);
-    if (!v || typeof v !== 'object' || typeof v.ativo !== 'boolean') {
-      this.evento(c, { tipo: 'erro', titulo: 'Alarme não alterado', mensagem: 'Pedido inválido: envie {"ativo": true} ou {"ativo": false}.' });
-      return;
-    }
-    const anterior = c.alarme;
-    if (!anterior || anterior.ativo !== v.ativo) {
-      c.alarme = { ativo: v.ativo, desde: new Date(this.relogio.agora()).toISOString() };
-      this.log.info(`[alarme] ${codigo}: ${v.ativo ? 'ligado' : 'desligado'}`);
-    }
-    this.publicar(`domus/${codigo}/_alarme`, c.alarme, true);
-    this.guardar();
-  }
-
-  // ------------------------------------------------------------- automações
-
-  aoAutomacoesSet(codigo, payload) {
-    const c = this.cliente(codigo);
-    const lista = lerJson(payload);
-    const v =
-      lista === undefined
-        ? { ok: false, erro: 'A lista de automações não é JSON válido.' }
-        : validarAutomacoes(lista, { aparelhos: c.aparelhos, existentes: c.automacoes ?? [] });
-    if (!v.ok) {
-      this.log.aviso(`[automações] ${codigo}: rejeitadas — ${v.erro}`);
-      this.evento(c, { tipo: 'erro', titulo: 'Automações não guardadas', mensagem: v.erro });
-      // Republica a lista em vigor para a app/site voltarem ao estado real.
-      this.publicar(`domus/${codigo}/_automacoes`, c.automacoes ?? [], true);
-      return;
-    }
-    this.definirAutomacoes(c, v.lista);
-  }
-
-  /**
-   * Canal de administração (só `admin` e `motor` podem publicar, pela ACL):
-   *   {"op":"guardar","automacao":{...}} | {"op":"guardar","automacoes":[...]}
-   *   {"op":"apagar","id":"..."}
-   *   {"op":"substituir","automacoes":[...]}
-   * Resposta (não retida) em `domus/<c>/_automacoes/admin/resultado`:
-   *   {"pedido": <eco>, "ok": true} ou {"pedido": <eco>, "ok": false, "erro": "..."}
-   */
-  aoAutomacoesAdmin(codigo, payload) {
-    const c = this.cliente(codigo);
-    const p = lerJson(payload);
-    const pedido = p && typeof p === 'object' ? p.pedido ?? null : null;
-    const responder = (ok, erro) => {
-      this.publicar(`domus/${codigo}/_automacoes/admin/resultado`, ok ? { pedido, ok } : { pedido, ok, erro });
-      if (ok) this.log.info(`[admin] ${codigo}: ${p.op} aplicado`);
-      else this.log.aviso(`[admin] ${codigo}: ${erro}`);
-    };
-    if (!p || typeof p !== 'object') return responder(false, 'Pedido de administração não é JSON válido.');
-    const atuais = c.automacoes ?? [];
-    let nova;
-    if (p.op === 'guardar') {
-      const itens = Array.isArray(p.automacoes) ? p.automacoes : p.automacao ? [p.automacao] : null;
-      if (!itens || itens.length === 0) return responder(false, 'Falta "automacao" ou "automacoes".');
-      nova = [...atuais];
-      try {
-        itens.forEach((item, i) => {
-          const a = validarAutomacao(item, i, c.aparelhos, { bloqueadaPorOmissao: true });
-          const j = nova.findIndex((x) => x.id === a.id);
-          if (j >= 0) nova[j] = a;
-          else nova.push(a);
-        });
-      } catch (e) {
-        return responder(false, e.message);
-      }
-    } else if (p.op === 'apagar') {
-      if (!atuais.some((a) => a.id === p.id)) return responder(false, `Não existe a automação "${p.id}".`);
-      nova = atuais.filter((a) => a.id !== p.id);
-    } else if (p.op === 'substituir') {
-      nova = p.automacoes;
-    } else {
-      return responder(false, `Operação desconhecida ${JSON.stringify(p.op)} (use guardar, apagar ou substituir).`);
-    }
-    const v = validarAutomacoes(nova, { aparelhos: c.aparelhos, admin: true });
-    if (!v.ok) return responder(false, v.erro);
-    this.definirAutomacoes(c, v.lista);
-    responder(true);
-  }
-
-  /** @param {Cliente} c @param {Automacao[]} lista */
-  definirAutomacoes(c, lista) {
-    c.automacoes = lista;
-    const ids = new Set(lista.map((a) => a.id));
-    for (const chave of this.potencia.keys()) {
-      const [cod, id] = chave.split('/');
-      if (cod === c.codigo && !ids.has(id)) this.potencia.delete(chave);
-    }
-    for (const id of Object.keys(c.horaDisparos)) if (!ids.has(id)) delete c.horaDisparos[id];
-    this.log.info(`[automações] ${c.codigo}: ${lista.length} automação(ões) guardada(s)`);
-    this.publicar(`domus/${c.codigo}/_automacoes`, lista, true);
-    this.guardar();
-  }
-
   // ---------------------------------------------------------------- aparelhos
 
   /** Marca notícias de um aparelho (não conta valores retidos nem "offline"). */
@@ -509,19 +554,26 @@ export class Motor {
     if (retida) return;
     const e = this.estadoAparelho(c, ap.id);
     e.ultimaNoticia = this.relogio.agora();
-    e.online = true;
     if (e.avisoSilencio) {
       e.avisoSilencio = false;
+      c.saudeSuja = true;
       this.guardar();
+      // Aparelho a pilhas que voltou a dar notícias depois de 24 h calado.
+      this.dispararSistema(c, 'aparelho_online', ap);
     }
+    this.definirOnline(c, ap, true, false);
   }
 
   aoOpenBeken(c, ap, sub, payload, retida) {
     const e = this.estadoAparelho(c, ap.id);
     const t = texto(payload);
     if (sub === 'connected') {
-      e.online = t === 'online';
-      if (e.online) this.noticia(c, ap, retida);
+      if (t === 'online') {
+        if (retida) this.definirOnline(c, ap, true, true);
+        else this.noticia(c, ap, false);
+      } else if (t === 'offline') {
+        this.definirOnline(c, ap, false, retida);
+      }
       return;
     }
     let m = /^(\d+)\/get$/.exec(sub);
@@ -541,6 +593,15 @@ export class Motor {
       this.canalEstado(c, ap.id, canal.n).brilho = v;
       return;
     }
+    // Estado periódico do OpenBeken (se o aparelho o publicar).
+    if (sub === 'rssi' || sub === 'uptime') {
+      const v = numero(t);
+      if (v === undefined) return;
+      this.noticia(c, ap, retida);
+      if (sub === 'rssi') this.atualizarRssi(c, ap, v);
+      else this.atualizarUptime(c, ap, v, retida);
+      return;
+    }
     m = /^(power|voltage|current|energycounter)\/get$/.exec(sub);
     if (m) {
       const v = numero(t);
@@ -549,15 +610,28 @@ export class Motor {
       if (m[1] === 'power') this.atualizarPotencia(c, ap, v, retida);
       else if (m[1] === 'voltage') e.tensaoV = v;
       else if (m[1] === 'current') e.correnteA = v;
-      else e.energiaWh = v;
+      else this.atualizarEnergia(c, ap, v);
     }
   }
 
   aoShelly(c, ap, sub, payload, retida) {
     const e = this.estadoAparelho(c, ap.id);
     if (sub === 'online') {
-      e.online = texto(payload) === 'true';
-      if (e.online) this.noticia(c, ap, retida);
+      const t = texto(payload);
+      if (t === 'true') {
+        if (retida) this.definirOnline(c, ap, true, true);
+        else this.noticia(c, ap, false);
+      } else if (t === 'false') {
+        this.definirOnline(c, ap, false, retida);
+      }
+      return;
+    }
+    if (sub === 'status/wifi' || sub === 'status/sys') {
+      const j = lerJson(payload);
+      if (!j || typeof j !== 'object') return;
+      this.noticia(c, ap, retida);
+      if (sub === 'status/wifi' && numero(j.rssi) !== undefined) this.atualizarRssi(c, ap, numero(j.rssi));
+      if (sub === 'status/sys' && numero(j.uptime) !== undefined) this.atualizarUptime(c, ap, numero(j.uptime), retida);
       return;
     }
     const m = /^status\/(switch|input|cover|light|devicepower):(\d+)$/.exec(sub);
@@ -573,7 +647,7 @@ export class Motor {
         if (id === 0) {
           if (numero(j.voltage) !== undefined) e.tensaoV = numero(j.voltage);
           if (numero(j.current) !== undefined) e.correnteA = numero(j.current);
-          if (numero(j.aenergy?.total) !== undefined) e.energiaWh = numero(j.aenergy.total);
+          if (numero(j.aenergy?.total) !== undefined) this.atualizarEnergia(c, ap, numero(j.aenergy.total));
           if (numero(j.apower) !== undefined) this.atualizarPotencia(c, ap, numero(j.apower), retida);
         }
         break;
@@ -608,6 +682,11 @@ export class Motor {
     return ce;
   }
 
+  /** Valor conhecido de um canal (ou undefined). */
+  valorCanal(c, idAparelho, n) {
+    return c.estado.get(idAparelho)?.canais.get(n)?.valor;
+  }
+
   /**
    * Novo valor de um canal. Só há "transição" (alarme, automações) quando o
    * valor muda e a mensagem não é retida — o primeiro valor retido recebido
@@ -620,10 +699,13 @@ export class Motor {
     const anterior = ce.valor;
     ce.valor = valor;
     if (canal.funcao === 'bateria') {
-      this.verificarBateria(c, ap, valor);
+      this.verificarBateria(c, ap, valor, retida);
       return;
     }
+    // Gatilhos "há X s nesse valor" deixam de contar se o valor mudou (mesmo retido).
+    this.cancelarDuracoes(c, ap, n, valor);
     if (retida) return;
+    const doMotor = this.confirmarEspera(c, ap, n, valor);
     if (anterior === valor) {
       // Sensor de movimento que volta a dizer "1": ainda há gente — prolonga
       // as luzes ligadas por automações deste sensor (temporizador de ocupação).
@@ -631,7 +713,10 @@ export class Motor {
       return;
     }
     ce.ultimaMudanca = this.relogio.agora();
+    if (canal.funcao === 'porta' || canal.funcao === 'movimento') c.saudeSuja = true;
     this.cancelarSeAlteradoPorOutro(c, ap, n, valor);
+    // Mexido por alguém (botão físico, app) e não pelo motor → pausa manual.
+    if (!doMotor && anterior !== undefined && ['interruptor', 'luz', 'estore'].includes(canal.funcao)) this.pausaManual(c, ap, canal);
     this.aoTransicao(c, ap, canal, valor);
   }
 
@@ -653,77 +738,13 @@ export class Motor {
     }
   }
 
-  /** Recomeça a contagem `durante_s` das automações disparadas por este sensor. */
-  prolongar(c, ap, canal, valor) {
-    const agora = this.relogio.agora();
-    let mudou = false;
-    for (const a of c.automacoes ?? []) {
-      const q = a.quando;
-      if (!a.ativa || q.tipo !== 'sensor' || q.aparelho !== ap.id || q.canal !== canal.n || q.valor !== valor) continue;
-      for (const r of this.reversoes) {
-        if (r.cliente !== c.codigo || r.automacao !== a.id) continue;
-        const acao = a.entao.find((x) => x.aparelho === r.aparelho && x.canal === r.canal && x.durante_s);
-        if (!acao) continue;
-        r.quando = Math.max(r.quando, agora + acao.durante_s * 1000);
-        mudou = true;
-      }
-    }
-    if (mudou) this.guardar();
-  }
-
   aoTransicao(c, ap, canal, valor) {
-    const nome = nomeCanal(ap, canal.n);
+    const nome = canal.nome;
     if (canal.funcao === 'porta') {
       this.evento(c, { tipo: 'sensor', titulo: valor ? 'Porta aberta' : 'Porta fechada', mensagem: nome, aparelho: ap.id }, false);
     }
-    if (c.alarme?.ativo && valor === 1 && (canal.funcao === 'porta' || canal.funcao === 'movimento')) {
-      const oque = canal.funcao === 'porta' ? 'Porta aberta' : 'Movimento detetado';
-      this.log.aviso(`[alarme] ${c.codigo}: ${oque} — ${nome}`);
-      this.evento(c, { tipo: 'alarme', titulo: `Alarme: ${oque.toLowerCase()}`, mensagem: `${oque}: ${nome}.`, aparelho: ap.id }, true);
-    }
-    for (const a of c.automacoes ?? []) {
-      const q = a.quando;
-      if (q.tipo === 'sensor' && q.aparelho === ap.id && q.canal === canal.n && q.valor === valor) {
-        this.executar(c, a, `${nome} = ${valor}`);
-      }
-    }
-  }
-
-  verificarBateria(c, ap, pct) {
-    if (pct >= BATERIA_FRACA) return;
-    const e = this.estadoAparelho(c, ap.id);
-    const hoje = partesLocais(this.relogio.agora(), FUSO).data;
-    if (e.avisoBateriaDia === hoje) return;
-    e.avisoBateriaDia = hoje;
-    this.evento(c, { tipo: 'aviso', titulo: 'Bateria fraca', mensagem: `${ap.nome}: bateria a ${Math.round(pct)} %. Substitua as pilhas.`, aparelho: ap.id }, true);
-  }
-
-  atualizarPotencia(c, ap, w, retida) {
-    this.estadoAparelho(c, ap.id).potenciaW = w;
-    if (retida) return; // valor antigo: não começa a contar tempo
-    const agora = this.relogio.agora();
-    for (const a of c.automacoes ?? []) {
-      if (a.quando.tipo !== 'potencia' || a.quando.aparelho !== ap.id) continue;
-      const chave = `${c.codigo}/${a.id}`;
-      if (w > a.quando.acima_w) {
-        if (!this.potencia.has(chave)) this.potencia.set(chave, { desde: agora, disparado: false });
-      } else {
-        this.potencia.delete(chave);
-      }
-    }
-    this.verificarPotencia(c);
-  }
-
-  verificarPotencia(c) {
-    const agora = this.relogio.agora();
-    for (const a of c.automacoes ?? []) {
-      if (a.quando.tipo !== 'potencia') continue;
-      const est = this.potencia.get(`${c.codigo}/${a.id}`);
-      if (!est || est.disparado || agora - est.desde < a.quando.durante_s * 1000) continue;
-      est.disparado = true;
-      const ap = c.aparelhos?.get(a.quando.aparelho);
-      this.executar(c, a, `${ap?.nome ?? a.quando.aparelho} acima de ${a.quando.acima_w} W`);
-    }
+    this.alarmeTransicao(c, ap, canal, valor);
+    this.gatilhosSensor(c, ap, canal, valor);
   }
 
   // ------------------------------------------------------------------ FCM
@@ -744,106 +765,6 @@ export class Motor {
     this.guardar();
   }
 
-  // ------------------------------------------------------------- execução
-
-  /** Condições `se` (todas têm de ser verdadeiras). */
-  condicoesOk(c, a) {
-    const se = a.se;
-    if (!se) return true;
-    if (se.alarme !== undefined && (c.alarme?.ativo ?? false) !== se.alarme) return false;
-    if (se.entre) {
-      const { minutos } = partesLocais(this.relogio.agora(), FUSO);
-      if (!dentroDoIntervalo(minutos, se.entre[0], se.entre[1])) return false;
-    }
-    return true;
-  }
-
-  /**
-   * Executa uma automação (se ativa e se as condições se verificarem).
-   * @param {Cliente} c
-   * @param {Automacao} a
-   * @param {string} motivo
-   */
-  executar(c, a, motivo) {
-    if (!a.ativa || !this.condicoesOk(c, a)) return false;
-    const agora = this.relogio.agora();
-    const chave = `${c.codigo}/${a.id}`;
-    const recentes = (this.execucoes.get(chave) ?? []).filter((t) => agora - t < 60_000);
-    if (recentes.length >= MAX_EXECUCOES_MINUTO) {
-      this.log.aviso(`[automações] ${chave}: demasiadas execuções no último minuto; ignorada`);
-      return false;
-    }
-    recentes.push(agora);
-    this.execucoes.set(chave, recentes);
-    this.log.info(`[automações] ${chave}: executada (${motivo})`);
-    for (const acao of a.entao) {
-      try {
-        this.executarAcao(c, a, acao);
-      } catch (e) {
-        this.log.erro(`[automações] ${chave}: erro na ação ${acao.acao}: ${e.message}`);
-      }
-    }
-    return true;
-  }
-
-  executarAcao(c, a, acao) {
-    if (acao.acao === 'notificar') {
-      this.evento(c, { tipo: 'automacao', titulo: a.nome, mensagem: acao.mensagem }, true);
-      return;
-    }
-    const ap = c.aparelhos?.get(acao.aparelho);
-    if (!ap || !ap.canais.has(acao.canal)) {
-      this.log.aviso(`[automações] ${c.codigo}/${a.id}: o aparelho ${acao.aparelho} canal ${acao.canal} já não existe`);
-      return;
-    }
-    // Qualquer ação sobre o canal substitui uma reversão pendente anterior.
-    const mesmoCanal = (r) => r.cliente === c.codigo && r.aparelho === ap.id && r.canal === acao.canal;
-    const pendente = this.reversoes.find(mesmoCanal);
-    this.reversoes = this.reversoes.filter((r) => !mesmoCanal(r));
-    if (acao.acao === 'estore') {
-      for (const cmd of comandosEstore(c.codigo, ap, acao.canal, acao.posicao)) this.publicar(cmd.topico, cmd.payload);
-    } else {
-      const ligar = acao.acao === 'ligar';
-      const atual = c.estado.get(ap.id)?.canais.get(acao.canal)?.valor;
-      // Já estava assim por decisão de outra pessoa (sem reversão nossa pendente):
-      // não se agenda a reversão, para não desligar uma luz que alguém acendeu.
-      const jaEstavaPorOutro = atual === (ligar ? 1 : 0) && !pendente;
-      for (const cmd of comandosLigar(c.codigo, ap, acao.canal, ligar)) this.publicar(cmd.topico, cmd.payload);
-      if (acao.durante_s && jaEstavaPorOutro) {
-        this.log.info(`[automações] ${c.codigo}/${a.id}: ${ap.id} canal ${acao.canal} já estava ${ligar ? 'ligado' : 'desligado'}; sem reversão`);
-      } else if (acao.durante_s) {
-        this.reversoes.push({
-          cliente: c.codigo,
-          aparelho: ap.id,
-          canal: acao.canal,
-          ligar: !ligar,
-          quando: this.relogio.agora() + acao.durante_s * 1000,
-          automacao: a.id,
-        });
-      }
-    }
-    this.guardar();
-  }
-
-  executarReversoes() {
-    const agora = this.relogio.agora();
-    const devidas = this.reversoes.filter((r) => r.quando <= agora);
-    if (devidas.length === 0) return;
-    this.reversoes = this.reversoes.filter((r) => r.quando > agora);
-    for (const r of devidas) {
-      const c = this.clientes.get(r.cliente);
-      const ap = c?.aparelhos?.get(r.aparelho);
-      if (!c || !ap || !ap.canais.has(r.canal)) {
-        // Ainda não sabemos os aparelhos (arranque): tenta de novo mais tarde.
-        if (c && c.aparelhos === null) this.reversoes.push(r);
-        continue;
-      }
-      this.log.info(`[automações] ${r.cliente}/${r.automacao}: fim de durante_s — ${r.ligar ? 'ligar' : 'desligar'} ${r.aparelho} canal ${r.canal}`);
-      for (const cmd of comandosLigar(r.cliente, ap, r.canal, r.ligar)) this.publicar(cmd.topico, cmd.payload);
-    }
-    this.guardar();
-  }
-
   // --------------------------------------------------------------- eventos
 
   /**
@@ -852,21 +773,38 @@ export class Motor {
    * @param {Cliente} c
    * @param {Omit<Evento,'ts'>} ev
    * @param {boolean} [notificar]
+   * @param {{prioridade?: PedidoNotificacao['prioridade'], ignorarSilencio?: boolean}} [opcoes]
    */
-  evento(c, ev, notificar = false) {
+  evento(c, ev, notificar = false, opcoes = {}) {
     /** @type {Evento} */
-    const evento = { ts: new Date(this.relogio.agora()).toISOString(), ...ev };
+    const evento = { ts: this.agoraIso(), ...ev };
     const base = `domus/${c.codigo}`;
     this.publicar(`${base}/_eventos`, evento);
     c.historico = [evento, ...(c.historico ?? [])].slice(0, MAX_HISTORICO);
     this.publicar(`${base}/_historico`, c.historico, true);
     this.guardar();
-    if (notificar) this.enviarNotificacao(c, evento);
+    if (notificar) this.enviarNotificacao(c, evento, opcoes);
   }
 
-  /** @param {Cliente} c @param {Evento} ev */
-  enviarNotificacao(c, ev) {
-    const prioridade = ev.tipo === 'alarme' ? 'urgent' : ev.tipo === 'aviso' ? 'high' : 'default';
+  /** Estamos nas horas de silêncio da casa? @param {Cliente} c */
+  emSilencio(c) {
+    const s = this.cfg(c).silencio;
+    if (!s) return false;
+    return dentroDoIntervalo(partesLocais(this.relogio.agora(), FUSO).minutos, s[0], s[1]);
+  }
+
+  /**
+   * @param {Cliente} c
+   * @param {{tipo: Evento['tipo'], titulo: string, mensagem: string}} ev
+   * @param {{prioridade?: PedidoNotificacao['prioridade'], ignorarSilencio?: boolean}} [opcoes]
+   */
+  enviarNotificacao(c, ev, opcoes = {}) {
+    // Horas de silêncio: só os alarmes notificam (o evento fica no histórico na mesma).
+    if (ev.tipo !== 'alarme' && !opcoes.ignorarSilencio && this.emSilencio(c)) {
+      this.log.info(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (horas de silêncio)`);
+      return;
+    }
+    const prioridade = opcoes.prioridade ?? (ev.tipo === 'alarme' ? 'urgent' : ev.tipo === 'aviso' ? 'high' : 'default');
     const tags = ev.tipo === 'alarme' ? ['rotating_light'] : ev.tipo === 'aviso' ? ['warning'] : ['house'];
     if (!c.topicoNtfy && !c.avisouSemNtfy) {
       c.avisouSemNtfy = true;
@@ -905,8 +843,10 @@ export class Motor {
 
   /**
    * Chamado periodicamente (ex.: a cada segundo). Sincroniza o estado retido
-   * após o arranque, executa reversões `durante_s`, verifica potências e, uma
-   * vez por minuto, automações por hora e aparelhos a pilhas silenciosos.
+   * após o arranque, trata dos temporizadores (reversões `durante_s`,
+   * sequências com `esperar`, atrasos do alarme, gatilhos "há X s", respostas
+   * dos aparelhos), potências e, uma vez por minuto, horas, sol, avisos,
+   * energia, saúde, simulação de presença e relatório.
    */
   tick() {
     try {
@@ -917,7 +857,13 @@ export class Motor {
         for (const codigo of codigos) this.sincronizar(this.cliente(codigo));
       }
       this.executarReversoes();
-      for (const c of this.clientes.values()) this.verificarPotencia(c);
+      this.executarSequencias();
+      for (const c of this.clientes.values()) {
+        this.verificarTemporizadoresAlarme(c);
+        this.verificarPotencia(c);
+        this.verificarDuracoes(c);
+        this.verificarEsperas(c);
+      }
 
       const minuto = Math.floor(agora / 60_000);
       if (this.ultimoMinuto === null) this.ultimoMinuto = minuto - 1;
@@ -927,6 +873,11 @@ export class Motor {
         for (let m = inicio; m <= minuto; m++) this.minuto(m * 60_000);
         this.ultimoMinuto = minuto;
       }
+      for (const c of this.clientes.values()) {
+        if (!this.sincronizados.has(c.codigo)) continue;
+        if (c.registoSujo) this.publicarRegisto(c);
+        if (c.saudeSuja) this.publicarSaude(c, false);
+      }
     } catch (e) {
       this.log.erro(`[tick] ${e.stack ?? e.message}`);
     }
@@ -935,21 +886,24 @@ export class Motor {
   /** Trabalho feito uma vez por minuto. @param {number} ms início do minuto (UTC) */
   minuto(ms) {
     const local = partesLocais(ms, FUSO);
-    const chave = `${local.data} ${local.hora}`;
     for (const c of this.clientes.values()) {
-      for (const a of c.automacoes ?? []) {
-        const q = a.quando;
-        if (q.tipo !== 'hora' || q.hora !== local.hora || !q.dias.includes(local.diaSemana)) continue;
-        // Na mudança de hora de outubro a mesma hora local repete-se: só uma vez.
-        if (c.horaDisparos[a.id] === chave) continue;
-        c.horaDisparos[a.id] = chave;
-        this.guardar();
-        this.executar(c, a, `hora ${local.hora}`);
+      const tarefas = [
+        () => this.minutoAutomacoes(c, ms, local),
+        () => this.verificarSilencio(c),
+        () => this.minutoSaude(c, ms, local),
+        () => this.minutoCasa(c, ms, local),
+      ];
+      for (const t of tarefas) {
+        try {
+          t();
+        } catch (e) {
+          this.log.erro(`[minuto] ${c.codigo}: ${e.stack ?? e.message}`);
+        }
       }
-      this.verificarSilencio(c);
     }
   }
 
+  /** Aparelhos a pilhas sem notícias há mais de 24 h (aviso v2). */
   verificarSilencio(c) {
     if (!c.aparelhos) return;
     const agora = this.relogio.agora();
@@ -958,8 +912,13 @@ export class Motor {
       const e = c.estado.get(ap.id);
       if (!e?.ultimaNoticia || e.avisoSilencio || agora - e.ultimaNoticia <= SILENCIO_MS) continue;
       e.avisoSilencio = true;
+      c.saudeSuja = true;
       const horas = Math.floor((agora - e.ultimaNoticia) / 3_600_000);
       this.evento(c, { tipo: 'aviso', titulo: 'Sem notícias', mensagem: `${ap.nome}: sem notícias há ${horas} h. Verifique as pilhas e o Wi-Fi.`, aparelho: ap.id }, true);
+      this.dispararSistema(c, 'aparelho_offline', ap);
+      this.gatilhoOffline(c, ap, e.ultimaNoticia);
     }
   }
 }
+
+Object.assign(Motor.prototype, metodosCasa, metodosAutomacoes, metodosSaude);

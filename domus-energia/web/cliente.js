@@ -1,9 +1,12 @@
 // Área de cliente — liga-se diretamente ao servidor MQTT da Domus Energia.
-// Protocolo: docs/PROTOCOLO-MQTT.md (v1) e docs/PROTOCOLO-MQTT-v2.md (canais, alarme, automações).
+// Protocolo: docs/PROTOCOLO-MQTT.md (v1), -v2.md (canais, alarme, automações) e -v3.md (modos,
+// cenas, registo das automações, saúde, energia, definições, relatório).
 // Todos os nomes e textos que vêm dos aparelhos ou do servidor entram só com textContent.
 import * as E from "./estado.js";
-import { criarIlustracao, atualizarIlustracao } from "./ilustracoes.js";
+import { criarIlustracao, atualizarIlustracao, criarIcone } from "./ilustracoes.js";
 import { criarAutomacoes } from "./automacoes.js";
+import { criarCenas } from "./cenas.js";
+import { desenharSaude, desenharRelatorio, copiarRelatorio, criarDefinicoes } from "./paineis.js";
 
 const cfg = window.DOMUS;
 const $ = (id) => document.getElementById(id);
@@ -25,18 +28,31 @@ let aparelhos = [];    // lerAparelhos(_aparelhos)
 let estados = {};      // id → estado bruto (estado.js)
 let pendentes = {};    // "id:n" → { esperado, qualquer, timer }
 let cartoes = {};      // id → { cartao, estado, detalhes, medidor, canais: { n → linha } }
-let alarme = null;     // { ativo, desde } de _alarme
-let alarmePendente = null; // { valor, timer }
+let alarme = null;     // lerAlarme(_alarme): v2 { ativo, desde } ou v3 { estado, tipo, ate, ignorados, … }
+let modo = null;       // lerModo(_modo) — só com o motor v3
+let modoPendente = null; // { modo, forcar, timer }
+let recusa = null;     // { modo, texto } — "Não armado: …" à espera de "Armar mesmo assim"
+let energia = null;    // lerEnergia(_energia)
+let saude = {};        // lerSaude(_saude)
+let secao = "casa";    // secção visível
 let historico = [];    // de _historico
 let vivos = [];        // de _eventos desde que entrou
 let rpcId = 0;
 const temporizadores = new Set();
 
+const publicarJson = (sufixo, obj) => publicar(`domus/${codigo}/${sufixo}`, JSON.stringify(obj));
+const ligadoServidor = () => !!cliente?.connected;
+const definicoes = criarDefinicoes({ publicar: publicarJson, ligado: ligadoServidor });
+const cenas = criarCenas({ publicar: publicarJson, ligado: ligadoServidor, aparelhos: () => aparelhos });
 const automacoes = criarAutomacoes({
-  publicar: (sufixo, obj) => publicar(`domus/${codigo}/${sufixo}`, JSON.stringify(obj)),
-  ligado: () => !!cliente?.connected,
+  publicar: publicarJson,
+  ligado: ligadoServidor,
   aparelhos: () => aparelhos,
+  cenas: () => cenas.lista(),
+  config: () => definicoes.config(),
 });
+const limiarEspera = () => definicoes.config()?.limiar_espera_w ?? E.LIMIAR_ESPERA_W;
+const modeloDe = (a, agora = Date.now()) => E.modelo(a, estados[a.id], agora, limiarEspera());
 
 // ---------- Sessão ----------
 $("form-login").addEventListener("submit", (e) => {
@@ -70,14 +86,26 @@ for (const s of separadores) {
     alvo.focus();
   });
 }
+const SECCOES = ["casa", "automacoes", "aparelhos", "historico", "relatorio", "definicoes"];
 function mostrarSeccao(nome) {
+  secao = nome;
+  // O relatório pertence à Casa; as Definições não têm separador.
+  const tab = nome === "relatorio" ? "casa" : nome;
   for (const s of separadores) {
-    const sel = s.dataset.sec === nome;
+    const sel = s.dataset.sec === tab;
     s.setAttribute("aria-selected", String(sel));
-    s.tabIndex = sel ? 0 : -1;
-    $(`sec-${s.dataset.sec}`).hidden = !sel;
+    s.tabIndex = sel || (nome === "definicoes" && s.dataset.sec === "casa") ? 0 : -1;
   }
+  for (const k of SECCOES) $(`sec-${k}`).hidden = k !== nome;
+  $("abrir-definicoes").classList.toggle("ativo", nome === "definicoes");
+  if (nome === "definicoes") $("abrir-definicoes").setAttribute("aria-current", "page"); else $("abrir-definicoes").removeAttribute("aria-current");
+  if (nome === "aparelhos") redesenharSaude();
+  if (nome === "relatorio") redesenharRelatorio();
 }
+$("abrir-definicoes").addEventListener("click", () => mostrarSeccao(secao === "definicoes" ? "casa" : "definicoes"));
+$("abrir-relatorio").addEventListener("click", () => { mostrarSeccao("relatorio"); $("relatorio-voltar").focus(); });
+$("relatorio-voltar").addEventListener("click", () => { mostrarSeccao("casa"); $("abrir-relatorio").focus(); });
+$("relatorio-copiar").addEventListener("click", copiarRelatorio);
 
 // Tempos relativos ("há 3 min") atualizam-se sozinhos.
 setInterval(() => {
@@ -85,7 +113,12 @@ setInterval(() => {
   for (const a of aparelhos) atualizar(a.id, false);
   desenharAlarme();
   desenharHistorico();
+  if (secao === "aparelhos") redesenharSaude();
 }, 20_000);
+// Contagem decrescente do alarme (a armar / entrada), uma vez por segundo.
+setInterval(() => {
+  if (entrou && (alarme?.estado === "a_armar" || alarme?.estado === "entrada")) desenharAlarme();
+}, 1000);
 
 function mostrarVista(autenticado) {
   $("vista-login").hidden = autenticado;
@@ -133,6 +166,7 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       desenharAlarme();
       desenharHistorico();
       automacoes.desenhar();
+      definicoes.desenhar();
     }
     estadoLigacao(true);
     c.subscribe(`domus/${cod}/#`, { qos: 1 }, (err) => {
@@ -170,7 +204,7 @@ function terminar() {
   for (const p of Object.values(pendentes)) clearTimeout(p.timer);
   for (const t of temporizadores) clearTimeout(t);
   temporizadores.clear();
-  clearTimeout(alarmePendente?.timer);
+  clearTimeout(modoPendente?.timer);
   codigo = null;
   entrou = false;
   aparelhos = [];
@@ -178,10 +212,18 @@ function terminar() {
   pendentes = {};
   cartoes = {};
   alarme = null;
-  alarmePendente = null;
+  modo = null;
+  modoPendente = null;
+  recusa = null;
+  energia = null;
+  saude = {};
   historico = [];
   vivos = [];
   automacoes.limpar();
+  cenas.limpar();
+  definicoes.limpar();
+  $("lista-saude").replaceChildren();
+  $("relatorio-conteudo").replaceChildren();
   $("lista").replaceChildren();
   $("lista-historico").replaceChildren();
   $("ntfy").hidden = true;
@@ -245,26 +287,57 @@ function receber(topico, texto, retido) {
   const resto = partes.slice(3).join("/");
 
   if (id.startsWith("_")) {
-    if (resto !== "") return; // ex.: _alarme/set, _automacoes/set, _fcm/registar
-    switch (id) {
+    // Pedidos (…/set, …/executar, _fcm/registar) são nossos ou de outras apps: ignorar.
+    if (resto !== "" && !(id === "_automacoes" && (resto === "registo" || resto === "avisos"))) return;
+    switch (resto ? `${id}/${resto}` : id) {
       case "_aparelhos":
         aparelhos = E.lerAparelhos(texto);
         desenhar();
         automacoes.desenhar();
+        cenas.desenhar();
         pedirEstadoShelly();
+        desenharAlarme();
         break;
       case "_alarme": {
         alarme = E.lerAlarme(texto);
-        if (alarmePendente && alarme?.ativo === alarmePendente.valor) {
-          clearTimeout(alarmePendente.timer);
-          alarmePendente = null;
-        }
+        // v2 (sem `_modo`): o pedido confirma-se pelo próprio `_alarme`.
+        if (modoPendente && !temV3() && alarme && alarme.ativo === (modoPendente.modo !== "casa")) resolverModo();
         desenharAlarme();
         resumo();
         break;
       }
+      case "_modo": {
+        modo = E.lerModo(texto);
+        if (modoPendente && modo?.modo === modoPendente.modo) resolverModo();
+        desenharAlarme();
+        break;
+      }
+      case "_config":
+        definicoes.receber(E.lerConfig(texto));
+        for (const a of aparelhos) atualizar(a.id, false);
+        resumo();
+        break;
+      case "_energia":
+        energia = E.lerEnergia(texto);
+        resumo();
+        break;
+      case "_saude":
+        saude = E.lerSaude(texto);
+        if (secao === "aparelhos") redesenharSaude();
+        if (secao === "relatorio") redesenharRelatorio();
+        break;
+      case "_cenas":
+        cenas.receberLista(E.lerCenas(texto), texto);
+        automacoes.desenhar();
+        break;
       case "_automacoes":
         automacoes.receberLista(E.lerAutomacoes(texto), texto);
+        break;
+      case "_automacoes/registo":
+        automacoes.receberRegisto(E.lerRegisto(texto));
+        break;
+      case "_automacoes/avisos":
+        automacoes.receberAvisos(E.lerAvisos(texto));
         break;
       case "_historico":
         historico = E.lerHistorico(texto);
@@ -279,7 +352,7 @@ function receber(topico, texto, retido) {
         vivos = vivos.slice(0, 100);
         E.notarHistorico(estados, [ev]);
         desenharHistorico();
-        if (ev.tipo === "erro") automacoes.receberErro(ev);
+        if (ev.tipo === "erro") receberErro(ev);
         if (ev.aparelho) atualizar(ev.aparelho);
         break;
       }
@@ -303,7 +376,7 @@ function receber(topico, texto, retido) {
     const chave = `${id}:${r.canal}`;
     const p = pendentes[chave];
     if (p) {
-      const m = E.modelo(a, estados[id]).canais.find((c) => c.n === r.canal);
+      const m = modeloDe(a).canais.find((c) => c.n === r.canal);
       if (p.qualquer || Object.entries(p.esperado).every(([k, v]) => m?.[k] === v)) {
         clearTimeout(p.timer);
         delete pendentes[chave];
@@ -335,7 +408,15 @@ function desenhar() {
     lista.appendChild(el("div", "cartao vazio", "Ainda não tem aparelhos associados. Contacte a Domus Energia."));
   }
 
-  for (const a of aparelhos) {
+  for (const g of E.agruparPorDivisao(aparelhos)) {
+    if (g.nome) lista.appendChild(el("h3", "divisao-titulo", g.nome));
+    for (const a of g.itens) desenharAparelho(lista, a);
+  }
+  resumo();
+}
+
+function desenharAparelho(lista, a) {
+  {
     const cartao = el("article", "cartao aparelho");
     cartao.dataset.id = a.id;
     const topo = el("div", "aparelho-topo");
@@ -362,7 +443,6 @@ function desenhar() {
     cartoes[a.id] = { cartao, estado, detalhes, medidor, canais };
     atualizar(a.id, false);
   }
-  resumo();
 }
 
 function rotuloCanal(a, c) {
@@ -461,7 +541,7 @@ function atualizar(id, comResumo = true) {
   const a = aparelhos.find((x) => x.id === id);
   if (k && a) {
     const agora = Date.now();
-    const m = E.modelo(a, estados[id], agora);
+    const m = modeloDe(a, agora);
     const disponivel = E.disponivel(m);
 
     // Estado do aparelho + medição
@@ -502,11 +582,11 @@ function atualizarLinha(a, c, linha, disponivel, agora) {
   const quando = (t) => (t ? ` · ${E.tempoRelativo(t, agora)}` : "");
   switch (c.funcao) {
     case "interruptor":
-      linha.estado.textContent = v.ligado == null ? "Sem informação" : v.ligado ? "Ligado" : "Desligado";
+      linha.estado.textContent = v.ligado == null ? "Sem informação" : v.ligado ? (c.emEspera && !p ? "Em espera" : "Ligado") : "Desligado";
       break;
     case "luz":
       linha.estado.textContent = v.ligado == null ? "Sem informação"
-        : v.ligado ? `Ligada${v.brilho != null ? ` · ${v.brilho} %` : ""}` : "Desligada";
+        : v.ligado ? `${c.emEspera && !p ? "Em espera" : "Ligada"}${v.brilho != null ? ` · ${v.brilho} %` : ""}` : "Desligada";
       if (!linha.brilho.input.dataset.arrastar) {
         linha.brilho.input.value = String(v.brilho ?? 100);
         linha.brilho.saida.textContent = v.brilho != null ? `${v.brilho} %` : "—";
@@ -550,6 +630,7 @@ function atualizarLinha(a, c, linha, disponivel, agora) {
       break;
     }
   }
+  linha.raiz.classList.toggle("em-espera", !!c.emEspera && !p);
   if (linha.sw) {
     linha.sw.input.checked = !!v.ligado;
     linha.sw.input.disabled = !disponivel || (!!p && "ligado" in p.esperado);
@@ -562,15 +643,15 @@ function atualizarLinha(a, c, linha, disponivel, agora) {
 // ---------- Resumo e fundo vivo ----------
 function resumo() {
   const agora = Date.now();
-  const ms = aparelhos.map((a) => E.modelo(a, estados[a.id], agora));
+  const ms = aparelhos.map((a) => modeloDe(a, agora));
   const r = E.resumo(ms, alarme);
   $("total-potencia").textContent = `${r.potenciaW.toFixed(0)} W`;
   $("total-ligados").textContent = `${r.ligados} / ${r.circuitos}`;
   $("total-online").textContent = `${r.online} / ${r.comLigacao}`;
   $("total-portas").textContent = r.portas ? String(r.portasAbertas) : "—";
   $("resumo-portas").classList.toggle("alerta", r.portasAbertas > 0 && !!alarme?.ativo);
-  $("total-alarme").textContent = alarme == null ? "—" : alarme.ativo ? "Ativo" : "Desligado";
-  $("resumo-alarme").classList.toggle("alerta", !!alarme?.ativo);
+  $("total-hoje").textContent = energia?.hojeKWh != null ? `${energia.hojeKWh.toFixed(1)} kWh` : "—";
+  $("hoje-rotulo").textContent = energia?.ontemKWh != null ? `Energia hoje · ontem ${energia.ontemKWh.toFixed(1)} kWh` : "Energia hoje";
 
   const f = E.fundoVivo(r);
   const painel = $("painel");
@@ -579,6 +660,16 @@ function resumo() {
   painel.style.setProperty("--alarme-on", String(f.alarme));
   painel.dataset.calor = f.calor.toFixed(2);
   painel.dataset.luzes = f.luzes.toFixed(2);
+  if (secao === "relatorio") redesenharRelatorio();
+}
+
+function redesenharSaude() {
+  const agora = Date.now();
+  desenharSaude(E.listaSaude(aparelhos.map((a) => modeloDe(a, agora)), saude, agora), agora);
+}
+function redesenharRelatorio() {
+  const agora = Date.now();
+  desenharRelatorio(E.construirRelatorio({ aparelhos, modelos: aparelhos.map((a) => modeloDe(a, agora)), saude, energia, modo, alarme, agora }));
 }
 
 // ---------- Comandos ----------
@@ -641,67 +732,153 @@ function mostrarErro(texto) {
   $("painel-erro").textContent = texto ?? "";
 }
 
-// ---------- Alarme ----------
+// ---------- Modo da casa e alarme (v3 §2; com o motor v2: só Casa/Fora via _alarme/set) ----------
 const ilusAlarme = criarIlustracao("alarme");
 $("alarme-ilus").append(ilusAlarme);
-
-function desenharAlarme() {
-  const ativo = alarmePendente ? alarmePendente.valor : !!alarme?.ativo;
-  $("alarme").classList.toggle("ativo", !!alarme?.ativo);
-  atualizarIlustracao(ilusAlarme, "alarme", { ativo: !!alarme?.ativo });
-  const estado = $("alarme-estado");
-  if (alarmePendente) estado.textContent = alarmePendente.valor ? "A ativar…" : "A desativar…";
-  else if (alarme == null) estado.textContent = "Estado desconhecido";
-  else if (alarme.ativo) {
-    const desde = alarme.desde ? new Date(alarme.desde).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Lisbon" }) : null;
-    estado.textContent = desde ? `Ativo desde as ${desde}` : "Ativo";
-  } else estado.textContent = "Desligado";
-  const botao = $("alarme-botao");
-  botao.textContent = ativo ? "Desativar" : "Ativar";
-  botao.className = ativo ? "btn sec" : "btn";
-  botao.disabled = !!alarmePendente || !$("alarme-confirmar").hidden;
+const TEMPO_MODO = 10_000;
+const DESC_MODO = { casa: "Desarmado", fora: "Alarme total", noite: "Portas e janelas", ferias: "Alarme + simulação" };
+const botoesModo = {};
+for (const m of E.MODOS) {
+  const b = el("button", "modo-opcao");
+  b.type = "button";
+  b.dataset.modo = m;
+  b.setAttribute("role", "radio");
+  b.setAttribute("aria-checked", "false");
+  const ic = el("span", "modo-icone");
+  ic.append(criarIcone(m));
+  b.append(ic, el("span", "modo-nome", E.NOME_MODO[m]), el("span", "modo-desc", DESC_MODO[m]));
+  b.addEventListener("click", () => pedirModo(m, false));
+  b.addEventListener("keydown", (e) => {
+    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
+    e.preventDefault();
+    const lista = E.MODOS.filter((x) => !botoesModo[x].disabled);
+    const i = lista.indexOf(m) + (e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1);
+    botoesModo[lista[(i + lista.length) % lista.length]]?.focus();
+  });
+  botoesModo[m] = b;
+  $("modo-seletor").append(b);
 }
 
-$("alarme-botao").addEventListener("click", () => {
-  const querAtivar = !alarme?.ativo;
-  $("alarme-pergunta").textContent = querAtivar
-    ? "Ativar o alarme? Portas a abrir e movimento passam a enviar alertas para o telemóvel."
-    : "Desativar o alarme? Deixa de receber alertas de portas e movimento.";
-  $("alarme-sim").textContent = querAtivar ? "Sim, ativar" : "Sim, desativar";
-  $("alarme-sim").className = querAtivar ? "btn" : "btn perigo";
-  $("alarme-sim").dataset.valor = querAtivar ? "1" : "0";
-  $("alarme-confirmar").hidden = false;
-  desenharAlarme();
-  $("alarme-sim").focus();
-});
-$("alarme-nao").addEventListener("click", () => {
-  $("alarme-confirmar").hidden = true;
-  desenharAlarme();
-  $("alarme-botao").focus();
-});
-$("alarme-sim").addEventListener("click", () => {
-  $("alarme-confirmar").hidden = true;
-  const valor = $("alarme-sim").dataset.valor === "1";
-  if (!publicar(`domus/${codigo}/_alarme/set`, JSON.stringify({ ativo: valor }))) {
-    mostrarErro("Sem ligação ao servidor. Tente de novo daqui a pouco.");
-    desenharAlarme();
-    return;
-  }
+// v3 quando o motor publica `_modo` (ou um `_alarme` com `estado`).
+const temV3 = () => modo != null || !!alarme?.v3;
+function modoAtual() {
+  if (modo) return modo.modo;
+  if (alarme) return alarme.ativo ? "fora" : "casa";
+  return null;
+}
+
+function pedirModo(m, forcar) {
+  if (!cliente?.connected) { mostrarErro("Sem ligação ao servidor. Tente de novo daqui a pouco."); return; }
+  if (!forcar && m === modoAtual() && !modoPendente) return;
   mostrarErro(null);
-  clearTimeout(alarmePendente?.timer);
-  alarmePendente = {
-    valor,
+  recusa = null;
+  let ok;
+  if (temV3()) ok = publicarJson("_modo/set", { modo: m, forcar: !!forcar, por: "web" });
+  else {
+    if (m !== "casa" && m !== "fora") return;
+    ok = publicarJson("_alarme/set", { ativo: m === "fora" });
+  }
+  if (!ok) return;
+  clearTimeout(modoPendente?.timer);
+  modoPendente = {
+    modo: m,
+    forcar: !!forcar,
     timer: setTimeout(() => {
-      alarmePendente = null;
-      mostrarErro("O alarme não respondeu. Tente de novo daqui a pouco.");
+      modoPendente = null;
+      mostrarErro("O servidor não respondeu à mudança de modo. Tente de novo daqui a pouco.");
       desenharAlarme();
-    }, TEMPO_CONFIRMACAO),
+    }, TEMPO_MODO),
   };
   desenharAlarme();
-});
+}
+function resolverModo() {
+  clearTimeout(modoPendente?.timer);
+  modoPendente = null;
+}
+
+// Eventos `erro` do motor: "Não armado: …" é da mudança de modo; o resto vai para quem estiver à espera.
+function receberErro(ev) {
+  const texto = ev.mensagem || ev.titulo || "";
+  if (modoPendente && /^N[ãa]o armado/i.test(texto)) {
+    recusa = { modo: modoPendente.modo, texto };
+    resolverModo();
+    desenharAlarme();
+    $("modo-forcar").focus();
+    return;
+  }
+  if (automacoes.receberErro(ev) || cenas.receberErro(ev) || definicoes.receberErro(ev)) return;
+  if (modoPendente) { resolverModo(); mostrarErro(texto || "O servidor recusou a mudança de modo."); desenharAlarme(); }
+}
+$("modo-forcar").addEventListener("click", () => { if (recusa) pedirModo(recusa.modo, true); });
+$("modo-recusa-cancelar").addEventListener("click", () => { recusa = null; desenharAlarme(); });
+$("alarme-desarmar").addEventListener("click", () => pedirModo("casa", false));
+
+function desenharAlarme() {
+  const v3 = temV3();
+  const atual = modoAtual();
+  const est = alarme?.estado ?? null;
+  const cartao = $("modos");
+  cartao.classList.toggle("ativo", !!alarme?.ativo);
+  cartao.classList.toggle("disparado", est === "disparado");
+  cartao.classList.toggle("entrada", est === "entrada");
+  cartao.dataset.estado = est ?? "";
+  atualizarIlustracao(ilusAlarme, "alarme", { ativo: !!alarme?.ativo });
+
+  const alvo = modoPendente ? modoPendente.modo : atual;
+  for (const m of E.MODOS) {
+    const b = botoesModo[m];
+    const sel = alvo === m;
+    b.setAttribute("aria-checked", String(sel));
+    b.tabIndex = sel || (!alvo && m === "casa") ? 0 : -1;
+    b.classList.toggle("pendente", !!modoPendente && modoPendente.modo === m);
+    // Com o motor v2 só há Casa (desarmado) e Fora (alarme ativo).
+    const soV3 = !v3 && (m === "noite" || m === "ferias");
+    b.disabled = !!modoPendente || atual == null || soV3;
+    b.title = soV3 ? "Disponível quando o servidor for atualizado" : "";
+  }
+
+  const agora = Date.now();
+  const hora = (t) => (t ? E.horaLisboa(t) : null);
+  const estado = $("alarme-estado");
+  if (modoPendente) estado.textContent = `A mudar para ${E.NOME_MODO[modoPendente.modo]}${modoPendente.forcar ? " (ignorando o que está aberto)" : ""}…`;
+  else if (!alarme && !modo) estado.textContent = "Estado desconhecido";
+  else if (!v3) estado.textContent = alarme.ativo ? (alarme.desde ? `Alarme ativo desde as ${hora(alarme.desde)}` : "Alarme ativo") : "Alarme desligado";
+  else {
+    const t = {
+      desarmado: "Alarme desarmado",
+      a_armar: `A armar — saia até às ${hora(alarme?.ate) ?? "…"}`,
+      armado: `Alarme armado (${alarme?.tipo === "perimetro" ? "portas e janelas" : "total"})${alarme?.desde ? ` desde as ${hora(alarme.desde)}` : ""}`,
+      entrada: "Porta aberta — desarme o alarme",
+      disparado: `ALARME DISPARADO${alarme?.desde ? ` às ${hora(alarme.desde)}` : ""}`,
+    }[est] ?? "";
+    estado.textContent = t || (modo ? `Modo ${E.NOME_MODO[modo.modo]}` : "");
+  }
+
+  // Contagem decrescente (a armar / entrada) e disparado
+  const cont = $("alarme-contagem");
+  if (v3 && (est === "a_armar" || est === "entrada" || est === "disparado")) {
+    cont.hidden = false;
+    cont.className = `alarme-contagem ${est}`;
+    $("contagem-titulo").textContent = est === "a_armar" ? "Tempo para sair" : est === "entrada" ? "Desarme o alarme" : "Alarme disparado!";
+    $("contagem-valor").textContent = est === "disparado" ? "" : E.contagem(alarme.ate, agora) ?? "";
+    $("contagem-valor").hidden = est === "disparado";
+    $("alarme-desarmar").hidden = est === "a_armar";
+    $("alarme-desarmar").disabled = !!modoPendente;
+  } else cont.hidden = true;
+
+  // Aberturas ignoradas ao armar com "forcar"
+  const ign = $("alarme-ignorados");
+  const nomes = (alarme?.ignorados ?? []).map((x) => (x.canal != null ? E.nomeCanal(aparelhos, x.aparelho, x.canal) : aparelhos.find((a) => a.id === x.aparelho)?.nome ?? x.aparelho));
+  ign.hidden = !(v3 && alarme?.ativo && nomes.length);
+  ign.textContent = nomes.length ? `Ignorado pelo alarme (estava aberto ao armar): ${nomes.join(", ")}` : "";
+
+  // Recusa "Não armado: …"
+  $("modo-recusa").hidden = !recusa;
+  if (recusa) $("modo-recusa-texto").textContent = `${recusa.texto} Feche e tente de novo, ou arme o modo ${E.NOME_MODO[recusa.modo]} ignorando o que está aberto.`;
+}
 
 // ---------- Histórico ----------
-const ROTULO_EVENTO = { alarme: "Alarme", sensor: "Sensor", automacao: "Automação", aviso: "Aviso", erro: "Erro" };
+const ROTULO_EVENTO = { alarme: "Alarme", sensor: "Sensor", automacao: "Automação", aviso: "Aviso", erro: "Erro", modo: "Modo" };
 function desenharHistorico() {
   const ul = $("lista-historico");
   const eventos = E.juntarEventos(historico, vivos);

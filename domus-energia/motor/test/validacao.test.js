@@ -33,9 +33,10 @@ test('rejeita listas e campos inválidos com mensagens claras', () => {
   assert.match(erro([autoLuzCorredor({ id: 'Maiúsculas' })]), /"id" inválido/);
   assert.match(erro([autoLuzCorredor({ id: 'x'.repeat(41) })]), /"id" inválido/);
   assert.match(erro([autoLuzCorredor(), autoLuzCorredor()]), /mesmo id "luz-corredor"/);
-  assert.match(erro([autoLuzCorredor({ entao: [] })]), /entre 1 e 10 ações/);
-  const onze = Array.from({ length: 11 }, () => ({ acao: 'notificar', mensagem: 'x' }));
-  assert.match(erro([autoLuzCorredor({ entao: onze })]), /entre 1 e 10 ações/);
+  // v3: máximo 20 ações (eram 10 na v2).
+  assert.match(erro([autoLuzCorredor({ entao: [] })]), /entre 1 e 20 ações/);
+  const vinteEUma = Array.from({ length: 21 }, () => ({ acao: 'notificar', mensagem: 'x' }));
+  assert.match(erro([autoLuzCorredor({ entao: vinteEUma })]), /entre 1 e 20 ações/);
   assert.match(erro([autoLuzCorredor({ extra: 1 })]), /campo desconhecido "extra"/);
   assert.match(erro([autoLuzCorredor({ ativa: 'sim' })]), /"ativa" tem de ser true ou false/);
 });

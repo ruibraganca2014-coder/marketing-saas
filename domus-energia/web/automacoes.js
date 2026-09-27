@@ -1,19 +1,15 @@
-// Separador "Automações": lista retida `_automacoes`, ativar/desativar, criar, editar e apagar.
+// Separador "Automações": lista retida `_automacoes`, ativar/desativar, assistente de criação
+// em 5 passos (guia da Vesternet, docs/AUTOMACOES-v3.md §4), modelos prontos, registo,
+// "Testar agora" / "Avaliar agora" / "Executar" e avisos de conflito (PROTOCOLO-MQTT-v3.md §8).
 // Guardar publica a LISTA COMPLETA em `_automacoes/set`; o motor valida e volta a publicar
 // `_automacoes` (sucesso) ou um evento `erro` em `_eventos` (a lista não muda).
 import * as E from "./estado.js";
+import { el, botao, select, campo, input, caixa, chips, separar, hhmm, opcoesCanais, GRUPOS_SENSOR, DIAS, OPCOES_MODO, editorCondicoes, criarContexto, linhaAcao, listaAcoes } from "./editor.js";
+import { MODELOS, aplicarModelo } from "./modelos.js";
 
 const $ = (id) => document.getElementById(id);
-const el = (tag, cls, texto) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (texto != null) e.textContent = texto;
-  return e;
-};
 const TEMPO_MOTOR = 10_000;
 const MAX_AUTOMACOES = 50;
-const MAX_ACOES = 10;
-const DIAS = [[1, "Seg"], [2, "Ter"], [3, "Qua"], [4, "Qui"], [5, "Sex"], [6, "Sáb"], [7, "Dom"]];
 
 const ICONE_CADEADO = () => {
   const ns = "http://www.w3.org/2000/svg";
@@ -27,14 +23,20 @@ const ICONE_CADEADO = () => {
   svg.append(r, p);
   return svg;
 };
+export { ICONE_CADEADO };
 
-export function criarAutomacoes({ publicar, ligado, aparelhos }) {
+const PASSOS = ["Objetivo", "Gatilho", "Ação", "Condições", "Vários aparelhos"];
+
+export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [], config = () => null }) {
   let lista = null;          // última lista retida (null = ainda não chegou)
   let textoAtual = null;     // JSON dessa lista, para detetar mudanças
   let guardando = null;      // { anterior, timer, aoTerminar }
   let aEditar = null;        // null | { original: automação | null }
   let aApagar = null;        // id com confirmação aberta
   let msgTimer = null;
+  let registo = {};          // lerRegisto(_automacoes/registo)
+  let avisos = [];           // lerAvisos(_automacoes/avisos)
+  const pedidos = {};        // id → { tipo, antes, timer, texto, classe }
 
   // ---------- estado / mensagens ----------
   function estado(texto, tipo = "info") {
@@ -78,37 +80,123 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
     desenhar();
   }
 
+  // Devolve true se o erro era para nós.
   function receberErro(ev) {
-    if (!guardando) return;
+    if (!guardando) return false;
     clearTimeout(guardando.timer);
     guardando = null;
     estado(ev.mensagem || ev.titulo || "O servidor recusou a automação.", "erro");
     desenhar();
+    return true;
+  }
+
+  function receberRegisto(r) {
+    registo = r ?? {};
+    for (const [id, p] of Object.entries(pedidos)) {
+      if (!p.timer) continue;
+      const agora = registo[id];
+      if (JSON.stringify(agora ?? null) === p.antes) continue;
+      clearTimeout(p.timer);
+      p.timer = null;
+      if (p.tipo === "avaliar") {
+        const av = agora?.avaliacao;
+        if (av?.verdadeira === true) { p.texto = `Neste momento a automação executaria: as condições são verdadeiras.${av.motivo ? ` ${av.motivo}` : ""}`; p.classe = "ok"; }
+        else if (av?.verdadeira === false) { p.texto = `Neste momento não executaria: ${av.motivo || "uma condição é falsa."}`; p.classe = "info"; }
+        else { p.texto = av?.motivo || "Avaliação recebida."; p.classe = "info"; }
+      } else {
+        const res = E.RESULTADOS[agora?.resultado] ?? agora?.resultado ?? "";
+        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}: ${res}${agora?.motivo ? ` — ${agora.motivo}` : ""}`;
+        p.classe = agora?.resultado === "falhou" ? "erro" : "ok";
+      }
+    }
+    desenharSeLivre();
+  }
+  function receberAvisos(a) { avisos = a ?? []; desenharSeLivre(); }
+  // Não redesenhar a lista enquanto há uma confirmação de apagar aberta? Pode — é estado nosso.
+  function desenharSeLivre() { if (lista != null) desenhar(); }
+
+  function pedirExecutar(id, tipo) {
+    if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return false; }
+    clearTimeout(pedidos[id]?.timer);
+    const p = { tipo, antes: JSON.stringify(registo[id] ?? null), texto: tipo === "avaliar" ? "A avaliar…" : tipo === "testar" ? "A testar…" : "A executar…", classe: "info" };
+    p.timer = setTimeout(() => { p.timer = null; p.texto = "O servidor não respondeu. Tente de novo."; p.classe = "erro"; desenharSeLivre(); }, TEMPO_MOTOR);
+    pedidos[id] = p;
+    const corpo = tipo === "testar" ? { id, testar: true } : tipo === "avaliar" ? { id, avaliar: true } : { id };
+    publicar("_automacoes/executar", corpo);
+    desenharSeLivre();
+    return true;
   }
 
   function limpar() {
     clearTimeout(guardando?.timer);
     clearTimeout(msgTimer);
+    for (const p of Object.values(pedidos)) clearTimeout(p.timer);
+    for (const k of Object.keys(pedidos)) delete pedidos[k];
     lista = null;
     textoAtual = null;
     guardando = null;
     aEditar = null;
     aApagar = null;
-    const caixa = $("form-automacao-caixa");
-    if (caixa) caixa.replaceChildren();
+    registo = {};
+    avisos = [];
+    const caixaF = $("form-automacao-caixa");
+    if (caixaF) caixaF.replaceChildren();
     const l = $("lista-automacoes");
     if (l) l.replaceChildren();
     const m = $("auto-estado");
     if (m) m.hidden = true;
+    const av = $("auto-avisos");
+    if (av) av.replaceChildren();
   }
 
   // ---------- lista ----------
+  function linhaRegisto(a) {
+    const r = registo[a.id];
+    const caixaR = el("div", "registo");
+    const agora = Date.now();
+    if (!r || r.ultima == null) {
+      caixaR.append(el("span", "registo-linha", "Nunca disparou."));
+    } else {
+      const res = E.RESULTADOS[r.resultado] ?? r.resultado ?? "";
+      const linha = el("span", `registo-linha resultado-${r.resultado ?? "x"}`);
+      linha.textContent = `Última execução ${E.tempoRelativo(r.ultima, agora)} (${E.horaLisboa(r.ultima)}) · ${res}${r.teste && r.resultado !== "teste" ? " (teste)" : ""}`;
+      caixaR.append(linha);
+      if (r.motivo) caixaR.append(el("span", "registo-motivo", r.motivo));
+    }
+    if (r?.semana != null) caixaR.append(el("span", "registo-semana", `${r.semana} ${r.semana === 1 ? "execução" : "execuções"} esta semana`));
+    if (r?.resultado === "pausada") {
+      const p = el("div", "pausa");
+      p.textContent = `Em pausa: ${r.motivo || "alguém mexeu num aparelho à mão."}${a.ignorar_pausa ? "" : " A automação volta sozinha quando a pausa acabar."}`;
+      caixaR.append(p);
+    }
+    if (r?.ultimos?.length) {
+      const d = el("details", "ultimos");
+      d.append(el("summary", null, `Últimas ${r.ultimos.length} execuções`));
+      const ul = el("ul");
+      for (const u of r.ultimos) {
+        ul.append(el("li", null, `${u.ts ? new Date(u.ts).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · ${E.RESULTADOS[u.resultado] ?? u.resultado}${u.motivo ? ` — ${u.motivo}` : ""}`));
+      }
+      d.append(ul);
+      caixaR.append(d);
+    }
+    return caixaR;
+  }
+
   function desenhar() {
     const l = $("lista-automacoes");
     l.replaceChildren();
     $("nova-automacao").disabled = !!guardando || !!aEditar || lista == null || lista.length >= MAX_AUTOMACOES;
     const formBotao = document.querySelector("#form-automacao button[type=submit]");
     if (formBotao) { formBotao.disabled = !!guardando; formBotao.textContent = guardando ? "A guardar…" : "Guardar"; }
+
+    // Avisos de conflito (não bloqueiam)
+    const av = $("auto-avisos");
+    av.replaceChildren();
+    for (const x of avisos) {
+      const d = el("div", "msg info aviso-conflito");
+      d.textContent = `Atenção: ${x.mensagem}`;
+      av.append(d);
+    }
 
     if (lista == null) { l.append(el("p", "vazio", "A carregar automações…")); return; }
     if (lista.length === 0) { l.append(el("p", "vazio", "Ainda não tem automações. Crie a primeira com \"Nova automação\".")); return; }
@@ -118,48 +206,65 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
       const topo = el("div", "automacao-topo");
       topo.append(el("b", null, String(a.nome ?? a.id)));
       const sw = el("label", "interruptor");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = a.ativa !== false;
-      input.disabled = !!guardando;
-      input.setAttribute("aria-label", `Automação ${a.nome ?? a.id} ativa`);
-      input.addEventListener("change", () => {
-        const nova = lista.map((x) => (x.id === a.id ? { ...x, ativa: input.checked } : x));
+      const inp = document.createElement("input");
+      inp.type = "checkbox";
+      inp.checked = a.ativa !== false;
+      inp.disabled = !!guardando;
+      inp.setAttribute("aria-label", `Automação ${a.nome ?? a.id} ativa`);
+      inp.addEventListener("change", () => {
+        const nova = lista.map((x) => (x.id === a.id ? { ...x, ativa: inp.checked } : x));
         guardar(nova);
       });
-      sw.append(input, document.createElement("span"));
+      sw.append(inp, document.createElement("span"));
       topo.append(sw);
       cartao.append(topo);
-      cartao.append(el("p", "descricao", E.descreverAutomacao(a, aparelhos())));
+      if (E.CATEGORIAS.includes(a.categoria)) cartao.append(el("span", `categoria categoria-${a.categoria}`, E.NOME_CATEGORIA[a.categoria]));
+      if (a.descricao) cartao.append(el("p", "objetivo", String(a.descricao)));
+      cartao.append(el("p", "descricao", E.descreverAutomacao(a, aparelhos(), cenas())));
+      for (const x of avisos.filter((x) => x.ids.includes(a.id))) cartao.append(el("p", "aviso-conflito-cartao", `Conflito: ${x.mensagem}`));
+      cartao.append(linhaRegisto(a));
+      const p = pedidos[a.id];
+      if (p) {
+        const m = el("div", `msg ${p.classe} resultado-pedido`, p.texto);
+        m.setAttribute("role", "status");
+        cartao.append(m);
+      }
       if (a.bloqueada) {
         const c = el("span", "cadeado");
         c.append(ICONE_CADEADO(), document.createTextNode("Criada pela Domus Energia"));
         cartao.append(c);
-      } else if (aApagar === a.id) {
+      }
+      if (aApagar === a.id && !a.bloqueada) {
         const conf = el("div", "confirmar");
         conf.append(el("p", null, `Apagar a automação "${a.nome ?? a.id}"?`));
         const b = el("div", "botoes");
-        const sim = el("button", "btn perigo pequeno", "Sim, apagar");
-        sim.type = "button";
+        const sim = botao("Sim, apagar", "btn perigo pequeno", () => { aApagar = null; guardar(lista.filter((x) => x.id !== a.id)); });
         sim.disabled = !!guardando;
-        sim.addEventListener("click", () => { aApagar = null; guardar(lista.filter((x) => x.id !== a.id)); });
-        const nao = el("button", "btn sec pequeno", "Cancelar");
-        nao.type = "button";
-        nao.addEventListener("click", () => { aApagar = null; desenhar(); });
-        b.append(sim, nao);
+        b.append(sim, botao("Cancelar", "btn sec pequeno", () => { aApagar = null; desenhar(); }));
         conf.append(b);
         cartao.append(conf);
       } else {
         const b = el("div", "botoes");
-        const editar = el("button", "btn sec pequeno", "Editar");
-        editar.type = "button";
-        editar.disabled = !!guardando || !!aEditar;
-        editar.addEventListener("click", () => abrirForm(a));
-        const apagar = el("button", "btn sec pequeno", "Apagar");
-        apagar.type = "button";
-        apagar.disabled = !!guardando || !!aEditar;
-        apagar.addEventListener("click", () => { aApagar = a.id; desenhar(); });
-        b.append(editar, apagar);
+        const ocupado = !!p?.timer;
+        if (a.quando?.tipo === "manual") {
+          const ex = botao("Executar", "btn pequeno", () => pedirExecutar(a.id, "executar"));
+          ex.disabled = ocupado || a.ativa === false;
+          b.append(ex);
+        }
+        const testar = botao("Testar agora", "btn sec pequeno", () => pedirExecutar(a.id, "testar"));
+        testar.disabled = ocupado;
+        testar.title = "Executa as ações já, sem esperar pelo gatilho nem ver as condições";
+        const avaliar = botao("Avaliar agora", "btn sec pequeno", () => pedirExecutar(a.id, "avaliar"));
+        avaliar.disabled = ocupado;
+        avaliar.title = "Diz se as condições são verdadeiras neste momento, sem executar";
+        b.append(testar, avaliar);
+        if (!a.bloqueada) {
+          const editar = botao("Editar", "btn sec pequeno", () => abrirForm(a));
+          editar.disabled = !!guardando || !!aEditar;
+          const apagar = botao("Apagar", "btn sec pequeno", () => { aApagar = a.id; desenhar(); });
+          apagar.disabled = !!guardando || !!aEditar;
+          b.append(editar, apagar);
+        }
         cartao.append(b);
       }
       l.append(cartao);
@@ -168,80 +273,112 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
 
   $("nova-automacao").addEventListener("click", () => abrirForm(null));
 
-  // ---------- formulário ----------
-  const opcoesCanais = (funcoes) => {
-    const r = [];
-    for (const a of aparelhos()) for (const c of a.canais) {
-      if (!funcoes.includes(c.funcao)) continue;
-      const nome = c.temNome && a.canais.length > 1 ? `${a.nome} · ${c.nome}` : c.temNome ? c.nome : a.nome;
-      r.push({ valor: `${a.id}:${c.n}`, texto: nome, funcao: c.funcao });
-    }
-    return r;
-  };
-  const opcoesMedidores = () => aparelhos().filter((a) => a.medidor || a.v1).map((a) => ({ valor: a.id, texto: a.nome }));
-
-  function select(nome, opcoes, valor) {
-    const s = document.createElement("select");
-    s.name = nome;
-    for (const o of opcoes) {
-      const op = el("option", null, o.texto);
-      op.value = o.valor;
-      s.append(op);
-    }
-    if (valor != null && !opcoes.some((o) => o.valor === valor)) {
-      const op = el("option", null, `${valor} (desconhecido)`);
-      op.value = valor;
-      s.append(op);
-    }
-    if (valor != null) s.value = valor;
-    return s;
-  }
-  function campo(rotulo, controlo) {
-    const l = el("label", null, rotulo);
-    l.append(controlo);
-    return l;
-  }
-  function input(nome, tipo, valor, extra = {}) {
-    const i = document.createElement("input");
-    i.name = nome;
-    i.type = tipo;
-    if (valor != null) i.value = String(valor);
-    Object.entries(extra).forEach(([k, v]) => i.setAttribute(k, v));
-    return i;
-  }
-
-  function abrirForm(original) {
+  // ---------- assistente ----------
+  function abrirForm(original, preenchida = null, avisoModelo = null) {
     aEditar = { original };
     aApagar = null;
     estado(null);
-    const caixa = $("form-automacao-caixa");
-    caixa.replaceChildren();
-    const a = original ?? { ativa: true, quando: { tipo: "sensor" }, entao: [{ acao: "ligar" }] };
+    const caixaF = $("form-automacao-caixa");
+    caixaF.replaceChildren();
+    const a = original ?? preenchida ?? { ativa: true, quando: { tipo: "sensor" }, entao: [{ acao: "ligar" }] };
+    const aps = aparelhos();
+    const cfg = config();
 
-    const form = el("form", "cartao form-automacao");
+    const form = el("form", "cartao form-automacao assistente");
     form.id = "form-automacao";
     form.noValidate = true;
     form.append(el("h3", null, original ? "Editar automação" : "Nova automação"));
-    form.append(campo("Nome", input("nome", "text", a.nome ?? "", { maxlength: "60", required: "", autocomplete: "off" })));
-    const ativa = el("label", "caixa");
-    const ativaI = input("ativa", "checkbox");
-    ativaI.checked = a.ativa !== false;
-    ativa.append(ativaI, document.createTextNode("Ativa"));
-    form.append(ativa);
 
-    // Quando
-    const fsQuando = el("fieldset");
-    fsQuando.append(el("legend", null, "Quando"));
+    // Indicador de passos (clicável: pode saltar para qualquer passo)
+    const nav = el("ol", "passos-assistente");
+    nav.setAttribute("aria-label", "Passos do assistente");
+    const botoesPasso = PASSOS.map((t, i) => {
+      const li = el("li");
+      const b = botao(null, "passo", () => irPara(i));
+      b.dataset.passo = String(i + 1);
+      b.append(el("span", "passo-n", String(i + 1)), el("span", "passo-t", t));
+      li.append(b);
+      nav.append(li);
+      return b;
+    });
+    form.append(nav);
+    const paineis = PASSOS.map((t, i) => {
+      const f = el("fieldset", "passo-painel");
+      f.dataset.passo = String(i + 1);
+      f.append(el("legend", null, `${i + 1}. ${t}`));
+      return f;
+    });
+
+    // ----- Passo 1: Objetivo -----
+    const p1 = paineis[0];
+    if (!original) {
+      const mod = el("div", "modelos");
+      mod.append(el("span", "rotulo-campo", "Começar de um modelo pronto (opcional)"));
+      const grelha = el("div", "modelos-grelha");
+      for (const m of MODELOS) {
+        const b = botao(null, "modelo", () => {
+          const r = aplicarModelo(m.id, { aparelhos: aparelhos(), config: config() });
+          if (r.automacao) { abrirForm(null, r.automacao, `Modelo "${m.titulo}" aplicado com os seus aparelhos. Reveja os passos e carregue em Guardar.`); return; }
+          modeloMsg.hidden = false;
+          modeloMsg.className = r.info ? "msg info" : "msg erro";
+          modeloMsg.textContent = r.info ?? r.falta;
+        });
+        b.dataset.modelo = m.id;
+        b.append(el("b", null, m.titulo), el("small", null, m.resumo));
+        grelha.append(b);
+      }
+      const modeloMsg = el("div", "msg info");
+      modeloMsg.id = "modelo-msg";
+      modeloMsg.setAttribute("role", "status");
+      modeloMsg.hidden = !avisoModelo;
+      if (avisoModelo) { modeloMsg.textContent = avisoModelo; modeloMsg.className = "msg ok"; }
+      mod.append(grelha, modeloMsg);
+      p1.append(mod);
+    }
+    p1.append(campo("Nome", input("nome", "text", a.nome ?? "", { maxlength: "60", required: "", autocomplete: "off" })));
+    const catG = el("div", "grupo-campo");
+    catG.append(el("span", "rotulo-campo", "Categoria"));
+    const catChips = el("div", "dias categorias");
+    catChips.setAttribute("role", "radiogroup");
+    catChips.setAttribute("aria-label", "Categoria");
+    for (const [v, t] of [["", "Sem categoria"], ...E.CATEGORIAS.map((c) => [c, E.NOME_CATEGORIA[c]])]) {
+      const l = el("label");
+      const r = input("categoria", "radio", v);
+      r.checked = (a.categoria ?? "") === v;
+      l.append(r, document.createTextNode(t));
+      catChips.append(l);
+    }
+    catG.append(catChips);
+    p1.append(catG);
+    const desc = document.createElement("textarea");
+    desc.name = "descricao";
+    desc.maxLength = 200;
+    desc.rows = 2;
+    desc.placeholder = "Ex.: Acender a luz do corredor quando alguém passa, só à noite.";
+    desc.value = a.descricao ?? "";
+    p1.append(campo("Frase-objetivo (o que quer que aconteça)", desc, "Ajuda a lembrar mais tarde para que serve. Até 200 caracteres."));
+    const ativa = caixa("ativa", "Ativa", a.ativa !== false);
+    p1.append(ativa.label);
+
+    // ----- Passo 2: Gatilho -----
+    const p2 = paineis[1];
     const q = a.quando ?? {};
     const tipo = select("quando-tipo", [
-      { valor: "sensor", texto: "Um sensor muda" },
+      { valor: "sensor", texto: "Um aparelho muda de estado (sensor, interruptor)" },
       { valor: "hora", texto: "A uma hora certa" },
+      { valor: "sol", texto: "Ao nascer ou pôr do sol" },
+      { valor: "presenca", texto: "Quando alguém chega ou sai" },
+      { valor: "modo", texto: "Quando a casa muda de modo" },
       { valor: "potencia", texto: "O consumo passa um limite" },
+      { valor: "sistema", texto: "Um evento do sistema (offline, energia reposta)" },
+      { valor: "manual", texto: "Só quando eu carregar em Executar" },
     ], q.tipo ?? "sensor");
-    fsQuando.append(campo("Dispara quando", tipo));
+    p2.append(campo("Dispara quando", tipo));
 
-    const sensores = opcoesCanais(["porta", "movimento"]);
-    const pSensor = el("div");
+    // sensor
+    const ordem = { porta: 0, movimento: 1, interruptor: 2, luz: 2 };
+    const sensores = opcoesCanais(aps, ["porta", "movimento", "interruptor", "luz"], GRUPOS_SENSOR).sort((x, y) => ordem[x.funcao] - ordem[y.funcao]);
+    const pSensor = el("div", "sub-painel");
     const sensorSel = select("quando-sensor", sensores, q.tipo === "sensor" && q.aparelho ? `${q.aparelho}:${q.canal}` : sensores[0]?.valor);
     const valorSel = document.createElement("select");
     valorSel.name = "quando-valor";
@@ -249,36 +386,45 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
       const f = sensores.find((s) => s.valor === sensorSel.value)?.funcao;
       const atual = valorSel.value || (q.tipo === "sensor" && q.valor != null ? String(q.valor) : "1");
       valorSel.replaceChildren();
-      const ops = f === "porta" ? [["1", "Abre"], ["0", "Fecha"]] : f === "movimento" ? [["1", "Deteta movimento"], ["0", "Deixa de detetar movimento"]] : [["1", "Fica ativo"], ["0", "Fica inativo"]];
+      const ops = f === "porta" ? [["1", "Abre"], ["0", "Fecha"]] : f === "movimento" ? [["1", "Deteta movimento"], ["0", "Deixa de detetar movimento"]]
+        : f === "interruptor" || f === "luz" ? [["1", "É ligado"], ["0", "É desligado"]] : [["1", "Fica ativo"], ["0", "Fica inativo"]];
       for (const [v, t] of ops) { const o = el("option", null, t); o.value = v; valorSel.append(o); }
       valorSel.value = atual;
     };
     sensorSel.addEventListener("change", atualizarValores);
     atualizarValores();
-    pSensor.className = "duas";
-    pSensor.append(campo("Sensor", sensorSel), campo("E", valorSel));
+    const duasS = el("div", "duas");
+    duasS.append(campo("Aparelho", sensorSel), campo("E", valorSel));
+    const sensorDurante = input("quando-sensor-durante", "number", q.tipo === "sensor" && q.durante_s ? +(q.durante_s / 60).toFixed(2) : "", { min: "0", step: "any", inputmode: "decimal", placeholder: "logo" });
+    pSensor.append(duasS, campo("E fica assim durante (minutos, opcional)", sensorDurante, "Ex.: \"deixa de detetar movimento\" durante 10 min = sem movimento há 10 min."));
 
-    const pHora = el("div");
-    pHora.style.display = "grid";
-    pHora.style.gap = "12px";
+    // hora
+    const pHora = el("div", "sub-painel");
     pHora.append(campo("Hora", input("quando-hora", "time", q.tipo === "hora" ? q.hora : "08:00")));
-    const dias = el("div", "dias");
-    dias.setAttribute("role", "group");
-    dias.setAttribute("aria-label", "Dias da semana");
-    const diasAtivos = q.tipo === "hora" && Array.isArray(q.dias) ? q.dias : [1, 2, 3, 4, 5, 6, 7];
-    for (const [n, t] of DIAS) {
-      const l = el("label");
-      const c = input("quando-dia", "checkbox", n);
-      c.checked = diasAtivos.includes(n);
-      l.append(c, document.createTextNode(t));
-      dias.append(l);
-    }
-    pHora.append(dias);
+    const diasQ = chips("quando-dia", DIAS.map(([n, t]) => [String(n), t]), (q.tipo === "hora" && Array.isArray(q.dias) ? q.dias : [1, 2, 3, 4, 5, 6, 7]).map(String), "Dias da semana");
+    pHora.append(diasQ.raiz);
 
-    const pPot = el("div");
-    pPot.style.display = "grid";
-    pPot.style.gap = "12px";
-    const medidores = opcoesMedidores();
+    // sol
+    const pSol = el("div", "sub-painel");
+    const solEv = select("quando-sol", [{ valor: "por", texto: "Pôr do sol" }, { valor: "nascer", texto: "Nascer do sol" }], q.tipo === "sol" ? q.evento : "por");
+    const desvio = input("quando-desvio", "number", q.tipo === "sol" ? q.desvio_min ?? 0 : 0, { min: "-180", max: "180", step: "1", inputmode: "numeric" });
+    const duasSol = el("div", "duas");
+    duasSol.append(campo("Quando", solEv), campo("Desvio (minutos; negativo = antes)", desvio));
+    pSol.append(duasSol);
+    if (!cfg?.local) pSol.append(el("p", "msg info", "Para saber a hora do sol, defina a localização da casa em Definições."));
+
+    // presença
+    const pPres = el("div", "sub-painel");
+    pPres.append(campo("Quando", select("quando-presenca", [{ valor: "chega_primeiro", texto: "Chega a primeira pessoa" }, { valor: "sai_ultimo", texto: "Sai a última pessoa" }], q.tipo === "presenca" ? q.evento : "chega_primeiro")));
+    pPres.append(el("p", "ajuda", "A presença vem da app Domus Energia nos telemóveis da casa (localização e Wi-Fi de casa)."));
+
+    // modo
+    const pModo = el("div", "sub-painel");
+    pModo.append(campo("A casa entra no modo", select("quando-modo", OPCOES_MODO.map(([v, t]) => ({ valor: v, texto: t })), q.tipo === "modo" ? q.modo : "noite")));
+
+    // potência
+    const pPot = el("div", "sub-painel");
+    const medidores = aps.filter((x) => x.medidor || x.v1).map((x) => ({ valor: x.id, texto: x.nome }));
     pPot.append(campo("Medidor", select("quando-medidor", medidores, q.tipo === "potencia" ? q.aparelho : medidores[0]?.valor)));
     const duasPot = el("div", "duas");
     duasPot.append(
@@ -286,102 +432,79 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
       campo("Durante (segundos)", input("quando-durante", "number", q.tipo === "potencia" ? q.durante_s : 60, { min: "0", step: "1", inputmode: "numeric" })),
     );
     pPot.append(duasPot);
-    fsQuando.append(pSensor, pHora, pPot);
-    const mostrarQuando = () => {
-      pSensor.hidden = tipo.value !== "sensor";
-      pHora.hidden = tipo.value !== "hora";
-      pPot.hidden = tipo.value !== "potencia";
-    };
+    pPot.append(campo("Só volta a avisar abaixo de (W, opcional)", input("quando-rearmar", "number", q.tipo === "potencia" && q.rearmar_w != null ? q.rearmar_w : "", { min: "1", step: "1", inputmode: "numeric", placeholder: "90 % do limite" }), "Zona de proteção para não disparar repetidamente perto do limite."));
+
+    // sistema
+    const pSis = el("div", "sub-painel");
+    const sisEv = select("quando-sistema", [
+      { valor: "aparelho_offline", texto: "Um aparelho fica offline" },
+      { valor: "aparelho_online", texto: "Um aparelho volta a ficar online" },
+      { valor: "energia_reposta", texto: "A energia é reposta (depois de um corte)" },
+    ], q.tipo === "sistema" ? q.evento : "aparelho_offline");
+    const sisAp = select("quando-sistema-aparelho", [{ valor: "", texto: "Qualquer aparelho" }, ...aps.filter((x) => !x.bateria).map((x) => ({ valor: x.id, texto: x.nome }))], q.tipo === "sistema" ? q.aparelho ?? "" : "");
+    const sisApL = campo("Aparelho", sisAp);
+    pSis.append(campo("Evento", sisEv), sisApL);
+    const verSis = () => { sisApL.hidden = sisEv.value === "energia_reposta"; };
+    sisEv.addEventListener("change", verSis);
+    verSis();
+
+    // manual
+    const pMan = el("div", "sub-painel");
+    pMan.append(el("p", "ajuda", "A automação só corre quando carregar em \"Executar\" no cartão dela (as condições do passo 4 continuam a contar)."));
+
+    const subs = { sensor: pSensor, hora: pHora, sol: pSol, presenca: pPres, modo: pModo, potencia: pPot, sistema: pSis, manual: pMan };
+    p2.append(...Object.values(subs));
+    const mostrarQuando = () => { for (const [k, p] of Object.entries(subs)) p.hidden = tipo.value !== k; };
     tipo.addEventListener("change", mostrarQuando);
     mostrarQuando();
-    form.append(fsQuando);
 
-    // Se
-    const fsSe = el("fieldset");
-    fsSe.append(el("legend", null, "Só se (opcional)"));
-    const se = a.se ?? {};
-    fsSe.append(campo("Alarme", select("se-alarme", [
-      { valor: "", texto: "Tanto faz" },
-      { valor: "true", texto: "Só com o alarme ativo" },
-      { valor: "false", texto: "Só com o alarme desligado" },
-    ], se.alarme === true ? "true" : se.alarme === false ? "false" : "")));
-    const entreL = el("label", "caixa");
-    const entreC = input("se-entre", "checkbox");
-    entreC.checked = Array.isArray(se.entre);
-    entreL.append(entreC, document.createTextNode("Só num horário"));
-    const horario = el("div", "horario");
-    horario.append(
-      campo("Das", input("se-de", "time", se.entre?.[0] ?? "19:00")),
-      campo("Às", input("se-ate", "time", se.entre?.[1] ?? "07:00")),
-    );
-    const mostrarHorario = () => { horario.hidden = !entreC.checked; };
-    entreC.addEventListener("change", mostrarHorario);
-    mostrarHorario();
-    fsSe.append(entreL, horario);
-    form.append(fsSe);
+    // ----- Passo 3: Ação básica + Testar agora -----
+    const ctx = criarContexto({ aparelhos: aps, cenas: cenas() });
+    const entao = a.entao?.length ? a.entao : [{ acao: "ligar" }];
+    const p3 = paineis[2];
+    p3.append(el("p", "ajuda", "O que acontece quando a automação dispara. Mais aparelhos, esperas e SE/SENÃO no passo 5."));
+    const primeira = linhaAcao(entao[0], ctx, { rotulo: "Ação 1" });
+    p3.append(primeira.raiz);
+    const testarMsg = el("div", "msg info");
+    testarMsg.id = "testar-msg";
+    testarMsg.setAttribute("role", "status");
+    testarMsg.hidden = true;
+    const testar = botao("Testar agora", "btn sec pequeno", () => {
+      testarMsg.hidden = false;
+      if (!original) {
+        testarMsg.className = "msg info";
+        testarMsg.textContent = "Guarde primeiro a automação para a poder testar: o teste é feito pelo servidor com a versão guardada.";
+        return;
+      }
+      if (pedirExecutar(original.id, "testar")) {
+        testarMsg.className = "msg info";
+        testarMsg.textContent = "Teste pedido: o servidor executa já as ações da versão guardada (sem gatilho nem condições). Veja o resultado no cartão da automação.";
+      }
+    });
+    testar.id = "testar-agora";
+    p3.append(testar, testarMsg);
 
-    // Então
-    const fsEntao = el("fieldset");
-    fsEntao.append(el("legend", null, "Então"));
-    const acoes = el("div");
-    acoes.style.display = "grid";
-    acoes.style.gap = "10px";
-    const mais = el("button", "btn sec pequeno", "Acrescentar ação");
-    mais.type = "button";
-    const renumerar = () => {
-      const linhas = [...acoes.children];
-      linhas.forEach((l, i) => {
-        l.querySelector(".acao-n").textContent = `Ação ${i + 1}`;
-        l.querySelector(".remover").disabled = linhas.length <= 1;
-      });
-      mais.disabled = linhas.length >= MAX_ACOES;
-    };
-    const novaAcao = (x) => {
-      const linha = el("div", "acao");
-      const topo = el("div", "acao-topo");
-      topo.append(el("span", "acao-n"));
-      const remover = el("button", "btn sec pequeno remover", "Remover");
-      remover.type = "button";
-      remover.addEventListener("click", () => { linha.remove(); renumerar(); });
-      topo.append(remover);
-      linha.append(topo);
-      const acao = select("acao", [
-        { valor: "ligar", texto: "Ligar" },
-        { valor: "desligar", texto: "Desligar" },
-        { valor: "estore", texto: "Mover estore" },
-        { valor: "notificar", texto: "Enviar notificação" },
-      ], x.acao ?? "ligar");
-      linha.append(campo("O que fazer", acao));
-      const circuitos = opcoesCanais(["interruptor", "luz"]);
-      const estores = opcoesCanais(["estore"]);
-      const alvo = (x.aparelho != null ? `${x.aparelho}:${x.canal}` : null);
-      const pCirc = el("div", "duas");
-      pCirc.append(
-        campo("Circuito", select("acao-circuito", circuitos, (x.acao === "ligar" || x.acao === "desligar") && alvo ? alvo : circuitos[0]?.valor)),
-        campo("Durante (minutos, opcional)", input("acao-durante", "number", x.durante_s ? +(x.durante_s / 60).toFixed(2) : "", { min: "0", step: "any", inputmode: "decimal", placeholder: "sempre" })),
-      );
-      const pEst = el("div", "duas");
-      pEst.append(
-        campo("Estore", select("acao-estore", estores, x.acao === "estore" && alvo ? alvo : estores[0]?.valor)),
-        campo("Posição (0 fechado – 100 aberto)", input("acao-posicao", "number", x.posicao ?? 100, { min: "0", max: "100", step: "1", inputmode: "numeric" })),
-      );
-      const pNot = el("div");
-      pNot.append(campo("Mensagem", input("acao-mensagem", "text", x.mensagem ?? "", { maxlength: "200" })));
-      linha.append(pCirc, pEst, pNot);
-      const mostrar = () => {
-        pCirc.hidden = acao.value !== "ligar" && acao.value !== "desligar";
-        pEst.hidden = acao.value !== "estore";
-        pNot.hidden = acao.value !== "notificar";
-      };
-      acao.addEventListener("change", mostrar);
-      mostrar();
-      acoes.append(linha);
-      renumerar();
-    };
-    for (const x of (a.entao?.length ? a.entao : [{ acao: "ligar" }]).slice(0, MAX_ACOES)) novaAcao(x);
-    mais.addEventListener("click", () => { if (acoes.children.length < MAX_ACOES) novaAcao({ acao: "ligar" }); });
-    fsEntao.append(acoes, mais);
-    form.append(fsEntao);
+    // ----- Passo 4: Condições -----
+    const p4 = paineis[3];
+    p4.append(el("p", "ajuda", "Opcional: a automação só executa se todas estas condições forem verdadeiras."));
+    const cond = editorCondicoes(a.se, { aparelhos: aps, prefixo: "se" });
+    p4.append(cond.raiz);
+    const maisP4 = el("details", "mais");
+    maisP4.append(el("summary", null, "Mais"));
+    const ignorar = caixa("ignorar-pausa", "Não pausar quando alguém mexe num aparelho à mão", a.ignorar_pausa === true);
+    maisP4.append(ignorar.label, el("small", "ajuda", `Por omissão, mexer à mão num aparelho pausa as automações desse aparelho durante ${cfg?.pausa_manual_min ?? 60} min.`));
+    if (a.ignorar_pausa) maisP4.open = true;
+    p4.append(maisP4);
+
+    // ----- Passo 5: Vários aparelhos -----
+    const p5 = paineis[4];
+    p5.append(el("p", "ajuda", `Acrescente mais passos depois da ação 1: outros aparelhos, esperas, cenas, mudar o modo, luz com brilho, alternar e SE/SENÃO (até ${E.MAX_NIVEIS_SE} níveis). Máximo ${E.MAX_ACOES} ações ao todo.`));
+    const resto = listaAcoes(entao.slice(1), ctx, { inicio: 2, minimo: 0 });
+    p5.append(resto.raiz);
+    ctx.raizes.push(primeira, resto);
+    ctx.atualizar();
+
+    form.append(...paineis);
 
     const erro = el("div", "msg erro");
     erro.id = "auto-form-erro";
@@ -389,30 +512,88 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
     erro.hidden = true;
     form.append(erro);
     const botoes = el("div", "form-botoes");
+    const anterior = botao("Anterior", "btn sec", () => irPara(atual - 1));
+    const seguinte = botao("Seguinte", "btn sec", () => irPara(atual + 1));
     const ok = el("button", "btn", "Guardar");
     ok.type = "submit";
-    const cancelar = el("button", "btn sec", "Cancelar");
-    cancelar.type = "button";
-    cancelar.addEventListener("click", fecharForm);
-    botoes.append(ok, cancelar);
+    botoes.append(anterior, seguinte, ok, botao("Cancelar", "btn sec", fecharForm));
     form.append(botoes);
+
+    let atual = 0;
+    function irPara(i) {
+      atual = Math.max(0, Math.min(PASSOS.length - 1, i));
+      paineis.forEach((p, k) => { p.hidden = k !== atual; });
+      botoesPasso.forEach((b, k) => { if (k === atual) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+      anterior.disabled = atual === 0;
+      seguinte.disabled = atual === PASSOS.length - 1;
+    }
+    irPara(0);
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       if (guardando) return;
-      const auto = lerForm(form, original);
-      const erros = E.validarAutomacao(auto);
+      const auto = lerForm();
+      const erros = E.validarAutomacao(auto, aparelhos());
       if (!original && lista && lista.length >= MAX_AUTOMACOES) erros.push(`Máximo de ${MAX_AUTOMACOES} automações.`);
       erro.hidden = erros.length === 0;
       erro.replaceChildren();
       for (const t of erros) erro.append(el("div", null, t));
-      if (erros.length) return;
-      const atual = lista ?? [];
-      const nova = original ? atual.map((x) => (x.id === original.id ? auto : x)) : [...atual, auto];
+      if (erros.length) {
+        const t = erros[0];
+        irPara(/^(Dê um nome|A frase-objetivo|Categoria)/.test(t) ? 0 : /^Ação 1[:.]/.test(t) ? 2 : /^(Ação|Tem de ter)/.test(t) ? 4 : /^Condições/.test(t) ? 3 : 1);
+        return;
+      }
+      const atualL = lista ?? [];
+      const nova = original ? atualL.map((x) => (x.id === original.id ? auto : x)) : [...atualL, auto];
       guardar(nova, fecharForm);
     });
 
-    caixa.append(form);
+    function lerForm() {
+      const f = form.elements;
+      const nome = f.nome.value.trim();
+      const ids = (lista ?? []).map((x) => x.id);
+      const id = original ? original.id : E.slug(nome, ids);
+      let quando;
+      const t = tipo.value;
+      if (t === "sensor") {
+        const s = separar(sensorSel.value);
+        quando = { tipo: "sensor", aparelho: s.aparelho, canal: s.canal, valor: Number(valorSel.value) };
+        const min = parseFloat(String(sensorDurante.value ?? "").replace(",", "."));
+        if (Number.isFinite(min) && min > 0) quando.durante_s = Math.round(min * 60);
+      } else if (t === "hora") {
+        quando = { tipo: "hora", hora: hhmm(f["quando-hora"].value), dias: diasQ.lidos().map(Number) };
+      } else if (t === "sol") {
+        quando = { tipo: "sol", evento: solEv.value, desvio_min: Math.round(Number(desvio.value || 0)) };
+      } else if (t === "presenca") {
+        quando = { tipo: "presenca", evento: f["quando-presenca"].value };
+      } else if (t === "modo") {
+        quando = { tipo: "modo", modo: f["quando-modo"].value };
+      } else if (t === "manual") {
+        quando = { tipo: "manual" };
+      } else if (t === "sistema") {
+        quando = { tipo: "sistema", evento: sisEv.value };
+        if (sisEv.value !== "energia_reposta" && sisAp.value) quando.aparelho = sisAp.value;
+      } else {
+        quando = { tipo: "potencia", aparelho: f["quando-medidor"]?.value || null, acima_w: Number(f["quando-acima"].value), durante_s: Math.round(Number(f["quando-durante"].value)) };
+        const r = String(f["quando-rearmar"].value ?? "").trim();
+        if (r !== "") quando.rearmar_w = Number(r);
+      }
+      const auto = { id, nome };
+      const d = desc.value.trim();
+      if (d) auto.descricao = d;
+      const cat = form.querySelector("input[name=categoria]:checked")?.value;
+      if (cat) auto.categoria = cat;
+      auto.ativa = ativa.input.checked;
+      auto.bloqueada = false;
+      if (ignorar.input.checked) auto.ignorar_pausa = true;
+      auto.quando = quando;
+      const se = cond.ler();
+      if (Object.keys(se).length) auto.se = se;
+      auto.entao = [primeira.ler(), ...resto.ler()];
+      return auto;
+    }
+
+    caixaF.append(form);
     desenhar();
     form.elements.nome.focus();
   }
@@ -423,49 +604,5 @@ export function criarAutomacoes({ publicar, ligado, aparelhos }) {
     desenhar();
   }
 
-  const separar = (v) => { const [id, n] = String(v ?? "").split(":"); return { aparelho: id || null, canal: n ? parseInt(n, 10) : null }; };
-  const hhmm = (v) => String(v ?? "").slice(0, 5);
-
-  function lerForm(form, original) {
-    const f = form.elements;
-    const nome = f.nome.value.trim();
-    const ids = (lista ?? []).map((x) => x.id);
-    const id = original ? original.id : E.slug(nome, ids);
-    const tipo = f["quando-tipo"].value;
-    let quando;
-    if (tipo === "sensor") {
-      const s = separar(f["quando-sensor"]?.value);
-      quando = { tipo: "sensor", aparelho: s.aparelho, canal: s.canal, valor: Number(f["quando-valor"].value) };
-    } else if (tipo === "hora") {
-      const dias = [...form.querySelectorAll("input[name=quando-dia]:checked")].map((c) => Number(c.value));
-      quando = { tipo: "hora", hora: hhmm(f["quando-hora"].value), dias };
-    } else {
-      quando = { tipo: "potencia", aparelho: f["quando-medidor"]?.value || null, acima_w: Number(f["quando-acima"].value), durante_s: Math.round(Number(f["quando-durante"].value)) };
-    }
-    const se = {};
-    if (f["se-alarme"].value) se.alarme = f["se-alarme"].value === "true";
-    if (f["se-entre"].checked) se.entre = [hhmm(f["se-de"].value), hhmm(f["se-ate"].value)];
-    const entao = [...form.querySelectorAll(".acao")].map((linha) => {
-      const v = (n) => linha.querySelector(`[name=${n}]`)?.value;
-      const acao = v("acao");
-      if (acao === "ligar" || acao === "desligar") {
-        const s = separar(v("acao-circuito"));
-        const x = { acao, aparelho: s.aparelho, canal: s.canal };
-        const min = parseFloat(String(v("acao-durante") ?? "").replace(",", "."));
-        if (Number.isFinite(min) && min > 0) x.durante_s = Math.round(min * 60);
-        return x;
-      }
-      if (acao === "estore") {
-        const s = separar(v("acao-estore"));
-        return { acao, aparelho: s.aparelho, canal: s.canal, posicao: Math.round(Number(v("acao-posicao"))) };
-      }
-      return { acao: "notificar", mensagem: String(v("acao-mensagem") ?? "").trim() };
-    });
-    const auto = { id, nome, ativa: f.ativa.checked, bloqueada: false, quando };
-    if (Object.keys(se).length) auto.se = se;
-    auto.entao = entao;
-    return auto;
-  }
-
-  return { desenhar, receberLista, receberErro, limpar };
+  return { desenhar, receberLista, receberErro, receberRegisto, receberAvisos, limpar, lista: () => lista ?? [] };
 }

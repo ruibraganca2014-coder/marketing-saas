@@ -120,3 +120,29 @@ export function atualizarIlustracao(svg, funcao, estado = {}) {
       break;
   }
 }
+
+// Ícones de traço 24 × 24 para os modos da casa e as cenas (texto fixo deste ficheiro).
+const LUA = `<path d="M19.5 14.6A7.9 7.9 0 1 1 9.4 4.5a6.4 6.4 0 0 0 10.1 10.1z"/>`;
+const ICONES = {
+  casa: `<path d="M3.8 11.2 12 4.4l8.2 6.8"/><path d="M6.2 9.6v10.2h11.6V9.6"/><path d="M10.2 19.8v-5h3.6v5"/>`,
+  fora: `<path d="M13 4.2h6.2v15.6H13"/><path d="M3.8 12h10.4"/><path d="M10.4 8.2 14.2 12l-3.8 3.8"/>`,
+  noite: LUA + `<path d="M17 4.2v2.6M15.7 5.5h2.6"/>`,
+  ferias: `<rect x="4" y="8.2" width="16" height="11.4" rx="2.2"/><path d="M9 8.2V5.6c0-.6.4-1 1-1h4c.6 0 1 .4 1 1v2.6"/><path d="M8.2 8.4v11M15.8 8.4v11"/>`,
+  filme: `<rect x="3.2" y="5.8" width="17.6" height="12.4" rx="2"/><path d="M7.4 5.8v12.4M16.6 5.8v12.4M3.2 10h4.2M3.2 14h4.2M16.6 10h4.2M16.6 14h4.2"/>`,
+  sol: `<circle cx="12" cy="12" r="3.9"/><path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.4 5.4 7 7M17 17l1.6 1.6M5.4 18.6 7 17M17 7l1.6-1.6"/>`,
+  lua: LUA,
+  porta: `<path d="M6.2 20.6V3.8h11.6v16.8"/><path d="M3.6 20.6h16.8"/><path d="M14.4 12.2h.1"/>`,
+  energia: `<path d="M13.2 2.8 5.4 13.4h6l-1.2 7.8 8.4-10.8h-6.2z"/>`,
+  luz: `<path d="M9.2 17.2h5.6M10.2 20.2h3.6"/><path d="M12 3.2a6 6 0 0 0-3.6 10.8c.6.5 1 1.3 1 2.1v1.1h5.2v-1.1c0-.8.4-1.6 1-2.1A6 6 0 0 0 12 3.2z"/>`,
+  estrela: `<path d="m12 3.4 2.6 5.3 5.8.9-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.9z"/>`,
+};
+export function criarIcone(nome) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", `icone-traco icone-${ICONES[nome] ? nome : "estrela"}`);
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.innerHTML = ICONES[nome] ?? ICONES.estrela;
+  return svg;
+}

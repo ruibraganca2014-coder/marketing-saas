@@ -1,56 +1,179 @@
 # Motor de regras — Domus Energia
 
-Serviço interno do servidor que trata do **alarme**, das **automações**, dos
-**eventos/histórico** e das **notificações** (ntfy e Firebase). Fala apenas MQTT
-com o Mosquitto, com o utilizador `motor` (lê e escreve `domus/#`).
+Serviço interno do servidor que trata do **alarme e modos da casa**, das
+**automações e cenas**, da **saúde e energia** dos aparelhos, dos
+**eventos/histórico** e das **notificações** (ntfy e Firebase). Fala apenas
+MQTT com o Mosquitto, com o utilizador `motor` (lê e escreve `domus/#`).
 
-Contrato: [`docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1) e
-[`docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (secções 2–5).
+Contrato: [`docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1),
+[`docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (secções 2–5) e
+[`docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (tudo exceto §4
+configuração nos aparelhos e §9 interface). Tudo o que era válido na v2
+continua válido.
 
 ## O que faz
 
 | Tópico (`domus/<cliente>/…`) | Sentido | O motor… |
 |---|---|---|
-| `_aparelhos` (retido) | admin → | lê a lista de aparelhos/canais (v1 sem `canais` = um `interruptor` no canal 1) |
-| `<aparelho>/…` | aparelhos → | segue o estado de cada canal (OpenBeken `<n>/get`, `connected`, `led_dimmer/get`, `power/get`…; Shelly `status/switch:<id>`, `status/input:<id>`, `status/cover:<id>`, `status/light:<id>`, `status/devicepower:0`, `online`) e a hora da última notícia |
-| `_alarme/set` | cliente → | valida `{"ativo": bool}`, guarda e publica `_alarme` **retido** `{"ativo", "desde"}` |
-| `_automacoes/set` | cliente → | valida a lista completa; se estiver bem, guarda e publica `_automacoes` **retido**; se não, publica um evento `erro` com a explicação e a lista não muda |
+| `_aparelhos` (retido) | admin → | lê a lista de aparelhos/canais (v1 sem `canais` = um `interruptor` no canal 1), incluindo os campos v3 `entrada`, `simular`, `arranque`, `carga`, `divisao` |
+| `<aparelho>/…` | aparelhos → | segue o estado de cada canal (OpenBeken `<n>/get`, `connected`, `led_dimmer/get`, `power/get`, `energycounter/get`, `rssi`, `uptime`…; Shelly `status/switch:<id>`, `status/input:<id>`, `status/cover:<id>`, `status/light:<id>`, `status/devicepower:0`, `status/wifi`, `status/sys`, `online`) |
+| `_config/set` | cliente → | funde o objeto parcial com a configuração, valida e publica `_config` **retido** |
+| `_modo/set` | cliente → | `{"modo","forcar"?,"por"?}` muda o modo e arma/desarma o alarme; publica `_modo` e `_alarme` **retidos** |
+| `_alarme/set` | cliente → | v2: `{"ativo":true}` = modo `fora`, `{"ativo":false}` = modo `casa` |
+| `_presenca/set` | app → | `{"pessoa","nome","em_casa"}` / `{"pessoa","remover":true}`; publica `_presenca` **retido** |
+| `_automacoes/set` | cliente → | valida a lista completa; guarda e publica `_automacoes` e `_automacoes/avisos` **retidos**; se não, evento `erro` e a lista não muda |
+| `_automacoes/executar` | cliente → | `{"id"}` executa (manual, com condições), `{"id","testar":true}` executa ignorando gatilho/condições/pausa, `{"id","avaliar":true}` só avalia as condições |
 | `_automacoes/admin` | admin/motor → | administração das automações **bloqueadas** (ver abaixo) |
+| `_cenas/set` | cliente → | valida a lista completa de cenas; publica `_cenas` **retido** |
+| `_cenas/executar` | cliente → | `{"id","por"?}` executa a cena |
+| `_cenas/admin` | admin/motor → | administração das cenas **bloqueadas** |
 | `_fcm/registar` | app → | `{"token"}` regista, `{"token","remover":true}` apaga (máx. 10 por cliente) |
 | `_ntfy` (retido) | domus.sh → | lê o tópico ntfy secreto do cliente (o motor nunca o gera nem publica) |
 | `_eventos` | → todos | eventos (não retidos) |
 | `_historico` (retido) | → todos | últimos 100 eventos, mais recente primeiro |
+| `_automacoes/registo` (retido) | → todos | registo das últimas 20 execuções de cada automação, com o motivo |
+| `_saude` (retido) | → todos | saúde dos aparelhos (a cada 5 min ou quando muda) |
+| `_energia` (retido) | → todos | consumo de hoje/ontem/mês (a cada 5 min e à meia-noite) |
 
-Regras principais:
+Os comandos (`…/set`, `…/executar`, `_fcm/registar`) **retidos** são sempre
+ignorados; os estados retidos (`_config`, `_modo`, `_alarme`, `_automacoes`,
+`_cenas`, `_presenca`, `_automacoes/registo`, `_historico`) só são adotados se
+o motor tiver perdido o seu estado local.
+
+### Payloads publicados pelo motor
+
+```jsonc
+// _config (retido) — valores por omissão
+{"atraso_saida_s":30,"atraso_entrada_s":30,"silencio":["23:00","07:00"],"limiar_espera_w":5,
+ "offline_min":30,"pausa_manual_min":60,"local":{"lat":38.72,"lon":-9.14},"relatorio_diario":"08:00"}
+// _modo (retido)
+{"modo":"casa"|"fora"|"noite"|"ferias","desde":"…Z"|null,"por":"app"|"web"|"automacao:<id>"|"cena:<id>"|null}
+// _alarme (retido) — "tipo" é null quando desarmado; "ate" só em a_armar/entrada;
+// "desde" = início do estado atual
+{"ativo":true,"estado":"desarmado"|"a_armar"|"armado"|"entrada"|"disparado","tipo":"total"|"perimetro"|null,
+ "desde":"…Z"|null,"ate":"…Z"|null,"ignorados":[{"aparelho":"janela-wc","canal":1}],"por":"app"|null}
+// _presenca (retido)
+{"pessoas":{"<id>":{"nome":"Rui","em_casa":true,"desde":"…Z"}},"alguem":true}
+// _automacoes/avisos (retido)
+[{"ids":["a","b"],"mensagem":"'a' liga e 'b' desliga Teto no mesmo gatilho"}]
+// _automacoes/registo (retido) — "ultimos" do mais recente para o mais antigo
+{"<id>":{"ultima":"…Z","resultado":"executada"|"condicao_falsa"|"falhou"|"pausada"|"teste"|"avaliacao",
+  "motivo":"…","semana":12,"teste"?:true,"ok"?:false,
+  "ultimos":[{"ts":"…Z","resultado":"…","motivo":"…","teste"?:true,"ok"?:false}]}}
+// _saude (retido)
+{"<aparelho>":{"online":true,"ultima_noticia":"…Z"|null,"rssi":-61|null,"uptime_s":86400|null,
+  "reinicios_24h":0,"bateria":84|null,"bateria_dias":120|null,"offline_desde":"…Z"|null}}
+// _energia (retido)
+{"hoje_kwh":7.4,"ontem_kwh":9.1,"mes_kwh":180.2,"aparelhos":{"quadro":{"hoje_kwh":7.4,"ontem_kwh":9.1}}}
+// _eventos: v2 + tipo "modo" (mudança de modo/armar/desarmar, com "por")
+{"ts":"…Z","tipo":"alarme"|"sensor"|"automacao"|"aviso"|"erro"|"modo","titulo":"…","mensagem":"…","aparelho"?:"…","por"?:"…"}
+```
+
+## Regras principais
 
 - **Transições**: um sensor só “dispara” quando o valor **muda**. Os valores
   retidos recebidos ao arrancar servem só de referência (não disparam nada).
-  Comandos retidos (`_alarme/set`, `_automacoes/set`, …) são ignorados.
-- **Alarme ativo** + porta a abrir ou movimento → evento `alarme` e notificação
-  urgente.
-- **Automações** (`quando` sensor / hora / potência, condições `se`, ações
-  `ligar`/`desligar`/`estore`/`notificar`):
-  - `hora`: avaliada uma vez por minuto na hora de Lisboa (mudanças de hora
-    tratadas pelo `Intl`; na mudança de outubro, uma hora que acontece duas
-    vezes só dispara uma vez; na de março, as horas que não existem —
-    01:00–01:59 — não disparam);
-  - `potencia`: dispara uma vez quando fica acima de `acima_w` durante
-    `durante_s`; volta a poder disparar depois de descer;
-  - `durante_s`: volta ao estado oposto ao fim desse tempo, mesmo que o motor
-    reinicie entretanto (fica gravado). Funciona como temporizador de
-    ocupação: um novo disparo (ou o sensor de movimento a repetir “1”)
-    **recomeça** a contagem. Se alguém mudar o canal à mão entretanto, a
-    reversão é cancelada; se o canal já estava ligado por outra pessoa, não se
-    agenda reversão;
-  - proteção contra ciclos: no máximo 20 execuções por automação por minuto.
-- **Comandos** para aparelhos: OpenBeken `<n>/set` (`1`/`0` ou posição); Shelly
-  `command/switch:<id>` `on`/`off` (+ `command` `status_update`), `rpc` com
-  `Light.Set` / `Cover.GoToPosition` e `"src":"motor"`. **Nunca retidos**.
-- **Avisos** (`aviso`): bateria < 15 % (uma vez por dia por aparelho) e aparelho
-  a pilhas sem notícias há mais de 24 h (uma vez, até voltar a dar notícias).
+- **Modos e alarme** (máquina de estados, persistida com os prazos):
+  - `casa` = desarmado; `fora` e `ferias` = alarme **total** (portas e
+    movimento); `noite` = **perímetro** (só portas);
+  - armar → `a_armar` durante `atraso_saida_s` → `armado` (sensores ignorados
+    durante o atraso de saída);
+  - porta com `"entrada": true` → `entrada` durante `atraso_entrada_s`
+    (notificação normal “Desarme o alarme”, mesmo nas horas de silêncio;
+    movimento e a própria porta de entrada não disparam nesse tempo) → sem
+    desarme, `disparado`; outras portas e movimento (total) → `disparado`
+    logo; `disparado` = evento `alarme` + notificação urgente e mantém-se até
+    desarmar (novos sensores voltam a notificar);
+  - **recusa armar** com portas abertas (evento `erro` “Não armado: Janela WC
+    está aberta.”, o modo não muda); com `forcar` arma e põe-nas em
+    `ignorados` — uma porta ignorada que feche volta a estar protegida;
+  - mudar entre modos armados (ex.: `noite` → `fora`) não repete o atraso de
+    saída, só muda o tipo;
+  - sensor do alarme offline (pilhas sem notícias > 24 h, ou `connected`/
+    `online` offline nos aparelhos sem pilhas) com o alarme armado → `aviso`
+    (uma vez por ocorrência);
+  - quem armou/desarmou fica em `_modo.por`, `_alarme.por` e no evento `modo`.
+- **Férias**: as luzes/interruptores com `"simular": true` (nunca
+  `"carga": "perigosa"`) ligam e desligam em momentos aleatórios (acesas
+  15–60 min, apagadas 10–60 min) entre o pôr do sol (ou 19:00 sem
+  `local`) e as 23:30; às 23:30 e ao sair de férias fica tudo apagado.
+- **Automações** (`quando` sensor [+`durante_s`] / hora / potência
+  [+`rearmar_w`] / sol / presença / modo / manual / sistema; condições `se`
+  alarme, entre, dias, sol, modo, presença, aparelhos; ações ligar, desligar,
+  alternar, luz, estore, notificar, cena, modo, esperar, se/senão):
+  - `hora` e `sol` avaliadas uma vez por minuto na hora de Lisboa (mudanças de
+    hora tratadas pelo `Intl`; uma hora repetida em outubro só dispara uma
+    vez); nascer/pôr do sol pelo algoritmo da NOAA para `_config.local`;
+  - `sensor` com `durante_s`: dispara quando o canal está nesse valor há X s
+    (a contagem é cancelada se o valor mudar e sobrevive a reinícios);
+  - `potencia`: dispara quando fica acima de `acima_w` durante `durante_s`; só
+    volta a poder disparar depois de descer abaixo de `rearmar_w` (por
+    omissão 90 % de `acima_w`);
+  - `esperar`: as ações seguintes ficam guardadas e continuam depois do
+    tempo, mesmo que o motor reinicie (se o motor estiver parado mais de 1 h
+    para lá do prazo, a sequência é abandonada); um novo disparo da mesma
+    automação substitui a sequência pendente;
+  - `se`/`senao`: o ramo é escolhido quando é alcançado; máx. 2 níveis e 20
+    ações no total;
+  - `durante_s` (ligar/desligar): volta ao estado oposto no fim, também depois
+    de reinícios; funciona como temporizador de ocupação (um novo disparo ou o
+    sensor de movimento a repetir “1” **recomeça** a contagem);
+  - **pausa manual**: quando alguém (botão físico, app) muda um canal
+    controlável — e não é o eco de um comando do motor — as automações que
+    agem nesse canal ficam em pausa `pausa_manual_min` para esse canal
+    (exceto `ignorar_pausa`); aparece no registo com a hora de fim;
+  - **cargas perigosas**: ligar sem `durante_s` (ou com mais de 4 h), `alternar`
+    ou `luz` com brilho é erro de validação (automações e cenas), e é também
+    recusado na execução;
+  - **registo**: executada, condição falsa (qual e valor atual), pausada (até
+    HH:MM), falhou (aparelho do gatilho offline; aparelho que não confirmou o
+    comando em 5 s), teste e avaliação; `semana` = execuções nos últimos 7
+    dias;
+  - **conflitos**: duas automações ativas com o mesmo gatilho que mexem no
+    mesmo canal em sentidos opostos → `_automacoes/avisos` (não bloqueia);
+  - proteção contra ciclos: no máximo 20 execuções por automação por minuto e
+    8 execuções encadeadas (automação → modo → automação…).
+- **Cenas**: máx. 30, ações da v3 exceto `se` e `cena`; as bloqueadas (da
+  empresa) não são editáveis nem apagáveis pelo cliente; uma cena usada por
+  uma automação não pode ser apagada; `_cenas/executar` publica um evento
+  `automacao` “Cena: …” (sem notificação). As cenas não respeitam a pausa
+  manual (são um pedido explícito).
+- **Comandos** para aparelhos: OpenBeken `<n>/set` (`1`/`0` ou posição) e
+  `led_dimmer/set`; Shelly `command/switch:<id>` `on`/`off` (+ `command`
+  `status_update`), `rpc` com `Light.Set` (com `brightness`) /
+  `Cover.GoToPosition` e `"src":"motor"`. **Nunca retidos**.
+- **Saúde** (`_saude`): `online`, última notícia, `rssi`/`uptime_s` (OpenBeken
+  `<p>/rssi` e `<p>/uptime` se o aparelho os publicar; Shelly `status/wifi` e
+  `status/sys`; sem dados = `null`), `reinicios_24h` (descidas do uptime),
+  `bateria`, `bateria_dias` (regressão linear sobre amostras de 6 em 6 h dos
+  últimos 14 dias; `null` com menos de 3 amostras / 2 dias ou sem descida;
+  pilhas novas recomeçam a estimativa). Avisos, uma vez por ocorrência:
+  aparelho sem pilhas offline > `offline_min` (se metade ou mais da casa cair
+  ao mesmo tempo, um só aviso “Casa sem ligação”), bateria < 15 % (um por
+  dia, como na v2), `bateria_dias` < 21, sinal < -80 dBm durante 1 h, mais de
+  5 reinícios em 24 h.
+- **Energia reposta**: pelo menos metade dos aparelhos sem pilhas (e no mínimo
+  2) voltam a online em 2 min depois de estarem offline → `aviso` “A casa
+  esteve sem internet de HH:MM a HH:MM.” e gatilho `sistema`
+  `energia_reposta`. O servidor não consegue distinguir falta de internet de
+  falta de energia (os dois aparecem como aparelhos offline).
+- **Energia** (`_energia`): diferenças do contador (Wh) dos aparelhos
+  `medidor`; um contador que desce (reinício) conta como recomeço do zero;
+  muda de dia à meia-noite de Lisboa. O total da casa é a soma dos medidores
+  com `"geral": true` em `_aparelhos` (extensão opcional) ou, se não houver
+  nenhum, de todos os medidores.
+- **Horas de silêncio** (`_config.silencio`): só os alarmes (e o aviso de
+  entrada do alarme) notificam; os outros eventos ficam no histórico na mesma.
+- **Relatório diário** às `relatorio_diario`: notificação (tipo `aviso`,
+  prioridade normal, respeita o silêncio; não vai para o histórico) com o
+  modo/alarme, ligados, em espera (canal ligado de um medidor abaixo de
+  `limiar_espera_w`), abertas, offline, bateria fraca, sinal fraco e consumo
+  de hoje/ontem.
 - **Eventos** que geram notificação: `alarme` (prioridade `urgent`), `aviso`
-  (`high`) e a ação `notificar` (evento `automacao`, `default`). O evento
-  `sensor` é publicado para portas (aberta/fechada), sem notificação.
+  (`high`, exceto o aviso de entrada e o relatório, `default`) e a ação
+  `notificar` (evento `automacao`, `default`). O evento `sensor` é publicado
+  para portas (aberta/fechada) e o evento `modo` para mudanças de modo, sem
+  notificação.
 - **ntfy**: `POST NTFY_URL/<tópico>` com `Title`, `Priority`, `Tags` e
   autenticação `motor`. O tópico vem do `_ntfy` retido criado pelo `domus.sh`;
   se um cliente não o tiver, não recebe ntfy (fica registado uma vez) mas o FCM
@@ -60,6 +183,20 @@ Regras principais:
 - **Robustez**: mensagens inválidas nunca derrubam o serviço; gravação do
   estado adiada (1 s) e atómica; religação automática ao broker; `SIGTERM`
   grava o estado e fecha a ligação.
+
+### Limitações conhecidas
+
+- Sem internet em casa, o alarme, as automações entre aparelhos e as
+  notificações não funcionam (limitação aceite na v3 §4); o motor avisa
+  quando os aparelhos voltam.
+- Um gatilho `sensor` com `durante_s` só começa a contar numa **mudança** vista
+  ao vivo (ou continua uma contagem guardada); um valor retido no arranque não
+  inicia contagens.
+- Aparelhos a pilhas dormem: o seu LWT “offline” é ignorado; contam como
+  offline só ao fim de 24 h sem notícias.
+- A confirmação “respondeu em 5 s” exige que o aparelho publique o estado
+  depois do comando (OpenBeken `<n>/get`, Shelly `status/…`); um estore conta
+  como confirmado com qualquer posição recebida.
 
 ## Variáveis de ambiente
 
@@ -119,15 +256,20 @@ docker compose logs -f motor
 ```
 
 Ficheiros em `servidor/dados/motor/`:
-- `estado.json` — alarme, automações, histórico, tokens FCM, reversões
-  `durante_s` pendentes, avisos já enviados;
+- `estado.json` — configuração, modo e alarme (com prazos), automações,
+  cenas, presença, registo, histórico, tokens FCM, reversões `durante_s` e
+  sequências `esperar` pendentes, pausas manuais, contagens de energia,
+  amostras de bateria, reinícios e avisos já enviados;
 - `firebase-service-account.json` — opcional.
 
-## Administração: automações bloqueadas
+## Administração: automações e cenas bloqueadas
 
 As automações criadas pela empresa (`"bloqueada": true`) não podem ser criadas
-nem apagadas pelo cliente, que só pode mudar o campo `ativa`. Geram-se com a
-CLI, que fala com o motor em funcionamento pelo MQTT:
+nem apagadas pelo cliente, que só pode mudar o campo `ativa`. As cenas
+bloqueadas não podem ser alteradas nem apagadas. Geram-se com a CLI, que fala
+com o motor em funcionamento pelo MQTT (as cenas usam `_cenas/admin` e
+`_cenas/admin/resultado`, com `"cena"`/`"cenas"` em vez de
+`"automacao"`/`"automacoes"`):
 
 - pedido: `domus/<cliente>/_automacoes/admin` (não retido)
   - `{"op":"guardar","automacoes":[…],"pedido":"<id>"}` — cria/substitui por `id`
@@ -137,8 +279,8 @@ CLI, que fala com o motor em funcionamento pelo MQTT:
 - resposta: `domus/<cliente>/_automacoes/admin/resultado`
   `{"pedido":"<id>","ok":true}` ou `{"pedido":"<id>","ok":false,"erro":"…"}`.
 
-Só `admin` e `motor` podem publicar no tópico de pedido (ACL: têm
-`readwrite domus/#`; nenhum padrão de escrita do cliente o apanha).
+Só `admin` e `motor` podem publicar nos tópicos de pedido (ACL: têm
+`readwrite domus/#`; nenhum padrão de escrita do cliente os apanha).
 
 ```sh
 cd servidor
@@ -146,6 +288,9 @@ cd servidor
 docker compose exec -T motor node src/admin.js automacao joao - < noite.json
 docker compose exec -T motor node src/admin.js apagar-automacao joao empresa-noite
 docker compose exec -T motor node src/admin.js listar-automacoes joao
+docker compose exec -T motor node src/admin.js cena joao - < sair.json
+docker compose exec -T motor node src/admin.js apagar-cena joao sair
+docker compose exec -T motor node src/admin.js listar-cenas joao
 ```
 
 `noite.json` (um objeto ou uma lista):
@@ -174,9 +319,15 @@ MQTT_URL=mqtt://localhost:1883 MQTT_PASS=… DADOS_DIR=./dados npm start
 
 Estrutura:
 - `src/motor.js` — núcleo (classe `Motor`, sem rede nem disco: `publicar`,
-  `notificar`, relógio e armazenamento injetados);
-- `src/validacao.js` — validação estrita das automações;
+  `notificar`, relógio, armazenamento e gerador aleatório injetados);
+- `src/motor-casa.js` — `_config`, modos, alarme, presença, simulação de férias;
+- `src/motor-automacoes.js` — automações, cenas, registo, pausa manual, `esperar`;
+- `src/motor-saude.js` — online/offline, energia reposta, `_saude`, `_energia`, relatório;
+- `src/validacao.js` — validação estrita das automações e cenas, conflitos;
 - `src/aparelhos.js` — lista de aparelhos e comandos por tipo;
+- `src/casa.js` — configuração da casa (omissões, fusão, validação);
+- `src/sol.js` — nascer/pôr do sol (NOAA);
+- `src/saude.js`, `src/energia.js`, `src/relatorio.js` — cálculos puros;
 - `src/tempo.js` — horas de Lisboa (Intl);
 - `src/notificacoes.js` — ntfy e FCM (o `google-auth-library` só é carregado
   se houver conta de serviço);

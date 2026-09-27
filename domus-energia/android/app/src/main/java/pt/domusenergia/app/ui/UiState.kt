@@ -2,16 +2,52 @@ package pt.domusenergia.app.ui
 
 import pt.domusenergia.app.data.Aparelho
 import pt.domusenergia.app.data.Automacao
+import pt.domusenergia.app.data.Cena
+import pt.domusenergia.app.data.Cidade
 import pt.domusenergia.app.data.Comandos
+import pt.domusenergia.app.data.ConfigCasa
 import pt.domusenergia.app.data.Estado
 import pt.domusenergia.app.data.Ligacao
+import pt.domusenergia.app.data.Local
+
+/**
+ * Deteção de presença DESTE telemóvel (opcional, desligada por omissão). Preenchido pelo
+ * `presenca.PresencaControlador` (Android); nos testes/desenhos é só um valor.
+ *
+ * @property localizacao autorização de localização (precisa) concedida.
+ * @property segundoPlano autorização de localização "sempre" (Android 10+) concedida.
+ * @property casa centro da zona de casa (≥ 100 m de raio).
+ * @property casaTexto "Lisboa" ou "Localização atual (± 20 m)".
+ * @property wifi rede Wi-Fi de casa (SSID), `null` = só GPS.
+ * @property wifiAtual rede a que o telemóvel está ligado agora (para "usar esta rede").
+ * @property emCasa último valor enviado ao servidor.
+ * @property pendente valor novo à espera de 10 min estáveis.
+ */
+data class PresencaUi(
+    val disponivel: Boolean = true,
+    val ativa: Boolean = false,
+    val nome: String = "",
+    val localizacao: Boolean = false,
+    val segundoPlano: Boolean = false,
+    val casa: Local? = null,
+    val casaTexto: String? = null,
+    val raioM: Int = 150,
+    val wifi: String? = null,
+    val wifiAtual: String? = null,
+    val emCasa: Boolean? = null,
+    val pendente: Boolean? = null,
+    val erro: String? = null,
+) {
+    val pronta: Boolean get() = localizacao && segundoPlano && casa != null && nome.isNotBlank()
+}
 
 /**
  * Tudo o que os ecrãs mostram.
  *
  * @property erroLogin erro a mostrar no ecrã de entrada.
  * @property aviso mensagem curta (erro de comando, "Automações guardadas.") mostrada numa snackbar.
- * @property aGuardar à espera de o motor aceitar/recusar a lista de automações publicada.
+ * @property aGuardar à espera de o motor aceitar/recusar a lista de automações/cenas/configuração publicada.
+ * @property modoPedido modo pedido pela app e ainda não confirmado (para oferecer "Armar mesmo assim").
  */
 data class UiState(
     val loggedIn: Boolean,
@@ -22,6 +58,8 @@ data class UiState(
     val erroLogin: String? = null,
     val aviso: String? = null,
     val aGuardar: Boolean = false,
+    val modoPedido: String? = null,
+    val presenca: PresencaUi = PresencaUi(),
 ) {
     val ligado: Boolean get() = ligacao == Ligacao.LIGADO
 }
@@ -40,4 +78,34 @@ interface Acoes {
     fun guardarAutomacoes(lista: List<Automacao>, aoGuardar: () -> Unit)
     fun limparAviso()
     fun limparErroAutomacoes()
+
+    // ---- v3
+    /** Muda o modo da casa; com [forcar] arma mesmo com portas abertas ("Armar mesmo assim"). */
+    fun modo(modo: String, forcar: Boolean = false) {}
+
+    /** Esquece o pedido de modo recusado (botão "Cancelar" do aviso "Não armado"). */
+    fun cancelarModo() {}
+    fun executarCena(id: String) {}
+
+    /** Publica a lista COMPLETA de cenas; [aoGuardar] corre quando o motor a aceitar. */
+    fun guardarCenas(lista: List<Cena>, aoGuardar: () -> Unit) {}
+    /** "Executar" de uma automação com gatilho manual. */
+    fun executarAutomacao(id: String) {}
+    fun testarAutomacao(id: String) {}
+    fun avaliarAutomacao(id: String) {}
+
+    /** Envia só o que mudou entre [antes] e [depois] para `_config/set`. */
+    fun guardarConfig(antes: ConfigCasa, depois: ConfigCasa, aoGuardar: () -> Unit = {}) {}
+
+    // ---- presença deste telemóvel (Android: pacote presenca/)
+    fun presencaNome(nome: String) {}
+    fun presencaCasaAtual() {}
+    fun presencaCasaCidade(c: Cidade) {}
+    fun presencaWifiAtual() {}
+    fun presencaSemWifi() {}
+    fun presencaAtivar() {}
+    fun presencaDesativar() {}
+
+    /** Voltar a ler as autorizações (depois de o utilizador responder aos pedidos do Android). */
+    fun presencaAtualizar() {}
 }

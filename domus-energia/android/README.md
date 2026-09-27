@@ -3,19 +3,40 @@
 App em Kotlin + Jetpack Compose (Material 3, tema "Terra") para os clientes controlarem a casa.
 Liga-se diretamente ao servidor MQTT da Domus Energia (sem Tuya, sem cloud de terceiros):
 MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
-`docs/PROTOCOLO-MQTT.md` (v1) e `docs/PROTOCOLO-MQTT-v2.md` (canais, alarme, automações, notificações).
+`docs/PROTOCOLO-MQTT.md` (v1), `docs/PROTOCOLO-MQTT-v2.md` (canais, alarme, automações, notificações) e
+`docs/PROTOCOLO-MQTT-v3.md` (modos, cenas, automações v3, saúde, energia, configuração, presença).
 
 ## O que faz
 - **Entrar** com o código de cliente e a palavra-passe (as mesmas da área de cliente no site).
-  A sessão fica guardada; "Sair" (ícone no canto) termina-a.
-- **Casa**: alarme (ativar/desativar), resumo (potência agora, ligados, portas abertas, alarme) e um
-  cartão por aparelho com os canais: circuitos, luzes com brilho, estores (posição + Abrir/Parar/Fechar),
-  portas, movimento e bateria, com pequenas ilustrações animadas. O fundo muda devagar com o consumo,
-  as luzes ligadas e o alarme.
-- **Automações**: ativar/desativar, criar, editar e apagar. As criadas pela empresa (cadeado) só se
-  ativam/desativam. Se o servidor recusar uma alteração, aparece a explicação.
-- **Histórico**: últimos eventos (alarmes, sensores, automações, avisos) e o endereço para subscrever
-  os avisos na app **ntfy** (botão "Copiar").
+  A sessão fica guardada; "Sair" (menu ⋮) termina-a.
+- **Casa** (v3, `docs/PROTOCOLO-MQTT-v3.md`):
+  - **Modo da casa**: Casa / Fora / Noite / Férias (`_modo/set`). O cartão mostra o estado do alarme
+    (`_alarme`): "A armar… saia de casa" com contagem decrescente, "Desarme o alarme" (atraso de
+    entrada) com contagem e botão "Desarmar agora", "Alarme disparado!", e as portas ignoradas.
+    Se o servidor recusar armar ("Não armado: Janela WC está aberta."), aparece **Armar mesmo assim**
+    (`"forcar": true`) ou Cancelar. Com um motor v2 (sem `_modo`) fica só Casa/Fora pelo `_alarme/set`.
+  - **Cenas**: fila com as cenas (toque = executar); "Gerir" abre a lista para criar/editar/apagar.
+    As da Domus Energia (cadeado) só se executam.
+  - Aviso "N aparelhos precisam de atenção" (offline, pilha fraca, sinal fraco) → **Saúde**.
+  - Resumo: potência agora, **Hoje X kWh** (`_energia`), ligados (com "em espera"), portas abertas.
+  - Aparelhos **agrupados por divisão**; canais ligados de aparelhos com medidor a gastar menos do que o
+    limiar aparecem **Em espera**.
+- **Automações**: assistente em 5 passos (objetivo e categoria → gatilho → primeira ação → condições →
+  várias ações com Esperar e SE/SENÃO até 2 níveis), com todos os gatilhos, condições e ações da v3, e
+  **modelos** já preenchidos com os aparelhos do cliente (luz com movimento, chegar/sair de casa, entrada
+  inesperada, simular presença, consumo alto, bom dia, boa noite). Validação antes de enviar (≤ 20 ações,
+  carga perigosa só com "durante" ≤ 4 h, sol só com a localização definida, …). Cada automação mostra o
+  **registo** (última execução, resultado, motivo, vezes esta semana, últimas 20), **Testar agora**,
+  **Avaliar agora**, **Executar** (gatilho manual), "Em pausa" e os **avisos de conflito**.
+- **Histórico**: últimos eventos (alarmes, sensores, automações, avisos, modo) e o endereço ntfy.
+- **Saúde dos aparelhos** (`_saude`): online/offline desde, última notícia, sinal Wi-Fi em barras,
+  ligado há, reinícios em 24 h, pilha e dias estimados; os que precisam de atenção primeiro.
+- **Relatório da casa** (§9): modo e alarme, consumo agora/hoje/ontem e, por divisão, o estado de cada
+  canal (ligado/desligado/em espera, aberta/fechada, offline, pilha fraca, sinal fraco).
+  **Copiar** e **Partilhar** (folha de partilha do Android) em texto simples.
+- **Definições** (`_config/set`, só os campos alterados): atrasos de saída/entrada, horas de silêncio,
+  relatório diário, aviso de offline, pausa manual, limiar de "em espera", localização da casa (cidade).
+- **Presença** (opcional, desligada por omissão) — ver abaixo.
 - **Notificações** (Firebase Cloud Messaging), se configurado — ver abaixo.
 
 ## Compilar
@@ -26,7 +47,39 @@ MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
    ```
 2. Abre a pasta `android/` no **Android Studio** (Ladybug ou mais recente), espera pela sincronização do
    Gradle e carrega em ▶ com o telemóvel ligado por USB. Android 8.0 (API 26) ou mais recente.
-3. Testes unitários (parser, comandos, automações): `./gradlew test`.
+3. Testes unitários (parser, comandos, automações, assistente, modelos, relatório, presença): `./gradlew test`.
+
+## Presença (opcional)
+Em **Definições → Detetar quando chego e saio de casa**. Serve para os gatilhos "chega o primeiro /
+sai o último" e a condição "alguém/ninguém em casa". Código só em `presenca/`.
+
+Como funciona:
+1. Um ecrã explica **antes** de pedir as autorizações (regra do Google Play para localização em segundo
+   plano): localização precisa → "Permitir sempre" (Android 10+; no 11+ o Android abre a página de
+   autorizações da app) → onde é a casa (posição atual, ou a cidade — menos preciso) → nome → Wi-Fi de casa.
+2. Regista uma **zona** (Geofencing dos Google Play services, raio ≥ 100 m; 1,5 km se escolher só a
+   cidade) e, se escolhido, compara o **SSID** do Wi-Fi atual com o de casa. Ligado ao Wi-Fi de casa conta
+   como "em casa" mesmo que o GPS diga o contrário; sem evento da zona e sem Wi-Fi de casa não se decide nada.
+3. Só publica depois de o valor estar **estável 10 min** (`presenca/PresencaLogica.kt`, testado com
+   relógio falso). A publicação é feita pelo **WorkManager** (`PresencaWorker`), com a app fechada, por uma
+   ligação MQTT curta: `_presenca/set` `{"pessoa":"tel-…","nome":"Rui","em_casa":true}` (nunca retida).
+   Há também uma verificação a cada 15 min (mínimo do WorkManager) que apanha mudanças de Wi-Fi e volta a
+   registar a zona; depois de reiniciar o telemóvel, `ArranqueReceiver` regista-a outra vez.
+4. Desligar (ou sair da conta) publica `{"pessoa":"tel-…","remover":true}`.
+
+Para o servidor só vai "em casa"/"fora" e o nome; a posição nunca sai do telemóvel.
+
+**Limitações (honestas):**
+- Precisa dos Google Play services (telemóveis sem eles: a opção aparece desativada).
+- O Geofencing do Android pode demorar vários minutos a notar uma saída (mais com a poupança de
+  bateria), e marcas como Xiaomi, Huawei, Samsung ou Oppo podem matar o trabalho em segundo plano:
+  convém pôr a app "sem restrições" de bateria. Somando os 10 min de confirmação, uma chegada/saída pode
+  chegar ao servidor 10–20 min depois (ou mais). Não serve para desarmar o alarme e a app nunca o faz.
+- O SSID só é legível com a localização autorizada e ligada; lê-se com `WifiManager.connectionInfo`
+  (obsoleto desde o Android 12, mas ainda funcional para apps com autorização de localização).
+- Ao sair da conta **sem** ligação ao servidor, o pedido de remoção perde-se (a pessoa continua em
+  `_presenca` com o último estado até se voltar a ativar ou até a empresa a remover).
+- O telemóvel só conta como uma pessoa; várias pessoas = vários telemóveis com a opção ligada.
 
 ## Notificações com Firebase (opcional)
 Sem Firebase a app funciona na mesma; os avisos chegam só pelo ntfy. Para ativar as notificações:
@@ -54,10 +107,16 @@ que o utilizador pode ajustar nas definições do Android: **Alarmes** (importâ
 ## Estrutura
 | Pasta | Conteúdo |
 |---|---|
-| `data/` | Modelo (`Aparelho`, `Canal`, `Automacao`), leitura das mensagens MQTT (`EstadoParser`), comandos (`Comandos`), automações (`Automacoes`, `Rascunho`), resumo e textos. Kotlin puro, testado em JVM. `DomusMqtt` (cliente HiveMQ, religa sozinho) e `Sessao` (SharedPreferences). |
-| `ui/` | Ecrãs Compose: `Screens.kt` (entrada, navegação), `Casa.kt`, `AutomacoesScreen.kt`, `HistoricoScreen.kt`, `Ilustracoes.kt`, `FundoVivo.kt`, `DevicesViewModel.kt`. |
+| `data/` | Modelo (`Aparelho`, `Canal`, `Automacao`, `Cena`, `ConfigCasa`, …), leitura das mensagens MQTT (`EstadoParser`, `CasaV3`), comandos (`Comandos`), automações (`Automacoes`, `Rascunho` = rascunho do assistente ⇄ JSON), modelos de automação (`Modelos`), saúde e relatório (`Relatorio`), resumo e textos. Kotlin puro, testado em JVM. `DomusMqtt` (cliente HiveMQ, religa sozinho; `enviarUmaVez` para o WorkManager) e `Sessao` (SharedPreferences). |
+| `ui/` | Ecrãs Compose: `Screens.kt` (entrada, navegação, menu ⋮), `Casa.kt` (modos, cenas, aparelhos por divisão), `AutomacoesScreen.kt` + `Assistente.kt` + `Formulario.kt`, `CenasScreen.kt`, `SaudeRelatorio.kt`, `DefinicoesScreen.kt` (inclui os ecrãs de explicação da presença), `HistoricoScreen.kt`, `Ilustracoes.kt`, `Icones.kt`, `FundoVivo.kt`, `Plataforma.kt` (partilhar/autorizações, fornecido pela `MainActivity`), `DevicesViewModel.kt`. |
 | `ui/tema/` | Tema "Terra" (cores claro/escuro, letra Alegreya Sans + Nunito Sans por Google Fonts descarregáveis). |
+| `presenca/` | Presença: lógica pura (`PresencaLogica`: debounce 10 min, junção zona + Wi-Fi), `PresencaControlador` (Geofencing, posição atual), `ZonaReceiver`/`ArranqueReceiver`, `PresencaWorker` (WorkManager), `WifiCasa`, `PresencaPrefs`. |
 | `notificacoes/` | FCM: token, serviço de mensagens e canais de notificação. |
+
+Versões: AGP 8.7.3, Kotlin 2.0.21, Gradle 8.14.3, compileSdk/targetSdk 35, minSdk 26, Compose BOM
+2024.12.01 (material3 1.3.1), activity-compose 1.9.3, lifecycle 2.8.7, core-ktx 1.15.0, HiveMQ MQTT client
+1.3.17, coroutines 1.9.0 (+ `kotlinx-coroutines-play-services` 1.9.0), Firebase BOM 33.7.0,
+**play-services-location 21.3.0**, **work-runtime-ktx 2.10.0**.
 
 ## Segurança (protótipo)
 A palavra-passe fica em `SharedPreferences` privadas da app (com `allowBackup="false"`).

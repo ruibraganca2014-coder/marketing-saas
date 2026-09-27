@@ -52,6 +52,9 @@ class DomusMqtt(
 
     @Volatile private var client: Mqtt3AsyncClient? = null
     @Volatile private var codigo: String = ""
+
+    /** Código do cliente da ligação atual (para montar publicações fora desta classe). */
+    val codigoAtual: String get() = codigo
     @Volatile private var clientId: String = ""
     @Volatile private var parado = true
     @Volatile private var jaLigou = false
@@ -171,6 +174,34 @@ class DomusMqtt(
         enviar(listOf(Comandos.automacoes(codigo, lista)))
     }
 
+    // ---------- v3 ----------
+
+    /** Pede a mudança de modo; o motor responde com `_modo`/`_alarme` ou com um evento `erro` ("Não armado: …"). */
+    suspend fun setModo(modo: String, forcar: Boolean = false) {
+        altera { it.copy(ultimoErro = null) }
+        enviar(listOf(Comandos.modo(codigo, modo, forcar)))
+    }
+
+    suspend fun executarCena(id: String) = enviar(listOf(Comandos.executarCena(codigo, id)))
+
+    /** Publica a lista COMPLETA de cenas; o motor responde com `_cenas` ou com um evento `erro`. */
+    suspend fun guardarCenas(lista: List<Cena>) {
+        altera { it.copy(ultimoErro = null) }
+        enviar(listOf(Comandos.cenas(codigo, lista)))
+    }
+
+    suspend fun executarAutomacao(id: String) = enviar(listOf(Comandos.executarAutomacao(codigo, id)))
+
+    suspend fun testarAutomacao(id: String) = enviar(listOf(Comandos.testarAutomacao(codigo, id)))
+
+    suspend fun avaliarAutomacao(id: String) = enviar(listOf(Comandos.avaliarAutomacao(codigo, id)))
+
+    /** Envia só os campos que mudaram (objeto parcial); o motor responde com `_config` ou com um `erro`. */
+    suspend fun guardarConfig(parcial: org.json.JSONObject) {
+        altera { it.copy(ultimoErro = null) }
+        enviar(listOf(Comandos.config(codigo, parcial)))
+    }
+
     suspend fun registarFcm(token: String, remover: Boolean = false) =
         enviar(listOf(Comandos.fcm(codigo, token, remover)))
 
@@ -232,21 +263,61 @@ class DomusMqtt(
         _estado.value = novo
     }
 
-    private fun eAutenticacao(e: Throwable?): Boolean {
-        var t = e
-        while (t != null) {
-            if (t is Mqtt3ConnAckException) {
-                val rc = t.mqttMessage.returnCode
-                return rc == Mqtt3ConnAckReturnCode.NOT_AUTHORIZED || rc == Mqtt3ConnAckReturnCode.BAD_USER_NAME_OR_PASSWORD
+    companion object {
+        /**
+         * Ligação curta: liga, publica [mensagens] (QoS 1, **nunca retidas**) e desliga. Usada com a app
+         * fechada (ex.: presença publicada pelo WorkManager). Sem religar automático: se falhar, lança
+         * [MqttException] e quem chamou tenta mais tarde.
+         */
+        suspend fun enviarUmaVez(
+            codigo: String,
+            password: String,
+            mensagens: List<Publicacao>,
+            host: String = BuildConfig.MQTT_HOST,
+            porta: Int = 443,
+            tls: Boolean = true,
+            caminho: String = "mqtt",
+        ) {
+            val base = MqttClient.builder()
+                .useMqttVersion3()
+                .identifier("app-$codigo-" + UUID.randomUUID().toString().take(8))
+                .serverHost(host)
+                .serverPort(porta)
+            val c = (if (tls) base.sslWithDefaultConfig() else base)
+                .webSocketConfig().serverPath(caminho).applyWebSocketConfig()
+                .simpleAuth().username(codigo).password(password.toByteArray()).applySimpleAuth()
+                .buildAsync()
+            try {
+                c.connect().await()
+                for (m in mensagens) {
+                    c.publishWith().topic(m.topico).payload(m.payload.toByteArray()).qos(MqttQos.AT_LEAST_ONCE).retain(false)
+                        .send().await()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                throw traduz(e)
+            } finally {
+                if (c.state.isConnected) runCatching { c.disconnect().await() }
             }
-            t = t.cause
         }
-        return false
-    }
 
-    private fun traduz(e: Throwable): MqttException = when {
-        e is MqttException -> e
-        eAutenticacao(e) -> MqttException("Código ou palavra-passe errados.", autenticacao = true, cause = e)
-        else -> MqttException("Não foi possível ligar ao servidor. Verifique a ligação à Internet.", cause = e)
+        private fun eAutenticacao(e: Throwable?): Boolean {
+            var t = e
+            while (t != null) {
+                if (t is Mqtt3ConnAckException) {
+                    val rc = t.mqttMessage.returnCode
+                    return rc == Mqtt3ConnAckReturnCode.NOT_AUTHORIZED || rc == Mqtt3ConnAckReturnCode.BAD_USER_NAME_OR_PASSWORD
+                }
+                t = t.cause
+            }
+            return false
+        }
+
+        private fun traduz(e: Throwable): MqttException = when {
+            e is MqttException -> e
+            eAutenticacao(e) -> MqttException("Código ou palavra-passe errados.", autenticacao = true, cause = e)
+            else -> MqttException("Não foi possível ligar ao servidor. Verifique a ligação à Internet.", cause = e)
+        }
     }
 }

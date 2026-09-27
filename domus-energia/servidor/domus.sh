@@ -3,14 +3,16 @@
 # domus.sh — administração do servidor da Domus Energia (Mosquitto + ntfy)
 #
 # Corre no VPS, dentro da pasta servidor/ (com o docker compose já a correr).
-# Contrato: ../docs/PROTOCOLO-MQTT.md (v1) e ../docs/PROTOCOLO-MQTT-v2.md (v2)
+# Contrato: ../docs/PROTOCOLO-MQTT.md (v1), ../docs/PROTOCOLO-MQTT-v2.md (v2)
+#           e ../docs/PROTOCOLO-MQTT-v3.md (v3: §3 campos novos, §4 regras nos
+#           aparelhos, §10 permissões)
 #
 #   ./domus.sh admin <palavra-passe>
 #   ./domus.sh motor [palavra-passe]
 #   ./domus.sh cliente <codigo> [palavra-passe]
 #   ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" \
-#              [--canais "1:interruptor:Teto,2:interruptor:Candeeiro"] \
-#              [--medidor] [--bateria] [palavra-passe]
+#              [--canais "1:interruptor:Teto:arranque=ultimo,2:interruptor:Termo:carga=perigosa"] \
+#              [--divisao "Sala"] [--medidor] [--bateria] [palavra-passe]
 #   ./domus.sh remover-aparelho <cliente> <id>
 #   ./domus.sh listar
 #   ./domus.sh acl            (só regenera o ficheiro acl e recarrega o Mosquitto)
@@ -19,8 +21,10 @@
 #   dados/admin.senha               palavra-passe do admin (usada para publicar)
 #   dados/.motor                    existe depois de o utilizador "motor" ser criado
 #   dados/clientes/<codigo>.tsv     um aparelho por linha, separado por TAB:
-#                                   id tipo medidor(0/1) bateria(0/1) canais nome
-#                                   canais = "n:funcao:nome,n:funcao:nome"
+#                                   id tipo medidor(0/1) bateria(0/1) canais nome divisao
+#                                   canais = "n:funcao:nome:entrada:simular:arranque:carga:divisao,..."
+#                                   (entrada/simular 0/1; linhas antigas "n:funcao:nome"
+#                                   e sem a coluna divisao continuam a ser aceites)
 #   dados/clientes/<codigo>.ntfy    segredo do tópico ntfy do cliente
 # O ficheiro mosquitto/seguranca/acl é SEMPRE gerado a partir destes ficheiros.
 #
@@ -51,7 +55,12 @@ MOTOR_MARCA="$DADOS_DIR/.motor"
 # "domus-<cliente>-<segredo>" tem de caber em 64 caracteres).
 RE_ID='^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'
 FUNCOES="interruptor luz estore porta movimento bateria"
+CONTROLAVEIS="interruptor luz estore"      # funções que o cliente pode comandar
+DIVISAO_MAX=40                             # comprimento máximo de "divisao"
+AUTO_OFF_S=14400                           # limite local das cargas perigosas (Shelly): 4 h
+OBK_DOC="https://github.com/openshwprojects/OpenBK7231T_App/blob/main/docs/commands.md"
 TAB=$'\t'
+US=$'\x1f'                                # separador interno (aceita campos vazios)
 ENV_FICH="${DOMUS_ENV:-.env}"
 
 MODO=docker
@@ -92,12 +101,35 @@ Uso:
   ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" [opções] [palavra-passe]
       Cria (ou substitui) um aparelho do cliente e mostra como o configurar.
       Opções:
-        --canais "1:interruptor:Teto,2:interruptor:Candeeiro"
-              canais n:funcao[:nome], separados por vírgulas. Funções:
-              interruptor luz estore porta movimento bateria.
+        --canais "n:funcao[:nome][:opção]...,n:funcao..."
+              Um canal por vírgula; dentro do canal, campos separados por ":".
+              Funções: interruptor luz estore porta movimento bateria.
+              O 1.º campo depois da função que não é uma opção é o nome
+              (nomes sem ":" nem ","). Opções do canal:
+                entrada            só "porta": porta de entrada (alarme com atraso)
+                simular            só "interruptor"/"luz": entra na simulação
+                                   de presença do modo férias
+                arranque=desligado|ligado|ultimo
+                                   estado depois de um corte de luz (só
+                                   interruptor/luz/estore; por omissão
+                                   "desligado"). "ultimo" só em interruptor/luz
+                                   sem carga perigosa; estore só "desligado".
+                carga=normal|perigosa
+                                   perigosa = aquecedor, termoacumulador, bomba,
+                                   motor (nunca "ultimo"; limite local de 4 h
+                                   nos Shelly)
+                divisao=Texto      divisão da casa deste canal (substitui --divisao)
+              Exemplos:
+                "1:interruptor:Teto:simular:arranque=ultimo:divisao=Sala"
+                "1:porta:Porta entrada:entrada,2:bateria"
+                "1:interruptor:Termo:carga=perigosa"
               Sem --canais: um canal "interruptor" n.º 1.
+        --divisao "Sala"  divisão do aparelho (herdada por todos os canais)
         --medidor   o aparelho mede potência/tensão/corrente/energia
         --bateria   aparelho a pilhas (dorme; liga-se só quando há eventos)
+      O script imprime os comandos a colar no aparelho (OpenBeken: autoexec.bat
+      com SetStartValue; Shelly: endereços RPC para o browser) para que o
+      interruptor físico e o estado depois de um corte funcionem sem internet.
 
   ./domus.sh remover-aparelho <cliente> <id>
       Apaga o aparelho, o seu utilizador MQTT e as mensagens retidas dele.
@@ -217,16 +249,17 @@ contem_linha() { # <texto> <linha>
   return 1
 }
 
-# Aparelhos do cliente, normalizados em 6 colunas (aceita ainda linhas antigas
-# da v1 com 3 colunas: id tipo nome).
+# Aparelhos do cliente, normalizados em 7 colunas (id tipo medidor bateria
+# canais nome divisao; a divisao pode estar vazia). Aceita ainda linhas antigas
+# da v1 (3 colunas: id tipo nome) e da v2 (6 colunas, sem divisao).
 ler_aparelhos() { # <cliente>
-  local a b c d e f
-  while IFS="$TAB" read -r a b c d e f; do
+  local a b c d e f g
+  while IFS="$TAB" read -r a b c d e f g; do
     [[ -z "$a" ]] && continue
     if [[ -z "$d" && -z "$e" && -z "$f" ]]; then          # formato v1
-      printf '%s\t%s\t0\t0\t1:interruptor:\t%s\n' "$a" "$b" "$c"
+      printf '%s\t%s\t0\t0\t1:interruptor:\t%s\t\n' "$a" "$b" "$c"
     else
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e" "$f"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$a" "$b" "$c" "$d" "$e" "$f" "$g"
     fi
   done < "$CLIENTES_DIR/$1.tsv"
 }
@@ -261,9 +294,9 @@ todos_utilizadores() {
 utilizador_ocupado() { contem_linha "$(todos_utilizadores)" "$1"; }
 
 # Grava/substitui a linha do aparelho (mantém a ordem; um novo vai para o fim).
-guardar_aparelho() { # <cliente> <id> <tipo> <medidor> <bateria> <canais> <nome>
+guardar_aparelho() { # <cliente> <id> <tipo> <medidor> <bateria> <canais> <nome> <divisao>
   local f="$CLIENTES_DIR/$1.tsv" tmp linha nova achou=0
-  nova="$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$2" "$3" "$4" "$5" "$6" "$7")"
+  nova="$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' "$2" "$3" "$4" "$5" "$6" "$7" "$8")"
   tmp="$(mktemp "$CLIENTES_DIR/.tmp.XXXXXX")"
   while IFS= read -r linha; do
     if [[ "${linha%%"$TAB"*}" == "$2" ]]; then
@@ -283,65 +316,139 @@ apagar_aparelho_estado() { # <cliente> <id>
   chmod 600 "$tmp"; mv "$tmp" "$f"
 }
 
-# Valida e normaliza a especificação de canais. Escreve "n:funcao:nome,..."
-# Ex.: "1:interruptor:Teto, 2:interruptor:Candeeiro"  ou  "1:porta,2:bateria"
+e_controlavel() { [[ " $CONTROLAVEIS " == *" $1 "* ]]; }
+
+# Valida um texto de "divisao". <texto> <onde>
+validar_divisao() {
+  [[ -n "$1" ]] || erro "divisao vazia $2"
+  (( ${#1} <= DIVISAO_MAX )) || erro "divisao demasiado longa $2 (máx. $DIVISAO_MAX caracteres): '$1'"
+}
+
+# Valida e normaliza a especificação de canais (contrato v3 §3).
+# Entrada:  "n:funcao[:nome][:opção]...,..."   opções: entrada, simular,
+#           arranque=desligado|ligado|ultimo, carga=normal|perigosa, divisao=Texto
+# Saída:    "n:funcao:nome:entrada(0/1):simular(0/1):arranque:carga:divisao,..."
+#           (arranque vazio nos canais não controláveis; carga/divisao vazias
+#           = por omissão)
 normalizar_canais() { # <espec>
-  local espec="$1" item n resto funcao nome out="" vistos=" "
-  local -a itens
+  local espec="$1" item n funcao nome campo chave valor out="" vistos=" " i
+  local ent sim arr carga div opcoes
+  local -a itens campos
   [[ -n "${espec//[[:space:],]/}" ]] || erro "--canais está vazio"
   IFS=',' read -r -a itens <<< "$espec"
   for item in "${itens[@]}"; do
     item="$(limpar_texto "$item")"
     [[ -n "$item" ]] || continue
-    [[ "$item" == *:* ]] || erro "canal inválido: '$item' (formato n:funcao[:nome])"
-    n="$(limpar_texto "${item%%:*}")"
-    resto="${item#*:}"
-    if [[ "$resto" == *:* ]]; then
-      funcao="$(limpar_texto "${resto%%:*}")"; nome="$(limpar_texto "${resto#*:}")"
-    else
-      funcao="$(limpar_texto "$resto")"; nome=""
-    fi
+    [[ "$item" == *:* ]] || erro "canal inválido: '$item' (formato n:funcao[:nome][:opção]...)"
+    IFS=':' read -r -a campos <<< "$item"
+    n="$(limpar_texto "${campos[0]}")"
+    funcao="$(limpar_texto "${campos[1]:-}")"
     [[ "$n" =~ ^[1-9][0-9]?$ ]] || erro "número de canal inválido: '$n' (1 a 99)"
     [[ " $FUNCOES " == *" $funcao "* ]] || erro "função inválida no canal $n: '$funcao' (use: $FUNCOES)"
     [[ "$vistos" != *" $n "* ]] || erro "o canal $n aparece repetido"
     vistos+="$n "
-    out+="${out:+,}$n:$funcao:$nome"
+    nome=""; ent=0; sim=0; arr=""; carga=""; div=""; opcoes=" "
+    for (( i = 2; i < ${#campos[@]}; i++ )); do
+      campo="$(limpar_texto "${campos[i]}")"
+      [[ -n "$campo" ]] || continue                       # "1:porta::entrada"
+      if [[ "$campo" == entrada || "$campo" == simular || "$campo" =~ ^[a-z_]+= ]]; then
+        chave="${campo%%=*}"
+        [[ "$opcoes" != *" $chave "* ]] || erro "canal $n: a opção '$chave' aparece repetida"
+        opcoes+="$chave "
+        valor="$(limpar_texto "${campo#*=}")"
+        case "$chave" in
+          entrada)  ent=1 ;;
+          simular)  sim=1 ;;
+          arranque) arr="$valor"
+                    [[ "$arr" == desligado || "$arr" == ligado || "$arr" == ultimo ]] \
+                      || erro "canal $n: arranque inválido '$arr' (use desligado, ligado ou ultimo)" ;;
+          carga)    carga="$valor"
+                    [[ "$carga" == normal || "$carga" == perigosa ]] \
+                      || erro "canal $n: carga inválida '$carga' (use normal ou perigosa)" ;;
+          divisao)  div="$valor"; validar_divisao "$div" "no canal $n" ;;
+          *)        erro "canal $n: opção desconhecida '$chave' (use: entrada, simular, arranque=, carga=, divisao=)" ;;
+        esac
+      elif [[ -z "$nome" ]]; then
+        nome="$campo"
+      else
+        erro "canal $n: dois nomes ('$nome' e '$campo'). Opções válidas: entrada, simular, arranque=, carga=, divisao="
+      fi
+    done
+    # Regras do contrato v3 §3
+    if (( ent )) && [[ "$funcao" != porta ]]; then
+      erro "canal $n: 'entrada' só é válido em canais 'porta' (este é '$funcao')"
+    fi
+    if (( sim )) && [[ "$funcao" != interruptor && "$funcao" != luz ]]; then
+      erro "canal $n: 'simular' só é válido em canais 'interruptor' ou 'luz' (este é '$funcao')"
+    fi
+    if ! e_controlavel "$funcao"; then
+      [[ -z "$arr" ]] || erro "canal $n: 'arranque' só se aplica a canais controláveis ($CONTROLAVEIS), não a '$funcao'"
+      [[ -z "$carga" ]] || erro "canal $n: 'carga' só se aplica a canais controláveis ($CONTROLAVEIS), não a '$funcao'"
+    else
+      [[ -n "$arr" ]] || arr=desligado                    # por omissão (contrato v3 §3)
+      if [[ "$arr" == ultimo && "$carga" == perigosa ]]; then
+        erro "canal $n: 'arranque=ultimo' não é permitido com 'carga=perigosa' (depois de um corte de luz tem de ficar desligado)"
+      fi
+      if [[ "$arr" == ultimo && "$funcao" != interruptor && "$funcao" != luz ]]; then
+        erro "canal $n: 'arranque=ultimo' só é permitido em 'interruptor' ou 'luz' (este é '$funcao')"
+      fi
+      if [[ "$funcao" == estore && "$arr" != desligado ]]; then
+        erro "canal $n: um estore fica sempre parado depois de um corte de luz; use arranque=desligado (ou omita)"
+      fi
+      if [[ "$arr" == ligado && "$carga" == perigosa ]]; then
+        aviso "canal $n: carga perigosa com arranque=ligado liga sozinha quando a luz volta; confirme que é isso que quer"
+      fi
+      [[ "$carga" == normal ]] && carga=""                # por omissão
+    fi
+    out+="${out:+,}$n:$funcao:$nome:$ent:$sim:$arr:$carga:$div"
   done
   [[ -n "$out" ]] || erro "--canais não tem nenhum canal"
   printf '%s' "$out"
 }
 
-# Itera os canais: escreve "n<TAB>funcao<TAB>nome" por linha.
+# Itera os canais: escreve por linha, separados por US ($'\x1f', aceita campos
+# vazios):  n funcao nome entrada simular arranque carga divisao
+# Aceita também o formato antigo "n:funcao:nome" (arranque = desligado).
 canais_linhas() { # <canais-normalizados>
-  local item resto
+  local item n f nome e s a c d
   local -a itens
   IFS=',' read -r -a itens <<< "$1"
   for item in "${itens[@]}"; do
     [[ -n "$item" ]] || continue
-    resto="${item#*:}"
-    printf '%s\t%s\t%s\n' "${item%%:*}" "${resto%%:*}" "${resto#*:}"
+    IFS=':' read -r n f nome e s a c d <<< "$item"
+    [[ "$e" == 1 ]] || e=0
+    [[ "$s" == 1 ]] || s=0
+    if e_controlavel "$f"; then [[ -n "$a" ]] || a=desligado; else a=""; fi
+    printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$n" "$f" "$nome" "$e" "$s" "$a" "$c" "$d"
   done
 }
 
 bool_json() { if [[ "$1" == 1 ]]; then printf 'true'; else printf 'false'; fi; }
 
 # JSON da lista de aparelhos (conteúdo retido de domus/<cliente>/_aparelhos),
-# formato v2 (secção 1).
+# formato v2 (secção 1) + campos por canal da v3 (secção 3). A divisão do
+# aparelho (--divisao) é escrita em cada canal que não tenha a sua.
 json_aparelhos() { # <cliente>
-  local id tipo med bat canais nome n funcao cnome primeiro=1 pc
+  local id tipo med bat canais nome adiv n funcao cnome ent sim arr carga cdiv primeiro=1 pc
   printf '['
-  while IFS="$TAB" read -r id tipo med bat canais nome; do
+  while IFS="$TAB" read -r id tipo med bat canais nome adiv; do
     (( primeiro )) || printf ','
     primeiro=0
     printf '{"id":%s,"nome":%s,"tipo":%s,"medidor":%s,"bateria":%s,"canais":[' \
       "$(json_str "$id")" "$(json_str "$nome")" "$(json_str "$tipo")" \
       "$(bool_json "$med")" "$(bool_json "$bat")"
     pc=1
-    while IFS="$TAB" read -r n funcao cnome; do
+    while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
       (( pc )) || printf ','
       pc=0
       printf '{"n":%d,"funcao":%s' "$n" "$(json_str "$funcao")"
       [[ -n "$cnome" ]] && printf ',"nome":%s' "$(json_str "$cnome")"
+      [[ "$ent" == 1 ]] && printf ',"entrada":true'
+      [[ "$sim" == 1 ]] && printf ',"simular":true'
+      [[ -n "$arr" ]] && printf ',"arranque":%s' "$(json_str "$arr")"
+      [[ "$carga" == perigosa ]] && printf ',"carga":"perigosa"'
+      [[ -n "$cdiv" ]] || cdiv="$adiv"
+      [[ -n "$cdiv" ]] && printf ',"divisao":%s' "$(json_str "$cdiv")"
       printf '}'
     done < <(canais_linhas "$canais")
     printf ']}'
@@ -366,21 +473,28 @@ json_ntfy() { # <cliente>
 }
 
 # Ficheiro ACL do Mosquitto, gerado a partir do estado. Escrito no stdout.
-# Contrato: v1 "Permissões" + v2 secção 5.
+# Contrato: v1 "Permissões" + v2 secção 5 + v3 secção 10.
 #
-# Nota sobre os padrões com "+": no Mosquitto "+" corresponde a exatamente UM
-# nível. Os tópicos reservados do motor têm 3 níveis (domus/C/_alarme,
-# _aparelhos, _automacoes, _historico, _eventos, _ntfy) e nenhum padrão de
-# escrita do cliente tem 3 níveis, por isso o cliente nunca os consegue
-# escrever. Os padrões com "+" deixam escrever coisas como
-# domus/C/_eventos/rpc, que ninguém lê como comando (os ids de aparelho não
-# podem começar por "_"). Ver testes/acl.sh.
+# Os comandos dos aparelhos são escritos POR APARELHO (domus/C/<id>/+/set,
+# .../rpc, .../command, ...) e não com "+" no lugar do aparelho. Com
+# "domus/C/+/+/set" o cliente conseguia escrever em tópicos dentro das áreas
+# reservadas do motor, por exemplo domus/C/_automacoes/admin/set ou
+# domus/C/_config/x/set. Assim só há dois tipos de escrita do cliente:
+#   - comandos para os SEUS aparelhos (ids nunca começam por "_");
+#   - a lista fechada de pedidos ao motor (_alarme/set, _config/set, ...).
+# Os tópicos reservados (_aparelhos, _alarme, _config, _modo, _cenas, _saude,
+# _energia, _presenca, _automacoes/registo, _automacoes/avisos,
+# _automacoes/admin, ...) continuam só de leitura para o cliente.
+# Ver testes/acl.sh.
+PEDIDOS_CLIENTE="_alarme/set _automacoes/set _fcm/registar _config/set _modo/set _cenas/set _cenas/executar _automacoes/executar _presenca/set"
+
 gerar_acl() {
-  local c id
+  local c id t
+  local -a ids
   cat <<'EOF'
 # GERADO AUTOMATICAMENTE pelo domus.sh — NÃO EDITAR À MÃO.
 # Fonte: servidor/dados/clientes/*.tsv
-# Contrato: docs/PROTOCOLO-MQTT.md (v1) e docs/PROTOCOLO-MQTT-v2.md (secção 5)
+# Contrato: docs/PROTOCOLO-MQTT.md (v1), PROTOCOLO-MQTT-v2.md (§5) e PROTOCOLO-MQTT-v3.md (§10)
 
 # Administrador (script domus.sh): tudo em domus/
 user admin
@@ -391,22 +505,26 @@ user motor
 topic readwrite domus/#
 EOF
   while IFS= read -r c; do
+    mapfile -t ids < <(ler_aparelhos "$c" | cut -f1)
     printf '\n# ===== Cliente %s =====\n' "$c"
     printf 'user %s\n' "$c"
     printf 'topic read domus/%s/#\n' "$c"
-    printf 'topic write domus/%s/+/+/set\n' "$c"          # canais OpenBeken (<n>/set)
-    printf 'topic write domus/%s/+/led_dimmer/set\n' "$c"
-    printf 'topic write domus/%s/+/rpc\n' "$c"            # Shelly RPC (luz, estore)
-    printf 'topic write domus/%s/+/command\n' "$c"        # Shelly status_update
-    printf 'topic write domus/%s/+/command/+\n' "$c"      # Shelly command/switch:<id>
-    printf 'topic write domus/%s/_alarme/set\n' "$c"
-    printf 'topic write domus/%s/_automacoes/set\n' "$c"
-    printf 'topic write domus/%s/_fcm/registar\n' "$c"
-    while IFS= read -r id; do
+    printf '# pedidos ao motor (v2 §5, v3 §10)\n'
+    for t in $PEDIDOS_CLIENTE; do
+      printf 'topic write domus/%s/%s\n' "$c" "$t"
+    done
+    for id in "${ids[@]}"; do
+      printf '# comandos para o aparelho %s\n' "$id"
+      printf 'topic write domus/%s/%s/+/set\n' "$c" "$id"        # canais OpenBeken (<n>/set), led_dimmer/set
+      printf 'topic write domus/%s/%s/rpc\n' "$c" "$id"          # Shelly RPC (luz, estore)
+      printf 'topic write domus/%s/%s/command\n' "$c" "$id"      # Shelly status_update
+      printf 'topic write domus/%s/%s/command/+\n' "$c" "$id"    # Shelly command/switch:<id>
+    done
+    for id in "${ids[@]}"; do
       printf '\n# Aparelho %s de %s\n' "$id" "$c"
       printf 'user %s-%s\n' "$c" "$id"
       printf 'topic readwrite domus/%s/%s/#\n' "$c" "$id"
-    done < <(ler_aparelhos "$c" | cut -f1)
+    done
   done < <(listar_clientes)
 }
 
@@ -517,9 +635,20 @@ configurar_ntfy_motor() { # <palavra-passe>
 # -----------------------------------------------------------------------------
 # Instruções de configuração dos aparelhos
 # -----------------------------------------------------------------------------
+# Texto curto do estado de arranque. <arranque>
+arranque_texto() {
+  case "$1" in
+    ligado) printf 'liga sozinho quando a luz volta' ;;
+    ultimo) printf 'volta ao estado em que estava' ;;
+    *)      printf 'fica desligado quando a luz volta' ;;
+  esac
+}
+
 instrucoes_openbeken() { # <c> <id> <senha> <host> <medidor> <bateria> <canais>
-  local c="$1" id="$2" senha="$3" host="$4" med="$5" bat="$6" canais="$7" n funcao cnome
+  local c="$1" id="$2" senha="$3" host="$4" med="$5" bat="$6" canais="$7"
+  local n funcao cnome ent sim arr carga cdiv rotulo sv tem_rele=0 tem_sensor=0 tem_perigosa=0
   cat <<EOF
+--- 1. Ligação ao servidor --------------------------------------------------
 No OpenBeken (http://<ip-do-aparelho>) abre  Config -> Configure MQTT  e preenche:
 
   Host ............ $host
@@ -531,20 +660,86 @@ No OpenBeken (http://<ip-do-aparelho>) abre  Config -> Configure MQTT  e preench
 
 Carrega em "Submit" e reinicia o aparelho. Deve aparecer
   domus/$c/$id/connected = online
+(Alternativa na consola do Web App: MqttHost $host / MqttUser $c-$id /
+ MqttPassword <palavra-passe>; o Client Topic e a porta preenchem-se no
+ formulário acima.)
 
-Canais (Config -> Configure Module: cada relé/entrada no canal indicado):
+--- 2. Canais (Config -> Configure Module) ------------------------------------
 EOF
-  while IFS="$TAB" read -r n funcao cnome; do
+  while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
+    rotulo="${cnome:+ (\"$cnome\")}"
     case "$funcao" in
-      interruptor) printf '  canal %s  %-12s relé; lê %s/get (1/0), recebe %s/set\n' "$n" "$funcao" "$n" "$n" ;;
-      luz)         printf '  canal %s  %-12s relé/LED; brilho 0-100 em led_dimmer/get e led_dimmer/set\n' "$n" "$funcao" ;;
-      estore)      printf '  canal %s  %-12s posição 0 (fechado) a 100 (aberto) em %s/get e %s/set\n' "$n" "$funcao" "$n" "$n" ;;
-      porta)       printf '  canal %s  %-12s sensor: %s/get = 1 aberta / 0 fechada\n' "$n" "$funcao" "$n" ;;
-      movimento)   printf '  canal %s  %-12s sensor: %s/get = 1 movimento / 0 sem movimento\n' "$n" "$funcao" "$n" ;;
+      interruptor) printf '  canal %s  %-12s relé; lê %s/get (1/0), recebe %s/set%s\n' "$n" "$funcao" "$n" "$n" "$rotulo"; tem_rele=1 ;;
+      luz)         printf '  canal %s  %-12s relé/LED; brilho 0-100 em led_dimmer/get e led_dimmer/set%s\n' "$n" "$funcao" "$rotulo"; tem_rele=1 ;;
+      estore)      printf '  canal %s  %-12s posição 0 (fechado) a 100 (aberto) em %s/get e %s/set%s\n' "$n" "$funcao" "$n" "$n" "$rotulo" ;;
+      porta)       printf '  canal %s  %-12s sensor: %s/get = 1 aberta / 0 fechada%s%s\n' "$n" "$funcao" "$n" "$rotulo" "$( [[ "$ent" == 1 ]] && printf '  [porta de entrada]')"; tem_sensor=1 ;;
+      movimento)   printf '  canal %s  %-12s sensor: %s/get = 1 movimento / 0 sem movimento%s\n' "$n" "$funcao" "$n" "$rotulo"; tem_sensor=1 ;;
       bateria)     printf '  canal %s  %-12s %s/get = percentagem 0-100\n' "$n" "$funcao" "$n" ;;
     esac
-    [[ -n "$cnome" ]] && printf '             ("%s")\n' "$cnome"
+    [[ "$carga" == perigosa ]] && tem_perigosa=1
   done < <(canais_linhas "$canais")
+
+  if (( tem_rele )); then
+    cat <<'EOF'
+
+--- 3. Botão físico -> relé, SEM internet -----------------------------------
+Em Config -> Configure Module, para cada canal acima:
+  - o pino do relé com o papel "Relay" (Rel)   e o número do canal;
+  - o pino do botão com o papel "Button" (Btn) e o MESMO número do canal
+    ("Button_n" se o botão funcionar ao contrário; "ToggleChannelOnToggle" para
+    um interruptor de parede de 2 posições ligado a uma entrada).
+Com o botão e o relé no mesmo canal, o OpenBeken liga/desliga o relé
+localmente: não precisa de Wi-Fi, do servidor nem do MQTT. É assim que
+funcionam sem internet o botão da frente do disjuntor Tongou TO-Q-SY1-JWT e as
+teclas dos interruptores de parede. Teste: desligue o router e carregue no
+botão — o relé tem de mudar.
+Interruptores de parede com TuyaMCU (as teclas ligam ao microcontrolador e
+não aos pinos): o próprio MCU trata das teclas, mas alguns ignoram-nas quando
+não têm Wi-Fi/servidor; nesse caso é preciso o comando tuyaMcu_defWiFiState no
+autoexec.bat (valor: verificar na documentação do OpenBeken).
+EOF
+  fi
+
+  # Estado depois de um corte de luz (contrato v3 §4)
+  if [[ "$canais" == *:interruptor:* || "$canais" == *:luz:* || "$canais" == *:estore:* ]]; then
+    cat <<'EOF'
+
+--- 4. Estado depois de um corte de luz: autoexec.bat -------------------------
+Web App -> separador "LittleFS" -> ficheiro autoexec.bat (criar se não
+existir), acrescentar estas linhas e "Save". Corre em cada arranque.
+(SetStartValue <canal> <valor>: 0 = desligado, 1 = ligado, -1 = último estado)
+
+EOF
+    while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
+      case "$arr" in ligado) sv=1 ;; ultimo) sv=-1 ;; *) sv=0 ;; esac
+      if [[ "$funcao" == interruptor || "$funcao" == luz ]]; then
+        printf '  SetStartValue %s %s\n' "$n" "$sv"
+      fi
+    done < <(canais_linhas "$canais")
+    printf '\n'
+    while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
+      e_controlavel "$funcao" || continue
+      if [[ "$funcao" == estore ]]; then
+        printf '  canal %s: estore — não se usa SetStartValue; confirme que fica parado depois de um corte.\n' "$n"
+      else
+        printf '  canal %s%s: %s%s\n' "$n" "${cnome:+ ($cnome)}" "$(arranque_texto "$arr")" "$( [[ "$carga" == perigosa ]] && printf ' [carga perigosa]')"
+      fi
+    done < <(canais_linhas "$canais")
+    cat <<EOF
+Teste: ligue, corte a corrente no quadro 10 s, volte a ligar e confirme.
+Depois de cada atualização (OTA) do firmware, repita o teste.
+Comandos: $OBK_DOC
+EOF
+  fi
+  if (( tem_perigosa )); then
+    cat <<'EOF'
+
+ATENÇÃO — carga perigosa: o OpenBeken não tem, nesta configuração, um limite
+de tempo local. O limite de 4 h das automações é aplicado pelo motor (precisa
+de internet). Mantenha arranque=desligado. Para um temporizador local, ver os
+scripts do OpenBeken (verificar na documentação do OpenBeken).
+EOF
+  fi
   if [[ "$med" == 1 ]]; then
     cat <<'EOF'
 
@@ -556,28 +751,52 @@ EOF
   if [[ "$bat" == 1 ]]; then
     cat <<'EOF'
 
-Sensor a pilhas Tuya (TuyaMCU de baixo consumo). Em Config -> Startup command
-(ou no ficheiro autoexec.bat) escreva, trocando os dpIDs pelos do seu modelo:
+--- Sensor a pilhas Tuya (TuyaMCU de baixo consumo) ---------------------------
+No autoexec.bat (Web App -> LittleFS), trocando <dpID_...> pelos do modelo:
 
   startDriver TuyaMCU
   startDriver tmSensor
-  linkTuyaMCUOutputToChannel <dpID_do_estado> bool 1
-  linkTuyaMCUOutputToChannel <dpID_da_bateria> val 2
-
-ATENÇÃO: os dpIDs variam de modelo para modelo. Para os descobrir, abra os
-Logs do OpenBeken, provoque um evento (abrir a porta / passar à frente do
-sensor) e veja os "dpId" recebidos do TuyaMCU. Exemplos frequentes: estado no
-dpID 1, bateria no dpID 2 (percentagem) ou 3 (nível baixo/médio/alto — se o
-modelo só tiver o nível, a app mostrará 0/1/2 em vez de percentagem).
-Faça toda a configuração com o sensor acordado (carregue no botão de
-emparelhamento), porque ele adormece passados poucos segundos.
 EOF
+    while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
+      case "$funcao" in
+        porta|movimento) printf '  linkTuyaMCUOutputToChannel <dpID_%s> bool %s\n' "$funcao" "$n" ;;
+        bateria)         printf '  linkTuyaMCUOutputToChannel <dpID_bateria> val %s\n' "$n" ;;
+      esac
+    done < <(canais_linhas "$canais")
+    cat <<EOF
+
+Os dpIDs variam de modelo para modelo. Para os descobrir:
+  1. na consola do Web App:  loglevel 4   (e no separador Logs escolha o
+     nível "Debug" e o filtro TuyaMCU);
+  2. acorde o sensor (botão de emparelhamento) e provoque eventos: abrir e
+     fechar a porta / passar à frente do sensor;
+  3. nos Logs aparecem as mensagens do TuyaMCU com "dpId" e o valor: o que
+     muda com a porta/movimento é o do estado; o que tem 0-100 (ou
+     baixo/médio/alto) é o da bateria. Com o sensor acordado,
+     tuyaMcu_sendQueryState pede ao MCU todos os valores de uma vez.
+Frequente: estado no dpID 1 e bateria no dpID 2 (percentagem) ou 3 (nível;
+use "enum" em vez de "val" e a app mostrará 0/1/2).
+Se o sensor não responder: tuyaMcu_setBaudRate 115200 (o normal é 9600) e,
+em sensores com protocolo TuyaMCU v3, tuyaMcu_batteryPoweredMode —
+verificar na documentação do OpenBeken: $OBK_DOC
+Faça a configuração com o sensor acordado: ele adormece em poucos segundos.
+EOF
+  elif (( tem_sensor )); then
+    printf '\nSensor com fios: pino do sensor com o papel "DigitalInput" (ou "DigitalInput_n") e o número do canal.\n'
   fi
+  return 0
+}
+
+# URL de RPC do Shelly (Gen2/Gen3) para colar no browser da rede local.
+url_rpc() { # <método> [parâmetros]
+  printf '  http://<ip-do-aparelho>/rpc/%s%s\n' "$1" "${2:+?$2}"
 }
 
 instrucoes_shelly() { # <c> <id> <senha> <host> <medidor> <bateria> <canais>
-  local c="$1" id="$2" senha="$3" host="$4" med="$5" bat="$6" canais="$7" n funcao cnome comp
+  local c="$1" id="$2" senha="$3" host="$4" med="$5" bat="$6" canais="$7"
+  local n funcao cnome ent sim arr carga cdiv comp k estado auto mqtt
   cat <<EOF
+--- 1. Ligação ao servidor --------------------------------------------------
 Na app Shelly ou na página web do aparelho (http://<ip-do-aparelho>) abre
 Settings -> MQTT  e preenche:
 
@@ -595,9 +814,20 @@ Settings -> MQTT  e preenche:
 Guarda ("Save") e reinicia o aparelho. Deve aparecer
   domus/$c/$id/online = true
 
-Canais (canal n = componente n-1 do Shelly):
+Em alternativa, num browser ligado ao Wi-Fi da casa, abra um endereço de
+cada vez (troque <ip-do-aparelho> pelo IP do Shelly; o browser trata das
+aspas):
 EOF
-  while IFS="$TAB" read -r n funcao cnome; do
+  mqtt="$(printf '{"enable":true,"server":%s,"client_id":%s,"user":%s,"pass":%s,"topic_prefix":%s,"enable_control":true,"rpc_ntf":true,"status_ntf":true}' \
+    "$(json_str "$host:1883")" "$(json_str "$c-$id")" "$(json_str "$c-$id")" "$(json_str "$senha")" "$(json_str "domus/$c/$id")")"
+  url_rpc MQTT.SetConfig "config=$mqtt"
+  url_rpc Shelly.Reboot
+  if [[ ! "$senha" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+    printf '  (A palavra-passe tem símbolos que podem estragar o endereço: prefira o formulário.)\n'
+  fi
+
+  printf '\n--- 2. Canais (canal n = componente n-1 do Shelly) ---------------------------\n'
+  while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
     case "$funcao" in
       interruptor) comp="switch:$((n - 1))" ;;
       luz)         comp="light:$((n - 1))" ;;
@@ -605,9 +835,51 @@ EOF
       porta|movimento) comp="input:$((n - 1))  (entrada do tipo \"Switch\")" ;;
       bateria)     comp="(bateria: não definido para Shelly na v2)" ;;
     esac
-    printf '  canal %s  %-12s %s\n' "$n" "$funcao" "$comp"
-    [[ -n "$cnome" ]] && printf '             ("%s")\n' "$cnome"
+    printf '  canal %s  %-12s %s%s\n' "$n" "$funcao" "$comp" "${cnome:+  (\"$cnome\")}"
   done < <(canais_linhas "$canais")
+
+  if [[ "$canais" == *:interruptor:* || "$canais" == *:luz:* || "$canais" == *:estore:* ]]; then
+    cat <<'EOF'
+
+--- 3. Regras no próprio Shelly (funcionam SEM internet) ----------------------
+Abra cada endereço no browser (rede local). Cada um responde com
+{"restart_required":false} ou parecido; se pedir, reinicie no fim.
+  initial_state: estado depois de um corte ("off" desligado, "on" ligado,
+                 "restore_last" último estado)
+  in_mode:       o interruptor de parede atua o relé localmente:
+                 "follow" = interruptor de parede normal (basculante; o relé
+                 segue a posição), "flip" = cada mudança troca o relé,
+                 "momentary" = botão de pressão (campainha)
+  auto_off:      desliga sozinho ao fim de auto_off_delay segundos (só nas
+                 cargas perigosas: limite de segurança local de 4 h)
+
+EOF
+    while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
+      k=$((n - 1))
+      case "$arr" in ligado) estado=on ;; ultimo) estado=restore_last ;; *) estado=off ;; esac
+      if [[ "$carga" == perigosa ]]; then auto="\"auto_off\":true,\"auto_off_delay\":$AUTO_OFF_S"
+      else auto='"auto_off":false'; fi
+      case "$funcao" in
+        interruptor)
+          printf '  # canal %s%s: %s%s\n' "$n" "${cnome:+ ($cnome)}" "$(arranque_texto "$arr")" \
+            "$( [[ "$carga" == perigosa ]] && printf ', desliga sozinho ao fim de 4 h')"
+          url_rpc Switch.SetConfig "id=$k&config={\"initial_state\":\"$estado\",\"in_mode\":\"follow\",$auto}" ;;
+        luz)
+          printf '  # canal %s%s: %s  (Light.SetConfig: verificar os campos na documentação da Shelly)\n' "$n" "${cnome:+ ($cnome)}" "$(arranque_texto "$arr")"
+          url_rpc Light.SetConfig "id=$k&config={\"initial_state\":\"$estado\",$auto}" ;;
+        estore)
+          printf '  # canal %s%s: estore — na app Shelly confirme que depois de um corte fica parado\n' "$n" "${cnome:+ ($cnome)}"
+          printf '  #   (Settings -> Power on default / estado inicial: "Stop"; verificar na documentação da Shelly)\n' ;;
+      esac
+    done < <(canais_linhas "$canais")
+    cat <<'EOF'
+
+Teste: desligue o router e use o interruptor de parede — o relé tem de mudar.
+Corte a corrente 10 s e confirme o estado com que o aparelho arranca.
+Documentação: https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Switch
+              https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Mqtt
+EOF
+  fi
   if [[ "$med" == 1 ]]; then
     printf '\nMedidor: a potência/energia vem em status/switch:0 (apower, voltage, current, aenergy.total).\n'
   fi
@@ -723,11 +995,13 @@ EOF
 
 cmd_aparelho() {
   local -a pos=()
-  local canais="" med=0 bat=0
+  local canais="" med=0 bat=0 divisao="" tem_divisao=0
   while (( $# )); do
     case "$1" in
       --canais)   (( $# >= 2 )) || erro "--canais precisa de um valor"; canais="$2"; shift 2 ;;
       --canais=*) canais="${1#--canais=}"; shift ;;
+      --divisao)  (( $# >= 2 )) || erro "--divisao precisa de um valor"; divisao="$2"; tem_divisao=1; shift 2 ;;
+      --divisao=*) divisao="${1#--divisao=}"; tem_divisao=1; shift ;;
       --medidor)  med=1; shift ;;
       --bateria)  bat=1; shift ;;
       --*)        erro "opção desconhecida: $1" ;;
@@ -735,20 +1009,24 @@ cmd_aparelho() {
     esac
   done
   (( ${#pos[@]} >= 4 && ${#pos[@]} <= 5 )) \
-    || erro 'uso: ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" [--canais "1:interruptor:Teto"] [--medidor] [--bateria] [palavra-passe]'
+    || erro 'uso: ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" [--canais "1:interruptor:Teto:arranque=ultimo"] [--divisao "Sala"] [--medidor] [--bateria] [palavra-passe]  (ver ./domus.sh ajuda)'
   local c="${pos[0]}" id="${pos[1]}" tipo="${pos[2]}" nome="${pos[3]}" senha="${pos[4]:-}"
   validar_id "$c" "código de cliente"
   validar_id "$id" "id do aparelho"
   [[ "$tipo" == openbeken || "$tipo" == shelly ]] || erro "tipo inválido: '$tipo' (use openbeken ou shelly)"
   nome="$(limpar_texto "$nome")"
   [[ -n "$nome" ]] || erro "o nome do aparelho não pode estar vazio"
+  if (( tem_divisao )); then
+    divisao="$(limpar_texto "$divisao")"
+    validar_divisao "$divisao" "em --divisao"
+  fi
   if [[ -n "$canais" ]]; then
     canais="$(normalizar_canais "$canais")"
   else
-    canais="1:interruptor:"
+    canais="$(normalizar_canais "1:interruptor")"
     (( bat )) && aviso "--bateria sem --canais: normalmente é --canais \"1:porta,2:bateria\" ou \"1:movimento,2:bateria\""
   fi
-  if (( bat )) && [[ ",$canais" != *:bateria:* ]]; then
+  if (( bat )) && [[ "$canais" != *:bateria:* ]]; then
     aviso "aparelho a pilhas sem canal 'bateria': a app não vai mostrar a carga"
   fi
   preparar_dados
@@ -763,7 +1041,7 @@ cmd_aparelho() {
   verificar_mosquitto
 
   definir_senha_mqtt "$utilizador" "$senha"
-  guardar_aparelho "$c" "$id" "$tipo" "$med" "$bat" "$canais" "$nome"
+  guardar_aparelho "$c" "$id" "$tipo" "$med" "$bat" "$canais" "$nome" "$divisao"
   aplicar_acl
   publicar_lista "$c"
   info "Aparelho '$id' guardado; lista domus/$c/_aparelhos atualizada."
@@ -772,7 +1050,7 @@ cmd_aparelho() {
 
 cmd_remover_aparelho() {
   (( $# == 2 )) || erro "uso: ./domus.sh remover-aparelho <cliente> <id>"
-  local c="$1" id="$2" linha canais sub n _f _nome k
+  local c="$1" id="$2" linha canais sub n _resto k
   validar_id "$c" "código de cliente"
   validar_id "$id" "id do aparelho"
   linha="$(linha_aparelho "$c" "$id" 2>/dev/null)" || erro "o cliente '$c' não tem o aparelho '$id'"
@@ -786,7 +1064,7 @@ cmd_remover_aparelho() {
   publicar_lista "$c"
   # Limpa as mensagens retidas conhecidas do aparelho (v1 + v2).
   local -a subs=(connected online power/get voltage/get current/get energycounter/get led_dimmer/get)
-  while IFS="$TAB" read -r n _f _nome; do
+  while IFS="$US" read -r n _resto; do
     k=$((n - 1))
     subs+=("$n/get" "status/switch:$k" "status/light:$k" "status/cover:$k" "status/input:$k")
   done < <(canais_linhas "$canais")
@@ -798,19 +1076,28 @@ cmd_remover_aparelho() {
 
 cmd_listar() {
   preparar_dados
-  local c id tipo med bat canais nome n=0 extra
+  local c id tipo med bat canais nome adiv n=0 extra cn cf cnome ent sim arr carga cdiv linha
   while IFS= read -r c; do
     n=$((n + 1))
     printf '%s\n' "$c"
     if [[ ! -s "$CLIENTES_DIR/$c.tsv" ]]; then
       printf '   (sem aparelhos)\n'
     fi
-    while IFS="$TAB" read -r id tipo med bat canais nome; do
+    while IFS="$TAB" read -r id tipo med bat canais nome adiv; do
       extra=""
       [[ "$med" == 1 ]] && extra+=" medidor"
       [[ "$bat" == 1 ]] && extra+=" bateria"
+      [[ -n "$adiv" ]] && extra+=" divisão: $adiv"
       printf '   %-20s %-10s %-24s utilizador: %s-%s%s\n' "$id" "$tipo" "$nome" "$c" "$id" "${extra:+  [${extra# }]}"
-      printf '      canais: %s\n' "$canais"
+      while IFS="$US" read -r cn cf cnome ent sim arr carga cdiv; do
+        linha="$cn:$cf${cnome:+:$cnome}"
+        [[ "$ent" == 1 ]] && linha+=":entrada"
+        [[ "$sim" == 1 ]] && linha+=":simular"
+        [[ -n "$arr" ]] && linha+=":arranque=$arr"
+        [[ -n "$carga" ]] && linha+=":carga=$carga"
+        [[ -n "$cdiv" ]] && linha+=":divisao=$cdiv"
+        printf '      canal %s\n' "$linha"
+      done < <(canais_linhas "$canais")
     done < <(ler_aparelhos "$c")
   done < <(listar_clientes)
   (( n )) || info "(ainda não há clientes)"

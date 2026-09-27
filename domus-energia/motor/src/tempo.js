@@ -79,3 +79,28 @@ export function dentroDoIntervalo(minutos, inicio, fim) {
   if (a < b) return minutos >= a && minutos < b;
   return minutos >= a || minutos < b;
 }
+
+/**
+ * "HH:MM" local (Lisboa) de um instante.
+ * @param {number} ms
+ */
+export function horaLocal(ms, fuso = FUSO) {
+  return partesLocais(ms, fuso).hora;
+}
+
+/**
+ * Soma dias a uma data "AAAA-MM-DD" (calendário, sem fuso).
+ * @param {string} data
+ * @param {number} dias
+ */
+export function somarDias(data, dias) {
+  const [a, m, d] = data.split('-').map(Number);
+  return new Date(Date.UTC(a, m - 1, d + dias)).toISOString().slice(0, 10);
+}
+
+const NOMES_DIAS = ['', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb', 'dom'];
+
+/** Nome curto do dia da semana (1 = segunda … 7 = domingo). */
+export function nomeDia(n) {
+  return NOMES_DIAS[n] ?? String(n);
+}

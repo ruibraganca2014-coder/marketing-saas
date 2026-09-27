@@ -82,11 +82,19 @@ private fun CartaoNtfy(url: String) {
     }
 }
 
+/** "app" → "app", "web" → "site", "automacao:x" → "automação x", "cena:x" → "cena x". */
+fun porTexto(por: String): String = when {
+    por == "web" -> "site"
+    por.startsWith("automacao:") -> "automação " + por.removePrefix("automacao:")
+    por.startsWith("cena:") -> "cena " + por.removePrefix("cena:")
+    else -> por
+}
+
 private fun corEvento(t: Terra, tipo: String): Color = when (tipo) {
     Evento.ALARME, Evento.ERRO -> t.alarme
     Evento.AVISO -> t.areia
     Evento.AUTOMACAO -> t.musgo
-    else -> t.textoSuave
+    else -> t.textoSuave // sensor e modo: neutros
 }
 
 private fun rotuloEvento(tipo: String): String = when (tipo) {
@@ -94,6 +102,7 @@ private fun rotuloEvento(tipo: String): String = when (tipo) {
     Evento.SENSOR -> "Sensor"
     Evento.AUTOMACAO -> "Automação"
     Evento.ERRO -> "Erro"
+    Evento.MODO -> "Modo"
     else -> "Aviso"
 }
 
@@ -120,6 +129,7 @@ private fun LinhaEvento(e: Evento, agora: java.time.Instant, nomeAparelho: Strin
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Etiqueta(rotuloEvento(e.tipo), cor)
                     nomeAparelho?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = t.textoSuave) }
+                    e.por?.let { Text("por ${porTexto(it)}", style = MaterialTheme.typography.bodySmall, color = t.textoSuave) }
                 }
             }
         }

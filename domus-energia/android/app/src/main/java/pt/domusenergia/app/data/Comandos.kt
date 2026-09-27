@@ -90,6 +90,59 @@ object Comandos {
     fun automacoes(cliente: String, lista: List<Automacao>) =
         Publicacao("domus/$cliente/${EstadoParser.AUTOMACOES}/set", Automacoes.paraJson(lista))
 
+    // ---------- v3 (docs/PROTOCOLO-MQTT-v3.md). Só campos do contrato: o motor recusa campos desconhecidos. ----------
+
+    /** Quem faz o pedido (campo `por`). */
+    const val POR_APP = "app"
+
+    /** Muda o modo da casa: `_modo/set` {"modo","forcar","por"}. Com [forcar] arma mesmo com portas abertas. */
+    fun modo(cliente: String, modo: String, forcar: Boolean = false) = Publicacao(
+        "domus/$cliente/${V3.MODO}/set",
+        JSONObject().put("modo", modo).put("forcar", forcar).put("por", POR_APP).toString(),
+    )
+
+    /** Executa uma cena: `_cenas/executar` {"id","por"}. */
+    fun executarCena(cliente: String, id: String) = Publicacao(
+        "domus/$cliente/${V3.CENAS}/executar",
+        JSONObject().put("id", id).put("por", POR_APP).toString(),
+    )
+
+    /** Substitui a lista de cenas: publica sempre a lista COMPLETA em `_cenas/set`. */
+    fun cenas(cliente: String, lista: List<Cena>) = Publicacao("domus/$cliente/${V3.CENAS}/set", Cenas.paraJson(lista))
+
+    /** "Executar" (gatilho `manual`): corre a automação ativa como se o gatilho disparasse (`{"id","por"}`). */
+    fun executarAutomacao(cliente: String, id: String) = Publicacao(
+        "domus/$cliente/${EstadoParser.AUTOMACOES}/executar",
+        JSONObject().put("id", id).put("por", POR_APP).toString(),
+    )
+
+    /** "Testar agora": executa as ações ignorando gatilho e condições (`{"id","testar":true,"por"}`). */
+    fun testarAutomacao(cliente: String, id: String) = Publicacao(
+        "domus/$cliente/${EstadoParser.AUTOMACOES}/executar",
+        JSONObject().put("id", id).put("testar", true).put("por", POR_APP).toString(),
+    )
+
+    /** "Avaliar agora": só diz se as condições seriam verdadeiras agora (`{"id","avaliar":true,"por"}`). */
+    fun avaliarAutomacao(cliente: String, id: String) = Publicacao(
+        "domus/$cliente/${EstadoParser.AUTOMACOES}/executar",
+        JSONObject().put("id", id).put("avaliar", true).put("por", POR_APP).toString(),
+    )
+
+    /** Configuração parcial (só o que mudou; ver [ConfigCasa.parcial]) para `_config/set`. */
+    fun config(cliente: String, parcial: JSONObject) = Publicacao("domus/$cliente/${V3.CONFIG}/set", parcial.toString())
+
+    /** Presença deste telemóvel: `_presenca/set` {"pessoa","nome","em_casa"}. */
+    fun presenca(cliente: String, pessoa: String, nome: String, emCasa: Boolean) = Publicacao(
+        "domus/$cliente/${V3.PRESENCA}/set",
+        JSONObject().put("pessoa", pessoa).put("nome", nome).put("em_casa", emCasa).toString(),
+    )
+
+    /** Deixa de contar este telemóvel na presença (ao desligar a deteção): `{"pessoa","remover":true}`. */
+    fun presencaRemover(cliente: String, pessoa: String) = Publicacao(
+        "domus/$cliente/${V3.PRESENCA}/set",
+        JSONObject().put("pessoa", pessoa).put("remover", true).toString(),
+    )
+
     /** Regista (ou, com [remover], retira) o token FCM deste telemóvel. */
     fun fcm(cliente: String, token: String, remover: Boolean = false) = Publicacao(
         "domus/$cliente/_fcm/registar",

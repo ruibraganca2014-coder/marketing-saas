@@ -9,7 +9,7 @@ Este guia instala, num servidor na internet (VPS), tudo o que a plataforma Domus
 | **ntfy** | notificações no telemóvel (app ntfy) | `https://ntfy.HOST/` |
 | **motor** | alarme, automações, histórico, notificações (ntfy e Firebase) | interno |
 
-Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1) e [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2).
+Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3).
 
 Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
 
@@ -123,25 +123,49 @@ Aparelhos (`<cliente> <id> <tipo> "<Nome>" [opções] [palavra-passe]`):
 # Disjuntor com medição (Chayo/Tongou com OpenBeken), um canal
 ./domus.sh aparelho joao quadro openbeken "Quadro geral" --medidor
 
-# Interruptor de parede de 4 teclas
-./domus.sh aparelho joao sala-4g openbeken "Interruptor sala" \
-  --canais "1:interruptor:Teto,2:interruptor:Candeeiro,3:interruptor:Varanda,4:interruptor:Corredor"
+# Interruptor de parede de 4 teclas na Sala: o Teto entra na simulação de
+# férias e volta ao último estado depois de um corte; a Varanda fica noutra divisão
+./domus.sh aparelho joao sala-4g openbeken "Interruptor sala" --divisao Sala \
+  --canais "1:interruptor:Teto:simular:arranque=ultimo,2:interruptor:Candeeiro,3:interruptor:Varanda:divisao=Varanda,4:interruptor:Corredor"
 
-# Sensor de porta a pilhas (Tuya reprogramado com OpenBeken)
-./domus.sh aparelho joao porta-entrada openbeken "Porta de entrada" --canais "1:porta,2:bateria" --bateria
+# Sensor da porta de entrada a pilhas (alarme com atraso de entrada)
+./domus.sh aparelho joao porta-entrada openbeken "Porta de entrada" --bateria --divisao Hall \
+  --canais "1:porta:Porta entrada:entrada,2:bateria"
 
-# Sensor de movimento a pilhas
-./domus.sh aparelho joao pir-corredor openbeken "Movimento corredor" --canais "1:movimento,2:bateria" --bateria
+# Sensor de movimento (PIR) a pilhas
+./domus.sh aparelho joao pir-corredor openbeken "Movimento corredor" --bateria --divisao Corredor \
+  --canais "1:movimento,2:bateria"
 
-# Shelly: estore, luz regulável, relé com medição
-./domus.sh aparelho joao estore-quarto shelly "Estore quarto" --canais "1:estore"
+# Termoacumulador num Shelly com medição: carga perigosa (fica desligado
+# depois de um corte e o próprio Shelly desliga-o ao fim de 4 h)
+./domus.sh aparelho joao termo shelly "Termoacumulador" --medidor --divisao Cozinha \
+  --canais "1:interruptor:Termo:carga=perigosa"
+
+# Luz do jardim com simulação de presença nas férias
+./domus.sh aparelho joao jardim shelly "Luz do jardim" --divisao Jardim \
+  --canais "1:interruptor:Jardim:simular:arranque=ultimo"
+
+# Shelly: estore, luz regulável
+./domus.sh aparelho joao estore-quarto shelly "Estore quarto" --canais "1:estore" --divisao Quarto
 ./domus.sh aparelho joao led-cozinha shelly "LED cozinha" --canais "1:luz"
-./domus.sh aparelho joao ac-sala shelly "Ar condicionado sala" --medidor
 ```
 
-- Funções de canal: `interruptor`, `luz`, `estore`, `porta`, `movimento`, `bateria`. Sem `--canais` o aparelho tem um canal `interruptor` n.º 1.
+**Como se escreve `--canais`:** um canal por vírgula; dentro de cada canal os campos separam-se por `:` — primeiro o número, depois a função, depois (opcional) o nome e as opções, por qualquer ordem:
+
+| Opção | Onde | O que faz |
+|---|---|---|
+| `entrada` | só `porta` | porta de entrada: ao abrir com o alarme ligado há tempo para desarmar |
+| `simular` | só `interruptor` e `luz` | liga/desliga ao acaso à noite no modo **férias** |
+| `arranque=desligado` / `ligado` / `ultimo` | `interruptor`, `luz`, `estore` | como fica depois de um corte de luz. **Por omissão `desligado`.** `ultimo` só em `interruptor`/`luz` sem carga perigosa; os estores ficam sempre parados (`desligado`) |
+| `carga=perigosa` | `interruptor`, `luz`, `estore` | aquecedor, termoacumulador, bomba, motor: nunca `ultimo`; as automações só o ligam com tempo limite (máx. 4 h); nos Shelly o próprio aparelho desliga-o ao fim de 4 h |
+| `divisao=Texto` | todos | divisão da casa desse canal (substitui `--divisao`) |
+
+- `--divisao "Sala"` dá a divisão a todos os canais do aparelho (os que não tenham `divisao=`). A divisão agrupa os aparelhos no relatório e na app.
+- Funções de canal: `interruptor`, `luz`, `estore`, `porta`, `movimento`, `bateria`. Sem `--canais` o aparelho tem um canal `interruptor` n.º 1 (desligado depois de um corte).
+- Nomes e divisões não podem ter `:` nem `,`. Se precisar de um canal sem nome mas com opções, escreva só as opções (`1:porta:entrada`) ou deixe o nome vazio (`1:porta::entrada`).
+- Combinações proibidas (ex.: `entrada` num interruptor, `arranque=ultimo` com `carga=perigosa`) são recusadas com uma explicação e nada é gravado.
 - Ids e códigos: letras minúsculas, dígitos e `-` (máx. 32).
-- O script **imprime as instruções exatas** para configurar o aparelho (OpenBeken ou Shelly), incluindo servidor, porta, tópico, utilizador e palavra-passe. Guarda-as: a palavra-passe não volta a ser mostrada (correr de novo o mesmo comando gera outra e **substitui** a configuração do aparelho).
+- O script **imprime as instruções exatas** para configurar o aparelho, incluindo servidor, porta, tópico, utilizador e palavra-passe, **e as regras que ficam no próprio aparelho** (ver [Funcionar sem internet](#15-funcionar-sem-internet)): no OpenBeken, as linhas `SetStartValue` para o `autoexec.bat` e como ligar o botão ao relé; no Shelly, os endereços `http://<ip>/rpc/...` para colar no browser. Guarda-as: a palavra-passe não volta a ser mostrada (correr de novo o mesmo comando gera outra e **substitui** a configuração do aparelho).
 
 Outros comandos:
 
@@ -169,7 +193,9 @@ mosquitto_pub -h <DOMUS_HOST> -p 1883 -u joao -P 'SenhaDoJoao' -t 'domus/joao/_a
 
 Deves ver `domus/joao/_aparelhos` (lista), `domus/joao/_ntfy` e, com os aparelhos ligados, `.../connected online` ou `.../online true`. Sem utilizador/palavra-passe a ligação é recusada.
 
-Para testar as permissões sem Docker (no PC de desenvolvimento, precisa de `mosquitto` e `mosquitto-clients`): `./testes/acl.sh`.
+Testes sem Docker (no PC de desenvolvimento):
+- `./testes/acl.sh` — permissões num Mosquitto verdadeiro (precisa de `mosquitto` e `mosquitto-clients`);
+- `./testes/simulacao.sh` — opções dos aparelhos, JSON de `_aparelhos`, comandos impressos e ACL gerada, em modo simulação (`DOMUS_DRY_RUN=1`; só precisa de `python3`).
 
 ## 10. Notificações no telemóvel (ntfy)
 
@@ -226,12 +252,35 @@ cd servidor && docker compose pull && docker compose up -d --build
 - **A porta 1883 não é cifrada.** Os disjuntores e interruptores com chip BK7231 (OpenBeken) não têm TLS fiável, por isso os aparelhos usam MQTT simples. Mitigações: cada aparelho tem **utilizador e palavra-passe próprios** e só pode ler/escrever no seu prefixo `domus/<cliente>/<aparelho>/#` (ACL); ninguém anónimo entra.
 - A app e o site usam sempre **HTTPS/WSS** (porta 443, certificado automático).
 - Permissões (geradas pelo `domus.sh`, nunca editar à mão):
-  - cliente `C`: lê `domus/C/#`; escreve apenas `domus/C/+/+/set`, `domus/C/+/led_dimmer/set`, `domus/C/+/rpc`, `domus/C/+/command`, `domus/C/+/command/+`, `domus/C/_alarme/set`, `domus/C/_automacoes/set`, `domus/C/_fcm/registar`. Não consegue escrever `_aparelhos`, `_alarme`, `_automacoes`, `_historico`, `_eventos` nem `_ntfy`, nem nada de outro cliente (verificado em `testes/acl.sh`);
+  - cliente `C`: lê `domus/C/#`; escreve apenas
+    - comandos para os **seus** aparelhos `A`: `domus/C/A/+/set` (inclui `led_dimmer/set`), `domus/C/A/rpc`, `domus/C/A/command`, `domus/C/A/command/+` — uma linha por aparelho, sem `+` no lugar do aparelho, para que nada como `domus/C/_automacoes/admin/set` fique aberto;
+    - pedidos ao motor: `_alarme/set`, `_automacoes/set`, `_fcm/registar`, `_config/set`, `_modo/set`, `_cenas/set`, `_cenas/executar`, `_automacoes/executar`, `_presenca/set`.
+
+    Não consegue escrever `_aparelhos`, `_alarme`, `_automacoes`, `_historico`, `_eventos`, `_ntfy`, `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`, nem nada de outro cliente (verificado em `testes/acl.sh`);
   - aparelho `C-A`: lê e escreve `domus/C/A/#`;
   - `motor` e `admin`: lê e escreve `domus/#`.
 - Removendo um aparelho, a ligação dele é cortada e a palavra-passe deixa de funcionar.
 - **Próximo passo recomendado:** ativar MQTT com TLS na porta **8883** para os Shelly (que suportam TLS), deixando a 1883 só para os OpenBeken; e, a prazo, restringir a 1883 por firewall aos IPs das casas dos clientes quando forem fixos.
 - Mantém o sistema atualizado (`sudo apt-get update && sudo apt-get upgrade`) e usa só login SSH por chave.
+
+## 15. Funcionar sem internet
+
+O servidor está na internet. Se a casa ficar sem internet (ou o servidor em baixo), a casa **continua a funcionar como uma casa normal**, porque o essencial fica guardado **no próprio aparelho** quando o instalamos (o `./domus.sh aparelho` imprime o que é preciso configurar).
+
+**O que continua a funcionar sem internet**
+- **Interruptores de parede e botões dos aparelhos.** A tecla liga e desliga a luz diretamente, dentro do próprio aparelho — não passa pelo servidor. No OpenBeken isto consegue-se pondo o botão e o relé no mesmo canal; no Shelly com a entrada em modo `follow`/`flip`. É assim que funcionam o disjuntor Tongou e os interruptores de parede.
+- **O estado depois de um corte de luz.** Cada saída tem a sua regra, guardada no aparelho: fica **desligada** (por omissão), **ligada**, ou volta ao **último estado** (só para iluminação). Aquecedores, termoacumuladores, bombas e motores ficam sempre desligados quando a luz volta.
+- **O limite de segurança das cargas perigosas nos Shelly.** O próprio Shelly desliga o termoacumulador (ou outra carga perigosa) ao fim de 4 horas, mesmo sem internet.
+- Os aparelhos voltam a ligar-se sozinhos ao servidor quando a internet regressa.
+
+**O que NÃO funciona sem internet**
+- **O alarme** (armar, desarmar, disparar e avisar).
+- **As automações e cenas que envolvem mais do que um aparelho** (ex.: "movimento no corredor acende a luz da sala"), horários e simulação de férias.
+- **As notificações** no telemóvel e o controlo pela app ou pelo site fora de casa. A app mostra "Sem ligação ao servidor".
+
+Quando a internet volta, o sistema envia um aviso do tipo "A casa esteve sem internet de HH:MM a HH:MM".
+
+**Na instalação, teste sempre:** desligar o router e usar os interruptores (têm de funcionar); cortar a corrente 10 segundos no quadro e ver se cada saída arranca como combinado; repetir depois de cada atualização do firmware.
 
 ## Resolução de problemas
 

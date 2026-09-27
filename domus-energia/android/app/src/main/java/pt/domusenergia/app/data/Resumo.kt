@@ -15,6 +15,12 @@ data class Resumo(
     val portasAbertas: Int = 0,
     val portas: Int = 0,
     val alarme: Boolean? = null,
+    /** v3: energia gasta hoje (`_energia.hoje_kwh`), `null` sem dados. */
+    val hojeKWh: Double? = null,
+    /** v3: canais ligados mas "em espera" (potência abaixo do limiar). */
+    val emEspera: Int = 0,
+    /** v3: modo da casa. */
+    val modo: String? = null,
 ) {
     /** 0–1: potência total / 3500 W (docs/TEMA.md, "Fundo vivo"). */
     val calor: Float get() = (potenciaW / CALOR_MAX_W).toFloat().coerceIn(0f, 1f)
@@ -25,7 +31,14 @@ data class Resumo(
     companion object {
         const val CALOR_MAX_W = 3500.0
 
-        fun de(aparelhos: List<Aparelho>, alarme: Alarme?): Resumo {
+        fun de(
+            aparelhos: List<Aparelho>,
+            alarme: Alarme?,
+            energia: Energia? = null,
+            modo: Modo? = null,
+            limiarEsperaW: Double = ConfigCasa.PADRAO.limiarEsperaW,
+        ): Resumo {
+            var emEspera = 0
             var potencia = 0.0
             var temMedidor = false
             var ligados = 0
@@ -41,6 +54,7 @@ data class Resumo(
                     Funcao.INTERRUPTOR, Funcao.LUZ -> {
                         circuitos++
                         if (c.ligado == true) ligados++
+                        if (EmEspera.canal(a, c, limiarEsperaW)) emEspera++
                     }
                     Funcao.PORTA -> {
                         portas++
@@ -48,9 +62,22 @@ data class Resumo(
                     }
                 }
             }
-            return Resumo(potencia, temMedidor, ligados, circuitos, portasAbertas, portas, alarme?.ativo)
+            return Resumo(
+                potencia, temMedidor, ligados, circuitos, portasAbertas, portas, alarme?.ativo,
+                hojeKWh = energia?.hojeKWh, emEspera = emEspera, modo = modo?.modo,
+            )
         }
     }
+}
+
+/**
+ * "Em espera" (v3 §6): canal `interruptor`/`luz` ligado de um aparelho `medidor` cuja potência está abaixo
+ * de `limiar_espera_w`. A potência é a do aparelho (um medidor por aparelho).
+ */
+object EmEspera {
+    fun canal(a: Aparelho, c: Canal, limiarW: Double): Boolean =
+        a.medidor && a.disponivel && (c.funcao == Funcao.INTERRUPTOR || c.funcao == Funcao.LUZ) &&
+            c.ligado == true && a.potenciaW != null && a.potenciaW < limiarW
 }
 
 /** Textos com números e tempos, em pt-PT. */
@@ -86,4 +113,20 @@ object Textos {
         if (w >= 100) String.format(PT, "%,.0f W", w) else String.format(PT, "%.1f W", w)
 
     fun numero(v: Double, casas: Int): String = String.format(PT, "%.${casas}f", v)
+
+    /** 7.4 → "7,4 kWh"; 12.0 → "12 kWh"; 180.25 → "180 kWh". */
+    fun kwh(v: Double): String = when {
+        v >= 100 -> String.format(PT, "%.0f kWh", v)
+        v == Math.floor(v) -> String.format(PT, "%.0f kWh", v)
+        else -> String.format(PT, "%.1f kWh", v)
+    }
+
+    /** Contagem decrescente: 75 → "1:15", 5 → "0:05". */
+    fun contagem(segundos: Long): String {
+        val s = segundos.coerceAtLeast(0)
+        return "${s / 60}:${(s % 60).toString().padStart(2, '0')}"
+    }
+
+    /** Dia e hora para o relatório: "27 set, 09:15". */
+    fun diaHora(t: Instant): String = DIA_HORA.format(t.atZone(LISBOA))
 }

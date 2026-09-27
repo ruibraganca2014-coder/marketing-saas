@@ -8,8 +8,18 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
 
-/** Configuração de um canal, tal como vem em `_aparelhos`. */
-data class ConfigCanal(val n: Int, val funcao: String, val nome: String, val temNome: Boolean)
+/** Configuração de um canal, tal como vem em `_aparelhos` (campos v3: ver [Canal]). */
+data class ConfigCanal(
+    val n: Int,
+    val funcao: String,
+    val nome: String,
+    val temNome: Boolean,
+    val entrada: Boolean = false,
+    val simular: Boolean = false,
+    val arranque: String? = null,
+    val carga: String? = null,
+    val divisao: String? = null,
+)
 
 /** Configuração de um aparelho, tal como vem em `_aparelhos` (v1 sem `canais` → um canal `interruptor` n.º 1). */
 data class ConfigAparelho(
@@ -20,6 +30,7 @@ data class ConfigAparelho(
     val bateria: Boolean,
     val v1: Boolean,
     val canais: List<ConfigCanal>,
+    val divisao: String? = null,
 )
 
 /**
@@ -40,6 +51,8 @@ data class Bruto(val payload: String, val recebido: Instant?, val mudanca: Insta
  * @property automacoes `null` enquanto `_automacoes` ainda não chegou.
  * @property recebidasAutomacoes conta as vezes que `_automacoes` chegou (para saber que o motor aceitou uma lista).
  * @property ultimoErro último evento `erro` recebido em direto (ex.: automação recusada pelo motor).
+ * @property modo, config, cenas, saude, energia, presenca, registo, avisos: tópicos da v3
+ *   (`null`/vazio enquanto não chegam; um motor v2 nunca os publica).
  */
 data class Estado(
     val lista: List<ConfigAparelho>? = null,
@@ -50,7 +63,20 @@ data class Estado(
     val historico: List<Evento> = emptyList(),
     val ntfyUrl: String? = null,
     val ultimoErro: Evento? = null,
+    val modo: Modo? = null,
+    val config: ConfigCasa? = null,
+    val cenas: List<Cena>? = null,
+    val recebidasCenas: Int = 0,
+    val recebidasConfig: Int = 0,
+    val saude: Map<String, SaudeAparelho> = emptyMap(),
+    val energia: Energia? = null,
+    val presenca: PresencaCasa? = null,
+    val registo: Map<String, Registo> = emptyMap(),
+    val avisos: List<AvisoConflito> = emptyList(),
 ) {
+    /** Configuração a usar: a do motor ou, se ainda não chegou (ou motor v2), a por omissão. */
+    val configEfetiva: ConfigCasa get() = config ?: ConfigCasa.PADRAO
+
     val listaRecebida: Boolean get() = lista != null
 
     /** Aparelhos a mostrar: os da lista, pela ordem da lista. */
@@ -100,10 +126,25 @@ object EstadoParser {
         val sub = resto.substringAfter('/', missingDelimiterValue = "")
 
         if (id.startsWith("_")) {
-            if (sub.isNotEmpty()) return estado // _alarme/set, _automacoes/set, _fcm/registar: pedidos, não estado
+            if (sub.isNotEmpty()) {
+                // v3: registo e avisos das automações (retidos, publicados pelo motor).
+                if (id == AUTOMACOES && sub == V3.REGISTO) {
+                    return if (payload.isBlank()) estado.copy(registo = emptyMap()) else V3.lerRegisto(payload)?.let { estado.copy(registo = it) } ?: estado
+                }
+                if (id == AUTOMACOES && sub == V3.AVISOS) return V3.lerAvisos(payload)?.let { estado.copy(avisos = it) } ?: estado
+                return estado // _alarme/set, _automacoes/set, _fcm/registar, _modo/set, ...: pedidos, não estado
+            }
             return when (id) {
                 LISTA -> lerAparelhos(payload)?.let { estado.copy(lista = it) } ?: estado
                 ALARME -> if (payload.isBlank()) estado.copy(alarme = null) else lerAlarme(payload)?.let { estado.copy(alarme = it) } ?: estado
+                V3.MODO -> if (payload.isBlank()) estado.copy(modo = null) else V3.lerModo(payload)?.let { estado.copy(modo = it) } ?: estado
+                V3.CONFIG -> if (payload.isBlank()) estado.copy(config = null) else V3.lerConfig(payload)?.let {
+                    estado.copy(config = it, recebidasConfig = estado.recebidasConfig + 1)
+                } ?: estado
+                V3.CENAS -> Cenas.ler(payload)?.let { estado.copy(cenas = it, recebidasCenas = estado.recebidasCenas + 1) } ?: estado
+                V3.SAUDE -> if (payload.isBlank()) estado.copy(saude = emptyMap()) else V3.lerSaude(payload)?.let { estado.copy(saude = it) } ?: estado
+                V3.ENERGIA -> if (payload.isBlank()) estado.copy(energia = null) else V3.lerEnergia(payload)?.let { estado.copy(energia = it) } ?: estado
+                V3.PRESENCA -> if (payload.isBlank()) estado.copy(presenca = null) else V3.lerPresenca(payload)?.let { estado.copy(presenca = it) } ?: estado
                 AUTOMACOES -> Automacoes.ler(payload)?.let {
                     estado.copy(automacoes = it, recebidasAutomacoes = estado.recebidasAutomacoes + 1)
                 } ?: estado
@@ -219,7 +260,14 @@ object EstadoParser {
                     val funcao = c.opt("funcao") as? String
                     if (n !in 1..64 || funcao !in Funcao.TODAS || cs.any { it.n == n }) continue
                     val nomeCanal = (c.opt("nome") as? String)?.trim().orEmpty()
-                    cs += ConfigCanal(n, funcao!!, nomeCanal.ifEmpty { nome }, temNome = nomeCanal.isNotEmpty())
+                    cs += ConfigCanal(
+                        n, funcao!!, nomeCanal.ifEmpty { nome }, temNome = nomeCanal.isNotEmpty(),
+                        entrada = c.opt("entrada") == true,
+                        simular = c.opt("simular") == true,
+                        arranque = c.opt("arranque") as? String,
+                        carga = c.opt("carga") as? String,
+                        divisao = (c.opt("divisao") as? String)?.trim()?.ifEmpty { null },
+                    )
                 }
                 cs.sortedBy { it.n }
             }
@@ -232,6 +280,7 @@ object EstadoParser {
                 bateria = item.opt("bateria") as? Boolean ?: false,
                 v1 = v1,
                 canais = canais,
+                divisao = (item.opt("divisao") as? String)?.trim()?.ifEmpty { null },
             )
         }
         return lista
@@ -270,7 +319,10 @@ object EstadoParser {
 
         val primeiraLuz = cfg.canais.firstOrNull { it.funcao == Funcao.LUZ }?.n
         val canais = cfg.canais.map { c ->
-            var r = Canal(n = c.n, funcao = c.funcao, nome = c.nome, temNome = c.temNome)
+            var r = Canal(
+                n = c.n, funcao = c.funcao, nome = c.nome, temNome = c.temNome,
+                entrada = c.entrada, simular = c.simular, arranque = c.arranque, carga = c.carga, divisao = c.divisao,
+            )
             if (shelly) {
                 val id = c.n - 1
                 when (c.funcao) {
@@ -341,16 +393,14 @@ object EstadoParser {
             correnteA = corrente,
             energiaKWh = energia,
             canais = canais,
+            divisao = cfg.divisao,
         )
     }
 
     // ---------- Alarme, eventos, ntfy ----------
 
-    fun lerAlarme(payload: String): Alarme? {
-        val o = objeto(payload) ?: return null
-        val ativo = o.opt("ativo") as? Boolean ?: return null
-        return Alarme(ativo, instante(o.opt("desde") as? String))
-    }
+    /** `_alarme` da v2 (`ativo`, `desde`) ou da v3 (mais `estado`, `tipo`, `ate`, `ignorados`, `por`). */
+    fun lerAlarme(payload: String): Alarme? = V3.lerAlarme(payload)
 
     fun lerEvento(o: JSONObject): Evento {
         val ts = o.opt("ts") as? String
@@ -362,6 +412,7 @@ object EstadoParser {
             titulo = o.opt("titulo")?.takeUnless { it == JSONObject.NULL }?.toString().orEmpty(),
             mensagem = o.opt("mensagem")?.takeUnless { it == JSONObject.NULL }?.toString().orEmpty(),
             aparelho = o.opt("aparelho") as? String,
+            por = o.opt("por") as? String,
         )
     }
 

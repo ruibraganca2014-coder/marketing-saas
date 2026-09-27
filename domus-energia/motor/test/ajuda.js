@@ -24,7 +24,7 @@ export const silencioso = { info() {}, aviso() {}, erro() {} };
 
 /**
  * Cria um motor de teste com relógio falso.
- * @param {{agora?: number|string, armazenamento?: MemoriaEstado}} [o]
+ * @param {{agora?: number|string, armazenamento?: MemoriaEstado, aleatorio?: () => number, respostaNotificar?: Function}} [o]
  */
 export function criarMotor(o = {}) {
   const relogio = { t: typeof o.agora === 'string' ? Date.parse(o.agora) : o.agora ?? Date.parse('2026-06-15T10:00:00Z') };
@@ -41,6 +41,7 @@ export function criarMotor(o = {}) {
     armazenamento,
     log: silencioso,
     esperaArranqueMs: 0,
+    ...(o.aleatorio ? { aleatorio: o.aleatorio } : {}),
   });
   const api = {
     motor,
@@ -103,3 +104,55 @@ export const autoLuzCorredor = (extra = {}) => ({
   entao: [{ acao: 'ligar', aparelho: 'sala-4g', canal: 4, durante_s: 120 }],
   ...extra,
 });
+
+/** Aparelhos com os campos da v3 (entrada, simular, carga, divisao…). */
+export const APARELHOS_V3 = [
+  { id: 'quadro', nome: 'Quadro geral', tipo: 'openbeken', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral' }] },
+  {
+    id: 'sala-4g', nome: 'Interruptor sala', tipo: 'openbeken', divisao: 'Sala',
+    canais: [
+      { n: 1, funcao: 'interruptor', nome: 'Teto', arranque: 'ultimo' },
+      { n: 2, funcao: 'interruptor', nome: 'Candeeiro', simular: true },
+      { n: 3, funcao: 'interruptor', nome: 'Varanda', divisao: 'Exterior' },
+      { n: 4, funcao: 'interruptor', nome: 'Corredor' },
+    ],
+  },
+  { id: 'porta-entrada', nome: 'Porta de entrada', tipo: 'openbeken', bateria: true, canais: [{ n: 1, funcao: 'porta', entrada: true }, { n: 2, funcao: 'bateria' }] },
+  { id: 'janela-wc', nome: 'Janela WC', tipo: 'openbeken', bateria: true, canais: [{ n: 1, funcao: 'porta', nome: 'Janela WC' }, { n: 2, funcao: 'bateria' }] },
+  { id: 'pir-corredor', nome: 'Movimento corredor', tipo: 'openbeken', bateria: true, canais: [{ n: 1, funcao: 'movimento' }, { n: 2, funcao: 'bateria' }] },
+  { id: 'estore-quarto', nome: 'Estore quarto', tipo: 'shelly', canais: [{ n: 1, funcao: 'estore' }] },
+  { id: 'led-cozinha', nome: 'LED cozinha', tipo: 'shelly', canais: [{ n: 1, funcao: 'luz', simular: true }] },
+  { id: 'led-quarto', nome: 'LED quarto', tipo: 'openbeken', canais: [{ n: 1, funcao: 'luz' }] },
+  { id: 'termo', nome: 'Termoacumulador', tipo: 'shelly', medidor: true, canais: [{ n: 1, funcao: 'interruptor', carga: 'perigosa', simular: true }] },
+  { id: 'ac-sala', nome: 'Ar condicionado', tipo: 'shelly' },
+];
+
+/** Motor v3 de teste: aparelhos v3, atrasos do alarme a 30 s, sem silêncio nem relatório (salvo indicação). */
+export function motorV3(o = {}) {
+  const m = criarMotor(o);
+  m.retida('domus/joao/_aparelhos', APARELHOS_V3);
+  m.retida('domus/joao/_ntfy', NTFY);
+  m.motor.aoLigar();
+  m.motor.tick();
+  m.msg('domus/joao/_config/set', { silencio: null, relatorio_diario: null, ...(o.config ?? {}) });
+  m.limpar();
+  return m;
+}
+
+/** Gerador pseudo-aleatório reprodutível (mulberry32). */
+export function semente(n) {
+  let a = n >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Último payload JSON publicado num tópico. */
+export function ultimoJson(m, topico) {
+  const p = m.ultimo(topico);
+  return p ? JSON.parse(p.payload) : undefined;
+}

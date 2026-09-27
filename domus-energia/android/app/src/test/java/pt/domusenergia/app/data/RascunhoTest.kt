@@ -84,14 +84,14 @@ class RascunhoTest {
     }
 
     @Test
-    fun `acoes - acrescentar, alterar e remover, maximo 10`() {
+    fun `acoes - acrescentar, alterar e remover, maximo 20`() {
         var r = Rascunho()
-        repeat(15) { r = r.maisAcao() }
+        repeat(25) { r = r.maisAcao() }
         assertEquals(Automacoes.MAX_ACOES, r.acoes.size)
         r = r.comAcao(3) { it.copy(tipo = RascunhoAcao.NOTIFICAR, mensagem = "x") }
         assertEquals("x", r.acoes[3].mensagem)
         r = r.semAcao(3)
-        assertEquals(9, r.acoes.size)
+        assertEquals(19, r.acoes.size)
         assertTrue(r.acoes.none { it.mensagem == "x" })
     }
 

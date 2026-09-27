@@ -162,7 +162,9 @@ class AutomacoesTest {
         assertEquals(listOf("Dê um nome à automação."), erros(base.copy(nome = " ")))
         assertEquals(listOf("Escolha quando a automação dispara."), erros(base.copy(quando = null)))
         assertEquals(listOf("Escolha o sensor."), erros(base.copy(quando = Quando.Sensor("", 0, 1))))
-        assertEquals(listOf("Escolha um sensor de porta ou de movimento."), erros(base.copy(quando = Quando.Sensor("quadro", 1, 1))))
+        // v3: o gatilho "sensor" serve também para interruptor/luz; estore e bateria não.
+        assertEquals(emptyList<String>(), erros(base.copy(quando = Quando.Sensor("quadro", 1, 1))))
+        assertEquals(listOf("Escolha um sensor, circuito ou luz."), erros(base.copy(quando = Quando.Sensor("estore-quarto", 1, 1))))
         assertEquals(listOf("Escolha o estado do sensor."), erros(base.copy(quando = Quando.Sensor("porta", 1, 2))))
         assertEquals(
             listOf("Indique a hora (HH:MM).", "Escolha pelo menos um dia."),
@@ -174,10 +176,11 @@ class AutomacoesTest {
             erros(base.copy(quando = Quando.Potencia("sala-4g", 0.0, -1))),
         )
         assertEquals(listOf("Horário inválido (HH:MM)."), erros(base.copy(se = Condicoes(entre = "7h" to "08:00"))))
-        assertEquals(listOf("Tem de ter entre 1 e 10 ações."), erros(base.copy(entao = emptyList())))
+        // v3: até 20 ações (contando as de dentro de SE/SENÃO).
+        assertEquals(listOf("Tem de ter entre 1 e 20 ações."), erros(base.copy(entao = emptyList())))
         assertEquals(
-            listOf("Tem de ter entre 1 e 10 ações."),
-            erros(base.copy(entao = List(11) { Acao.Notificar("x") })),
+            listOf("Tem de ter entre 1 e 20 ações."),
+            erros(base.copy(entao = List(21) { Acao.Notificar("x") })),
         )
         assertEquals(
             listOf(

@@ -10,11 +10,20 @@ export const CONTROLAVEIS = new Set(['interruptor', 'luz', 'estore']);
 export const BINARIAS = new Set(['interruptor', 'luz', 'porta', 'movimento']);
 export const TIPOS = new Set(['openbeken', 'shelly']);
 
+export const ARRANQUES = new Set(['desligado', 'ligado', 'ultimo']);
+/** Máximo de `durante_s` para ligar uma carga perigosa (4 h). */
+export const MAX_PERIGOSA_S = 4 * 3600;
+
 /**
  * @typedef {object} Canal
  * @property {number} n
  * @property {string} funcao
  * @property {string} nome
+ * @property {boolean} entrada        só `porta`: porta de entrada (atraso do alarme)
+ * @property {boolean} simular        só `interruptor`/`luz`: simulação de presença (férias)
+ * @property {'desligado'|'ligado'|'ultimo'} [arranque]  só controláveis: estado após corte de luz
+ * @property {'normal'|'perigosa'} [carga]              só controláveis
+ * @property {string} [divisao]       divisão do canal (ou a do aparelho)
  */
 
 /**
@@ -24,8 +33,53 @@ export const TIPOS = new Set(['openbeken', 'shelly']);
  * @property {'openbeken'|'shelly'} tipo
  * @property {boolean} medidor
  * @property {boolean} bateria
+ * @property {boolean} geral          medidor da casa inteira (extensão: conta para o total de `_energia`)
+ * @property {string} [divisao]
  * @property {Map<number, Canal>} canais
  */
+
+const textoCurto = (v, max = 40) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined);
+
+/**
+ * Campos v3 de um canal (docs/PROTOCOLO-MQTT-v3.md §3). Valores inválidos são
+ * ignorados (e registados em `rejeitados`); o canal continua válido.
+ * @param {string} idAp
+ * @param {any} c
+ * @param {string} funcao
+ * @param {string|undefined} divisaoAp
+ * @param {string[]} rejeitados
+ */
+function camposV3(idAp, c, funcao, divisaoAp, rejeitados) {
+  const onde = `${idAp} canal ${c.n}`;
+  const r = { entrada: false, simular: false };
+  if (c.entrada !== undefined) {
+    if (c.entrada === true && funcao === 'porta') r.entrada = true;
+    else if (c.entrada !== false) rejeitados.push(`${onde}: "entrada" só se aplica a portas; ignorado`);
+  }
+  if (c.simular !== undefined) {
+    if (c.simular === true && (funcao === 'interruptor' || funcao === 'luz')) r.simular = true;
+    else if (c.simular !== false) rejeitados.push(`${onde}: "simular" só se aplica a interruptores e luzes; ignorado`);
+  }
+  if (CONTROLAVEIS.has(funcao)) {
+    r.carga = 'normal';
+    if (c.carga !== undefined) {
+      if (c.carga === 'perigosa' || c.carga === 'normal') r.carga = c.carga;
+      else rejeitados.push(`${onde}: "carga" inválida ${JSON.stringify(c.carga)}; fica "normal"`);
+    }
+    r.arranque = 'desligado';
+    if (c.arranque !== undefined) {
+      if (!ARRANQUES.has(c.arranque)) rejeitados.push(`${onde}: "arranque" inválido ${JSON.stringify(c.arranque)}; fica "desligado"`);
+      else if (c.arranque === 'ultimo' && (r.carga === 'perigosa' || funcao === 'estore')) {
+        rejeitados.push(`${onde}: "arranque": "ultimo" não é permitido aqui; fica "desligado"`);
+      } else r.arranque = c.arranque;
+    }
+  } else if (c.carga !== undefined || c.arranque !== undefined) {
+    rejeitados.push(`${onde}: "carga"/"arranque" só se aplicam a canais controláveis; ignorados`);
+  }
+  const divisao = textoCurto(c.divisao) ?? divisaoAp;
+  if (divisao) r.divisao = divisao;
+  return r;
+}
 
 /**
  * Normaliza a lista publicada em `_aparelhos`. Entradas inválidas são
@@ -51,11 +105,12 @@ export function normalizarAparelhos(lista) {
       continue;
     }
     const nome = typeof a.nome === 'string' && a.nome.trim() ? a.nome.trim() : a.id;
+    const divisao = textoCurto(a.divisao);
     /** @type {Map<number, Canal>} */
     const canais = new Map();
     const v1 = a.canais === undefined;
     if (v1) {
-      canais.set(1, { n: 1, funcao: 'interruptor', nome });
+      canais.set(1, { n: 1, funcao: 'interruptor', nome, ...camposV3(a.id, { n: 1 }, 'interruptor', divisao, rejeitados) });
     } else if (Array.isArray(a.canais)) {
       for (const c of a.canais) {
         if (!c || !Number.isInteger(c.n) || c.n < 1 || c.n > 64 || !FUNCOES.has(c.funcao)) {
@@ -63,7 +118,7 @@ export function normalizarAparelhos(lista) {
           continue;
         }
         const nomeCanal = typeof c.nome === 'string' && c.nome.trim() ? c.nome.trim() : nome;
-        canais.set(c.n, { n: c.n, funcao: c.funcao, nome: nomeCanal });
+        canais.set(c.n, { n: c.n, funcao: c.funcao, nome: nomeCanal, ...camposV3(a.id, c, c.funcao, divisao, rejeitados) });
       }
     } else {
       rejeitados.push(`${a.id}: "canais" não é uma lista`);
@@ -75,10 +130,17 @@ export function normalizarAparelhos(lista) {
       tipo: a.tipo,
       medidor: typeof a.medidor === 'boolean' ? a.medidor : v1,
       bateria: a.bateria === true,
+      geral: a.geral === true,
+      ...(divisao ? { divisao } : {}),
       canais,
     });
   }
   return { aparelhos, rejeitados };
+}
+
+/** O canal é uma carga perigosa (aquecedor, termoacumulador, bomba…)? */
+export function ePerigosa(ap, n) {
+  return ap?.canais.get(n)?.carga === 'perigosa';
 }
 
 /** Nome a mostrar de um canal (nome do canal ou do aparelho). */
@@ -135,4 +197,23 @@ export function comandosEstore(cliente, ap, n, posicao) {
   const prefixo = `domus/${cliente}/${ap.id}`;
   if (ap.tipo === 'openbeken') return [{ topico: `${prefixo}/${n}/set`, payload: String(posicao) }];
   return [rpc(prefixo, 'Cover.GoToPosition', { id: n - 1, pos: posicao })];
+}
+
+/**
+ * Comandos para uma luz com brilho (0 = desligar).
+ * OpenBeken: `<n>/set` + `led_dimmer/set`; Shelly: `Light.Set` com `brightness`.
+ * @param {string} cliente
+ * @param {Aparelho} ap
+ * @param {number} n
+ * @param {number} brilho 0–100
+ * @returns {Comando[]}
+ */
+export function comandosLuz(cliente, ap, n, brilho) {
+  const prefixo = `domus/${cliente}/${ap.id}`;
+  if (ap.tipo === 'openbeken') {
+    const r = [{ topico: `${prefixo}/${n}/set`, payload: brilho > 0 ? '1' : '0' }];
+    if (brilho > 0) r.push({ topico: `${prefixo}/led_dimmer/set`, payload: String(brilho) });
+    return r;
+  }
+  return [rpc(prefixo, 'Light.Set', brilho > 0 ? { id: n - 1, on: true, brightness: brilho } : { id: n - 1, on: false })];
 }

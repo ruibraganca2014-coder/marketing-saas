@@ -9,8 +9,13 @@
 # domus.sh (DOMUS_LOCAL=1: passwd e acl gerados de verdade) e verifica:
 #   - anónimos e palavras-passe erradas são recusados;
 #   - o cliente lê só a sua árvore e escreve só nos tópicos permitidos;
-#   - o cliente NÃO escreve nos tópicos reservados (_aparelhos, _alarme, ...)
-#     nem na árvore de outro cliente;
+#   - o cliente escreve os pedidos da v3 (§10): _config/set, _modo/set,
+#     _cenas/set, _cenas/executar, _automacoes/executar, _presenca/set;
+#   - o cliente NÃO escreve nos tópicos reservados (_aparelhos, _alarme,
+#     _config, _modo, _cenas, _saude, _energia, _presenca, _automacoes/registo,
+#     _automacoes/avisos, _automacoes/admin, ...), nem em subtópicos deles que
+#     pareçam comandos (_automacoes/admin/set, _eventos/rpc, ...), nem na
+#     árvore de outro cliente;
 #   - o aparelho fica limitado ao seu prefixo;
 #   - motor e admin escrevem em tudo de domus/;
 #   - remover-aparelho apaga o utilizador.
@@ -68,13 +73,16 @@ d motor "$P_MOTOR"
 d cliente joao "$P_JOAO"
 d cliente maria "$P_MARIA"
 d aparelho joao sala openbeken 'Sala "grande"' --canais "1:interruptor:Teto,2:interruptor,3:luz" --medidor "$P_SALA"
+# Opções da v3 (§3): entrada, simular, arranque, carga, divisão (do canal e do aparelho)
+d aparelho joao porta openbeken 'Porta' --bateria --divisao 'Hall "A"' \
+  --canais '1:porta:Porta entrada:entrada,2:bateria,3:interruptor:Jardim:simular:arranque=ultimo:divisao=Jardim,4:interruptor:Termo:carga=perigosa' porta-senha-1
 d aparelho joao luz shelly 'Luzes' --canais "1:interruptor,2:interruptor" "$P_LUZ"
 d aparelho maria quadro shelly 'Quadro' --medidor "$P_QUADRO"
 
 senha_de() {
   case "$1" in
     admin) echo "$P_ADMIN" ;; motor) echo "$P_MOTOR" ;; joao) echo "$P_JOAO" ;; maria) echo "$P_MARIA" ;;
-    joao-sala) echo "$P_SALA" ;; joao-luz) echo "$P_LUZ" ;; maria-quadro) echo "$P_QUADRO" ;;
+    joao-sala) echo "$P_SALA" ;; joao-porta) echo porta-senha-1 ;; joao-luz) echo "$P_LUZ" ;; maria-quadro) echo "$P_QUADRO" ;;
   esac
 }
 
@@ -112,6 +120,24 @@ for t in domus/joao/sala/1/set domus/joao/sala/2/set domus/joao/sala/led_dimmer/
          domus/joao/_fcm/registar; do
   publicar permitido joao "$t"
 done
+# Cliente joao — permitido (v3 secção 10)
+for t in domus/joao/_config/set domus/joao/_modo/set domus/joao/_cenas/set domus/joao/_cenas/executar \
+         domus/joao/_automacoes/executar domus/joao/_presenca/set domus/joao/porta/3/set; do
+  publicar permitido joao "$t"
+done
+# Cliente joao — negado (v3 secção 10): tópicos reservados do motor, subtópicos
+# deles com cara de comando, aparelhos que não existem e a árvore da maria.
+for t in domus/joao/_config domus/joao/_modo domus/joao/_cenas domus/joao/_saude domus/joao/_energia \
+         domus/joao/_presenca domus/joao/_automacoes/registo domus/joao/_automacoes/avisos \
+         domus/joao/_automacoes/admin domus/joao/_automacoes/admin/set domus/joao/_automacoes/registo/set \
+         domus/joao/_config/x/set domus/joao/_modo/set/x domus/joao/_cenas/executar/x \
+         domus/joao/_saude/rpc domus/joao/_energia/command domus/joao/_eventos/command/switch:0 \
+         domus/joao/_alarme/led_dimmer/set domus/joao/_eventos/rpc domus/joao/naoexiste/1/set \
+         domus/joao/naoexiste/command/switch:0 \
+         domus/maria/_config/set domus/maria/_modo/set domus/maria/_cenas/set domus/maria/_cenas/executar \
+         domus/maria/_automacoes/executar domus/maria/_presenca/set domus/maria/_config domus/maria/_modo; do
+  publicar negado joao "$t"
+done
 # Cliente joao — negado: reservados, estados dos aparelhos, outro cliente, fora de domus/
 for t in domus/joao/_aparelhos domus/joao/_alarme domus/joao/_automacoes domus/joao/_historico \
          domus/joao/_eventos domus/joao/_ntfy domus/joao/_fcm domus/joao \
@@ -130,7 +156,8 @@ for t in domus/joao/sala/connected domus/joao/sala/1/get domus/joao/sala/power/g
 done
 for t in domus/joao/luz/1/get domus/joao/luz/command/switch:0 domus/joao/_aparelhos domus/joao/_alarme \
          domus/joao/_eventos domus/joao/_historico domus/joao/_alarme/set domus/joao/sala-2/1/get \
-         domus/maria/quadro/online domus/joao; do
+         domus/maria/quadro/online domus/joao domus/joao/_config/set domus/joao/_modo/set \
+         domus/joao/_config domus/joao/_modo domus/joao/_saude domus/joao/_cenas/executar; do
   publicar negado joao-sala "$t"
 done
 publicar permitido joao-luz domus/joao/luz/status/switch:1
@@ -139,7 +166,9 @@ publicar permitido maria-quadro domus/maria/quadro/status/switch:0
 publicar negado    maria-quadro domus/joao/sala/1/set
 # motor e admin: tudo em domus/
 for t in domus/joao/_alarme domus/joao/_historico domus/joao/_eventos domus/joao/_automacoes \
-         domus/maria/_alarme domus/joao/sala/1/set; do
+         domus/maria/_alarme domus/joao/sala/1/set domus/joao/_config domus/joao/_modo domus/joao/_cenas \
+         domus/joao/_saude domus/joao/_energia domus/joao/_presenca domus/joao/_automacoes/registo \
+         domus/joao/_automacoes/avisos domus/maria/_saude; do
   publicar permitido motor "$t"
 done
 for t in domus/joao/_aparelhos domus/maria/_ntfy domus/joao/luz/command; do
@@ -193,11 +222,20 @@ lista="$(mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u joao -P "$P_JOAO" -t domus/jo
 if python3 -c '
 import json,sys
 l=json.loads(sys.argv[1])
-assert [a["id"] for a in l]==["sala","luz"], l
+assert [a["id"] for a in l]==["sala","porta","luz"], l
 s=l[0]
 assert s["nome"]=="Sala \"grande\"" and s["tipo"]=="openbeken" and s["medidor"] is True and s["bateria"] is False
-assert s["canais"]==[{"n":1,"funcao":"interruptor","nome":"Teto"},{"n":2,"funcao":"interruptor"},{"n":3,"funcao":"luz"}], s
-' "$lista"; then passa "_aparelhos em formato v2: $lista"; else falha "_aparelhos: $lista"; fi
+assert s["canais"]==[{"n":1,"funcao":"interruptor","nome":"Teto","arranque":"desligado"},
+                     {"n":2,"funcao":"interruptor","arranque":"desligado"},
+                     {"n":3,"funcao":"luz","arranque":"desligado"}], s
+p=l[1]
+assert p["bateria"] is True and "divisao" not in p, p
+assert p["canais"]==[
+  {"n":1,"funcao":"porta","nome":"Porta entrada","entrada":True,"divisao":"Hall \"A\""},
+  {"n":2,"funcao":"bateria","divisao":"Hall \"A\""},
+  {"n":3,"funcao":"interruptor","nome":"Jardim","simular":True,"arranque":"ultimo","divisao":"Jardim"},
+  {"n":4,"funcao":"interruptor","nome":"Termo","arranque":"desligado","carga":"perigosa","divisao":"Hall \"A\""}], p
+' "$lista"; then passa "_aparelhos em formato v3 (§3): $lista"; else falha "_aparelhos: $lista"; fi
 ntfy="$(mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u joao -P "$P_JOAO" -t domus/joao/_ntfy -C 1 -W 2 2>/dev/null)"
 if python3 -c '
 import json,sys,re
@@ -226,6 +264,8 @@ if mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u joao-luz -P "$P_LUZ" -t 'domus/joao
 lista="$(mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u joao -P "$P_JOAO" -t domus/joao/_aparelhos -C 1 -W 2 2>/dev/null)"
 if [[ "$lista" != *'"id":"luz"'* && "$lista" == *'"id":"sala"'* ]]; then passa "lista sem 'luz'"; else falha "lista: $lista"; fi
 if grep -q '^user joao-luz$' "$TMP/acl"; then falha "acl ainda tem joao-luz"; else passa "acl sem joao-luz"; fi
+if grep -q '^topic write domus/joao/luz/' "$TMP/acl"; then falha "acl ainda deixa joao comandar 'luz'"
+else passa "acl já não deixa joao comandar 'luz'"; fi
 
 echo
 echo "Resultado: $OK ok, $FALHAS falhas"

@@ -5,11 +5,12 @@ import { criarMotor, motorComAparelhos, autoLuzCorredor, APARELHOS, NTFY } from 
 const P = 'domus/joao';
 
 test('arranque: publica _alarme, _automacoes e _historico retidos (nunca _ntfy)', () => {
+  // v3: _alarme ganhou estado/tipo/ate/ignorados/por.
   const m = criarMotor({});
   m.motor.aoLigar();
   m.retida(`${P}/_aparelhos`, APARELHOS);
   m.motor.tick();
-  assert.deepEqual(JSON.parse(m.ultimo(`${P}/_alarme`).payload), { ativo: false, desde: null });
+  assert.deepEqual(JSON.parse(m.ultimo(`${P}/_alarme`).payload), { ativo: false, estado: 'desarmado', tipo: null, desde: null, ate: null, ignorados: [], por: null });
   assert.equal(m.ultimo(`${P}/_automacoes`).payload, '[]');
   assert.equal(m.ultimo(`${P}/_automacoes`).retain, true);
   assert.equal(m.ultimo(`${P}/_historico`).retain, true);
@@ -31,6 +32,7 @@ test('ntfy: tópico lido do _ntfy retido do domus.sh; sem ele só FCM', () => {
   m.motor.aoLigar();
   m.motor.tick();
   m.msg(`${P}/_alarme/set`, { ativo: true });
+  m.avancar(30_000); // v3: atraso de saída (30 s por omissão)
   m.msg(`${P}/porta-entrada/1/get`, '1');
   assert.equal(m.notificacoes.length, 1);
   assert.equal(m.notificacoes[0].topicoNtfy, null);
@@ -304,8 +306,13 @@ test('alarme: ativar, porta aberta → evento alarme + notificação urgente', (
   m.msg(`${P}/_alarme/set`, { ativo: true });
   const alarme = m.ultimo(`${P}/_alarme`);
   assert.equal(alarme.retain, true);
-  assert.deepEqual(JSON.parse(alarme.payload), { ativo: true, desde: '2026-09-26T22:10:00.000Z' });
+  // v3: {"ativo":true} = modo fora, com atraso de saída de 30 s.
+  assert.deepEqual(JSON.parse(alarme.payload), {
+    ativo: true, estado: 'a_armar', tipo: 'total', desde: '2026-09-26T22:10:00.000Z', ate: '2026-09-26T22:10:30.000Z', ignorados: [], por: 'app',
+  });
   assert.equal(m.armazenamento.dados.clientes.joao.alarme.ativo, true);
+  m.avancar(30_000);
+  assert.equal(JSON.parse(m.ultimo(`${P}/_alarme`).payload).estado, 'armado');
 
   m.msg(`${P}/porta-entrada/1/get`, '1');
   const ev = m.eventos().find((e) => e.tipo === 'alarme');
@@ -418,6 +425,7 @@ test('FCM: registo com deduplicação, máximo 10 e remoção de tokens inválid
   assert.equal(m.motor.clientes.get('joao').tokensFcm.includes(tok(5)), false);
   m.msg(`${P}/_fcm/registar`, { token: 'token-fcm-de-teste-morto' });
   m.msg(`${P}/_alarme/set`, { ativo: true });
+  m.avancar(30_000); // v3: atraso de saída
   m.msg(`${P}/porta-entrada/1/get`, '1');
   await new Promise((r) => setImmediate(r));
   tokens = m.motor.clientes.get('joao').tokensFcm;
@@ -435,7 +443,7 @@ test('histórico guarda só os últimos 100 eventos', () => {
   assert.equal(m.publicados.filter((p) => p.topico.endsWith('/_eventos')).every((p) => !p.retain), true);
 });
 
-test('comandos para aparelhos nunca são retidos; só _alarme/_automacoes/_historico', () => {
+test('comandos para aparelhos nunca são retidos; só o estado do motor', () => {
   const m = motorComAparelhos();
   m.msg(`${P}/_automacoes/set`, [
     autoLuzCorredor({ entao: [
@@ -452,8 +460,11 @@ test('comandos para aparelhos nunca são retidos; só _alarme/_automacoes/_histo
   const comandos = m.publicados.filter((p) => /\/(\d+\/set|command(\/.*)?|rpc)$/.test(p.topico));
   assert.ok(comandos.length >= 7, `só ${comandos.length} comandos`);
   assert.deepEqual(comandos.filter((p) => p.retain), []);
-  const retidos = new Set(m.publicados.filter((p) => p.retain).map((p) => p.topico.split('/').pop()));
-  assert.deepEqual([...retidos].sort(), ['_alarme', '_automacoes', '_historico']);
+  const retidos = new Set(m.publicados.filter((p) => p.retain).map((p) => p.topico.slice(`${P}/`.length)));
+  // v3: também _config, _modo, _cenas, _presenca, _saude, _energia, _automacoes/avisos e /registo.
+  const permitidos = ['_alarme', '_automacoes', '_historico', '_config', '_modo', '_cenas', '_presenca', '_saude', '_energia', '_automacoes/avisos', '_automacoes/registo'];
+  for (const t of retidos) assert.ok(permitidos.includes(t), `retido inesperado: ${t}`);
+  assert.ok(retidos.has('_alarme') && retidos.has('_automacoes') && retidos.has('_historico'));
   assert.equal(m.publicados.filter((p) => p.topico.endsWith('/_eventos')).some((p) => p.retain), false);
 });
 
@@ -504,12 +515,16 @@ test('não agenda reversão se o canal já estava ligado por outra pessoa', () =
 test('estado do alarme persiste entre reinícios', () => {
   const m = motorComAparelhos({ agora: '2026-09-26T22:10:00Z' });
   m.msg(`${P}/_alarme/set`, { ativo: true });
+  m.avancar(30_000); // v3: atraso de saída
   const m2 = criarMotor({ armazenamento: m.armazenamento, agora: '2026-09-27T08:00:00Z' });
   m2.retida(`${P}/_aparelhos`, APARELHOS);
   m2.retida(`${P}/_alarme`, { ativo: false, desde: null }); // retida antiga: o estado local prevalece
   m2.motor.aoLigar();
   m2.motor.tick();
-  assert.deepEqual(JSON.parse(m2.ultimo(`${P}/_alarme`).payload), { ativo: true, desde: '2026-09-26T22:10:00.000Z' });
+  const al = JSON.parse(m2.ultimo(`${P}/_alarme`).payload);
+  assert.equal(al.ativo, true);
+  assert.equal(al.estado, 'armado');
+  assert.equal(al.desde, '2026-09-26T22:10:30.000Z'); // v3: "desde" = início do estado atual
   m2.msg(`${P}/porta-entrada/1/get`, '1');
   assert.equal(m2.eventos().some((e) => e.tipo === 'alarme'), true);
   assert.equal(m2.notificacoes[0].prioridade, 'urgent');

@@ -2,6 +2,7 @@ package pt.domusenergia.app.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
@@ -27,6 +30,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -62,9 +68,18 @@ import pt.domusenergia.app.data.Resumo
 import pt.domusenergia.app.ui.tema.FormaCartao
 import pt.domusenergia.app.ui.tema.FormaPilula
 import pt.domusenergia.app.ui.tema.LocalTerra
+import pt.domusenergia.app.ui.tema.LocalVoltar
 
 /** Separadores da barra de navegação inferior. */
 enum class Separador(val titulo: String) { CASA("Casa"), AUTOMACOES("Automações"), HISTORICO("Histórico") }
+
+/** Ecrãs secundários (menu ⋮ no topo), com "voltar". */
+enum class Secundario(val titulo: String) {
+    SAUDE("Saúde dos aparelhos"),
+    RELATORIO("Relatório da casa"),
+    CENAS("Cenas"),
+    DEFINICOES("Definições"),
+}
 
 @Composable
 fun App(state: UiState, acoes: Acoes) {
@@ -136,9 +151,15 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (String, String) -> U
 fun Principal(state: UiState, acoes: Acoes) {
     val t = LocalTerra.current
     var separador by rememberSaveable { mutableStateOf(Separador.CASA) }
+    var secundario by rememberSaveable { mutableStateOf<Secundario?>(null) }
+    var menu by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
-    val aparelhos = state.estado.aparelhos
-    val resumo = remember(aparelhos, state.estado.alarme) { Resumo.de(aparelhos, state.estado.alarme) }
+    val e = state.estado
+    val aparelhos = e.aparelhos
+    val resumo = remember(aparelhos, e.alarme, e.energia, e.modo, e.config) {
+        Resumo.de(aparelhos, e.alarme, e.energia, e.modo, e.configEfetiva.limiarEsperaW)
+    }
+    LocalVoltar.current(secundario != null) { secundario = null }
 
     LaunchedEffect(state.aviso) {
         val m = state.aviso ?: return@LaunchedEffect
@@ -153,15 +174,40 @@ fun Principal(state: UiState, acoes: Acoes) {
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 TopAppBar(
-                    title = { Text(if (separador == Separador.CASA) "A minha casa" else separador.titulo) },
+                    title = {
+                        Text(
+                            secundario?.titulo ?: if (separador == Separador.CASA) "A minha casa" else separador.titulo,
+                            maxLines = 1,
+                        )
+                    },
+                    navigationIcon = {
+                        if (secundario != null) {
+                            IconButton(onClick = { secundario = null }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
+                            }
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = t.texto,
                         actionIconContentColor = t.textoSuave,
                     ),
                     actions = {
-                        IconButton(onClick = acoes::logout) {
-                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sair")
+                        Box {
+                            IconButton(onClick = { menu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "Mais opções")
+                            }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                Secundario.entries.forEach { s ->
+                                    DropdownMenuItem(text = { Text(s.titulo) }, onClick = { menu = false; secundario = s })
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Sair") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
+                                    onClick = { menu = false; acoes.logout() },
+                                )
+                            }
                         }
                     },
                 )
@@ -170,8 +216,8 @@ fun Principal(state: UiState, acoes: Acoes) {
                 NavigationBar(containerColor = t.superficie) {
                     Separador.entries.forEach { s ->
                         NavigationBarItem(
-                            selected = separador == s,
-                            onClick = { separador = s },
+                            selected = separador == s && secundario == null,
+                            onClick = { separador = s; secundario = null },
                             icon = {
                                 Icon(
                                     when (s) {
@@ -197,10 +243,16 @@ fun Principal(state: UiState, acoes: Acoes) {
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (state.ligacao != Ligacao.LIGADO) EstadoLigacao(state.ligacao)
-                when (separador) {
-                    Separador.CASA -> CasaScreen(state, resumo, acoes)
-                    Separador.AUTOMACOES -> AutomacoesScreen(state, acoes)
-                    Separador.HISTORICO -> HistoricoScreen(state)
+                when (secundario) {
+                    Secundario.SAUDE -> SaudeScreen(state)
+                    Secundario.RELATORIO -> RelatorioScreen(state)
+                    Secundario.CENAS -> CenasScreen(state, acoes)
+                    Secundario.DEFINICOES -> DefinicoesScreen(state, acoes)
+                    null -> when (separador) {
+                        Separador.CASA -> CasaScreen(state, resumo, acoes) { secundario = it }
+                        Separador.AUTOMACOES -> AutomacoesScreen(state, acoes)
+                        Separador.HISTORICO -> HistoricoScreen(state)
+                    }
                 }
             }
         }

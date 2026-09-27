@@ -52,8 +52,25 @@ data class Canal(
     val movimento: Boolean? = null,
     val bateria: Int? = null,
     val ultimaMudanca: Instant? = null,
+    /** v3: porta de entrada (com atraso de entrada no alarme). */
+    val entrada: Boolean = false,
+    /** v3: luz/circuito usado na simulação de presença (modo Férias). */
+    val simular: Boolean = false,
+    /** v3: `desligado`/`ligado`/`ultimo` depois de um corte de luz (por omissão `desligado`). */
+    val arranque: String? = null,
+    /** v3: `normal`/`perigosa` (aquecedor, termoacumulador, bomba, motor). */
+    val carga: String? = null,
+    /** v3: divisão do canal (ex.: "Sala"); `null` = a do aparelho. */
+    val divisao: String? = null,
 ) {
     val controlavel: Boolean get() = funcao in Funcao.CONTROLAVEIS
+
+    /** Carga perigosa: as automações só a ligam com `durante_s` (máx. 4 h). */
+    val perigosa: Boolean get() = carga == CARGA_PERIGOSA
+
+    companion object {
+        const val CARGA_PERIGOSA = "perigosa"
+    }
 }
 
 /**
@@ -77,11 +94,19 @@ data class Aparelho(
     val correnteA: Double? = null,
     val energiaKWh: Double? = null,
     val canais: List<Canal> = emptyList(),
+    /** v3: divisão do aparelho (ex.: "Sala"). */
+    val divisao: String? = null,
 ) {
     /** Pode receber comandos / mostrar valores como atuais. Aparelhos a pilhas não ficam "offline". */
     val disponivel: Boolean get() = bateria || online
 
     fun canal(n: Int): Canal? = canais.firstOrNull { it.n == n }
+
+    /** Divisão onde se mostra o aparelho: a sua ou, se não tiver, a do primeiro canal que tenha. */
+    val divisaoMostrada: String? get() = divisao ?: canais.firstNotNullOfOrNull { it.divisao }
+
+    /** Divisão de um canal: a do canal ou, se não tiver, a do aparelho. */
+    fun divisaoDe(c: Canal): String? = c.divisao ?: divisao
 
     /** Aparelho a pilhas sem notícias há mais de 24 h. */
     fun semNoticias(agora: Instant): Boolean =
@@ -94,8 +119,44 @@ data class Aparelho(
     }
 }
 
-/** Estado do alarme (`domus/<cliente>/_alarme`, retido). */
-data class Alarme(val ativo: Boolean, val desde: Instant? = null)
+/** Um canal que ficou de fora do alarme por estar aberto ao armar com "forcar". */
+data class Ignorado(val aparelho: String, val canal: Int)
+
+/**
+ * Estado do alarme (`domus/<cliente>/_alarme`, retido). Na v2 só `ativo`/`desde`; na v3 também
+ * [estado] (`desarmado`/`a_armar`/`armado`/`entrada`/`disparado`), [tipo] (`total`/`perimetro`),
+ * [ate] (fim da contagem de `a_armar`/`entrada`), [ignorados] e [por] (quem armou/desarmou).
+ */
+data class Alarme(
+    val ativo: Boolean,
+    val desde: Instant? = null,
+    val estado: String? = null,
+    val tipo: String? = null,
+    val ate: Instant? = null,
+    val ignorados: List<Ignorado> = emptyList(),
+    val por: String? = null,
+) {
+    /** Estado v3 (um alarme v2 sem `estado` é `armado` ou `desarmado`). */
+    val estadoEfetivo: String get() = estado ?: if (ativo) ARMADO else DESARMADO
+
+    /** Segundos até [ate] (contagem de saída/entrada), `null` sem contagem. */
+    fun segundosAte(agora: Instant): Long? {
+        val fim = ate ?: return null
+        if (estadoEfetivo != A_ARMAR && estadoEfetivo != ENTRADA) return null
+        return Duration.between(agora, fim).seconds.coerceAtLeast(0)
+    }
+
+    companion object {
+        const val DESARMADO = "desarmado"
+        const val A_ARMAR = "a_armar"
+        const val ARMADO = "armado"
+        const val ENTRADA = "entrada"
+        const val DISPARADO = "disparado"
+        val ESTADOS = setOf(DESARMADO, A_ARMAR, ARMADO, ENTRADA, DISPARADO)
+        const val TOTAL = "total"
+        const val PERIMETRO = "perimetro"
+    }
+}
 
 /** Um evento do motor (`_eventos` em direto ou `_historico`). */
 data class Evento(
@@ -105,6 +166,8 @@ data class Evento(
     val titulo: String,
     val mensagem: String,
     val aparelho: String? = null,
+    /** v3: quem fez (`app`, `web`, `automacao:<id>`, `cena:<id>`), quando o motor o diz. */
+    val por: String? = null,
 ) {
     companion object {
         const val ALARME = "alarme"
@@ -112,6 +175,9 @@ data class Evento(
         const val AUTOMACAO = "automacao"
         const val AVISO = "aviso"
         const val ERRO = "erro"
-        val TIPOS = setOf(ALARME, SENSOR, AUTOMACAO, AVISO, ERRO)
+
+        /** v3: mudança de modo / armar / desarmar (sem notificação). */
+        const val MODO = "modo"
+        val TIPOS = setOf(ALARME, SENSOR, AUTOMACAO, AVISO, ERRO, MODO)
     }
 }

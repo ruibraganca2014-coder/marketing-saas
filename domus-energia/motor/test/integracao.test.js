@@ -26,6 +26,7 @@ const APARELHOS = [
     id: 'sala-4g', nome: 'Interruptor sala', tipo: 'openbeken',
     canais: [1, 2, 3, 4].map((n) => ({ n, funcao: 'interruptor', nome: `Canal ${n}` })),
   },
+  { id: 'porta-entrada', nome: 'Porta de entrada', tipo: 'openbeken', bateria: true, canais: [{ n: 1, funcao: 'porta', entrada: true }, { n: 2, funcao: 'bateria' }] },
 ];
 
 let broker, servidorMqtt, portaMqtt, servidorNtfy, portaNtfy, dados, motor, cliente;
@@ -157,6 +158,11 @@ test('fluxo completo: automação por MQTT, movimento, durante_s, alarme e ntfy'
   // O valor retido do PIR não disparou nada.
   assert.equal(mensagens.some((m) => m.topico.endsWith('/set')), false);
 
+  // v3: atrasos curtos para o teste; sem horas de silêncio nem relatório.
+  const cfg = esperar((m) => m.topico === `${P}/_config` && JSON.parse(m.payload).atraso_saida_s === 1);
+  await publicar(cliente, `${P}/_config/set`, { atraso_saida_s: 1, atraso_entrada_s: 1, silencio: null, relatorio_diario: null });
+  assert.equal(JSON.parse((await cfg).payload).pausa_manual_min, 60); // fundido com os valores por omissão
+
   // 2. A app envia a automação.
   const aut = {
     id: 'luz-corredor',
@@ -186,10 +192,12 @@ test('fluxo completo: automação por MQTT, movimento, durante_s, alarme e ntfy'
   const decorrido = Date.now() - t0;
   assert.ok(decorrido >= 950 && decorrido < 3000, `desligou ao fim de ${decorrido} ms`);
 
-  // 4. Alarme ligado + movimento → notificação urgente no ntfy.
+  // 4. Alarme ligado (v2: {"ativo":true} = modo fora) + movimento → notificação urgente no ntfy.
   const alarme = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).ativo === true);
+  const armado = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'armado');
   await publicar(cliente, `${P}/_alarme/set`, { ativo: true });
   assert.equal(typeof JSON.parse((await alarme).payload).desde, 'string');
+  await armado; // depois do atraso de saída
   const evAlarme = esperar((m) => m.topico === `${P}/_eventos` && JSON.parse(m.payload).tipo === 'alarme');
   await publicar(cliente, `${P}/pir-corredor/1/get`, '0');
   await publicar(cliente, `${P}/pir-corredor/1/get`, '1');
@@ -207,7 +215,72 @@ test('fluxo completo: automação por MQTT, movimento, durante_s, alarme e ntfy'
 
   // 5. Histórico retido com os eventos.
   const hist = await esperar((m) => m.topico === `${P}/_historico` && JSON.parse(m.payload)[0]?.tipo === 'alarme', 3000, 0);
-  assert.equal(JSON.parse(hist.payload).length, 2); // erro + alarme
+  assert.deepEqual(JSON.parse(hist.payload).map((e) => e.tipo), ['alarme', 'modo', 'erro']);
+});
+
+test('v3: armar com atraso de saída → porta de entrada → entrada → disparado → ntfy urgente', async () => {
+  // Desarmar (modo casa) e fechar a porta.
+  const desarmado = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'desarmado');
+  await publicar(cliente, `${P}/_modo/set`, { modo: 'casa', por: 'web' });
+  await desarmado;
+  await publicar(cliente, `${P}/porta-entrada/1/get`, '1');
+  // Com a porta aberta e sem "forcar": recusa.
+  const recusa = esperar((m) => m.topico === `${P}/_eventos` && JSON.parse(m.payload).tipo === 'erro');
+  await publicar(cliente, `${P}/_modo/set`, { modo: 'fora' });
+  assert.equal(JSON.parse((await recusa).payload).mensagem, 'Não armado: Porta de entrada está aberta.');
+  await publicar(cliente, `${P}/porta-entrada/1/get`, '0');
+
+  const ntfyAntes = pedidosNtfy.length;
+  const aArmar = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'a_armar');
+  const armado = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'armado', 5000);
+  const modo = esperar((m) => m.topico === `${P}/_modo` && JSON.parse(m.payload).modo === 'fora');
+  await publicar(cliente, `${P}/_modo/set`, { modo: 'fora', por: 'app' });
+  const a1 = JSON.parse((await aArmar).payload);
+  assert.equal(a1.tipo, 'total');
+  assert.equal(Date.parse(a1.ate) - Date.parse(a1.desde), 1000);
+  assert.equal(JSON.parse((await modo).payload).por, 'app');
+  await armado;
+
+  const entrada = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'entrada');
+  const disparado = esperar((m) => m.topico === `${P}/_alarme` && JSON.parse(m.payload).estado === 'disparado', 5000);
+  const evAlarme = esperar((m) => m.topico === `${P}/_eventos` && JSON.parse(m.payload).tipo === 'alarme', 5000);
+  await publicar(cliente, `${P}/porta-entrada/1/get`, '1');
+  await entrada;
+  await disparado;
+  assert.match(JSON.parse((await evAlarme).payload).mensagem, /não foi desarmado a tempo/);
+  const inicio = Date.now();
+  while (pedidosNtfy.length < ntfyAntes + 2 && Date.now() - inicio < 3000) await new Promise((r) => setTimeout(r, 20));
+  const novos = pedidosNtfy.slice(ntfyAntes);
+  assert.equal(novos.length, 2);
+  assert.equal(novos[0].cabecalhos.priority, 'default'); // "Desarme o alarme"
+  assert.match(novos[0].corpo, /Desarme o alarme/);
+  assert.equal(novos[1].cabecalhos.priority, 'urgent');
+  assert.match(novos[1].corpo, /Porta de entrada aberta e o alarme não foi desarmado a tempo/);
+});
+
+test('v3: _cenas/set + _cenas/executar publicam os comandos certos', async () => {
+  const cena = {
+    id: 'cinema', nome: 'Noite de cinema', icone: 'filme',
+    acoes: [{ acao: 'desligar', aparelho: 'sala-4g', canal: 1 }, { acao: 'ligar', aparelho: 'sala-4g', canal: 2 }],
+  };
+  const guardada = esperar((m) => m.topico === `${P}/_cenas` && m.payload.includes('cinema'));
+  await publicar(cliente, `${P}/_cenas/set`, [cena]);
+  assert.equal(JSON.parse((await guardada).payload)[0].bloqueada, false);
+  const c1 = esperar((m) => m.topico === `${P}/sala-4g/1/set` && m.payload === '0');
+  const c2 = esperar((m) => m.topico === `${P}/sala-4g/2/set` && m.payload === '1');
+  await publicar(cliente, `${P}/_cenas/executar`, { id: 'cinema', por: 'app' });
+  assert.equal((await c1).retain, false);
+  assert.equal((await c2).retain, false);
+});
+
+test('v3: "testar agora" executa a automação e o registo mostra "teste"', async () => {
+  const liga = esperar((m) => m.topico === `${P}/sala-4g/4/set` && m.payload === '1');
+  const registo = esperar((m) => m.topico === `${P}/_automacoes/registo` && JSON.parse(m.payload)['luz-corredor']?.resultado === 'teste');
+  await publicar(cliente, `${P}/_automacoes/executar`, { id: 'luz-corredor', testar: true });
+  await liga;
+  const r = JSON.parse((await registo).payload)['luz-corredor'];
+  assert.equal(r.teste, true);
+  assert.equal(r.ultimos[0].resultado, 'teste');
 });
 
 test('CLI de administração cria uma automação bloqueada; o cliente não usa o canal admin', async () => {

@@ -5,6 +5,16 @@
     <!-- Android 13+: pedida em tempo de execução depois de entrar (MainActivity). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Presença (opcional, desligada por omissão; ver README "Presença"). Pedidas só depois do ecrã
+         que explica porquê: localização precisa, depois "Permitir sempre" (Android 10+). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Ler o nome (SSID) do Wi-Fi atual, para "ligado ao Wi-Fi de casa". -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Voltar a registar a zona de casa depois de reiniciar o telemóvel. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".DomusApp"
         android:allowBackup="false"
@@ -22,6 +32,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Presença: entradas/saídas da zona de casa (Geofencing) e novo registo depois de reiniciar. -->
+        <receiver
+            android:name=".presenca.ZonaReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".presenca.ArranqueReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Firebase Cloud Messaging (só ativo se existir app/google-services.json; ver android/README.md). -->
         <service

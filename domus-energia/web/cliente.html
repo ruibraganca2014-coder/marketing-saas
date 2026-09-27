@@ -50,12 +50,16 @@
               <span>Aparelhos online: <b class="num" id="total-online">—</b></span>
             </div>
           </div>
-          <button class="btn sec pequeno" id="atualizar">Atualizar</button>
+          <div class="cabecalho-botoes">
+            <button class="btn sec pequeno" id="atualizar" type="button">Atualizar</button>
+            <button class="btn sec pequeno" id="abrir-definicoes" type="button" aria-controls="sec-definicoes"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Definições</button>
+          </div>
         </div>
 
         <div class="separadores" role="tablist" aria-label="Secções">
           <button class="separador" role="tab" id="tab-casa" aria-controls="sec-casa" aria-selected="true" data-sec="casa">Casa</button>
           <button class="separador" role="tab" id="tab-automacoes" aria-controls="sec-automacoes" aria-selected="false" data-sec="automacoes" tabindex="-1">Automações</button>
+          <button class="separador" role="tab" id="tab-aparelhos" aria-controls="sec-aparelhos" aria-selected="false" data-sec="aparelhos" tabindex="-1">Aparelhos</button>
           <button class="separador" role="tab" id="tab-historico" aria-controls="sec-historico" aria-selected="false" data-sec="historico" tabindex="-1">Histórico</button>
         </div>
 
@@ -63,21 +67,46 @@
 
         <!-- Casa -->
         <section class="seccao" id="sec-casa" role="tabpanel" aria-labelledby="tab-casa">
-          <div class="cartao cartao-alarme" id="alarme">
-            <div id="alarme-ilus"></div>
-            <div>
-              <h2>Alarme</h2>
-              <div class="alarme-estado" id="alarme-estado" role="status">A obter estado…</div>
-            </div>
-            <div class="alarme-acoes">
-              <button class="btn" id="alarme-botao" type="button" disabled>Ativar</button>
-            </div>
-            <div class="confirmar" id="alarme-confirmar" hidden>
-              <p id="alarme-pergunta"></p>
-              <div class="botoes">
-                <button class="btn" id="alarme-sim" type="button">Confirmar</button>
-                <button class="btn sec" id="alarme-nao" type="button">Cancelar</button>
+          <!-- Modo da casa + alarme (v3 §2) -->
+          <div class="cartao cartao-modo" id="modos">
+            <div class="modo-topo">
+              <div id="alarme-ilus"></div>
+              <div class="modo-texto">
+                <h2>Modo da casa</h2>
+                <div class="alarme-estado" id="alarme-estado" role="status">A obter estado…</div>
               </div>
+            </div>
+            <div class="seletor-modo" id="modo-seletor" role="radiogroup" aria-label="Modo da casa"></div>
+            <div class="alarme-contagem" id="alarme-contagem" role="status" hidden>
+              <b class="contagem-titulo" id="contagem-titulo"></b>
+              <span class="contagem-valor num" id="contagem-valor"></span>
+              <button class="btn perigo" id="alarme-desarmar" type="button">Desarmar (modo Casa)</button>
+            </div>
+            <p class="ignorados" id="alarme-ignorados" hidden></p>
+            <div class="confirmar" id="modo-recusa" role="alert" hidden>
+              <p id="modo-recusa-texto"></p>
+              <div class="botoes">
+                <button class="btn" id="modo-forcar" type="button">Armar mesmo assim</button>
+                <button class="btn sec" id="modo-recusa-cancelar" type="button">Cancelar</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cenas (v3 §7) -->
+          <div class="cenas" id="cenas" hidden>
+            <div class="cenas-topo">
+              <h2>Cenas</h2>
+              <button class="btn sec pequeno" id="cenas-gerir-botao" type="button" aria-controls="cenas-gerir" aria-expanded="false">Gerir</button>
+            </div>
+            <div class="cenas-linha" id="cenas-linha"></div>
+            <div class="msg" id="cenas-estado" role="status" hidden></div>
+            <div class="cartao cenas-gerir" id="cenas-gerir" hidden>
+              <div class="seccao-topo">
+                <h3>Gerir cenas</h3>
+                <button class="btn pequeno" id="nova-cena" type="button">Nova cena</button>
+              </div>
+              <div id="form-cena-caixa"></div>
+              <div class="cenas-lista" id="cenas-lista"></div>
             </div>
           </div>
 
@@ -85,7 +114,10 @@
             <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
             <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Luzes e circuitos ligados</div></div>
             <div class="cartao" id="resumo-portas"><div class="valor" id="total-portas">—</div><div class="rotulo">Portas abertas</div></div>
-            <div class="cartao" id="resumo-alarme"><div class="valor" id="total-alarme">—</div><div class="rotulo">Alarme</div></div>
+            <div class="cartao" id="resumo-energia"><div class="valor" id="total-hoje">—</div><div class="rotulo" id="hoje-rotulo">Energia hoje</div></div>
+          </div>
+          <div class="casa-acoes">
+            <button class="btn sec pequeno" id="abrir-relatorio" type="button" aria-controls="sec-relatorio">Relatório da casa</button>
           </div>
           <div class="aparelhos" id="lista"></div>
         </section>
@@ -97,8 +129,35 @@
             <button class="btn pequeno" id="nova-automacao" type="button">Nova automação</button>
           </div>
           <div class="msg" id="auto-estado" role="status" hidden></div>
+          <div class="auto-avisos" id="auto-avisos"></div>
           <div id="form-automacao-caixa"></div>
           <div class="automacoes" id="lista-automacoes"></div>
+        </section>
+
+        <!-- Relatório da casa (v3 §9) -->
+        <section class="seccao" id="sec-relatorio" aria-labelledby="titulo-relatorio" hidden>
+          <div class="seccao-topo">
+            <button class="btn sec pequeno" id="relatorio-voltar" type="button">Voltar</button>
+            <h2 id="titulo-relatorio">Relatório da casa</h2>
+            <button class="btn pequeno" id="relatorio-copiar" type="button">Copiar</button>
+          </div>
+          <small class="vazio relatorio-msg" id="relatorio-msg" role="status"></small>
+          <div class="relatorio" id="relatorio-conteudo"></div>
+          <pre class="relatorio-texto" id="relatorio-texto" hidden></pre>
+        </section>
+
+        <!-- Saúde dos aparelhos (v3 §5) -->
+        <section class="seccao" id="sec-aparelhos" role="tabpanel" aria-labelledby="tab-aparelhos" hidden>
+          <div class="seccao-topo"><h2>Saúde dos aparelhos</h2></div>
+          <p class="sub-seccao">Ligação, sinal Wi-Fi, reinícios e pilhas de cada aparelho. Os que precisam de atenção aparecem primeiro.</p>
+          <div class="lista-saude" id="lista-saude"></div>
+        </section>
+
+        <!-- Definições (v3 §1) -->
+        <section class="seccao" id="sec-definicoes" aria-labelledby="titulo-definicoes" hidden>
+          <div class="seccao-topo"><h2 id="titulo-definicoes">Definições da casa</h2></div>
+          <div class="msg" id="config-estado" role="status" hidden></div>
+          <div id="config-caixa"></div>
         </section>
 
         <!-- Histórico -->
