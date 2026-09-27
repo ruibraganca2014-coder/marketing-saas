@@ -1,0 +1,19 @@
+{
+  "name": "domus-local",
+  "version": "1.0.0",
+  "description": "Corre a plataforma Domus Energia no computador, sem Docker (broker MQTT em Node + site + painel + pagamentos + motor)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "instalar": "npm install && npm --prefix ../painel ci && npm --prefix ../pagamentos ci && npm --prefix ../motor ci",
+    "start": "node iniciar.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "aedes": "^1.2.0",
+    "ws": "^8.18.0"
+  }
+}
