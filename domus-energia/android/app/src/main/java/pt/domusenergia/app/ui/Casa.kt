@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -57,6 +58,7 @@ import pt.domusenergia.app.data.ConfigCasa
 import pt.domusenergia.app.data.EmEspera
 import pt.domusenergia.app.data.Funcao
 import pt.domusenergia.app.data.Modos
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Relatorio
 import pt.domusenergia.app.data.SaudeCasa
 import pt.domusenergia.app.data.Resumo
@@ -109,8 +111,8 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
                     LinhaCenas(cenas, state.ligado, { id -> cenas.firstOrNull { it.id == id }?.let(executarCena) }) { onAbrir(Secundario.CENAS) }
                 }
             }
-            if (atencao > 0) item(key = "_saude") { AvisoSaude(atencao) { onAbrir(Secundario.SAUDE) } }
-            item(key = "_resumo") { CartaoResumo(resumo) }
+            if (atencao > 0 && estado.permite(Planos.SAUDE)) item(key = "_saude") { AvisoSaude(atencao) { onAbrir(Secundario.SAUDE) } }
+            item(key = "_resumo") { CartaoResumo(resumo, energia = estado.permite(Planos.ENERGIA)) }
             if (estado.aparelhos.isEmpty()) {
                 item(key = "_vazio") {
                     Text(
@@ -180,6 +182,10 @@ fun CartaoModos(state: UiState, acoes: Acoes) {
     val agora = agoraAoSegundo(contar)
     val restante = alarme?.segundosAte(agora)
     val recusa = estado.ultimoErro?.takeIf { state.modoPedido != null && it.mensagem.startsWith("Não armado") }
+    // Fora do plano: a app não deixa escolher; se mesmo assim o motor recusar, mostra-se aqui (§3).
+    val recusaPlano = estado.ultimoErro?.takeIf { state.modoPedido != null && Planos.eErroDePlano(it.mensagem) }
+    val comAlarme = estado.permite(Planos.ALARME)
+    val abrirSubscricao = LocalAbrirSubscricao.current
     val urgente = est == Alarme.DISPARADO || est == Alarme.ENTRADA
     val pode = state.ligado && alarme != null
 
@@ -200,8 +206,21 @@ fun CartaoModos(state: UiState, acoes: Acoes) {
             pedido = state.modoPedido,
             ativo = pode,
             onEscolher = ::escolher,
+            bloqueados = if (comAlarme) emptySet() else setOf(Modos.FORA, Modos.NOITE, Modos.FERIAS),
+            onBloqueado = abrirSubscricao,
         )
         when {
+            recusaPlano != null -> {
+                Text(recusaPlano.mensagem, color = t.alarme, style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    BotaoPilula("Mudar de plano", onClick = { acoes.cancelarModo(); abrirSubscricao() })
+                    TextButton(onClick = acoes::cancelarModo) { Text("Fechar", color = t.textoSuave) }
+                }
+            }
+            !comAlarme && (modoAtual == Modos.CASA || modoAtual == null) -> {
+                Text("No seu plano a casa fica no modo Casa.", style = MaterialTheme.typography.bodySmall, color = t.textoSuave)
+                Bloqueado(Planos.ALARME)
+            }
             recusa != null -> {
                 Text(recusa.mensagem, color = t.alarme, style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -265,15 +284,27 @@ private fun Ignorados(alarme: Alarme, aparelhos: List<Aparelho>) {
     )
 }
 
-/** Controlo segmentado em pílula (tema Terra). [pedido] mostra-se a meio tom enquanto o motor não confirma. */
+/**
+ * Controlo segmentado em pílula (tema Terra). [pedido] mostra-se a meio tom enquanto o motor não confirma.
+ * [bloqueados]: opções fora do plano (cadeado; toque = [onBloqueado]).
+ */
 @Composable
-fun Segmentado(opcoes: List<String>, atual: String?, pedido: String?, ativo: Boolean, onEscolher: (String) -> Unit) {
+fun Segmentado(
+    opcoes: List<String>,
+    atual: String?,
+    pedido: String?,
+    ativo: Boolean,
+    onEscolher: (String) -> Unit,
+    bloqueados: Set<String> = emptySet(),
+    onBloqueado: () -> Unit = {},
+) {
     val t = LocalTerra.current
     Surface(shape = FormaPilula, color = t.musgoClaro, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             for (m in opcoes) {
                 val sel = m == atual
                 val espera = m == pedido && !sel
+                val bloqueado = m in bloqueados && !sel
                 Surface(
                     shape = FormaPilula,
                     color = when {
@@ -281,15 +312,29 @@ fun Segmentado(opcoes: List<String>, atual: String?, pedido: String?, ativo: Boo
                         espera -> t.musgo.copy(alpha = 0.35f)
                         else -> Color.Transparent
                     },
-                    contentColor = if (sel) t.creme else t.texto,
+                    contentColor = when {
+                        sel -> t.creme
+                        bloqueado -> t.textoSuave
+                        else -> t.texto
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .height(40.dp)
                         .clip(FormaPilula)
-                        .clickable(enabled = ativo && !sel) { onEscolher(m) }
-                        .semantics { contentDescription = "Modo ${Modos.rotulo(m)}" + if (sel) ", atual" else "" },
+                        .clickable(enabled = bloqueado || (ativo && !sel)) { if (bloqueado) onBloqueado() else onEscolher(m) }
+                        .semantics {
+                            contentDescription = "Modo ${Modos.rotulo(m)}" + when {
+                                sel -> ", atual"
+                                bloqueado -> ", fora do seu plano"
+                                else -> ""
+                            }
+                        },
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
+                    Row(horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        if (bloqueado) {
+                            Icon(Icons.Filled.Lock, contentDescription = null, tint = t.argila, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(3.dp))
+                        }
                         Text(Modos.rotulo(m), style = MaterialTheme.typography.labelLarge, maxLines = 1)
                     }
                 }
@@ -354,12 +399,25 @@ private fun AvisoSaude(n: Int, onAbrir: () -> Unit) {
     }
 }
 
+/** @param energia o plano inclui a energia (senão "Gasto hoje" aparece com cadeado). */
 @Composable
-fun CartaoResumo(r: Resumo) {
+fun CartaoResumo(r: Resumo, energia: Boolean = true) {
     Cartao {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Numero(if (r.temMedidor) Textos.potencia(r.potenciaW) else "—", "Potência agora", Modifier.weight(1f))
-            Numero(r.hojeKWh?.let { Textos.kwh(it) } ?: "—", "Gasto hoje", Modifier.weight(1f))
+            if (energia) {
+                Numero(r.hojeKWh?.let { Textos.kwh(it) } ?: "—", "Gasto hoje", Modifier.weight(1f))
+            } else {
+                val t = LocalTerra.current
+                Column(Modifier.weight(1f).clip(FormaCartao).clickable(onClick = LocalAbrirSubscricao.current)) {
+                    Row(Modifier.height(32.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Lock, contentDescription = null, tint = t.argila, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Plano Conforto", style = MaterialTheme.typography.labelMedium, color = t.argila)
+                    }
+                    Text("Gasto hoje", style = MaterialTheme.typography.bodySmall, color = t.textoSuave)
+                }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Numero(

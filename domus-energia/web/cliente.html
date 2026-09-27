@@ -24,6 +24,11 @@
     </div>
   </header>
 
+  <div class="toast" id="toast" role="status" hidden>
+    <span id="toast-texto"></span>
+    <button class="toast-fechar" id="toast-fechar" type="button" aria-label="Fechar aviso">×</button>
+  </div>
+
   <main class="painel" id="painel">
     <div class="wrap">
       <!-- Login -->
@@ -39,6 +44,22 @@
         </form>
       </div>
 
+      <!-- Subscrição suspensa / cancelada (PROTOCOLO-PLANOS §3): substitui toda a área de cliente -->
+      <div class="suspensa" id="vista-suspensa" hidden>
+        <div class="cartao caixa-suspensa">
+          <div class="suspensa-icone" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 22 24 9l16 13M12 19v20h24V19" /><rect x="19" y="25" width="10" height="14" rx="2"/><path d="M24 29v4"/></svg></div>
+          <h1 id="suspensa-titulo">A sua subscrição está suspensa</h1>
+          <p class="suspensa-texto" id="suspensa-texto"></p>
+          <ul class="suspensa-lista">
+            <li class="continua"><b>Continua a funcionar:</b> os interruptores e disjuntores da casa, à mão, como sempre.</li>
+            <li class="pausa"><b>Em pausa:</b> a app e a área de cliente, as automações, as cenas e o alarme.</li>
+          </ul>
+          <p class="ajuda" id="suspensa-ajuda"></p>
+          <div class="form-botoes" id="suspensa-botoes"></div>
+          <div class="msg" id="suspensa-msg" role="status" hidden></div>
+        </div>
+      </div>
+
       <!-- Painel -->
       <div id="vista-painel" hidden>
         <div class="cabecalho-painel">
@@ -52,9 +73,12 @@
           </div>
           <div class="cabecalho-botoes">
             <button class="btn sec pequeno" id="atualizar" type="button">Atualizar</button>
+            <button class="btn sec pequeno" id="abrir-subscricao" type="button" aria-controls="sec-subscricao"><span class="so-largo">A minha subscrição</span><span class="so-curto">Subscrição</span></button>
             <button class="btn sec pequeno" id="abrir-definicoes" type="button" aria-controls="sec-definicoes"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Definições</button>
           </div>
         </div>
+
+        <div class="aviso-plano" id="aviso-plano" hidden></div>
 
         <div class="separadores" role="tablist" aria-label="Secções">
           <button class="separador" role="tab" id="tab-casa" aria-controls="sec-casa" aria-selected="true" data-sec="casa">Casa</button>
@@ -84,6 +108,7 @@
               <span class="contagem-valor num" id="contagem-valor"></span>
               <button class="btn perigo" id="alarme-desarmar" type="button">Desarmar (modo Casa)</button>
             </div>
+            <div class="modo-plano" id="modo-plano" hidden></div>
             <p class="ignorados" id="alarme-ignorados" hidden></p>
             <div class="confirmar" id="modo-recusa" role="alert" hidden>
               <p id="modo-recusa-texto"></p>
@@ -116,7 +141,7 @@
             <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
             <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Luzes e circuitos ligados</div></div>
             <div class="cartao" id="resumo-portas"><div class="valor" id="total-portas">—</div><div class="rotulo">Portas abertas</div></div>
-            <div class="cartao" id="resumo-energia"><div class="valor" id="total-hoje">—</div><div class="rotulo" id="hoje-rotulo">Energia hoje</div></div>
+            <div class="cartao" id="resumo-energia"><div class="valor" id="total-hoje">—</div><div class="rotulo" id="hoje-rotulo">Energia hoje</div><div id="energia-bloqueio" hidden></div></div>
           </div>
           <div class="casa-acoes">
             <button class="btn sec pequeno" id="abrir-relatorio" type="button" aria-controls="sec-relatorio">Relatório da casa</button>
@@ -151,13 +176,23 @@
         <!-- Saúde dos aparelhos (v3 §5) -->
         <section class="seccao" id="sec-aparelhos" role="tabpanel" aria-labelledby="tab-aparelhos" hidden>
           <div class="seccao-topo"><h2>Saúde dos aparelhos</h2></div>
-          <p class="sub-seccao">Ligação, sinal Wi-Fi, reinícios e pilhas de cada aparelho. Os que precisam de atenção aparecem primeiro.</p>
+          <p class="sub-seccao" id="saude-sub">Ligação, sinal Wi-Fi, reinícios e pilhas de cada aparelho. Os que precisam de atenção aparecem primeiro.</p>
+          <div class="cartao funcionalidade-bloqueada" id="saude-bloqueada" hidden>
+            <p>Veja a ligação, o sinal Wi-Fi, os reinícios e as pilhas de cada aparelho, com conselhos simples quando algum precisa de atenção.</p>
+          </div>
           <div class="lista-saude" id="lista-saude"></div>
+        </section>
+
+        <!-- A minha subscrição (PROTOCOLO-PLANOS §6) -->
+        <section class="seccao" id="sec-subscricao" aria-labelledby="titulo-subscricao" hidden>
+          <div class="seccao-topo"><h2 id="titulo-subscricao" tabindex="-1">A minha subscrição</h2></div>
+          <div class="msg" id="subscricao-msg" role="status" hidden></div>
+          <div class="subscricao" id="subscricao-caixa"></div>
         </section>
 
         <!-- Definições (v3 §1) -->
         <section class="seccao" id="sec-definicoes" aria-labelledby="titulo-definicoes" hidden>
-          <div class="seccao-topo"><h2 id="titulo-definicoes">Definições da casa</h2></div>
+          <div class="seccao-topo"><h2 id="titulo-definicoes">Definições da casa</h2><button class="btn sec pequeno" id="definicoes-subscricao" type="button">A minha subscrição</button></div>
           <div class="msg" id="config-estado" role="status" hidden></div>
           <div id="config-caixa"></div>
         </section>
@@ -166,12 +201,13 @@
         <section class="seccao" id="sec-historico" role="tabpanel" aria-labelledby="tab-historico" hidden>
           <div class="cartao ntfy" id="ntfy" hidden>
             <h2>Notificações no telemóvel</h2>
-            <p>Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.</p>
+            <p id="ntfy-texto">Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.</p>
             <div class="ntfy-linha">
               <code class="ntfy-url" id="ntfy-url"></code>
               <button class="btn sec pequeno" id="ntfy-copiar" type="button">Copiar</button>
             </div>
             <small class="vazio" id="ntfy-msg" role="status"></small>
+            <div id="ntfy-bloqueio" hidden></div>
           </div>
           <div class="seccao-topo"><h2>Histórico</h2></div>
           <ul class="historico" id="lista-historico"></ul>

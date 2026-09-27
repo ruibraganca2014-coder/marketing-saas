@@ -31,6 +31,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Evento
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Textos
 import pt.domusenergia.app.ui.tema.FormaPilula
 import pt.domusenergia.app.ui.tema.LocalTerra
@@ -46,7 +47,22 @@ fun HistoricoScreen(state: UiState) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        estado.ntfyUrl?.let { url -> item(key = "_ntfy") { CartaoNtfy(url) } }
+        if (!estado.permite(Planos.NOTIFICACOES)) {
+            // Plano Base: os eventos continuam aqui, mas sem avisos no telemóvel (§1).
+            item(key = "_ntfy") {
+                Cartao {
+                    Text("Avisos no telemóvel", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Receba os alarmes e avisos no telemóvel (notificações e ntfy). No seu plano, os eventos ficam só aqui no histórico.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LocalTerra.current.textoSuave,
+                    )
+                    Bloqueado(Planos.NOTIFICACOES)
+                }
+            }
+        } else {
+            estado.ntfyUrl?.let { url -> item(key = "_ntfy") { CartaoNtfy(url) } }
+        }
         if (estado.historico.isEmpty()) {
             item(key = "_vazio") {
                 Text("Ainda não há eventos.", color = LocalTerra.current.textoSuave, modifier = Modifier.padding(8.dp))

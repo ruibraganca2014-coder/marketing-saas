@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -49,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +66,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Ligacao
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Resumo
 import pt.domusenergia.app.ui.tema.FormaCartao
 import pt.domusenergia.app.ui.tema.FormaPilula
@@ -74,21 +77,29 @@ import pt.domusenergia.app.ui.tema.LocalVoltar
 enum class Separador(val titulo: String) { CASA("Casa"), AUTOMACOES("Automações"), HISTORICO("Histórico") }
 
 /** Ecrãs secundários (menu ⋮ no topo), com "voltar". */
-enum class Secundario(val titulo: String) {
-    SAUDE("Saúde dos aparelhos"),
-    RELATORIO("Relatório da casa"),
-    CENAS("Cenas"),
+enum class Secundario(val titulo: String, val chave: String? = null) {
+    SAUDE("Saúde dos aparelhos", Planos.SAUDE),
+    RELATORIO("Relatório da casa", Planos.RELATORIO),
+    CENAS("Cenas", Planos.CENAS),
     DEFINICOES("Definições"),
+    SUBSCRICAO("A minha subscrição"),
 }
 
 @Composable
 fun App(state: UiState, acoes: Acoes) {
-    if (!state.loggedIn) {
-        FundoVivo(null, Modifier.fillMaxSize()) {
+    // Página de pagamento/portal pedida ao servidor: abre-a no navegador (fora da app).
+    val abrirLink = LocalPlataforma.current.abrirLink
+    LaunchedEffect(state.abrirUrl) {
+        val url = state.abrirUrl ?: return@LaunchedEffect
+        acoes.urlAberta(abrirLink(url))
+    }
+    when {
+        !state.loggedIn -> FundoVivo(null, Modifier.fillMaxSize()) {
             LoginScreen(loading = state.loading, error = state.erroLogin, onLogin = acoes::login)
         }
-    } else {
-        Principal(state, acoes)
+        // Suspensa/cancelada (modo básico): só este ecrã (docs/PROTOCOLO-PLANOS.md §3).
+        state.estado.subscricao.bloqueada -> FundoVivo(null, Modifier.fillMaxSize()) { SuspensaScreen(state, acoes) }
+        else -> Principal(state, acoes)
     }
 }
 
@@ -160,6 +171,7 @@ fun Principal(state: UiState, acoes: Acoes) {
         Resumo.de(aparelhos, e.alarme, e.energia, e.modo, e.configEfetiva.limiarEsperaW)
     }
     LocalVoltar.current(secundario != null) { secundario = null }
+    val subscricao = e.subscricao
 
     LaunchedEffect(state.aviso) {
         val m = state.aviso ?: return@LaunchedEffect
@@ -199,7 +211,14 @@ fun Principal(state: UiState, acoes: Acoes) {
                             }
                             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                                 Secundario.entries.forEach { s ->
-                                    DropdownMenuItem(text = { Text(s.titulo) }, onClick = { menu = false; secundario = s })
+                                    val bloqueado = s.chave != null && !subscricao.permite(s.chave)
+                                    DropdownMenuItem(
+                                        text = { Text(s.titulo, color = if (bloqueado) t.textoSuave else Color.Unspecified) },
+                                        trailingIcon = if (bloqueado) {
+                                            { Icon(Icons.Filled.Lock, contentDescription = "Fora do seu plano", tint = t.argila) }
+                                        } else null,
+                                        onClick = { menu = false; secundario = s },
+                                    )
                                 }
                                 HorizontalDivider()
                                 DropdownMenuItem(
@@ -243,15 +262,24 @@ fun Principal(state: UiState, acoes: Acoes) {
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
                 if (state.ligacao != Ligacao.LIGADO) EstadoLigacao(state.ligacao)
-                when (secundario) {
-                    Secundario.SAUDE -> SaudeScreen(state)
-                    Secundario.RELATORIO -> RelatorioScreen(state)
-                    Secundario.CENAS -> CenasScreen(state, acoes)
-                    Secundario.DEFINICOES -> DefinicoesScreen(state, acoes)
-                    null -> when (separador) {
-                        Separador.CASA -> CasaScreen(state, resumo, acoes) { secundario = it }
-                        Separador.AUTOMACOES -> AutomacoesScreen(state, acoes)
-                        Separador.HISTORICO -> HistoricoScreen(state)
+                if (subscricao.emAtraso && secundario != Secundario.SUBSCRICAO) {
+                    AvisoAtraso(subscricao, acoes) { secundario = Secundario.SUBSCRICAO }
+                }
+                CompositionLocalProvider(LocalAbrirSubscricao provides { secundario = Secundario.SUBSCRICAO }) {
+                    when (secundario) {
+                        Secundario.SAUDE -> if (subscricao.permite(Planos.SAUDE)) SaudeScreen(state) else EcraBloqueado(
+                            Planos.SAUDE, "Saúde dos aparelhos",
+                            "Veja quais aparelhos estão offline, com pilha fraca ou sinal Wi-Fi fraco, e há quanto tempo.",
+                        )
+                        Secundario.RELATORIO -> RelatorioScreen(state)
+                        Secundario.CENAS -> CenasScreen(state, acoes)
+                        Secundario.DEFINICOES -> DefinicoesScreen(state, acoes)
+                        Secundario.SUBSCRICAO -> SubscricaoScreen(state, acoes)
+                        null -> when (separador) {
+                            Separador.CASA -> CasaScreen(state, resumo, acoes) { secundario = it }
+                            Separador.AUTOMACOES -> AutomacoesScreen(state, acoes)
+                            Separador.HISTORICO -> HistoricoScreen(state)
+                        }
                     }
                 }
             }

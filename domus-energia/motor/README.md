@@ -9,7 +9,9 @@ Contrato: [`docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1),
 [`docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (secções 2–5) e
 [`docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (tudo exceto §4
 configuração nos aparelhos e §9 interface). Tudo o que era válido na v2
-continua válido.
+continua válido. Planos e subscrições:
+[`docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md) §1–§3 (ver
+[Planos](#planos-e-subscrições) abaixo).
 
 ## O que faz
 
@@ -29,11 +31,12 @@ continua válido.
 | `_cenas/admin` | admin/motor → | administração das cenas **bloqueadas** |
 | `_fcm/registar` | app → | `{"token"}` regista, `{"token","remover":true}` apaga (máx. 10 por cliente) |
 | `_ntfy` (retido) | domus.sh → | lê o tópico ntfy secreto do cliente (o motor nunca o gera nem publica) |
+| `_plano` (retido) | pagamentos/domus.sh → | plano e estado da subscrição (validação estrita; o motor nunca o publica); sem `_plano` = `conforto`/`ativo` |
 | `_eventos` | → todos | eventos (não retidos) |
 | `_historico` (retido) | → todos | últimos 100 eventos, mais recente primeiro |
 | `_automacoes/registo` (retido) | → todos | registo das últimas 20 execuções de cada automação, com o motivo |
-| `_saude` (retido) | → todos | saúde dos aparelhos (a cada 5 min ou quando muda) |
-| `_energia` (retido) | → todos | consumo de hoje/ontem/mês (a cada 5 min e à meia-noite) |
+| `_saude` (retido) | → todos | saúde dos aparelhos (a cada 5 min ou quando muda) — só planos com `saude` |
+| `_energia` (retido) | → todos | consumo de hoje/ontem/mês (a cada 5 min e à meia-noite) — só planos com `energia` |
 
 Os comandos (`…/set`, `…/executar`, `_fcm/registar`) **retidos** são sempre
 ignorados; os estados retidos (`_config`, `_modo`, `_alarme`, `_automacoes`,
@@ -193,6 +196,55 @@ o motor tiver perdido o seu estado local.
   estado adiada (1 s) e atómica; religação automática ao broker; `SIGTERM`
   grava o estado e fecha a ligação.
 
+## Planos e subscrições
+
+Tabela única de funcionalidades em `src/planos.js` (`permite(plano, estado,
+chave)`, `FUNCIONALIDADES`, `mensagemBloqueio`, `validarPlano`), igual à §1 do
+contrato. `ativo`, `teste` e `em_atraso` têm tudo o que o plano inclui;
+`suspenso`/`cancelado` (modo básico) não têm nada. Sem `_plano` retido (ou com
+`_plano` apagado) o cliente fica `conforto`/`ativo`/`manual`: nada muda para
+os clientes antigos. Um `_plano` inválido (campo desconhecido, plano/estado
+desconhecido, data que não é ISO) é ignorado e fica o plano anterior. O plano
+é guardado no `estado.json`, para valer logo no arranque.
+
+**Plano base** (sem `alarme`, `notificacoes`, `saude`, `energia`,
+`relatorio_diario`):
+- `_modo/set` `fora`/`noite`/`ferias` e `_alarme/set` `{"ativo":true}` →
+  evento `erro` "Disponível a partir do plano Conforto." e nada muda (`casa`
+  é sempre permitido);
+- `_automacoes/set`/`_cenas/set` com uma ação `modo` para fora/noite/férias
+  (também dentro de `se`) ou com gatilho `{"tipo":"modo"}` desses modos →
+  erro de validação `Automação "<id>": o modo Fora não está incluído no seu
+  plano. Disponível a partir do plano Conforto.` As condições `se.modo` são
+  aceites (só leem o modo). Automações/cenas que o cliente já tinha antes da
+  descida e que vêm **sem alterações** (exceto `ativa`) são aceites, para não
+  bloquear a edição da lista; na execução, a ação `modo` armada é recusada e
+  fica no registo como `falhou` ("Modo Fora não ativado: Disponível a partir
+  do plano Conforto.");
+- notificações ntfy/FCM não são enviadas (os eventos continuam no
+  histórico); sem relatório diário; sem os avisos de saúde da v3 (offline,
+  pilhas a acabar, sinal fraco, reinícios) — os avisos da v2 (bateria < 15 %,
+  24 h sem notícias) continuam no histórico;
+- `_saude` e `_energia` não são publicados e os retidos são apagados
+  (mensagem retida vazia) quando o plano muda e a cada sincronização; o
+  motor continua a calcular tudo, e numa subida de plano são republicados
+  logo.
+
+**Descida de plano com o alarme armado** (ou modo ≠ `casa`) → modo `casa`,
+alarme desarmado e evento `modo` com `"por":"plano"`. Uma subida de plano
+não faz mais nada.
+
+**Modo básico** (`suspenso`/`cancelado`): modo `casa` forçado (evento `modo`
+com `por: "plano"`, termina a simulação de férias); não corre automações
+(nenhum gatilho), cenas, alarme, simulação nem notificações; as sequências
+`esperar`, as reversões `durante_s`, as contagens de potência/"há X s" e as
+confirmações pendentes são canceladas — por segurança, o que o motor tinha
+ligado com `durante_s` é desligado logo em vez de ficar ligado. Pedidos do
+cliente (que a ACL já não deixa passar) recebem o erro "Subscrição suspensa.
+Reative a subscrição para voltar a usar esta funcionalidade." (ou
+"cancelada"). O estado dos aparelhos continua a ser lido (canais, energia,
+online, eventos de porta no histórico), para a reativação ser imediata.
+
 ### Limitações conhecidas
 
 - Sem internet em casa, o alarme, as automações entre aparelhos e as
@@ -266,7 +318,7 @@ docker compose logs -f motor
 ```
 
 Ficheiros em `servidor/dados/motor/`:
-- `estado.json` — configuração, modo e alarme (com prazos), automações,
+- `estado.json` — plano (`_plano`), configuração, modo e alarme (com prazos), automações,
   cenas, presença, registo, histórico, tokens FCM, reversões `durante_s` e
   sequências `esperar` pendentes, pausas manuais, contagens de energia,
   amostras de bateria, reinícios e avisos já enviados;
@@ -333,6 +385,8 @@ Estrutura:
 - `src/motor-casa.js` — `_config`, modos, alarme, presença, simulação de férias;
 - `src/motor-automacoes.js` — automações, cenas, registo, pausa manual, `esperar`;
 - `src/motor-saude.js` — online/offline, energia reposta, `_saude`, `_energia`, relatório;
+- `src/planos.js` — tabela de funcionalidades por plano, validação do `_plano`;
+- `src/motor-planos.js` — `_plano`, mudanças de plano, modo básico;
 - `src/validacao.js` — validação estrita das automações e cenas, conflitos;
 - `src/aparelhos.js` — lista de aparelhos e comandos por tipo;
 - `src/casa.js` — configuração da casa (omissões, fusão, validação);

@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.LinhaSaude
 import pt.domusenergia.app.data.Modos
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Relatorio
 import pt.domusenergia.app.data.SaudeCasa
 import pt.domusenergia.app.data.Textos
@@ -153,7 +154,11 @@ private fun Dado(rotulo: String, valor: String, modifier: Modifier = Modifier) {
 fun RelatorioScreen(state: UiState, agoraFixo: Instant? = null) {
     val t = LocalTerra.current
     val agora = agoraFixo ?: agoraAtual()
-    val r = remember(state.estado, agora) { Relatorio.construir(state.estado, agora) }
+    // Sem a energia no plano, o relatório (e o texto partilhado) não leva o consumo de hoje/ontem.
+    val comEnergia = state.estado.permite(Planos.ENERGIA)
+    val r = remember(state.estado, agora, comEnergia) {
+        Relatorio.construir(if (comEnergia) state.estado else state.estado.copy(energia = null), agora)
+    }
     val texto = remember(r) { Relatorio.texto(r) }
     val clipboard = LocalClipboardManager.current
     val partilhar = LocalPlataforma.current.partilhar
@@ -173,9 +178,12 @@ fun RelatorioScreen(state: UiState, agoraFixo: Instant? = null) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Dado("Agora", r.potenciaW?.let { Textos.potencia(it) } ?: "—", Modifier.weight(1f))
-                    Dado("Hoje", r.hojeKWh?.let { Textos.kwh(it) } ?: "—", Modifier.weight(1f))
-                    Dado("Ontem", r.ontemKWh?.let { Textos.kwh(it) } ?: "—", Modifier.weight(1f))
+                    if (comEnergia) {
+                        Dado("Hoje", r.hojeKWh?.let { Textos.kwh(it) } ?: "—", Modifier.weight(1f))
+                        Dado("Ontem", r.ontemKWh?.let { Textos.kwh(it) } ?: "—", Modifier.weight(1f))
+                    }
                 }
+                if (!comEnergia) Bloqueado(Planos.ENERGIA)
                 Text(Relatorio.resumo(r), style = MaterialTheme.typography.bodyMedium, color = t.textoSuave)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     BotaoPilula(if (copiado) "Copiado" else "Copiar", onClick = {

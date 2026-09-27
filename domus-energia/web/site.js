@@ -12,7 +12,8 @@ async function getSupabase() {
 }
 
 // Contactos a partir do config.js
-const whatsappUrl = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent("Olá Domus Energia, gostava de pedir informações.")}`;
+const whatsappPara = (texto) => `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(texto)}`;
+const whatsappUrl = whatsappPara("Olá Domus Energia, gostava de pedir informações.");
 document.querySelectorAll(".js-whatsapp").forEach((a) => {
   a.href = whatsappUrl;
   a.target = "_blank";
@@ -23,6 +24,41 @@ document.querySelectorAll(".js-telefone-texto").forEach((el) => (el.textContent 
 document.querySelectorAll(".js-email").forEach((a) => (a.href = `mailto:${cfg.email}`));
 document.querySelectorAll(".js-email-texto").forEach((el) => (el.textContent = cfg.email));
 document.getElementById("ano").textContent = new Date().getFullYear();
+
+// ---------- Menu para telemóvel ----------
+const menuBotao = document.getElementById("menu-botao");
+const menu = document.getElementById("menu-movel");
+function abrirMenu(abrir) {
+  menu.hidden = !abrir;
+  menuBotao.setAttribute("aria-expanded", String(abrir));
+  menuBotao.setAttribute("aria-label", abrir ? "Fechar menu" : "Menu");
+}
+menuBotao.addEventListener("click", () => {
+  const abrir = menu.hidden;
+  abrirMenu(abrir);
+  if (abrir) menu.querySelector("a")?.focus();
+});
+// Escolher uma secção fecha o menu (o navegador desce até ela).
+menu.addEventListener("click", (e) => { if (e.target.closest("a")) abrirMenu(false); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !menu.hidden) { abrirMenu(false); menuBotao.focus(); }
+});
+document.addEventListener("click", (e) => {
+  if (!menu.hidden && !menu.contains(e.target) && !menuBotao.contains(e.target)) abrirMenu(false);
+});
+
+// ---------- Planos: "Pedir orçamento" escolhe o plano no formulário ----------
+document.querySelectorAll(".js-plano").forEach((a) => {
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    const sel = form.elements.servico;
+    if ([...sel.options].some((o) => o.value === a.dataset.servico)) sel.value = a.dataset.servico;
+    const alvo = document.getElementById("orcamento");
+    alvo.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    form.elements.nome.focus({ preventScroll: true });
+    try { history.replaceState(null, "", "#orcamento"); } catch {}
+  });
+});
 
 // Formulário de orçamento → tabela pedidos_orcamento
 const form = document.getElementById("form-orcamento");
@@ -51,16 +87,38 @@ form.addEventListener("submit", async (e) => {
   botao.textContent = "Enviar pedido";
 
   if (error) {
-    mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false);
+    mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false, dados);
   } else {
     form.reset();
     mostrar("Pedido enviado! Entraremos em contacto muito em breve.", true);
   }
 });
 
-function mostrar(texto, ok) {
-  if (!texto) { msg.hidden = true; return; }
-  msg.textContent = texto;
+// Com `dados` (falha ao enviar): botões do WhatsApp e do telefone junto ao erro, com o pedido já escrito.
+function mostrar(texto, ok, dados = null) {
+  if (!texto) { msg.hidden = true; msg.replaceChildren(); return; }
+  msg.replaceChildren(document.createTextNode(texto));
+  if (dados) {
+    const acoes = document.createElement("div");
+    acoes.className = "msg-acoes";
+    const w = document.createElement("a");
+    w.className = "btn sec pequeno";
+    w.id = "form-whatsapp";
+    w.textContent = "Enviar pelo WhatsApp";
+    const partes = [`Olá Domus Energia, gostava de pedir um orçamento${dados.servico ? ` (${dados.servico})` : ""}.`];
+    if (dados.nome) partes.push(`Nome: ${dados.nome}`);
+    if (dados.localidade) partes.push(`Localidade: ${dados.localidade}`);
+    if (dados.mensagem) partes.push(String(dados.mensagem));
+    w.href = whatsappPara(partes.join("\n").slice(0, 1500));
+    w.target = "_blank";
+    w.rel = "noopener";
+    const t = document.createElement("a");
+    t.className = "btn sec pequeno";
+    t.href = `tel:${cfg.telefone}`;
+    t.textContent = `Ligar ${cfg.telefoneVisivel}`;
+    acoes.append(w, t);
+    msg.append(acoes);
+  }
   msg.className = `msg ${ok ? "ok" : "erro"}`;
   msg.hidden = false;
 }

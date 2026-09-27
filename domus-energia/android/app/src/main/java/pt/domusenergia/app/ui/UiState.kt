@@ -48,6 +48,9 @@ data class PresencaUi(
  * @property aviso mensagem curta (erro de comando, "Automações guardadas.") mostrada numa snackbar.
  * @property aGuardar à espera de o motor aceitar/recusar a lista de automações/cenas/configuração publicada.
  * @property modoPedido modo pedido pela app e ainda não confirmado (para oferecer "Armar mesmo assim").
+ * @property pagamento pedido ao serviço de pagamentos em curso ([PedidoPagamento]); `null` = nenhum.
+ * @property erroPagamento erro do último pedido de pagamento (mostrado no ecrã da subscrição).
+ * @property abrirUrl página de pagamento/portal a abrir no navegador (a UI abre e chama [Acoes.urlAberta]).
  */
 data class UiState(
     val loggedIn: Boolean,
@@ -60,8 +63,17 @@ data class UiState(
     val aGuardar: Boolean = false,
     val modoPedido: String? = null,
     val presenca: PresencaUi = PresencaUi(),
+    val pagamento: String? = null,
+    val erroPagamento: String? = null,
+    val abrirUrl: String? = null,
 ) {
     val ligado: Boolean get() = ligacao == Ligacao.LIGADO
+}
+
+/** Operações em curso no serviço de pagamentos ([UiState.pagamento]). */
+object PedidoPagamento {
+    const val PORTAL = "portal"
+    fun checkout(plano: String) = "checkout:$plano"
 }
 
 /** Ações que os ecrãs pedem (implementadas pelo [DevicesViewModel]). */
@@ -108,4 +120,14 @@ interface Acoes {
 
     /** Voltar a ler as autorizações (depois de o utilizador responder aos pedidos do Android). */
     fun presencaAtualizar() {}
+
+    // ---- subscrição (docs/PROTOCOLO-PLANOS.md §4, §6)
+    /** "Mudar de plano"/"Reativar subscrição": pede a página de pagamento (Stripe Checkout) para [plano]. */
+    fun mudarPlano(plano: String) {}
+
+    /** "Gerir pagamentos e faturas"/"Atualizar pagamento": pede o portal de pagamentos. */
+    fun gerirPagamentos() {}
+
+    /** A UI já tentou abrir [UiState.abrirUrl] ([ok] = havia um navegador). */
+    fun urlAberta(ok: Boolean) {}
 }

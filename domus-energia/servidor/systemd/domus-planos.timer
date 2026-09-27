@@ -1,0 +1,14 @@
+# Domus Energia — corre domus-planos.service a cada minuto.
+#   sudo cp systemd/domus-planos.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now domus-planos.timer
+[Unit]
+Description=Domus Energia: sincronizar permissões com os planos (a cada minuto)
+
+[Timer]
+OnBootSec=1min
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Unit=domus-planos.service
+
+[Install]
+WantedBy=timers.target

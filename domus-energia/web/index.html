@@ -20,11 +20,23 @@
       <nav>
         <a class="link" href="#servicos">Serviços</a>
         <a class="link" href="#como-funciona">Como funciona</a>
+        <a class="link" href="#planos">Planos e preços</a>
         <a class="link" href="#contactos">Contactos</a>
         <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
         <a class="btn sec pequeno" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
+        <button class="menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="menu-movel" aria-label="Menu"><svg class="abrir" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="fechar" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </nav>
     </div>
+    <nav class="menu-movel" id="menu-movel" aria-label="Secções do site" hidden>
+      <ul>
+        <li><a href="#servicos">Serviços</a></li>
+        <li><a href="#como-funciona">Como funciona</a></li>
+        <li><a href="#planos">Planos e preços</a></li>
+        <li><a href="#contactos">Contactos</a></li>
+        <li><a href="#orcamento">Pedir orçamento</a></li>
+        <li><a href="cliente.html">Área de cliente</a></li>
+      </ul>
+    </nav>
   </header>
 
   <main>
@@ -109,6 +121,56 @@
       </div>
     </section>
 
+    <section id="planos">
+      <div class="wrap">
+        <h2>Planos e preços</h2>
+        <p class="sub">Depois da instalação, escolha a mensalidade que serve a sua casa. Pode mudar de plano quando quiser.</p>
+        <ul class="planos-vantagens">
+          <li>1.º mês grátis</li>
+          <li>Sem fidelização</li>
+          <li>Preços com IVA incluído</li>
+        </ul>
+        <div class="planos-site">
+          <article class="cartao plano-site" data-plano="base">
+            <h3>Base</h3>
+            <p class="preco-linha"><span class="preco">4,99 €</span><span class="preco-mes">por mês</span></p>
+            <ul class="inclui">
+              <li>App e área de cliente</li>
+              <li>Ligar e desligar tudo à distância</li>
+              <li>Automações e cenas (ex.: "Sair de casa")</li>
+              <li>Histórico e relatório da casa</li>
+            </ul>
+            <a class="btn sec js-plano" href="#orcamento" data-servico="Plano Base">Pedir orçamento</a>
+          </article>
+          <article class="cartao plano-site destaque" data-plano="conforto">
+            <span class="etiqueta">Recomendado</span>
+            <h3>Conforto</h3>
+            <p class="preco-linha"><span class="preco">9,99 €</span><span class="preco-mes">por mês</span></p>
+            <ul class="inclui">
+              <li>Tudo o do plano Base</li>
+              <li>Modos Fora, Noite e Férias, com alarme</li>
+              <li>Avisos no telemóvel (alarme, portas, pilhas)</li>
+              <li>Saúde dos aparelhos: ligação, sinal e pilhas</li>
+              <li>Energia gasta hoje, ontem e no mês</li>
+              <li>Relatório diário da casa</li>
+            </ul>
+            <a class="btn js-plano" href="#orcamento" data-servico="Plano Conforto">Pedir orçamento</a>
+          </article>
+          <article class="cartao plano-site" data-plano="premium">
+            <h3>Premium</h3>
+            <p class="preco-linha"><span class="preco">19,99 €</span><span class="preco-mes">por mês</span></p>
+            <ul class="inclui">
+              <li>Tudo o do plano Conforto</li>
+              <li>Central em casa (Raspberry Pi): a casa funciona sem internet (brevemente)</li>
+              <li>Suporte prioritário</li>
+            </ul>
+            <a class="btn sec js-plano" href="#orcamento" data-servico="Plano Premium">Pedir orçamento</a>
+          </article>
+        </div>
+        <p class="planos-nota">A instalação e os aparelhos têm orçamento à parte, sem compromisso. Os interruptores da casa funcionam sempre, com ou sem mensalidade.</p>
+      </div>
+    </section>
+
     <section id="contactos">
       <div class="wrap">
         <h2>Contactos</h2>
@@ -138,6 +200,9 @@
                   <option>Instalações elétricas</option>
                   <option>Casa inteligente</option>
                   <option>Monitorização de energia</option>
+                  <option>Plano Base</option>
+                  <option>Plano Conforto</option>
+                  <option>Plano Premium</option>
                   <option>Outro</option>
                 </select>
               </label>

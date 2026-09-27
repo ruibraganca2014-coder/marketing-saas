@@ -9,7 +9,10 @@
 #   - os comandos impressos para os aparelhos (§4): SetStartValue no
 #     OpenBeken; Switch.SetConfig / MQTT.SetConfig no Shelly;
 #   - que as combinações proibidas são recusadas (e não gravam nada);
-#   - a ACL gerada (pedidos da v3, nada de "+" no lugar do aparelho).
+#   - a ACL gerada (pedidos da v3, nada de "+" no lugar do aparelho);
+#   - planos (docs/PROTOCOLO-PLANOS.md): "pagamentos", "plano" (estados,
+#     aviso de 15 dias, ficheiro e _plano publicado, erros) e
+#     "sincronizar-planos" (ACL dos suspensos, só recarrega quando muda).
 #
 # Uso: ./testes/simulacao.sh        (sai com 0 se tudo passar)
 # =============================================================================
@@ -193,6 +196,120 @@ for linha in "topic write domus/joao/_config/set" "topic write domus/joao/_modo/
 done
 if grep -qE '^topic (write|readwrite) domus/joao/\+' "$acl"; then falha "acl do cliente com '+' no lugar do aparelho"
 else passa "acl sem '+' no lugar do aparelho"; fi
+
+echo "Planos e pagamentos:"
+deve_passar "utilizador pagamentos" pagamentos pagamentos-senha-1
+if grep -qxF pagamentos "$TMP/mosq/utilizadores.simulacao"; then passa "pagamentos: palavra-passe definida"; else falha "pagamentos sem palavra-passe"; fi
+if grep -qxF 'user pagamentos' "$acl" && grep -A1 -xF 'user pagamentos' "$acl" | grep -qxF 'topic write domus/+/_plano'
+then passa "acl: pagamentos escreve só domus/+/_plano"; else falha "acl do pagamentos"; fi
+deve_falhar "código de cliente reservado 'pagamentos'" "'pagamentos' é reservado" cliente pagamentos senha-longa-1
+deve_falhar "pagamentos: palavra-passe curta" "pelo menos 8 caracteres" pagamentos curta
+
+PF="$TMP/dados/planos/joao.json"
+json_plano_ok() { # <descrição> <python: asserções sobre d (ficheiro) e p (_plano publicado)>
+  local publicado
+  publicado="$(sed -n 's/^\[simulação\] publicar (retida) domus\/joao\/_plano //p' "$TMP/erros" | tail -1)"
+  if python3 - "$PF" "$publicado" "$2" <<'PY'
+import json, sys, re
+d = json.load(open(sys.argv[1]))
+p = json.loads(sys.argv[2])
+iso = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+assert list(p) == ["plano", "estado", "desde", "proximo_pagamento", "aviso_ate", "gerido"], p
+assert {k: d[k] for k in p} == p, (d, p)
+assert iso.fullmatch(d["desde"]) and iso.fullmatch(d["atualizado"]), d
+assert open(sys.argv[1]).read().count("\n") == 1, "uma linha"
+exec(sys.argv[3])
+PY
+  then passa "$1"; else falha "$1: $(cat "$PF") | $publicado"; fi
+}
+deve_passar "plano joao base (ativo por omissão)" plano joao base
+json_plano_ok "ficheiro e _plano: base, ativo, manual" \
+  'assert p["plano"]=="base" and p["estado"]=="ativo" and p["gerido"]=="manual" and p["aviso_ate"] is None and p["proximo_pagamento"] is None; assert d["stripe_cliente"] is None and d["teste_usado"] is False'
+deve_passar "plano joao conforto --estado teste" plano joao conforto --estado teste
+json_plano_ok "teste marca teste_usado" 'assert p["estado"]=="teste" and d["teste_usado"] is True'
+deve_passar "plano joao conforto --estado em_atraso" plano joao conforto --estado em_atraso
+json_plano_ok "em_atraso: aviso_ate = agora + 15 dias" '
+import datetime
+a = datetime.datetime.strptime(p["aviso_ate"], "%Y-%m-%dT%H:%M:%SZ")
+desde = datetime.datetime.strptime(p["desde"], "%Y-%m-%dT%H:%M:%SZ")
+assert p["estado"]=="em_atraso" and (a - desde).days == 15, (a, desde)'
+aviso1="$(sed -n 's/.*"aviso_ate":"\([^"]*\)".*/\1/p' "$PF")"
+desde1="$(sed -n 's/.*"desde":"\([^"]*\)".*/\1/p' "$PF")"
+sleep 1
+deve_passar "em_atraso outra vez" plano joao conforto --estado em_atraso
+if [[ "$(sed -n 's/.*"aviso_ate":"\([^"]*\)".*/\1/p' "$PF")" == "$aviso1" && "$(sed -n 's/.*"desde":"\([^"]*\)".*/\1/p' "$PF")" == "$desde1" ]]
+then passa "em_atraso repetido mantém aviso_ate e desde"; else falha "em_atraso repetido: $(cat "$PF")"; fi
+if grep -qxF 'topic read domus/joao/#' "$acl"; then passa "em_atraso ainda tem as permissões todas"; else falha "em_atraso sem permissões"; fi
+
+deve_passar "plano joao conforto --estado suspenso" plano joao conforto --estado=suspenso
+json_plano_ok "suspenso: sem próximo pagamento, guarda o fim do aviso" "assert p['estado']=='suspenso' and p['proximo_pagamento'] is None and p['aviso_ate']=='$aviso1'"
+saida_tem "suspenso: explica o modo básico" "os interruptores e os aparelhos continuam a funcionar"
+if grep -qF "docker compose kill -s HUP mosquitto" "$TMP/erros"; then passa "suspenso: recarrega o Mosquitto"; else falha "suspenso: não recarregou"; fi
+if grep -qxF 'topic read domus/joao/_plano' "$acl" && ! grep -qxF 'topic read domus/joao/#' "$acl" \
+   && ! grep -qE '^topic write domus/joao/' "$acl"
+then passa "acl: joao suspenso só lê domus/joao/_plano"; else falha "acl do joao suspenso"; fi
+if grep -qxF 'user joao-sala-4g' "$acl" && grep -qxF 'topic readwrite domus/joao/sala-4g/#' "$acl"
+then passa "acl: aparelhos do cliente suspenso continuam"; else falha "acl: aparelhos do suspenso"; fi
+deve_passar "sincronizar-planos sem alterações" sincronizar-planos
+if [[ ! -s "$TMP/saida" ]] && ! grep -qF "HUP" "$TMP/erros"; then passa "sincronizar-planos sem alterações: não recarrega"
+else falha "sincronizar-planos sem alterações: $(cat "$TMP/saida" "$TMP/erros")"; fi
+deve_passar "aparelho novo com o cliente suspenso" aparelho joao extra shelly "Extra" extra-senha-1
+if ! grep -qE '^topic write domus/joao/' "$acl" && grep -qxF 'user joao-extra' "$acl"
+then passa "aparelho novo não devolve as permissões ao cliente suspenso"; else falha "aparelho novo e suspensão"; fi
+
+deve_passar "plano joao premium --estado cancelado" plano joao premium --estado cancelado
+json_plano_ok "cancelado" 'assert p["plano"]=="premium" and p["estado"]=="cancelado" and p["aviso_ate"] is None'
+if grep -qxF 'topic read domus/joao/_plano' "$acl"; then passa "acl: cancelado = modo básico"; else falha "acl cancelado"; fi
+deve_passar "plano joao premium (reativar)" plano joao premium
+if grep -qxF 'topic read domus/joao/#' "$acl" && grep -qxF 'topic write domus/joao/_alarme/set' "$acl"
+then passa "reativado: permissões completas"; else falha "reativado: acl"; fi
+if grep -qE '^topic (write|readwrite) domus/joao/_plano' "$acl"; then falha "o cliente pode escrever _plano"
+else passa "acl: o cliente nunca escreve _plano"; fi
+
+echo "Planos vindos do serviço pagamentos (ficheiro):"
+printf '%s\n' '{"plano":"base","estado":"suspenso","desde":"2026-10-01T10:00:00Z","proximo_pagamento":null,"aviso_ate":"2026-10-16T10:00:00Z","gerido":"stripe","stripe_cliente":"cus_ABC1","stripe_subscricao":"sub_XYZ9","teste_usado":true,"atualizado":"2026-10-16T10:00:00Z"}' > "$PF"
+deve_passar "sincronizar-planos com joao suspenso pelo Stripe" sincronizar-planos
+saida_tem "sincronizar-planos: indica quem ficou em modo básico" "Em modo básico: joao"
+if grep -qxF 'topic read domus/joao/_plano' "$acl"; then passa "acl regenerada a partir do ficheiro"; else falha "acl não regenerada"; fi
+deve_passar "plano joao base (manual, sobre um cliente do Stripe)" plano joao base
+json_plano_ok "manual preserva o cliente e a subscrição do Stripe" \
+  'assert p["gerido"]=="manual" and d["stripe_cliente"]=="cus_ABC1" and d["stripe_subscricao"]=="sub_XYZ9" and d["teste_usado"] is True'
+if grep -qF "sub_XYZ9 no Stripe: a cobrança continua" "$TMP/erros"; then passa "avisa que a subscrição do Stripe continua"; else falha "sem aviso da subscrição Stripe"; fi
+deve_passar "plano joao base --gerido stripe" plano joao base --gerido stripe
+json_plano_ok "devolve a gestão ao Stripe" 'assert p["gerido"]=="stripe"'
+printf '%s\n' '{"plano":"base","estado":"pausado","desde":"2026-10-01T10:00:00Z","gerido":"stripe"}' > "$TMP/dados/planos/maria.json"
+deve_passar "sincronizar-planos com um ficheiro inválido e um cliente inexistente" sincronizar-planos
+if grep -qF "estado inválido 'pausado'" "$TMP/erros" && grep -qF "o cliente 'maria' não existe" "$TMP/erros"
+then passa "sincronizar-planos avisa (e ignora) ficheiros estranhos"; else falha "avisos: $(cat "$TMP/erros")"; fi
+rm -f "$TMP/dados/planos/maria.json"
+deve_passar "listar mostra o plano" listar
+saida_tem "listar: plano do joao" "joao   [plano: base, ativo, stripe]"
+
+echo "Planos: pedidos inválidos (recusados, nada muda):"
+antes="$(cat "$PF")"
+deve_falhar "plano desconhecido"            "plano inválido: 'ouro'"                  plano joao ouro
+deve_falhar "estado desconhecido"           "estado inválido: 'pausado'"              plano joao base --estado pausado
+deve_falhar "--gerido desconhecido"         "--gerido inválido: 'outro'"              plano joao base --gerido outro
+deve_falhar "cliente inexistente"           "o cliente 'ninguem' não existe"          plano ninguem base
+deve_falhar "código inválido"               "código de cliente inválido"              plano 'Joao!' base
+deve_falhar "sem plano"                     "uso: ./domus.sh plano"                   plano joao
+deve_falhar "opção desconhecida"            "opção desconhecida: --x"                 plano joao base --x
+deve_falhar "--estado sem valor"            "--estado precisa de um valor"            plano joao base --estado
+deve_passar "cliente maria (sem Stripe)" cliente maria maria-senha-1
+deve_falhar "--gerido stripe sem subscrição" "não tem subscrição no Stripe"          plano maria base --gerido stripe
+deve_falhar "sincronizar-planos com argumentos" "uso: ./domus.sh sincronizar-planos" sincronizar-planos x
+if [[ "$(cat "$PF")" == "$antes" && ! -e "$TMP/dados/planos/maria.json" ]]; then passa "nenhum pedido recusado mudou os planos"
+else falha "um pedido recusado mudou os planos"; fi
+
+echo "admin (1.ª vez) cria também motor e pagamentos a partir do .env:"
+printf 'MOTOR_MQTT_PASS=motor-senha-env\nPAGAMENTOS_MQTT_PASS=pag-senha-env # comentário\n' > "$TMP/env2"
+if DOMUS_DADOS="$TMP/dados2" DOMUS_MOSQ_DIR="$TMP/mosq2" DOMUS_ENV="$TMP/env2" "$DOMUS" admin admin-senha-1 > "$TMP/saida" 2> "$TMP/erros" \
+   && [[ -e "$TMP/dados2/.motor" && -e "$TMP/dados2/.pagamentos" ]] \
+   && grep -qxF pagamentos "$TMP/mosq2/utilizadores.simulacao" && grep -qxF motor "$TMP/mosq2/utilizadores.simulacao"
+then passa "admin criou os utilizadores motor e pagamentos"; else falha "admin sem pagamentos: $(cat "$TMP/saida" "$TMP/erros")"; fi
+if DOMUS_DADOS="$TMP/dados3" DOMUS_MOSQ_DIR="$TMP/mosq3" "$DOMUS" admin admin-senha-1 > "$TMP/saida" 2> "$TMP/erros" \
+   && grep -qF "falta PAGAMENTOS_MQTT_PASS no .env" "$TMP/erros" && [[ ! -e "$TMP/dados3/.pagamentos" ]]
+then passa "sem PAGAMENTOS_MQTT_PASS: admin avisa e continua"; else falha "admin sem PAGAMENTOS_MQTT_PASS: $(cat "$TMP/erros")"; fi
 
 echo
 echo "Resultado: $OK ok, $FALHAS falhas"

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Cidades
 import pt.domusenergia.app.data.ConfigCasa
 import pt.domusenergia.app.data.Local
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Rascunho
 import pt.domusenergia.app.data.Textos
 import pt.domusenergia.app.ui.tema.FormaPilula
@@ -97,6 +98,8 @@ private fun FormularioConfig(atual: ConfigCasa, state: UiState, acoes: Acoes) {
     )
     val erros = ConfigCasa.validar(depois)
     val mudou = ConfigCasa.parcial(atual, depois).length() > 0
+    val comNotificacoes = state.estado.permite(Planos.NOTIFICACOES)
+    val comRelatorioDiario = state.estado.permite(Planos.RELATORIO_DIARIO)
 
     Cartao {
         Titulo("Alarme")
@@ -112,9 +115,10 @@ private fun FormularioConfig(atual: ConfigCasa, state: UiState, acoes: Acoes) {
                 Text("Horas de silêncio", style = MaterialTheme.typography.bodyLarge)
                 Ajuda("Só os alarmes tocam nestas horas.")
             }
-            Switch(checked = silencio, onCheckedChange = { silencio = it }, colors = coresInterruptor())
+            if (comNotificacoes) Switch(checked = silencio, onCheckedChange = { silencio = it }, colors = coresInterruptor())
         }
-        if (silencio) {
+        if (!comNotificacoes) Bloqueado(Planos.NOTIFICACOES)
+        if (silencio && comNotificacoes) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Campo(silDe, { silDe = it }, "Das", Modifier.weight(1f), KeyboardType.Number)
                 Campo(silAte, { silAte = it }, "Às", Modifier.weight(1f), KeyboardType.Number)
@@ -126,9 +130,10 @@ private fun FormularioConfig(atual: ConfigCasa, state: UiState, acoes: Acoes) {
                 Text("Relatório diário", style = MaterialTheme.typography.bodyLarge)
                 Ajuda("Recebe o relatório da casa numa notificação.")
             }
-            Switch(checked = relatorio, onCheckedChange = { relatorio = it }, colors = coresInterruptor())
+            if (comRelatorioDiario) Switch(checked = relatorio, onCheckedChange = { relatorio = it }, colors = coresInterruptor())
         }
-        if (relatorio) Campo(relHora, { relHora = it }, "Hora (HH:MM)", teclado = KeyboardType.Number)
+        if (!comRelatorioDiario) Bloqueado(Planos.RELATORIO_DIARIO)
+        if (relatorio && comRelatorioDiario) Campo(relHora, { relHora = it }, "Hora (HH:MM)", teclado = KeyboardType.Number)
         HorizontalDivider(color = t.borda)
         Contador("Aviso de aparelho offline", c.offlineMin, { c = c.copy(offlineMin = it) }, 5, 1440, 5, "min",
             ajuda = "Aparelhos ligados à corrente sem ligação há mais de…")

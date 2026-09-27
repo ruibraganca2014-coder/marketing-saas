@@ -3,16 +3,21 @@ package pt.domusenergia.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import pt.domusenergia.app.data.Aparelho
 import pt.domusenergia.app.data.Automacao
@@ -27,6 +32,10 @@ import pt.domusenergia.app.data.Comandos
 import pt.domusenergia.app.data.DomusMqtt
 import pt.domusenergia.app.data.Ligacao
 import pt.domusenergia.app.data.MqttException
+import pt.domusenergia.app.data.PagamentosApi
+import pt.domusenergia.app.data.PagamentosCliente
+import pt.domusenergia.app.data.PagamentosException
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Sessao
 import pt.domusenergia.app.notificacoes.Fcm
 import pt.domusenergia.app.presenca.PresencaControlador
@@ -37,6 +46,13 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
     private val sessao = Sessao(app)
     private val mqtt = DomusMqtt()
     private val presenca = PresencaControlador(app)
+
+    /** Serviço de pagamentos: token pedido com o código e a palavra-passe da sessão (decifrada pelo Keystore). */
+    private val pagamentos = PagamentosCliente(PagamentosApi(), {
+        val c = sessao.codigo
+        val p = sessao.password
+        if (c != null && p != null) c to p else null
+    })
 
     private val _state = MutableStateFlow(UiState(loggedIn = sessao.isLoggedIn, codigo = sessao.codigo.orEmpty()))
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -60,11 +76,29 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
                 }
             }
         }
-        // Notificações: regista o token FCM deste telemóvel sempre que a ligação (re)abre.
+        // Notificações: regista o token FCM deste telemóvel sempre que a ligação (re)abre — só se o plano
+        // as incluir (docs/PROTOCOLO-PLANOS.md §1). O `_plano` retido chega logo depois de ligar: espera-se
+        // que o valor fique estável 2 s antes de decidir (collectLatest cancela se mudar entretanto).
         Fcm.carregar(app)
         viewModelScope.launch {
-            combine(mqtt.ligacao, Fcm.token) { l, t -> if (l == Ligacao.LIGADO) t else null }.collect { token ->
-                if (token != null) runCatching { mqtt.registarFcm(token) }
+            var registado: String? = null
+            combine(
+                mqtt.ligacao,
+                Fcm.token,
+                mqtt.estado.map { it.permite(Planos.NOTIFICACOES) }.distinctUntilChanged(),
+            ) { l, t, pode -> Triple(l == Ligacao.LIGADO, t, pode) }.collectLatest { (ligado, token, pode) ->
+                if (!ligado) {
+                    registado = null
+                    return@collectLatest
+                }
+                if (token == null) return@collectLatest
+                delay(2_000)
+                if (pode && registado != token) {
+                    if (runCatching { mqtt.registarFcm(token) }.isSuccess) registado = token
+                } else if (!pode && registado == token) {
+                    // O plano deixou de ter notificações com a sessão aberta: retira este telemóvel.
+                    if (runCatching { mqtt.registarFcm(token, remover = true) }.isSuccess) registado = null
+                }
             }
         }
 
@@ -99,6 +133,7 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
     }
 
     override fun logout() {
+        pagamentos.esquecer()
         sessao.limpar()
         _state.value = UiState(loggedIn = false, presenca = presenca.ui.value)
         val token = Fcm.token.value
@@ -190,7 +225,8 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
                 when {
                     r == null -> _state.update { it.copy(modoPedido = null, aviso = "O servidor não respondeu. Tente outra vez.") }
                     // Portas abertas: o cartão mostra a mensagem com "Armar mesmo assim" (fica o pedido).
-                    erro != null && erro.mensagem.startsWith("Não armado") -> Unit
+                    // Idem para "Disponível a partir do plano Conforto." (com "Mudar de plano").
+                    erro != null && (erro.mensagem.startsWith("Não armado") || Planos.eErroDePlano(erro.mensagem)) -> Unit
                     erro != null -> _state.update { it.copy(modoPedido = null, aviso = erro.mensagem) }
                     else -> _state.update { it.copy(modoPedido = null) }
                 }
@@ -285,6 +321,30 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
     }
 
     override fun presencaAtualizar() = presenca.atualizar()
+
+    // ---------------------------------------------------------------- subscrição (docs/PROTOCOLO-PLANOS.md §4)
+
+    override fun mudarPlano(plano: String) = pedirPagamento(PedidoPagamento.checkout(plano)) { pagamentos.checkout(plano) }
+
+    override fun gerirPagamentos() = pedirPagamento(PedidoPagamento.PORTAL) { pagamentos.portal() }
+
+    /** Pede o endereço ao serviço (fora da thread principal) e deixa-o em [UiState.abrirUrl] para a UI abrir. */
+    private fun pedirPagamento(tipo: String, pedido: () -> String) {
+        if (_state.value.pagamento != null) return
+        _state.update { it.copy(pagamento = tipo, erroPagamento = null) }
+        viewModelScope.launch {
+            try {
+                val url = withContext(Dispatchers.IO) { pedido() }
+                _state.update { it.copy(pagamento = null, abrirUrl = url) }
+            } catch (e: PagamentosException) {
+                _state.update { it.copy(pagamento = null, erroPagamento = e.message) }
+            }
+        }
+    }
+
+    override fun urlAberta(ok: Boolean) = _state.update {
+        it.copy(abrirUrl = null, erroPagamento = if (ok) it.erroPagamento else "Não foi encontrado um navegador para abrir a página.")
+    }
 
     override fun limparAviso() = _state.update { it.copy(aviso = null) }
 

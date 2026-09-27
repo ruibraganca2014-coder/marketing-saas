@@ -2,6 +2,7 @@ package pt.domusenergia.app
 
 import android.Manifest
 import android.animation.ValueAnimator
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -20,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.ui.App
 import pt.domusenergia.app.ui.DevicesViewModel
 import pt.domusenergia.app.ui.LocalPlataforma
@@ -65,6 +67,18 @@ class MainActivity : ComponentActivity() {
             abrirDefinicoesApp = {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
             },
+            // Página de pagamento (Stripe Checkout/portal), WhatsApp ou tel: no navegador/app do sistema.
+            // Sem Custom Tabs de propósito (não junta dependências); o cliente volta à app com "voltar".
+            abrirLink = { url ->
+                try {
+                    val i = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    if (url.startsWith("https://")) i.addCategory(Intent.CATEGORY_BROWSABLE)
+                    startActivity(i)
+                    true
+                } catch (e: ActivityNotFoundException) {
+                    false
+                }
+            },
         )
     }
 
@@ -75,7 +89,9 @@ class MainActivity : ComponentActivity() {
         val animacoes = ValueAnimator.areAnimatorsEnabled()
         setContent {
             val state by vm.state.collectAsStateWithLifecycle()
-            LaunchedEffect(state.loggedIn) { if (state.loggedIn) pedirPermissaoNotificacoes() }
+            // Só pede para mostrar notificações se o plano as incluir (Conforto ou Premium).
+            val comNotificacoes = state.estado.permite(Planos.NOTIFICACOES)
+            LaunchedEffect(state.loggedIn, comNotificacoes) { if (state.loggedIn && comNotificacoes) pedirPermissaoNotificacoes() }
             DomusTema(
                 escuro = isSystemInDarkTheme(),
                 titulos = Fontes.titulos,

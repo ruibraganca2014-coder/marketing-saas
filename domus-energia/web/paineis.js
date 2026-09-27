@@ -36,7 +36,7 @@ function oQueFazer(x) {
 }
 function linkAjuda(nome) {
   const w = window.DOMUS?.whatsapp;
-  if (!w || !/^\d{6,15}$/.test(String(w))) return null;
+  if (!w || !/^\d{6,15}$/.test(String(w)) || /^(351)?9?0+$/.test(String(w))) return null; // número de exemplo do config.js
   const a = el("a", "btn sec pequeno", "Pedir ajuda no WhatsApp");
   a.href = `https://wa.me/${w}?text=${encodeURIComponent(`Olá Domus Energia, preciso de ajuda com o aparelho "${nome}".`)}`;
   a.target = "_blank";
@@ -93,7 +93,8 @@ export function desenharSaude(lista, agora = Date.now()) {
 }
 
 // ---------- Relatório ----------
-export function desenharRelatorio(r) {
+// opcoes.energia false (plano sem energia): "Hoje" e "Ontem" ficam com o cadeado.
+export function desenharRelatorio(r, { energia = true, bloqueio = null } = {}) {
   const raiz = $("relatorio-conteudo");
   raiz.replaceChildren();
   const quando = new Date(r.geradoEm).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -103,9 +104,14 @@ export function desenharRelatorio(r) {
   facto(dl, "Modo", r.modo ? E.NOME_MODO[r.modo] : "—");
   facto(dl, "Alarme", E.textoAlarme(r.alarme), r.alarme?.estado === "disparado" || r.alarme?.estado === "entrada" ? "mau" : "");
   facto(dl, "Consumo agora", r.consumo.agoraW == null ? "—" : `${Math.round(r.consumo.agoraW)} W`);
-  facto(dl, "Hoje", r.consumo.hojeKWh == null ? "—" : E.kwhTexto(r.consumo.hojeKWh));
-  facto(dl, "Ontem", r.consumo.ontemKWh == null ? "—" : E.kwhTexto(r.consumo.ontemKWh));
+  if (energia) {
+    facto(dl, "Hoje", r.consumo.hojeKWh == null ? "—" : E.kwhTexto(r.consumo.hojeKWh));
+    facto(dl, "Ontem", r.consumo.ontemKWh == null ? "—" : E.kwhTexto(r.consumo.ontemKWh));
+  } else {
+    facto(dl, "Hoje e ontem", "Energia do dia: plano Conforto", "bloqueado");
+  }
   geral.append(dl);
+  if (!energia && bloqueio) geral.append(bloqueio("energia"));
   raiz.append(geral);
   if (!r.divisoes.length) raiz.append(el("p", "vazio", "Ainda sem estado dos aparelhos."));
   for (const d of r.divisoes) {
@@ -141,7 +147,8 @@ export async function copiarRelatorio() {
 
 // ---------- Definições ----------
 const TEMPO_MOTOR = 10_000;
-export function criarDefinicoes({ publicar, ligado }) {
+// permite(chave): plano (PROTOCOLO-PLANOS §1); bloqueio(chave): cadeado "Disponível no plano … — mudar de plano".
+export function criarDefinicoes({ publicar, ligado, permite = () => true, bloqueio = null }) {
   let config = null;      // lerConfig(_config)
   let guardando = null;   // { timer }
   let sujo = false;
@@ -214,10 +221,18 @@ export function criarDefinicoes({ publicar, ligado }) {
     hs.append(campo("Das", input("cfg-silencio-de", "time", c.silencio?.[0] ?? "23:00")), campo("Às", input("cfg-silencio-ate", "time", c.silencio?.[1] ?? "07:00")));
     const rel = caixa("cfg-relatorio", "Enviar o relatório da casa todos os dias", !!c.relatorio_diario);
     const hr = campo("Hora do relatório", input("cfg-relatorio-hora", "time", c.relatorio_diario ?? "08:00"));
-    const ver = () => { hs.hidden = !sil.input.checked; hr.hidden = !rel.input.checked; };
+    // Fora do plano: ficam à vista, desativadas, com o cadeado; e não se enviam.
+    const semNotif = !permite("notificacoes");
+    const semRel = !permite("relatorio_diario");
+    const ver = () => { hs.hidden = !sil.input.checked || semNotif; hr.hidden = !rel.input.checked || semRel; };
     sil.input.addEventListener("change", ver);
     rel.input.addEventListener("change", ver);
+    sil.input.disabled = semNotif;
+    rel.input.disabled = semRel;
+    sil.label.classList.toggle("bloqueada", semNotif);
+    rel.label.classList.toggle("bloqueada", semRel);
     fN.append(sil.label, hs, rel.label, hr);
+    if ((semNotif || semRel) && bloqueio) fN.append(bloqueio(semNotif ? "notificacoes" : "relatorio_diario"));
 
     const fP = el("fieldset");
     fP.append(el("legend", null, "Aparelhos e automações"));
@@ -266,6 +281,8 @@ export function criarDefinicoes({ publicar, ligado }) {
         pausa_manual_min: n("cfg-pausa"),
         relatorio_diario: rel.input.checked ? String(form.elements["cfg-relatorio-hora"].value).slice(0, 5) : null,
       };
+      if (semNotif) delete pedida.silencio;
+      if (semRel) delete pedida.relatorio_diario;
       const la = n("cfg-lat"), lo = n("cfg-lon");
       if (Number.isFinite(la) || Number.isFinite(lo)) pedida.local = { lat: la, lon: lo };
       const parcial = E.configParcial(config, pedida);
@@ -285,5 +302,8 @@ export function criarDefinicoes({ publicar, ligado }) {
     atualizarBotao();
   }
 
-  return { receber, receberErro, limpar, desenhar, config: () => config };
+  // O plano mudou: volta a desenhar (sem perder o que a pessoa está a escrever).
+  function replano() { if (!sujo && $("config-caixa")) desenhar(); }
+
+  return { receber, receberErro, limpar, desenhar, replano, config: () => config };
 }

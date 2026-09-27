@@ -19,6 +19,7 @@ import { partesLocais, dentroDoIntervalo, horaLocal, somarDias, nomeDia, paraMin
 import { horasSol, instanteSol } from './sol.js';
 import { NOMES_MODOS } from './relatorio.js';
 import { lerJson, eObjeto } from './util.js';
+import { TIPO_DO_MODO } from './motor-casa.js';
 
 /** @typedef {import('./motor.js').Motor} Motor */
 /** @typedef {import('./motor.js').Cliente} Cliente */
@@ -97,10 +98,15 @@ export const metodosAutomacoes = {
   aoAutomacoesSet(codigo, payload) {
     const c = this.cliente(codigo);
     const lista = lerJson(payload);
-    const v =
-      lista === undefined
+    let v = !this.pode(c, 'automacoes')
+      ? { ok: false, erro: this.bloqueio(c, 'automacoes') }
+      : lista === undefined
         ? { ok: false, erro: 'A lista de automações não é JSON válido.' }
         : validarAutomacoes(lista, { ...this.contextoValidacao(c), existentes: c.automacoes ?? [] });
+    if (v.ok) {
+      const erroPlano = this.erroPlanoAutomacoes(c, v.lista);
+      if (erroPlano) v = { ok: false, erro: erroPlano };
+    }
     if (!v.ok) {
       this.log.aviso(`[automações] ${codigo}: rejeitadas — ${v.erro}`);
       this.evento(c, { tipo: 'erro', titulo: 'Automações não guardadas', mensagem: v.erro });
@@ -207,10 +213,15 @@ export const metodosAutomacoes = {
   aoCenasSet(codigo, payload) {
     const c = this.cliente(codigo);
     const lista = lerJson(payload);
-    const v =
-      lista === undefined
+    let v = !this.pode(c, 'cenas')
+      ? { ok: false, erro: this.bloqueio(c, 'cenas') }
+      : lista === undefined
         ? { ok: false, erro: 'A lista de cenas não é JSON válido.' }
         : validarCenas(lista, { aparelhos: c.aparelhos, existentes: c.cenas ?? [], usadas: cenasUsadas(c.automacoes) });
+    if (v.ok) {
+      const erroPlano = this.erroPlanoCenas(c, v.lista);
+      if (erroPlano) v = { ok: false, erro: erroPlano };
+    }
     if (!v.ok) {
       this.log.aviso(`[cenas] ${codigo}: rejeitadas — ${v.erro}`);
       this.evento(c, { tipo: 'erro', titulo: 'Cenas não guardadas', mensagem: v.erro });
@@ -276,6 +287,7 @@ export const metodosAutomacoes = {
     const c = this.cliente(codigo);
     const v = lerJson(payload);
     const erro = (m) => this.evento(c, { tipo: 'erro', titulo: 'Cena não executada', mensagem: m });
+    if (!this.pode(c, 'cenas')) return erro(this.bloqueio(c, 'cenas'));
     if (!eObjeto(v)) return erro('Pedido inválido: envie {"id": "<cena>"}.');
     for (const k of Object.keys(v)) if (k !== 'id' && k !== 'por') return erro(`Pedido inválido: campo desconhecido "${k}".`);
     const cena = (c.cenas ?? []).find((x) => x.id === v.id);
@@ -293,6 +305,10 @@ export const metodosAutomacoes = {
    * @param {boolean} [registarEvento] evento no histórico (execução pela app/site)
    */
   executarCena(c, cena, por, registarEvento = false) {
+    if (!this.pode(c, 'cenas')) {
+      this.log.info(`[cenas] ${c.codigo}/${cena.id}: não executada (fora do plano)`);
+      return;
+    }
     if (this.profundidade >= MAX_PROFUNDIDADE) {
       this.log.aviso(`[cenas] ${c.codigo}/${cena.id}: demasiadas execuções encadeadas; ignorada`);
       return;
@@ -339,6 +355,7 @@ export const metodosAutomacoes = {
     const c = this.cliente(codigo);
     const v = lerJson(payload);
     const erro = (m) => this.evento(c, { tipo: 'erro', titulo: 'Automação não executada', mensagem: m });
+    if (!this.pode(c, 'automacoes')) return erro(this.bloqueio(c, 'automacoes'));
     if (!eObjeto(v)) return erro('Pedido inválido: envie {"id": "<automação>"}.');
     for (const k of Object.keys(v)) if (!['id', 'testar', 'avaliar', 'por'].includes(k)) return erro(`Pedido inválido: campo desconhecido "${k}".`);
     if ((v.testar !== undefined && typeof v.testar !== 'boolean') || (v.avaliar !== undefined && typeof v.avaliar !== 'boolean')) {
@@ -610,6 +627,8 @@ export const metodosAutomacoes = {
    */
   executar(c, a, motivo, o = {}) {
     const teste = o.teste === true;
+    // Modo básico (subscrição suspensa/cancelada): nenhuma automação corre.
+    if (!this.pode(c, 'automacoes')) return false;
     if (!teste) {
       if (!a.ativa) return false;
       const r = this.avaliarCondicoes(c, a.se);
@@ -691,6 +710,7 @@ export const metodosAutomacoes = {
     for (const s of devidas) {
       const c = this.clientes.get(s.cliente);
       if (!c) continue;
+      if (!this.pode(c, s.origem === 'cena' ? 'cenas' : 'automacoes')) continue; // modo básico: abandonada
       if (c.aparelhos === null) {
         this.sequencias.push(s); // arranque: ainda não conhecemos os aparelhos
         continue;
@@ -740,6 +760,12 @@ export const metodosAutomacoes = {
         return;
       }
       case 'modo':
+        if (TIPO_DO_MODO[acao.modo] && !this.pode(c, 'alarme')) {
+          const m = `Modo ${NOMES_MODOS[acao.modo]} não ativado: ${this.bloqueio(c, 'alarme')}`;
+          this.log.info(`[automações] ${c.codigo}/${ctx.ref}: ${m}`);
+          if (ctx.origem === 'automacao') this.registar(c, ctx.ref, 'falhou', m, ctx.teste ? { teste: true } : {});
+          return;
+        }
         ctx.feitas++;
         this.mudarModo(c, acao.modo, { forcar: acao.forcar === true, por: ctx.por });
         return;

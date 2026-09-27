@@ -38,6 +38,7 @@ MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
   relatório diário, aviso de offline, pausa manual, limiar de "em espera", localização da casa (cidade).
 - **Presença** (opcional, desligada por omissão) — ver abaixo.
 - **Notificações** (Firebase Cloud Messaging), se configurado — ver abaixo.
+- **A minha subscrição** (menu ⋮) e planos — ver abaixo.
 
 ## Compilar
 1. Em `app/build.gradle.kts`, troca `SEU-SERVIDOR` pelo domínio do servidor
@@ -47,7 +48,27 @@ MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
    ```
 2. Abre a pasta `android/` no **Android Studio** (Ladybug ou mais recente), espera pela sincronização do
    Gradle e carrega em ▶ com o telemóvel ligado por USB. Android 8.0 (API 26) ou mais recente.
-3. Testes unitários (parser, comandos, automações, assistente, modelos, relatório, presença): `./gradlew test`.
+3. Testes unitários (parser, comandos, automações, assistente, modelos, relatório, presença, planos e cliente do
+   serviço de pagamentos): `./gradlew test`.
+
+## Planos e subscrição (`docs/PROTOCOLO-PLANOS.md`)
+- A app lê o `domus/<cliente>/_plano` retido (`data/Plano.kt`). Sem ele: **Conforto, ativo, gerido à mão**
+  (clientes antigos não perdem nada). `Planos.permite(plano, estado, chave)` é a mesma tabela do motor e do site.
+- **A minha subscrição**: plano, estado em palavras simples, próximo pagamento, "Mudar de plano" (escolha entre
+  Base/Conforto/Premium → `POST /api/sessao` com o código e a palavra-passe guardados → `POST /api/checkout`
+  → página do Stripe no navegador) e "Gerir pagamentos e faturas" (`POST /api/portal`). Pagamento em atraso:
+  aviso com a data-limite e "Atualizar pagamento" (também numa faixa no topo de todos os ecrãs). Subscrição
+  gerida à mão: "Fale connosco" (WhatsApp/telefone).
+- Fora do plano (Base): modos Fora/Noite/Férias, notificações (o token FCM não é registado e não se pede a
+  autorização do Android), Saúde, energia e relatório diário aparecem com um cadeado e "Disponível no plano
+  Conforto — mudar de plano". A recusa do motor ("Disponível a partir do plano Conforto.") aparece no cartão dos modos.
+- **Suspensa/cancelada**: só o ecrã "A sua subscrição está suspensa" com "Reativar subscrição" (checkout do
+  mesmo plano), "Fale connosco" e "Sair". O servidor deixa estes clientes ler apenas o `_plano`.
+- Configurar em `app/build.gradle.kts`: `CONTACTO_WHATSAPP` (só algarismos, com 351) e `CONTACTO_TELEFONE`; com
+  os valores de exemplo (zeros) os botões não aparecem. O `/api` é `https://MQTT_HOST/api/`.
+- Cliente HTTP em `data/PagamentosApi.kt` (OkHttp; token de 15 min guardado só em memória, renovado aos 13 min
+  ou num 401). As páginas abrem com `Intent.ACTION_VIEW` (sem Custom Tabs, para não juntar dependências);
+  só se abrem endereços `https://` devolvidos pelo servidor.
 
 ## Presença (opcional)
 Em **Definições → Detetar quando chego e saio de casa**. Serve para os gatilhos "chega o primeiro /
@@ -116,7 +137,7 @@ que o utilizador pode ajustar nas definições do Android: **Alarmes** (importâ
 Versões: AGP 8.7.3, Kotlin 2.0.21, Gradle 8.14.3, compileSdk/targetSdk 35, minSdk 26, Compose BOM
 2024.12.01 (material3 1.3.1), activity-compose 1.9.3, lifecycle 2.8.7, core-ktx 1.15.0, HiveMQ MQTT client
 1.3.17, coroutines 1.9.0 (+ `kotlinx-coroutines-play-services` 1.9.0), Firebase BOM 33.7.0,
-**play-services-location 21.3.0**, **work-runtime-ktx 2.10.0**.
+**play-services-location 21.3.0**, **work-runtime-ktx 2.10.0**, **OkHttp 4.12.0** (testes: MockWebServer 4.12.0).
 
 ## Segurança (protótipo)
 A palavra-passe fica **cifrada** (AES-256-GCM) com uma chave do **Android Keystore** (`data/CofreSenha.kt` +

@@ -1,12 +1,15 @@
-# Domus Energia — servidor (Mosquitto + Caddy + ntfy + motor)
+# Domus Energia — servidor (Mosquitto + Caddy + ntfy + motor + pagamentos)
 # Uso: cp .env.example .env  (e editar)  &&  docker compose up -d --build
 # Contrato: ../docs/PROTOCOLO-MQTT.md (v1) e ../docs/PROTOCOLO-MQTT-v2.md (v2)
+#           ../docs/PROTOCOLO-PLANOS.md (planos, subscrições e pagamentos)
 #
 #   https://HOST/          -> site (pasta ../web, só de leitura)
 #   wss://HOST/mqtt        -> Mosquitto (WebSocket interno, porta 9001)
 #   https://ntfy.HOST/     -> ntfy (notificações). O ntfy NÃO suporta ser servido
 #                             num sub-caminho (/ntfy), por isso usa um subdomínio.
 #   HOST:1883              -> MQTT simples para os aparelhos
+#   https://HOST/api/...   -> pagamentos (sessão, Stripe Checkout, Customer Portal)
+#   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe)
 
 services:
   mosquitto:
@@ -100,12 +103,51 @@ services:
       - ./dados/motor:/dados                 # estado do motor + conta de serviço Firebase
     logging: *registos
 
+  # Subscrições e pagamentos (Stripe). Ver README "Planos e pagamentos".
+  # Sem as variáveis STRIPE_* no .env o serviço arranca na mesma: a sessão e o
+  # _plano funcionam, e checkout/portal/webhook respondem "ainda não configurados".
+  pagamentos:
+    build: ../pagamentos
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      TZ: Europe/Lisbon
+      PORTA: "8080"
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USER: pagamentos
+      PAGAMENTOS_MQTT_PASS: ${PAGAMENTOS_MQTT_PASS:-}
+      SESSAO_SEGREDO: ${SESSAO_SEGREDO:-}
+      DOMUS_HOST: ${DOMUS_HOST}
+      PUBLIC_URL: ${PUBLIC_URL:-}                 # vazio = https://DOMUS_HOST
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_BASE: ${STRIPE_PRICE_BASE:-}
+      STRIPE_PRICE_CONFORTO: ${STRIPE_PRICE_CONFORTO:-}
+      STRIPE_PRICE_PREMIUM: ${STRIPE_PRICE_PREMIUM:-}
+      STRIPE_METODOS: ${STRIPE_METODOS:-card}
+      DIAS_TESTE: ${DIAS_TESTE:-30}
+      CONFIAR_PROXY: "1"                          # IP real do visitante vem do Caddy (X-Forwarded-For)
+      DADOS_DIR: /dados
+      PAGAMENTOS_CSV: /dados/pagamentos/pagamentos.csv
+      EVENTOS_FICH: /dados/pagamentos/eventos-stripe.json
+    expose:
+      - "8080"           # só na rede interna (o Caddy faz o HTTPS)
+    # Só as pastas de que precisa (nunca a dados/ inteira, que tem a
+    # palavra-passe do admin): planos (partilhada com o domus.sh) e o registo
+    # dos pagamentos (pagamentos.csv) + eventos do Stripe já tratados.
+    volumes:
+      - ./dados/planos:/dados/planos
+      - ./dados/pagamentos:/dados/pagamentos
+    logging: *registos
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     depends_on:
       - mosquitto
       - ntfy
+      - pagamentos
     ports:
       - "80:80"
       - "443:443"

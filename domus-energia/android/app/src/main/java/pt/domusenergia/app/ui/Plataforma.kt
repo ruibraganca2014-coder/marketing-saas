@@ -15,6 +15,8 @@ data class Plataforma(
     val pedirSegundoPlano: () -> Unit = {},
     /** Abre as definições da app (autorizações recusadas "para sempre", poupança de bateria). */
     val abrirDefinicoesApp: () -> Unit = {},
+    /** Abre um endereço (página de pagamento, WhatsApp, `tel:`) noutra app. `false` se nenhuma o abrir. */
+    val abrirLink: (url: String) -> Boolean = { false },
 )
 
 val LocalPlataforma = staticCompositionLocalOf { Plataforma() }

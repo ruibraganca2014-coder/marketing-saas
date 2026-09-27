@@ -7,6 +7,8 @@ import { criarIlustracao, atualizarIlustracao, criarIcone } from "./ilustracoes.
 import { criarAutomacoes } from "./automacoes.js";
 import { criarCenas } from "./cenas.js";
 import { desenharSaude, desenharRelatorio, copiarRelatorio, criarDefinicoes } from "./paineis.js";
+import * as PL from "./planos.js";
+import { criarSubscricao, criarBloqueio, iconeCadeado } from "./subscricao.js";
 
 const cfg = window.DOMUS;
 const $ = (id) => document.getElementById(id);
@@ -35,6 +37,11 @@ let recusa = null;     // { modo, texto } — "Não armado: …" à espera de "A
 let energia = null;    // lerEnergia(_energia)
 let saude = {};        // lerSaude(_saude)
 let secao = "casa";    // secção visível
+let plano = { ...PL.PLANO_OMISSAO }; // lerPlano(_plano) — sem `_plano` retido: conforto/ativo/manual (§2)
+let ntfy = null;       // lerNtfy(_ntfy)
+let erroPlanoModo = null; // "Disponível a partir do plano Conforto." do motor, ao mudar de modo
+let credenciais = null; // { codigo, password } só em memória, para o /api (a mesma conta do MQTT)
+let autenticado = false;
 let historico = [];    // de _historico
 let vivos = [];        // de _eventos desde que entrou
 let rpcId = 0;
@@ -45,7 +52,20 @@ const temporizadores = new Set();
 
 const publicarJson = (sufixo, obj) => publicar(`domus/${codigo}/${sufixo}`, JSON.stringify(obj));
 const ligadoServidor = () => !!cliente?.connected;
-const definicoes = criarDefinicoes({ publicar: publicarJson, ligado: ligadoServidor });
+const permite = (chave) => PL.permite(plano, chave);
+
+// ---------- Plano e subscrição (docs/PROTOCOLO-PLANOS.md) ----------
+const api = PL.criarApi({ fetch: (...a) => window.fetch(...a), base: cfg.apiUrl ?? "/api", credenciais: () => credenciais });
+const subscricao = criarSubscricao({ api, codigo: () => codigo });
+function abrirSubscricao({ escolher = false } = {}) {
+  if (escolher) subscricao.abrirEscolha();
+  mostrarSeccao("subscricao");
+  subscricao.desenhar();
+  ((escolher && $("escolher-titulo")) || $("titulo-subscricao")).focus();
+}
+const bloqueio = (chave, texto) => criarBloqueio(chave, () => abrirSubscricao({ escolher: true }), texto);
+
+const definicoes = criarDefinicoes({ publicar: publicarJson, ligado: ligadoServidor, permite, bloqueio });
 const cenas = criarCenas({ publicar: publicarJson, ligado: ligadoServidor, aparelhos: () => aparelhos });
 const automacoes = criarAutomacoes({
   publicar: publicarJson,
@@ -71,6 +91,7 @@ $("form-login").addEventListener("submit", (e) => {
 
 $("sair").addEventListener("click", () => {
   apagarLembrar();
+  credenciais = null;
   terminar();
   $("form-login").reset();
 });
@@ -89,23 +110,29 @@ for (const s of separadores) {
     alvo.focus();
   });
 }
-const SECCOES = ["casa", "automacoes", "aparelhos", "historico", "relatorio", "definicoes"];
+const SECCOES = ["casa", "automacoes", "aparelhos", "historico", "relatorio", "definicoes", "subscricao"];
 function mostrarSeccao(nome) {
   secao = nome;
-  // O relatório pertence à Casa; as Definições não têm separador.
+  // O relatório pertence à Casa; as Definições e a Subscrição não têm separador.
   const tab = nome === "relatorio" ? "casa" : nome;
+  const semSeparador = nome === "definicoes" || nome === "subscricao";
   for (const s of separadores) {
     const sel = s.dataset.sec === tab;
     s.setAttribute("aria-selected", String(sel));
-    s.tabIndex = sel || (nome === "definicoes" && s.dataset.sec === "casa") ? 0 : -1;
+    s.tabIndex = sel || (semSeparador && s.dataset.sec === "casa") ? 0 : -1;
   }
   for (const k of SECCOES) $(`sec-${k}`).hidden = k !== nome;
-  $("abrir-definicoes").classList.toggle("ativo", nome === "definicoes");
-  if (nome === "definicoes") $("abrir-definicoes").setAttribute("aria-current", "page"); else $("abrir-definicoes").removeAttribute("aria-current");
+  for (const [id, sec] of [["abrir-definicoes", "definicoes"], ["abrir-subscricao", "subscricao"]]) {
+    $(id).classList.toggle("ativo", nome === sec);
+    if (nome === sec) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
+  }
+  if (nome === "subscricao") subscricao.desenhar();
   if (nome === "aparelhos") redesenharSaude();
   if (nome === "relatorio") redesenharRelatorio();
 }
 $("abrir-definicoes").addEventListener("click", () => mostrarSeccao(secao === "definicoes" ? "casa" : "definicoes"));
+$("abrir-subscricao").addEventListener("click", () => { if (secao === "subscricao") mostrarSeccao("casa"); else abrirSubscricao(); });
+$("definicoes-subscricao").addEventListener("click", () => abrirSubscricao());
 $("abrir-relatorio").addEventListener("click", () => { mostrarSeccao("relatorio"); $("relatorio-voltar").focus(); });
 $("relatorio-voltar").addEventListener("click", () => { mostrarSeccao("casa"); $("abrir-relatorio").focus(); });
 $("relatorio-copiar").addEventListener("click", copiarRelatorio);
@@ -123,15 +150,21 @@ setInterval(() => {
   if (entrou && (alarme?.estado === "a_armar" || alarme?.estado === "entrada")) desenharAlarme();
 }, 1000);
 
-function mostrarVista(autenticado) {
-  $("vista-login").hidden = autenticado;
-  $("vista-painel").hidden = !autenticado;
-  $("sair").hidden = !autenticado;
+// Com a subscrição suspensa ou cancelada (§3) só se mostra o ecrã de suspensão.
+function mostrarVista(sim = autenticado) {
+  autenticado = sim;
+  const basico = sim && PL.modoBasico(plano);
+  $("vista-login").hidden = sim;
+  $("vista-painel").hidden = !sim || basico;
+  $("vista-suspensa").hidden = !basico;
+  $("sair").hidden = !sim;
+  if (basico) subscricao.desenharSuspensa();
 }
 
 function entrar(cod, password, { lembrar, automatico = false }) {
   terminar();
   codigo = cod;
+  credenciais = { codigo: cod, password: String(password ?? "") };
   erroLogin(null);
   const botao = $("form-login").querySelector("button");
   botao.disabled = true;
@@ -170,10 +203,14 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       desenharHistorico();
       automacoes.desenhar();
       definicoes.desenhar();
+      aplicarPlano(plano);
+      if (abrirSubscricaoAoEntrar) { abrirSubscricaoAoEntrar = false; abrirSubscricao(); }
     }
     estadoLigacao(true);
-    c.subscribe(`domus/${cod}/#`, { qos: 1 }, (err) => {
-      if (err) mostrarErro("Não foi possível ler os seus aparelhos. Tente sair e entrar de novo.");
+    // `_plano` à parte: com a subscrição suspensa o servidor só deixa ler esse tópico (§3) e recusa o `#`.
+    c.subscribe(`domus/${cod}/_plano`, { qos: 1 });
+    c.subscribe(`domus/${cod}/#`, { qos: 1 }, (err, granted) => {
+      if (err || granted?.some((g) => g.qos === 128)) mostrarErro("Não foi possível ler os seus aparelhos. Tente sair e entrar de novo.");
     });
     pedirEstadoShelly();
   });
@@ -184,6 +221,7 @@ function entrar(cod, password, { lembrar, automatico = false }) {
     if (err?.code === 4 || err?.code === 5 || /not authori[sz]ed|bad user/i.test(err?.message ?? "")) {
       apagarLembrar();
       terminar();
+      credenciais = null;
       erroLogin("Código ou palavra-passe errados.");
       return;
     }
@@ -209,6 +247,12 @@ function terminar() {
   temporizadores.clear();
   clearTimeout(modoPendente?.timer);
   codigo = null;
+  credenciais = null;
+  api.esquecer();
+  plano = { ...PL.PLANO_OMISSAO };
+  ntfy = null;
+  erroPlanoModo = null;
+  subscricao.limpar();
   entrou = false;
   aparelhos = [];
   estados = {};
@@ -279,6 +323,8 @@ function apagarLembrar() {
 
 function publicar(topico, texto) {
   if (!cliente?.connected) return false;
+  // Modo básico (§3): o servidor já não aceita escritas; a app não tenta.
+  if (PL.modoBasico(plano)) return false;
   // Comandos NUNCA retidos: um comando retido volta a ser aplicado quando o aparelho reinicia.
   cliente.publish(topico, texto, { qos: 1, retain: false });
   return true;
@@ -373,11 +419,14 @@ function receber(topico, texto, retido) {
         if (ev.aparelho) atualizar(ev.aparelho);
         break;
       }
-      case "_ntfy": {
-        const n = E.lerNtfy(texto);
-        $("ntfy").hidden = !n;
-        $("ntfy-url").textContent = n?.url ?? "";
+      case "_ntfy":
+        ntfy = E.lerNtfy(texto);
         $("ntfy-msg").textContent = "";
+        desenharNtfy();
+        break;
+      case "_plano": {
+        const p = PL.lerPlano(texto);
+        if (p) aplicarPlano(p); // inválido: fica o que estava (como o motor)
         break;
       }
     }
@@ -700,8 +749,16 @@ function resumo() {
   $("total-online").textContent = `${r.online} / ${r.comLigacao}`;
   $("total-portas").textContent = r.portas ? String(r.portasAbertas) : "—";
   $("resumo-portas").classList.toggle("alerta", r.portasAbertas > 0 && !!alarme?.ativo);
-  $("total-hoje").textContent = energia?.hojeKWh != null ? E.kwhTexto(energia.hojeKWh) : "—";
-  $("hoje-rotulo").textContent = energia?.ontemKWh != null ? `Energia hoje · ontem ${E.kwhTexto(energia.ontemKWh)}` : "Energia hoje";
+  const comEnergia = permite("energia");
+  $("resumo-energia").classList.toggle("bloqueado", !comEnergia);
+  $("energia-bloqueio").hidden = comEnergia;
+  if (comEnergia) {
+    $("total-hoje").textContent = energia?.hojeKWh != null ? E.kwhTexto(energia.hojeKWh) : "—";
+    $("hoje-rotulo").textContent = energia?.ontemKWh != null ? `Energia hoje · ontem ${E.kwhTexto(energia.ontemKWh)}` : "Energia hoje";
+  } else {
+    $("total-hoje").replaceChildren(iconeCadeado());
+    $("hoje-rotulo").textContent = "Energia hoje e ontem";
+  }
 
   const f = E.fundoVivo(r);
   const painel = $("painel");
@@ -714,12 +771,19 @@ function resumo() {
 }
 
 function redesenharSaude() {
+  const bloq = !permite("saude");
+  $("saude-bloqueada").hidden = !bloq;
+  $("saude-sub").hidden = bloq;
+  $("lista-saude").hidden = bloq;
+  if (bloq) { $("lista-saude").replaceChildren(); return; }
   const agora = Date.now();
   desenharSaude(E.listaSaude(aparelhos.map((a) => modeloDe(a, agora)), saude, agora), agora);
 }
 function redesenharRelatorio() {
   const agora = Date.now();
-  desenharRelatorio(E.construirRelatorio({ aparelhos, modelos: aparelhos.map((a) => modeloDe(a, agora)), saude, energia, modo, alarme, agora }));
+  const comEnergia = permite("energia");
+  desenharRelatorio(E.construirRelatorio({ aparelhos, modelos: aparelhos.map((a) => modeloDe(a, agora)), saude, energia: comEnergia ? energia : null, modo, alarme, agora }),
+    { energia: comEnergia, bloqueio });
 }
 
 // ---------- Comandos ----------
@@ -800,7 +864,10 @@ for (const m of E.MODOS) {
   b.setAttribute("aria-checked", "false");
   const ic = el("span", "modo-icone");
   ic.append(criarIcone(m));
-  b.append(ic, el("span", "modo-nome", E.NOME_MODO[m]), el("span", "modo-desc", DESC_MODO[m]));
+  const cad = el("span", "modo-cadeado");
+  cad.hidden = true;
+  cad.append(iconeCadeado());
+  b.append(ic, el("span", "modo-nome", E.NOME_MODO[m]), el("span", "modo-desc", DESC_MODO[m]), cad);
   b.addEventListener("click", () => pedirModo(m, false));
   b.addEventListener("keydown", (e) => {
     if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
@@ -822,10 +889,19 @@ function modoAtual() {
 }
 
 function pedirModo(m, forcar) {
+  if (m !== "casa" && !permite("alarme")) {
+    // Fora do plano: não se pede nada ao motor; realça o cadeado.
+    const caixa = $("modo-plano");
+    caixa.classList.remove("realce");
+    void caixa.offsetWidth;
+    caixa.classList.add("realce");
+    return;
+  }
   if (!cliente?.connected) { mostrarErro("Sem ligação ao servidor. Tente de novo daqui a pouco."); return; }
   if (!forcar && m === modoAtual() && !modoPendente) return;
   mostrarErro(null);
   recusa = null;
+  erroPlanoModo = null;
   let ok;
   if (temV3()) ok = publicarJson("_modo/set", { modo: m, forcar: !!forcar, por: "web" });
   else {
@@ -853,6 +929,14 @@ function resolverModo() {
 // Eventos `erro` do motor: "Não armado: …" é da mudança de modo; o resto vai para quem estiver à espera.
 function receberErro(ev) {
   const texto = ev.mensagem || ev.titulo || "";
+  // "Disponível a partir do plano Conforto." ao mudar de modo: mostrar no cartão do modo, com o cadeado.
+  if (PL.eErroDePlano(texto) && modoPendente) {
+    resolverModo();
+    erroPlanoModo = texto;
+    desenharAlarme();
+    $("modo-plano").querySelector("button")?.focus();
+    return;
+  }
   if (modoPendente && /^N[ãa]o armado/i.test(texto)) {
     recusa = { modo: modoPendente.modo, texto };
     resolverModo();
@@ -879,17 +963,30 @@ function desenharAlarme() {
   atualizarIlustracao(ilusAlarme, "alarme", { ativo: !!alarme?.ativo });
 
   const alvo = modoPendente ? modoPendente.modo : atual;
+  const semAlarme = !permite("alarme");
   for (const m of E.MODOS) {
     const b = botoesModo[m];
     const sel = alvo === m;
+    const bloq = semAlarme && m !== "casa";
+    b.classList.toggle("bloqueado", bloq);
+    if (bloq) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    b.querySelector(".modo-cadeado").hidden = !bloq;
     b.setAttribute("aria-checked", String(sel));
     b.tabIndex = sel || (!alvo && m === "casa") ? 0 : -1;
     b.classList.toggle("pendente", !!modoPendente && modoPendente.modo === m);
     // Com o motor v2 só há Casa (desarmado) e Fora (alarme ativo).
     const soV3 = !v3 && (m === "noite" || m === "ferias");
     b.disabled = !!modoPendente || atual == null || soV3;
-    b.title = soV3 ? "Disponível quando o servidor for atualizado" : "";
+    b.title = soV3 ? "Disponível quando o servidor for atualizado" : bloq ? PL.textoDisponivel("alarme") : "";
   }
+  // Cadeado dos modos (plano sem alarme) ou recusa do motor por causa do plano.
+  const caixaPlano = $("modo-plano");
+  const textoPlano = erroPlanoModo ?? (semAlarme ? PL.textoDisponivel("alarme") : null);
+  caixaPlano.hidden = !textoPlano;
+  if (textoPlano && caixaPlano.dataset.texto !== textoPlano) {
+    caixaPlano.dataset.texto = textoPlano;
+    caixaPlano.replaceChildren(bloqueio("alarme", textoPlano));
+  } else if (!textoPlano) { caixaPlano.dataset.texto = ""; caixaPlano.replaceChildren(); }
 
   const agora = Date.now();
   const hora = (t) => (t ? E.horaLisboa(t) : null);
@@ -961,7 +1058,62 @@ function desenharHistorico() {
   }
 }
 
-// ---------- ntfy ----------
+// ---------- ntfy (notificações: plano Conforto) ----------
+const ntfyBloqueio = bloqueio("notificacoes");
+$("ntfy-bloqueio").append(ntfyBloqueio);
+function desenharNtfy() {
+  const bloq = !permite("notificacoes");
+  // Sem o plano: a caixa aparece na mesma, com o cadeado (para se saber que existe).
+  $("ntfy").hidden = !bloq && !ntfy;
+  $("ntfy").classList.toggle("bloqueado", bloq);
+  $("ntfy-bloqueio").hidden = !bloq;
+  $("ntfy-texto").textContent = bloq ? "Receba no telemóvel os alertas da sua casa: alarme, portas abertas, aparelhos sem ligação e pilhas a acabar." : "Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.";
+  document.querySelector("#ntfy .ntfy-linha").hidden = bloq;
+  $("ntfy-url").textContent = bloq ? "" : ntfy?.url ?? "";
+}
+
+// ---------- Plano ----------
+$("energia-bloqueio").append(bloqueio("energia"));
+$("saude-bloqueada").append(bloqueio("saude"));
+function aplicarPlano(p) {
+  const antes = PL.decisoes(plano);
+  plano = p;
+  subscricao.receber(p);
+  const depois = PL.decisoes(p);
+  if (!entrou) return;
+  mostrarVista(true);
+  subscricao.desenharAviso(() => abrirSubscricao());
+  if (secao === "subscricao") subscricao.desenhar();
+  erroPlanoModo = null; // com o plano conhecido, o cadeado diz o resto
+  desenharAlarme();
+  resumo();
+  desenharNtfy();
+  if (secao === "aparelhos") redesenharSaude();
+  if (antes.notificacoes !== depois.notificacoes || antes.relatorio_diario !== depois.relatorio_diario) definicoes.replano();
+}
+
+// Regresso do Stripe (?subscricao=ok|cancelada): aviso e limpa o endereço.
+let abrirSubscricaoAoEntrar = false;
+let toastTimer = null;
+function mostrarToast(texto, tipo = "ok") {
+  const t = $("toast");
+  $("toast-texto").textContent = texto;
+  t.className = `toast ${tipo}`;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 12_000);
+}
+$("toast-fechar").addEventListener("click", () => { clearTimeout(toastTimer); $("toast").hidden = true; });
+{
+  const r = PL.regressoStripe(window.location.search);
+  if (r) {
+    mostrarToast(r.texto, r.tipo);
+    abrirSubscricaoAoEntrar = true;
+    try { history.replaceState(null, "", window.location.pathname + window.location.hash); } catch {}
+  }
+}
+
+// ---------- ntfy: copiar ----------
 $("ntfy-copiar").addEventListener("click", async () => {
   const url = $("ntfy-url").textContent;
   const msg = $("ntfy-msg");

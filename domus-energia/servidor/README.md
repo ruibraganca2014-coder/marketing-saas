@@ -8,8 +8,9 @@ Este guia instala, num servidor na internet (VPS), tudo o que a plataforma Domus
 | **Caddy** | HTTPS automático (certificados grátis) e site | `https://HOST/` |
 | **ntfy** | notificações no telemóvel (app ntfy) | `https://ntfy.HOST/` |
 | **motor** | alarme, automações, histórico, notificações (ntfy e Firebase) | interno |
+| **pagamentos** | subscrições mensais (Stripe) e estado do plano de cada cliente | `https://HOST/api/` e `https://HOST/stripe/webhook` |
 
-Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3).
+Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3); planos e pagamentos: [`../docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md).
 
 Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
 
@@ -67,7 +68,7 @@ git clone <endereço-do-repositório> domus-energia
 cd domus-energia/servidor
 ```
 
-A pasta `servidor/` tem de ficar ao lado de `web/` e `motor/` (o Caddy serve `../web` e o motor é construído a partir de `../motor`).
+A pasta `servidor/` tem de ficar ao lado de `web/`, `motor/` e `pagamentos/` (o Caddy serve `../web`; o motor e o serviço de pagamentos são construídos a partir de `../motor` e `../pagamentos`).
 
 ## 5. Configurar o `.env`
 
@@ -87,7 +88,7 @@ Grava com `Ctrl+O`, `Enter`, `Ctrl+X`.
 ```bash
 mkdir -p dados             # cria a pasta de estado com o teu utilizador (antes do Docker)
 docker compose up -d --build
-docker compose ps          # os 4 serviços devem estar "running"/"Up"
+docker compose ps          # os 5 serviços devem estar "running"/"Up"
 docker compose logs -f caddy   # (Ctrl+C para sair) deve aparecer "certificate obtained successfully"
 ```
 
@@ -103,7 +104,7 @@ Abre `https://<DOMUS_HOST>/` no browser: deve aparecer o site com cadeado.
 
 A palavra-passe também pode vir do stdin (`printf '%s\n' "$SENHA" | ./domus.sh admin`) ou, como antes, no argumento (`./domus.sh admin 'UmaSenhaDeAdminLonga'`) — mas assim fica no histórico da shell (`~/.bash_history`), por isso prefere a pergunta.
 
-Na primeira vez isto também cria o utilizador **`motor`** no Mosquitto e no ntfy com as senhas do `.env`. Se mudares essas senhas no `.env`, corre `./domus.sh motor` e depois `docker compose up -d motor`.
+Na primeira vez isto também cria o utilizador **`motor`** no Mosquitto e no ntfy com as senhas do `.env` e, se houver `PAGAMENTOS_MQTT_PASS` no `.env`, o utilizador **`pagamentos`** (ver [Planos e pagamentos](#16-planos-e-pagamentos)). Se mudares essas senhas no `.env`, corre `./domus.sh motor` (ou `./domus.sh pagamentos`) e depois `docker compose up -d motor pagamentos`.
 
 ```bash
 docker compose restart motor
@@ -201,7 +202,8 @@ Deves ver `domus/joao/_aparelhos` (lista), `domus/joao/_ntfy` e, com os aparelho
 
 Testes sem Docker (no PC de desenvolvimento):
 - `./testes/acl.sh` — permissões num Mosquitto verdadeiro (precisa de `mosquitto` e `mosquitto-clients`);
-- `./testes/simulacao.sh` — opções dos aparelhos, JSON de `_aparelhos`, comandos impressos e ACL gerada, em modo simulação (`DOMUS_DRY_RUN=1`; só precisa de `python3`).
+- `./testes/simulacao.sh` — opções dos aparelhos, JSON de `_aparelhos`, comandos impressos, ACL gerada e os comandos `plano`/`sincronizar-planos`/`pagamentos`, em modo simulação (`DOMUS_DRY_RUN=1`; só precisa de `python3`);
+- `cd ../pagamentos && npm ci && npm test` — serviço de pagamentos (Mosquitto real + Stripe falso; precisa de Node 20+ e `mosquitto`).
 
 ## 10. Notificações no telemóvel (ntfy)
 
@@ -235,7 +237,7 @@ O motor envia também notificações push pela Firebase se encontrar a conta de 
 
 ## 12. Cópias de segurança
 
-Tudo o que importa está em `servidor/dados/` (clientes, aparelhos, palavra-passe do admin, estado do motor, conta Firebase, utilizadores do ntfy, mensagens retidas do Mosquitto), `servidor/mosquitto/seguranca/` (palavras-passe MQTT) e `servidor/.env`.
+Tudo o que importa está em `servidor/dados/` (clientes, aparelhos, palavra-passe do admin, estado do motor, conta Firebase, utilizadores do ntfy, mensagens retidas do Mosquitto, planos dos clientes em `dados/planos/` e o registo dos pagamentos `dados/pagamentos/pagamentos.csv`), `servidor/mosquitto/seguranca/` (palavras-passe MQTT) e `servidor/.env`.
 
 ```bash
 cd ~/domus-energia/servidor
@@ -268,7 +270,9 @@ cd servidor && docker compose pull && docker compose up -d --build
 
     Não consegue escrever `_aparelhos`, `_alarme`, `_automacoes`, `_historico`, `_eventos`, `_ntfy`, `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`, nem nada de outro cliente (verificado em `testes/acl.sh`);
   - aparelho `C-A`: lê e escreve `domus/C/A/#`;
-  - `motor` e `admin`: lê e escreve `domus/#`.
+  - `motor` e `admin`: lê e escreve `domus/#`;
+  - `pagamentos`: só escreve `domus/+/_plano` (não lê nada). Nenhum cliente nem aparelho escreve `_plano`;
+  - cliente **suspenso ou cancelado** (`dados/planos/<c>.json`): só lê `domus/<c>/_plano` — não comanda nada nem vê a casa; os utilizadores dos aparelhos dele não mudam (ver [Planos e pagamentos](#16-planos-e-pagamentos)).
 - Removendo um aparelho, a ligação dele é cortada e a palavra-passe deixa de funcionar.
 - O site e a área de cliente são servidos com `X-Frame-Options: DENY` e uma `Content-Security-Policy` (scripts só do próprio site e do `cdn.jsdelivr.net`; ligações só ao próprio site, ao `wss://HOST/mqtt` e ao Supabase; nenhuma página pode ser posta num `<iframe>`). Se mudar de CDN, de fontes ou de projeto Supabase, atualize a linha `Content-Security-Policy` em `caddy/Caddyfile`.
 - Limites do Mosquitto (`mosquitto/mosquitto.conf`): `max_connections 2000` (ligações simultâneas de aparelhos + app + site; subir se a empresa passar de ~1500 aparelhos) e `max_packet_size` de 1 MB (o motor nunca publica mais de 900 KB, `MQTT_MAX_PAYLOAD`).
@@ -311,6 +315,112 @@ Quando a internet volta, o sistema envia um aviso do tipo "A casa esteve sem int
 
 **Na instalação, teste sempre:** desligar o router e usar os interruptores (têm de funcionar); cortar a corrente 10 segundos no quadro e ver se cada saída arranca como combinado; repetir depois de cada atualização do firmware.
 
+## 16. Planos e pagamentos
+
+Contrato: [`../docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md). Detalhes do serviço: [`../pagamentos/README.md`](../pagamentos/README.md).
+
+| Plano | Preço (c/ IVA) |
+|---|---|
+| Base | 4,99 €/mês |
+| Conforto | 9,99 €/mês |
+| Premium | 19,99 €/mês |
+
+Cada cliente tem um estado de subscrição, publicado pelo servidor em `domus/<cliente>/_plano` (retido): `ativo`, `teste` (1.º mês grátis), `em_atraso` (pagamento falhou; **15 dias** de aviso), `suspenso` ou `cancelado` (**modo básico**: os interruptores e os aparelhos continuam a funcionar, mas a app e o site só mostram o ecrã da subscrição e o motor não corre automações, cenas, alarme nem notificações). Um cliente sem `_plano` (clientes antigos) é tratado como Conforto ativo.
+
+Há duas maneiras de gerir:
+- **Automática (Stripe)**: o cliente escolhe o plano na app/site → paga no Stripe Checkout → o Stripe avisa o serviço `pagamentos` (webhook) → `_plano` atualizado. Mudar de plano, trocar o cartão, cancelar e ver faturas: Stripe Customer Portal.
+- **Manual** (clientes que pagam por transferência, ofertas, testes): `./domus.sh plano`.
+
+### 16.1 Conta Stripe (comece em modo de teste)
+
+1. Crie a conta em [dashboard.stripe.com](https://dashboard.stripe.com/register) com os dados da empresa (Portugal, EUR). Enquanto a conta não estiver ativada, e para ensaiar, use o **modo de teste** (interruptor "Test mode"/"Sandbox" no painel): as chaves começam por `sk_test_` e nenhum cartão é cobrado.
+2. **Produtos e preços** — *Product catalog → Add product*, três vezes:
+   - "Domus Base": preço **recorrente mensal** de **4,99 EUR**; em *Tax behavior* escolha **Inclusive** (o preço já tem IVA);
+   - "Domus Conforto": 9,99 EUR/mês (inclusive); "Domus Premium": 19,99 EUR/mês (inclusive).
+   Copie o id de cada preço (`price_…`) para `STRIPE_PRICE_BASE`, `STRIPE_PRICE_CONFORTO` e `STRIPE_PRICE_PREMIUM` no `.env`. Não ponha o período grátis no preço: é o serviço que o pede (`DIAS_TESTE`, 30 dias, só na primeira subscrição de cada cliente).
+3. **Chave secreta** — *Developers → API keys → Secret key* (`sk_test_…`) → `STRIPE_SECRET_KEY`. Melhor ainda: uma *restricted key* (`rk_…`) com escrita em *Checkout Sessions* e *Customer portal* e leitura em *Subscriptions*.
+4. **Webhook** — *Developers → Webhooks → Add endpoint*:
+   - URL: **`https://<DOMUS_HOST>/stripe/webhook`**
+   - versão da API: a mais recente (o serviço aceita também as anteriores a 2025-03);
+   - eventos: **`checkout.session.completed`**, **`customer.subscription.created`**, **`customer.subscription.updated`**, **`customer.subscription.deleted`**, **`invoice.paid`**, **`invoice.payment_failed`**.
+   Depois de criar, *Reveal signing secret* (`whsec_…`) → `STRIPE_WEBHOOK_SECRET`.
+5. **Customer Portal** — *Settings → Billing → Customer portal*:
+   - ligar **Invoices** (histórico de faturas), **Payment methods** (atualizar o cartão), **Cancel subscriptions** (recomendado: *At end of billing period*);
+   - ligar **Customers can switch plans** e acrescentar os **três produtos/preços** (sem isto o botão "Mudar de plano" abre só a página inicial do portal); proration à escolha (ex.: *Prorate charges and credits*);
+   - *Business information*: nome, termos e política de privacidade; *Save*.
+6. **Pagamentos falhados** — *Settings → Billing → Subscriptions and emails → Manage failed payments*: ligar os **Smart Retries** (até 2–3 semanas) e, no fim, *cancel the subscription*; ligar os emails ao cliente para cartões recusados/expirados. Independentemente das tentativas do Stripe, o serviço suspende o cliente 15 dias depois da primeira falha (`em_atraso` → `suspenso`); quando o pagamento entra volta a `ativo`.
+7. **Branding** — *Settings → Branding*: logótipo e cores (aparecem no Checkout e no portal).
+8. Quando estiver tudo testado: ative a conta, repita os passos 2–5 no **modo real** (os ids mudam: `sk_live_…`, novos `price_…` e `whsec_…`), atualize o `.env` e `docker compose up -d pagamentos`.
+
+**Métodos de pagamento — MB WAY:** segundo a documentação do Stripe, o **MB WAY só serve para pagamentos únicos**: não permite guardar o método nem cobranças recorrentes, por isso **não pode ser usado nas subscrições mensais** (Checkout em modo `subscription`). Por omissão o serviço pede só **cartão** (`STRIPE_METODOS=card`). Alternativas com cobrança automática: **Débito Direto SEPA** (IBAN português; `STRIPE_METODOS=card,sepa_debit`, ativar em *Settings → Payment methods*; a confirmação demora alguns dias) ou `STRIPE_METODOS=automatico` (o Stripe mostra os métodos ativos no painel que servem para subscrições). O MB WAY pode ser usado para o pagamento único da instalação (ex.: um *Payment Link*), fora deste serviço. Confirme em [docs.stripe.com/payments/mb-way](https://docs.stripe.com/payments/mb-way) se isto mudou antes de o prometer a clientes; se o Stripe passar a aceitar MB WAY em subscrições, basta `STRIPE_METODOS=card,mb_way`.
+
+### 16.2 Configurar o servidor
+
+No `.env` (ver `.env.example`):
+
+```bash
+PAGAMENTOS_MQTT_PASS=...        # openssl rand -hex 16
+SESSAO_SEGREDO=...              # openssl rand -hex 32
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_BASE=price_...
+STRIPE_PRICE_CONFORTO=price_...
+STRIPE_PRICE_PREMIUM=price_...
+# PUBLIC_URL=https://...        (por omissão https://DOMUS_HOST)
+```
+
+```bash
+./domus.sh pagamentos                  # cria o utilizador MQTT "pagamentos" (se o admin já existia)
+mkdir -p dados/planos dados/pagamentos             # antes do Docker (senão ficam do root)
+sudo chown 1000:1000 dados/planos dados/pagamentos # o serviço corre como uid 1000 (o domus.sh faz isto quando corre como root)
+docker compose up -d --build pagamentos caddy
+docker compose logs -f pagamentos      # "MQTT: ligado como pagamentos" e "_plano republicado ..."
+```
+
+Sem as variáveis `STRIPE_*` o serviço arranca na mesma (a sessão e o `_plano` funcionam; checkout, portal e webhook respondem "ainda não configurados"). O Caddy encaminha `https://HOST/api/*` e `https://HOST/stripe/webhook` para o serviço (mesma origem do site: a CSP e o CORS não mudam).
+
+**Permissões dos suspensos (a cada minuto).** O serviço de pagamentos grava `dados/planos/<cliente>.json`; quem tira ou devolve as permissões MQTT é o `./domus.sh sincronizar-planos`, que regenera a ACL e recarrega o Mosquitto **só quando alguma coisa mudou** (sem alterações não escreve nada). Instale **um** destes:
+
+```bash
+# systemd (recomendado)
+sed -i "s#/home/ubuntu/domus-energia/servidor#$PWD#g" systemd/domus-planos.service
+sudo cp systemd/domus-planos.service systemd/domus-planos.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now domus-planos.timer
+systemctl list-timers domus-planos.timer         # próxima execução
+journalctl -u domus-planos.service -n 20         # o que fez
+
+# ou cron (alternativa)
+sed "s#/home/ubuntu/domus-energia/servidor#$PWD#g" systemd/domus-planos.cron | sudo tee /etc/cron.d/domus-planos >/dev/null
+sudo chmod 644 /etc/cron.d/domus-planos           # registo em /var/log/domus-planos.log
+```
+
+Um cliente suspenso fica com a ACL `topic read domus/<c>/_plano` (a app/site continuam a entrar e mostram "Subscrição suspensa" com "Reativar subscrição"); os utilizadores dos aparelhos **não mudam**, por isso os interruptores, os estados e os comandos do motor/admin continuam. Qualquer outro comando do `domus.sh` que regenere a ACL (`acl`, `aparelho`, …) respeita também os planos.
+
+### 16.3 Gestão manual
+
+```bash
+./domus.sh plano joao conforto                     # ativo (por omissão), gerido "manual"
+./domus.sh plano joao base --estado teste
+./domus.sh plano joao conforto --estado em_atraso  # aviso de 15 dias (aviso_ate)
+./domus.sh plano joao conforto --estado suspenso   # modo básico (permissões tiradas logo)
+./domus.sh plano joao conforto --estado cancelado
+./domus.sh plano joao conforto --gerido stripe     # devolve a gestão ao Stripe
+./domus.sh listar                                  # mostra o plano de cada cliente
+```
+
+O comando grava `dados/planos/<cliente>.json` com `"gerido": "manual"`, publica `domus/<cliente>/_plano` (retido) e ajusta a ACL na hora. Um cliente "manual" não é alterado pelos eventos do Stripe (exceto se ele próprio fizer um novo checkout); se tiver uma subscrição no Stripe, a cobrança continua até a cancelar no painel do Stripe (o script avisa). Um `em_atraso` manual também passa a `suspenso` ao fim de 15 dias (serviço pagamentos).
+
+### 16.4 Testar em modo de teste
+
+1. Na área de cliente: *A minha subscrição → Mudar de plano* → Checkout com o cartão de teste **4242 4242 4242 4242** (data futura, CVC qualquer). O `_plano` passa a `teste` (30 dias grátis).
+2. Pagamento falhado: cartão **4000 0000 0000 0341** (aceita guardar, recusa cobrar) numa subscrição sem teste, ou no portal trocar para esse cartão e usar um **Test clock** (*Billing → Test clocks*) para avançar para o fim do teste/período → `em_atraso` com aviso de 15 dias.
+3. Com a [Stripe CLI](https://docs.stripe.com/stripe-cli): `stripe events resend <evt_…>` volta a enviar um evento (o serviço reconhece os repetidos) e `stripe listen --forward-to https://<DOMUS_HOST>/stripe/webhook` mostra os eventos em direto (usa um `whsec_` próprio: ponha-o temporariamente no `.env`).
+4. Em *Developers → Webhooks → (endpoint)* veja as respostas: 200 = tratado; 400 = assinatura errada (`STRIPE_WEBHOOK_SECRET`); 500 = erro (ver `docker compose logs pagamentos`; o Stripe repete durante 3 dias).
+
+### 16.5 Faturação (obrigatória em Portugal)
+
+**As faturas e recibos do Stripe não são faturas certificadas pela AT.** Cada pagamento tem de ter uma **fatura-recibo emitida num programa de faturação certificado** (ex.: InvoiceXpress, Moloni, Vendus, TOConline), com o NIF do cliente quando ele o pedir. Nesta fase o serviço regista cada pagamento (`invoice.paid`) em **`dados/pagamentos/pagamentos.csv`** (`data;cliente;plano;valor_com_iva;valor_sem_iva;id_stripe`, IVA 23 %) para o contabilista emitir as faturas; a ligação automática ao programa certificado fica para a fase seguinte (depende do programa que o contabilista usar). Reembolsos (notas de crédito) não entram no CSV: trate-os à mão. Guarde o CSV nas cópias de segurança (§12).
+
 ## Resolução de problemas
 
 | Problema | O que ver |
@@ -320,3 +430,8 @@ Quando a internet volta, o sistema envia um aviso do tipo "A casa esteve sem int
 | App/site não liga | `wss://HOST/mqtt`, utilizador = código do cliente |
 | Sem notificações ntfy | `docker compose logs motor`; correu `./domus.sh motor`? tópico certo na app? |
 | "outra execução do domus.sh está em curso" | espera que o outro comando termine |
+| Checkout/portal dizem "ainda não configurados" | faltam variáveis `STRIPE_*` no `.env` (ver `docker compose logs pagamentos`); depois `docker compose up -d pagamentos` |
+| O Stripe mostra erros 400 no webhook | `STRIPE_WEBHOOK_SECRET` não é o do endpoint (teste e real têm segredos diferentes) |
+| O plano não muda depois de pagar | `docker compose logs pagamentos`; eventos selecionados no webhook (§16.1); utilizador MQTT `pagamentos` criado (`./domus.sh pagamentos`) |
+| Cliente suspenso continua a comandar | o temporizador `domus-planos.timer` (ou o cron) está instalado? `sudo ./domus.sh sincronizar-planos` |
+| "Mudar de plano" abre só a página inicial do portal | ligar "Customers can switch plans" com os três preços no Customer Portal (§16.1) |

@@ -75,7 +75,15 @@ data class Estado(
     val presenca: PresencaCasa? = null,
     val registo: Map<String, Registo> = emptyMap(),
     val avisos: List<AvisoConflito> = emptyList(),
+    /** `_plano` (docs/PROTOCOLO-PLANOS.md §2); `null` = não há (ou ainda não chegou): ver [subscricao]. */
+    val plano: Subscricao? = null,
 ) {
+    /** Subscrição a usar: a de `_plano` ou, sem ela, Conforto ativo gerido à mão (§2). */
+    val subscricao: Subscricao get() = plano ?: Subscricao.PADRAO
+
+    /** Atalho para [Planos.permite] com a [subscricao] atual. */
+    fun permite(chave: String): Boolean = subscricao.permite(chave)
+
     /** Configuração a usar: a do motor ou, se ainda não chegou (ou motor v2), a por omissão. */
     val configEfetiva: ConfigCasa get() = config ?: ConfigCasa.PADRAO
 
@@ -160,6 +168,7 @@ object EstadoParser {
                     )
                 }
                 NTFY -> estado.copy(ntfyUrl = lerNtfy(payload))
+                Subscricao.TOPICO -> if (payload.isBlank()) estado.copy(plano = null) else Subscricao.ler(payload)?.let { estado.copy(plano = it) } ?: estado
                 else -> estado
             }
         }

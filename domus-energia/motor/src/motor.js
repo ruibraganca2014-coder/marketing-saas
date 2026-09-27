@@ -10,6 +10,7 @@
 //   motor-casa.js        — _config, modos, alarme, presença, simulação de férias
 //   motor-automacoes.js  — automações v3, cenas, registo, pausa manual, sequências
 //   motor-saude.js       — _saude, _energia, energia reposta, relatório diário
+//   motor-planos.js      — _plano (docs/PROTOCOLO-PLANOS.md): funcionalidades por plano
 
 import { CLIENTE_RE, normalizarAparelhos } from './aparelhos.js';
 import { texto, lerJson, numero } from './util.js';
@@ -18,6 +19,8 @@ import { normalizarConfig } from './casa.js';
 import { metodosCasa } from './motor-casa.js';
 import { metodosAutomacoes, MAX_EXECUCOES_MINUTO } from './motor-automacoes.js';
 import { metodosSaude } from './motor-saude.js';
+import { metodosPlanos } from './motor-planos.js';
+import { validarPlano } from './planos.js';
 
 /** @typedef {import('./aparelhos.js').Aparelho} Aparelho */
 /** @typedef {import('./validacao.js').Automacao} Automacao */
@@ -147,6 +150,7 @@ export { MAX_EXECUCOES_MINUTO };
  * @property {string|null} saudeAssinatura
  * @property {string|null} saudeTexto
  * @property {string|null} energiaTexto
+ * @property {import('./motor-planos.js').PlanoCliente|null} plano  `_plano` retido (null = sem plano: conforto/ativo)
  */
 
 const logPadrao = {
@@ -240,6 +244,7 @@ export class Motor {
         saudeAssinatura: null,
         saudeTexto: null,
         energiaTexto: null,
+        plano: null,
       };
       this.clientes.set(codigo, c);
     }
@@ -294,6 +299,10 @@ export class Motor {
       if (Array.isArray(d.historico)) c.historico = d.historico.slice(0, MAX_HISTORICO);
       if (Array.isArray(d.tokensFcm)) c.tokensFcm = d.tokensFcm.filter((t) => typeof t === 'string').slice(-MAX_TOKENS_FCM);
       if (d.horaDisparos && typeof d.horaDisparos === 'object') c.horaDisparos = { ...d.horaDisparos };
+      if (d.plano) {
+        const p = validarPlano(d.plano);
+        if (p.ok) c.plano = p.plano;
+      }
       for (const [id, e] of Object.entries(d.aparelhos ?? {})) {
         if (!e || typeof e !== 'object') continue;
         const ea = this.estadoAparelho(c, id);
@@ -363,6 +372,7 @@ export class Motor {
         historico: c.historico,
         tokensFcm: c.tokensFcm,
         horaDisparos: c.horaDisparos,
+        plano: c.plano,
         aparelhos,
       };
     }
@@ -435,6 +445,8 @@ export class Motor {
       this.publicarSaude(c, true);
       this.publicarEnergia(c, true);
     }
+    // Plano: alarme fora do plano → casa; _saude/_energia fora do plano → apagados.
+    this.imporPlano(c, null);
     this.guardar();
   }
 
@@ -503,6 +515,8 @@ export class Motor {
           return retida && this.adotarHistorico(codigo, payload);
         case '_ntfy':
           return this.aoNtfy(codigo, payload);
+        case '_plano':
+          return this.aoPlano(codigo, payload);
         case '_fcm/registar':
           return !retida && this.aoFcm(codigo, payload);
         default:
@@ -827,6 +841,11 @@ export class Motor {
    * @param {{prioridade?: PedidoNotificacao['prioridade'], ignorarSilencio?: boolean}} [opcoes]
    */
   enviarNotificacao(c, ev, opcoes = {}) {
+    // Notificações (ntfy/FCM) só nos planos que as incluem; o evento fica no histórico.
+    if (!this.pode(c, 'notificacoes')) {
+      this.log.info(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (fora do plano)`);
+      return;
+    }
     // Horas de silêncio: só os alarmes notificam (o evento fica no histórico na mesma).
     if (ev.tipo !== 'alarme' && !opcoes.ignorarSilencio && this.emSilencio(c)) {
       this.log.info(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (horas de silêncio)`);
@@ -975,4 +994,4 @@ export class Motor {
   }
 }
 
-Object.assign(Motor.prototype, metodosCasa, metodosAutomacoes, metodosSaude);
+Object.assign(Motor.prototype, metodosCasa, metodosAutomacoes, metodosSaude, metodosPlanos);

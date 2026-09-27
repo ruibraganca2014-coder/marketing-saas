@@ -5,10 +5,11 @@
 # Corre no VPS, dentro da pasta servidor/ (com o docker compose já a correr).
 # Contrato: ../docs/PROTOCOLO-MQTT.md (v1), ../docs/PROTOCOLO-MQTT-v2.md (v2)
 #           e ../docs/PROTOCOLO-MQTT-v3.md (v3: §3 campos novos, §4 regras nos
-#           aparelhos, §10 permissões)
+#           aparelhos, §10 permissões); planos: ../docs/PROTOCOLO-PLANOS.md
 #
 #   ./domus.sh admin [palavra-passe]       (sem argumento: pede-a no terminal ou lê do stdin)
 #   ./domus.sh motor [palavra-passe]
+#   ./domus.sh pagamentos [palavra-passe]
 #   ./domus.sh cliente <codigo> [palavra-passe]
 #   ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" \
 #              [--canais "1:interruptor:Teto:arranque=ultimo,2:interruptor:Termo:carga=perigosa"] \
@@ -16,6 +17,8 @@
 #   ./domus.sh remover-aparelho <cliente> <id>
 #   ./domus.sh listar
 #   ./domus.sh acl            (só regenera o ficheiro acl e recarrega o Mosquitto)
+#   ./domus.sh plano <cliente> <base|conforto|premium> [--estado ativo|teste|em_atraso|suspenso|cancelado]
+#   ./domus.sh sincronizar-planos   (temporizador de minuto a minuto: ACL dos suspensos)
 #
 # Estado (fonte de verdade, fora do git, em dados/):
 #   dados/admin.senha               palavra-passe do admin (usada para publicar)
@@ -27,7 +30,11 @@
 #                                   (entrada/simular 0/1; linhas antigas "n:funcao:nome"
 #                                   e sem a coluna divisao continuam a ser aceites)
 #   dados/clientes/<codigo>.ntfy    segredo do tópico ntfy do cliente
-# O ficheiro mosquitto/seguranca/acl é SEMPRE gerado a partir destes ficheiros.
+#   dados/.pagamentos               existe depois de o utilizador "pagamentos" ser criado
+#   dados/planos/<codigo>.json      subscrição do cliente (uma linha JSON; escrito
+#                                   pelo serviço pagamentos ou por "./domus.sh plano")
+# O ficheiro mosquitto/seguranca/acl é SEMPRE gerado a partir destes ficheiros
+# (clientes suspensos/cancelados: só leem domus/<c>/_plano).
 #
 # Modos de teste (desenvolvimento):
 #   DOMUS_DRY_RUN=1          não corre nada no Docker: mostra o que faria e
@@ -51,6 +58,12 @@ DADOS_DIR="${DOMUS_DADOS:-dados}"
 CLIENTES_DIR="$DADOS_DIR/clientes"
 ADMIN_SENHA_FICH="$DADOS_DIR/admin.senha"
 MOTOR_MARCA="$DADOS_DIR/.motor"
+PAGAMENTOS_MARCA="$DADOS_DIR/.pagamentos"
+PLANOS_DIR="$DADOS_DIR/planos"
+PLANOS="base conforto premium"
+ESTADOS_PLANO="ativo teste em_atraso suspenso cancelado"
+DIAS_AVISO=15                              # em_atraso: dias de aviso até suspender (PROTOCOLO-PLANOS §2)
+RESERVADOS="admin motor pagamentos"        # utilizadores internos: nunca códigos de cliente
 # Códigos de cliente e ids de aparelho: subconjunto de [a-z0-9-]+ (protocolo),
 # sem "-" no início/fim e no máximo 32 caracteres (o tópico ntfy
 # "domus-<cliente>-<segredo>" tem de caber em 64 caracteres).
@@ -98,6 +111,11 @@ Uso:
   ./domus.sh motor [palavra-passe]
       Cria/atualiza o utilizador "motor" no Mosquitto e no ntfy. Sem
       palavra-passe usa MOTOR_MQTT_PASS e NTFY_MOTOR_PASS do ficheiro .env.
+
+  ./domus.sh pagamentos [palavra-passe]
+      Cria/atualiza o utilizador "pagamentos" (serviço de subscrições; só pode
+      publicar domus/+/_plano). Sem palavra-passe usa PAGAMENTOS_MQTT_PASS do .env.
+      O "./domus.sh admin" da primeira vez também o cria.
 
   ./domus.sh cliente <codigo> [palavra-passe]
       Cria o cliente (ou muda-lhe a palavra-passe). Sem palavra-passe, gera uma.
@@ -148,6 +166,20 @@ Uso:
 
   ./domus.sh acl
       Regenera o ficheiro de permissões e recarrega o Mosquitto.
+
+  ./domus.sh plano <cliente> <base|conforto|premium> [--estado ESTADO] [--gerido manual|stripe]
+      Gestão manual da subscrição (sem Stripe): grava dados/planos/<cliente>.json
+      com gerido "manual" e publica domus/<cliente>/_plano (retido).
+      ESTADO: ativo (por omissão), teste, em_atraso (aviso de 15 dias),
+      suspenso ou cancelado (modo básico: a app e o site só leem o _plano; os
+      aparelhos e os interruptores continuam a funcionar).
+      --gerido stripe devolve a gestão ao Stripe (só se o cliente já tiver uma
+      subscrição no Stripe; o próximo evento do Stripe atualiza o estado).
+
+  ./domus.sh sincronizar-planos
+      Lê dados/planos/*.json e, se algum cliente passou a (ou deixou de estar)
+      suspenso/cancelado, regenera a ACL e recarrega o Mosquitto. Corre a cada
+      minuto num temporizador (systemd/domus-planos.timer ou cron).
 EOF
 }
 
@@ -237,6 +269,16 @@ preparar_dados() {
   elif [[ "$(stat -c %u "$DADOS_DIR/motor" 2>/dev/null)" != 1000 ]]; then
     echo "Aviso: corra 'sudo chown -R 1000:1000 $DADOS_DIR/motor' para o motor poder guardar o estado." >&2
   fi
+  # O serviço pagamentos (uid 1000) escreve em dados/planos e dados/pagamentos.
+  local p
+  for p in "$PLANOS_DIR" "$DADOS_DIR/pagamentos"; do
+    mkdir -p "$p"
+    if [[ "$(id -u)" == 0 ]]; then
+      chown 1000:1000 "$p" 2>/dev/null || true
+    elif [[ "$(stat -c %u "$p" 2>/dev/null)" != 1000 ]]; then
+      echo "Aviso: corra 'sudo chown 1000:1000 $p' para o serviço pagamentos poder escrever." >&2
+    fi
+  done
 }
 
 cliente_existe() { [[ -f "$CLIENTES_DIR/$1.tsv" ]]; }
@@ -289,7 +331,7 @@ linha_aparelho() { # <cliente> <id> — imprime a linha normalizada
 # Todos os utilizadores MQTT que existem segundo o estado.
 todos_utilizadores() {
   local c id
-  printf 'admin\nmotor\n'
+  printf 'admin\nmotor\npagamentos\n'
   while IFS= read -r c; do
     printf '%s\n' "$c"
     while IFS= read -r id; do
@@ -352,7 +394,7 @@ normalizar_canais() { # <espec>
     IFS=':' read -r -a campos <<< "$item"
     n="$(limpar_texto "${campos[0]}")"
     funcao="$(limpar_texto "${campos[1]:-}")"
-    [[ "$n" =~ ^[1-9][0-9]?$ ]] && (( n <= 64 )) || erro "número de canal inválido: '$n' (1 a 64)"
+    if [[ ! "$n" =~ ^[1-9][0-9]?$ ]] || (( n > 64 )); then erro "número de canal inválido: '$n' (1 a 64)"; fi
     [[ " $FUNCOES " == *" $funcao "* ]] || erro "função inválida no canal $n: '$funcao' (use: $FUNCOES)"
     [[ "$vistos" != *" $n "* ]] || erro "o canal $n aparece repetido"
     vistos+="$n "
@@ -483,6 +525,58 @@ json_ntfy() { # <cliente>
     "$(json_str "https://ntfy.$host/$topico")" "$(json_str "https://ntfy.$host")" "$(json_str "$topico")"
 }
 
+# -----------------------------------------------------------------------------
+# Planos (docs/PROTOCOLO-PLANOS.md §2–§4): dados/planos/<c>.json
+# -----------------------------------------------------------------------------
+# O ficheiro é uma linha JSON "plana" (texto, null, true/false), escrita pelo
+# serviço pagamentos (Node) ou por "./domus.sh plano". Lê-se aqui um campo de
+# cada vez, sem precisar de ferramentas extra.
+plano_fich() { printf '%s/%s.json' "$PLANOS_DIR" "$1"; }
+
+# Valor de um campo de texto (vazio se for null ou não existir). <ficheiro> <campo>
+plano_campo() {
+  local txt re
+  [[ -f "$1" ]] || return 0
+  txt="$(< "$1")"
+  re="\"$2\"[[:space:]]*:[[:space:]]*\"([^\"\\\\]*)\""
+  if [[ "$txt" =~ $re ]]; then printf '%s' "${BASH_REMATCH[1]}"; fi
+}
+
+plano_teste_usado() { # <ficheiro> — 0 se "teste_usado": true
+  local txt re='"teste_usado"[[:space:]]*:[[:space:]]*true'
+  [[ -f "$1" ]] || return 1
+  txt="$(< "$1")"
+  [[ "$txt" =~ $re ]]
+}
+
+# O cliente está em modo básico (suspenso ou cancelado)? Sem ficheiro = não
+# (clientes antigos: conforto ativo, §2).
+cliente_suspenso() { # <cliente>
+  local e
+  e="$(plano_campo "$(plano_fich "$1")" estado)"
+  [[ "$e" == suspenso || "$e" == cancelado ]]
+}
+
+# Data ISO em UTC ("2026-10-01T10:00:00Z"). [deslocamento para o date -d]
+agora_iso() {
+  if [[ -n "${1:-}" ]]; then date -u -d "$1" +%Y-%m-%dT%H:%M:%SZ; else date -u +%Y-%m-%dT%H:%M:%SZ; fi
+}
+
+json_ou_null() { if [[ -n "$1" ]]; then json_str "$1"; else printf 'null'; fi; }
+
+# Conteúdo exato de domus/<c>/_plano (§2), a partir do ficheiro.
+json_plano() { # <cliente>
+  local f campo primeiro=1
+  f="$(plano_fich "$1")"
+  printf '{'
+  for campo in plano estado desde proximo_pagamento aviso_ate gerido; do
+    (( primeiro )) || printf ','
+    primeiro=0
+    printf '"%s":%s' "$campo" "$(json_ou_null "$(plano_campo "$f" "$campo")")"
+  done
+  printf '}'
+}
+
 # Ficheiro ACL do Mosquitto, gerado a partir do estado. Escrito no stdout.
 # Contrato: v1 "Permissões" + v2 secção 5 + v3 secção 10.
 #
@@ -496,6 +590,9 @@ json_ntfy() { # <cliente>
 # Os tópicos reservados (_aparelhos, _alarme, _config, _modo, _cenas, _saude,
 # _energia, _presenca, _automacoes/registo, _automacoes/avisos,
 # _automacoes/admin, ...) continuam só de leitura para o cliente.
+# O _plano (PROTOCOLO-PLANOS §2) só é escrito pelo "pagamentos" (e admin/motor).
+# Cliente suspenso/cancelado (dados/planos/<c>.json, §3): só lê domus/<c>/_plano;
+# os utilizadores dos aparelhos dele não mudam (interruptores e estados continuam).
 # Ver testes/acl.sh.
 PEDIDOS_CLIENTE="_alarme/set _automacoes/set _fcm/registar _config/set _modo/set _cenas/set _cenas/executar _automacoes/executar _presenca/set"
 
@@ -514,23 +611,33 @@ topic readwrite domus/#
 # Motor de regras (serviço interno): tudo em domus/
 user motor
 topic readwrite domus/#
+
+# Serviço de pagamentos (PROTOCOLO-PLANOS §4): só publica o _plano de cada cliente
+user pagamentos
+topic write domus/+/_plano
 EOF
   while IFS= read -r c; do
     mapfile -t ids < <(ler_aparelhos "$c" | cut -f1)
-    printf '\n# ===== Cliente %s =====\n' "$c"
-    printf 'user %s\n' "$c"
-    printf 'topic read domus/%s/#\n' "$c"
-    printf '# pedidos ao motor (v2 §5, v3 §10)\n'
-    for t in $PEDIDOS_CLIENTE; do
-      printf 'topic write domus/%s/%s\n' "$c" "$t"
-    done
-    for id in "${ids[@]}"; do
-      printf '# comandos para o aparelho %s\n' "$id"
-      printf 'topic write domus/%s/%s/+/set\n' "$c" "$id"        # canais OpenBeken (<n>/set), led_dimmer/set
-      printf 'topic write domus/%s/%s/rpc\n' "$c" "$id"          # Shelly RPC (luz, estore)
-      printf 'topic write domus/%s/%s/command\n' "$c" "$id"      # Shelly status_update
-      printf 'topic write domus/%s/%s/command/+\n' "$c" "$id"    # Shelly command/switch:<id>
-    done
+    if cliente_suspenso "$c"; then
+      printf '\n# ===== Cliente %s (%s: modo básico, só lê o _plano) =====\n' "$c" "$(plano_campo "$(plano_fich "$c")" estado)"
+      printf 'user %s\n' "$c"
+      printf 'topic read domus/%s/_plano\n' "$c"
+    else
+      printf '\n# ===== Cliente %s =====\n' "$c"
+      printf 'user %s\n' "$c"
+      printf 'topic read domus/%s/#\n' "$c"
+      printf '# pedidos ao motor (v2 §5, v3 §10)\n'
+      for t in $PEDIDOS_CLIENTE; do
+        printf 'topic write domus/%s/%s\n' "$c" "$t"
+      done
+      for id in "${ids[@]}"; do
+        printf '# comandos para o aparelho %s\n' "$id"
+        printf 'topic write domus/%s/%s/+/set\n' "$c" "$id"        # canais OpenBeken (<n>/set), led_dimmer/set
+        printf 'topic write domus/%s/%s/rpc\n' "$c" "$id"          # Shelly RPC (luz, estore)
+        printf 'topic write domus/%s/%s/command\n' "$c" "$id"      # Shelly status_update
+        printf 'topic write domus/%s/%s/command/+\n' "$c" "$id"    # Shelly command/switch:<id>
+      done
+    fi
     for id in "${ids[@]}"; do
       printf '\n# Aparelho %s de %s\n' "$id" "$c"
       printf 'user %s-%s\n' "$c" "$id"
@@ -587,6 +694,25 @@ recarregar_mosquitto() {
     docker)    docker compose kill -s HUP mosquitto >/dev/null ;;
   esac
   sleep 1   # dá tempo ao Mosquitto para reler passwd e acl
+}
+
+# Conteúdo do acl instalado (vazio se não existir).
+ler_acl_instalada() {
+  if [[ "$MODO" == docker ]]; then
+    no_mosquitto sh -c 'cat "$1/acl" 2>/dev/null || true' sh "$MOSQ_DIR"
+  else
+    cat "$MOSQ_DIR/acl" 2>/dev/null || true
+  fi
+}
+
+# Regenera o acl e recarrega o Mosquitto SÓ se mudou. Devolve 0 se mudou.
+sincronizar_acl() {
+  local novo atual
+  novo="$(gerar_acl)"
+  atual="$(ler_acl_instalada)"
+  [[ "$novo" != "$atual" ]] || return 1
+  aplicar_acl
+  return 0
 }
 
 # Regenera o acl a partir do estado, instala-o e recarrega o Mosquitto.
@@ -956,6 +1082,15 @@ cmd_admin() {
       aviso "falta MOTOR_MQTT_PASS no .env; depois corra: ./domus.sh motor"
     fi
   fi
+  # ... e o do serviço de pagamentos (PROTOCOLO-PLANOS §4).
+  if [[ ! -e "$PAGAMENTOS_MARCA" ]]; then
+    if [[ -n "$(ler_env PAGAMENTOS_MQTT_PASS)" ]]; then
+      info ""
+      cmd_pagamentos
+    else
+      aviso "falta PAGAMENTOS_MQTT_PASS no .env; depois corra: ./domus.sh pagamentos"
+    fi
+  fi
 }
 
 cmd_motor() {
@@ -985,11 +1120,30 @@ cmd_motor() {
   info "Se o motor já estava a correr: docker compose restart motor"
 }
 
+cmd_pagamentos() {
+  (( $# <= 1 )) || erro "uso: ./domus.sh pagamentos [palavra-passe]"
+  local senha="${1:-}" env_senha
+  env_senha="$(ler_env PAGAMENTOS_MQTT_PASS)"
+  [[ -n "$senha" ]] || senha="$env_senha"
+  [[ -n "$senha" ]] || erro "indique a palavra-passe ou defina PAGAMENTOS_MQTT_PASS no .env"
+  validar_senha "$senha"
+  verificar_mosquitto
+  preparar_dados
+  definir_senha_mqtt pagamentos "$senha"
+  aplicar_acl
+  : > "$PAGAMENTOS_MARCA"
+  info "Utilizador 'pagamentos' criado/atualizado no Mosquitto (só publica domus/+/_plano)."
+  if [[ -n "$env_senha" && "$senha" != "$env_senha" ]]; then
+    aviso "a palavra-passe é diferente de PAGAMENTOS_MQTT_PASS no .env: atualize o .env e corra 'docker compose up -d pagamentos'"
+  fi
+  info "Se o serviço pagamentos já estava a correr: docker compose restart pagamentos"
+}
+
 cmd_cliente() {
   (( $# >= 1 && $# <= 2 )) || erro "uso: ./domus.sh cliente <codigo> [palavra-passe]"
   local c="$1" senha="${2:-}" gerada=0
   validar_id "$c" "código de cliente"
-  [[ "$c" != admin && "$c" != motor ]] || erro "'$c' é reservado"
+  [[ " $RESERVADOS " != *" $c "* ]] || erro "'$c' é reservado"
   preparar_dados
   if ! cliente_existe "$c" && utilizador_ocupado "$c"; then
     erro "já existe um utilizador MQTT chamado '$c' (um aparelho). Escolha outro código."
@@ -1115,7 +1269,12 @@ cmd_listar() {
   local c id tipo med bat canais nome adiv n=0 extra cn cf cnome ent sim arr carga cdiv linha
   while IFS= read -r c; do
     n=$((n + 1))
-    printf '%s\n' "$c"
+    if [[ -f "$(plano_fich "$c")" ]]; then
+      printf '%s   [plano: %s, %s, %s]\n' "$c" "$(plano_campo "$(plano_fich "$c")" plano)" \
+        "$(plano_campo "$(plano_fich "$c")" estado)" "$(plano_campo "$(plano_fich "$c")" gerido)"
+    else
+      printf '%s\n' "$c"
+    fi
     if [[ ! -s "$CLIENTES_DIR/$c.tsv" ]]; then
       printf '   (sem aparelhos)\n'
     fi
@@ -1140,6 +1299,7 @@ cmd_listar() {
   (( n )) || info "(ainda não há clientes)"
   [[ -s "$ADMIN_SENHA_FICH" ]] || info "Atenção: ainda não há administrador (./domus.sh admin <palavra-passe>)."
   [[ -e "$MOTOR_MARCA" ]] || info "Atenção: o utilizador 'motor' ainda não foi criado (./domus.sh motor)."
+  [[ -e "$PAGAMENTOS_MARCA" ]] || info "Atenção: o utilizador 'pagamentos' ainda não foi criado (./domus.sh pagamentos)."
   return 0
 }
 
@@ -1150,12 +1310,122 @@ cmd_acl() {
   info "ACL regenerada e Mosquitto recarregado."
 }
 
-# Evita duas execuções em simultâneo.
+# Gestão manual da subscrição (PROTOCOLO-PLANOS §2, §4).
+cmd_plano() {
+  local -a pos=()
+  local estado=ativo gerido=manual
+  while (( $# )); do
+    case "$1" in
+      --estado)   (( $# >= 2 )) || erro "--estado precisa de um valor"; estado="$2"; shift 2 ;;
+      --estado=*) estado="${1#--estado=}"; shift ;;
+      --gerido)   (( $# >= 2 )) || erro "--gerido precisa de um valor"; gerido="$2"; shift 2 ;;
+      --gerido=*) gerido="${1#--gerido=}"; shift ;;
+      --*)        erro "opção desconhecida: $1" ;;
+      *)          pos+=("$1"); shift ;;
+    esac
+  done
+  (( ${#pos[@]} == 2 )) \
+    || erro "uso: ./domus.sh plano <cliente> <base|conforto|premium> [--estado ativo|teste|em_atraso|suspenso|cancelado] [--gerido manual|stripe]"
+  local c="${pos[0]}" plano="${pos[1]}"
+  validar_id "$c" "código de cliente"
+  [[ " $PLANOS " == *" $plano "* ]] || erro "plano inválido: '$plano' (use: $PLANOS)"
+  [[ " $ESTADOS_PLANO " == *" $estado "* ]] || erro "estado inválido: '$estado' (use: $ESTADOS_PLANO)"
+  [[ "$gerido" == manual || "$gerido" == stripe ]] || erro "--gerido inválido: '$gerido' (use manual ou stripe)"
+  preparar_dados
+  cliente_existe "$c" || erro "o cliente '$c' não existe. Crie-o com: ./domus.sh cliente $c"
+  senha_admin >/dev/null
+  verificar_mosquitto
+
+  local f agora velho_plano velho_estado velho_desde velho_aviso scli ssub teste=false desde aviso="" proximo=""
+  f="$(plano_fich "$c")"
+  agora="$(agora_iso)"
+  velho_plano="$(plano_campo "$f" plano)"
+  velho_estado="$(plano_campo "$f" estado)"
+  velho_desde="$(plano_campo "$f" desde)"
+  velho_aviso="$(plano_campo "$f" aviso_ate)"
+  scli="$(plano_campo "$f" stripe_cliente)"
+  ssub="$(plano_campo "$f" stripe_subscricao)"
+  [[ "$scli" =~ ^[A-Za-z0-9_]*$ ]] || scli=""
+  [[ "$ssub" =~ ^[A-Za-z0-9_]*$ ]] || ssub=""
+  plano_teste_usado "$f" && teste=true
+  if [[ "$gerido" == stripe && -z "$ssub" ]]; then
+    erro "o cliente '$c' não tem subscrição no Stripe: não pode ser gerido pelo Stripe (use --gerido manual)"
+  fi
+  [[ "$estado" == teste ]] && teste=true
+  # desde: quando mudou o plano ou o estado (mantém-se se nada mudou)
+  if [[ "$velho_plano" == "$plano" && "$velho_estado" == "$estado" && -n "$velho_desde" ]]; then
+    desde="$velho_desde"
+  else
+    desde="$agora"
+  fi
+  case "$estado" in
+    em_atraso)
+      if [[ ( "$velho_estado" == em_atraso || "$velho_estado" == suspenso ) && -n "$velho_aviso" ]]; then
+        aviso="$velho_aviso"
+      else
+        aviso="$(agora_iso "+$DIAS_AVISO days")"
+      fi ;;
+    suspenso) aviso="$velho_aviso" ;;
+  esac
+  [[ "$gerido" == stripe ]] && proximo="$(plano_campo "$f" proximo_pagamento)"
+  [[ "$estado" == suspenso || "$estado" == cancelado ]] && proximo=""
+
+  local json tmp
+  json="$(printf '{"plano":%s,"estado":%s,"desde":%s,"proximo_pagamento":%s,"aviso_ate":%s,"gerido":%s,"stripe_cliente":%s,"stripe_subscricao":%s,"teste_usado":%s,"atualizado":%s}' \
+    "$(json_str "$plano")" "$(json_str "$estado")" "$(json_str "$desde")" "$(json_ou_null "$proximo")" \
+    "$(json_ou_null "$aviso")" "$(json_str "$gerido")" "$(json_ou_null "$scli")" "$(json_ou_null "$ssub")" \
+    "$teste" "$(json_str "$agora")")"
+  tmp="$(mktemp "$PLANOS_DIR/.tmp.XXXXXX")"
+  printf '%s\n' "$json" > "$tmp"
+  chmod 644 "$tmp"
+  if [[ "$(id -u)" == 0 ]]; then chown 1000:1000 "$tmp" 2>/dev/null || true; fi
+  mv "$tmp" "$f"
+
+  publicar_retida "domus/$c/_plano" "$(json_plano "$c")"
+  if sincronizar_acl; then info "Permissões do cliente '$c' atualizadas."; fi
+  info "Plano de '$c': $plano, $estado (gerido: $gerido)${aviso:+, aviso até $aviso}."
+  if cliente_suspenso "$c"; then
+    info "Modo básico: a app e o site só mostram a subscrição; os interruptores e os aparelhos continuam a funcionar."
+  fi
+  if [[ -n "$ssub" && "$gerido" == manual ]]; then
+    aviso "o cliente tem a subscrição $ssub no Stripe: a cobrança continua até a cancelar no painel do Stripe. Enquanto for 'manual', os eventos do Stripe não mudam o estado (./domus.sh plano $c $plano --gerido stripe devolve-lhe a gestão)."
+  fi
+}
+
+cmd_sincronizar_planos() {
+  (( $# == 0 )) || erro "uso: ./domus.sh sincronizar-planos"
+  preparar_dados
+  local f c e
+  shopt -s nullglob
+  for f in "$PLANOS_DIR"/*.json; do
+    c="${f##*/}"; c="${c%.json}"
+    e="$(plano_campo "$f" estado)"
+    if [[ " $ESTADOS_PLANO " != *" $e "* ]]; then aviso "$f: estado inválido '$e' (ignorado)"; fi
+    cliente_existe "$c" || aviso "$f: o cliente '$c' não existe (ignorado)"
+  done
+  shopt -u nullglob
+  verificar_mosquitto
+  if sincronizar_acl; then
+    local suspensos=""
+    while IFS= read -r c; do
+      if cliente_suspenso "$c"; then suspensos+=" $c"; fi
+    done < <(listar_clientes)
+    info "ACL atualizada e Mosquitto recarregado. Em modo básico:${suspensos:- nenhum}"
+  elif [[ -t 1 ]]; then
+    info "Permissões já estão de acordo com os planos (nada a fazer)."
+  fi
+}
+
+# Evita duas execuções em simultâneo. [segundos de espera; por omissão não espera]
 bloquear() {
   preparar_dados
   if command -v flock >/dev/null; then
     exec 9> "$DADOS_DIR/.lock"
-    flock -n 9 || erro "outra execução do domus.sh está em curso"
+    if [[ -n "${1:-}" ]]; then
+      flock -w "$1" 9 || erro "outra execução do domus.sh está em curso"
+    else
+      flock -n 9 || erro "outra execução do domus.sh está em curso"
+    fi
   fi
 }
 
@@ -1165,6 +1435,9 @@ main() {
   case "$cmd" in
     admin)            bloquear; cmd_admin "$@" ;;
     motor)            bloquear; cmd_motor "$@" ;;
+    pagamentos)       bloquear; cmd_pagamentos "$@" ;;
+    plano)            bloquear; cmd_plano "$@" ;;
+    sincronizar-planos) bloquear 50; cmd_sincronizar_planos "$@" ;;
     cliente)          bloquear; cmd_cliente "$@" ;;
     aparelho)         bloquear; cmd_aparelho "$@" ;;
     remover-aparelho) bloquear; cmd_remover_aparelho "$@" ;;

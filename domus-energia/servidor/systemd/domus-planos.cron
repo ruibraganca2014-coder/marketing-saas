@@ -1,0 +1,8 @@
+# Domus Energia — alternativa ao temporizador systemd (use UM dos dois).
+# Copiar para /etc/cron.d/domus-planos (dono root, modo 644) e trocar
+# /home/ubuntu/domus-energia/servidor pela pasta servidor/ do seu VPS:
+#   sudo install -m 644 -o root -g root systemd/domus-planos.cron /etc/cron.d/domus-planos
+# Só escreve no registo quando muda alguma coisa (ou em caso de erro).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+* * * * * root cd /home/ubuntu/domus-energia/servidor && ./domus.sh sincronizar-planos >> /var/log/domus-planos.log 2>&1

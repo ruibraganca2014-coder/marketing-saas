@@ -2,6 +2,8 @@
 # HTTPS automático (Let's Encrypt / ZeroSSL) para DOMUS_HOST e ntfy.DOMUS_HOST.
 #   https://HOST/            -> site estático (pasta ../web)
 #   wss://HOST/mqtt          -> Mosquitto (WebSocket, porta interna 9001)
+#   https://HOST/api/*       -> pagamentos (sessão, checkout, portal; porta interna 8080)
+#   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe, assinados)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)
 #
@@ -16,6 +18,19 @@
 	@mqtt path /mqtt /mqtt/*
 	handle @mqtt {
 		reverse_proxy mosquitto:9001
+	}
+
+	# Serviço de pagamentos (docs/PROTOCOLO-PLANOS.md §4). O Caddy substitui o
+	# X-Forwarded-For pelo IP real do visitante (usado no limite de tentativas).
+	# O webhook do Stripe precisa do corpo exatamente como chegou (assinatura):
+	# o Caddy não o altera. Mesmo site = mesma origem: "connect-src 'self'" da
+	# CSP já cobre o /api, e não é preciso CORS.
+	@pagamentos path /api/* /stripe/webhook
+	handle @pagamentos {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy pagamentos:8080
 	}
 
 	# Compatibilidade com o formato https://HOST/ntfy/<tópico> do protocolo v2.
@@ -35,7 +50,10 @@
 	# - CSP: scripts só do próprio site e do cdn.jsdelivr.net (mqtt.js e
 	#   supabase-js); estilos próprios + Google Fonts ('unsafe-inline' porque há
 	#   atributos style="" e variáveis CSS postas pelo JavaScript); ligações só
-	#   ao próprio site, ao MQTT (wss://HOST/mqtt) e ao Supabase (orçamentos).
+	#   ao próprio site (inclui o /api dos pagamentos), ao MQTT (wss://HOST/mqtt)
+	#   e ao Supabase (orçamentos). O Stripe Checkout e o Customer Portal abrem
+	#   por navegação (location.href), que a CSP não restringe: não é preciso
+	#   acrescentar o stripe.com.
 	#   Se mudar de CDN, de fontes ou de Supabase, atualize esta linha.
 	header {
 		Strict-Transport-Security "max-age=31536000"

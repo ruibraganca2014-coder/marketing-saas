@@ -28,6 +28,10 @@ android {
         // Servidor MQTT da Domus Energia (ex.: "mqtt.domusenergia.pt" ou "51-38-10-20.sslip.io").
         // A app liga sempre por WebSocket seguro: wss://MQTT_HOST:443/mqtt (ver docs/PROTOCOLO-MQTT.md).
         buildConfigField("String", "MQTT_HOST", "\"SEU-SERVIDOR\"")
+        // "Fale connosco" (subscrição gerida à mão / suspensa): WhatsApp (só algarismos, com o indicativo 351)
+        // e telefone. Com os valores de exemplo (zeros) os botões não aparecem.
+        buildConfigField("String", "CONTACTO_WHATSAPP", "\"351000000000\"")
+        buildConfigField("String", "CONTACTO_TELEFONE", "\"+351 000 000 000\"")
     }
 
     buildTypes {
@@ -79,6 +83,8 @@ dependencies {
     implementation("com.hivemq:hivemq-mqtt-client:1.3.17")
     implementation(platform("com.hivemq:hivemq-mqtt-client-websocket:1.3.17"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // HTTP para o serviço de pagamentos (/api/sessao, /api/checkout, /api/portal). Traz o okio 3.6.0.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // Presença (opcional): zona de casa com o Geofencing dos Google Play services, verificação e
     // publicação com a app fechada pelo WorkManager; await() nas Task do Play services.
     implementation("com.google.android.gms:play-services-location:21.3.0")
@@ -92,4 +98,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // org.json real para os testes em JVM (no android.jar de testes só existem stubs).
     testImplementation("org.json:json:20260814")
+    // Servidor HTTP falso para testar o cliente do serviço de pagamentos.
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 }

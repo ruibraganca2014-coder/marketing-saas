@@ -1,0 +1,17 @@
+# Domus Energia — aplica as permissões (ACL) dos planos: clientes suspensos ou
+# cancelados ficam só com leitura do próprio _plano (docs/PROTOCOLO-PLANOS.md §3–§4).
+# Corrido a cada minuto por domus-planos.timer. Instalação: ver servidor/README.md,
+# "Planos e pagamentos". Troque /home/ubuntu/domus-energia/servidor pela pasta
+# servidor/ do seu VPS (nas duas linhas abaixo).
+[Unit]
+Description=Domus Energia: sincronizar permissões MQTT com os planos
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/domus-energia/servidor
+ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh sincronizar-planos
+# Não deixar uma execução presa (o domus.sh espera no máximo 50 s pelo cadeado).
+TimeoutStartSec=90
+Nice=10

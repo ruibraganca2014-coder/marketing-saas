@@ -159,10 +159,11 @@ export const metodosSaude = {
     for (const e of c.estado.values()) if (e.energia && rolarDia(e.energia, local.data)) rolou = true;
     if (this.sincronizados.has(c.codigo) && (rolou || cinco)) this.publicarEnergia(c, false);
     if (rolou || cinco) this.guardar();
-    this.avisosSaude(c);
+    // Avisos de saúde da v3 (offline, pilhas a acabar, sinal, reinícios) só com `saude` no plano.
+    if (this.pode(c, 'saude')) this.avisosSaude(c);
     if (this.sincronizados.has(c.codigo) && cinco) this.publicarSaude(c, true);
     const hora = this.cfg(c).relatorio_diario;
-    if (hora && hora === local.hora && c.relatorioDia !== local.data) {
+    if (hora && hora === local.hora && c.relatorioDia !== local.data && this.pode(c, 'relatorio_diario')) {
       c.relatorioDia = local.data;
       this.guardar();
       this.enviarRelatorio(c);
@@ -277,6 +278,7 @@ export const metodosSaude = {
    */
   publicarSaude(c, periodico) {
     c.saudeSuja = false;
+    if (!this.pode(c, 'saude')) return; // fora do plano: não publicado (apagado em imporPlano)
     const saude = this.calcularSaude(c);
     const texto = JSON.stringify(saude);
     const assinatura = JSON.stringify(
@@ -321,6 +323,7 @@ export const metodosSaude = {
 
   /** @param {Cliente} c @param {boolean} forcar publica mesmo sem mudanças */
   publicarEnergia(c, forcar) {
+    if (!this.pode(c, 'energia')) return; // fora do plano: não publicado (apagado em imporPlano)
     const texto = JSON.stringify(this.calcularEnergia(c));
     if (!forcar && texto === c.energiaTexto) return;
     c.energiaTexto = texto;

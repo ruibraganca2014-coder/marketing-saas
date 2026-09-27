@@ -132,6 +132,12 @@ export const metodosCasa = {
     }
     const por = typeof v.por === 'string' && POR_RE.test(v.por) ? v.por : 'app';
     if (!c.alarme) c.alarme = this.normalizarAlarme(null);
+    if (v.ativo && !this.pode(c, 'alarme')) {
+      // Alarme fora do plano (base ou modo básico): erro e nada muda.
+      this.evento(c, { tipo: 'erro', titulo: 'Alarme não alterado', mensagem: this.bloqueio(c, 'alarme'), por });
+      this.publicarAlarme(c);
+      return;
+    }
     if (v.ativo && c.alarme.ativo) {
       // Já está armado (fora, noite ou férias): nada muda.
       this.publicarAlarme(c);
@@ -152,6 +158,8 @@ export const metodosCasa = {
     if (!MODOS.includes(v.modo)) return erro(`Modo desconhecido ${JSON.stringify(v.modo ?? null)} (use casa, fora, noite ou ferias).`);
     if (v.forcar !== undefined && typeof v.forcar !== 'boolean') return erro('"forcar" tem de ser true ou false.');
     if (v.por !== undefined && (typeof v.por !== 'string' || !POR_RE.test(v.por))) return erro('"por" inválido (ex.: "app" ou "web").');
+    // Modos fora/noite/férias só nos planos com alarme (`casa` é sempre permitido).
+    if (TIPO_DO_MODO[v.modo] && !this.pode(c, 'alarme')) return erro(this.bloqueio(c, 'alarme'));
     this.mudarModo(c, v.modo, { forcar: v.forcar === true, por: v.por ?? 'app' });
   },
 
@@ -177,6 +185,11 @@ export const metodosCasa = {
   mudarModo(c, novo, o = {}) {
     const forcar = o.forcar === true;
     const por = o.por ?? 'app';
+    if (TIPO_DO_MODO[novo] && !this.pode(c, 'alarme')) {
+      // Última barreira (os pedidos e as ações já verificam o plano antes).
+      this.log.aviso(`[modo] ${c.codigo}: modo ${novo} fora do plano; ignorado`);
+      return false;
+    }
     if (!c.alarme) c.alarme = this.normalizarAlarme(null);
     if (!c.modo) c.modo = this.modoDoAlarme(c.alarme);
     const anterior = c.modo.modo;
@@ -446,7 +459,7 @@ export const metodosCasa = {
    */
   simular(c, ms, local) {
     const sim = c.simulacao;
-    if (c.modo?.modo !== 'ferias' || !c.aparelhos) {
+    if (c.modo?.modo !== 'ferias' || !c.aparelhos || !this.pode(c, 'alarme')) {
       if (Object.keys(sim.canais).length) this.pararSimulacao(c);
       return;
     }
