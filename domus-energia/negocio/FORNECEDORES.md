@@ -68,6 +68,36 @@ Comprar a um distribuidor na UE evita a maior parte disto.
 - **Nota:** para os clientes, o **TO-Q-SY2-JWT** é mais interessante que o SY1: tem proteção de sobrecorrente, subtensão/sobretensão e temperatura, com corrente ajustável. Ver se o OpenBeken o suporta antes de comprar.
 - Também fabrica disjuntores diferenciais e magnetotérmicos (TORD4(B), TOMD6, TOMP65).
 
-## 3. Temu (revenda)
-- Disjuntor Chayo TO-Q-SY1-JWT 63 A com medição: **12,28 €** (captura do dono).
-- Restantes preços: por preencher pelo dono (interruptores, sensores, estores, tomadas, luzes).
+## 3. Temu (revenda) — preços vistos pelo dono (setembro 2026, com IVA, envio grátis)
+
+**Loja Chayo (Tongou), 4 artigos, avaliação 4,9★**
+| Artigo | Preço | No catálogo |
+|---|---|---|
+| Disjuntor Wi-Fi TO-Q-SY1-JWT 63 A, medição (87 mil vendidos; o dono já comprou 2 vezes) | 11,04 € (antes 12,28 €) | TONGOU-SY1-JWT |
+| Disjuntor Wi-Fi TO-Q-SY2-JWT 1–63 A ajustável, medição e proteções (17 mil vendidos) | 14,30 € | TONGOU-SY2-JWT |
+| Disjuntor Zigbee TO-Q-SY2-JZT 1–63 A (precisa de gateway) | 20,11 € (PVP 35,93 €) | TONGOU-SY2-JZT (inativo) |
+| Gateway Tuya Zigbee 3.0 com cabo de rede | 27,97 € | TONGOU-HUB-ZB (inativo) |
+
+**Loja YFK, 10 artigos, 4,8★**
+| Artigo | Preço | No catálogo |
+|---|---|---|
+| Sensor de porta/janela Wi-Fi (1 ou 2 un.) | 6,70 € | SENS-PORTA-WIFI |
+| Sensor de "deteção de segurança" Wi-Fi (confirmar se é de movimento) | 6,82 € | SENS-PIR-WIFI |
+| Sensor de fuga de água Wi-Fi | 6,80 € | SENS-AGUA-WIFI |
+| Sensor de temperatura e humidade Wi-Fi com ecrã, pack de 2 | 16,04 € | SENS-TH-WIFI (8,02 €/un.) |
+| Sensor de temperatura e humidade sem fios | 10,88 € | SENS-TH-SF (inativo) |
+| Sensor de porta Zigbee | 13,92 € | SENS-PORTA-ZB (inativo) |
+| Cabeça termostática para radiador | 25,04 € | VALVULA-RADIADOR (inativo) |
+| Fechadura de puxador 4 em 1 | 33,02 € | FECHADURA-4EM1 (inativo) |
+| Fechadura de puxador 5 em 1 | 35,20 € | FECHADURA-5EM1 (inativo) |
+| Fechadura de segurança | 64,27 € | FECHADURA-SEG (inativo) |
+
+**Terceira loja (preços não visíveis na captura):** sensor de porta Wi-Fi Tuya (pilha AAA), detetor de fugas de água Wi-Fi, câmara Wi-Fi Tuya 4MP rotativa.
+
+**Notas**
+- "Inativo" = registado no catálogo com o preço de compra, mas fora do simulador: o Zigbee precisa de gateway (decisão: só Wi-Fi) e as fechaduras, válvulas e câmaras funcionam pela app Tuya/Bluetooth, não pela nossa plataforma MQTT. O CEO ativa-os no painel se decidir vendê-los.
+- Antes de comprar em quantidade, confirmar em 1 unidade o **chip** dos sensores Wi-Fi a pilhas (para o OpenBeken) e a certificação **EN 60898** do SY2 (necessária para substituir o disjuntor do circuito).
+- Faltam preços: interruptores de parede, módulos atrás do interruptor, estores, tomadas, reguladores de luz.
+
+## 3.1 Alibaba — RSH Tech (rshtech.en.alibaba.com)
+- Enviado pelo dono (produto 62044509689). Não foi possível abrir a página a partir do ambiente de trabalho (Alibaba bloqueado). Por preencher: produtos, preços por quantidade, encomenda mínima, certificações CE/EN.

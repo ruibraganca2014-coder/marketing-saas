@@ -59,18 +59,22 @@ Configuração: `tarifa_hora_iva` (35 €), `margem_intervalo_pct` (15 %), `desl
 **Sementes iniciais** (preços de venda **provisórios** — o CEO confirma no painel; `preco_compra` vazio quando desconhecido):
 | sku | nome | categoria | fornecedor | preço compra | venda c/ IVA | horas | especificações |
 |---|---|---|---|---|---|---|---|
-| TONGOU-SY1-JWT | Disjuntor inteligente Wi-Fi com medição (1P+N, até 63 A) | disjuntor | Tongou/Changyou (Temu: Chayo) | 12,28 | 39,90 | 0,5 | amperes_max 63, medicao sim, protecoes não, rede wifi |
-| TONGOU-SY2-JWT | Disjuntor inteligente Wi-Fi com medição e proteções (1–63 A ajustável) | disjuntor | Tongou/Changyou | — | 54,90 | 0,5 | amperes_ajustavel 1–63, medicao, protecoes sobrecorrente/tensão/temperatura |
+| TONGOU-SY1-JWT | Disjuntor inteligente Wi-Fi com medição (1P+N, até 63 A) | disjuntor | Tongou/Changyou (Temu: loja Chayo) | 11,04 | 39,90 | 0,5 | amperes_max 63, medicao sim, protecoes não, rede wifi |
+| TONGOU-SY2-JWT | Disjuntor inteligente Wi-Fi com medição e proteções (1–63 A ajustável) | disjuntor | Tongou/Changyou (Temu: loja Chayo) | 14,30 | 54,90 | 0,5 | amperes_ajustavel 1–63, medicao, protecoes sobrecorrente/tensão/temperatura |
 | BAB-MOD-2CH | Módulo interruptor Wi-Fi 2 canais (atrás do interruptor) | interruptor | Zhouqiao (BAB Smart) | — | 24,90 | 0,5 | canais 2, rede wifi |
 | BAB-CURTAIN | Módulo de estore Wi-Fi | estore | Zhouqiao (BAB Smart) | — | 29,90 | 0,75 | rede wifi |
 | INT-VIDRO-1 / -2 / -3 / -4 | Interruptor de parede tátil Wi-Fi 1/2/3/4 botões | interruptor | (Temu, a definir) | — | 24,90 / 27,90 / 29,90 / 32,90 | 0,5 | botoes 1–4 |
-| SENS-PORTA-WIFI | Sensor de porta/janela Wi-Fi | sensor | Zhouqiao (BAB Smart) | — | 19,90 | 0,25 | bateria |
-| SENS-PIR-WIFI | Sensor de movimento Wi-Fi | sensor | (a definir) | — | 22,90 | 0,25 | bateria |
+| SENS-PORTA-WIFI | Sensor de porta/janela Wi-Fi | sensor | YFK (Temu) | 6,70 | 19,90 | 0,25 | bateria |
+| SENS-PIR-WIFI | Sensor de movimento Wi-Fi | sensor | YFK (Temu) | 6,82 | 22,90 | 0,25 | bateria |
 | TOMADA-WIFI | Tomada inteligente Wi-Fi com medição | tomada | Zhouqiao (BAB Smart) | — | 19,90 | 0,1 | medicao |
 | DIMMER-WIFI | Regulador de luz Wi-Fi | luz | (a definir) | — | 29,90 | 0,5 | — |
 | BAB-HC-T010 | Termóstato Wi-Fi ecrã tátil | termostato | Zhouqiao (BAB Smart) | 12,44–15,10 | 49,90 | 1 | rede wifi |
+| SENS-AGUA-WIFI | Sensor de fuga de água Wi-Fi | sensor | YFK (Temu) | 6,80 | 24,90 | 0,25 | bateria |
+| SENS-TH-WIFI | Sensor de temperatura e humidade Wi-Fi com ecrã | sensor | YFK (Temu), pack de 2 | 8,02 | 22,90 | 0,1 | bateria |
 | RPI-CENTRAL | Central local Raspberry Pi (UPS, sirene) — plano Premium | central | (a definir) | — | 149,00 | 2 | — |
 | QUADRO-AMPLIACAO | Ampliação do quadro (calha DIN, módulos) | acessorio | armazenista | — | 25,00 | 1 | — |
+
+Registados como **inativos** (fora do simulador, preço de compra guardado; ver negocio/FORNECEDORES.md §3): TONGOU-SY2-JZT, TONGOU-HUB-ZB, SENS-PORTA-ZB, SENS-TH-SF, VALVULA-RADIADOR, FECHADURA-4EM1, FECHADURA-5EM1, FECHADURA-SEG.
 
 ## 4. Quadro elétrico e regras orientativas
 Cada circuito: `n`, `amperes` (6, 10, 16, 20, 25, 32, 40), `tipo` (iluminacao, tomadas, maquina, misto), `nome`, `divisoes`, `itens` (`luzes`, `tomadas`, `maquinas: [{modelo, potencia_w}]`), `inteligente` (bool), `medir` (bool).

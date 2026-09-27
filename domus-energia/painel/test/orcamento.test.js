@@ -192,9 +192,9 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
   assert.equal(lista.length, SEMENTES_CATALOGO.length, 'sementes do SIMULADOR-ORCAMENTO §3');
   const sy1 = lista.find((a) => a.sku === 'TONGOU-SY1-JWT');
-  assert.equal(sy1.preco_compra, 12.28);
+  assert.equal(sy1.preco_compra, 11.04);
   assert.equal(sy1.preco_venda_iva, 39.9);
-  assert.equal(sy1.fornecedor, 'Tongou/Changyou (Temu: Chayo)');
+  assert.equal(sy1.fornecedor, 'Tongou/Changyou (Temu: loja Chayo)');
   // CEO: link, artigo escondido e artigo inativo.
   const pir = lista.find((a) => a.sku === 'SENS-PIR-WIFI');
   let r = await p.pedir('POST', `/painel/api/catalogo/${sy1.id}`, { ...cab, corpo: { link: 'https://www.alibaba.com/produto-secreto', fornecedor: 'Fornecedor Secreto Lda' } });
@@ -214,7 +214,7 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   assert.ok(!skus.includes('SENS-PIR-WIFI'), 'não visível ao cliente');
   assert.ok(!skus.includes('TESTE-INATIVO'), 'inativo');
   for (const a of pub.json.itens) assert.deepEqual(Object.keys(a).sort(), ['categoria', 'especificacoes', 'horas_instalacao', 'nome', 'preco_venda_iva', 'sku']);
-  for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '12.28', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
+  for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '11.04', '14.3', '6.82', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
     assert.ok(!pub.texto.includes(segredo), `o público não vê "${segredo}"`);
   }
   assert.deepEqual(pub.json.config, { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 });

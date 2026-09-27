@@ -148,12 +148,13 @@ export const MIGRACOES = [
     `);
     const ins = db.prepare(`INSERT INTO catalogo (sku, nome, categoria, fornecedor, link, preco_compra_cent,
       preco_venda_iva_cent, horas_instalacao, especificacoes, ativo, visivel_cliente, atualizado)
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, 1, ?)`);
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`);
     const agora = iso();
     for (const s of SEMENTES_CATALOGO) {
       ins.run(s.sku, s.nome, s.categoria, s.fornecedor ?? null,
         s.preco_compra == null ? null : Math.round(s.preco_compra * 100),
-        Math.round(s.preco_venda_iva * 100), s.horas_instalacao, JSON.stringify(s.especificacoes ?? {}), agora);
+        Math.round(s.preco_venda_iva * 100), s.horas_instalacao, JSON.stringify(s.especificacoes ?? {}),
+        s.ativo === false ? 0 : 1, s.visivel_cliente === false ? 0 : 1, agora);
     }
   },
 ];
