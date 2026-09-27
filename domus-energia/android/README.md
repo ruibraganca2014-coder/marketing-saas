@@ -1,7 +1,7 @@
 # App Android da Domus Energia
 
 App em Kotlin + Jetpack Compose (Material 3, tema "Terra") para os clientes controlarem a casa.
-Liga-se diretamente ao servidor MQTT da Domus Energia (sem Tuya, sem cloud de terceiros):
+Liga-se diretamente ao servidor MQTT da Domus Energia (sem clouds de terceiros):
 MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
 `docs/PROTOCOLO-MQTT.md` (v1), `docs/PROTOCOLO-MQTT-v2.md` (canais, alarme, automações, notificações) e
 `docs/PROTOCOLO-MQTT-v3.md` (modos, cenas, automações v3, saúde, energia, configuração, presença).

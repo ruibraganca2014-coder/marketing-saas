@@ -62,6 +62,19 @@
 	}
 	redir /ntfy https://ntfy.{$DOMUS_HOST}/ 302
 
+	# config.js gerado pelo instalar.sh (mqttUrl com o DOMUS_HOST deste servidor)
+	# em servidor/config-site/, fora do git. Sem esse ficheiro serve-se o web/config.js.
+	@configsite {
+		path /config.js
+		file {
+			root /srv/config-site
+		}
+	}
+	handle @configsite {
+		root * /srv/config-site
+		file_server
+	}
+
 	handle {
 		root * /srv/web
 		encode zstd gzip
@@ -74,8 +87,7 @@
 	#   pdf.js do simulador); estilos próprios + Google Fonts ('unsafe-inline'
 	#   porque há atributos style="" e variáveis CSS postas pelo JavaScript);
 	#   ligações só ao próprio site (inclui o /api dos pagamentos e o
-	#   /api/orcamento do painel — os pedidos de orçamento já não vão para o
-	#   Supabase) e ao MQTT (wss://HOST/mqtt). O Stripe Checkout e o Customer
+	#   /api/orcamento do painel) e ao MQTT (wss://HOST/mqtt). O Stripe Checkout e o Customer
 	#   Portal abrem por navegação (location.href), que a CSP não restringe: não
 	#   é preciso acrescentar o stripe.com. O painel (/painel/) envia ainda a sua
 	#   própria CSP, mais apertada (sem CDN nem MQTT no navegador); o navegador

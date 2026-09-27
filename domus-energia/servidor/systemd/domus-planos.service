@@ -1,23 +1,20 @@
-# Domus Energia — tarefas de minuto a minuto do servidor:
-#  1. aplica as permissões (ACL) dos planos: clientes suspensos ou cancelados
-#     ficam só com leitura do próprio _plano (docs/PROTOCOLO-PLANOS.md §3–§4);
-#  2. executa os pedidos do painel da empresa (dados/pedidos-admin/:
-#     criar clientes, aparelhos, planos; docs/PAINEL-EMPRESA.md §2).
-# Corrido a cada minuto por domus-planos.timer. Instalação: ver servidor/README.md,
-# "Planos e pagamentos" e "Painel da empresa". Troque /home/ubuntu/domus-energia/servidor
-# pela pasta servidor/ do seu VPS (nas três linhas abaixo).
+# Domus Energia — permissões (ACL) dos planos, a cada minuto:
+#   clientes suspensos ou cancelados ficam só com leitura do próprio _plano
+#   (docs/PROTOCOLO-PLANOS.md §3–§4). Só recarrega o Mosquitto quando muda algo.
+# Corrido por domus-planos.timer. Os pedidos do painel têm o seu próprio
+# temporizador, a cada 5 s (domus-pedidos.timer).
+# O instalar.sh instala isto sozinho. À mão: ver servidor/README.md, "Planos e
+# pagamentos", e trocar /home/ubuntu/domus-energia/servidor pela pasta
+# servidor/ do seu VPS (nas duas linhas abaixo).
 [Unit]
-Description=Domus Energia: permissões MQTT dos planos e pedidos do painel
+Description=Domus Energia: permissões MQTT dos planos
 After=docker.service
 Wants=docker.service
 
 [Service]
 Type=oneshot
 WorkingDirectory=/home/ubuntu/domus-energia/servidor
-# O "-" faz com que um erro no 1.º passo não impeça o 2.º.
-ExecStart=-/home/ubuntu/domus-energia/servidor/domus.sh sincronizar-planos
-ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh processar-pedidos
-# Não deixar uma execução presa (cada passo espera no máximo 50 s pelo cadeado;
-# até 50 pedidos por minuto).
-TimeoutStartSec=300
+ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh sincronizar-planos
+# Não deixar uma execução presa (espera no máximo 50 s pelo cadeado).
+TimeoutStartSec=120
 Nice=10

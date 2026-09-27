@@ -1,0 +1,24 @@
+# Domus Energia — executa os pedidos do painel da empresa (dados/pedidos-admin/:
+# criar clientes, aparelhos, planos; docs/PAINEL-EMPRESA.md §2) com
+# ./domus.sh processar-pedidos. Sem pedidos não chama o Docker nem escreve nada.
+# Corrido a cada 5 s por domus-pedidos.timer.
+# O instalar.sh instala isto sozinho. À mão: ver servidor/README.md, "Painel da
+# empresa", e trocar /home/ubuntu/domus-energia/servidor pela pasta servidor/
+# do seu VPS (nas duas linhas abaixo).
+[Unit]
+Description=Domus Energia: pedidos do painel da empresa
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/domus-energia/servidor
+ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh processar-pedidos
+# Não deixar uma execução presa (até 50 pedidos por execução).
+TimeoutStartSec=300
+Nice=10
+# A cada 5 s o systemd escreveria "Starting/Finished" no journal (~50 000
+# linhas por dia). O que o domus.sh escreve passa a "notice" e só se guarda
+# daí para cima: ficam os pedidos tratados, as recusas e as falhas.
+SyslogLevel=notice
+LogLevelMax=notice

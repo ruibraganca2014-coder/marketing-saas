@@ -204,6 +204,7 @@ services:
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ../web:/srv/web:ro                  # site público + área de cliente
+      - ./config-site:/srv/config-site:ro   # config.js com o DOMUS_HOST (gerado pelo instalar.sh)
       - caddy_data:/data                    # certificados HTTPS (não apagar)
       - caddy_config:/config
     logging: *registos

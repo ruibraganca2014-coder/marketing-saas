@@ -13,7 +13,31 @@ Este guia instala, num servidor na internet (VPS), tudo o que a plataforma Domus
 
 Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3); planos e pagamentos: [`../docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md); painel da empresa: [`../docs/PAINEL-EMPRESA.md`](../docs/PAINEL-EMPRESA.md).
 
-Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
+## Instalação rápida (um comando)
+
+Num VPS novo com **Ubuntu 22.04/24.04 ou Debian 12** (ver §1 para escolher um), entre por SSH e corra:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/claude/kind-babbage-gdmaij/domus-energia/servidor/instalar.sh \
+  | sudo bash -s -- --email o-seu-email@exemplo.pt
+```
+
+O [`instalar.sh`](instalar.sh) faz, por esta ordem: verifica o sistema; instala o git e o Docker se faltarem; copia o código para `/opt/domus`; descobre o IP público e propõe `DOMUS_HOST=<ip-com-hífenes>.sslip.io`; cria o `servidor/.env` com todas as palavras-passe geradas (`openssl rand`); cria as pastas `dados/` com os donos certos; abre as portas no `ufw` (se estiver ativo) e no `iptables` das imagens Oracle; cria os utilizadores internos (`./domus.sh admin`, que cria também `motor`, `pagamentos` e `painel`); arranca tudo (`docker compose up -d --build`) e espera pelo HTTPS; instala os temporizadores (planos a cada minuto, pedidos do painel a cada 5 s); cria o CEO do painel com uma palavra-passe gerada. No fim mostra os endereços e **a palavra-passe do CEO, uma única vez**.
+
+| Opção | Para quê |
+|---|---|
+| `--email EMAIL` | CEO do painel da empresa (sem ela, pergunta; vazio = criar mais tarde) |
+| `--host NOME` | domínio próprio (ex.: `mqtt.domusenergia.pt`, com os registos DNS do §5) em vez do sslip.io |
+| `--dir PASTA`, `--repo URL`, `--branch NOME` | outra pasta (por omissão `/opt/domus`), repositório ou branch |
+| `--atualizar` | atualizar mais tarde: `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --atualizar` |
+| `--simular` | ensaio: mostra o que faria sem mudar nada |
+| `-y` | não pergunta nada (aceita o endereço proposto) |
+
+Pode ser corrido de novo sem perigo: **nunca altera um `.env` existente** e só cria o que falta. Se o repositório for privado, o `curl` falha: clone-o à mão (`git clone … /opt/domus`) e corra `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --email …`.
+
+Falta só, à mão: abrir as portas na firewall do fornecedor (§2), o Stripe (§16.1) e os aparelhos (§8).
+
+O resto deste guia é a **instalação manual, passo a passo**, e serve de referência para perceber o que o instalador faz. Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
 
 ---
 
@@ -80,7 +104,8 @@ nano .env
 
 - **`DOMUS_HOST`** — sem domínio, usa o IP com hífenes + `.sslip.io`: IP `51.38.10.20` → `DOMUS_HOST=51-38-10-20.sslip.io`. O [sslip.io](https://sslip.io) é gratuito e não precisa de registo; o nome das notificações `ntfy.51-38-10-20.sslip.io` também funciona sozinho.
   Com domínio próprio (ex.: `mqtt.domusenergia.pt`) cria **dois** registos DNS do tipo **A** para o IP do VPS: `mqtt.domusenergia.pt` e `ntfy.mqtt.domusenergia.pt`.
-- **`MOTOR_MQTT_PASS`** e **`NTFY_MOTOR_PASS`** — duas palavras-passe longas e diferentes. Gera-as com `openssl rand -hex 16`.
+- **`MOTOR_MQTT_PASS`**, **`NTFY_MOTOR_PASS`**, **`PAGAMENTOS_MQTT_PASS`** e **`PAINEL_MQTT_PASS`** — palavras-passe longas e diferentes. Gera cada uma com `openssl rand -hex 16`.
+- **`SESSAO_SEGREDO`** — `openssl rand -hex 32`.
 
 Grava com `Ctrl+O`, `Enter`, `Ctrl+X`.
 
@@ -88,8 +113,9 @@ Grava com `Ctrl+O`, `Enter`, `Ctrl+X`.
 
 ```bash
 mkdir -p dados             # cria a pasta de estado com o teu utilizador (antes do Docker)
+sudo ./domus.sh listar     # como root: cria as pastas de dados/ com os donos certos (serviços com uid 1000)
 docker compose up -d --build
-docker compose ps          # os 5 serviços devem estar "running"/"Up"
+docker compose ps          # os 6 serviços devem estar "running"/"Up"
 docker compose logs -f caddy   # (Ctrl+C para sair) deve aparecer "certificate obtained successfully"
 ```
 
@@ -105,7 +131,7 @@ Abre `https://<DOMUS_HOST>/` no browser: deve aparecer o site com cadeado.
 
 A palavra-passe também pode vir do stdin (`printf '%s\n' "$SENHA" | ./domus.sh admin`) ou, como antes, no argumento (`./domus.sh admin 'UmaSenhaDeAdminLonga'`) — mas assim fica no histórico da shell (`~/.bash_history`), por isso prefere a pergunta.
 
-Na primeira vez isto também cria o utilizador **`motor`** no Mosquitto e no ntfy com as senhas do `.env` e, se houver `PAGAMENTOS_MQTT_PASS` no `.env`, o utilizador **`pagamentos`** (ver [Planos e pagamentos](#16-planos-e-pagamentos)). Se mudares essas senhas no `.env`, corre `./domus.sh motor` (ou `./domus.sh pagamentos`) e depois `docker compose up -d motor pagamentos`.
+Na primeira vez isto também cria o utilizador **`motor`** no Mosquitto e no ntfy com as senhas do `.env` e, se houver `PAGAMENTOS_MQTT_PASS` e `PAINEL_MQTT_PASS` no `.env`, os utilizadores **`pagamentos`** (ver [Planos e pagamentos](#16-planos-e-pagamentos)) e **`painel`** (ver [Painel da empresa](#17-painel-da-empresa)). Se mudares essas senhas no `.env`, corre `./domus.sh motor` (ou `./domus.sh pagamentos`) e depois `docker compose up -d motor pagamentos`.
 
 ```bash
 docker compose restart motor
@@ -251,10 +277,16 @@ Copia o ficheiro para fora do VPS (ex.: `scp ubuntu@51.38.10.20:domus-backup-*.t
 
 ## 13. Atualizar
 
+Instalado com o `instalar.sh`: `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --atualizar` (git pull, serviços e temporizadores).
+
+À mão:
+
 ```bash
 cd ~/domus-energia && git pull
 cd servidor && docker compose pull && docker compose up -d --build
 ```
+
+Se os ficheiros de `systemd/` mudaram, copie-os de novo (§16.2) e faça `sudo systemctl daemon-reload`.
 
 ## 14. Segurança — o que saber
 
@@ -381,20 +413,23 @@ docker compose logs -f pagamentos      # "MQTT: ligado como pagamentos" e "_plan
 
 Sem as variáveis `STRIPE_*` o serviço arranca na mesma (a sessão e o `_plano` funcionam; checkout, portal e webhook respondem "ainda não configurados"). O Caddy encaminha `https://HOST/api/*` e `https://HOST/stripe/webhook` para o serviço (mesma origem do site: a CSP e o CORS não mudam).
 
-**Permissões dos suspensos (a cada minuto).** O serviço de pagamentos grava `dados/planos/<cliente>.json`; quem tira ou devolve as permissões MQTT é o `./domus.sh sincronizar-planos`, que regenera a ACL e recarrega o Mosquitto **só quando alguma coisa mudou** (sem alterações não escreve nada). Instale **um** destes:
+**Temporizadores (o `instalar.sh` já os instala).** O serviço de pagamentos grava `dados/planos/<cliente>.json`; quem tira ou devolve as permissões MQTT é o `./domus.sh sincronizar-planos`, a cada minuto, que regenera a ACL e recarrega o Mosquitto **só quando alguma coisa mudou** (sem alterações não escreve nada). Os pedidos do painel da empresa (§17.2) têm outro temporizador, a cada 5 s. Instale **um** destes:
 
 ```bash
-# systemd (recomendado)
-sed -i "s#/home/ubuntu/domus-energia/servidor#$PWD#g" systemd/domus-planos.service
-sudo cp systemd/domus-planos.service systemd/domus-planos.timer /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now domus-planos.timer
-systemctl list-timers domus-planos.timer         # próxima execução
+# systemd (recomendado): domus-planos (1 min) e domus-pedidos (5 s)
+for f in systemd/*.service systemd/*.timer; do
+  sed "s#/home/ubuntu/domus-energia/servidor#$PWD#g" "$f" | sudo tee "/etc/systemd/system/${f##*/}" >/dev/null
+done
+sudo systemctl daemon-reload && sudo systemctl enable --now domus-planos.timer domus-pedidos.timer
+systemctl list-timers 'domus-*'                  # próximas execuções
 journalctl -u domus-planos.service -n 20         # o que fez
 
 # ou cron (alternativa)
 sed "s#/home/ubuntu/domus-energia/servidor#$PWD#g" systemd/domus-planos.cron | sudo tee /etc/cron.d/domus-planos >/dev/null
 sudo chmod 644 /etc/cron.d/domus-planos           # registo em /var/log/domus-planos.log
 ```
+
+(O cron só corre de minuto a minuto: a linha dos pedidos repete-os 12 vezes, de ~5 em ~5 s.)
 
 Um cliente suspenso fica com a ACL `topic read domus/<c>/_plano` (a app/site continuam a entrar e mostram "Subscrição suspensa" com "Reativar subscrição"); os utilizadores dos aparelhos **não mudam**, por isso os interruptores, os estados e os comandos do motor/admin continuam. Qualquer outro comando do `domus.sh` que regenere a ACL (`acl`, `aparelho`, …) respeita também os planos.
 
@@ -427,7 +462,7 @@ O comando grava `dados/planos/<cliente>.json` com `"gerido": "manual"`, publica 
 
 Contrato: [`../docs/PAINEL-EMPRESA.md`](../docs/PAINEL-EMPRESA.md). Detalhes do serviço e da API: [`../painel/README.md`](../painel/README.md).
 
-Painel web interno em **`https://HOST/painel/`** para a equipa, com três papéis: **`ceo`** (tudo, incluindo receitas, pagamentos, equipa e catálogo), **`tecnico`** (as suas obras, alertas técnicos, clientes sem dados financeiros) e **`comercial`** (pedidos de orçamento, clientes com plano e estado, agenda de obras só de leitura). Toda a autorização é verificada no servidor. Os pedidos de orçamento do site (`POST https://HOST/api/orcamento`) e o catálogo público do simulador (`GET https://HOST/api/catalogo`) também são deste serviço (o Supabase deixou de ser usado).
+Painel web interno em **`https://HOST/painel/`** para a equipa, com três papéis: **`ceo`** (tudo, incluindo receitas, pagamentos, equipa e catálogo), **`tecnico`** (as suas obras, alertas técnicos, clientes sem dados financeiros) e **`comercial`** (pedidos de orçamento, clientes com plano e estado, agenda de obras só de leitura). Toda a autorização é verificada no servidor. Os pedidos de orçamento do site (`POST https://HOST/api/orcamento`) e o catálogo público do simulador (`GET https://HOST/api/catalogo`) também são deste serviço.
 
 **O painel não tem as palavras-passe do servidor** (nem do admin, nem dos clientes). Monta só `dados/painel` (a base de dados SQLite `painel.db`) e `dados/pedidos-admin` com escrita, e `dados/planos`, `dados/pagamentos` e `dados/clientes` **só de leitura**. Liga-se ao Mosquitto como `painel`, que a ACL **só deixa ler** `domus/#` (alertas técnicos). Para criar clientes, aparelhos ou mudar planos escreve um pedido em `dados/pedidos-admin/`, que o temporizador do VPS executa com `./domus.sh processar-pedidos` (ver 17.2).
 
@@ -457,7 +492,7 @@ O `painel-utilizador` escreve um pedido que o serviço painel aplica em poucos s
 
 ### 17.2 Pedidos ao servidor (temporizador)
 
-O mesmo temporizador do `sincronizar-planos` (§16.2) corre também, a cada minuto, `./domus.sh processar-pedidos` (os ficheiros `systemd/domus-planos.service` e `systemd/domus-planos.cron` já têm os dois passos; se instalou a versão anterior, volte a copiá-los e faça `sudo systemctl daemon-reload`).
+O temporizador `domus-pedidos.timer` corre `./domus.sh processar-pedidos` **a cada 5 s** (`OnUnitActiveSec=5s`, `AccuracySec=1s`; instalação no §16.2, ou já feita pelo `instalar.sh`). Sem pedidos não faz nada nem escreve no registo. Se instalou a versão anterior (tudo no `domus-planos.service`, a cada minuto), volte a copiar os ficheiros de `systemd/` e faça `sudo systemctl daemon-reload && sudo systemctl enable --now domus-pedidos.timer`.
 
 | Tipo (`dados/pedidos-admin/<id>.json`) | Pedido no painel | Comando executado |
 |---|---|---|
@@ -467,7 +502,7 @@ O mesmo temporizador do `sincronizar-planos` (§16.2) corre também, a cada minu
 | `plano` | CEO | `./domus.sh plano <cliente> <plano> --estado <estado>` |
 | `painel-utilizador` | — (escrito pelo `./domus.sh painel-utilizador`, aplicado pelo painel) | — |
 
-O resultado vai para `dados/pedidos-admin/<id>.resultado.json` (**modo 600**, com a palavra-passe gerada e as instruções de configuração do aparelho) e o pedido para `dados/pedidos-admin/feitos/`. O painel mostra o resultado **uma única vez** a quem fez o pedido (ou ao CEO) e apaga o ficheiro logo a seguir; resultados nunca vistos são apagados ao fim de 7 dias. Os pedidos vêm de um serviço exposto à internet, por isso o `processar-pedidos` é desconfiado: só aceita exatamente o JSON que o painel escreve (chaves por ordem, textos sem aspas, `\` nem caracteres de controlo, nomes que não começam por `-`), move cada pedido para uma pasta só do root (`dados/.pedidos-em-curso/`) antes de o ler (symlinks, hard links, pastas e ficheiros com mais de 16 KB são recusados), passa os valores como argumentos separados (nunca `eval`/`sh -c`) e escreve os resultados por `rename` (um symlink pré-criado é substituído, nunca seguido). Um pedido cuja execução foi interrompida (ex.: o VPS reiniciou) não é repetido: fica com um resultado de erro para confirmar à mão. Recusas e resultados ficam no registo do temporizador (`journalctl -u domus-planos.service` ou `/var/log/domus-planos.log`).
+O resultado vai para `dados/pedidos-admin/<id>.resultado.json` (**modo 600**, com a palavra-passe gerada e as instruções de configuração do aparelho) e o pedido para `dados/pedidos-admin/feitos/`. O painel mostra o resultado **uma única vez** a quem fez o pedido (ou ao CEO) e apaga o ficheiro logo a seguir; resultados nunca vistos são apagados ao fim de 7 dias. Os pedidos vêm de um serviço exposto à internet, por isso o `processar-pedidos` é desconfiado: só aceita exatamente o JSON que o painel escreve (chaves por ordem, textos sem aspas, `\` nem caracteres de controlo, nomes que não começam por `-`), move cada pedido para uma pasta só do root (`dados/.pedidos-em-curso/`) antes de o ler (symlinks, hard links, pastas e ficheiros com mais de 16 KB são recusados), passa os valores como argumentos separados (nunca `eval`/`sh -c`) e escreve os resultados por `rename` (um symlink pré-criado é substituído, nunca seguido). Um pedido cuja execução foi interrompida (ex.: o VPS reiniciou) não é repetido: fica com um resultado de erro para confirmar à mão. Recusas e resultados ficam no registo do temporizador (`journalctl -u domus-pedidos.service` ou, com o cron, `/var/log/domus-planos.log`).
 
 ### 17.3 Cópias de segurança e manutenção
 
@@ -488,4 +523,5 @@ O resultado vai para `dados/pedidos-admin/<id>.resultado.json` (**modo 600**, co
 | O Stripe mostra erros 400 no webhook | `STRIPE_WEBHOOK_SECRET` não é o do endpoint (teste e real têm segredos diferentes) |
 | O plano não muda depois de pagar | `docker compose logs pagamentos`; eventos selecionados no webhook (§16.1); utilizador MQTT `pagamentos` criado (`./domus.sh pagamentos`) |
 | Cliente suspenso continua a comandar | o temporizador `domus-planos.timer` (ou o cron) está instalado? `sudo ./domus.sh sincronizar-planos` |
+| Pedidos do painel ficam "pendentes" | o `domus-pedidos.timer` está ativo? `systemctl list-timers 'domus-*'`; `journalctl -u domus-pedidos.service -n 20` |
 | "Mudar de plano" abre só a página inicial do portal | ligar "Customers can switch plans" com os três preços no Customer Portal (§16.1) |

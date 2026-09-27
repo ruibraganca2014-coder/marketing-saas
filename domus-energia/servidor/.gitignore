@@ -12,3 +12,5 @@ mosquitto/log/
 # certificados e configuração do Caddy (se forem montados como pastas)
 caddy/data/
 caddy/config/
+# config.js do site gerado pelo instalar.sh (mqttUrl deste servidor)
+config-site/

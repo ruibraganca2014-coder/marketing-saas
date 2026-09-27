@@ -1,0 +1,17 @@
+# Domus Energia — corre domus-pedidos.service a cada 5 segundos.
+#   sudo cp systemd/domus-pedidos.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now domus-pedidos.timer
+# OnActiveSec: 1.ª execução 5 s depois de o temporizador arrancar (também no
+# arranque do VPS); OnUnitActiveSec: depois, 5 s após cada execução começar.
+# AccuracySec=1s: sem isto o systemd pode juntar as execuções até 1 minuto.
+[Unit]
+Description=Domus Energia: pedidos do painel (a cada 5 s)
+
+[Timer]
+OnActiveSec=5s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Unit=domus-pedidos.service
+
+[Install]
+WantedBy=timers.target

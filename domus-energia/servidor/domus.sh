@@ -20,7 +20,7 @@
 #   ./domus.sh plano <cliente> <base|conforto|premium> [--estado ativo|teste|em_atraso|suspenso|cancelado]
 #   ./domus.sh sincronizar-planos   (temporizador de minuto a minuto: ACL dos suspensos)
 #   ./domus.sh painel-mqtt [palavra-passe]   (utilizador MQTT "painel": só lê domus/#)
-#   ./domus.sh processar-pedidos    (temporizador: pedidos-admin escritos pelo painel)
+#   ./domus.sh processar-pedidos    (temporizador de 5 em 5 s: pedidos-admin escritos pelo painel)
 #   ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]
 #
 # Estado (fonte de verdade, fora do git, em dados/):
@@ -205,8 +205,8 @@ Uso:
       Executa os pedidos que o painel da empresa escreveu em dados/pedidos-admin/
       (tipos cliente, aparelho, remover-aparelho e plano), escreve o resultado em
       dados/pedidos-admin/<id>.resultado.json (modo 600, com a palavra-passe
-      gerada) e move o pedido para dados/pedidos-admin/feitos/. Corre no mesmo
-      temporizador do sincronizar-planos. Os pedidos são validados à risca:
+      gerada) e move o pedido para dados/pedidos-admin/feitos/. Corre a cada 5 s
+      num temporizador (systemd/domus-pedidos.timer). Os pedidos são validados à risca:
       qualquer coisa fora do formato é recusada sem ser executada.
 
   ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]
@@ -1764,16 +1764,13 @@ cmd_painel_utilizador() {
   info "O pedido fica à espera e é aplicado quando o painel arrancar (é apagado ao fim de 1 hora)."
 }
 
-# Evita duas execuções em simultâneo. [segundos de espera; por omissão não espera]
+# Evita duas execuções em simultâneo. [segundos de espera; por omissão 15 s,
+# porque o temporizador dos pedidos (a cada 5 s) segura o cadeado por instantes]
 bloquear() {
   preparar_dados
   if command -v flock >/dev/null; then
     exec 9> "$DADOS_DIR/.lock"
-    if [[ -n "${1:-}" ]]; then
-      flock -w "$1" 9 || erro "outra execução do domus.sh está em curso"
-    else
-      flock -n 9 || erro "outra execução do domus.sh está em curso"
-    fi
+    flock -w "${1:-15}" 9 || erro "outra execução do domus.sh está em curso"
   fi
 }
 

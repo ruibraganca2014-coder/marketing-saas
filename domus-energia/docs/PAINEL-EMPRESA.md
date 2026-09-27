@@ -1,6 +1,6 @@
 # Painel da empresa — contrato (v1)
 
-Painel web interno da Domus Energia em `https://HOST/painel/`, para a equipa. Decisões do dono: 4 áreas (clientes e planos, alertas técnicos, pedidos de orçamento, obras e equipa), **acesso por papéis**, pedidos de orçamento guardados **no nosso servidor** (sai o Supabase).
+Painel web interno da Domus Energia em `https://HOST/painel/`, para a equipa. Decisões do dono: 4 áreas (clientes e planos, alertas técnicos, pedidos de orçamento, obras e equipa), **acesso por papéis**, pedidos de orçamento guardados **no nosso servidor**.
 
 ## 1. Papéis
 | Papel | Vê | Faz |

@@ -1,6 +1,6 @@
 # Protocolo MQTT da Domus Energia
 
-Sistema 100% próprio, sem a cloud da Tuya. Um servidor MQTT (Mosquitto) num VPS; os aparelhos, a app Android e o site ligam-se todos a ele.
+Sistema 100% próprio, sem clouds de terceiros. Um servidor MQTT (Mosquitto) num VPS; os aparelhos, a app Android e o site ligam-se todos a ele.
 
 ```
 Disjuntor Chayo/Tongou (OpenBeken) ─┐  MQTT 1883
