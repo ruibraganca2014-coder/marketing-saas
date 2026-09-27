@@ -5,6 +5,7 @@
 
 import {
   codigoCircuito, circuitoProprio, trifasica, watts, perfilCasa, formatarW, FIM_AVISO, MAX_MODULOS, MODULOS_SY1,
+  TIPOS_COM_PISOS, LIMITES_CASA, pisoDe,
 } from "./regras.js";
 import { tipoDivisao } from "./casa.js";
 
@@ -159,6 +160,25 @@ export const FRACAO_LIVRE = 0.25;             // pelo menos 25 % de módulos liv
 /** Módulos de cada aparelho em monofásico; em trifásico os tetrapolares ocupam o dobro. */
 export const MODULOS = { geral: 2, diferencial: 2, descarregador: 2, rele_tensao: 2, medidor_geral: 2, disjuntor: 1, afdd: 2, sy: MODULOS_SY1, tetrapolar: 4 };
 
+/**
+ * Quadros parciais (casas com pisos): o quadro do r/c é o geral (dimensionado abaixo) e cada outro piso com
+ * quadro leva um parcial — regra simples: uma caixa de 12 módulos (o corte do piso e os disjuntores dos
+ * circuitos desse piso cabem numa de 12 com folga; confirmamos na visita).
+ */
+export const TAMANHO_PARCIAL = 12;
+/**
+ * N.º de quadros: com planta, um por piso que tem um "Quadro elétrico" desenhado (a planta desenhada pela
+ * casa põe um em cada piso: casa.js divisoesQuadro); sem planta, um por piso da casa. Pelo menos 1.
+ */
+export function numeroQuadros(estado) {
+  const p = estado?.planta;
+  const usaPlanta = !!p && !estado.plantaSaltada && ((p.divisoes?.length ?? 0) > 0 || (p.elementos?.length ?? 0) > 0);
+  if (usaPlanta) return Math.max(1, new Set((p.elementos ?? []).filter((e) => e.tipo === "quadro").map(pisoDe)).size);
+  const c = estado?.casa ?? {};
+  const [, max] = LIMITES_CASA.pisos;
+  return TIPOS_COM_PISOS.includes(c.tipo) ? Math.min(max, Math.max(1, Math.round(Number(c.pisos)) || 1)) : 1;
+}
+
 /** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
 export function tamanhoQuadro(ocupados) {
   return TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? null;
@@ -166,9 +186,9 @@ export function tamanhoQuadro(ocupados) {
 
 /**
  * Tudo o que o passo do quadro calcula a partir do estado: proteções que valem, pacote, grupos
- * diferenciais, circuitos com AFDD, módulos (linhas, ocupados, tamanho, livres, novos num quadro atual)
- * e a potência sugerida.
- * @param {{casa:object, quadro:object}} estado
+ * diferenciais, circuitos com AFDD, módulos (linhas, ocupados, tamanho, livres, novos num quadro atual),
+ * os quadros parciais (um por piso além do r/c: numeroQuadros) e a potência sugerida.
+ * @param {{casa:object, quadro:object, planta?:object, plantaSaltada?:boolean}} estado
  */
 export function resumoQuadro(estado) {
   const q = estado.quadro ?? {};
@@ -213,6 +233,7 @@ export function resumoQuadro(estado) {
     pacote: pacoteDe(prot), protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
     disjuntores: disj, sy2, sy1,
+    parciais: numeroQuadros(estado) - 1,
     potencia: potenciaSugerida(circuitos),
   };
 }
@@ -222,8 +243,8 @@ export const levaQuadroNovo = (q) => q?.quadro_novo !== "atual";
 
 /**
  * Artigos do quadro para o preço (preco.js): diferenciais (Wi-Fi ou não), descarregador, relé de tensão,
- * AFDD, medidor e geral Wi-Fi; com quadro novo a caixa, o geral e os disjuntores dos circuitos sem SY2/AFDD;
- * com o quadro atual, a ampliação quando há mais de 12 módulos novos.
+ * AFDD, medidor e geral Wi-Fi; com quadro novo a caixa (mais uma de 12 módulos por quadro parcial), o geral
+ * e os disjuntores dos circuitos sem SY2/AFDD; com o quadro atual, a ampliação quando há mais de 12 módulos novos.
  * @returns {{chave:string, qtd:number}[]}
  */
 export function pedidosQuadro(estado) {
@@ -240,7 +261,9 @@ export function pedidosQuadro(estado) {
   if (levaQuadroNovo(estado.quadro)) {
     add("disjuntor_geral", p.geral_wifi ? 0 : 1);
     add("disjuntor_circuito", r.disjuntores);
-    add(`caixa_${r.tamanho}`, r.quadros);
+    // Caixas: a(s) do geral e as dos parciais (as de 12 módulos juntam-se numa linha).
+    if (r.tamanho === TAMANHO_PARCIAL) add(`caixa_${r.tamanho}`, r.quadros + r.parciais);
+    else { add(`caixa_${r.tamanho}`, r.quadros); add(`caixa_${TAMANHO_PARCIAL}`, r.parciais); }
   } else if (r.novos > MAX_MODULOS) {
     add("ampliacao", Math.ceil((r.novos - MAX_MODULOS) / MAX_MODULOS));
   }

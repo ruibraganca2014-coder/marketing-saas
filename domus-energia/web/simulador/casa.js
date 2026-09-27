@@ -6,12 +6,11 @@
 
 import {
   TIPOS_DIVISAO, TIPOS_DIVISAO_SERVICOS, TIPOS_DIVISAO_INDUSTRIAL, LIMITES_CASA, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, ESCALA_CM,
-  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA,
+  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA, MAX_PISO,
 } from "./regras.js";
 
 const MARGEM = 50;            // cm à volta da planta
 const LARGURA_LINHA = 1500;   // cm: largura máxima de uma linha de divisões
-const ENTRE_PISOS = 100;      // cm entre os pisos (um piso por bloco de linhas)
 const PASSO_MAQUINA = 100;    // cm entre máquinas na mesma divisão (os ícones não se tocam)
 const M2_POR_LUZ = 20;        // divisões grandes (loja, nave): um ponto de luz por cada 20 m²
 const MAX_LUZES = 8;
@@ -23,7 +22,7 @@ const TAMANHOS = {
 };
 /** Tamanho típico pelo nome; os botões do tipo de imóvel da casa têm prioridade (ex.: Escritório). */
 function tamanho(nome, casa) {
-  const base = nome.replace(/ \(piso \d+\)$/, "").replace(/ \d+$/, "");
+  const base = nome.replace(/ \((piso \d+|r\/c)\)$/, "").replace(/ \d+$/, "");
   if (TAMANHOS[base]) return TAMANHOS[base];
   const t = [...tiposDivisaoPara(casa?.tipo), ...TIPOS_DIVISAO, ...TIPOS_DIVISAO_SERVICOS, ...TIPOS_DIVISAO_INDUSTRIAL].find((x) => x.nome === base);
   return t ? [t.w, t.h] : [400, 300];
@@ -111,23 +110,38 @@ function espacosNegocio(c) {
   const grelha = (v) => Math.max(ESCALA_CM * 4, Math.round(v / ESCALA_CM) * ESCALA_CM);
   const w = Math.min(MAX_LADO_CM - 2 * MARGEM, grelha(Math.sqrt((cm2 * 4) / 3)));
   const h = Math.min(MAX_LADO_CM - 2 * MARGEM, grelha(cm2 / w));
-  return nomes.map((nome, i) => (i === 0 ? { nome, piso: 1, tamanho: [w, h] } : { nome, piso: 1 }));
+  return nomes.map((nome, i) => (i === 0 ? { nome, piso: 0, tamanho: [w, h] } : { nome, piso: 0 }));
+}
+
+/** Nome das escadas de cada piso: "Escadas (r/c)", "Escadas (piso 1)"… */
+export const nomeEscadas = (p) => `Escadas (${p > 0 ? `piso ${p}` : "r/c"})`;
+
+/** Máquina escolhida em "O que quer": a chave (estados antigos) ou {modelo, qtd, piso}; piso null = o típico. */
+export function itemMaquina(m) {
+  if (typeof m === "string") return { modelo: m, qtd: 1, piso: null };
+  const qtd = Math.round(Number(m?.qtd));
+  const piso = Math.round(Number(m?.piso));
+  return {
+    modelo: String(m?.modelo ?? ""),
+    qtd: Number.isFinite(qtd) ? Math.min(10, Math.max(1, qtd)) : 1,
+    piso: m?.piso === null || m?.piso === undefined || !Number.isFinite(piso) ? null : Math.min(MAX_PISO, Math.max(0, piso)),
+  };
 }
 
 /**
- * Divisões da casa (nome, piso e, no espaço principal de serviços/industrial, o tamanho), pela ordem
- * em que ficam na planta: salas, cozinha, corredor (T2 e mais: um por piso com
- * quartos), quartos, casas de banho, garagem, varanda, jardim. Com pisos > 1: piso 1 com as
- * salas, cozinha, a primeira casa de banho, garagem e jardim; quartos e as outras casas de banho
- * repartidos pelos pisos de cima; a varanda no último; "Escadas (piso N)" em cada um. Escritório,
- * lavandaria, despensa… acrescentam-se na planta (botões) ou no passo "Divisões".
- * `maquinas` (grandes e pequenas): as que precisam de exterior (carregador, bomba, rega, portão…)
- * sem garagem nem jardim acrescentam "Exterior".
+ * Divisões da casa (nome, piso — 0 = r/c — e, no espaço principal de serviços/industrial, o tamanho), pela
+ * ordem em que ficam na planta: salas, cozinha, corredor (T2 e mais: um por piso com quartos), quartos,
+ * casas de banho, garagem, varanda, jardim. Com pisos > 1: r/c com as salas, cozinha, a primeira casa de
+ * banho, garagem e jardim; quartos e as outras casas de banho repartidos pelos pisos de cima; a varanda no
+ * último; "Escadas (r/c)", "Escadas (piso 1)"… em cada um. Escritório, lavandaria, despensa… vêm de "A casa
+ * tem…" (no r/c) ou acrescentam-se na planta (botões) e no passo "Divisões".
+ * `maquinas` (grandes e pequenas: chaves ou itemMaquina): as que precisam de exterior (carregador, bomba,
+ * rega, portão…) sem garagem nem jardim acrescentam "Exterior" (no r/c).
  */
 export function divisoesDaCasa(casa, maquinas = []) {
   const c = casa ?? {};
   let r = [];
-  const add = (nome, piso = 1) => r.push({ nome, piso });
+  const add = (nome, piso = 0) => r.push({ nome, piso });
   if (perfilCasa(c.tipo) !== "habitacao") {
     r = espacosNegocio(c);
   } else if (!c.tipologia) {
@@ -152,28 +166,28 @@ export function divisoesDaCasa(casa, maquinas = []) {
       }
     }
     if (!x.kitnet) add("Cozinha");
-    // Quartos e casas de banho: tudo no piso 1, ou (com pisos) os quartos em cima.
+    // Quartos e casas de banho: tudo no r/c, ou (com pisos) os quartos em cima.
     const qPiso = cima ? [0, ...repartir(quartos, cima)] : [quartos];
     const bPiso = cima ? [1, ...repartir(cbs - 1, cima)] : [cbs];
     let q = 0, b = 0, corredores = 0;
     const querCorredor = x.corredor ?? quartos >= 2;
     const nomeCb = () => (cbs === 1 ? "Casa de banho" : `Casa de banho ${++b}`);
-    for (let p = 1; p <= pisos; p++) {
-      // Corredor ("A casa tem…"; por omissão no T2 e mais): um por piso com quartos (no piso 1 se não houver).
-      if (querCorredor && (qPiso[p - 1] > 0 || (p === 1 && !qPiso.some(Boolean)))) add(++corredores === 1 ? "Corredor" : `Corredor ${corredores}`, p);
-      for (let i = 0; i < qPiso[p - 1]; i++) add(`Quarto ${++q}`, p);
-      for (let i = 0; i < bPiso[p - 1]; i++) add(nomeCb(), p);
-      if (pisos > 1) add(`Escadas (piso ${p})`, p);
+    for (let p = 0; p < pisos; p++) {
+      // Corredor ("A casa tem…"; por omissão no T2 e mais): um por piso com quartos (no r/c se não houver).
+      if (querCorredor && (qPiso[p] > 0 || (p === 0 && !qPiso.some(Boolean)))) add(++corredores === 1 ? "Corredor" : `Corredor ${corredores}`, p);
+      for (let i = 0; i < qPiso[p]; i++) add(`Quarto ${++q}`, p);
+      for (let i = 0; i < bPiso[p]; i++) add(nomeCb(), p);
+      if (pisos > 1) add(nomeEscadas(p), p);
     }
     if (x.escritorio) add("Escritório");
     if (x.lavandaria) add("Lavandaria");
     if (x.despensa) add("Despensa");
     if (x.garagem) add("Garagem");
-    if (x.varanda) add("Varanda", pisos);
+    if (x.varanda) add("Varanda", pisos - 1);
     if (x.jardim) add("Jardim");
   }
   const tem = (tipos) => r.some((d) => tipos.includes(tipoDivisao(d.nome)));
-  const lista = Array.isArray(maquinas) ? maquinas : [];
+  const lista = (Array.isArray(maquinas) ? maquinas : []).map((m) => itemMaquina(m).modelo);
   if (lista.some((m) => PRECISA_EXTERIOR[m] && !tem(PRECISA_EXTERIOR[m]))) add("Exterior");
   return r.slice(0, MAX_DIVISOES);
 }
@@ -257,7 +271,8 @@ const DESTINO = {
   maquina_secar: ["lavandaria", "cozinha", "sala_cozinha", "garagem", "sala"],
   // Termoacumulador: na cozinha (também a "Kitnet"), senão na garagem.
   termoacumulador: ["cozinha", "sala_cozinha", "garagem", "lavandaria", "wc", "sala"],
-  ar_condicionado: ["sala", "sala_cozinha", "loja", "escritorio", "rececao", "nave"],
+  // Com mais de um, os outros vão para os quartos (um por divisão).
+  ar_condicionado: ["sala", "sala_cozinha", "loja", "escritorio", "rececao", "nave", "quarto"],
   carregador_ve: ["garagem", "jardim"],
   carregador_ve_22: ["garagem", "jardim", "nave"],
   bomba: ["jardim"],
@@ -291,31 +306,47 @@ const DESTINO = {
   carregador_baterias: ["nave", "armazem", "garagem"],
 };
 
-/** Divisão (da lista `divs`, com `nome`) onde pôr a máquina `modelo`. */
-export function divisaoParaMaquina(divs, modelo) {
-  for (const t of DESTINO[modelo] ?? []) {
-    const d = divs.find((x) => tipoDivisao(x.nome) === t);
-    if (d) return d;
-  }
-  return divs[0] ?? null;
+/**
+ * Divisões (da lista `divs`, com `nome`) onde pôr a máquina `modelo`, por ordem de preferência (DESTINO);
+ * sem nenhuma do tipo certo, a primeira da lista. Várias unidades repartem-se por elas (2 ar condicionado:
+ * sala e quarto).
+ */
+export function divisoesParaMaquina(divs, modelo) {
+  const r = [];
+  for (const t of DESTINO[modelo] ?? []) for (const d of divs) if (tipoDivisao(d.nome) === t && !r.includes(d)) r.push(d);
+  return r.length ? r : divs.slice(0, 1);
+}
+/** Divisão onde pôr (a primeira unidade de) a máquina `modelo`. */
+export const divisaoParaMaquina = (divs, modelo) => divisoesParaMaquina(divs, modelo)[0] ?? null;
+
+/**
+ * Piso típico de uma máquina (onde fica a divisão onde a pomos: cozinha e lavandaria no r/c, desumidificador
+ * nos quartos…), para a escolha de piso de "O que quer". 0 sem pisos.
+ */
+export function pisoTipicoMaquina(casa, modelo, maquinas = []) {
+  return divisaoParaMaquina(divisoesDaCasa(casa, maquinas), modelo)?.piso ?? 0;
 }
 
 /**
  * Planta já desenhada a partir da casa (§1.1, §2.1): as divisões de divisoesDaCasa pela ordem (ids d1,
- * d2…), em linhas até 15 m, cada piso num bloco abaixo do anterior, tamanhos típicos (o espaço principal
- * de serviços/industrial com o tamanho que a área dá), sem sobreposição; cada divisão com os aparelhos
- * habituais (aparelhosOmissao); cada máquina escolhida (grandes e pequenas) na divisão certa (DESTINO),
- * ao fundo; a televisão que a sala já leva não se repete.
+ * d2…), em linhas até 15 m, tamanhos típicos (o espaço principal de serviços/industrial com o tamanho que a
+ * área dá), sem sobreposição; cada piso (`piso`, 0 = r/c) começa no mesmo canto da mesma folha (os pisos
+ * ficam uns por cima dos outros, como na casa; a folha é a do maior). Cada divisão com os aparelhos
+ * habituais (aparelhosOmissao); cada máquina escolhida (grandes e pequenas; chaves ou {modelo, qtd, piso})
+ * na divisão certa (DESTINO) do piso escolhido (sem piso: o típico), ao fundo, tantas quantas pedidas
+ * (repartidas pelas divisões desse tipo); a televisão que a sala já leva conta como uma.
  */
 export function plantaDaCasa(casa, maquinas = []) {
   const p = plantaVazia();
-  const itens = divisoesDaCasa(casa, maquinas).map((d) => ({ nome: d.nome, piso: d.piso ?? 1, tam: d.tamanho ?? tamanho(d.nome, casa) }));
+  const escolhidas = (Array.isArray(maquinas) ? maquinas : []).map(itemMaquina);
+  const itens = divisoesDaCasa(casa, escolhidas).map((d) => ({ nome: d.nome, piso: d.piso ?? 0, tam: d.tamanho ?? tamanho(d.nome, casa) }));
   const pos = new Map();
-  let y = MARGEM, maxX = 0;
-  [...new Set(itens.map((z) => z.piso))].sort((a, b) => a - b).forEach((piso, k) => {
-    if (k > 0) y += ENTRE_PISOS;
-    let x = MARGEM, alturaLinha = 0;
-    for (const it of itens.filter((z) => z.piso === piso)) {
+  let maxX = 0, maxY = 0;
+  [...new Set(itens.map((z) => z.piso))].sort((a, b) => a - b).forEach((piso) => {
+    let x = MARGEM, y = MARGEM, alturaLinha = 0;
+    // As escadas primeiro: ficam no mesmo sítio em todos os pisos (umas por cima das outras).
+    const doPiso = itens.filter((z) => z.piso === piso);
+    for (const it of [...doPiso.filter((z) => tipoDivisao(z.nome) === "escadas"), ...doPiso.filter((z) => tipoDivisao(z.nome) !== "escadas")]) {
       const [w, h] = it.tam;
       if (x > MARGEM && x + w > MARGEM + LARGURA_LINHA) { x = MARGEM; y += alturaLinha; alturaLinha = 0; }
       pos.set(it, [x, y]);
@@ -323,31 +354,43 @@ export function plantaDaCasa(casa, maquinas = []) {
       maxX = Math.max(maxX, x);
       alturaLinha = Math.max(alturaLinha, h);
     }
-    y += alturaLinha;
+    maxY = Math.max(maxY, y + alturaLinha);
   });
   itens.forEach((it, i) => {
     const [x, yy] = pos.get(it);
-    p.divisoes.push({ id: `d${i + 1}`, nome: it.nome, x_cm: x, y_cm: yy, largura_cm: it.tam[0], altura_cm: it.tam[1] });
+    p.divisoes.push({ id: `d${i + 1}`, nome: it.nome, piso: it.piso, x_cm: x, y_cm: yy, largura_cm: it.tam[0], altura_cm: it.tam[1] });
   });
   const arred = (v) => Math.ceil(v / ESCALA_CM) * ESCALA_CM;
   p.largura_cm = Math.min(MAX_LADO_CM, Math.max(p.largura_cm, arred(maxX + MARGEM)));
-  p.altura_cm = Math.min(MAX_LADO_CM, Math.max(p.altura_cm, arred(y + MARGEM)));
+  p.altura_cm = Math.min(MAX_LADO_CM, Math.max(p.altura_cm, arred(maxY + MARGEM)));
   let e = 0;
   for (const d of p.divisoes) {
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (p.elementos.length >= MAX_ELEMENTOS) break;
-      p.elementos.push({ id: `e${++e}`, ...a });
+      p.elementos.push({ id: `e${++e}`, ...a, piso: d.piso });
     }
   }
-  const jaPostas = new Set(p.elementos.filter((x) => x.tipo === "maquina").map((x) => x.props.modelo));
-  for (const modelo of maquinas) {
-    // Uma máquina que já vai por omissão (ex.: a televisão da sala) não se põe duas vezes.
-    if (jaPostas.has(modelo) || p.elementos.length >= MAX_ELEMENTOS) continue;
-    jaPostas.add(modelo);
-    const d = divisaoParaMaquina(p.divisoes, modelo);
-    if (!d) continue;
-    const [x_cm, y_cm] = lugarLivre(d, p.elementos);
-    p.elementos.push({ id: `e${++e}`, tipo: "maquina", x_cm, y_cm, rot: 0, divisao: null, props: propsOmissao("maquina", modelo) });
+  // Um quadro elétrico por piso (o do r/c é o geral; os outros, parciais — quadro.js resumoQuadro).
+  for (const d of divisoesQuadro(p.divisoes, casa)) {
+    if (p.elementos.length >= MAX_ELEMENTOS) break;
+    const [x_cm, y_cm] = lugarParede(d, p.elementos.filter((q) => q.piso === d.piso));
+    p.elementos.push({ id: `e${++e}`, tipo: "quadro", x_cm, y_cm, rot: 0, piso: d.piso, divisao: null, props: propsOmissao("quadro") });
+  }
+  // Máquinas que já vão por omissão (ex.: a televisão da sala) contam como uma das pedidas.
+  const jaPostas = {};
+  for (const x of p.elementos) if (x.tipo === "maquina") jaPostas[x.props.modelo] = (jaPostas[x.props.modelo] ?? 0) + 1;
+  const ultimoPiso = Math.max(0, ...p.divisoes.map((d) => d.piso));
+  for (const m of escolhidas) {
+    const ja = Math.min(m.qtd, jaPostas[m.modelo] ?? 0);
+    jaPostas[m.modelo] = (jaPostas[m.modelo] ?? 0) - ja;
+    const piso = Math.min(ultimoPiso, m.piso ?? divisaoParaMaquina(p.divisoes, m.modelo)?.piso ?? 0);
+    const doPiso = p.divisoes.filter((d) => d.piso === piso);
+    const onde = divisoesParaMaquina(doPiso.length ? doPiso : p.divisoes, m.modelo);
+    for (let i = ja; i < m.qtd && onde.length && p.elementos.length < MAX_ELEMENTOS; i++) {
+      const d = onde[i % onde.length];
+      const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => q.piso === d.piso));
+      p.elementos.push({ id: `e${++e}`, tipo: "maquina", x_cm, y_cm, rot: 0, piso: d.piso, divisao: null, props: propsOmissao("maquina", m.modelo) });
+    }
   }
   return atualizarDivisoes(p);
 }
@@ -357,6 +400,44 @@ export function plantaDaCasa(casa, maquinas = []) {
  * 30 cm das paredes, mais longe dos aparelhos que já lá estão (a partir de PASSO_MAQUINA conta
  * igual: fica o mais em baixo e à esquerda, "ao fundo da divisão").
  */
+/**
+ * Divisão onde fica o quadro elétrico de cada piso (plantaDaCasa): r/c — entrada, senão corredor, senão
+ * cozinha (ou kitnet / sala e cozinha); pisos de cima — corredor, senão escadas desse piso; serviços e
+ * industrial (um piso) — receção, escritório, loja, nave. Sem nenhuma destas, a 1.ª divisão do piso.
+ */
+const QUADRO_EM = {
+  r_c: ["entrada", "corredor", "cozinha", "sala_cozinha"],
+  cima: ["corredor", "escadas"],
+  negocio: ["rececao", "escritorio", "loja", "nave"],
+};
+export function divisoesQuadro(divs, casa) {
+  const negocio = perfilCasa(casa?.tipo) !== "habitacao";
+  const pisos = [...new Set(divs.map((d) => d.piso ?? 0))].sort((a, b) => a - b);
+  const r = [];
+  for (const piso of pisos) {
+    const doPiso = divs.filter((d) => (d.piso ?? 0) === piso);
+    const tipos = negocio ? QUADRO_EM.negocio : piso === pisos[0] ? QUADRO_EM.r_c : QUADRO_EM.cima;
+    r.push(tipos.map((t) => doPiso.find((d) => tipoDivisao(d.nome) === t)).find(Boolean) ?? doPiso[0]);
+    if (negocio) break;
+  }
+  return r.filter(Boolean);
+}
+
+/** Sítio na parede (10 cm para dentro) da divisão `d` o mais longe possível dos `elementos` (grelha de 25 cm). */
+export function lugarParede(d, elementos) {
+  const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
+  const x0 = d.x_cm + 10, x1 = d.x_cm + d.largura_cm - 10, y0 = d.y_cm + 10, y1 = d.y_cm + d.altura_cm - 10;
+  const sitios = [];
+  for (let x = x0 + 25; x <= x1 - 25; x += 25) sitios.push([x, y0], [x, y1]);
+  for (let y = y0 + 25; y <= y1 - 25; y += 25) sitios.push([x0, y], [x1, y]);
+  let melhor = [x0, y0], nota = -1;
+  for (const [x, y] of sitios) {
+    const n = Math.min(1e6, ...perto.map((q) => Math.hypot(q.x_cm - x, q.y_cm - y)));
+    if (n > nota) { nota = n; melhor = [x, y]; }
+  }
+  return melhor.map(Math.round);
+}
+
 export function lugarLivre(d, elementos) {
   const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
   let melhor = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2], nota = -1;
@@ -378,7 +459,9 @@ export function assinaturaCasa(casa, maquinas = []) {
   return JSON.stringify([
     perfil, negocio ? null : c.tipologia ?? null, negocio ? null : quartosDe(c), c.casas_banho, c.salas, c.pisos,
     ...Object.keys(EXTRAS_CASA).map((k) => !!x[k]),
-    negocio ? c.area_m2 ?? null : null, negocio ? c.espacos ?? null : null, [...maquinas].sort(),
+    // Máquinas: a chave (como antes) e, se não for uma só no piso típico, "chave×2@1" (quantidade e piso).
+    negocio ? c.area_m2 ?? null : null, negocio ? c.espacos ?? null : null,
+    maquinas.map(itemMaquina).map((m) => (m.qtd === 1 && m.piso === null ? m.modelo : `${m.modelo}×${m.qtd}@${m.piso ?? "-"}`)).sort(),
   ]);
 }
 

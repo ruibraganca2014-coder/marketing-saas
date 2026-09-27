@@ -20,6 +20,8 @@
 //   letra       tamanho da letra dos nomes das divisões em cm
 //   pega        lado das pegas dos cantos em cm
 //   grelha      false → sem quadriculado
+//   piso        n.º do piso (0 = r/c) → só as divisões e os elementos desse piso (`piso` em falta = 0);
+//               todos os pisos partilham a mesma folha e a mesma escala
 
 const NS = "http://www.w3.org/2000/svg";
 const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
@@ -151,6 +153,20 @@ function interior(pts) {
   return melhor;
 }
 
+/** Piso de uma divisão ou elemento (0 = r/c; sem `piso` = 0). */
+export function pisoDe(x) {
+  const n = Math.round(Number(x?.piso));
+  return Number.isFinite(n) && n > 0 ? Math.min(3, n) : 0;
+}
+/** "Piso 0 (r/c)", "Piso 1"… */
+export const nomePiso = (p) => (p > 0 ? `Piso ${p}` : "Piso 0 (r/c)");
+/** Pisos com divisões ou elementos, por ordem ([0] numa planta sem pisos). */
+export function pisosDaPlanta(planta) {
+  const s = new Set([0]);
+  for (const x of [...(Array.isArray(planta?.divisoes) ? planta.divisoes : []), ...(Array.isArray(planta?.elementos) ? planta.elementos : [])]) s.add(pisoDe(x));
+  return [...s].sort((a, b) => a - b);
+}
+
 function descrever(e, nomesDivisao) {
   const p = e.props || {};
   let t = NOMES[e.tipo] || "Elemento";
@@ -160,6 +176,9 @@ function descrever(e, nomesDivisao) {
   if (e.tipo === "luz" && p.brilho) t = "Ponto de luz regulável";
   if (e.tipo === "interruptor") t = `Interruptor de ${Math.min(4, Math.max(1, Math.round(numero(p.botoes, 1))))} ${numero(p.botoes, 1) > 1 ? "botões" : "botão"}`;
   if (e.tipo === "maquina") t = `${MODELOS[p.modelo] || MODELOS.outro} (${Math.round(numero(p.potencia_w))} W)`;
+  // Nome dado pelo cliente (opcional): "Interruptor da entrada — Interruptor de 1 botão".
+  if (typeof e.nome === "string" && e.nome.trim()) t = `${e.nome.trim()} — ${t}`;
+  if (Number.isFinite(Number(e.altura_cm)) && e.altura_cm !== null && e.altura_cm !== "") t += `, a ${fmtM(Number(e.altura_cm))} m do chão`;
   const d = e.divisao && nomesDivisao.get(e.divisao);
   return d ? `${t} — ${d}` : t;
 }
@@ -188,8 +207,9 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
   const letra = numero(opcoes.letra, Math.max(24, raio * 0.9));
   const pega = numero(opcoes.pega, raio);
   const v = opcoes.vista || { x: 0, y: 0, w: L, h: A };
-  const divisoes = Array.isArray(planta?.divisoes) ? planta.divisoes : [];
-  const elementos = Array.isArray(planta?.elementos) ? planta.elementos : [];
+  const soPiso = Number.isInteger(opcoes.piso) ? (x) => pisoDe(x) === opcoes.piso : () => true;
+  const divisoes = (Array.isArray(planta?.divisoes) ? planta.divisoes : []).filter(soPiso);
+  const elementos = (Array.isArray(planta?.elementos) ? planta.elementos : []).filter(soPiso);
   const nomesDivisao = new Map(divisoes.map((d) => [d.id, String(d.nome ?? "")]));
   const uid = `planta-${++contador}`;
 

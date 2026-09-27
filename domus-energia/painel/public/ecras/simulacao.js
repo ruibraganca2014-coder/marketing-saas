@@ -100,6 +100,9 @@ const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 const arr = (v) => (Array.isArray(v) ? v : []);
 const n0 = (v) => numero(v) ?? 0;
 const plural = (n, um, varios) => `${num(n)} ${n === 1 ? um : varios}`;
+// Pisos (0 = r/c; sem `piso` = 0): as mesmas regras do simulador (vendor/planta-svg.js pisoDe, nomePiso).
+const pisoDe = (x) => (typeof desenho.pisoDe === "function" ? desenho.pisoDe(x) : 0);
+const nomePiso = (p) => (p > 0 ? `Piso ${p}` : "Piso 0 (r/c)");
 
 /** Planta pronta a desenhar: só as chaves de §2.1; fundo só data:image/jpeg|png (aceita o texto de §6 ou o objeto de §2.1). */
 export function limparPlanta(p) {
@@ -127,14 +130,16 @@ function nomeDivisao(planta, id) {
 }
 
 /**
- * Divisão de um elemento da planta (a mesma regra do simulador, web/simulador/regras.js divisaoDoElemento):
- * a que contém o centro (a última desenhada ganha); portas, janelas e sensores de porta/janela fora de
- * todas contam na mais próxima a ≤ 30 cm (paredes exteriores). Usada quando o elemento não traz `divisao`.
+ * Divisão de um elemento da planta (a mesma regra do simulador, web/simulador/regras.js divisaoDoElemento),
+ * só entre as divisões do piso dele: a que contém o centro (a última desenhada ganha); portas, janelas e
+ * sensores de porta/janela fora de todas contam na mais próxima a ≤ 30 cm (paredes exteriores). Usada
+ * quando o elemento não traz `divisao`.
  */
 export const TOLERANCIA_PORTA_CM = 30;
 export function divisaoDoElemento(planta, e) {
   const x = n0(e?.x_cm), y = n0(e?.y_cm);
-  const divs = arr(planta?.divisoes).filter((d) => d && typeof d === "object");
+  const piso = pisoDe(e);
+  const divs = arr(planta?.divisoes).filter((d) => d && typeof d === "object" && pisoDe(d) === piso);
   let r = null;
   for (const d of divs) if (distanciaDivisao(d, x, y) === 0) r = d.id;
   if (r != null || !["porta", "janela", "sensor_porta"].includes(e?.tipo)) return r;
@@ -204,8 +209,16 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const kva = numero(casa.potencia_contratada_kva);
   const instalacaoTxt = `${kva !== null ? `${num(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
   const quer = obj(sim.quer);
-  const maquinasTxt = arr(quer.maquinas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
-  const pequenasTxt = arr(quer.pequenas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
+  // "Ar condicionado ×2 (Piso 1)": quantidade (se > 1) e piso (casas com pisos) de cada máquina.
+  const qtds = obj(quer.quantidades), pisosQ = obj(quer.pisos);
+  const comPisos = (numero(casa.pisos) ?? 1) > 1;
+  const maquinaTxt = (m) => {
+    const q = numero(qtds[m]);
+    const p = numero(pisosQ[m]);
+    return `${MODELOS[m] ?? m}${q !== null && q > 1 ? ` ×${num(q)}` : ""}${comPisos && p !== null ? ` (${nomePiso(p)})` : ""}`;
+  };
+  const maquinasTxt = arr(quer.maquinas).filter((m) => typeof m === "string").map(maquinaTxt).join(", ");
+  const pequenasTxt = arr(quer.pequenas).filter((m) => typeof m === "string").map(maquinaTxt).join(", ");
   const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
   const telecom = sim.telecom && typeof sim.telecom === "object" ? sim.telecom : null;
   const deslTxt = deslocacaoTxt(sim.deslocacao);
@@ -329,6 +342,8 @@ function blocoQuadro(q, contratada) {
   if (numero(m.tamanho) !== null) {
     linhas.push(["Tamanho do quadro", `${(numero(m.quadros) ?? 1) > 1 ? `${num(numero(m.quadros))} × ` : ""}${num(numero(m.tamanho))} módulos (${num(numero(m.ocupados) ?? 0)} ocupados, ${num(numero(m.livres) ?? 0)} livres)${m.cabe === false && !((numero(m.quadros) ?? 1) > 1) ? " — não chega com 25 % livres" : ""}${q.quadro_novo === "atual" && numero(m.novos) !== null ? ` · ${num(numero(m.novos))} módulos novos no quadro atual` : ""}`]);
   }
+  // Casas com pisos: quadro geral no r/c + um parcial por piso de cima (web/simulador/quadro.js numeroQuadros).
+  if ((numero(m.parciais) ?? 0) > 0) linhas.push(["Quadros parciais", `Quadro geral (piso 0) + ${plural(numero(m.parciais), "quadro parcial", "quadros parciais")}${numero(m.tamanho_parcial) !== null ? ` de ${num(numero(m.tamanho_parcial))} módulos` : ""}`]);
   if (difs.length) linhas.push(["Grupos diferenciais", difs.slice(0, 20).map((d) => `${num(numero(d.n) ?? 0)}: ${arr(d.circuitos).filter((x) => numero(x) !== null).join(", ") || "—"}${d.carregador ? " (carregador)" : ""}`).join(" · ")]);
   if (kva !== null || carga !== null) {
     linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""} `, curta ? selo("Contratada curta", "aviso") : null)]);
@@ -357,22 +372,37 @@ function tabelaDivisoes(divs) {
     ["Sensores movimento", (d) => contar(d.sensores_movimento) || "—"],
     ["Tomadas intelig.", (d) => contar(d.tomadas_inteligentes) || "—"],
   ];
+  // Com pisos: o piso junto ao nome ("Quarto 1 · Piso 1"), por ordem de piso.
+  const comPisos = divs.some((d) => pisoDe(d) > 0);
+  const lista = comPisos ? divs.map((d, i) => [d, i]).sort((a, b) => pisoDe(a[0]) - pisoDe(b[0]) || a[1] - b[1]).map(([d]) => d) : divs;
   return h("div", { class: "sim-bloco" }, h("h4", { text: `Divisões (${divs.length})` }),
     h("div", { class: "tabela-rolar" }, h("table", { class: "tabela tabela-cartoes", id: "sim-divisoes" },
       h("thead", {}, h("tr", {}, h("th", { scope: "col", text: "Divisão" }), ...colunas.map(([t]) => h("th", { scope: "col", class: "num", text: t })))),
-      h("tbody", {}, ...divs.slice(0, 60).map((d) => h("tr", {}, h("th", { scope: "row", "data-rotulo": "Divisão", text: String(d.nome ?? "—") }),
+      h("tbody", {}, ...lista.slice(0, 60).map((d) => h("tr", { dataset: { piso: String(pisoDe(d)) } }, h("th", { scope: "row", "data-rotulo": "Divisão", text: `${String(d.nome ?? "—")}${comPisos ? ` · ${nomePiso(pisoDe(d))}` : ""}` }),
         ...colunas.map(([t, f]) => h("td", { class: "num", "data-rotulo": t, text: String(f(d)) }))))))));
 }
 
 // ---------------------------------------------------------------- planta (zoom e deslocamento)
 
+/**
+ * Planta só de leitura. Com vários pisos (divisões/elementos com `piso`): separadores "Piso 0 (r/c)",
+ * "Piso 1"… por cima; cada um mostra só esse piso, na mesma folha e escala (o zoom mantém-se).
+ */
 function vistaPlanta(planta) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("id", "sim-planta");
   svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", `Planta da casa: ${plural(planta.divisoes.length, "divisão", "divisões")}, ${plural(planta.elementos.length, "elemento", "elementos")}`);
+  const pisos = typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [0];
+  const variosPisos = pisos.length > 1;
+  let pisoAtual = pisos[0];
+  const rotular = () => {
+    const doPiso = (l) => (variosPisos ? l.filter((x) => pisoDe(x) === pisoAtual) : l);
+    svg.setAttribute("aria-label", `Planta da casa${variosPisos ? `, ${nomePiso(pisoAtual)}` : ""}: ${plural(doPiso(planta.divisoes).length, "divisão", "divisões")}, ${plural(doPiso(planta.elementos).length, "elemento", "elementos")}`);
+  };
+  const desenhar = () => desenho.desenharPlanta(svg, planta, { soLeitura: true, ...(variosPisos ? { piso: pisoAtual } : {}) });
   let base;
-  try { base = desenho.desenharPlanta(svg, planta, { soLeitura: true }); } catch { return h("p", { class: "msg erro", text: "Não foi possível desenhar a planta." }); }
+  try { base = desenhar(); } catch { return h("p", { class: "msg erro", text: "Não foi possível desenhar a planta." }); }
+  rotular();
   const vb0 = (svg.getAttribute("viewBox") || `0 0 ${base?.largura ?? 1000} ${base?.altura ?? 800}`).split(/[\s,]+/).map(Number);
   let vb = [...vb0];
   const aplicar = () => svg.setAttribute("viewBox", vb.map((x) => Math.round(x * 10) / 10).join(" "));
@@ -419,11 +449,39 @@ function vistaPlanta(planta) {
   // Legenda: contagem por tipo de elemento.
   const porTipo = new Map();
   for (const e of planta.elementos) { const t = NOMES_ELEMENTOS[e.tipo] ?? String(e.tipo ?? "?"); porTipo.set(t, (porTipo.get(t) ?? 0) + 1); }
+  // Separadores por piso (role tablist; as setas mudam de piso).
+  let separadores = null;
+  if (variosPisos) {
+    const mostrarPiso = (p) => {
+      pisoAtual = p;
+      botoes.forEach((b, i) => { b.setAttribute("aria-selected", String(pisos[i] === p)); b.tabIndex = pisos[i] === p ? 0 : -1; });
+      try { desenhar(); } catch { /* fica o desenho anterior */ }
+      aplicar();
+      rotular();
+    };
+    const botoes = pisos.map((p) => {
+      const nd = planta.divisoes.filter((d) => pisoDe(d) === p).length;
+      const b = h("button", { class: "btn sec pequeno planta-piso", type: "button", role: "tab", id: `planta-piso-${p}`, "aria-selected": String(p === pisoAtual), tabindex: p === pisoAtual ? "0" : "-1", text: `${nomePiso(p)} · ${plural(nd, "divisão", "divisões")}` });
+      b.addEventListener("click", () => mostrarPiso(p));
+      b.addEventListener("keydown", (ev) => {
+        const i = pisos.indexOf(p);
+        const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: pisos.length - 1 }[ev.key];
+        if (j === undefined) return;
+        ev.preventDefault();
+        const q = pisos[(j + pisos.length) % pisos.length];
+        mostrarPiso(q);
+        botoes[pisos.indexOf(q)].focus();
+      });
+      return b;
+    });
+    separadores = h("div", { class: "planta-pisos", role: "tablist", "aria-label": "Pisos da planta" }, ...botoes);
+  }
   return h("div", { class: "sim-bloco" },
     h("div", { class: "planta-topo" }, h("h4", { text: "Planta" }),
       h("div", { class: "planta-botoes", role: "group", "aria-label": "Zoom da planta" },
         botao("−", "Afastar", () => zoom(1 / 1.3), "planta-menos"), botao("+", "Aproximar", () => zoom(1.3), "planta-mais"),
         h("button", { class: "btn sec pequeno", type: "button", id: "planta-ajustar", text: "Ajustar", onclick: () => { vb = [...vb0]; aplicar(); } }))),
+    separadores,
     h("div", { class: "planta-vista" }, svg),
     h("p", { class: "ajuda", text: "Arraste para deslocar; roda do rato ou dois dedos para o zoom. Passe por cima de um elemento para ver o que é." }),
     porTipo.size ? h("ul", { class: "planta-legenda" }, ...[...porTipo].map(([t, n]) => h("li", { text: `${t}: ${n}` }))) : null);

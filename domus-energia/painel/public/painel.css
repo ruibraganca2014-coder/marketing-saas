@@ -373,6 +373,9 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .planta-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .planta-topo h4 { margin: 12px 0 6px; }
 .planta-botoes { display: flex; gap: 6px; align-items: center; }
+/* Separadores por piso da planta (ecras/simulacao.js vistaPlanta). */
+.planta-pisos { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.planta-piso[aria-selected="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
 .planta-vista { border: 1px solid var(--borda); border-radius: 14px; overflow: hidden; background: var(--superficie); }
 .planta-vista svg { display: block; width: 100%; height: min(60vh, 460px); touch-action: none; cursor: grab; user-select: none; }
 .planta-vista svg:active { cursor: grabbing; }

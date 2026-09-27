@@ -1,4 +1,5 @@
-// Editor da planta (docs/SIMULADOR-ORCAMENTO.md §2): SVG com quadriculado de 50 cm,
+// Editor da planta (docs/SIMULADOR-ORCAMENTO.md §2): SVG com quadriculado de 50 cm, separadores por piso
+// (cada um mostra só as divisões e os elementos desse piso, na mesma folha e escala), ecrã inteiro,
 // deslocar e aproximar (botões − / +, Ctrl + roda do rato, dois dedos), eventos de ponteiro para rato e
 // toque, divisões (criar num sítio livre com os aparelhos habituais, mover, mudar a forma pelos cantos — paredes oblíquas),
 // elementos (colocar, mover, rodar, apagar; as telecomunicações "brevemente" à parte), propriedades, janela de edição (duplo
@@ -9,12 +10,13 @@
 import { desenharPlanta, desenharIcone } from "./planta-svg.js";
 import {
   ELEMENTOS, TIPOS_ELEMENTO, TIPOS_TELECOM, TIPOS_DIVISAO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
-  MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2,
+  MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2, MAX_PISO, ALTURA_MAX_CM,
   propsOmissao, atualizarDivisoes, divisaoDoElemento, divisaoEm, pontosDivisao, areaPoligono, ehRetangulo, caixaPontos,
-  distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior,
+  distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior, pisoDe, nomePiso, alturaTipica, ehTelecom,
+  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
-import { aparelhosOmissao, resumoAparelhos } from "./casa.js";
+import { aparelhosOmissao, resumoAparelhos, tipoDivisao as tipoDoNome } from "./casa.js";
 
 const HISTORICO_MAX = 100;
 const TOQUE_PX = 6;          // abaixo disto um arrasto é um toque
@@ -24,6 +26,10 @@ const TOQUE_LONGO_MS = 500;  // toque longo (sem mexer) = duplo clique
 const PAREDE_PX = { mouse: 10, toque: 18 };   // tolerância para acertar numa parede (duplo clique / toque longo)
 const MARGEM_VISTA = 1.08;   // "Ver tudo": o conteúdo ocupa ~93 % da vista
 const DESTAQUE_MS = 1500;    // a divisão nova pisca durante este tempo
+// Duplo clique feito por nós (o "dblclick" do navegador não chega: a planta é redesenhada a cada toque e o
+// elemento onde o clique começou já não existe, por isso o navegador não dá "click" nem "dblclick").
+const DUPLO_MS = 500;
+const DUPLO_PX = { mouse: 6, toque: 24 };
 
 const el = (tag, cls, texto) => {
   const e = document.createElement(tag);
@@ -87,9 +93,10 @@ function numeroInput(valor, { min, max, step = 1, id }) {
 
 /**
  * @param {HTMLElement} raiz
- * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void}} opcoes
+ * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void, circuitoDe?: (planta: object, e: object) => string|null}} opcoes
+ *   `circuitoDe`: texto do circuito onde o elemento fica (janela de edição), ou null se não se souber.
  */
-export function criarEditor(raiz, { aoMudar, anunciar = null }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null, circuitoDe = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -106,6 +113,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
   let tiposDivisao = TIPOS_DIVISAO;   // botões de divisão (mudam com o tipo de imóvel: definirTiposDivisao)
+  let pisoAtual = 0;          // separador visível: só as divisões e os elementos deste piso (0 = r/c)
+  let pisosPedidos = 1;       // pisos da casa (definirPisos); aparecem também os pisos que já têm coisas
+  let ultimoToque = null;     // {t, x, y}: o toque anterior, para o duplo clique (DUPLO_MS)
+  let duploEm = 0;            // quando o nosso duplo clique abriu algo (o "dblclick" do navegador não repete)
+  let ecraCss = false;        // ecrã inteiro sem a Fullscreen API (recurso CSS)
 
   // ---------------------------------------------------------------- DOM
   raiz.replaceChildren();
@@ -171,7 +183,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const bMais = botao("+");
   bMais.setAttribute("aria-label", "Aproximar");
   const bTudo = botao("Ver tudo");
-  barra2.append(bDesfazer, bRefazer, bMenos, bMais, bTudo);
+  const bEcra = botao("Ecrã inteiro");
+  bEcra.id = "editor-ecra-inteiro";
+  bEcra.setAttribute("aria-pressed", "false");
+  barra2.append(bDesfazer, bRefazer, bMenos, bMais, bTudo, bEcra);
+
+  // Separadores por piso (só com mais de um piso): cada um mostra as divisões e os elementos desse piso.
+  const separadores = el("div", "editor-pisos");
+  separadores.setAttribute("role", "tablist");
+  separadores.setAttribute("aria-label", "Pisos da planta");
+  separadores.hidden = true;
 
   const dica = el("p", "editor-dica");
   dica.id = "editor-dica";
@@ -211,7 +232,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   listaTitulo.id = "editor-lista-titulo";
   listaSec.setAttribute("aria-labelledby", "editor-lista-titulo");
   const listaConteudo = el("div");
-  listaSec.append(listaTitulo, el("p", "ajuda", "A mesma planta em lista: escolha uma divisão ou um elemento para o editar."), listaConteudo);
+  listaSec.append(listaTitulo, el("p", "ajuda", "O que está em cada divisão, por tipo. Toque numa divisão para a escolher; num tipo (ex.: \"3 tomadas\") para escolher a 1.ª — cada toque seguinte passa à próxima."), listaConteudo);
 
   // Fundo
   const fundoSec = el("details", "editor-fundo cartao");
@@ -233,9 +254,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const tamCorpo = el("div", "duas");
   tamSec.append(tamCorpo);
 
-  lado.append(props, fundoSec, tamSec, listaSec);
+  lado.append(props, fundoSec, tamSec);
   const principal = el("div", "editor-principal");
-  principal.append(barraDiv, barra, barraTelecom, barra2, dica, selecao, area, ajudaTeclado);
+  // A lista da planta fica por baixo da planta (o piso visível), antes da ajuda do teclado.
+  principal.append(barraDiv, barra, barraTelecom, barra2, dica, selecao, separadores, area, listaSec, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
@@ -257,8 +279,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   dApagar.id = "dlg-apagar";
   const dCancelar = botao("Cancelar");
   dCancelar.id = "dlg-cancelar";
+  const dRodar = botao("Rodar");
+  dRodar.id = "dlg-rodar";
   const dlgBotoes = el("div", "form-botoes");
-  dlgBotoes.append(dGuardar, dApagar, dCancelar);
+  dlgBotoes.append(dGuardar, dRodar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
   raiz.append(principal, lado, dialogo);
@@ -278,12 +302,54 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     return { x: v.x + ((clientX - rr.left) / (rr.width || 1)) * v.w, y: v.y + ((clientY - rr.top) / (rr.height || 1)) * v.h };
   }
   const maxW = () => Math.max(planta.largura_cm, planta.altura_cm) * 3;
-  /** Caixa do que está desenhado (divisões, elementos e a parte visível do fundo); a planta toda se vazia. */
+  // ---------------------------------------------------------------- pisos
+  const noPiso = (x) => pisoDe(x) === pisoAtual;
+  const divisoesPiso = () => planta.divisoes.filter(noPiso);
+  const elementosPiso = () => planta.elementos.filter(noPiso);
+  /** N.º de separadores: os pisos da casa e os que já têm divisões ou elementos (ex.: mudou para apartamento). */
+  const nPisos = () => Math.min(MAX_PISO + 1, Math.max(pisosPedidos, ...(planta ? [...planta.divisoes, ...planta.elementos].map((x) => pisoDe(x) + 1) : [1])));
+  function desenharSeparadores() {
+    const n = planta ? nPisos() : 1;
+    separadores.hidden = n <= 1;
+    separadores.replaceChildren();
+    if (n <= 1) return;
+    for (let p = 0; p < n; p++) {
+      const b = botao("", "editor-piso");
+      b.id = `editor-piso-${p}`;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", String(p === pisoAtual));
+      b.tabIndex = p === pisoAtual ? 0 : -1;
+      const nd = planta.divisoes.filter((d) => pisoDe(d) === p).length;
+      b.append(el("span", null, nomePiso(p)), el("small", null, `${nd} ${nd === 1 ? "divisão" : "divisões"}`));
+      b.addEventListener("click", () => mudarPiso(p));
+      b.addEventListener("keydown", (ev) => {
+        const d = { ArrowRight: 1, ArrowLeft: -1, Home: -p, End: n - 1 - p }[ev.key];
+        if (d === undefined) return;
+        ev.preventDefault();
+        mudarPiso((p + d + n) % n);
+        document.getElementById(`editor-piso-${pisoAtual}`)?.focus();
+      });
+      separadores.append(b);
+    }
+  }
+  /** Mostra outro piso: a vista ajusta-se a ele; o que se acrescenta vai para ele. */
+  function mudarPiso(p, { anunciar: dizer = true } = {}) {
+    if (p === pisoAtual) return;
+    pisoAtual = p;
+    if (selecionado && !noPiso(obterDivisao(selecionado) ?? obterElemento(selecionado) ?? {})) selecionado = null;
+    ultimoToque = null;
+    verTudo();
+    nDivisoesVista = divisoesPiso().length;
+    desenharTudo();
+    if (dizer) avisar(`${nomePiso(p)}: ${nDivisoesVista} ${nDivisoesVista === 1 ? "divisão" : "divisões"}. O que acrescentar vai para este piso.`);
+  }
+
+  /** Caixa do que está desenhado no piso visível (divisões, elementos e a parte visível do fundo); a planta toda se vazio. */
   function caixaConteudo() {
     let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
     const juntar = (a, b, c, d) => { x1 = Math.min(x1, a); y1 = Math.min(y1, b); x2 = Math.max(x2, c); y2 = Math.max(y2, d); };
-    for (const d of planta.divisoes) juntar(d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm);
-    for (const e of planta.elementos) juntar(e.x_cm - 40, e.y_cm - 40, e.x_cm + 40, e.y_cm + 40);   // o ícone à volta do centro
+    for (const d of divisoesPiso()) juntar(d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm);
+    for (const e of elementosPiso()) juntar(e.x_cm - 40, e.y_cm - 40, e.x_cm + 40, e.y_cm + 40);   // o ícone à volta do centro
     const f = planta.fundo;
     if (f) {
       // A imagem só se vê dentro da planta (recorte do planta-svg.js).
@@ -332,9 +398,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   function confirmar(texto) {
     atualizarDivisoes(planta);
     aoMudar(planta);
-    // Vista parada: só volta a mostrar a planta inteira e centrada quando se acrescenta ou apaga uma
-    // divisão (mexer em objetos, arrastar ou mudar a forma não mexe na vista).
-    if (planta.divisoes.length !== nDivisoesVista) { nDivisoesVista = planta.divisoes.length; verTudo(); }
+    // Vista parada: só volta a mostrar o piso inteiro e centrado quando se acrescenta ou apaga uma
+    // divisão nele (mexer em objetos, arrastar ou mudar a forma não mexe na vista).
+    if (divisoesPiso().length !== nDivisoesVista) { nDivisoesVista = divisoesPiso().length; verTudo(); }
     desenharTudo();
     if (texto) avisar(texto);
   }
@@ -382,8 +448,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
    * na grelha de 50 cm — a planta alarga (criarDivisao).
    */
   function sitioLivre(w, h) {
-    const caixas = planta.divisoes.map((d) => [d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm]);
-    const soltos = planta.elementos.filter((q) => !divisaoEm(planta, q.x_cm, q.y_cm));
+    // Só as divisões e os elementos do piso visível (os outros pisos ficam por cima/por baixo).
+    const caixas = divisoesPiso().map((d) => [d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm]);
+    const soltos = elementosPiso().filter((q) => !divisaoEm(planta, q.x_cm, q.y_cm, pisoAtual));
     const livre = (x, y) => x >= 0 && y >= 0 && x + w <= MAX_LADO_CM && y + h <= MAX_LADO_CM
       && caixas.every(([a, b, c, e]) => x >= c || x + w <= a || y >= e || y + h <= b)
       && soltos.every((q) => q.x_cm < x - 20 || q.x_cm > x + w + 20 || q.y_cm < y - 20 || q.y_cm > y + h + 20);
@@ -419,19 +486,19 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const grelha = (v) => Math.min(MAX_LADO_CM, Math.ceil(v / ESCALA_CM) * ESCALA_CM);
     planta.largura_cm = Math.max(planta.largura_cm, grelha(x + t.w + ESCALA_CM));
     planta.altura_cm = Math.max(planta.altura_cm, grelha(y + t.h + ESCALA_CM));
-    const d = { id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(div), x_cm: x, y_cm: y, largura_cm: t.w, altura_cm: t.h };
+    const d = { id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(div), piso: pisoAtual, x_cm: x, y_cm: y, largura_cm: t.w, altura_cm: t.h };
     planta.divisoes.push(d);
     let n = 0;
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (planta.elementos.length >= MAX_ELEMENTOS) break;
-      planta.elementos.push({ id: novoId("e", planta.elementos), ...a });
+      planta.elementos.push({ id: novoId("e", planta.elementos), ...a, piso: pisoAtual });
       n++;
     }
     ajustarFolha();
     selecionado = d.id;
     destaque = { id: d.id, desde: performance.now() };
     setTimeout(() => { if (destaque?.id === d.id) { destaque = null; desenhar(); } }, DESTAQUE_MS);
-    confirmar(`Divisão "${d.nome}" criada${n ? ` com ${n} aparelhos habituais (porta, interruptor, luz, sensor de movimento…)` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
+    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n ? ` com ${n} aparelhos habituais (porta, interruptor, luz, sensor de movimento…)` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
     return d;
   }
 
@@ -442,7 +509,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       id: novoId("e", planta.elementos), tipo,
       x_cm: limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm),
       y_cm: limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm),
-      rot: 0, divisao: null, props: propsOmissao(tipo),
+      rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(tipo),
     };
     planta.elementos.push(e);
     e.divisao = divisaoDoElemento(planta, e);
@@ -511,6 +578,47 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   }
 
   const elementosDentro = (d) => planta.elementos.filter((x) => x.divisao === d.id).map((x) => [x, x.x_cm, x.y_cm]);
+  const caixaDe = (d) => ({ x_cm: d.x_cm, y_cm: d.y_cm, largura_cm: d.largura_cm, altura_cm: d.altura_cm });
+
+  /**
+   * Os aparelhos acompanham a divisão quando ela muda de tamanho ou de forma (cantos, largura/comprimento,
+   * janela de edição): `dentro` = [[elemento, x, y]] e `c0` = caixa da divisão antes da mudança. Em cada
+   * eixo, o que está a ≤ 30 cm de uma parede fica à mesma distância dessa parede (portas, janelas,
+   * interruptores e tomadas continuam encostados); o resto reparte-se na proporção da caixa nova. Numa forma
+   * livre, o que ficar fora vai para o ponto de dentro mais perto (15 cm para dentro da parede) — nunca
+   * passa para "Fora das divisões" por causa disto.
+   */
+  function acompanhar(d, c0, dentro) {
+    const pts = pontosDivisao(d);
+    const eixo = (v, a0, l0, a1, l1) => {
+      if (v - a0 <= TOLERANCIA_PORTA_CM) return a1 + (v - a0);
+      if (a0 + l0 - v <= TOLERANCIA_PORTA_CM) return a1 + l1 - (a0 + l0 - v);
+      return a1 + (l0 > 0 ? ((v - a0) * l1) / l0 : l1 / 2);
+    };
+    for (const [e, x0, y0] of dentro) {
+      let x = eixo(x0, c0.x_cm, c0.largura_cm, d.x_cm, d.largura_cm);
+      let y = eixo(y0, c0.y_cm, c0.altura_cm, d.y_cm, d.altura_cm);
+      const naParede = TIPOS_PAREDE.includes(e.tipo) && distanciaPoligono(x, y, pts) <= TOLERANCIA_PORTA_CM;
+      if (!pontoEmPoligono(x, y, pts) && !naParede) [x, y] = pontoDentro(pts, x, y);
+      e.x_cm = Math.round(limitar(x, 0, planta.largura_cm));
+      e.y_cm = Math.round(limitar(y, 0, planta.altura_cm));
+    }
+  }
+  /** Ponto dentro do polígono perto de (x, y): o da parede mais próxima, 15 cm para dentro (senão o interior). */
+  function pontoDentro(pts, x, y) {
+    let q = null, melhor = Infinity;
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      const r = distanciaSegmento(x, y, a, b);
+      if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; }
+    });
+    const c = pontoInterior(pts);
+    if (!q) return c;
+    const dx = c[0] - q[0], dy = c[1] - q[1], l = Math.hypot(dx, dy) || 1;
+    const k = Math.min(15, l / 2);
+    const p = [q[0] + (dx / l) * k, q[1] + (dy / l) * k];
+    return pontoEmPoligono(p[0], p[1], pts) ? p : c;
+  }
 
   /** Move a divisão (a caixa ajusta-se à grelha; os cantos de um polígono andam todos o mesmo) e os elementos dentro. */
   function moverDivisao(d, dx, dy, dentro, x0, y0, pts0 = null) {
@@ -536,7 +644,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const v = validarPontos(pts, planta.largura_cm, planta.altura_cm);
     if (!v) { avisar("Não foi possível pôr um canto aqui: está demasiado perto de outro."); return; }
     memorizar();
+    const c0 = caixaDe(d), dentro = elementosDentro(d);
     definirPontos(d, v);
+    acompanhar(d, c0, dentro);
     selecionado = d.id;
     confirmar(`Canto acrescentado à divisão "${d.nome || "Divisão"}" (${v.length} cantos). Arraste-o para inclinar a parede.`);
   }
@@ -548,7 +658,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const v = validarPontos(pts, planta.largura_cm, planta.altura_cm);
     if (!v) { avisar("Sem este canto as paredes cruzavam-se ou a divisão ficava pequena demais: mova-o em vez de o apagar."); return; }
     memorizar();
+    const c0 = caixaDe(d), dentro = elementosDentro(d);
     definirPontos(d, v);
+    acompanhar(d, c0, dentro);
     confirmar(`Canto apagado (${v.length} cantos).`);
   }
 
@@ -581,8 +693,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const i = pts.findIndex(([x, y]) => Math.abs(x - p.x) <= t.pega / 2 && Math.abs(y - p.y) <= t.pega / 2);
       if (i >= 0) return { tipo: "canto", d: sel, i };
     }
-    for (let k = planta.elementos.length - 1; k >= 0; k--) {
-      const e = planta.elementos[k];
+    // O elemento desenhado por cima (o último) ganha; só os do piso visível.
+    const els = elementosPiso();
+    for (let k = els.length - 1; k >= 0; k--) {
+      const e = els[k];
       if (Math.hypot(e.x_cm - p.x, e.y_cm - p.y) <= t.raioToque) return { tipo: "elemento", e };
     }
     if (sel) {
@@ -598,7 +712,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       });
       if (melhor) return { tipo: "parede", d: sel, i: melhor.i, ponto: melhor.ponto };
     }
-    const id = divisaoEm(planta, p.x, p.y);
+    const id = divisaoEm(planta, p.x, p.y, pisoAtual);
     return id ? { tipo: "divisao", d: obterDivisao(id) } : null;
   }
 
@@ -607,6 +721,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
    * abre a janela nesse canto: um dedo parado antes de arrastar não deve apagar nada); resto → janela.
    */
   function gestoDuplo(p, tipoPonteiro) {
+    duploEm = performance.now();
+    ultimoToque = null;
     const alvo = oQueEsta(p, tipoPonteiro);
     if (!alvo) return;
     if (alvo.tipo === "canto" && tipoPonteiro !== "mouse") { selecionado = alvo.d.id; desenharTudo(); abrirDialogo({ canto: alvo.i }); return; }
@@ -630,7 +746,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       b.setAttribute("aria-pressed", String(!!m && m.tipo === "elemento" && m.el === k));
     }
     svg.classList.toggle("a-colocar", !!m);
-    if (!m) dica.textContent = "Os botões das divisões acrescentam-nas logo; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; − / +, dois dedos ou Ctrl + roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.";
+    if (!m) dica.textContent = `Os botões das divisões acrescentam-nas logo${nPisos() > 1 ? ` (no ${nomePiso(pisoAtual)})` : ""}; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; − / +, dois dedos ou Ctrl + roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.`;
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${ELEMENTOS[m.el].nome}. Esc cancela.`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
@@ -658,12 +774,52 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   bMenos.addEventListener("click", () => zoom(1.4));
   bTudo.addEventListener("click", () => { verTudo(); desenhar(); });
 
+  // ---------------------------------------------------------------- ecrã inteiro
+  // Só a planta e as ferramentas (Fullscreen API no contentor; sem ela, um recurso CSS que ocupa a janela).
+  // Esc sai; a vista reajusta-se ao entrar e ao sair.
+  const emEcraInteiro = () => document.fullscreenElement === principal || ecraCss;
+  function depoisEcra() {
+    const sim = emEcraInteiro();
+    bEcra.textContent = sim ? "Sair do ecrã inteiro" : "Ecrã inteiro";
+    bEcra.setAttribute("aria-pressed", String(sim));
+    principal.classList.toggle("em-ecra-inteiro", sim);
+    // O tamanho já mudou (a classe acabou de mudar; o "fullscreenchange" chega depois do redimensionamento).
+    if (planta) { verTudo(); desenhar(); }
+  }
+  function sairEcra() {
+    if (document.fullscreenElement === principal) document.exitFullscreen?.()?.catch?.(() => {});
+    if (ecraCss) {
+      ecraCss = false;
+      principal.classList.remove("ecra-inteiro");
+      document.documentElement.classList.remove("editor-sem-rolar");
+      depoisEcra();
+    }
+  }
+  async function entrarEcra() {
+    if (principal.requestFullscreen && document.fullscreenEnabled !== false) {
+      // Sem permissão (erro) ou sem resposta (alguns navegadores embutidos nunca respondem): recurso CSS.
+      const pedido = principal.requestFullscreen({ navigationUI: "hide" }).then(() => "ok", () => "erro");
+      const r = await Promise.race([pedido, new Promise((ok) => { setTimeout(() => ok("demora"), 800); })]);
+      if (r === "ok" || document.fullscreenElement === principal) return;
+    }
+    ecraCss = true;
+    principal.classList.add("ecra-inteiro");
+    document.documentElement.classList.add("editor-sem-rolar");
+    depoisEcra();
+  }
+  bEcra.addEventListener("click", () => { if (emEcraInteiro()) sairEcra(); else entrarEcra(); });
+  document.addEventListener("fullscreenchange", depoisEcra);
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && ecraCss && !dialogo.open) sairEcra(); });
+
   // ---------------------------------------------------------------- ponteiro
   const pararToqueLongo = () => { clearTimeout(toqueLongo); toqueLongo = null; };
 
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
     svg.setPointerCapture?.(ev.pointerId);
+    // O 1.º dedo (ou o rato) de um gesto novo: esquece ponteiros cujo "pointerup" não chegou à planta
+    // (ex.: o toque longo abriu a janela por cima e o dedo foi levantado nela) — senão parecia uma pinça.
+    if (ev.isPrimary) { ponteiros.clear(); pinca = null; }
     ponteiros.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     pararToqueLongo();
     if (ponteiros.size === 2) {
@@ -694,7 +850,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const alvo = ev.target.closest?.("[data-pega], [data-elemento], [data-divisao]");
     if (alvo?.dataset.pega) {
       const d = obterDivisao(alvo.dataset.id);
-      if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d) }; return; }
+      if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d), c0: caixaDe(d), dentro: elementosDentro(d) }; return; }
     }
     if (alvo?.dataset.elemento) {
       const e = obterElemento(alvo.dataset.elemento);
@@ -757,7 +913,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
         const livre = ev.shiftKey || ev.altKey;
         const x = livre ? pts0[i][0] + dx : ajustar(pts0[i][0] + dx, ESCALA_CM);
         const y = livre ? pts0[i][1] + dy : ajustar(pts0[i][1] + dy, ESCALA_CM);
-        if (moverCanto(d, pts0, i, x, y)) desenhar();
+        if (moverCanto(d, pts0, i, x, y)) { acompanhar(d, arrasto.c0, arrasto.dentro); desenhar(); }
         break;
       }
       default: break;
@@ -790,6 +946,21 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     else desenharTudo();
   }
 
+  /**
+   * Toque (ou clique) sem arrastar: se for o 2.º perto do anterior e logo a seguir, é um duplo clique
+   * (gestoDuplo). Feito aqui porque o "dblclick" do navegador não chega (ver DUPLO_MS).
+   */
+  function toqueSimples(ev) {
+    const agora = performance.now();
+    const tol = ev.pointerType === "mouse" || !ev.pointerType ? DUPLO_PX.mouse : DUPLO_PX.toque;
+    const u = ultimoToque;
+    if (u && !modo && !dialogo.open && agora - u.t <= DUPLO_MS && Math.hypot(ev.clientX - u.x, ev.clientY - u.y) <= tol) {
+      gestoDuplo(paraPlanta(ev.clientX, ev.clientY), ev.pointerType === "mouse" || !ev.pointerType ? "mouse" : ev.pointerType);
+      return;
+    }
+    ultimoToque = { t: agora, x: ev.clientX, y: ev.clientY };
+  }
+
   const fimPonteiro = (ev) => {
     pararToqueLongo();
     const eraPinca = !!pinca;
@@ -797,16 +968,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (ponteiros.size < 2) pinca = null;
     if (eraPinca) { arrasto = null; return; }
     if (arrasto && arrasto.id === ev.pointerId) {
-      if (ev.type === "pointercancel") { arrasto = null; desenhar(); return; }
+      if (ev.type === "pointercancel") { arrasto = null; ultimoToque = null; desenhar(); return; }
+      const a = arrasto;
       terminarArrasto(ev);
+      if (!a.mexeu && a.tipo !== "colocar") toqueSimples(ev);
+      else ultimoToque = null;
     }
   };
   svg.addEventListener("pointerup", fimPonteiro);
   svg.addEventListener("pointercancel", fimPonteiro);
   // Duplo clique do rato (e o duplo toque, onde o navegador o dá): o que fica no ponto decide (gestoDuplo).
+  // Normalmente não chega (a planta é redesenhada entre os cliques): o duplo clique vem de toqueSimples.
   svg.addEventListener("dblclick", (ev) => {
     ev.preventDefault();
-    if (modo || performance.now() - colocadoEm < 800) return;   // o 2.º clique de quem acabou de pôr algo
+    if (modo || performance.now() - colocadoEm < 800 || performance.now() - duploEm < 800 || dialogo.open) return;   // o 2.º clique de quem acabou de pôr algo
     const toque = ev.pointerType === "touch" || ev.sourceCapabilities?.firesTouchEvents === true;
     gestoDuplo(paraPlanta(ev.clientX, ev.clientY), toque ? "touch" : "mouse");
   });
@@ -1110,8 +1285,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
             const v = Number(i.value);
             if (!(v > 0)) return;
             memorizar();
+            const c0 = caixaDe(d), dentro = elementosDentro(d);
             // Ao cm, como na janela de edição (a grelha de 50 cm é só para arrastar).
             d[k] = limitar(Math.round(v * 100), ESCALA_CM, lim());
+            acompanhar(d, c0, dentro);
             confirmar();
           });
         }
@@ -1205,11 +1382,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     confirmar(`"${d.nome || "Divisão"}" é agora um retângulo de ${metros(d.largura_cm)} × ${metros(d.altura_cm)} m.`);
   }
 
-  /** No telemóvel os painéis estão abaixo da planta: traz a planta (e a dica) de volta ao ecrã. */
+  /**
+   * No telemóvel os painéis estão abaixo da planta: traz a planta de volta ao ecrã, inteira entre o topo
+   * e a barra fixa de baixo ("Anterior/Seguinte"; a planta tem a altura que sobra entre as duas).
+   */
   function mostrarPlanta() {
+    if (emEcraInteiro()) return;
     const r = area.getBoundingClientRect();
-    if (r.top >= 0 && r.bottom <= innerHeight) return;
-    dica.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    const baixo = document.querySelector(".sim-navegacao")?.getBoundingClientRect().top ?? innerHeight;
+    if (r.top >= 0 && r.bottom <= Math.min(innerHeight, baixo)) return;
+    area.scrollIntoView({ block: "end", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
   function desenharSelecao() {
@@ -1227,52 +1409,100 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   // "Opções" abre a janela de edição (a mesma do duplo clique): no telemóvel o painel fica fora do ecrã.
   sOpcoes.addEventListener("click", () => abrirDialogo());
 
-  // ---------------------------------------------------------------- lista acessível
+  // ---------------------------------------------------------------- lista da planta (por baixo dela)
+  // Uma linha por divisão do piso visível, com o que tem agrupado por tipo ("3 tomadas", "1 TV"); os
+  // elementos fora das divisões no fim (só se houver). Tocar num tipo escolhe o 1.º desse tipo; os toques
+  // seguintes passam ao próximo (e voltam ao 1.º).
+  const ROTULOS_TIPO = {
+    porta: ["porta", "portas"], janela: ["janela", "janelas"], tomada: ["tomada", "tomadas"], luz: ["luz", "luzes"],
+    interruptor: ["interruptor", "interruptores"], sensor_movimento: ["sensor de movimento", "sensores de movimento"],
+    sensor_porta: ["sensor de porta/janela", "sensores de porta/janela"], quadro: ["quadro elétrico", "quadros elétricos"],
+  };
+  const ORDEM_TIPOS = ["porta", "janela", "tomada", "luz", "interruptor", "sensor_movimento", "sensor_porta", "quadro", "maquina", ...TIPOS_TELECOM];
+  function textoGrupo(l) {
+    const e = l[0], n = l.length;
+    if (e.tipo === "maquina") {
+      const nome = e.props.modelo === "televisao" ? "TV" : (MODELOS[e.props.modelo]?.nome ?? "Máquina").toLowerCase();
+      return n === 1 ? `1 ${nome}` : `${n} × ${nome}`;
+    }
+    const r = ROTULOS_TIPO[e.tipo];
+    return r ? `${n} ${n === 1 ? r[0] : r[1]}` : `${n} × ${ELEMENTOS[e.tipo].nome}`;
+  }
+  /** Elementos agrupados por tipo (as máquinas por modelo), pela ordem de ORDEM_TIPOS. */
+  function gruposElementos(els) {
+    const m = new Map();
+    for (const e of els) {
+      const k = e.tipo === "maquina" ? `maquina-${e.props.modelo}` : e.tipo;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k).push(e);
+    }
+    return [...m].sort((a, b) => ORDEM_TIPOS.indexOf(a[1][0].tipo) - ORDEM_TIPOS.indexOf(b[1][0].tipo)).map(([chave, l]) => ({ chave, els: l }));
+  }
+  /** Botões dos tipos de uma divisão (ou dos de fora): `onde` entra no nome acessível e no id. */
+  function tiposLista(els, onde, idOnde) {
+    const caixa = el("div", "lista-tipos");
+    caixa.setAttribute("role", "group");
+    caixa.setAttribute("aria-label", `Em ${onde}`);
+    for (const g of gruposElementos(els)) {
+      const texto = textoGrupo(g.els);
+      const b = botao("", "chip-tipo");
+      b.id = `lista-${idOnde}-${g.chave}`;
+      b.append(desenharIcone(svgEl("svg"), g.els[0].tipo, g.els[0].props), el("span", null, texto));
+      const k = g.els.findIndex((e) => e.id === selecionado);
+      if (k >= 0) b.setAttribute("aria-current", "true");
+      b.setAttribute("aria-label", `${texto} em ${onde}${k >= 0 ? ` (escolhido: ${k + 1} de ${g.els.length})` : ""}`);
+      b.addEventListener("click", () => {
+        const i = g.els.findIndex((e) => e.id === selecionado);
+        const e = g.els[(i + 1) % g.els.length];
+        selecionado = e.id;
+        desenharTudo();
+        avisar(`${descreverElemento(e)}${g.els.length > 1 ? ` (${g.els.indexOf(e) + 1} de ${g.els.length})` : ""} — ${onde}. Rodar, Apagar e Opções por cima da planta.`);
+      });
+      caixa.append(b);
+    }
+    return caixa;
+  }
   function desenharLista() {
     listaConteudo.replaceChildren();
-    if (!planta.divisoes.length && !planta.elementos.length) {
-      listaConteudo.append(el("p", "ajuda", "A planta ainda está vazia."));
+    listaTitulo.textContent = nPisos() > 1 ? `Lista da planta — ${nomePiso(pisoAtual)}` : "Lista da planta";
+    const divs = divisoesPiso();
+    const fora = elementosPiso().filter((e) => !e.divisao);
+    if (!divs.length && !fora.length) {
+      listaConteudo.append(el("p", "ajuda", nPisos() > 1 ? "Este piso ainda está vazio." : "A planta ainda está vazia."));
       return;
     }
     const ul = el("ul", "lista-planta");
-    const itemElemento = (e) => {
-      const li = el("li");
-      const b = botao("", "item-planta");
-      b.append(desenharIcone(svgEl("svg"), e.tipo, e.props), el("span", null, descreverElemento(e)));
-      if (selecionado === e.id) b.setAttribute("aria-current", "true");
-      b.addEventListener("click", () => selecionar(e.id));
-      li.append(b);
-      return li;
-    };
-    for (const d of planta.divisoes) {
-      const li = el("li");
+    for (const d of divs) {
+      const li = el("li", "lista-divisao");
       const b = botao("", "item-planta divisao");
+      b.id = `lista-${d.id}`;
       const area = m2(areaPoligono(pontosDivisao(d)));
-      b.append(el("span", null, d.pontos ? `${d.nome || "Divisão"} — ${area} m² (forma livre)` : `${d.nome || "Divisão"} — ${metros(d.largura_cm)} × ${metros(d.altura_cm)} m (${area} m²)`));
+      b.append(el("span", null, d.pontos ? `${d.nome || "Divisão"} — ${area} m² (forma livre)` : `${d.nome || "Divisão"} — ${metros(d.largura_cm)} × ${metros(d.altura_cm)} m`));
       if (selecionado === d.id) b.setAttribute("aria-current", "true");
-      b.addEventListener("click", () => selecionar(d.id));
+      b.addEventListener("click", () => {
+        selecionado = d.id;
+        desenharTudo();
+        avisar(`${d.nome || "Divisão"} escolhida. Arraste-a na planta; os cantos mudam a forma; Opções abre a janela.`);
+      });
       li.append(b);
       const els = planta.elementos.filter((e) => e.divisao === d.id);
-      if (els.length) {
-        const sub = el("ul");
-        for (const e of els) sub.append(itemElemento(e));
-        li.append(sub);
-      }
+      if (els.length) li.append(tiposLista(els, d.nome || "Divisão", d.id));
+      else li.append(el("p", "ajuda", "Sem aparelhos."));
       ul.append(li);
     }
-    const fora = planta.elementos.filter((e) => !e.divisao);
     if (fora.length) {
-      const li = el("li");
-      li.append(el("span", "item-grupo", "Fora das divisões"));
-      const sub = el("ul");
-      for (const e of fora) sub.append(itemElemento(e));
-      li.append(sub);
+      const li = el("li", "lista-divisao lista-fora");
+      li.append(el("span", "item-grupo", "Fora das divisões"), tiposLista(fora, "fora das divisões", "fora"));
       ul.append(li);
     }
     listaConteudo.append(ul);
   }
 
   function descreverElemento(e) {
+    const t = descreverTipo(e);
+    return e.nome ? `${e.nome} (${t})` : t;
+  }
+  function descreverTipo(e) {
     const p = e.props;
     if (e.tipo === "porta") return p.entrada ? "Porta da rua" : "Porta";
     if (e.tipo === "janela") return p.estore ? (p.motorizado ? "Janela com estore motorizado" : "Janela com estore") : "Janela";
@@ -1281,12 +1511,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (e.tipo === "interruptor") return `Interruptor de ${p.botoes} ${p.botoes === 1 ? "botão" : "botões"}`;
     if (e.tipo === "maquina") return `${MODELOS[p.modelo]?.nome ?? "Máquina"} (${p.potencia_w} W)`;
     return ELEMENTOS[e.tipo].nome;
-  }
-
-  function selecionar(id) {
-    selecionado = id;
-    desenharTudo();
-    document.getElementById("editor-props-titulo")?.focus({ preventScroll: false });
   }
 
   // ---------------------------------------------------------------- janela de edição
@@ -1301,14 +1525,19 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if ((!d && !e) || dialogo.open) return;
     pararToqueLongo();
     arrasto = null;
+    // A janela fica por cima da planta: o "pointerup" do dedo que a abriu já não chega lá.
+    ponteiros.clear();
+    pinca = null;
+    ultimoToque = null;
     rascunho = d
-      ? { id: d.id, tipo: "divisao", nome: d.nome, pts: pontosDivisao(d) }
-      : { id: e.id, tipo: "elemento", el: e.tipo, props: { ...e.props }, rot: e.rot, x: e.x_cm, y: e.y_cm };
+      ? { id: d.id, tipo: "divisao", nome: d.nome, pts: pontosDivisao(d), piso: pisoDe(d) }
+      : { id: e.id, tipo: "elemento", el: e.tipo, props: { ...e.props }, rot: e.rot, x: e.x_cm, y: e.y_cm, nome: e.nome ?? "", altura: e.altura_cm ?? null, alturaMexida: e.altura_cm !== undefined };
     dlgTitulo.textContent = d ? `Divisão: ${d.nome || "sem nome"}` : descreverElemento(e);
     dApagar.textContent = d ? "Apagar divisão" : "Apagar";
+    dRodar.hidden = !e || !ELEMENTOS[e.tipo].roda;
     dlgErro.hidden = true;
     dlgCorpo.replaceChildren();
-    if (d) corpoDivisao(); else corpoElemento();
+    if (d) corpoDivisao(canto); else corpoElemento(e);
     dialogo.showModal();
     // Foco no primeiro campo (ou no canto pedido: toque longo num canto, "Editar cantos…").
     const alvo = (canto !== null && document.getElementById(`dlg-canto-${canto}-x`)) || dlgCorpo.querySelector("input, select");
@@ -1321,7 +1550,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     (foco ?? dlgErro).focus?.();
   }
 
-  function corpoDivisao() {
+  function corpoDivisao(canto = null) {
     const r = rascunho;
     const nome = document.createElement("input");
     nome.id = "dlg-nome";
@@ -1424,22 +1653,72 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     desenharCantos();
     desenharDims();
     desenharArea();
-    dlgCorpo.append(campo("Nome", nome), dl, dims, area, cantos, bs,
+    // Piso (nos tipos com pisos): mudar leva a divisão e o que está dentro dela para esse piso.
+    const extra = [];
+    if (nPisos() > 1 || pisosPedidos > 1) {
+      const s = document.createElement("select");
+      s.id = "dlg-piso";
+      for (let p = 0; p < Math.max(nPisos(), pisosPedidos); p++) { const o = document.createElement("option"); o.value = String(p); o.textContent = nomePiso(p); s.append(o); }
+      s.value = String(r.piso);
+      s.addEventListener("change", () => { r.piso = Number(s.value); });
+      extra.push(campo("Piso", s, "A divisão muda de piso com tudo o que está dentro dela."));
+    }
+    // Os cantos (em metros) numa secção que se abre: abertos numa forma livre ou quando se pediu um canto.
+    const secCantos = el("details", "editor-cantos-sec");
+    secCantos.open = !eRet() || canto !== null;
+    secCantos.append(el("summary", null, eRet() ? "Cantos (para paredes oblíquas)" : "Cantos da divisão"), cantos, bs);
+    dlgCorpo.append(campo("Nome", nome), dl, dims, area, ...extra, secCantos,
       el("p", "ajuda", "Na planta: arraste um canto para inclinar a parede; duplo clique (ou toque longo) numa parede acrescenta um canto."));
   }
 
-  function corpoElemento() {
+  /**
+   * Janela do elemento: nome (etiqueta opcional), o que é (tipo, divisão, potência, circuito), tipo e
+   * rotação, as propriedades, a distância às paredes da divisão onde está (mudar move-o) e a altura ao chão
+   * (com o valor típico). `e`: o elemento na planta.
+   */
+  function corpoElemento(e) {
     const r = rascunho;
+    const div = e.divisao ? obterDivisao(e.divisao) : null;
+    // Distâncias às paredes da esquerda e de cima da divisão (caixa envolvente); fora das divisões, à planta.
+    r.ref = div ? { x: div.x_cm, y: div.y_cm } : { x: 0, y: 0 };
+    const etiqueta = document.createElement("input");
+    etiqueta.id = "dlg-etiqueta";
+    etiqueta.maxLength = 60;
+    etiqueta.autocomplete = "off";
+    etiqueta.value = r.nome;
+    etiqueta.placeholder = "Ex.: Interruptor da entrada";
+    etiqueta.addEventListener("input", () => { r.nome = etiqueta.value; });
+    const info = el("dl", "editor-info");
+    const linhaInfo = (t, v) => { if (v) info.append(el("dt", null, t), el("dd", null, v)); };
+    linhaInfo("O que é", descreverTipo(e));
+    linhaInfo("Divisão", div ? `${div.nome || "sem nome"}${nPisos() > 1 ? ` · ${nomePiso(pisoDe(e))}` : ""}` : "fora das divisões (não conta em nenhuma)");
+    if (e.tipo === "maquina") linhaInfo("Potência", `${e.props.potencia_w} W`);
+    linhaInfo("Circuito", ehTelecom(e.tipo) ? "nenhum (telecomunicações: brevemente, fora do preço)" : (circuitoDe?.(planta, e) ?? "a definir no passo do quadro"));
     const tipo = document.createElement("select");
     tipo.id = "dlg-tipo";
     for (const t of TIPOS_ELEMENTO) { const o = document.createElement("option"); o.value = t; o.textContent = ELEMENTOS[t].nome; tipo.append(o); }
     tipo.value = r.el;
     const rotBox = el("div");
     const propsBox = el("div", "editor-props-campos");
-    const x = numeroInput(r.x / 100, { min: 0, max: planta.largura_cm / 100, step: 0.1, id: "dlg-x" });
-    const y = numeroInput(r.y / 100, { min: 0, max: planta.altura_cm / 100, step: 0.1, id: "dlg-y" });
-    x.addEventListener("input", () => { r.x = lerNumero(x.value) * 100; });
-    y.addEventListener("input", () => { r.y = lerNumero(y.value) * 100; });
+    const x = numeroInput(Math.round(r.x - r.ref.x) / 100, { min: 0, max: planta.largura_cm / 100, step: 0.01, id: "dlg-x" });
+    const y = numeroInput(Math.round(r.y - r.ref.y) / 100, { min: 0, max: planta.altura_cm / 100, step: 0.01, id: "dlg-y" });
+    x.addEventListener("input", () => { r.x = r.ref.x + lerNumero(x.value) * 100; });
+    y.addEventListener("input", () => { r.y = r.ref.y + lerNumero(y.value) * 100; });
+    // Altura ao chão: o valor típico do tipo (tomada da cozinha por cima da bancada, luz no teto…).
+    const alturaBox = el("div");
+    const tipica = () => alturaTipica(r.el, r.props, div ? tipoDoNome(div.nome) : null);
+    const desenharAltura = () => {
+      alturaBox.replaceChildren();
+      const t = tipica();
+      if (t === null) { r.altura = null; return; }
+      if (!r.alturaMexida) r.altura = t;
+      const a = numeroInput(r.altura === null ? "" : r.altura / 100, { min: 0, max: ALTURA_MAX_CM / 100, step: 0.01, id: "dlg-altura-chao" });
+      a.addEventListener("input", () => { const v = lerNumero(a.value); r.altura = Number.isFinite(v) ? Math.round(v * 100) : NaN; r.alturaMexida = true; });
+      const bt = botao(`Típica: ${metros(t)} m${r.el === "luz" ? " (no teto)" : ""}`);
+      bt.id = "dlg-altura-tipica";
+      bt.addEventListener("click", () => { r.altura = t; r.alturaMexida = true; a.value = String(t / 100); });
+      alturaBox.append(campo("Altura ao chão (m)", a, "Valores típicos: interruptor 1,10 m, tomada 0,30 m (na cozinha, por cima da bancada, 1,10 m), luz no teto."), bt);
+    };
     // Estore → motorizado ativo; modelo → potência típica: o que depende de outro campo acompanha-o.
     const sincronizar = () => {
       const cx = propsBox.querySelectorAll("input[type=checkbox]");
@@ -1457,7 +1736,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
         s.addEventListener("change", () => { r.rot = Number(s.value); });
         rotBox.append(campo("Rotação", s));
       }
-      propsBox.replaceChildren(...camposElemento(r.el, r.props, (f) => (v) => { f(v); sincronizar(); }, "dlg"));
+      propsBox.replaceChildren(...camposElemento(r.el, r.props, (f) => (v) => { f(v); sincronizar(); if (!r.alturaMexida) desenharAltura(); }, "dlg"));
+      dRodar.hidden = !ELEMENTOS[r.el].roda;
+      desenharAltura();
     };
     tipo.addEventListener("change", () => {
       r.el = tipo.value;
@@ -1466,9 +1747,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       desenharTipo();
     });
     desenharTipo();
-    const pos = el("div", "duas");
-    pos.append(campo("Distância à esquerda (m)", x), campo("Distância ao topo (m)", y));
-    dlgCorpo.append(campo("Tipo", tipo), rotBox, propsBox, pos);
+    const pos = el("fieldset", "editor-posicao");
+    pos.append(el("legend", null, div ? `Distância às paredes de "${div.nome || "Divisão"}" (em metros)` : "Posição na planta (em metros)"));
+    const duas = el("div", "duas");
+    duas.append(campo(div ? "Da parede da esquerda" : "Da esquerda da planta", x), campo(div ? "Da parede de cima" : "Do topo da planta", y));
+    pos.append(duas);
+    dlgCorpo.append(campo("Nome (opcional)", etiqueta, "Para o reconhecer na lista e no orçamento."), info, campo("Tipo", tipo), rotBox, propsBox, pos, alturaBox);
   }
 
   function guardarDialogo() {
@@ -1485,21 +1769,33 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       if (!v) { erroDialogo(paredesCruzam(r.pts) ? "As paredes cruzam-se: reveja a ordem dos cantos (à volta da divisão)." : "A divisão fica pequena demais (mínimo 0,25 m²) ou tem cantos repetidos."); return; }
       memorizar();
       d.nome = String(r.nome ?? "").trim().slice(0, 60) || "Divisão";
+      const c0 = caixaDe(d), dentroAntes = elementosDentro(d);
       definirPontos(d, v);
+      acompanhar(d, c0, dentroAntes);
+      // Os elementos de dentro acompanham a divisão; mudar de piso leva-os também.
+      const dentro = planta.elementos.filter((x) => x.divisao === d.id);
+      const outroPiso = r.piso !== pisoDe(d);
+      if (outroPiso) { d.piso = r.piso; for (const x of dentro) x.piso = r.piso; }
       rascunho = null;
       dialogo.close();
-      confirmar(`Divisão "${d.nome}" guardada (${m2(areaPoligono(v))} m²).`);
+      if (outroPiso) { mudarPiso(d.piso, { anunciar: false }); selecionado = d.id; }
+      confirmar(`Divisão "${d.nome}" guardada (${m2(areaPoligono(v))} m²)${outroPiso ? `, agora no ${nomePiso(d.piso)}` : ""}.`);
       return;
     }
     const e = obterElemento(r.id);
     if (!e) { dialogo.close(); return; }
-    if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) { erroDialogo("Escreva a posição em metros (ex.: 2,5).", document.getElementById("dlg-x")); return; }
+    if (!Number.isFinite(r.x) || !Number.isFinite(r.y)) { erroDialogo("Escreva a distância às paredes em metros (ex.: 2,5).", document.getElementById("dlg-x")); return; }
+    if (r.altura !== null && !(Number.isFinite(r.altura) && r.altura >= 0 && r.altura <= ALTURA_MAX_CM)) { erroDialogo(`Escreva a altura ao chão em metros (0 a ${metros(ALTURA_MAX_CM)}; ex.: 1,10).`, document.getElementById("dlg-altura-chao")); return; }
     memorizar();
     e.tipo = r.el;
     e.props = { ...r.props };
     e.rot = ELEMENTOS[r.el].roda ? r.rot : 0;
     e.x_cm = Math.round(limitar(r.x, 0, planta.largura_cm));
     e.y_cm = Math.round(limitar(r.y, 0, planta.altura_cm));
+    const nome = String(r.nome ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 60);
+    if (nome) e.nome = nome; else delete e.nome;
+    // Altura ao chão: só se guarda a que o cliente escreveu (sem ela vale a típica, que segue o tipo).
+    if (r.altura === null || !r.alturaMexida) delete e.altura_cm; else e.altura_cm = r.altura;
     rascunho = null;
     dialogo.close();
     confirmar(`Guardado: ${descreverElemento(e)}.`);
@@ -1507,6 +1803,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
 
   dlgForm.addEventListener("submit", (ev) => { ev.preventDefault(); guardarDialogo(); });
   dCancelar.addEventListener("click", () => dialogo.close());
+  // Rodar no rascunho (só muda na planta ao guardar).
+  dRodar.addEventListener("click", () => {
+    const r = rascunho;
+    if (r?.tipo !== "elemento" || !ELEMENTOS[r.el].roda) return;
+    r.rot = (r.rot + 90) % 360;
+    const s = document.getElementById("dlg-rot");
+    if (s) s.value = String(r.rot);
+  });
   dApagar.addEventListener("click", () => {
     const id = rascunho?.id;
     dialogo.close();
@@ -1519,7 +1823,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   function desenhar() {
     if (!planta) return;
     const { ppc, raio, raioToque, letra, pega } = tamanhos();
-    desenharPlanta(svg, planta, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega });
+    desenharPlanta(svg, planta, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -1540,8 +1844,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const [a, b] = calibracao.pontos;
       extra("path", { d: `M${a.x} ${a.y}L${b.x} ${b.y}` }, { stroke: "var(--argila)", "stroke-width": "3px", "vector-effect": "non-scaling-stroke", "pointer-events": "none" });
     }
-    const nD = planta.divisoes.length, nE = planta.elementos.length;
-    svg.setAttribute("aria-label", `Planta da casa: ${nD} ${nD === 1 ? "divisão" : "divisões"}, ${nE} ${nE === 1 ? "elemento" : "elementos"}${selecionado ? `. Selecionado: ${obterDivisao(selecionado)?.nome ?? descreverElemento(obterElemento(selecionado) ?? { tipo: "luz", props: {} })}` : ""}`);
+    const nD = divisoesPiso().length, nE = elementosPiso().length;
+    svg.setAttribute("aria-label", `Planta da casa${nPisos() > 1 ? `, ${nomePiso(pisoAtual)}` : ""}: ${nD} ${nD === 1 ? "divisão" : "divisões"}, ${nE} ${nE === 1 ? "elemento" : "elementos"}${selecionado ? `. Selecionado: ${obterDivisao(selecionado)?.nome ?? descreverElemento(obterElemento(selecionado) ?? { tipo: "luz", props: {} })}` : ""}`);
     bDesfazer.disabled = !desfazer.length;
     bRefazer.disabled = !refazer.length;
   }
@@ -1549,7 +1853,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   // Os painéis ao lado são refeitos a cada mudança: o foco volta ao mesmo controlo
   // (pelo id, ou pelo texto do rótulo/botão) para quem usa o teclado não o perder.
   function chaveFoco(a) {
-    if (!a || !lado.contains(a)) return null;
+    if (!a || !(lado.contains(a) || listaSec.contains(a))) return null;
     if (a.id) return { id: a.id };
     return { texto: (a.closest("label") ?? a).textContent, tag: a.tagName };
   }
@@ -1557,13 +1861,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (!k) return;
     let alvo = k.id ? document.getElementById(k.id) : null;
     if (!alvo && k.texto != null) {
-      alvo = [...lado.querySelectorAll(k.tag)].find((x) => (x.closest("label") ?? x).textContent === k.texto) ?? null;
+      alvo = [...lado.querySelectorAll(k.tag), ...listaSec.querySelectorAll(k.tag)].find((x) => (x.closest("label") ?? x).textContent === k.texto) ?? null;
     }
     if (alvo && !alvo.disabled) alvo.focus({ preventScroll: true });
   }
 
   function desenharTudo() {
     const foco = chaveFoco(document.activeElement);
+    desenharSeparadores();
     desenhar();
     desenharSelecao();
     desenharPropriedades();
@@ -1582,14 +1887,24 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     abrir(p, { reiniciarVista = true } = {}) {
       const nova = planta !== p;
       planta = p;
-      if (nova) { desfazer = []; refazer = []; selecionado = null; calibracao = null; lerAspeto(); }
+      if (nova) { desfazer = []; refazer = []; selecionado = null; calibracao = null; ultimoToque = null; lerAspeto(); pisoAtual = 0; }
+      if (pisoAtual >= nPisos()) pisoAtual = 0;
       if (nova) ajustarFolha();   // plantas antigas com quadrícula vazia à volta ficam à medida
       if (reiniciarVista || nova) verTudo();
-      nDivisoesVista = planta.divisoes.length;
+      nDivisoesVista = divisoesPiso().length;
       definirModo(null);
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
+    /** N.º de pisos da casa (1 = sem separadores, salvo se a planta já tiver coisas noutros pisos). */
+    definirPisos(n) {
+      pisosPedidos = Math.min(MAX_PISO + 1, Math.max(1, Math.round(Number(n)) || 1));
+      if (planta && pisoAtual >= nPisos()) pisoAtual = 0;
+      desenharSeparadores();
+    },
+    /** Piso visível (0 = r/c). */
+    get piso() { return pisoAtual; },
+    mudarPiso: (p) => mudarPiso(p),
     /** Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara). */
     definirTiposDivisao(lista) {
       if (lista === tiposDivisao) return;

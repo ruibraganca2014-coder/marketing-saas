@@ -8,7 +8,7 @@ import {
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
   avisosCircuito, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
   perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
-  TIPOS_COM_PISOS,
+  TIPOS_COM_PISOS, nomePiso, pisoDe,
   RTIEBT, codigoCircuito, seccaoCabo, formatarMm2,
 } from "./regras.js";
 import {
@@ -21,11 +21,12 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, opcoesAvisos, potenciaContratada,
-  normalizarQuer, maquinasEscolhidas, fasesSugeridas, telecomParaEnvio, avisosEstado,
+  normalizarQuer, fasesSugeridas, telecomParaEnvio, avisosEstado,
+  maquinasParaPlanta, pisosDaCasa, pisoDaMaquina, MAX_QUANTIDADE,
 } from "./estado.js";
 import {
   PROTECOES, PACOTES, PARA_RAIOS, QUADRO_NOVO, opcoesCircuitos, protecoesDoPacote, pacoteDe, protecoesEfetivas,
-  resumoQuadro, levaQuadroNovo, pedidosQuadro, formatarKva,
+  resumoQuadro, levaQuadroNovo, pedidosQuadro, formatarKva, TAMANHO_PARCIAL,
 } from "./quadro.js";
 import { criarEditor } from "./editor.js";
 import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
@@ -76,6 +77,7 @@ const editor = criarEditor($("editor"), {
     textoSeguinte();
     agendarGravacao();
   },
+  circuitoDe: (planta, e) => circuitoDoElemento(planta, e),
 });
 
 // ------------------------------------------------------------ gravação
@@ -149,6 +151,7 @@ function mostrarPasso(foco = true) {
   if (p === P.planta) {
     if (preencherPlanta()) agendarGravacao();
     editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
+    editor.definirPisos(pisosDaCasa(estado.casa));
     editor.abrir(estado.planta, { reiniciarVista: true });
     desenharContagem();
     desenharPlantaOrigem();
@@ -451,6 +454,9 @@ const quer = (k) => estado.quer.objetivos.includes(k);
 /**
  * Máquinas grandes, pequenas (por grupos) e objetivos do perfil do imóvel (casa, serviços ou industrial):
  * refeitos quando o perfil muda. As máquinas mudam a ligação sugerida (carregador de 22 kW → trifásica).
+ * Tocar numa máquina marca-a ou desmarca-a; marcada, mostra por baixo quantas (− n +) e, nas casas com
+ * mais de um piso, em que piso fica (por omissão o típico: estado.js pisoDaMaquina). A planta desenhada
+ * põe esse número de máquinas nesse piso (casa.js plantaDaCasa).
  */
 function desenharQuer() {
   const gm = $("quer-maquinas"), gp = $("quer-pequenas"), go = $("quer-objetivos");
@@ -461,10 +467,24 @@ function desenharQuer() {
       const s = new Set(estado.quer[lista]);
       if (sim) s.add(k); else s.delete(k);
       estado.quer[lista] = chaves.filter((x) => s.has(x));   // sempre pela ordem da lista
-      if (lista !== "objetivos") sugerirLigacao();
+      if (lista !== "objetivos") {
+        // Marcada: 1 (o cliente muda no contador); desmarcada: esquece a quantidade e o piso.
+        if (sim) estado.quer.quantidades[k] = estado.quer.quantidades[k] ?? 1;
+        else { delete estado.quer.quantidades[k]; delete estado.quer.pisos[k]; }
+        sugerirLigacao();
+        desenharExtraQuer(k);
+      }
       agendarGravacao();
     };
-    const maquina = (lista, chaves) => (k) => escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternar(lista, chaves, k));
+    const maquina = (lista, chaves) => (k) => {
+      const caixaM = el("div", "quer-item");
+      caixaM.dataset.maquina = k;
+      const extra = el("div", "quer-extra");
+      extra.id = `quer-extra-${k}`;
+      extra.hidden = true;
+      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternar(lista, chaves, k)), extra);
+      return caixaM;
+    };
     const grandes = maquinasGrandesDe(estado.casa.tipo);
     gm.replaceChildren(...grandes.map(maquina("maquinas", grandes)));
     const pequenas = MAQUINAS_PEQUENAS[perfil].flatMap(([, l]) => l);
@@ -479,13 +499,55 @@ function desenharQuer() {
     const objs = objetivosDe(estado.casa.tipo);
     go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternar("objetivos", objs, k))));
   }
-  for (const i of gm.querySelectorAll("input")) i.checked = estado.quer.maquinas.includes(i.value);
-  for (const i of gp.querySelectorAll("input")) i.checked = estado.quer.pequenas.includes(i.value);
-  for (const i of go.querySelectorAll("input")) i.checked = estado.quer.objetivos.includes(i.value);
+  for (const i of gm.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.maquinas.includes(i.value);
+  for (const i of gp.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.pequenas.includes(i.value);
+  for (const i of go.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.objetivos.includes(i.value);
+  for (const c of document.querySelectorAll("#passo-1 .quer-item")) desenharExtraQuer(c.dataset.maquina);
+}
+
+/** Quantidade (− n +) e piso de uma máquina marcada em "O que quer"; escondido se não está marcada. */
+function desenharExtraQuer(k) {
+  const extra = $(`quer-extra-${k}`);
+  if (!extra) return;
+  const marcada = estado.quer.maquinas.includes(k) || estado.quer.pequenas.includes(k);
+  extra.hidden = !marcada;
+  extra.replaceChildren();
+  if (!marcada) return;
+  const nome = MODELOS[k].nome;
+  const qtd = estado.quer.quantidades[k] ?? 1;
+  const grupo = el("div", "contador-caixa");
+  grupo.setAttribute("role", "group");
+  grupo.setAttribute("aria-label", `Quantas: ${nome}`);
+  const valor = el("output", "contador-valor", String(qtd));
+  valor.id = `quer-qtd-${k}`;
+  valor.setAttribute("aria-live", "polite");
+  const botaoQ = (sinal, rot, d) => {
+    const b = el("button", "btn sec", sinal);
+    b.type = "button";
+    b.id = `quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`;
+    b.setAttribute("aria-label", `${rot}: ${nome}`);
+    b.disabled = d > 0 ? qtd >= MAX_QUANTIDADE : qtd <= 1;
+    b.addEventListener("click", () => {
+      estado.quer.quantidades[k] = Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d));
+      agendarGravacao();
+      desenharExtraQuer(k);
+      $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`)?.focus();
+    });
+    return b;
+  };
+  grupo.append(botaoQ("−", "Menos uma", -1), valor, botaoQ("+", "Mais uma", 1));
+  extra.append(grupo);
+  const n = pisosDaCasa(estado.casa);
+  if (n > 1) {
+    const s = selectCom(Array.from({ length: n }, (_, p) => [p, nomePiso(p)]), pisoDaMaquina(estado, k), `quer-piso-${k}`);
+    s.setAttribute("aria-label", `Piso: ${nome}`);
+    s.addEventListener("change", () => { estado.quer.pisos[k] = Number(s.value); agendarGravacao(); });
+    extra.append(s);
+  }
 }
 
 // ------------------------------------------------------------ 3. Planta (pré-desenhada) — docs §1.1
-const assinaturaBase = () => assinaturaCasa(estado.casa, maquinasEscolhidas(estado.quer));
+const assinaturaBase = () => assinaturaCasa(estado.casa, maquinasParaPlanta(estado));
 /** A casa dá divisões? (tipologia, ou serviços/industrial; na área de cliente sem tipologia não.) */
 const casaDaDivisoes = () => !!estado.casa.tipologia || negocio();
 
@@ -502,7 +564,7 @@ function preencherPlanta() {
   return true;
 }
 function desenharDaCasa() {
-  estado.planta = plantaDaCasa(estado.casa, maquinasEscolhidas(estado.quer));
+  estado.planta = plantaDaCasa(estado.casa, maquinasParaPlanta(estado));
   estado.plantaAuto = true;
   estado.plantaBase = assinaturaBase();
 }
@@ -564,7 +626,7 @@ const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length 
  * Contagem para os passos seguintes: a da planta; sem planta (saltada), a da planta que a casa daria
  * (divisões, aparelhos habituais e máquinas escolhidas em "O que quer"), sem a gravar.
  */
-const contagemAtual = () => contarPlanta(usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasEscolhidas(estado.quer)));
+const contagemAtual = () => contarPlanta(usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
 
 /**
  * Circuitos sugeridos (§4) a partir da contagem. Toda a casa tem luzes e tomadas: se não há nenhuma
@@ -578,6 +640,25 @@ function circuitosSugeridos(cont) {
   // "Poupar energia" / "Controlo de energia": medir o consumo em todos os circuitos inteligentes (já é o que sugerimos por omissão).
   if (quer("poupar") || quer("energia")) for (const x of r) if (x.inteligente) x.medir = true;
   return r;
+}
+
+/**
+ * Circuito de um elemento da planta, para a janela de edição (editor.js circuitoDe): o do quadro que o
+ * cliente mexeu, senão o que sugerimos para a planta atual. Luzes e interruptores → iluminação; tomadas
+ * e máquinas pequenas → tomadas (C5 nas zonas húmidas); máquinas grandes → o circuito próprio. Portas,
+ * janelas, sensores e o quadro não ligam a um circuito; fora das divisões ainda não tem.
+ */
+function circuitoDoElemento(planta, e) {
+  if (!["luz", "interruptor", "tomada", "maquina"].includes(e.tipo)) return "nenhum (não liga a um circuito)";
+  const div = planta.divisoes.find((d) => d.id === e.divisao);
+  if (!div) return "nenhum ainda: ponha-o dentro de uma divisão";
+  const circuitos = estado.quadroEditado ? estado.quadro.circuitos : circuitosSugeridos(contarPlanta(planta));
+  const em = (c) => c.divisoes.includes(div.nome);
+  const c = e.tipo === "maquina" && circuitos.find((x) => x.tipo === "maquina" && em(x) && x.itens.maquinas.some((m) => m.modelo === e.props.modelo))
+    || circuitos.find((x) => em(x) && (e.tipo === "luz" || e.tipo === "interruptor" ? x.tipo === "iluminacao" : x.tipo === "tomadas" || x.tipo === "misto"));
+  if (!c) return null;
+  const cod = codigoCircuito(c);
+  return `${cod ? `${cod} · ` : ""}circuito ${c.n}${c.nome ? ` (${c.nome})` : ""}, ${c.amperes} A${estado.quadroEditado ? "" : " — sugestão, pode mudar no passo do quadro"}`;
 }
 
 /** Linhas do passo "Divisões" (a partir da contagem) com os aparelhos dos objetivos (casa.js). */
@@ -909,6 +990,12 @@ function desenharResumoQuadro(r = resumoQuadro(estado)) {
   c.replaceChildren();
   const novo = levaQuadroNovo(estado.quadro);
   c.append(el("p", "sim-quadro-tamanho", `${r.quadros > 1 ? `${r.quadros} quadros` : "Quadro"} de ${r.tamanho} módulos (${r.ocupados} ocupados, ${r.livres} livres)`));
+  // Casas com pisos: o geral fica no r/c e cada outro piso com quadro leva um parcial (quadro.js numeroQuadros).
+  if (r.parciais > 0) {
+    const pq = el("p", "sim-quadro-parciais", `Quadro geral (piso 0) + ${r.parciais} ${r.parciais === 1 ? "quadro parcial" : "quadros parciais"} (${r.parciais === 1 ? "o piso de cima" : "um por cada piso de cima"}).`);
+    pq.id = "quadro-parciais";
+    c.append(pq, el("p", "ajuda", `Cada quadro parcial: uma caixa de ${TAMANHO_PARCIAL} módulos, com o corte do piso e os disjuntores dos circuitos desse piso${novo ? " (entra no preço com o quadro novo)" : ""}. Os módulos acima são os do quadro geral.`));
+  }
   c.append(el("p", "ajuda", novo
     ? `Tamanho sugerido para um quadro novo, com pelo menos 25 % de módulos livres.${estado.quadro.quadro_novo ? "" : " (Não sabe se o atual serve: incluímos o quadro novo por precaução.)"}`
     : `Mantém o quadro atual: precisa de ${r.novos} ${r.novos === 1 ? "módulo novo" : "módulos novos"} livres${r.novos > 12 ? " (acrescentámos a ampliação)" : ""}. Se o seu quadro tiver menos de ${r.ocupados} módulos, precisa de um quadro novo.`));
@@ -974,6 +1061,7 @@ ligarRecalcular("planta-refazer", () => true, () => {
   desenharDaCasa();
   estado.plantaSaltada = false;
 }, () => {
+  editor.definirPisos(pisosDaCasa(estado.casa));
   editor.abrir(estado.planta, { reiniciarVista: true });
   desenharContagem();
   desenharPlantaOrigem();
@@ -1005,12 +1093,34 @@ function desenharDivisoes() {
   const c = $("divisoes");
   c.replaceChildren();
   if (!estado.divisoes.length) c.append(el("p", "ajuda", "Sem divisões. Use \"Adicionar divisão\"."));
-  estado.divisoes.forEach((d, i) => c.append(cartaoDivisao(d, i)));
+  // Com pisos: agrupadas por piso, cada grupo com o título do piso (as divisões guardam o índice na lista).
+  const n = nPisosDivisoes();
+  if (n <= 1) estado.divisoes.forEach((d, i) => c.append(cartaoDivisao(d, i)));
+  else {
+    for (let p = 0; p < n; p++) {
+      const doPiso = estado.divisoes.map((d, i) => [d, i]).filter(([d]) => pisoDe(d) === p);
+      const g = el("section", "divisoes-piso");
+      g.setAttribute("aria-labelledby", `divisoes-piso-${p}`);
+      const t = el("h3", null, `${nomePiso(p)} (${doPiso.length} ${doPiso.length === 1 ? "divisão" : "divisões"})`);
+      t.id = `divisoes-piso-${p}`;
+      g.append(t);
+      if (!doPiso.length) g.append(el("p", "ajuda", "Nenhuma divisão neste piso."));
+      for (const [d, i] of doPiso) g.append(cartaoDivisao(d, i, n));
+      c.append(g);
+    }
+  }
   $("extra-central").checked = estado.extras.central;
   $("extra-termostatos").value = String(estado.extras.termostatos);
 }
 
-function cartaoDivisao(d, i) {
+/** Pisos do passo "Divisões": os da casa e os que as divisões já têm (1 = sem grupos). */
+const nPisosDivisoes = () => Math.max(pisosDaCasa(estado.casa), ...estado.divisoes.map((d) => pisoDe(d) + 1), 1);
+
+/**
+ * Cartão de uma divisão; `nPisos` > 1: com a escolha do piso (mudar leva-a para o grupo desse piso), só nas
+ * divisões que não vêm da planta (as da planta mudam de piso lá, na janela da divisão).
+ */
+function cartaoDivisao(d, i, nPisos = 1) {
   const id = `d${i}`;
   const f = el("fieldset", "cartao divisao-cartao");
   const leg = el("legend", null, d.nome || `Divisão ${i + 1}`);
@@ -1022,6 +1132,11 @@ function cartaoDivisao(d, i) {
   nome.setAttribute("list", "sim-nomes-divisao");
   nome.addEventListener("input", () => { d.nome = nome.value.slice(0, 60); leg.textContent = d.nome || `Divisão ${i + 1}`; divisoesMudou(); });
   f.append(rotulo("Nome", nome));
+  if (nPisos > 1 && !(d.planta_id && usaPlanta())) {
+    const s = selectCom(Array.from({ length: nPisos }, (_, p) => [p, nomePiso(p)]), pisoDe(d), `${id}-piso`);
+    s.addEventListener("change", () => { d.piso = Number(s.value); divisoesMudou(); desenharDivisoes(); $(`${id}-piso`)?.focus(); });
+    f.append(rotulo("Piso", s));
+  }
 
   // Interruptores (um por linha, 1–4 botões)
   const ints = el("fieldset", "interruptores");

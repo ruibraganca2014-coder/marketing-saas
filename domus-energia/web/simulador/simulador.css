@@ -110,7 +110,9 @@ input, select { min-height: 44px; }
 .editor-selecao.vazia .editor-selecao-nome { font-weight: 600; color: var(--texto-suave); }
 .editor-selecao .btn { flex: none; padding-inline: 12px; }
 .editor-selecao .btn[hidden] { display: none; }
-.editor-area { position: relative; height: clamp(320px, 62vh, 640px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
+/* A planta ocupa a altura que sobra entre o topo fixo (64 px) e a barra fixa de baixo ("Anterior/Seguinte",
+   ~70 px): mostrarPlanta (editor.js) encosta-a por cima da barra (scroll-margin). */
+.editor-area { --topo-fixo: 72px; --barra-fixa: 84px; scroll-margin: var(--topo-fixo) 0 var(--barra-fixa); position: relative; height: clamp(320px, calc(100dvh - var(--topo-fixo) - var(--barra-fixa)), 1100px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
 .editor-svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .editor-svg:focus-visible { outline: 3px solid var(--areia); outline-offset: -3px; }
 .editor-svg.a-colocar { cursor: crosshair; }
@@ -139,6 +141,8 @@ input, select { min-height: 44px; }
 .editor-dialogo-corpo > * { margin: 0; }
 .editor-dialogo .form-botoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-dialogo .form-botoes .btn[hidden] { display: none; }
+/* Guardar/Rodar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
+.editor-dialogo-form > .form-botoes { position: sticky; bottom: 0; margin: 0 -16px -18px; padding: 10px 16px 18px; background: var(--superficie); border-top: 1px solid var(--borda); }
 .editor-cantos { gap: 8px; }
 .editor-cantos legend { font-size: .95rem; font-family: var(--letra); }
 .editor-canto { display: grid; gap: 6px 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
@@ -263,3 +267,58 @@ input, select { min-height: 44px; }
 .sugestoes li { display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 44px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
 .sugestoes li small { color: var(--texto-suave); text-align: right; }
 .sugestoes li[aria-selected="true"], .sugestoes li:hover { background: var(--areia-suave); }
+
+/* Separadores por piso (editor.js desenharSeparadores): só com mais de um piso. */
+.editor-pisos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 0; margin-bottom: -10px; scrollbar-width: thin; }
+.editor-pisos[hidden] { display: none; }
+.editor-piso { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-height: 44px; padding: 6px 14px; border: 2px solid var(--borda); border-bottom: 0; border-radius: 12px 12px 0 0; background: var(--superficie); color: var(--texto); font: 800 .9rem/1.2 var(--letra); cursor: pointer; }
+.editor-piso small { font-weight: 600; font-size: .75rem; color: var(--texto-suave); }
+.editor-piso:hover { border-color: var(--musgo); }
+.editor-piso[aria-selected="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
+.editor-piso[aria-selected="true"] small { color: var(--sobre-musgo); }
+.editor-piso:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
+/* Ecrã inteiro: só a planta e as ferramentas (Fullscreen API ou, sem ela, a classe .ecra-inteiro). */
+.editor-principal:fullscreen, .editor-principal.ecra-inteiro { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--fundo); overflow: auto; }
+.editor-principal.ecra-inteiro { position: fixed; inset: 0; z-index: 50; }
+.editor-principal:fullscreen .editor-area, .editor-principal.ecra-inteiro .editor-area { flex: 1 1 auto; height: auto; min-height: 240px; }
+.editor-principal:fullscreen .editor-ajuda, .editor-principal.ecra-inteiro .editor-ajuda { display: none; }
+.editor-principal:fullscreen .editor-dica, .editor-principal.ecra-inteiro .editor-dica { min-height: 0; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .88rem; }
+/* Barras numa só linha (deslizam para o lado): sobra mais altura para a planta. */
+.editor-principal:fullscreen :is(.editor-barra, .editor-barra2), .editor-principal.ecra-inteiro :is(.editor-barra, .editor-barra2) { flex-wrap: nowrap; overflow-x: auto; flex: none; }
+.editor-principal:fullscreen .editor-barra2 .btn, .editor-principal.ecra-inteiro .editor-barra2 .btn { flex: none; }
+.editor-principal:fullscreen::backdrop { background: var(--fundo); }
+html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
+/* Em ecrã inteiro o "Sair" fica à frente na barra (no telemóvel não há Esc). */
+#editor-ecra-inteiro[aria-pressed="true"] { order: -1; border-color: var(--musgo); }
+/* Janela de edição: o que é o elemento, distância às paredes, altura ao chão, cantos. */
+.editor-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--musgo-claro) 55%, transparent); font-size: .92rem; }
+.editor-info dt { font-weight: 700; color: var(--texto-suave); }
+.editor-info dd { margin: 0; overflow-wrap: anywhere; }
+.editor-posicao { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.editor-posicao legend { padding: 0; font-weight: 800; font-size: .95rem; }
+.editor-cantos-sec > summary { cursor: pointer; font-weight: 800; min-height: 44px; display: flex; align-items: center; }
+.editor-cantos-sec[open] > summary { margin-bottom: 6px; }
+.editor-cantos-sec > .form-botoes { margin-top: 8px; }
+/* "O que quer": máquina marcada com quantas (− n +) e o piso. */
+.quer-item { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.quer-extra { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; }
+.quer-extra[hidden] { display: none; }
+.quer-extra select { min-width: 0; max-width: 100%; }
+/* Divisões agrupadas por piso. */
+.divisoes-piso { display: grid; gap: 14px; }
+.divisoes-piso > h3 { margin: 8px 0 0; font-size: 1.2rem; }
+/* Lista da planta, por baixo da planta (editor.js desenharLista): uma linha por divisão, o que tem por tipo. */
+.editor-lista { padding: 14px 16px; }
+.editor-lista h3 { margin: 0 0 4px; font-size: 1.15rem; }
+.editor-lista > .ajuda { margin: 0 0 8px; }
+.lista-planta > .lista-divisao { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--borda); }
+.lista-planta > .lista-divisao:first-child { border-top: 0; }
+.lista-planta .item-planta.divisao { width: auto; justify-self: start; }
+.lista-tipos { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-tipo { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 12px 4px 8px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); color: var(--texto); font: 600 .9rem/1.2 var(--letra); cursor: pointer; }
+.chip-tipo svg { width: 22px; height: 22px; flex: none; }
+.chip-tipo:hover { border-color: var(--musgo); }
+.chip-tipo[aria-current="true"] { border-color: var(--argila); background: var(--areia-suave); }
+.chip-tipo:focus-visible, .lista-planta .item-planta:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
+.lista-fora .item-grupo { padding: 0; color: var(--alarme-texto); }
+.editor-principal:fullscreen .editor-lista, .editor-principal.ecra-inteiro .editor-lista { display: none; }

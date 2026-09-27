@@ -52,6 +52,17 @@ export const TIPOS_CASA = {
 export const TIPOS_NEGOCIO = ["servicos", "industrial"];
 /** Tipos com contador de pisos (os outros têm sempre 1). */
 export const TIPOS_COM_PISOS = ["moradia", "alojamento_local", "outro"];
+/**
+ * Pisos numerados a partir do rés-do-chão: 0 = "Piso 0 (r/c)", 1 = "Piso 1"… até MAX_PISO (4 pisos).
+ * Divisões e elementos da planta levam `piso` (0 se não o trouxerem: estados e simulações antigas).
+ */
+export const MAX_PISO = 3;
+export const nomePiso = (p) => (p > 0 ? `Piso ${p}` : "Piso 0 (r/c)");
+/** Piso de uma divisão ou elemento (inteiro 0…MAX_PISO; 0 se não tiver). */
+export const pisoDe = (x) => {
+  const n = Math.round(Number(x?.piso));
+  return Number.isFinite(n) ? Math.min(MAX_PISO, Math.max(0, n)) : 0;
+};
 /** Perfil do imóvel: "servicos", "industrial" ou "habitacao" (os outros tipos, e sem tipo). */
 export const perfilCasa = (tipo) => (TIPOS_NEGOCIO.includes(tipo) ? tipo : "habitacao");
 
@@ -162,6 +173,30 @@ export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
 export const TIPOS_TELECOM = TIPOS_ELEMENTO.filter((t) => ELEMENTOS[t].telecom);
 export const ehTelecom = (tipo) => !!ELEMENTOS[tipo]?.telecom;
 export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "brilho", "botoes", "modelo", "potencia_w"];
+
+/**
+ * Altura ao chão típica (cm) de um elemento, para a janela de edição (o cliente pode mudar: `altura_cm`):
+ * interruptor 1,10 m; tomada 0,30 m (na cozinha, por cima da bancada, 1,10 m); luz no teto (2,60 m);
+ * sensor de movimento 2,20 m… `tipoDiv`: tipo da divisão onde está (casa.js tipoDivisao). null = não se
+ * aplica (porta).
+ */
+export const PE_DIREITO_CM = 260;
+export const ALTURA_MAX_CM = 500;
+const ALTURA_MAQUINA = { ar_condicionado: 220, termoacumulador: 180, exaustor: 170, camara: 250, televisao: 110, micro_ondas: 90, box_router: 30, repetidor_wifi: 30, iluminacao_jardim: 30 };
+export function alturaTipica(tipo, props = {}, tipoDiv = null) {
+  switch (tipo) {
+    case "interruptor": return 110;
+    case "tomada": return tipoDiv === "cozinha" || tipoDiv === "sala_cozinha" ? 110 : 30;
+    case "luz": case "telecom_wifi": return PE_DIREITO_CM;
+    case "sensor_movimento": return 220;
+    case "sensor_porta": return 200;
+    case "janela": return 100;
+    case "quadro": case "telecom_ati": return 150;
+    case "telecom_rj45": case "telecom_coaxial": case "telecom_fibra": return 30;
+    case "maquina": return ALTURA_MAQUINA[props?.modelo] ?? 0;
+    default: return null;
+  }
+}
 
 /**
  * Máquinas: nome e potência típica (editável). As que não estão em MODELOS_DEDICADOS e têm menos de
@@ -427,10 +462,14 @@ export function pontoInterior(pts) {
   return melhor;
 }
 
-/** Id da divisão onde está o ponto (a última desenhada ganha, como no ecrã); null se fora. */
-export function divisaoEm(planta, x, y) {
+/**
+ * Id da divisão onde está o ponto (a última desenhada ganha, como no ecrã); null se fora. Com `piso`,
+ * só as divisões desse piso (os pisos partilham a folha: as divisões de pisos diferentes sobrepõem-se).
+ */
+export function divisaoEm(planta, x, y, piso = null) {
   let r = null;
   for (const d of planta.divisoes) {
+    if (piso !== null && pisoDe(d) !== piso) continue;
     if (x < d.x_cm || x > d.x_cm + d.largura_cm || y < d.y_cm || y > d.y_cm + d.altura_cm) continue;
     if (!d.pontos || pontoEmPoligono(x, y, pontosDivisao(d))) r = d.id;
   }
@@ -441,16 +480,18 @@ export function divisaoEm(planta, x, y) {
 export const TIPOS_PAREDE = ["porta", "janela", "sensor_porta"];
 
 /**
- * Divisão de um elemento: a que contém o centro (retângulo ou polígono); para portas, janelas e sensores de porta/janela
- * fora de todas, a mais próxima a ≤ 30 cm (paredes exteriores). O painel faz o mesmo
- * (painel/public/ecras/simulacao.js, divisaoDoElemento).
+ * Divisão de um elemento, só entre as divisões do piso dele: a que contém o centro (retângulo ou polígono);
+ * para portas, janelas e sensores de porta/janela fora de todas, a mais próxima a ≤ 30 cm (paredes
+ * exteriores). O painel faz o mesmo (painel/public/ecras/simulacao.js, divisaoDoElemento).
  */
 export function divisaoDoElemento(planta, e) {
   const x = Number(e?.x_cm) || 0, y = Number(e?.y_cm) || 0;
-  const dentro = divisaoEm(planta, x, y);
+  const piso = pisoDe(e);
+  const dentro = divisaoEm(planta, x, y, piso);
   if (dentro || !TIPOS_PAREDE.includes(e?.tipo)) return dentro;
   let r = null, melhor = TOLERANCIA_PORTA_CM;
   for (const d of planta.divisoes) {
+    if (pisoDe(d) !== piso) continue;
     const dist = distanciaPoligono(x, y, pontosDivisao(d));
     if (dist <= melhor) { melhor = dist; r = d.id; }
   }
@@ -479,13 +520,13 @@ const FORA = "__fora";
  */
 export function contarPlanta(planta) {
   const linhas = new Map();
-  const nova = (id, nome) => ({
-    id, nome, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, interruptores: [],
+  const nova = (id, nome, piso = 0) => ({
+    id, nome, piso, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, interruptores: [],
     janelas: 0, estores: 0, estores_sem_motor: 0, portas: 0, portas_entrada: 0,
     sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0, telecom: 0,
   });
   const usados = new Set();
-  for (const d of planta.divisoes) linhas.set(d.id, nova(d.id, d.nome || "Divisão"));
+  for (const d of planta.divisoes) linhas.set(d.id, nova(d.id, d.nome || "Divisão", pisoDe(d)));
   for (const e of planta.elementos) {
     const id = e.divisao && linhas.has(e.divisao) ? e.divisao : FORA;
     // Telecomunicações ("brevemente"): só se contam para mostrar; ficam fora dos circuitos e do preço.
@@ -540,6 +581,7 @@ export function divisoesDaContagem(contagem) {
   return contagem.map((c) => ({
     nome: c.nome,
     planta_id: c.id,
+    piso: c.piso ?? 0,
     interruptores: [...c.interruptores],
     estores: c.estores,
     estores_sem_motor: c.estores_sem_motor,
@@ -551,7 +593,7 @@ export function divisoesDaContagem(contagem) {
 }
 
 export function divisaoVazia(nome = "") {
-  return { nome, planta_id: null, interruptores: [], estores: 0, estores_sem_motor: 0, sensores_porta: 0, sensores_movimento: 0, luzes_regulaveis: 0, tomadas_inteligentes: 0 };
+  return { nome, planta_id: null, piso: 0, interruptores: [], estores: 0, estores_sem_motor: 0, sensores_porta: 0, sensores_movimento: 0, luzes_regulaveis: 0, tomadas_inteligentes: 0 };
 }
 
 // ------------------------------------------------------------ circuitos (§4)
