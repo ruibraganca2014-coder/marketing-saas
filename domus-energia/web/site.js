@@ -53,6 +53,9 @@ document.querySelectorAll(".js-plano").forEach((a) => {
 const form = document.getElementById("form-orcamento");
 const msg = document.getElementById("form-msg");
 const urlOrcamento = `${String(cfg.apiUrl ?? "/api").replace(/\/+$/, "")}/orcamento`;
+// Iguais a RE_TELEFONE (painel/src/validar.js) e RE_EMAIL (painel/src/pedidos.js).
+const RE_TELEFONE = /^\+?[0-9 ()-]{6,30}$/;
+const RE_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,24}$/;
 
 /** Corpo do pedido: textos aparados; campos opcionais vazios ficam de fora. `website` é o campo-armadilha. */
 function corpoOrcamento(dados) {
@@ -72,8 +75,22 @@ form.addEventListener("submit", async (e) => {
     form.elements.nome.focus();
     return;
   }
-  if (!String(dados.telefone ?? "").trim() && !String(dados.email ?? "").trim()) {
+  const telefone = String(dados.telefone ?? "").trim();
+  const email = String(dados.email ?? "").trim();
+  if (!telefone && !email) {
     mostrar("Indique um telefone ou um email para o podermos contactar.", false);
+    form.elements.telefone.focus();
+    return;
+  }
+  // As mesmas regras do servidor: um pedido recusado também conta para o limite por hora.
+  if (telefone && !RE_TELEFONE.test(telefone)) {
+    mostrar("Telefone inválido. Use só números, espaços e + (ex.: 912 345 678).", false);
+    form.elements.telefone.focus();
+    return;
+  }
+  if (email && !RE_EMAIL.test(email)) {
+    mostrar("Email inválido. Confirme o endereço (ex.: nome@exemplo.pt).", false);
+    form.elements.email.focus();
     return;
   }
 
@@ -81,6 +98,7 @@ form.addEventListener("submit", async (e) => {
   botao.textContent = "A enviar…";
   mostrar(null);
   let estado = 0;
+  let erro = "";
   try {
     const r = await fetch(urlOrcamento, {
       method: "POST",
@@ -89,6 +107,7 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify(corpoOrcamento(dados)),
     });
     estado = r.status;
+    if (estado === 400) erro = String((await r.json().catch(() => ({}))).erro ?? "");
   } catch {
     estado = 0;
   }
@@ -101,7 +120,7 @@ form.addEventListener("submit", async (e) => {
   } else if (estado === 429) {
     mostrar("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
   } else if (estado === 400) {
-    mostrar("Há dados em falta ou demasiado longos. Verifique o formulário, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
+    mostrar(`${erro || "Há dados em falta ou demasiado longos."} Verifique o formulário, ou fale connosco pelo WhatsApp ou telefone.`, false, dados);
   } else {
     mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false, dados);
   }

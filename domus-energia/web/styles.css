@@ -16,6 +16,7 @@
   /* Variantes para texto pequeno com contraste AA (as cores da paleta ficam para fundos e traço). */
   --musgo-texto: #606c38;
   --argila-texto: #8f4f15;
+  --foco: #8f4f15;          /* contorno de foco: ≥ 3:1 sobre o fundo (WCAG 1.4.11) */
   --alarme-texto: #a4372a;
   --sobre-musgo: #fefae0;
   --sobre-alarme: #fefae0;
@@ -42,6 +43,7 @@
     --alarme: #e0705f;
     --musgo-texto: #b0bf78;
     --argila-texto: #e89048;
+    --foco: #dda15e;
     --alarme-texto: #ee9486;
     --sobre-musgo: #1a2310;
     --sobre-alarme: #1a2310;
@@ -65,6 +67,7 @@
   --alarme: #e0705f;
   --musgo-texto: #b0bf78;
   --argila-texto: #e89048;
+  --foco: #dda15e;
   --alarme-texto: #ee9486;
   --sobre-musgo: #1a2310;
   --sobre-alarme: #1a2310;
@@ -89,7 +92,7 @@ h1, h2, h3, .marca { font-family: var(--letra-titulos); font-weight: 800; line-h
 a { color: var(--musgo-texto); }
 img, svg { max-width: 100%; }
 .num, .valor, input[type=number] { font-variant-numeric: tabular-nums; }
-:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
+:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
 [hidden] { display: none !important; }
 
 .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
@@ -608,6 +611,14 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
   nav .btn.pequeno { padding: 8px 12px; }
   .marca { font-size: 1.15rem; gap: 8px; }
   .so-largo { display: none; }
+}
+/* Ecrãs muito estreitos (320 px): tudo no cabeçalho sem scroll horizontal. */
+@media (max-width: 359px) {
+  .topo .wrap { padding: 0 12px; gap: 4px; }
+  nav { gap: 4px; }
+  nav .btn.pequeno { padding: 8px; }
+  .marca { font-size: .95rem; gap: 6px; }
+  .marca .logo { width: 32px; height: 32px; border-radius: 10px; }
 }
 @media (min-width: 480px) { .so-curto { display: none; } }
 
