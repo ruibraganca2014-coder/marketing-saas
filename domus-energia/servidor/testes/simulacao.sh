@@ -12,7 +12,13 @@
 #   - a ACL gerada (pedidos da v3, nada de "+" no lugar do aparelho);
 #   - planos (docs/PROTOCOLO-PLANOS.md): "pagamentos", "plano" (estados,
 #     aviso de 15 dias, ficheiro e _plano publicado, erros) e
-#     "sincronizar-planos" (ACL dos suspensos, só recarrega quando muda).
+#     "sincronizar-planos" (ACL dos suspensos, só recarrega quando muda);
+#   - painel da empresa (docs/PAINEL-EMPRESA.md §2): "painel-mqtt" (ACL só de
+#     leitura), "processar-pedidos" com pedidos válidos (cliente, aparelho,
+#     remover-aparelho, plano; resultados 600, feitos/) e maliciosos (injeção
+#     de comandos, opções disfarçadas, symlinks, hard links, ficheiros
+#     enormes, JSON adulterado, feitos/ trocado, execuções interrompidas) e
+#     "painel-utilizador".
 #
 # Uso: ./testes/simulacao.sh        (sai com 0 se tudo passar)
 # =============================================================================
@@ -310,6 +316,184 @@ then passa "admin criou os utilizadores motor e pagamentos"; else falha "admin s
 if DOMUS_DADOS="$TMP/dados3" DOMUS_MOSQ_DIR="$TMP/mosq3" "$DOMUS" admin admin-senha-1 > "$TMP/saida" 2> "$TMP/erros" \
    && grep -qF "falta PAGAMENTOS_MQTT_PASS no .env" "$TMP/erros" && [[ ! -e "$TMP/dados3/.pagamentos" ]]
 then passa "sem PAGAMENTOS_MQTT_PASS: admin avisa e continua"; else falha "admin sem PAGAMENTOS_MQTT_PASS: $(cat "$TMP/erros")"; fi
+
+echo "Painel: utilizador MQTT 'painel' (só leitura):"
+deve_passar "painel-mqtt" painel-mqtt painel-senha-1
+if grep -qxF painel "$TMP/mosq/utilizadores.simulacao"; then passa "painel: palavra-passe definida"; else falha "painel sem palavra-passe"; fi
+if grep -A1 -xF 'user painel' "$acl" | grep -qxF 'topic read domus/#' && [[ "$(grep -A3 -xF 'user painel' "$acl" | grep -c '^topic')" == 1 ]]
+then passa "acl: painel só com 'topic read domus/#'"; else falha "acl do painel"; fi
+deve_falhar "código de cliente reservado 'painel'" "'painel' é reservado" cliente painel senha-longa-1
+
+echo "Painel: processar-pedidos (pedidos válidos):"
+PED="$TMP/dados/pedidos-admin"
+mkdir -p "$PED"
+pedido() { # <id> <tipo> <dados sem chavetas> [por]
+  printf '{"id":"%s","tipo":"%s","dados":{%s},"por":"%s","criado":"2026-09-27T10:00:00Z"}\n' "$1" "$2" "$3" "${4:-ceo@domus.pt}" > "$PED/$1.json"
+}
+# <descrição> <id> <python: asserções sobre r (resultado)>
+resultado_ok() {
+  if [[ -f "$PED/$2.resultado.json" && ! -L "$PED/$2.resultado.json" ]] && python3 - "$PED/$2.resultado.json" "$3" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+exec(sys.argv[2])
+PY
+  then passa "$1"; else falha "$1: $(cat "$PED/$2.resultado.json" 2>/dev/null || echo 'sem resultado')"; fi
+}
+limpar_resultados() { find "${PED:?}" -maxdepth 1 -name '*.resultado.json' -delete; }
+AP='"cliente":"joao","id":"%s","tipo":"%s","nome":"%s","canais":"%s","divisao":"%s","medidor":%s,"geral":false,"bateria":false,"substituir":%s'
+# shellcheck disable=SC2059
+ap() { printf "$AP" "$@"; }
+pedido p-20260927100000-000000a1 cliente '"codigo":"rita"' comercial@domus.pt
+pedido p-20260927100001-000000a2 aparelho "$(ap cozinha shelly 'Luz da cozinha' '1:interruptor:Teto:arranque=ultimo' Cozinha true false)" tecnico@domus.pt
+pedido p-20260927100002-000000a3 remover-aparelho '"cliente":"joao","id":"muitos"'
+pedido p-20260927100003-000000a4 plano '"cliente":"maria","plano":"premium","estado":"teste"'
+printf '%s\n' '{"id":"p-20260927100004-000000a5","tipo":"cliente","dados":{"codigo":"rita2"},"por":"x@y.pt","criado":"2026-09-27T10:00:00.123Z"}' > "$PED/p-20260927100004-000000a5.json"
+deve_passar "processar-pedidos" processar-pedidos
+saida_tem "regista cada pedido" "pedido p-20260927100000-000000a1 de comercial@domus.pt: ok"
+resultado_ok "cliente: ok, palavra-passe gerada e cartão de login" p-20260927100000-000000a1 '
+import re
+assert r["ok"] is True and r["tipo"] == "cliente" and r["cliente"] == "rita", r
+assert re.fullmatch(r"[A-Za-z0-9]{20}", r["password"]) and ("Palavra-passe .. " + r["password"]) in r["saida"], r'
+if [[ -f "$TMP/dados/clientes/rita.tsv" ]]; then passa "cliente rita criado"; else falha "rita.tsv não existe"; fi
+resultado_ok "aparelho: ok, palavra-passe e instruções" p-20260927100001-000000a2 '
+assert r["ok"] and r["aparelho"] == "cozinha" and r["password"] in r["saida"] and "MQTT prefix" in r["saida"], r'
+if "$DOMUS" json joao | python3 -c 'import json,sys; l={a["id"]:a for a in json.load(sys.stdin)}; assert l["cozinha"]["medidor"] is True and l["cozinha"]["canais"][0]=={"n":1,"funcao":"interruptor","nome":"Teto","arranque":"ultimo","divisao":"Cozinha"}, l["cozinha"]; assert "muitos" not in l'
+then passa "aparelho cozinha criado com as opções; muitos removido"; else falha "json joao: $("$DOMUS" json joao)"; fi
+resultado_ok "remover-aparelho: ok (sem palavra-passe)" p-20260927100002-000000a3 'assert r["ok"] and r["password"] is None, r'
+resultado_ok "plano: ok" p-20260927100003-000000a4 'assert r["ok"] and r["password"] is None and "premium, teste" in r["saida"], r'
+if grep -q '"plano":"premium","estado":"teste"' "$TMP/dados/planos/maria.json"; then passa "plano de maria gravado"; else falha "maria.json: $(cat "$TMP/dados/planos/maria.json")"; fi
+resultado_ok "criado com milissegundos também é aceite" p-20260927100004-000000a5 'assert r["ok"] and r["cliente"] == "rita2", r'
+modos="$(stat -c %a "$PED"/*.resultado.json | sort -u)"
+if [[ "$modos" == 600 ]]; then passa "resultados com modo 600"; else falha "modos dos resultados: $modos"; fi
+if [[ -f "$PED/feitos/p-20260927100000-000000a1.json" && -f "$PED/feitos/p-20260927100003-000000a4.json" && ! -e "$PED/p-20260927100000-000000a1.json" ]]
+then passa "pedidos movidos para feitos/"; else falha "feitos/: $(ls -la "$PED" "$PED/feitos")"; fi
+if [[ "$(id -u)" == 0 ]]; then
+  if [[ "$(stat -c '%u:%g %a' "$PED")" == "0:1000 1770" && "$(stat -c '%u %a' "$PED/feitos")" == "0 700" && "$(stat -c %u "$PED/p-20260927100000-000000a1.resultado.json")" == 1000 ]]
+  then passa "root: fila root:1000 1770, feitos/ do root, resultados do uid 1000"; else falha "donos: $(stat -c '%n %u:%g %a' "$PED" "$PED/feitos" "$PED"/*.resultado.json)"; fi
+fi
+limpar_resultados
+deve_passar "processar-pedidos sem pedidos" processar-pedidos
+if [[ ! -s "$TMP/saida" && ! -s "$TMP/erros" ]]; then passa "sem pedidos: não escreve nada"; else falha "sem pedidos: $(cat "$TMP/saida" "$TMP/erros")"; fi
+
+echo "Painel: processar-pedidos (pedidos maliciosos ou estragados são recusados sem executar nada):"
+: > "$TMP/mosq/utilizadores.simulacao"
+# shellcheck disable=SC2016  # de propósito: texto que NÃO pode ser executado
+pedido p-20260927110000-000000b1 aparelho "$(ap injecao shelly 'Sala $(touch '"$TMP"'/pwned) `touch '"$TMP"'/pwned2`; touch '"$TMP"'/pwned3 &' '' '' false false)"
+pedido p-20260927110001-000000b2 aparelho "$(ap opcao shelly '--medidor' '' '' false false)"
+pedido p-20260927110002-000000b3 aparelho "$(ap opcao2 shelly 'Ok' '--bateria' '' false false)"
+pedido p-20260927110003-000000b4 aparelho "$(ap aspas shelly 'Com \"aspas\"' '' '' false false)"
+pedido p-20260927110004-000000b5 cliente '"codigo":"joao"'
+pedido p-20260927110005-000000b6 cliente '"codigo":"admin"'
+pedido p-20260927110006-000000b7 cliente '"codigo":"nova","admin":true'
+pedido p-20260927110007-000000b8 plano '"plano":"base","cliente":"joao","estado":"ativo"'
+pedido p-20260927110008-000000b9 painel-utilizador '"email":"a@b.pt","papel":"ceo","nome":"","password":"x"'
+pedido p-20260927110009-000000ba shell '"cmd":"reboot"'
+pedido p-20260927110010-000000bb cliente '"codigo":"../../etc"'
+printf '{"id":"p-20260927110011-000000bc","tipo":"cliente","dados":{"codigo":"tab\there"},"por":"x","criado":"2026-09-27T10:00:00Z"}\n' > "$PED/p-20260927110011-000000bc.json"
+pedido p-20260927110012-000000bd cliente '"codigo":"outro"'
+sed -i 's/"id":"p-20260927110012-000000bd"/"id":"p-20260927110012-000000ff"/' "$PED/p-20260927110012-000000bd.json"
+printf '{"id":"p-20260927110013-000000be","tipo":"cliente","dados":{"codigo":"linha"},"por":"x",\n"criado":"2026-09-27T10:00:00Z"}\n' > "$PED/p-20260927110013-000000be.json"
+pedido p-20260927110014-000000bf aparelho "$(ap semcliente shelly 'X' '' '' false false | sed 's/"cliente":"joao"/"cliente":"ninguem"/')"
+pedido p-20260927110015-000000c0 aparelho "$(ap sala-4g shelly 'Substituir' '' '' false false)"
+pedido p-20260927110016-000000c1 plano '"cliente":"joao","plano":"ouro","estado":"ativo"'
+printf 'SEGREDO-DO-ROOT\n' > "$TMP/segredo"; chmod 600 "$TMP/segredo"
+ln -s "$TMP/segredo" "$PED/p-20260927110017-000000c2.json"
+{ printf '{"id":"p-20260927110018-000000c3","tipo":"cliente","dados":{"codigo":"grande"},"por":"'; head -c 20000 /dev/zero | tr '\0' a; printf '","criado":"2026-09-27T10:00:00Z"}\n'; } > "$PED/p-20260927110018-000000c3.json"
+mkdir "$PED/p-20260927110019-000000c4.json"
+pedido p-20260927110020-000000c5 cliente '"codigo":"duro"'
+ln "$PED/p-20260927110020-000000c5.json" "$TMP/ligacao-dura"
+pedido p-20260927110021-000000c6 cliente '"codigo":"alvo"'
+printf 'NAO-MEXER\n' > "$TMP/alvo"
+ln -s "$TMP/alvo" "$PED/p-20260927110021-000000c6.resultado.json"
+printf 'lixo' > "$PED/x.json"; printf 'lixo' > "$PED/p-1.json"; printf 'lixo' > "$PED/P-20260927110022-000000c7.json"
+d processar-pedidos || true
+cp "$TMP/erros" "$TMP/erros-maliciosos"
+for f in pwned pwned2 pwned3; do
+  if [[ -e "$TMP/$f" ]]; then falha "injeção de comandos pelo nome do aparelho ($f)"; else passa "sem injeção de comandos ($f)"; fi
+done
+resultado_ok "nome com \$(...), \`...\` e ; é só texto" p-20260927110000-000000b1 'assert r["ok"], r'
+# shellcheck disable=SC2016  # de propósito: texto que NÃO pode ser executado
+if grep -qF 'Sala $(touch' "$TMP/dados/clientes/joao.tsv"; then passa "o nome ficou gravado tal e qual"; else falha "nome não gravado"; fi
+resultado_ok "nome começado por '-' recusado" p-20260927110001-000000b2 'assert not r["ok"] and "começar por" in r["erro"], r'
+resultado_ok "canais começados por '-' recusados" p-20260927110002-000000b3 'assert not r["ok"] and "começar por" in r["erro"], r'
+resultado_ok "aspas escapadas recusadas" p-20260927110003-000000b4 'assert not r["ok"] and "dados inválidos" in r["erro"], r'
+resultado_ok "cliente que já existe: não muda a palavra-passe" p-20260927110004-000000b5 'assert not r["ok"] and "já existe" in r["erro"], r'
+if grep -qxF joao "$TMP/mosq/utilizadores.simulacao"; then falha "a palavra-passe do joao foi mudada"; else passa "palavra-passe do joao intacta"; fi
+resultado_ok "código reservado recusado pelo domus.sh" p-20260927110005-000000b6 'assert not r["ok"] and "reservado" in r["erro"], r'
+resultado_ok "chave a mais recusada" p-20260927110006-000000b7 'assert not r["ok"] and "dados inválidos" in r["erro"], r'
+resultado_ok "chaves fora de ordem recusadas" p-20260927110007-000000b8 'assert not r["ok"], r'
+resultado_ok "painel-utilizador vindo do painel (p-) recusado" p-20260927110008-000000b9 'assert not r["ok"] and "desconhecido" in r["erro"], r'
+resultado_ok "tipo desconhecido recusado" p-20260927110009-000000ba 'assert not r["ok"] and "desconhecido" in r["erro"], r'
+resultado_ok "código com ../ recusado" p-20260927110010-000000bb 'assert not r["ok"], r'
+resultado_ok "caracteres de controlo recusados" p-20260927110011-000000bc 'assert not r["ok"] and "controlo" in r["erro"], r'
+resultado_ok "id diferente do nome do ficheiro recusado" p-20260927110012-000000bd 'assert not r["ok"] and "não corresponde" in r["erro"], r'
+resultado_ok "JSON em várias linhas recusado" p-20260927110013-000000be 'assert not r["ok"], r'
+resultado_ok "aparelho de cliente inexistente recusado" p-20260927110014-000000bf 'assert not r["ok"] and "não existe" in r["erro"], r'
+resultado_ok "aparelho existente sem substituir recusado" p-20260927110015-000000c0 'assert not r["ok"] and "substituir" in r["erro"], r'
+resultado_ok "plano desconhecido recusado" p-20260927110016-000000c1 'assert not r["ok"], r'
+resultado_ok "symlink recusado" p-20260927110017-000000c2 'assert not r["ok"] and "ficheiro normal" in r["erro"] and "SEGREDO" not in json.dumps(r), r'
+if [[ "$(cat "$TMP/segredo")" == SEGREDO-DO-ROOT && ! -e "$PED/feitos/p-20260927110017-000000c2.json" ]]; then passa "o alvo do symlink ficou intacto"; else falha "alvo do symlink"; fi
+resultado_ok "ficheiro demasiado grande recusado" p-20260927110018-000000c3 'assert not r["ok"] and "grande" in r["erro"], r'
+resultado_ok "pasta com nome de pedido recusada" p-20260927110019-000000c4 'assert not r["ok"], r'
+resultado_ok "ligação dura (hard link) recusada" p-20260927110020-000000c5 'assert not r["ok"], r'
+if [[ -f "$TMP/ligacao-dura" && ! -e "$TMP/dados/clientes/duro.tsv" ]]; then passa "hard link: nada executado"; else falha "hard link"; fi
+resultado_ok "resultado pré-criado como symlink: substituído por um ficheiro" p-20260927110021-000000c6 'assert r["ok"] and r["cliente"] == "alvo", r'
+if [[ "$(cat "$TMP/alvo")" == NAO-MEXER ]]; then passa "o alvo do symlink do resultado ficou intacto"; else falha "o resultado foi escrito através do symlink"; fi
+if [[ -f "$PED/x.json" && -f "$PED/p-1.json" && -f "$PED/P-20260927110022-000000c7.json" ]]; then passa "ficheiros com outros nomes são ignorados"; else falha "ficheiros com outros nomes"; fi
+criados=""
+for c in nova outro linha grande; do
+  if [[ -e "$TMP/dados/clientes/$c.tsv" ]]; then criados+=" $c"; fi
+done
+if [[ -z "$criados" ]]; then passa "nenhum pedido recusado criou clientes"; else falha "pedidos recusados criaram:$criados"; fi
+if grep -qF "AVISO: pedido p-20260927110001-000000b2 recusado:" "$TMP/erros-maliciosos"; then passa "recusas ficam no registo"; else falha "registo: $(head -3 "$TMP/erros-maliciosos")"; fi
+limpar_resultados
+find "${PED:?}" -maxdepth 1 \( -name x.json -o -name p-1.json -o -name 'P-2*.json' \) -delete
+
+echo "Painel: processar-pedidos (casos limite da fila):"
+# Execução interrompida: o pedido ficou na pasta privada → não é repetido.
+mkdir -p "$TMP/dados/.pedidos-em-curso"
+printf '%s\n' '{"id":"p-20260927120000-000000d1","tipo":"cliente","dados":{"codigo":"interrompido"},"por":"x","criado":"2026-09-27T10:00:00Z"}' > "$TMP/dados/.pedidos-em-curso/p-20260927120000-000000d1.json"
+# painel-utilizador esquecido (> 1 h) é apagado; um recente fica para o painel.
+printf '{"id":"u-20260927120001-000000d2","tipo":"painel-utilizador","dados":{"password":"segredo-antigo"}}\n' > "$PED/u-20260927120001-000000d2.json"
+touch -d '2 hours ago' "$PED/u-20260927120001-000000d2.json"
+printf '{"id":"u-20260927120002-000000d3"}\n' > "$PED/u-20260927120002-000000d3.json"
+d processar-pedidos || true
+resultado_ok "execução interrompida: não repetida, com erro" p-20260927120000-000000d1 'assert not r["ok"] and "interrompida" in r["erro"], r'
+if [[ ! -e "$TMP/dados/clientes/interrompido.tsv" ]]; then passa "interrompido: não executado de novo"; else falha "interrompido executado"; fi
+resultado_ok "painel-utilizador esquecido: apagado" u-20260927120001-000000d2 'assert not r["ok"] and "1 hora" in r["erro"], r'
+if [[ ! -e "$PED/u-20260927120001-000000d2.json" ]] && ! grep -rqF segredo-antigo "$PED" "$TMP/dados/.pedidos-em-curso"; then passa "palavra-passe do pedido esquecido apagada"; else falha "pedido esquecido ainda existe"; fi
+if [[ -f "$PED/u-20260927120002-000000d3.json" && ! -e "$PED/u-20260927120002-000000d3.resultado.json" ]]; then passa "painel-utilizador recente fica para o painel"; else falha "u- recente"; fi
+limpar_resultados
+find "${PED:?}" -maxdepth 1 -name 'u-*' -delete
+# feitos/ trocado por um symlink: recusa tudo.
+mv "$PED/feitos" "$TMP/feitos-velho"
+ln -s "$TMP/fora" "$PED/feitos"
+pedido p-20260927120003-000000d4 cliente '"codigo":"viasymlink"'
+deve_falhar "feitos/ como symlink: recusado" "é um symlink" processar-pedidos
+if [[ ! -e "$TMP/dados/clientes/viasymlink.tsv" && ! -e "$TMP/fora" ]]; then passa "feitos/ symlink: nada executado nem movido"; else falha "feitos/ symlink"; fi
+unlink "$PED/feitos"; unlink "$PED/p-20260927120003-000000d4.json"; mv "$TMP/feitos-velho" "$PED/feitos"
+deve_falhar "processar-pedidos com argumentos" "uso: ./domus.sh processar-pedidos" processar-pedidos x
+
+echo "Painel: painel-utilizador (escreve o pedido para o painel aplicar):"
+if printf 'senha-do-painel-1\n' | DOMUS_ESPERA_PAINEL=0 "$DOMUS" painel-utilizador ceo@domus.pt ceo "Dona da Empresa" > "$TMP/saida" 2> "$TMP/erros"; then
+  f="$(find "$PED" -maxdepth 1 -name 'u-*.json' | head -1)"
+  if [[ -n "$f" ]] && [[ "$(stat -c %a "$f")" == 600 ]] && python3 - "$f" <<'PY'
+import json, sys, re, os
+d = json.loads(open(sys.argv[1]).read())
+assert list(d) == ["id", "tipo", "dados", "por", "criado"], d
+assert d["id"] == os.path.basename(sys.argv[1])[:-5] and re.fullmatch(r"u-\d{14}-[0-9a-f]{8}", d["id"])
+assert d["tipo"] == "painel-utilizador" and d["por"] == "domus.sh"
+assert d["dados"] == {"email": "ceo@domus.pt", "papel": "ceo", "nome": "Dona da Empresa", "password": "senha-do-painel-1"}, d
+PY
+  then passa "pedido painel-utilizador (modo 600, JSON exato)"; else falha "pedido painel-utilizador: $(cat "$f" 2>/dev/null)"; fi
+  saida_tem "avisa que o painel ainda não respondeu" "O painel ainda não respondeu"
+else falha "painel-utilizador: $(cat "$TMP/erros")"; fi
+find "${PED:?}" -maxdepth 1 -name 'u-*' -delete
+if printf 'curta\n' | "$DOMUS" painel-utilizador a@b.pt ceo > "$TMP/saida" 2> "$TMP/erros"; then falha "palavra-passe curta aceite"
+elif grep -qF "pelo menos 10 caracteres" "$TMP/erros" && [[ -z "$(find "$PED" -maxdepth 1 -name 'u-*')" ]]; then passa "painel-utilizador: palavra-passe curta recusada"; else falha "curta: $(cat "$TMP/erros")"; fi
+deve_falhar "painel-utilizador: email inválido" "email inválido" painel-utilizador 'a@b' ceo
+deve_falhar "painel-utilizador: papel inválido" "papel inválido" painel-utilizador a@b.pt admin
+deve_falhar "painel-utilizador: sem papel" "uso: ./domus.sh painel-utilizador" painel-utilizador a@b.pt
 
 echo
 echo "Resultado: $OK ok, $FALHAS falhas"

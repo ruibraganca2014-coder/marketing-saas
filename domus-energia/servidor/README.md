@@ -9,8 +9,9 @@ Este guia instala, num servidor na internet (VPS), tudo o que a plataforma Domus
 | **ntfy** | notificações no telemóvel (app ntfy) | `https://ntfy.HOST/` |
 | **motor** | alarme, automações, histórico, notificações (ntfy e Firebase) | interno |
 | **pagamentos** | subscrições mensais (Stripe) e estado do plano de cada cliente | `https://HOST/api/` e `https://HOST/stripe/webhook` |
+| **painel** | painel interno da empresa (clientes, alertas, orçamentos, obras, equipa) e formulário público de orçamento | `https://HOST/painel/`, `https://HOST/api/orcamento` e `https://HOST/api/catalogo` |
 
-Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3); planos e pagamentos: [`../docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md).
+Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../docs/PROTOCOLO-MQTT-v2.md`](../docs/PROTOCOLO-MQTT-v2.md) (v2) e [`../docs/PROTOCOLO-MQTT-v3.md`](../docs/PROTOCOLO-MQTT-v3.md) (v3); planos e pagamentos: [`../docs/PROTOCOLO-PLANOS.md`](../docs/PROTOCOLO-PLANOS.md); painel da empresa: [`../docs/PAINEL-EMPRESA.md`](../docs/PAINEL-EMPRESA.md).
 
 Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
 
@@ -237,7 +238,7 @@ O motor envia também notificações push pela Firebase se encontrar a conta de 
 
 ## 12. Cópias de segurança
 
-Tudo o que importa está em `servidor/dados/` (clientes, aparelhos, palavra-passe do admin, estado do motor, conta Firebase, utilizadores do ntfy, mensagens retidas do Mosquitto, planos dos clientes em `dados/planos/` e o registo dos pagamentos `dados/pagamentos/pagamentos.csv`), `servidor/mosquitto/seguranca/` (palavras-passe MQTT) e `servidor/.env`.
+Tudo o que importa está em `servidor/dados/` (clientes, aparelhos, palavra-passe do admin, estado do motor, conta Firebase, utilizadores do ntfy, mensagens retidas do Mosquitto, planos dos clientes em `dados/planos/`, o registo dos pagamentos `dados/pagamentos/pagamentos.csv` e a base de dados do painel da empresa `dados/painel/`), `servidor/mosquitto/seguranca/` (palavras-passe MQTT) e `servidor/.env`.
 
 ```bash
 cd ~/domus-energia/servidor
@@ -274,7 +275,8 @@ cd servidor && docker compose pull && docker compose up -d --build
   - `pagamentos`: só escreve `domus/+/_plano` (não lê nada). Nenhum cliente nem aparelho escreve `_plano`;
   - cliente **suspenso ou cancelado** (`dados/planos/<c>.json`): só lê `domus/<c>/_plano` — não comanda nada nem vê a casa; os utilizadores dos aparelhos dele não mudam (ver [Planos e pagamentos](#16-planos-e-pagamentos)).
 - Removendo um aparelho, a ligação dele é cortada e a palavra-passe deixa de funcionar.
-- O site e a área de cliente são servidos com `X-Frame-Options: DENY` e uma `Content-Security-Policy` (scripts só do próprio site e do `cdn.jsdelivr.net`; ligações só ao próprio site, ao `wss://HOST/mqtt` e ao Supabase; nenhuma página pode ser posta num `<iframe>`). Se mudar de CDN, de fontes ou de projeto Supabase, atualize a linha `Content-Security-Policy` em `caddy/Caddyfile`.
+- O site e a área de cliente são servidos com `X-Frame-Options: DENY` e uma `Content-Security-Policy` (scripts só do próprio site e do `cdn.jsdelivr.net`; ligações só ao próprio site — incluindo `/api/orcamento` — e ao `wss://HOST/mqtt`; nenhuma página pode ser posta num `<iframe>`). O painel (`/painel/`) envia ainda uma CSP própria mais apertada (sem CDN). Se mudar de CDN ou de fontes, atualize a linha `Content-Security-Policy` em `caddy/Caddyfile`.
+- O painel da empresa (§17) não tem as palavras-passe do servidor: só lê o MQTT (utilizador `painel`) e pede alterações por ficheiros que o `./domus.sh processar-pedidos` valida à risca antes de executar.
 - Limites do Mosquitto (`mosquitto/mosquitto.conf`): `max_connections 2000` (ligações simultâneas de aparelhos + app + site; subir se a empresa passar de ~1500 aparelhos) e `max_packet_size` de 1 MB (o motor nunca publica mais de 900 KB, `MQTT_MAX_PAYLOAD`).
 
 ### MQTT com TLS (porta 8883, opcional)
@@ -420,6 +422,58 @@ O comando grava `dados/planos/<cliente>.json` com `"gerido": "manual"`, publica 
 ### 16.5 Faturação (obrigatória em Portugal)
 
 **As faturas e recibos do Stripe não são faturas certificadas pela AT.** Cada pagamento tem de ter uma **fatura-recibo emitida num programa de faturação certificado** (ex.: InvoiceXpress, Moloni, Vendus, TOConline), com o NIF do cliente quando ele o pedir. Nesta fase o serviço regista cada pagamento (`invoice.paid`) em **`dados/pagamentos/pagamentos.csv`** (`data;cliente;plano;valor_com_iva;valor_sem_iva;id_stripe`, IVA 23 %) para o contabilista emitir as faturas; a ligação automática ao programa certificado fica para a fase seguinte (depende do programa que o contabilista usar). Reembolsos (notas de crédito) não entram no CSV: trate-os à mão. Guarde o CSV nas cópias de segurança (§12).
+
+## 17. Painel da empresa
+
+Contrato: [`../docs/PAINEL-EMPRESA.md`](../docs/PAINEL-EMPRESA.md). Detalhes do serviço e da API: [`../painel/README.md`](../painel/README.md).
+
+Painel web interno em **`https://HOST/painel/`** para a equipa, com três papéis: **`ceo`** (tudo, incluindo receitas, pagamentos, equipa e catálogo), **`tecnico`** (as suas obras, alertas técnicos, clientes sem dados financeiros) e **`comercial`** (pedidos de orçamento, clientes com plano e estado, agenda de obras só de leitura). Toda a autorização é verificada no servidor. Os pedidos de orçamento do site (`POST https://HOST/api/orcamento`) e o catálogo público do simulador (`GET https://HOST/api/catalogo`) também são deste serviço (o Supabase deixou de ser usado).
+
+**O painel não tem as palavras-passe do servidor** (nem do admin, nem dos clientes). Monta só `dados/painel` (a base de dados SQLite `painel.db`) e `dados/pedidos-admin` com escrita, e `dados/planos`, `dados/pagamentos` e `dados/clientes` **só de leitura**. Liga-se ao Mosquitto como `painel`, que a ACL **só deixa ler** `domus/#` (alertas técnicos). Para criar clientes, aparelhos ou mudar planos escreve um pedido em `dados/pedidos-admin/`, que o temporizador do VPS executa com `./domus.sh processar-pedidos` (ver 17.2).
+
+### 17.1 Instalar
+
+No `.env` (ver `.env.example`):
+
+```bash
+PAINEL_MQTT_PASS=...            # openssl rand -hex 16
+# Só no primeiro arranque (ou use ./domus.sh painel-utilizador, abaixo):
+# PAINEL_CEO_EMAIL=ceo@exemplo.pt
+# PAINEL_CEO_PASS=...           # mín. 10 caracteres; APAGUE as duas linhas depois
+# PAINEL_ORIGENS=https://www.domusenergia.pt   # só se o site também abrir noutro endereço
+```
+
+```bash
+sudo ./domus.sh painel-mqtt            # utilizador MQTT "painel" (só leitura); o "admin" da 1.ª vez já o cria
+sudo ./domus.sh listar                 # como root: prepara dados/painel, dados/pedidos-admin e as permissões
+docker compose up -d --build painel caddy
+docker compose logs -f painel          # "MQTT: ligado como painel (só leitura)" e "painel à escuta"
+sudo ./domus.sh painel-utilizador ceo@exemplo.pt ceo "Nome da CEO"   # pede a palavra-passe (2 vezes)
+```
+
+O `painel-utilizador` escreve um pedido que o serviço painel aplica em poucos segundos (cria o utilizador ou, se o email já existe, muda-lhe o papel e a palavra-passe e fecha as sessões dele). Os outros utilizadores criam-se no próprio painel (CEO → Equipa). Entre em `https://HOST/painel/`.
+
+**Donos e permissões** (o `domus.sh` trata disto quando corre como root — use `sudo`): o serviço corre como uid 1000; `dados/painel` é do uid 1000 (modo 700); `dados/pedidos-admin` é `root:1000` com modo **1770** (o painel cria e apaga os seus ficheiros, mas não mexe em `feitos/`, que é do root); `dados/clientes` fica com o grupo 1000 e os `.tsv` com modo 640 (o painel lê os aparelhos; os segredos `.ntfy` continuam 600, só do root).
+
+### 17.2 Pedidos ao servidor (temporizador)
+
+O mesmo temporizador do `sincronizar-planos` (§16.2) corre também, a cada minuto, `./domus.sh processar-pedidos` (os ficheiros `systemd/domus-planos.service` e `systemd/domus-planos.cron` já têm os dois passos; se instalou a versão anterior, volte a copiá-los e faça `sudo systemctl daemon-reload`).
+
+| Tipo (`dados/pedidos-admin/<id>.json`) | Pedido no painel | Comando executado |
+|---|---|---|
+| `cliente` | CEO/comercial: novo cliente, ou "Converter" um orçamento aceite | `./domus.sh cliente <codigo> <palavra-passe gerada>` (recusado se o cliente já existe: o painel nunca muda palavras-passe de clientes) |
+| `aparelho` | CEO/técnico, na ficha do cliente | `./domus.sh aparelho <cliente> <id> <tipo> "<nome>" [--canais …] [--divisao …] [--medidor] [--geral] [--bateria] <palavra-passe gerada>` |
+| `remover-aparelho` | CEO/técnico | `./domus.sh remover-aparelho <cliente> <id>` |
+| `plano` | CEO | `./domus.sh plano <cliente> <plano> --estado <estado>` |
+| `painel-utilizador` | — (escrito pelo `./domus.sh painel-utilizador`, aplicado pelo painel) | — |
+
+O resultado vai para `dados/pedidos-admin/<id>.resultado.json` (**modo 600**, com a palavra-passe gerada e as instruções de configuração do aparelho) e o pedido para `dados/pedidos-admin/feitos/`. O painel mostra o resultado **uma única vez** a quem fez o pedido (ou ao CEO) e apaga o ficheiro logo a seguir; resultados nunca vistos são apagados ao fim de 7 dias. Os pedidos vêm de um serviço exposto à internet, por isso o `processar-pedidos` é desconfiado: só aceita exatamente o JSON que o painel escreve (chaves por ordem, textos sem aspas, `\` nem caracteres de controlo, nomes que não começam por `-`), move cada pedido para uma pasta só do root (`dados/.pedidos-em-curso/`) antes de o ler (symlinks, hard links, pastas e ficheiros com mais de 16 KB são recusados), passa os valores como argumentos separados (nunca `eval`/`sh -c`) e escreve os resultados por `rename` (um symlink pré-criado é substituído, nunca seguido). Um pedido cuja execução foi interrompida (ex.: o VPS reiniciou) não é repetido: fica com um resultado de erro para confirmar à mão. Recusas e resultados ficam no registo do temporizador (`journalctl -u domus-planos.service` ou `/var/log/domus-planos.log`).
+
+### 17.3 Cópias de segurança e manutenção
+
+- Copie `dados/painel/` (base de dados: utilizadores, orçamentos, obras, catálogo, auditoria) com as outras pastas de `dados/` (§12). Para uma cópia consistente com o serviço a correr: `docker compose exec painel node -e "new (require('node:sqlite').DatabaseSync)('/dados/painel/painel.db').exec(\"VACUUM INTO '/dados/painel/copia.db'\")"` e copie `copia.db`.
+- `dados/pedidos-admin/feitos/` só tem os pedidos (sem palavras-passe); pode apagar os antigos.
+- Atualizar: `git pull && docker compose up -d --build painel` (as migrações da base de dados correm sozinhas no arranque).
 
 ## Resolução de problemas
 

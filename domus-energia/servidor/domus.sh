@@ -19,6 +19,9 @@
 #   ./domus.sh acl            (só regenera o ficheiro acl e recarrega o Mosquitto)
 #   ./domus.sh plano <cliente> <base|conforto|premium> [--estado ativo|teste|em_atraso|suspenso|cancelado]
 #   ./domus.sh sincronizar-planos   (temporizador de minuto a minuto: ACL dos suspensos)
+#   ./domus.sh painel-mqtt [palavra-passe]   (utilizador MQTT "painel": só lê domus/#)
+#   ./domus.sh processar-pedidos    (temporizador: pedidos-admin escritos pelo painel)
+#   ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]
 #
 # Estado (fonte de verdade, fora do git, em dados/):
 #   dados/admin.senha               palavra-passe do admin (usada para publicar)
@@ -33,6 +36,10 @@
 #   dados/.pagamentos               existe depois de o utilizador "pagamentos" ser criado
 #   dados/planos/<codigo>.json      subscrição do cliente (uma linha JSON; escrito
 #                                   pelo serviço pagamentos ou por "./domus.sh plano")
+#   dados/.painel                   existe depois de o utilizador "painel" ser criado
+#   dados/painel/                   base de dados do painel da empresa (docs/PAINEL-EMPRESA.md)
+#   dados/pedidos-admin/<id>.json   pedidos do painel (processar-pedidos); resultados em
+#                                   <id>.resultado.json (modo 600) e pedidos feitos em feitos/
 # O ficheiro mosquitto/seguranca/acl é SEMPRE gerado a partir destes ficheiros
 # (clientes suspensos/cancelados: só leem domus/<c>/_plano).
 #
@@ -59,11 +66,19 @@ CLIENTES_DIR="$DADOS_DIR/clientes"
 ADMIN_SENHA_FICH="$DADOS_DIR/admin.senha"
 MOTOR_MARCA="$DADOS_DIR/.motor"
 PAGAMENTOS_MARCA="$DADOS_DIR/.pagamentos"
+PAINEL_MARCA="$DADOS_DIR/.painel"
+PEDIDOS_DIR="$DADOS_DIR/pedidos-admin"
+FEITOS_DIR="$PEDIDOS_DIR/feitos"
+PEDIDOS_PRIV="$DADOS_DIR/.pedidos-em-curso"    # só do domus.sh (root): nunca montada no painel
+PEDIDO_MAX=16384                          # bytes de um pedido
+PEDIDOS_POR_VEZ=50                        # pedidos tratados em cada execução
+PEDIDO_U_EXPIRA_S=3600                    # painel-utilizador por aplicar: apagado ao fim de 1 h
+UID_SERVICOS=1000                         # utilizador "node" dos contentores (motor, pagamentos, painel)
 PLANOS_DIR="$DADOS_DIR/planos"
 PLANOS="base conforto premium"
 ESTADOS_PLANO="ativo teste em_atraso suspenso cancelado"
 DIAS_AVISO=15                              # em_atraso: dias de aviso até suspender (PROTOCOLO-PLANOS §2)
-RESERVADOS="admin motor pagamentos"        # utilizadores internos: nunca códigos de cliente
+RESERVADOS="admin motor pagamentos painel" # utilizadores internos: nunca códigos de cliente
 # Códigos de cliente e ids de aparelho: subconjunto de [a-z0-9-]+ (protocolo),
 # sem "-" no início/fim e no máximo 32 caracteres (o tópico ntfy
 # "domus-<cliente>-<segredo>" tem de caber em 64 caracteres).
@@ -180,6 +195,24 @@ Uso:
       Lê dados/planos/*.json e, se algum cliente passou a (ou deixou de estar)
       suspenso/cancelado, regenera a ACL e recarrega o Mosquitto. Corre a cada
       minuto num temporizador (systemd/domus-planos.timer ou cron).
+
+  ./domus.sh painel-mqtt [palavra-passe]
+      Cria/atualiza o utilizador MQTT "painel" (painel da empresa: só LÊ domus/#,
+      para os alertas técnicos). Sem palavra-passe usa PAINEL_MQTT_PASS do .env.
+      O "./domus.sh admin" da primeira vez também o cria.
+
+  ./domus.sh processar-pedidos
+      Executa os pedidos que o painel da empresa escreveu em dados/pedidos-admin/
+      (tipos cliente, aparelho, remover-aparelho e plano), escreve o resultado em
+      dados/pedidos-admin/<id>.resultado.json (modo 600, com a palavra-passe
+      gerada) e move o pedido para dados/pedidos-admin/feitos/. Corre no mesmo
+      temporizador do sincronizar-planos. Os pedidos são validados à risca:
+      qualquer coisa fora do formato é recusada sem ser executada.
+
+  ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]
+      Cria (ou repõe) um utilizador do painel da empresa. Pede a palavra-passe
+      (mín. 10 caracteres) no terminal, ou lê a primeira linha do stdin, e
+      escreve um pedido que o serviço painel aplica em poucos segundos.
 EOF
 }
 
@@ -270,15 +303,41 @@ preparar_dados() {
     echo "Aviso: corra 'sudo chown -R 1000:1000 $DADOS_DIR/motor' para o motor poder guardar o estado." >&2
   fi
   # O serviço pagamentos (uid 1000) escreve em dados/planos e dados/pagamentos.
+  # O painel (uid 1000) escreve em dados/painel e dados/pedidos-admin.
   local p
-  for p in "$PLANOS_DIR" "$DADOS_DIR/pagamentos"; do
+  for p in "$PLANOS_DIR" "$DADOS_DIR/pagamentos" "$DADOS_DIR/painel"; do
     mkdir -p "$p"
     if [[ "$(id -u)" == 0 ]]; then
-      chown 1000:1000 "$p" 2>/dev/null || true
-    elif [[ "$(stat -c %u "$p" 2>/dev/null)" != 1000 ]]; then
-      echo "Aviso: corra 'sudo chown 1000:1000 $p' para o serviço pagamentos poder escrever." >&2
+      chown "$UID_SERVICOS:$UID_SERVICOS" "$p" 2>/dev/null || true
+    elif [[ "$(stat -c %u "$p" 2>/dev/null)" != "$UID_SERVICOS" ]]; then
+      echo "Aviso: corra 'sudo chown $UID_SERVICOS:$UID_SERVICOS $p' para os serviços (pagamentos/painel) poderem escrever." >&2
     fi
   done
+  chmod 700 "$DADOS_DIR/painel" 2>/dev/null || true
+  # Fila de pedidos do painel: root:1000 com modo 1770 (ver preparar_pedidos).
+  mkdir -p "$PEDIDOS_DIR"
+  if [[ "$(id -u)" == 0 ]]; then
+    chown "0:$UID_SERVICOS" "$PEDIDOS_DIR" 2>/dev/null || true
+    chmod 1770 "$PEDIDOS_DIR" 2>/dev/null || true
+  else
+    chmod 700 "$PEDIDOS_DIR" 2>/dev/null || true
+  fi
+  # O painel lê (só leitura) os .tsv dos clientes pelo grupo 1000; os .ntfy
+  # (segredos dos tópicos) continuam só do dono.
+  if [[ "$(id -u)" == 0 ]]; then
+    chgrp "$UID_SERVICOS" "$CLIENTES_DIR" 2>/dev/null || true
+    chmod 750 "$CLIENTES_DIR" 2>/dev/null || true
+    local f
+    for f in "$CLIENTES_DIR"/*.tsv; do
+      if [[ -f "$f" && ! -L "$f" ]]; then permissoes_tsv "$f"; fi
+    done
+  fi
+}
+
+# .tsv do cliente: lido pelo painel (grupo 1000), escrito só pelo domus.sh.
+permissoes_tsv() { # <ficheiro>
+  chmod 640 "$1"
+  if [[ "$(id -u)" == 0 ]]; then chgrp "$UID_SERVICOS" "$1" 2>/dev/null || true; fi
 }
 
 cliente_existe() { [[ -f "$CLIENTES_DIR/$1.tsv" ]]; }
@@ -331,7 +390,7 @@ linha_aparelho() { # <cliente> <id> — imprime a linha normalizada
 # Todos os utilizadores MQTT que existem segundo o estado.
 todos_utilizadores() {
   local c id
-  printf 'admin\nmotor\npagamentos\n'
+  printf 'admin\nmotor\npagamentos\npainel\n'
   while IFS= read -r c; do
     printf '%s\n' "$c"
     while IFS= read -r id; do
@@ -357,14 +416,14 @@ guardar_aparelho() { # <cliente> <id> <tipo> <medidor> <bateria> <canais> <nome>
     fi
   done < <(ler_aparelhos "$1") > "$tmp"
   (( achou )) || printf '%s\n' "$nova" >> "$tmp"
-  chmod 600 "$tmp"; mv "$tmp" "$f"
+  permissoes_tsv "$tmp"; mv "$tmp" "$f"
 }
 
 apagar_aparelho_estado() { # <cliente> <id>
   local f="$CLIENTES_DIR/$1.tsv" tmp
   tmp="$(mktemp "$CLIENTES_DIR/.tmp.XXXXXX")"
   ler_aparelhos "$1" | awk -F '\t' -v id="$2" '$1 != id' > "$tmp"
-  chmod 600 "$tmp"; mv "$tmp" "$f"
+  permissoes_tsv "$tmp"; mv "$tmp" "$f"
 }
 
 e_controlavel() { [[ " $CONTROLAVEIS " == *" $1 "* ]]; }
@@ -615,6 +674,10 @@ topic readwrite domus/#
 # Serviço de pagamentos (PROTOCOLO-PLANOS §4): só publica o _plano de cada cliente
 user pagamentos
 topic write domus/+/_plano
+
+# Painel da empresa (docs/PAINEL-EMPRESA.md §2): só LÊ, para os alertas técnicos
+user painel
+topic read domus/#
 EOF
   while IFS= read -r c; do
     mapfile -t ids < <(ler_aparelhos "$c" | cut -f1)
@@ -1091,6 +1154,15 @@ cmd_admin() {
       aviso "falta PAGAMENTOS_MQTT_PASS no .env; depois corra: ./domus.sh pagamentos"
     fi
   fi
+  # ... e o do painel da empresa (só leitura, docs/PAINEL-EMPRESA.md §2).
+  if [[ ! -e "$PAINEL_MARCA" ]]; then
+    if [[ -n "$(ler_env PAINEL_MQTT_PASS)" ]]; then
+      info ""
+      cmd_painel_mqtt
+    else
+      aviso "falta PAINEL_MQTT_PASS no .env; depois corra: ./domus.sh painel-mqtt"
+    fi
+  fi
 }
 
 cmd_motor() {
@@ -1154,7 +1226,7 @@ cmd_cliente() {
   verificar_mosquitto
 
   local novo=0
-  cliente_existe "$c" || { ( umask 077; : > "$CLIENTES_DIR/$c.tsv" ); novo=1; }
+  cliente_existe "$c" || { ( umask 077; : > "$CLIENTES_DIR/$c.tsv" ); permissoes_tsv "$CLIENTES_DIR/$c.tsv"; novo=1; }
   definir_senha_mqtt "$c" "$senha"
   aplicar_acl
   (( novo )) && publicar_lista "$c"
@@ -1300,6 +1372,7 @@ cmd_listar() {
   [[ -s "$ADMIN_SENHA_FICH" ]] || info "Atenção: ainda não há administrador (./domus.sh admin <palavra-passe>)."
   [[ -e "$MOTOR_MARCA" ]] || info "Atenção: o utilizador 'motor' ainda não foi criado (./domus.sh motor)."
   [[ -e "$PAGAMENTOS_MARCA" ]] || info "Atenção: o utilizador 'pagamentos' ainda não foi criado (./domus.sh pagamentos)."
+  [[ -e "$PAINEL_MARCA" ]] || info "Atenção: o utilizador 'painel' ainda não foi criado (./domus.sh painel-mqtt)."
   return 0
 }
 
@@ -1416,6 +1489,281 @@ cmd_sincronizar_planos() {
   fi
 }
 
+# -----------------------------------------------------------------------------
+# Painel da empresa (docs/PAINEL-EMPRESA.md §2)
+# -----------------------------------------------------------------------------
+cmd_painel_mqtt() {
+  (( $# <= 1 )) || erro "uso: ./domus.sh painel-mqtt [palavra-passe]"
+  local senha="${1:-}" env_senha
+  env_senha="$(ler_env PAINEL_MQTT_PASS)"
+  [[ -n "$senha" ]] || senha="$env_senha"
+  [[ -n "$senha" ]] || erro "indique a palavra-passe ou defina PAINEL_MQTT_PASS no .env"
+  validar_senha "$senha"
+  verificar_mosquitto
+  preparar_dados
+  definir_senha_mqtt painel "$senha"
+  aplicar_acl
+  : > "$PAINEL_MARCA"
+  info "Utilizador 'painel' criado/atualizado no Mosquitto (só lê domus/#)."
+  if [[ -n "$env_senha" && "$senha" != "$env_senha" ]]; then
+    aviso "a palavra-passe é diferente de PAINEL_MQTT_PASS no .env: atualize o .env e corra 'docker compose up -d painel'"
+  fi
+  info "Se o painel já estava a correr: docker compose restart painel"
+}
+
+# Ficheiro entregue ao painel: dono uid 1000 (quando o domus.sh corre como root).
+dar_ao_painel() { if [[ "$(id -u)" == 0 ]]; then chown "$UID_SERVICOS:$UID_SERVICOS" "$1" 2>/dev/null || true; fi; }
+
+# A fila dados/pedidos-admin/ é escrita pelo painel, um serviço exposto à
+# internet: tudo o que lá está é tratado como hostil.
+#  - Como root, a pasta é root:1000 com modo 1770 (sticky): o painel cria e
+#    apaga os seus ficheiros, mas não mexe em feitos/ (do root, nunca vazia).
+#  - Cada pedido é MOVIDO para dados/.pedidos-em-curso/ (só do root) antes de
+#    ser lido: o painel já não o pode trocar por um symlink entre a verificação
+#    e a leitura. Resultados são escritos lá e movidos (rename) para a fila.
+#  - O conteúdo tem de ser exatamente o JSON que o painel escreve (chaves por
+#    ordem, textos sem aspas nem "\", sem caracteres de controlo); os valores
+#    passam como argumentos separados aos comandos (nunca por eval/sh -c).
+preparar_pedidos() {
+  preparar_dados
+  [[ -d "$PEDIDOS_DIR" && ! -L "$PEDIDOS_DIR" ]] || erro "$PEDIDOS_DIR não é uma pasta"
+  if [[ "$(id -u)" == 0 ]]; then
+    if ! chown "0:$UID_SERVICOS" "$PEDIDOS_DIR" || ! chmod 1770 "$PEDIDOS_DIR"; then erro "não foi possível preparar $PEDIDOS_DIR"; fi
+  fi
+  if [[ -L "$PEDIDOS_PRIV" ]]; then erro "$PEDIDOS_PRIV é um symlink: recusado"; fi
+  mkdir -p "$PEDIDOS_PRIV"
+  chmod 700 "$PEDIDOS_PRIV"
+  if [[ -L "$FEITOS_DIR" ]]; then erro "$FEITOS_DIR é um symlink: recusado (apague-o)"; fi
+  if [[ ! -d "$FEITOS_DIR" ]]; then mkdir -m 700 "$FEITOS_DIR" || erro "não foi possível criar $FEITOS_DIR"; fi
+  if [[ "$(id -u)" == 0 && "$(stat -c %u "$FEITOS_DIR")" != 0 ]]; then erro "$FEITOS_DIR não pertence ao root: recusado"; fi
+  [[ -e "$FEITOS_DIR/.domus" ]] || printf 'Pedidos do painel já tratados por ./domus.sh processar-pedidos.\n' > "$FEITOS_DIR/.domus"
+}
+
+escrever_resultado() { # <id> <json>
+  local tmp
+  tmp="$(mktemp "$PEDIDOS_PRIV/.resultado.XXXXXX")"
+  printf '%s\n' "$2" > "$tmp"
+  chmod 600 "$tmp"
+  dar_ao_painel "$tmp"
+  mv -f -T -- "$tmp" "$PEDIDOS_DIR/$1.resultado.json" \
+    || { rm -f -- "$tmp"; aviso "não foi possível escrever o resultado do pedido $1"; }
+}
+
+resultado_erro() { # <id> <tipo> <mensagem>
+  printf '{"id":%s,"tipo":%s,"ok":false,"erro":%s,"concluido":%s}' \
+    "$(json_str "$1")" "$(json_ou_null "$2")" "$(json_str "$3")" "$(json_str "$(agora_iso)")"
+}
+
+# Corre um comando do domus.sh num subshell (um "erro" sai só do subshell).
+# Guarda R_OUT (stdout), R_ERR (stderr) e R_ST (código de saída).
+correr_comando() { # <função> [argumentos...]
+  local ferr
+  ferr="$(mktemp "$PEDIDOS_PRIV/.erros.XXXXXX")"
+  set +e
+  R_OUT="$(set -e; "$@" 2> "$ferr")"
+  R_ST=$?
+  set -e
+  R_ERR="$(cat "$ferr")"
+  rm -f -- "$ferr"
+}
+
+# Mensagem de erro para o resultado: a última linha "ERRO: ..." do comando.
+erro_do_comando() {
+  local l msg=""
+  while IFS= read -r l; do
+    [[ "$l" == "ERRO: "* ]] && msg="${l#ERRO: }"
+  done <<< "$R_ERR"
+  printf '%s' "${msg:-o comando falhou (código $R_ST)}"
+}
+
+avisos_do_comando() {
+  local l out=""
+  while IFS= read -r l; do
+    [[ "$l" == "AVISO: "* ]] && out+="${out:+$'\n'}${l#AVISO: }"
+  done <<< "$R_ERR"
+  printf '%s' "$out"
+}
+
+# Valida um pedido (uma linha) e executa-o. Deixa o JSON do resultado em
+# R_JSON e uma descrição em R_RESUMO.
+executar_pedido() { # <id> <linha>
+  local LC_ALL=C
+  local id="$1" linha="$2" re tipo dados por c="" a="" senha="" ok_extra=0
+  local -a args=()
+  R_JSON=""; R_RESUMO=""
+  recusar() { R_JSON="$(resultado_erro "$id" "${tipo:-}" "$1")"; R_RESUMO="recusado: $1"; }
+  if [[ -z "$linha" || "$linha" == *[[:cntrl:]]* ]]; then recusar "pedido inválido (vazio ou com caracteres de controlo)"; return 0; fi
+  re='^\{"id":"([pu]-[0-9]{14}-[0-9a-f]{8})","tipo":"([a-z-]{1,24})","dados":\{(.*)\},"por":"([^"\\]{1,254})","criado":"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{3})?Z"\}$'
+  if [[ ! "$linha" =~ $re ]]; then recusar "pedido inválido (formato)"; return 0; fi
+  tipo="${BASH_REMATCH[2]}"; dados="${BASH_REMATCH[3]}"; por="${BASH_REMATCH[4]}"
+  if [[ "${BASH_REMATCH[1]}" != "$id" ]]; then recusar "pedido inválido (o id não corresponde ao ficheiro)"; return 0; fi
+  if [[ "$id" != p-* ]]; then recusar "pedido inválido (só o domus.sh escreve pedidos u-)"; return 0; fi
+  R_RESUMO="de $por"
+  case "$tipo" in
+    cliente)
+      re='^"codigo":"([a-z0-9-]{1,32})"$'
+      [[ "$dados" =~ $re ]] || { recusar "dados inválidos para 'cliente'"; return 0; }
+      c="${BASH_REMATCH[1]}"
+      [[ "$c" =~ $RE_ID ]] || { recusar "código de cliente inválido: '$c'"; return 0; }
+      if cliente_existe "$c"; then recusar "o cliente '$c' já existe (o painel não muda palavras-passe de clientes)"; return 0; fi
+      senha="$(gerar_senha)"
+      args=(cmd_cliente "$c" "$senha") ;;
+    aparelho)
+      re='^"cliente":"([a-z0-9-]{1,32})","id":"([a-z0-9-]{1,32})","tipo":"(openbeken|shelly)","nome":"([^"\\]{1,240})","canais":"([^"\\]{0,4000})","divisao":"([^"\\]{0,160})","medidor":(true|false),"geral":(true|false),"bateria":(true|false),"substituir":(true|false)$'
+      [[ "$dados" =~ $re ]] || { recusar "dados inválidos para 'aparelho'"; return 0; }
+      c="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"
+      local atipo="${BASH_REMATCH[3]}" nome="${BASH_REMATCH[4]}" canais="${BASH_REMATCH[5]}" divisao="${BASH_REMATCH[6]}"
+      local medidor="${BASH_REMATCH[7]}" geral="${BASH_REMATCH[8]}" bateria="${BASH_REMATCH[9]}" substituir="${BASH_REMATCH[10]}"
+      [[ "$c" =~ $RE_ID && "$a" =~ $RE_ID ]] || { recusar "código de cliente ou id de aparelho inválido"; return 0; }
+      # Um valor começado por "-" seria lido como opção pelo cmd_aparelho.
+      if [[ "$nome" == -* || "$canais" == -* || "$divisao" == -* ]]; then recusar "nome, canais ou divisão não podem começar por '-'"; return 0; fi
+      cliente_existe "$c" || { recusar "o cliente '$c' não existe"; return 0; }
+      if aparelho_existe "$c" "$a" && [[ "$substituir" != true ]]; then
+        recusar "o cliente '$c' já tem o aparelho '$a' (peça com \"substituir\" para o reconfigurar)"; return 0
+      fi
+      senha="$(gerar_senha)"
+      args=(cmd_aparelho "$c" "$a" "$atipo" "$nome")
+      [[ -n "$canais" ]] && args+=(--canais "$canais")
+      [[ -n "$divisao" ]] && args+=(--divisao "$divisao")
+      [[ "$medidor" == true ]] && args+=(--medidor)
+      [[ "$geral" == true ]] && args+=(--geral)
+      [[ "$bateria" == true ]] && args+=(--bateria)
+      args+=("$senha") ;;
+    remover-aparelho)
+      re='^"cliente":"([a-z0-9-]{1,32})","id":"([a-z0-9-]{1,32})"$'
+      [[ "$dados" =~ $re ]] || { recusar "dados inválidos para 'remover-aparelho'"; return 0; }
+      c="${BASH_REMATCH[1]}"; a="${BASH_REMATCH[2]}"
+      [[ "$c" =~ $RE_ID && "$a" =~ $RE_ID ]] || { recusar "código de cliente ou id de aparelho inválido"; return 0; }
+      args=(cmd_remover_aparelho "$c" "$a") ;;
+    plano)
+      re='^"cliente":"([a-z0-9-]{1,32})","plano":"(base|conforto|premium)","estado":"(ativo|teste|em_atraso|suspenso|cancelado)"$'
+      [[ "$dados" =~ $re ]] || { recusar "dados inválidos para 'plano'"; return 0; }
+      c="${BASH_REMATCH[1]}"; args=(cmd_plano "$c" "${BASH_REMATCH[2]}" --estado "${BASH_REMATCH[3]}")
+      [[ "$c" =~ $RE_ID ]] || { recusar "código de cliente inválido: '$c'"; return 0; } ;;
+    *)
+      recusar "tipo de pedido desconhecido: '$tipo'"; return 0 ;;
+  esac
+
+  correr_comando "${args[@]}"
+  if (( R_ST != 0 )); then
+    recusar "$(erro_do_comando)"
+    return 0
+  fi
+  [[ "$tipo" == cliente || "$tipo" == aparelho ]] && ok_extra=1
+  R_JSON="$(printf '{"id":%s,"tipo":%s,"ok":true,"cliente":%s,"aparelho":%s,"password":%s,"saida":%s,"avisos":%s,"concluido":%s}' \
+    "$(json_str "$id")" "$(json_str "$tipo")" "$(json_str "$c")" "$(json_ou_null "$a")" \
+    "$( (( ok_extra )) && json_str "$senha" || printf 'null')" "$(json_str "${R_OUT:0:65536}")" \
+    "$(json_ou_null "$(avisos_do_comando)")" "$(json_str "$(agora_iso)")")"
+  R_RESUMO="de $por: ok"
+}
+
+tratar_pedido() { # <nome do ficheiro> [expirado]
+  local nome="$1" id="${1%.json}" pf="$PEDIDOS_PRIV/$1" linha tam ligacoes
+  mv -f -T -- "$PEDIDOS_DIR/$nome" "$pf" 2>/dev/null || return 0    # já lá não está
+  if [[ "${2:-}" == expirado ]]; then
+    rm -rf -- "$pf"
+    escrever_resultado "$id" "$(resultado_erro "$id" painel-utilizador "o painel não aplicou o pedido em 1 hora (está a correr?); o pedido foi apagado")"
+    aviso "pedido $id (painel-utilizador) não foi aplicado pelo painel em 1 hora: apagado"
+    return 0
+  fi
+  tam="$(stat -c %s -- "$pf" 2>/dev/null || echo 0)"
+  ligacoes="$(stat -c %h -- "$pf" 2>/dev/null || echo 0)"
+  if [[ -L "$pf" || ! -f "$pf" ]] || (( ligacoes != 1 || tam > PEDIDO_MAX )); then
+    rm -rf -- "$pf"
+    escrever_resultado "$id" "$(resultado_erro "$id" "" "pedido inválido (não é um ficheiro normal ou é demasiado grande)")"
+    aviso "pedido $id recusado: não é um ficheiro normal ou é demasiado grande"
+    return 0
+  fi
+  linha="$(LC_ALL=C head -c "$PEDIDO_MAX" -- "$pf" 2>/dev/null)" || linha=""
+  executar_pedido "$id" "$linha"
+  escrever_resultado "$id" "$R_JSON"
+  mv -f -T -- "$pf" "$FEITOS_DIR/$nome" || rm -f -- "$pf"
+  if [[ "$R_RESUMO" == recusado:* ]]; then aviso "pedido $id $R_RESUMO"; else info "pedido $id $R_RESUMO"; fi
+}
+
+cmd_processar_pedidos() {
+  (( $# == 0 )) || erro "uso: ./domus.sh processar-pedidos"
+  preparar_pedidos
+  local f nome n=0 agora mt
+  local -a nomes=()
+  shopt -s nullglob
+  # Pedidos de uma execução interrompida (ex.: o VPS reiniciou a meio): não se
+  # repetem (podem ter sido feitos em parte); ficam com um resultado de erro.
+  for f in "$PEDIDOS_PRIV"/p-*.json; do
+    nome="${f##*/}"
+    [[ "$nome" =~ ^p-[0-9]{14}-[0-9a-f]{8}\.json$ ]] || continue
+    escrever_resultado "${nome%.json}" "$(resultado_erro "${nome%.json}" "" "a execução do pedido foi interrompida; confirme no servidor (./domus.sh listar) e repita se for preciso")"
+    mv -f -T -- "$f" "$FEITOS_DIR/$nome" || rm -rf -- "$f"
+    aviso "pedido ${nome%.json}: execução anterior interrompida (não repetido)"
+  done
+  for f in "$PEDIDOS_DIR"/[pu]-*.json; do
+    nome="${f##*/}"
+    [[ "$nome" =~ ^[pu]-[0-9]{14}-[0-9a-f]{8}\.json$ ]] && nomes+=("$nome")
+  done
+  shopt -u nullglob
+  (( ${#nomes[@]} )) || return 0
+  mapfile -t nomes < <(printf '%s\n' "${nomes[@]}" | LC_ALL=C sort)
+  agora="$(date +%s)"
+  for nome in "${nomes[@]}"; do
+    (( n < PEDIDOS_POR_VEZ )) || break
+    if [[ "$nome" == u-* ]]; then
+      # painel-utilizador: é o painel que o aplica; só se apaga se ficou esquecido.
+      mt="$(stat -c %Y -- "$PEDIDOS_DIR/$nome" 2>/dev/null)" || continue
+      if (( agora - mt > PEDIDO_U_EXPIRA_S )); then tratar_pedido "$nome" expirado; n=$((n + 1)); fi
+      continue
+    fi
+    tratar_pedido "$nome"
+    n=$((n + 1))
+  done
+}
+
+cmd_painel_utilizador() {
+  (( $# >= 2 && $# <= 3 )) || erro 'uso: ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]'
+  local email="$1" papel="$2" nome senha id json tmp i res="" rf espera
+  local re_email='^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,24}$'
+  local re_erro='"erro":"([^"\\]*)"'
+  nome="$(limpar_texto "${3:-}")"
+  if (( ${#email} > 254 )) || [[ ! "$email" =~ $re_email ]]; then erro "email inválido: '$email'"; fi
+  [[ "$papel" == ceo || "$papel" == tecnico || "$papel" == comercial ]] || erro "papel inválido: '$papel' (use ceo, tecnico ou comercial)"
+  (( ${#nome} <= 120 )) || erro "nome demasiado longo (máx. 120 caracteres)"
+  [[ "$nome" != *[[:cntrl:]]* ]] || erro "o nome tem caracteres inválidos"
+  senha="$(ler_senha "de $email no painel")"
+  (( ${#senha} >= 10 )) || erro "a palavra-passe deve ter pelo menos 10 caracteres"
+  (( ${#senha} <= 200 )) || erro "a palavra-passe é demasiado longa (máx. 200 caracteres)"
+  [[ "$senha" != *[[:cntrl:]]* ]] || erro "a palavra-passe tem caracteres inválidos"
+  preparar_pedidos
+  id="u-$(date -u +%Y%m%d%H%M%S)-$(gerar_aleatorio 8 'a-f0-9')"
+  json="$(printf '{"id":%s,"tipo":"painel-utilizador","dados":{"email":%s,"papel":%s,"nome":%s,"password":%s},"por":"domus.sh","criado":%s}' \
+    "$(json_str "$id")" "$(json_str "$email")" "$(json_str "$papel")" "$(json_str "$nome")" "$(json_str "$senha")" "$(json_str "$(agora_iso)")")"
+  tmp="$(mktemp "$PEDIDOS_PRIV/.u.XXXXXX")"
+  printf '%s\n' "$json" > "$tmp"
+  chmod 600 "$tmp"
+  dar_ao_painel "$tmp"
+  mv -f -T -- "$tmp" "$PEDIDOS_DIR/$id.json"
+  info "Pedido $id escrito (o painel aplica-o em poucos segundos)."
+  espera="${DOMUS_ESPERA_PAINEL:-20}"
+  [[ "$espera" =~ ^[0-9]{1,3}$ ]] || espera=20
+  for (( i = 0; i < espera * 2; i++ )); do
+    if [[ -e "$PEDIDOS_DIR/$id.resultado.json" || -L "$PEDIDOS_DIR/$id.resultado.json" ]]; then
+      rf="$PEDIDOS_PRIV/$id.resultado.json"
+      mv -f -T -- "$PEDIDOS_DIR/$id.resultado.json" "$rf" 2>/dev/null || break
+      if [[ -f "$rf" && ! -L "$rf" ]] && (( $(stat -c %s -- "$rf") <= PEDIDO_MAX )); then
+        res="$(head -c "$PEDIDO_MAX" -- "$rf")"
+      fi
+      rm -rf -- "$rf"
+      if [[ "$res" == *'"ok":true'* ]]; then
+        info "Utilizador $email ($papel) criado/atualizado no painel. Pode entrar em https://$(ler_host)/painel/"
+        return 0
+      fi
+      if [[ "$res" =~ $re_erro ]]; then erro "o painel recusou o pedido: ${BASH_REMATCH[1]}"; fi
+      erro "o painel recusou o pedido"
+    fi
+    sleep 0.5
+  done
+  info "O painel ainda não respondeu (está a correr? docker compose ps painel)."
+  info "O pedido fica à espera e é aplicado quando o painel arrancar (é apagado ao fim de 1 hora)."
+}
+
 # Evita duas execuções em simultâneo. [segundos de espera; por omissão não espera]
 bloquear() {
   preparar_dados
@@ -1438,6 +1786,9 @@ main() {
     pagamentos)       bloquear; cmd_pagamentos "$@" ;;
     plano)            bloquear; cmd_plano "$@" ;;
     sincronizar-planos) bloquear 50; cmd_sincronizar_planos "$@" ;;
+    painel-mqtt)      bloquear; cmd_painel_mqtt "$@" ;;
+    processar-pedidos) bloquear 50; cmd_processar_pedidos "$@" ;;
+    painel-utilizador) cmd_painel_utilizador "$@" ;;
     cliente)          bloquear; cmd_cliente "$@" ;;
     aparelho)         bloquear; cmd_aparelho "$@" ;;
     remover-aparelho) bloquear; cmd_remover_aparelho "$@" ;;

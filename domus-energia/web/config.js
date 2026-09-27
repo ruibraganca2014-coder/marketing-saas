@@ -4,13 +4,10 @@ window.DOMUS = {
   // DOMUS_HOST em servidor/.env, ex.: "wss://mqtt.domusenergia.pt/mqtt".
   mqttUrl: "wss://SEU-SERVIDOR/mqtt",
 
-  // Serviço de pagamentos (subscrições Stripe), atrás do Caddy no mesmo site: https://HOST/api/.
+  // Serviços no mesmo site, atrás do Caddy: https://HOST/api/ (pagamentos; e /api/orcamento,
+  // o formulário de pedido de orçamento, que fica no painel da empresa).
   // Deixe "/api" quando o site e o /api estão no mesmo servidor (a CSP só deixa ligar ao próprio site).
   apiUrl: "/api",
-
-  // Supabase → Project Settings → API (usado só pelo formulário de orçamento)
-  supabaseUrl: "https://SEU-PROJETO.supabase.co",
-  supabaseAnonKey: "COLAR_A_ANON_KEY_AQUI",
 
   // Contactos (formato internacional, sem espaços nem "+")
   whatsapp: "351900000000",

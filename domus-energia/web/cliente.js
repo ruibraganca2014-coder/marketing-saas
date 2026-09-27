@@ -136,6 +136,11 @@ $("definicoes-subscricao").addEventListener("click", () => abrirSubscricao());
 $("abrir-relatorio").addEventListener("click", () => { mostrarSeccao("relatorio"); $("relatorio-voltar").focus(); });
 $("relatorio-voltar").addEventListener("click", () => { mostrarSeccao("casa"); $("abrir-relatorio").focus(); });
 $("relatorio-copiar").addEventListener("click", copiarRelatorio);
+// "Ampliar a instalação" → simulador de orçamento. Passa só o código de cliente (nunca a
+// palavra-passe) pelo sessionStorage deste separador, para associar o pedido à conta.
+$("ampliar").addEventListener("click", () => {
+  try { if (codigo) sessionStorage.setItem("domus.simulador.codigo", codigo); } catch {}
+});
 
 // Tempos relativos ("há 3 min") atualizam-se sozinhos.
 setInterval(() => {

@@ -23,7 +23,12 @@
 #     domus/+/_plano (e não lê nada); clientes e aparelhos nunca escrevem
 #     _plano; um cliente suspenso/cancelado (domus.sh plano ou ficheiro do
 #     serviço pagamentos + sincronizar-planos) só lê o seu _plano e não comanda
-#     nada, mas os aparelhos dele continuam a funcionar; ao reativar volta tudo.
+#     nada, mas os aparelhos dele continuam a funcionar; ao reativar volta tudo;
+#   - painel da empresa (docs/PAINEL-EMPRESA.md §2): o utilizador "painel" lê
+#     todas as casas e não escreve nada; processar-pedidos cria de verdade o
+#     cliente e o aparelho (as palavras-passe do resultado funcionam), suspende
+#     o plano e remove o aparelho; um pedido para um cliente existente não lhe
+#     muda a palavra-passe.
 #
 # Uso: ./testes/acl.sh        (sai com 0 se tudo passar)
 # =============================================================================
@@ -411,6 +416,66 @@ sed -i 's/"estado":"cancelado"/"estado":"ativo"/' "$TMP/dados/planos/maria.json"
 "$DOMUS" sincronizar-planos > "$TMP/sinc" 2>&1 || true
 if grep -q 'Em modo básico: nenhum' "$TMP/sinc" && grep -qxF 'topic read domus/maria/#' "$TMP/acl"
 then passa "sincronizar-planos: maria reativada"; else falha "maria reativada: $(cat "$TMP/sinc")"; fi
+
+# --- Painel da empresa (docs/PAINEL-EMPRESA.md §2) ------------------------------
+echo "Painel:"
+P_PAINEL=painel-senha-1
+d painel-mqtt "$P_PAINEL"
+if grep -qxF 'user painel' "$TMP/acl" && [[ "$(grep -A3 -xF 'user painel' "$TMP/acl" | grep -c '^topic')" == 1 ]] \
+   && grep -A1 -xF 'user painel' "$TMP/acl" | grep -qxF 'topic read domus/#'
+then passa "acl: painel só com 'topic read domus/#'"; else falha "acl do painel"; fi
+saida="$(mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u painel -P "$P_PAINEL" -t 'domus/#' -v -W 2 2>/dev/null || true)"
+if [[ "$saida" == *domus/joao/_aparelhos* && "$saida" == *domus/maria/_aparelhos* ]]; then passa "painel lê todas as casas"
+else falha "painel leu: $saida"; fi
+observar
+for t in domus/joao/_alarme/set domus/joao/_modo/set domus/joao/sala/1/set domus/joao/_plano domus/joao/_aparelhos \
+         domus/maria/quadro/rpc domus/maria/_config/set; do
+  N=$((N + 1)); tok="tok-$N-$RANDOM"
+  mosquitto_pub -h 127.0.0.1 -p "$PORTA" -u painel -P "$P_PAINEL" -i "teste-$N" -q 1 -t "$t" -m "$tok" >/dev/null 2>&1
+  CASOS+=("negado|painel|$t|$tok")
+done
+verificar_escritas "painel"
+
+echo "Painel: processar-pedidos de ponta a ponta:"
+PED="$TMP/dados/pedidos-admin"
+mkdir -p "$PED"
+pedido() { # <id> <tipo> <dados sem chavetas>
+  printf '{"id":"%s","tipo":"%s","dados":{%s},"por":"ceo@domus.pt","criado":"2026-09-27T10:00:00Z"}\n' "$1" "$2" "$3" > "$PED/$1.json"
+}
+campo() { # <ficheiro> <campo> — valor de texto do resultado
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print("" if v is None else v)' "$1" "$2"
+}
+pedido p-20260927130000-000000e1 cliente '"codigo":"rita"'
+pedido p-20260927130001-000000e2 aparelho '"cliente":"rita","id":"sala","tipo":"shelly","nome":"Sala","canais":"1:interruptor:Teto","divisao":"Sala","medidor":false,"geral":false,"bateria":false,"substituir":false'
+"$DOMUS" processar-pedidos >> "$TMP/domus.log" 2>&1 || true
+R1="$PED/p-20260927130000-000000e1.resultado.json"; R2="$PED/p-20260927130001-000000e2.resultado.json"
+if [[ "$(campo "$R1" ok)" == True && "$(campo "$R2" ok)" == True && "$(stat -c %a "$R1" "$R2" | sort -u)" == 600 ]]
+then passa "cliente e aparelho criados (resultados 600)"; else falha "resultados: $(cat "$R1" "$R2" 2>/dev/null)"; fi
+S_RITA="$(campo "$R1" password)"; S_SALA="$(campo "$R2" password)"
+if mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u rita -P "$S_RITA" -t domus/rita/_aparelhos -C 1 -W 2 2>/dev/null | grep -q '"id":"sala"'
+then passa "rita entra com a palavra-passe do resultado e vê o aparelho"; else falha "rita não entra com a palavra-passe do resultado"; fi
+observar
+N=$((N + 1)); tok="tok-$N-$RANDOM"
+mosquitto_pub -h 127.0.0.1 -p "$PORTA" -u rita-sala -P "$S_SALA" -i "teste-$N" -q 1 -t domus/rita/sala/status/switch:0 -m "$tok" >/dev/null 2>&1
+CASOS+=("permitido|rita-sala|domus/rita/sala/status/switch:0|$tok")
+N=$((N + 1)); tok="tok-$N-$RANDOM"
+mosquitto_pub -h 127.0.0.1 -p "$PORTA" -u rita -P "$S_RITA" -i "teste-$N" -q 1 -t domus/rita/sala/1/set -m "$tok" >/dev/null 2>&1
+CASOS+=("permitido|rita|domus/rita/sala/1/set|$tok")
+verificar_escritas "pedidos"
+# Plano suspenso e remoção do aparelho por pedido.
+pedido p-20260927130002-000000e3 plano '"cliente":"rita","plano":"base","estado":"suspenso"'
+pedido p-20260927130003-000000e4 remover-aparelho '"cliente":"rita","id":"sala"'
+"$DOMUS" processar-pedidos >> "$TMP/domus.log" 2>&1 || true
+if grep -qxF 'topic read domus/rita/_plano' "$TMP/acl" && ! grep -qxF 'user rita-sala' "$TMP/acl"
+then passa "plano suspenso e aparelho removido por pedido"; else falha "acl depois dos pedidos: $(grep -A2 rita "$TMP/acl")"; fi
+if mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u rita-sala -P "$S_SALA" -t 'domus/rita/sala/#' -C 1 -W 2 >/dev/null 2>&1; then
+  falha "rita-sala ainda se liga depois de removido"; else passa "rita-sala já não se liga"; fi
+# Um pedido adulterado não mexe em nada (a palavra-passe do joao continua a mesma).
+pedido p-20260927130004-000000e5 cliente '"codigo":"joao"'
+"$DOMUS" processar-pedidos >> "$TMP/domus.log" 2>&1 || true
+if [[ "$(campo "$PED/p-20260927130004-000000e5.resultado.json" ok)" == False ]] \
+   && mosquitto_sub -h 127.0.0.1 -p "$PORTA" -u joao -P "$P_JOAO" -t domus/joao/_aparelhos -C 1 -W 2 >/dev/null 2>&1
+then passa "pedido para um cliente existente recusado (palavra-passe intacta)"; else falha "cliente existente"; fi
 
 echo
 echo "Resultado: $OK ok, $FALHAS falhas"

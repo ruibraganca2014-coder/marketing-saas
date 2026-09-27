@@ -21,6 +21,7 @@
         <a class="link" href="#servicos">Serviços</a>
         <a class="link" href="#como-funciona">Como funciona</a>
         <a class="link" href="#planos">Planos e preços</a>
+        <a class="link" href="simulador.html">Simular orçamento</a>
         <a class="link" href="#contactos">Contactos</a>
         <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
         <a class="btn sec pequeno" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
@@ -34,6 +35,7 @@
         <li><a href="#planos">Planos e preços</a></li>
         <li><a href="#contactos">Contactos</a></li>
         <li><a href="#orcamento">Pedir orçamento</a></li>
+        <li><a href="simulador.html">Simular orçamento</a></li>
         <li><a href="cliente.html">Área de cliente</a></li>
       </ul>
     </nav>
@@ -48,6 +50,7 @@
           <p>Instalações elétricas certificadas e quadros inteligentes: ligue e desligue circuitos, veja o consumo em tempo real e poupe na fatura a partir do telemóvel.</p>
           <div class="acoes">
             <a class="btn" href="#orcamento">Pedir orçamento grátis</a>
+            <a class="btn sec" id="hero-simular" href="simulador.html">Simular orçamento</a>
             <a class="btn sec js-whatsapp" href="#">Falar no WhatsApp</a>
           </div>
         </div>
@@ -168,6 +171,10 @@
           </article>
         </div>
         <p class="planos-nota">A instalação e os aparelhos têm orçamento à parte, sem compromisso. Os interruptores da casa funcionam sempre, com ou sem mensalidade.</p>
+        <div class="planos-simular">
+          <p>Quer saber já quanto custa a instalação? Desenhe a sua casa e veja uma estimativa.</p>
+          <a class="btn" id="planos-simular" href="simulador.html">Simular orçamento</a>
+        </div>
       </div>
     </section>
 
@@ -207,6 +214,8 @@
                 </select>
               </label>
               <label>Descreva o que precisa<textarea name="mensagem" maxlength="2000"></textarea></label>
+              <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
+              <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Website<input name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
               <button class="btn" type="submit">Enviar pedido</button>
               <div class="msg" id="form-msg" role="status" hidden></div>
             </form>

@@ -1,7 +1,8 @@
-# Domus Energia — servidor (Mosquitto + Caddy + ntfy + motor + pagamentos)
+# Domus Energia — servidor (Mosquitto + Caddy + ntfy + motor + pagamentos + painel)
 # Uso: cp .env.example .env  (e editar)  &&  docker compose up -d --build
 # Contrato: ../docs/PROTOCOLO-MQTT.md (v1) e ../docs/PROTOCOLO-MQTT-v2.md (v2)
 #           ../docs/PROTOCOLO-PLANOS.md (planos, subscrições e pagamentos)
+#           ../docs/PAINEL-EMPRESA.md (painel da empresa)
 #
 #   https://HOST/          -> site (pasta ../web, só de leitura)
 #   wss://HOST/mqtt        -> Mosquitto (WebSocket interno, porta 9001)
@@ -10,6 +11,9 @@
 #   HOST:1883              -> MQTT simples para os aparelhos
 #   https://HOST/api/...   -> pagamentos (sessão, Stripe Checkout, Customer Portal)
 #   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe)
+#   https://HOST/painel/        -> painel da empresa (equipa; API em /painel/api/)
+#   https://HOST/api/orcamento  -> painel (formulário público de orçamento)
+#   https://HOST/api/catalogo   -> painel (catálogo público do simulador)
 
 services:
   mosquitto:
@@ -141,6 +145,48 @@ services:
       - ./dados/pagamentos:/dados/pagamentos
     logging: *registos
 
+  # Painel da empresa (docs/PAINEL-EMPRESA.md). Ver README "Painel da empresa".
+  # Não tem as palavras-passe do servidor: para criar clientes/aparelhos/planos
+  # escreve pedidos em dados/pedidos-admin, que o ./domus.sh processar-pedidos
+  # (temporizador do VPS) executa. MQTT como "painel": só leitura (alertas).
+  painel:
+    build: ../painel
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      TZ: Europe/Lisbon
+      PORTA: "8080"
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USER: painel
+      PAINEL_MQTT_PASS: ${PAINEL_MQTT_PASS:-}
+      DOMUS_HOST: ${DOMUS_HOST}
+      PUBLIC_URL: ${PUBLIC_URL:-}                 # origem aceite nos pedidos que alteram dados (CSRF)
+      PAINEL_ORIGENS: ${PAINEL_ORIGENS:-}         # outras origens (ex.: https://www.domusenergia.pt)
+      # Só no primeiro arranque (sem utilizadores): cria o CEO. Depois apague-as do .env.
+      PAINEL_CEO_EMAIL: ${PAINEL_CEO_EMAIL:-}
+      PAINEL_CEO_PASS: ${PAINEL_CEO_PASS:-}
+      CONFIAR_PROXY: "1"                          # IP real do visitante vem do Caddy (X-Forwarded-For)
+      DADOS_DIR: /dados
+    expose:
+      - "8080"           # só na rede interna (o Caddy faz o HTTPS)
+    # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):
+    # a base de dados e a fila de pedidos com escrita; o resto só de leitura.
+    volumes:
+      - ./dados/painel:/dados/painel
+      - ./dados/pedidos-admin:/dados/pedidos-admin
+      - ./dados/planos:/dados/planos:ro
+      - ./dados/pagamentos:/dados/pagamentos:ro
+      - ./dados/clientes:/dados/clientes:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *registos
+
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -148,6 +194,7 @@ services:
       - mosquitto
       - ntfy
       - pagamentos
+      - painel
     ports:
       - "80:80"
       - "443:443"

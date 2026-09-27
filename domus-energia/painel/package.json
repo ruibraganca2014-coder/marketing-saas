@@ -1,0 +1,19 @@
+{
+  "name": "domus-painel",
+  "version": "1.0.0",
+  "description": "Painel interno da empresa Domus Energia (clientes e planos, alertas técnicos, pedidos de orçamento, obras e equipa) e endpoint público dos pedidos de orçamento",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "mqtt": "^5.16.0"
+  }
+}

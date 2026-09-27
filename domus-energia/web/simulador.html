@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simular orçamento — Domus Energia</title>
+  <meta name="description" content="Desenhe a sua casa, diga o que quer automatizar e veja uma estimativa do preço da instalação. Valor final após visita técnica gratuita.">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="simulador/simulador.css">
+</head>
+<body class="pagina-simulador">
+  <a class="saltar" href="#conteudo">Saltar para o simulador</a>
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno" id="voltar-site" href="index.html"><span class="so-largo">Voltar ao site</span><span class="so-curto">Site</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="simulador" id="conteudo">
+    <div class="wrap">
+      <div class="sim-cabecalho">
+        <h1>Simular orçamento</h1>
+        <p class="sub" id="sim-intro">Diga-nos como é a sua casa e o que quer automatizar. No fim vê uma estimativa com intervalo de preço — o valor final é confirmado na visita técnica gratuita.</p>
+        <p class="msg info" id="sim-cliente" hidden></p>
+      </div>
+
+      <!-- Continuar uma simulação guardada neste navegador -->
+      <div class="cartao sim-retomar" id="sim-retomar" role="region" aria-labelledby="sim-retomar-titulo" hidden>
+        <h2 id="sim-retomar-titulo">Continuar onde ficou?</h2>
+        <p id="sim-retomar-texto"></p>
+        <div class="form-botoes">
+          <button class="btn" id="sim-continuar" type="button">Continuar</button>
+          <button class="btn sec" id="sim-recomecar" type="button">Começar de novo</button>
+        </div>
+      </div>
+
+      <nav class="sim-progresso" aria-label="Passos do simulador">
+        <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
+        <ol id="sim-passos"></ol>
+      </nav>
+
+      <form id="sim-form" novalidate>
+        <!-- 1. A casa -->
+        <section class="sim-passo" id="passo-0" aria-labelledby="titulo-0" data-passo="0">
+          <h2 id="titulo-0" tabindex="-1">1. A casa</h2>
+          <fieldset class="escolhas">
+            <legend>Que tipo de casa é?</legend>
+            <div class="escolhas-grelha" id="casa-tipos"></div>
+          </fieldset>
+          <div class="duas">
+            <label>Quantas divisões tem? <small class="ajuda">Salas, quartos, cozinha, casas de banho…</small><input id="casa-divisoes" type="number" inputmode="numeric" min="1" max="40" step="1"></label>
+            <label>Localidade<input id="casa-localidade" maxlength="80" autocomplete="address-level2"></label>
+          </div>
+        </section>
+
+        <!-- 2. Planta -->
+        <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
+          <h2 id="titulo-1" tabindex="-1">2. Planta</h2>
+          <p class="sub-passo">Desenhe as divisões e ponha o que existe (ou quer) em cada uma: portas, janelas, tomadas, luzes, interruptores e máquinas. Pode desenhar por cima de uma foto ou PDF da planta. Contamos tudo sozinhos para os passos seguintes. <b>Este passo é opcional.</b></p>
+          <div id="editor"></div>
+          <div class="sim-contagem cartao" id="planta-contagem" aria-live="polite"></div>
+        </section>
+
+        <!-- 3. Quadro elétrico -->
+        <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
+          <h2 id="titulo-2" tabindex="-1">3. Quadro elétrico</h2>
+          <p class="sub-passo">Cada circuito tem um disjuntor no quadro. Diga-nos os amperes (está escrito no disjuntor, ex.: "C16"), o que liga e quais quer tornar inteligentes (ligar/desligar e ver o consumo no telemóvel).</p>
+          <p class="msg info" id="quadro-origem" hidden></p>
+          <div class="form-botoes">
+            <button class="btn sec pequeno" id="quadro-recalcular" type="button">Recalcular a partir da planta</button>
+          </div>
+          <fieldset class="escolhas cartao" id="quadro-disjuntor">
+            <legend>Disjuntor inteligente</legend>
+            <label class="caixa-linha"><input type="radio" name="disjuntor" value="TONGOU-SY2-JWT"><span><b>Com medição e proteções</b> (TONGOU-SY2-JWT) — recomendado: protege contra sobrecorrente, tensão e temperatura.</span></label>
+            <label class="caixa-linha"><input type="radio" name="disjuntor" value="TONGOU-SY1-JWT"><span><b>Só com medição</b> (TONGOU-SY1-JWT) — mais barato, sem proteções.</span></label>
+          </fieldset>
+          <div id="circuitos"></div>
+          <div class="form-botoes">
+            <button class="btn sec" id="circuito-adicionar" type="button">Adicionar circuito</button>
+          </div>
+          <div class="sim-avisos" id="quadro-avisos" aria-live="polite"></div>
+        </section>
+
+        <!-- 4. Divisões -->
+        <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
+          <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
+          <p class="sub-passo">Em cada divisão: interruptores inteligentes (1 a 4 botões), estores, sensores e luzes com brilho regulável.</p>
+          <p class="msg info" id="divisoes-origem" hidden></p>
+          <div class="form-botoes">
+            <button class="btn sec pequeno" id="divisoes-recalcular" type="button">Recalcular a partir da planta</button>
+          </div>
+          <div id="divisoes"></div>
+          <div class="form-botoes">
+            <button class="btn sec" id="divisao-adicionar" type="button">Adicionar divisão</button>
+          </div>
+          <fieldset class="cartao escolhas" id="extras">
+            <legend>Extras</legend>
+            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa (Raspberry Pi)</b> com bateria e sirene: a casa funciona sem internet (plano Premium).</span></label>
+            <label>Termóstatos Wi-Fi (aquecimento/ar condicionado)<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
+          </fieldset>
+        </section>
+
+        <!-- 5. Resumo e preço -->
+        <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
+          <h2 id="titulo-4" tabindex="-1">5. Resumo e preço</h2>
+          <div class="msg info" id="preco-estado" role="status" hidden></div>
+          <div class="cartao sim-total" id="preco-total"></div>
+          <div class="tabela-rolar" role="region" aria-labelledby="tabela-legenda" tabindex="0">
+            <table class="sim-tabela" id="preco-tabela">
+              <caption id="tabela-legenda">Artigos e mão de obra (preços com IVA)</caption>
+              <thead><tr><th scope="col">Artigo</th><th scope="col" class="n">Qtd.</th><th scope="col" class="n">Preço</th><th scope="col" class="n">Total</th></tr></thead>
+              <tbody id="preco-linhas"></tbody>
+              <tfoot id="preco-rodape"></tfoot>
+            </table>
+          </div>
+          <p class="sim-nota" id="preco-nota"></p>
+          <h3>Plano mensal sugerido</h3>
+          <div class="sim-planos" id="preco-planos"></div>
+          <h3>Avisos sobre a instalação</h3>
+          <div class="sim-avisos" id="preco-avisos"></div>
+        </section>
+
+        <!-- 6. Enviar -->
+        <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
+          <h2 id="titulo-5" tabindex="-1">6. Enviar</h2>
+          <p class="sub-passo">Enviamos a simulação à nossa equipa e contactamos para marcar a visita técnica gratuita. Deixe pelo menos um contacto (telefone ou email). * obrigatório</p>
+          <div class="cartao sim-enviar">
+            <div class="duas">
+              <label>Nome *<input id="contacto-nome" name="nome" maxlength="120" autocomplete="name" required></label>
+              <label>Telefone<input id="contacto-telefone" name="telefone" type="tel" maxlength="30" autocomplete="tel"></label>
+            </div>
+            <div class="duas">
+              <label>Email<input id="contacto-email" name="email" type="email" maxlength="254" autocomplete="email"></label>
+              <label>Localidade<input id="contacto-localidade" name="localidade" maxlength="80" autocomplete="address-level2"></label>
+            </div>
+            <label>Mensagem (opcional)<textarea id="contacto-mensagem" name="mensagem" maxlength="2000"></textarea></label>
+            <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
+            <div class="armadilha" aria-hidden="true"><label>Website<input id="contacto-website" name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
+            <div class="msg" id="enviar-msg" role="status" hidden></div>
+          </div>
+        </section>
+
+        <!-- Enviado -->
+        <section class="sim-passo sim-sucesso" id="passo-fim" aria-labelledby="titulo-fim" hidden>
+          <div class="cartao">
+            <h2 id="titulo-fim" tabindex="-1">Pedido enviado!</h2>
+            <p id="fim-texto">Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica gratuita.</p>
+            <p class="sim-nota" id="fim-resumo"></p>
+            <div class="form-botoes">
+              <a class="btn" id="fim-voltar" href="index.html">Voltar ao site</a>
+              <button class="btn sec" id="fim-nova" type="button">Fazer outra simulação</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="sim-navegacao" id="sim-navegacao">
+          <button class="btn sec" id="sim-anterior" type="button">Anterior</button>
+          <span class="sim-guardado" id="sim-guardado" aria-live="polite"></span>
+          <button class="btn" id="sim-seguinte" type="button">Seguinte</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <a href="index.html">Site</a>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script type="module" src="simulador/app.js"></script>
+</body>
+</html>

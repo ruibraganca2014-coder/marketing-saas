@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Painel da empresa — Domus Energia</title>
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="painel.css">
+</head>
+<body>
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+
+  <!-- Entrar -->
+  <main id="vista-login" class="vista-login" hidden>
+    <div class="cartao caixa-login">
+      <p class="marca"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></p>
+      <h1>Painel da empresa</h1>
+      <p class="ajuda">Só para a equipa da Domus Energia.</p>
+      <form id="form-login" novalidate>
+        <label class="campo"><span>Email</span><input name="email" type="email" autocomplete="username" required maxlength="200"></label>
+        <label class="campo"><span>Palavra-passe</span><input name="password" type="password" autocomplete="current-password" required maxlength="200"></label>
+        <button class="btn" type="submit">Entrar</button>
+        <div class="msg" id="login-msg" role="alert" hidden></div>
+      </form>
+    </div>
+  </main>
+
+  <!-- Painel -->
+  <div id="vista-painel" class="vista-painel" hidden>
+    <header class="topo-painel">
+      <a class="marca" href="#/inicio"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span class="marca-texto">Domus <b>Painel</b></span></a>
+      <div class="topo-acoes">
+        <span class="quem" id="quem"></span>
+        <button class="botao-icone" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <button class="btn sec pequeno" id="sair" type="button">Sair</button>
+        <button class="botao-icone menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="navegacao" aria-label="Menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      </div>
+    </header>
+    <div class="corpo-painel">
+      <nav id="navegacao" class="navegacao" aria-label="Áreas do painel">
+        <ul id="nav-lista"></ul>
+      </nav>
+      <main id="conteudo" class="conteudo" tabindex="-1"></main>
+    </div>
+    <div id="pedidos-pendentes" class="pedidos-pendentes" role="status" aria-live="polite"></div>
+  </div>
+
+  <div id="avisos" class="avisos" role="status" aria-live="polite"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

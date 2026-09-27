@@ -1,16 +1,5 @@
 const cfg = window.DOMUS;
 
-// O Supabase só é carregado quando alguém envia o formulário,
-// assim os contactos funcionam mesmo que a biblioteca não carregue.
-let supabase = null;
-async function getSupabase() {
-  if (!supabase) {
-    const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
-    supabase = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
-  }
-  return supabase;
-}
-
 // Contactos a partir do config.js
 const whatsappPara = (texto) => `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(texto)}`;
 const whatsappUrl = whatsappPara("Olá Domus Energia, gostava de pedir informações.");
@@ -60,16 +49,30 @@ document.querySelectorAll(".js-plano").forEach((a) => {
   });
 });
 
-// Formulário de orçamento → tabela pedidos_orcamento
+// Formulário de orçamento → POST /api/orcamento (servidor do painel da empresa, docs/PAINEL-EMPRESA.md §3).
 const form = document.getElementById("form-orcamento");
 const msg = document.getElementById("form-msg");
+const urlOrcamento = `${String(cfg.apiUrl ?? "/api").replace(/\/+$/, "")}/orcamento`;
+
+/** Corpo do pedido: textos aparados; campos opcionais vazios ficam de fora. `website` é o campo-armadilha. */
+function corpoOrcamento(dados) {
+  const t = (v) => String(v ?? "").trim();
+  const corpo = { nome: t(dados.nome), servico: t(dados.servico) || "Outro" };
+  for (const k of ["telefone", "email", "localidade", "mensagem", "website"]) if (t(dados[k])) corpo[k] = t(dados[k]);
+  return corpo;
+}
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const botao = form.querySelector("button");
   const dados = Object.fromEntries(new FormData(form));
 
-  if (!dados.telefone && !dados.email) {
+  if (!String(dados.nome ?? "").trim()) {
+    mostrar("Escreva o seu nome.", false);
+    form.elements.nome.focus();
+    return;
+  }
+  if (!String(dados.telefone ?? "").trim() && !String(dados.email ?? "").trim()) {
     mostrar("Indique um telefone ou um email para o podermos contactar.", false);
     return;
   }
@@ -77,20 +80,30 @@ form.addEventListener("submit", async (e) => {
   botao.disabled = true;
   botao.textContent = "A enviar…";
   mostrar(null);
-  let error;
+  let estado = 0;
   try {
-    ({ error } = await (await getSupabase()).from("pedidos_orcamento").insert(dados));
-  } catch (e) {
-    error = e;
+    const r = await fetch(urlOrcamento, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(corpoOrcamento(dados)),
+    });
+    estado = r.status;
+  } catch {
+    estado = 0;
   }
   botao.disabled = false;
   botao.textContent = "Enviar pedido";
 
-  if (error) {
-    mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false, dados);
-  } else {
+  if (estado >= 200 && estado < 300) {
     form.reset();
     mostrar("Pedido enviado! Entraremos em contacto muito em breve.", true);
+  } else if (estado === 429) {
+    mostrar("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
+  } else if (estado === 400) {
+    mostrar("Há dados em falta ou demasiado longos. Verifique o formulário, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
+  } else {
+    mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false, dados);
   }
 });
 

@@ -4,6 +4,9 @@
 #   wss://HOST/mqtt          -> Mosquitto (WebSocket, porta interna 9001)
 #   https://HOST/api/*       -> pagamentos (sessão, checkout, portal; porta interna 8080)
 #   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe, assinados)
+#   https://HOST/api/orcamento  -> painel (formulário público; ANTES da regra /api/*)
+#   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
+#   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)
 #
@@ -25,6 +28,26 @@
 	# O webhook do Stripe precisa do corpo exatamente como chegou (assinatura):
 	# o Caddy não o altera. Mesmo site = mesma origem: "connect-src 'self'" da
 	# CSP já cobre o /api, e não é preciso CORS.
+	# Painel da empresa (docs/PAINEL-EMPRESA.md). Os blocos "handle" correm pela
+	# ordem em que aparecem: /api/orcamento e /api/catalogo têm de vir ANTES da
+	# regra /api/* dos pagamentos. O pedido de orçamento pode trazer a simulação
+	# (planta com imagem, até 1 MB): limite de 2 MB aqui, 1,25 MB no serviço.
+	@orcamento path /api/orcamento /api/catalogo
+	handle @orcamento {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy painel:8080
+	}
+
+	@painel path /painel /painel/*
+	handle @painel {
+		request_body {
+			max_size 1MB
+		}
+		reverse_proxy painel:8080
+	}
+
 	@pagamentos path /api/* /stripe/webhook
 	handle @pagamentos {
 		request_body {
@@ -47,20 +70,23 @@
 
 	# Segurança do site e da área de cliente:
 	# - ninguém pode pôr as páginas dentro de um <iframe> (clickjacking);
-	# - CSP: scripts só do próprio site e do cdn.jsdelivr.net (mqtt.js e
-	#   supabase-js); estilos próprios + Google Fonts ('unsafe-inline' porque há
-	#   atributos style="" e variáveis CSS postas pelo JavaScript); ligações só
-	#   ao próprio site (inclui o /api dos pagamentos), ao MQTT (wss://HOST/mqtt)
-	#   e ao Supabase (orçamentos). O Stripe Checkout e o Customer Portal abrem
-	#   por navegação (location.href), que a CSP não restringe: não é preciso
-	#   acrescentar o stripe.com.
-	#   Se mudar de CDN, de fontes ou de Supabase, atualize esta linha.
+	# - CSP: scripts só do próprio site e do cdn.jsdelivr.net (mqtt.js e o
+	#   pdf.js do simulador); estilos próprios + Google Fonts ('unsafe-inline'
+	#   porque há atributos style="" e variáveis CSS postas pelo JavaScript);
+	#   ligações só ao próprio site (inclui o /api dos pagamentos e o
+	#   /api/orcamento do painel — os pedidos de orçamento já não vão para o
+	#   Supabase) e ao MQTT (wss://HOST/mqtt). O Stripe Checkout e o Customer
+	#   Portal abrem por navegação (location.href), que a CSP não restringe: não
+	#   é preciso acrescentar o stripe.com. O painel (/painel/) envia ainda a sua
+	#   própria CSP, mais apertada (sem CDN nem MQTT no navegador); o navegador
+	#   aplica as duas.
+	#   Se mudar de CDN ou de fontes, atualize esta linha.
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob:; connect-src 'self' wss://{$DOMUS_HOST} https://*.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 	}
 
 	log {

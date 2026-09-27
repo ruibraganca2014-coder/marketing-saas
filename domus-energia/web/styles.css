@@ -433,7 +433,7 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .icone-opcao:has(input:checked) { background: var(--musgo); color: var(--sobre-musgo); border-color: var(--musgo); }
 .icone-opcao:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
 
-.casa-acoes { display: flex; justify-content: flex-end; gap: 8px; margin: -4px 0 12px; }
+.casa-acoes { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
 .divisao-titulo { grid-column: 1 / -1; margin: 6px 0 -4px; font-size: 1.15rem; color: var(--texto-suave); }
 .canal.em-espera .canal-estado { color: var(--argila-texto); font-weight: 700; }
 
@@ -723,6 +723,9 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .planos-vantagens li { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--superficie); border: 1px solid var(--borda); font-weight: 700; font-size: .92rem; }
 .planos-vantagens li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--areia); }
 .planos-nota { margin: 20px 0 0; color: var(--texto-suave); font-size: .92rem; max-width: 720px; }
+/* Simulador de orçamento (simulador.html) a partir dos planos. */
+.planos-simular { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin-top: 22px; padding: 18px 20px; border-radius: var(--raio); border: 1px dashed var(--musgo); background: color-mix(in srgb, var(--musgo-claro) 60%, transparent); }
+.planos-simular p { margin: 0; flex: 1 1 260px; font-weight: 600; }
 .msg .msg-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .msg .msg-acoes .btn { background: var(--superficie); }
 

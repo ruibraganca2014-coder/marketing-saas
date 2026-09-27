@@ -1,0 +1,168 @@
+/* Simulador de orçamento — tema "Terra" (docs/TEMA.md, docs/SIMULADOR-ORCAMENTO.md).
+   Usa os tokens de styles.css; alvos de 44 px; funciona a 390 px. */
+
+.saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
+.saltar:focus { top: 10px; }
+
+.simulador { padding: 24px 0 40px; }
+/* Sem "duplo toque para aproximar" na página: os toques seguidos (ferramenta → planta) não se perdem. */
+.pagina-simulador { touch-action: manipulation; }
+.sim-cabecalho h1 { font-size: clamp(1.9rem, 5vw, 2.6rem); margin: 0 0 8px; }
+.sim-cabecalho .sub { margin-bottom: 16px; }
+.sim-cabecalho .msg { margin: 0 0 16px; }
+.sim-retomar { margin-bottom: 20px; display: grid; gap: 10px; }
+.sim-retomar h2 { font-size: 1.4rem; margin: 0; }
+.sim-retomar p { margin: 0; }
+
+/* ---------- Progresso ---------- */
+.sim-progresso { display: block; margin: 0 0 20px; }
+.sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
+.sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
+.sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+.sim-passo-botao { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-height: 44px; padding: 4px 2px; border: 0; background: transparent; color: var(--texto-suave); font: 600 .8rem/1.2 var(--letra); text-align: center; border-radius: 12px; }
+button.sim-passo-botao { cursor: pointer; color: var(--texto); }
+button.sim-passo-botao:hover { background: var(--musgo-claro); }
+.sim-num { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--borda); background: var(--superficie); font-weight: 800; font-variant-numeric: tabular-nums; }
+.sim-progresso .feito .sim-num { border-color: var(--musgo); color: var(--musgo-texto); }
+.sim-progresso .atual .sim-num { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.sim-progresso .atual .sim-passo-nome { color: var(--texto); font-weight: 800; }
+@media (max-width: 719px) {
+  .sim-passo-nome { display: none; }
+  .sim-progresso .atual .sim-passo-nome { display: block; position: absolute; left: -10000px; }
+}
+
+/* ---------- Passos ---------- */
+.sim-passo { display: grid; gap: 16px; padding: 0; }
+.sim-passo > h2 { margin: 0; font-size: clamp(1.5rem, 4vw, 2rem); scroll-margin-top: 80px; }
+.sim-passo > h2:focus { outline: none; }
+.sim-passo > h3 { margin: 8px 0 0; font-size: 1.25rem; }
+.sub-passo { margin: 0; color: var(--texto-suave); max-width: 760px; }
+.sim-passo .form-botoes:empty { display: none; }
+.tres { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .tres { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 860px) { .tres { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.campo { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; min-width: 0; }
+input, select { min-height: 44px; }
+.armadilha { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
+
+.escolhas { display: grid; gap: 10px; }
+.escolhas-grelha { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 720px) { .escolhas-grelha { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.escolha { position: relative; display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 10px 12px; border: 2px solid var(--borda); border-radius: 16px; background: var(--superficie); font-weight: 700; text-align: center; cursor: pointer; }
+.escolha input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.escolha:has(input:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
+.escolha:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
+.caixa-linha { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.caixa-linha input { width: 24px; height: 24px; min-height: 0; padding: 0; accent-color: var(--musgo); flex: none; }
+.caixa-linha input:disabled + span { opacity: .6; }
+.caixa-linha span { min-width: 0; }
+
+/* ---------- Editor da planta ---------- */
+.editor { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) { .editor { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
+.editor-principal { display: grid; gap: 10px; min-width: 0; }
+.editor-barra { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+@media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; } }
+.ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 78px; min-height: 64px; padding: 6px 4px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; }
+.ferramenta svg { width: 28px; height: 28px; color: var(--texto); }
+.ferramenta:hover { border-color: var(--musgo); }
+.ferramenta[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
+.ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
+.editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.editor-barra2 .btn { min-width: 44px; }
+.editor-dica { margin: 0; min-height: 1.5em; font-weight: 600; color: var(--texto-suave); }
+.editor-area { position: relative; height: clamp(320px, 62vh, 640px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
+.editor-svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.editor-svg:focus-visible { outline: 3px solid var(--areia); outline-offset: -3px; }
+.editor-svg.a-colocar { cursor: crosshair; }
+.editor-ajuda { margin: 0; font-size: .86rem; color: var(--texto-suave); }
+.editor-lado { display: grid; gap: 12px; min-width: 0; }
+.editor-lado .cartao { padding: 16px; }
+.editor-lado h3 { margin: 0 0 8px; font-size: 1.15rem; }
+.editor-lado h3:focus { outline: none; }
+.editor-props { display: grid; gap: 10px; }
+.editor-props > * { margin: 0; }
+.editor-props-campos { display: grid; gap: 6px; }
+.editor-mover .quadrado { width: 44px; padding: 0; font-size: 1.1rem; }
+.perigo-sec { border-color: var(--alarme) !important; color: var(--alarme-texto) !important; }
+.perigo-sec:hover { background: var(--alarme-suave) !important; }
+.editor-lado details > summary { cursor: pointer; font-weight: 800; font-family: var(--letra-titulos); font-size: 1.1rem; min-height: 44px; display: flex; align-items: center; }
+.editor-fundo-corpo, .editor-fundo-controlos, .calibrar { display: grid; gap: 10px; margin-top: 8px; }
+.editor-fundo input[type=file] { padding: 8px; }
+.editor-tamanho .duas { margin-top: 8px; }
+.lista-planta, .lista-planta ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.lista-planta ul { padding-left: 18px; margin-top: 4px; }
+.item-planta { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--texto); font: 600 .92rem/1.25 var(--letra); text-align: left; cursor: pointer; }
+.item-planta.divisao { font-weight: 800; }
+.item-planta svg { width: 24px; height: 24px; flex: none; }
+.item-planta[aria-current="true"] { border-color: var(--argila); background: var(--areia-suave); }
+.item-grupo { display: block; font-weight: 800; padding: 6px 0 0; }
+.sim-contagem h3 { margin: 0 0 6px; font-size: 1.15rem; }
+.lista-contagem { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+
+/* ---------- Quadro e divisões ---------- */
+#circuitos, #divisoes { display: grid; gap: 14px; }
+.circuito, .divisao-cartao { display: grid; gap: 12px; padding: 16px; }
+.circuito > legend, .divisao-cartao > legend { font-size: 1.15rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips legend { width: 100%; }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; border: 1px solid var(--borda); border-radius: 999px; font-weight: 600; cursor: pointer; }
+.chip input { width: 20px; height: 20px; min-height: 0; padding: 0; accent-color: var(--musgo); }
+.chip:has(input:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
+.maquinas, .interruptores { display: grid; gap: 10px; }
+.maquinas-lista { display: grid; gap: 10px; }
+.maquina-linha { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); align-items: end; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--musgo-claro) 55%, transparent); }
+@media (min-width: 560px) { .maquina-linha { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; } .interruptores .maquina-linha { grid-template-columns: minmax(0, 1fr) auto; } }
+.maquinas > .btn, .interruptores > .btn { justify-self: start; }
+.opcoes-circuito { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.avisos-circuito { margin: 0; padding: 10px 14px 10px 32px; border-radius: 12px; background: var(--areia-suave); color: var(--texto); display: grid; gap: 6px; font-weight: 600; font-size: .93rem; }
+.avisos-circuito[hidden] { display: none; }
+.sim-avisos { display: grid; gap: 10px; }
+.sim-avisos > p { margin: 0; }
+.confirmar { margin-top: 10px; }
+
+/* ---------- Preço ---------- */
+.sim-total { display: grid; gap: 4px; text-align: center; }
+.sim-total p { margin: 0; }
+.sim-rotulo { color: var(--texto-suave); font-weight: 700; }
+.sim-intervalo { font-family: var(--letra-titulos); font-weight: 800; font-size: clamp(1.8rem, 7vw, 2.6rem); color: var(--texto); }
+.sim-nota { margin: 0; color: var(--texto-suave); }
+.sim-nota.forte { color: var(--texto); font-weight: 700; }
+.tabela-rolar { overflow-x: auto; border-radius: var(--raio); border: 1px solid var(--borda); background: var(--superficie); }
+.tabela-rolar:focus-visible { outline: 3px solid var(--areia); }
+.sim-tabela { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.sim-tabela caption { text-align: left; padding: 12px 14px 4px; font-weight: 800; font-family: var(--letra-titulos); font-size: 1.1rem; }
+.sim-tabela th, .sim-tabela td { padding: 10px 12px; border-bottom: 1px solid var(--borda); text-align: left; vertical-align: top; }
+.sim-tabela thead th { font-size: .85rem; color: var(--texto-suave); }
+.sim-tabela tbody th { font-weight: 600; }
+.sim-tabela .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sim-tabela .sku { display: block; color: var(--texto-suave); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
+.sim-tabela tfoot th { text-align: right; font-weight: 700; }
+.sim-tabela tfoot .total th, .sim-tabela tfoot .total td { font-weight: 800; font-size: 1.05rem; }
+.sim-tabela tr:last-child > * { border-bottom: 0; }
+@media (max-width: 479px) { .sim-tabela th, .sim-tabela td { padding: 8px 8px; } .sim-tabela { font-size: .88rem; } }
+.sim-planos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
+.sim-plano { position: relative; padding: 18px; }
+.sim-plano h4 { margin: 0 0 4px; font-family: var(--letra-titulos); font-size: 1.2rem; }
+.sim-plano p { margin: 0; }
+.sim-plano.destaque { border: 2px solid var(--musgo); }
+.sim-plano .etiqueta { position: absolute; top: -12px; left: 16px; padding: 2px 12px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-size: .82rem; font-weight: 800; }
+.sim-planos > .ajuda { grid-column: 1 / -1; }
+
+/* ---------- Enviar ---------- */
+.sim-enviar { display: grid; gap: 14px; }
+.sim-sucesso .cartao { display: grid; gap: 12px; }
+.sim-sucesso h2 { margin: 0; font-size: 1.8rem; }
+.sim-sucesso h2:focus { outline: none; }
+.sim-sucesso p { margin: 0; }
+
+/* ---------- Navegação (fica visível no fundo do ecrã) ---------- */
+.sim-navegacao { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 20px; padding: 12px 0; background: var(--topo); border-top: 1px solid var(--borda); backdrop-filter: blur(8px); }
+.sim-navegacao #sim-seguinte { margin-left: auto; }
+.sim-guardado { font-size: .82rem; color: var(--texto-suave); text-align: center; min-width: 0; }
+@media (max-width: 479px) { .sim-guardado { display: none; } }
+.pagina-simulador footer { padding-bottom: 28px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-barra span { transition: none; }
+}
