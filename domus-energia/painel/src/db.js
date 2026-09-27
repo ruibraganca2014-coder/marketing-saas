@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SEMENTES_CATALOGO } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -146,18 +146,26 @@ export const MIGRACOES = [
       INSERT INTO config_orcamento (chave, valor) VALUES
         ('tarifa_hora_iva', 35), ('margem_intervalo_pct', 15), ('deslocacao_iva', 0);
     `);
-    const ins = db.prepare(`INSERT INTO catalogo (sku, nome, categoria, fornecedor, link, preco_compra_cent,
-      preco_venda_iva_cent, horas_instalacao, especificacoes, ativo, visivel_cliente, atualizado)
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`);
-    const agora = iso();
-    for (const s of SEMENTES_CATALOGO) {
-      ins.run(s.sku, s.nome, s.categoria, s.fornecedor ?? null,
-        s.preco_compra == null ? null : Math.round(s.preco_compra * 100),
-        Math.round(s.preco_venda_iva * 100), s.horas_instalacao, JSON.stringify(s.especificacoes ?? {}),
-        s.ativo === false ? 0 : 1, s.visivel_cliente === false ? 0 : 1, agora);
-    }
+    semear(db, SEMENTES_CATALOGO);
   },
+  // 3 — artigos do quadro elétrico (proteções, extras, caixas): bases novas e já existentes recebem-nos;
+  // INSERT OR IGNORE pelo SKU → sem duplicar e sem mexer num artigo que o CEO já tenha (preço editado ou SKU igual).
+  (db) => semear(db, SEMENTES_QUADRO, true),
 ];
+
+/** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */
+function semear(db, sementes, seExistir = false) {
+  const ins = db.prepare(`INSERT ${seExistir ? 'OR IGNORE ' : ''}INTO catalogo (sku, nome, categoria, fornecedor, link, preco_compra_cent,
+    preco_venda_iva_cent, horas_instalacao, especificacoes, ativo, visivel_cliente, atualizado)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`);
+  const agora = iso();
+  for (const s of sementes) {
+    ins.run(s.sku, s.nome, s.categoria, s.fornecedor ?? null,
+      s.preco_compra == null ? null : Math.round(s.preco_compra * 100),
+      Math.round(s.preco_venda_iva * 100), s.horas_instalacao, JSON.stringify(s.especificacoes ?? {}),
+      s.ativo === false ? 0 : 1, s.visivel_cliente === false ? 0 : 1, agora);
+  }
+}
 
 export function abrirDb(caminho) {
   if (caminho !== ':memory:') mkdirSync(dirname(caminho), { recursive: true, mode: 0o700 });

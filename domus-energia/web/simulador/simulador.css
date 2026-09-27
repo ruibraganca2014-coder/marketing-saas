@@ -62,6 +62,9 @@ input, select { min-height: 44px; }
 .contadores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); align-items: end; }
 .contadores:not(:has(.contador:not([hidden]))) { display: none; }
 .contador { display: grid; gap: 6px; min-width: 0; }
+/* Com 6 colunas (como a tipologia), os pisos ficam à direita, por baixo do T5+. */
+@media (min-width: 720px) { .contadores { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+#contador-pisos { grid-column: -2 / -1; }
 .contador-rotulo { font-weight: 700; }
 .contador-caixa { display: flex; align-items: center; gap: 8px; }
 .contador-caixa .btn { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 1.3rem; line-height: 1; }
@@ -91,10 +94,7 @@ input, select { min-height: 44px; }
 .editor-barra-rotulo { flex: none; font-weight: 700; font-size: .85rem; color: var(--texto-suave); padding-right: 2px; }
 .ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; text-align: left; }
 .ferramenta.tipo-divisao svg { width: 20px; height: 20px; flex: none; }
-/* Por baixo do nome, em letra pequena, o que a divisão traz ("porta, janela, luz…"). */
-.tipo-divisao-texto { display: grid; gap: 1px; }
 .tipo-divisao-nome { white-space: nowrap; }
-.tipo-divisao-traz { max-width: 150px; font-size: .68rem; font-weight: 600; line-height: 1.2; color: var(--texto-suave); }
 /* Telecomunicações ("brevemente"): tracejado, fora do preço. */
 .ferramenta.telecom { border-style: dashed; }
 .editor-telecom { align-items: center; }
@@ -242,3 +242,17 @@ input, select { min-height: 44px; }
 .editor-svg .destaque-nova { animation: destaque-nova .5s ease-in-out 3 both; }
 @keyframes destaque-nova { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .editor-svg .destaque-nova { animation: none; } }
+
+/* ---------- Quadro: proteções, tamanho e potência (quadro.js) ---------- */
+#quadro-protecoes { display: grid; gap: 18px; }
+.escolhas-grelha.tres-pacotes { grid-template-columns: 1fr; }
+@media (min-width: 560px) { .escolhas-grelha.tres-pacotes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.escolhas-grelha.tres-curtas { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#quadro-protecoes .caixa-linha small { display: block; font-weight: 400; color: var(--texto-suave); }
+.circuito-rtiebt { margin: 0 0 8px; font-weight: 700; }
+.sim-quadro-resumo { display: grid; gap: 6px; }
+.sim-quadro-resumo p, .sim-quadro-resumo ul, .sim-quadro-resumo h4 { margin: 0; }
+.sim-quadro-resumo ul { padding-left: 1.2em; }
+.sim-quadro-tamanho { font-family: var(--letra-titulos); font-size: 1.15rem; font-weight: 800; }
+.sim-quadro-potencia { font-weight: 700; }
+.sim-quadro-potencia.curta { color: var(--alarme-texto); }

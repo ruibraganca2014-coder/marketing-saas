@@ -101,6 +101,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let pinca = null;
   let destaque = null;        // {id, desde}: a divisão acabada de criar pisca (DESTAQUE_MS)
   let aspetoFundo = null;     // altura/largura da imagem de fundo (px)
+  let nDivisoesVista = 0;   // n.º de divisões quando a vista foi ajustada (confirmar)
   let ajusteAuto = false;     // a vista foi ajustada sozinha e o cliente ainda não a mexeu: reajusta se o tamanho mudar
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
@@ -110,8 +111,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   raiz.replaceChildren();
   raiz.classList.add("editor");
 
-  // Um botão por tipo de divisão: cria-a logo, com o nome certo (Quarto 1, Quarto 2, Sala…); por
-  // baixo do nome, em letra pequena, o que traz (casa.js resumoAparelhos).
+  // Um botão por tipo de divisão: cria-a logo, com o nome certo (Quarto 1, Quarto 2, Sala…); o que traz
+  // (casa.js resumoAparelhos) fica só no nome acessível do botão.
   const barraDiv = el("div", "editor-barra editor-divisoes");
   barraDiv.setAttribute("role", "toolbar");
   barraDiv.setAttribute("aria-label", "Acrescentar divisão");
@@ -129,9 +130,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const r = svgEl("rect");
       for (const [k, v] of Object.entries({ x: 9, y: 11, width: 30, height: 26, rx: 3, fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-dasharray": "5 3" })) r.setAttribute(k, v);
       ic.append(r);
-      const texto = el("span", "tipo-divisao-texto");
-      texto.append(el("span", "tipo-divisao-nome", t.nome), el("small", "tipo-divisao-traz", traz));
-      b.append(ic, texto);
+      b.append(ic, el("span", "tipo-divisao-nome", t.nome));
       // O botão cria-a logo (rato, toque ou teclado), num sítio livre.
       b.addEventListener("click", () => {
         definirModo(null);
@@ -333,9 +332,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   function confirmar(texto) {
     atualizarDivisoes(planta);
     aoMudar(planta);
-    // A planta fica sempre centrada e inteira à vista, a menos que o cliente tenha feito zoom ou
-    // deslocado a vista à mão (até carregar em "Ver tudo").
-    if (ajusteAuto) verTudo();
+    // Vista parada: só volta a mostrar a planta inteira e centrada quando se acrescenta ou apaga uma
+    // divisão (mexer em objetos, arrastar ou mudar a forma não mexe na vista).
+    if (planta.divisoes.length !== nDivisoesVista) { nDivisoesVista = planta.divisoes.length; verTudo(); }
     desenharTudo();
     if (texto) avisar(texto);
   }
@@ -428,11 +427,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       planta.elementos.push({ id: novoId("e", planta.elementos), ...a });
       n++;
     }
+    ajustarFolha();
     selecionado = d.id;
     destaque = { id: d.id, desde: performance.now() };
     setTimeout(() => { if (destaque?.id === d.id) { destaque = null; desenhar(); } }, DESTAQUE_MS);
-    const v = caixaVista();
-    if (x < v.x || y < v.y || x + t.w > v.x + v.w || y + t.h > v.y + v.h) verTudo();
     confirmar(`Divisão "${d.nome}" criada${n ? ` com ${n} aparelhos habituais (porta, interruptor, luz, sensor de movimento…)` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
     return d;
   }
@@ -454,6 +452,27 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     return e;
   }
 
+  /**
+   * Folha à medida: sem fundo, a planta encolhe (ou cresce) para o tamanho das divisões e elementos,
+   * com uma margem de uma quadrícula, e o conteúdo passa a começar nessa margem (tudo desloca junto).
+   * Com fundo (foto/PDF) quem manda é a imagem: não mexe.
+   */
+  function ajustarFolha() {
+    if (planta.fundo || (!planta.divisoes.length && !planta.elementos.length)) return;
+    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+    for (const d of planta.divisoes) { x1 = Math.min(x1, d.x_cm); y1 = Math.min(y1, d.y_cm); x2 = Math.max(x2, d.x_cm + d.largura_cm); y2 = Math.max(y2, d.y_cm + d.altura_cm); }
+    for (const e of planta.elementos) { x1 = Math.min(x1, e.x_cm); y1 = Math.min(y1, e.y_cm); x2 = Math.max(x2, e.x_cm); y2 = Math.max(y2, e.y_cm); }
+    const dx = ESCALA_CM - Math.floor(x1 / ESCALA_CM) * ESCALA_CM;
+    const dy = ESCALA_CM - Math.floor(y1 / ESCALA_CM) * ESCALA_CM;
+    for (const d of planta.divisoes) {
+      d.x_cm += dx; d.y_cm += dy;
+      if (d.pontos) d.pontos = d.pontos.map(([px, py]) => [px + dx, py + dy]);
+    }
+    for (const e of planta.elementos) { e.x_cm += dx; e.y_cm += dy; }
+    planta.largura_cm = limitar(Math.ceil((x2 + dx) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
+    planta.altura_cm = limitar(Math.ceil((y2 + dy) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
+  }
+
   function apagarSelecionado() {
     if (!selecionado) return;
     const d = obterDivisao(selecionado);
@@ -462,6 +481,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     memorizar();
     if (d) planta.divisoes = planta.divisoes.filter((x) => x !== d);
     if (e) planta.elementos = planta.elementos.filter((x) => x !== e);
+    if (d) ajustarFolha();
     selecionado = null;
     confirmar(d ? `Divisão "${d.nome}" apagada (os elementos ficaram).` : `Apagado da planta: ${ELEMENTOS[e.tipo].nome}.`);
     svg.focus({ preventScroll: true });
@@ -1560,7 +1580,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const nova = planta !== p;
       planta = p;
       if (nova) { desfazer = []; refazer = []; selecionado = null; calibracao = null; lerAspeto(); }
+      if (nova) ajustarFolha();   // plantas antigas com quadrícula vazia à volta ficam à medida
       if (reiniciarVista || nova) verTudo();
+      nDivisoesVista = planta.divisoes.length;
       definirModo(null);
       desenharTudo();
     },

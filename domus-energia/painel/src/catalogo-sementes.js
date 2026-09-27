@@ -1,6 +1,7 @@
 // Sementes do catálogo (docs/SIMULADOR-ORCAMENTO.md §3). Preços de venda
 // PROVISÓRIOS: o CEO confirma-os no painel. preco_compra null = desconhecido.
-// Só são inseridas na primeira vez (migração 2); depois o catálogo é do CEO.
+// SEMENTES_CATALOGO entra na primeira vez (migração 2); SEMENTES_QUADRO (fim do ficheiro) pela migração 3,
+// só com os SKUs que ainda não existem. Depois o catálogo é do CEO.
 
 const interruptores = [1, 2, 3, 4].map((b, i) => ({
   sku: `INT-VIDRO-${b}`,
@@ -86,4 +87,50 @@ export const SEMENTES_CATALOGO = [
   { sku: 'FECHADURA-SEG', nome: 'Fechadura inteligente de segurança', categoria: 'outro',
     fornecedor: 'YFK (Temu)', preco_compra: 64.27, preco_venda_iva: 199, horas_instalacao: 2,
     especificacoes: {}, ativo: false, visivel_cliente: false },
+];
+
+// Quadro elétrico (docs/SIMULADOR-ORCAMENTO.md §3 e §4.1): proteções, extras e caixas de quadro.
+// Entram pela migração 3 (INSERT OR IGNORE): uma base já existente recebe-os sem duplicar e sem mexer
+// nos artigos que o CEO já editou. PREÇOS PROVISÓRIOS de mercado em Portugal (setembro 2026) — o CEO
+// confirma no painel. `funcao` diz ao simulador e ao painel o que o artigo é (não é um disjuntor
+// inteligente de circuito); `modulos` = largura na calha DIN (monofásico).
+const PROVISORIO = 'preço provisório — confirmar';
+const caixa = (m, filas, preco, horas) => ({
+  sku: `CAIXA-QUADRO-${m}`, nome: `Caixa de quadro elétrico ${m} módulos (${filas} ${filas === 1 ? 'fila' : 'filas'}, com barramentos)`,
+  categoria: 'acessorio', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: horas,
+  especificacoes: { funcao: 'caixa_quadro', modulos_caixa: m, filas, nota: `${PROVISORIO}; as horas incluem passar os circuitos para o quadro novo` },
+});
+export const SEMENTES_QUADRO = [
+  { sku: 'IDR-2P-40A-30MA', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo AC', categoria: 'disjuntor',
+    fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'AC', modulos: 2, nota: PROVISORIO } },
+  { sku: 'RCBO-WIFI-TOSMR1', nome: 'Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1, 30 mA)', categoria: 'disjuntor',
+    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 119, horas_instalacao: 0.75,
+    especificacoes: { funcao: 'diferencial', wifi: true, religacao: true, sensibilidade_ma: 30, amperes_max: 40, medicao: true, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+  { sku: 'SPD-T2-1PN-40KA', nome: 'Descarregador de sobretensões tipo 2 (1P+N, 40 kA)', categoria: 'acessorio',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 89.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'descarregador', tipo: 'T2', imax_ka: 40, modulos: 2, nota: PROVISORIO } },
+  { sku: 'RELE-TENSAO-WIFI', nome: 'Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou)', categoria: 'acessorio',
+    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 59.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'rele_tensao', religacao: true, amperes_max: 63, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+  { sku: 'AFDD-1PN-16A', nome: 'Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A)', categoria: 'disjuntor',
+    fornecedor: 'armazenista (Hager/Schneider)', preco_compra: null, preco_venda_iva: 169, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'afdd', amperes: 16, com_disjuntor: true, modulos: 2, nota: PROVISORIO } },
+  { sku: 'MEDIDOR-DIN-WIFI', nome: 'Medidor de energia geral Wi-Fi (calha DIN, até 63 A)', categoria: 'acessorio',
+    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 49.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'medidor_geral', medicao: true, amperes_max: 63, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+  { sku: 'GERAL-WIFI-2P-63A', nome: 'Disjuntor geral Wi-Fi com medição e corte remoto (2P, 63 A)', categoria: 'disjuntor',
+    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 79.9, horas_instalacao: 0.75,
+    especificacoes: { funcao: 'geral_wifi', amperes_max: 63, medicao: true, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+  { sku: 'MCB-1PN-C', nome: 'Disjuntor 1P+N curva C (6–40 A) — quadro novo', categoria: 'disjuntor',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 14.9, horas_instalacao: 0.25,
+    especificacoes: { funcao: 'disjuntor_circuito', curva: 'C', amperes: [6, 10, 16, 20, 25, 32, 40], modulos: 1, nota: PROVISORIO } },
+  { sku: 'GERAL-2P-63A', nome: 'Disjuntor geral 2P (40–63 A) — quadro novo', categoria: 'disjuntor',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 29.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'geral', amperes: [40, 50, 63], modulos: 2, nota: PROVISORIO } },
+  caixa(12, 1, 34.9, 3),
+  caixa(18, 1, 44.9, 3.5),
+  caixa(24, 2, 64.9, 4),
+  caixa(36, 3, 94.9, 5),
+  caixa(48, 4, 129, 6),
 ];

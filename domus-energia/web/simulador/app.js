@@ -6,8 +6,10 @@ import {
   TIPOS_CASA, TIPOS_CIRCUITO, AMPERES, MODELOS, MAX_DIVISOES,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
-  avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
+  avisosCircuito, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
   perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
+  TIPOS_COM_PISOS,
+  RTIEBT, codigoCircuito, seccaoCabo, formatarMm2,
 } from "./regras.js";
 import {
   plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
@@ -19,8 +21,12 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, opcoesAvisos, potenciaContratada,
-  normalizarQuer, maquinasEscolhidas, fasesSugeridas, telecomParaEnvio,
+  normalizarQuer, maquinasEscolhidas, fasesSugeridas, telecomParaEnvio, avisosEstado,
 } from "./estado.js";
+import {
+  PROTECOES, PACOTES, PARA_RAIOS, QUADRO_NOVO, opcoesCircuitos, protecoesDoPacote, pacoteDe, protecoesEfetivas,
+  resumoQuadro, levaQuadroNovo, pedidosQuadro, formatarKva,
+} from "./quadro.js";
 import { criarEditor } from "./editor.js";
 
 const cfg = window.DOMUS ?? {};
@@ -197,7 +203,7 @@ const CONTADORES = [
   ["salas", "Salas", null, "Menos uma sala", "Mais uma sala"],
   ["pisos", "Pisos", null, "Menos um piso", "Mais um piso"],
 ];
-const EXTRAS_AJUDA = { kitnet: "A cozinha fica na sala" };
+const EXTRAS_AJUDA = {};
 /** A casa dá divisões (tipologia, ou serviços/industrial)? Sem isso (área de cliente) vale a lista antiga. */
 const negocio = () => perfilCasa(estado.casa.tipo) !== "habitacao";
 
@@ -210,6 +216,7 @@ function mudarTipologia(t) {
   c.quartos = t === "T5+" ? Math.min(12, Math.max(5, c.quartos ?? 5)) : quartosDe({ tipologia: t });
   c.casas_banho = casasBanhoOmissao(t);
   c.salas = salasOmissao(t);
+  c.extras.corredor = c.quartos >= 2;   // o corredor típico também segue a tipologia
   sincronizarCasa();
   for (const k of Object.keys(antes)) if (antes[k] !== c[k]) destacar($(`contador-${k}`));
   agendarGravacao();
@@ -234,7 +241,7 @@ function mudarTipo(k) {
   const c = estado.casa;
   const perfilAntes = perfilCasa(c.tipo);
   c.tipo = k;
-  if (k !== "moradia") c.pisos = 1;
+  if (!TIPOS_COM_PISOS.includes(k)) c.pisos = 1;
   const perfil = perfilCasa(k);
   if (perfil !== "habitacao" && (perfil !== perfilAntes || c.area_m2 == null)) {
     c.area_m2 = AREA_OMISSAO[perfil];
@@ -330,7 +337,7 @@ function sincronizarCasa() {
   if (casa) {
     $("contador-salas").hidden = c.tipologia === "T0";
     // Só as moradias têm mais de um piso.
-    $("contador-pisos").hidden = c.tipo !== "moradia";
+    $("contador-pisos").hidden = !TIPOS_COM_PISOS.includes(c.tipo);
   }
   for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!c.extras[i.value];
   $("casa-fases").value = c.fases ?? "";
@@ -490,7 +497,8 @@ const contagemAtual = () => contarPlanta(usaPlanta() ? estado.planta : plantaDaC
  * desenhada ficam os circuitos base "Iluminação" e "Tomadas"; as máquinas têm circuito próprio.
  */
 function circuitosSugeridos(cont) {
-  const c = sugerirCircuitos(cont, { fases: estado.casa.fases });
+  // RTIEBT (quadro.js): zonas húmidas no C5, T3 e mais com iluminação e tomadas em 2 zonas.
+  const c = sugerirCircuitos(cont, opcoesCircuitos(estado.casa));
   const de = (tipo, nome) => { const l = c.filter((x) => x.tipo === tipo); return l.length ? l : [{ ...circuitoVazio(0, tipo), nome }]; };
   const r = numerar([...de("iluminacao", "Iluminação"), ...de("tomadas", "Tomadas"), ...c.filter((x) => x.tipo === "maquina")]);
   // "Poupar energia" / "Controlo de energia": medir o consumo em todos os circuitos inteligentes (já é o que sugerimos por omissão).
@@ -573,12 +581,13 @@ function desenharQuadro() {
   botao.hidden = !temPlanta && !daCasa;
   const origem = $("quadro-origem");
   origem.hidden = !temPlanta && !daCasa;
-  origem.textContent = estado.quadroEditado ? `Alterou o quadro à mão: não o mudamos sozinhos. Use "${botao.textContent}" para voltar à sugestão.` : `Sugestão feita a partir da sua ${temPlanta ? "planta" : "casa e das máquinas que escolheu"} (luzes até 8 por circuito de 10 A, tomadas até 8 por circuito de 16 A com as máquinas pequenas, circuito próprio para cada máquina grande). Pode mudar tudo.`;
+  origem.textContent = estado.quadroEditado ? `Alterou o quadro à mão: não o mudamos sozinhos. Use "${botao.textContent}" para voltar à sugestão.` : `Sugestão feita a partir da sua ${temPlanta ? "planta" : "casa e das máquinas que escolheu"} pelos circuitos mínimos da RTIEBT: C1 iluminação 10 A (cabo 1,5 mm², até 8 pontos por circuito), C2 tomadas 16 A (2,5 mm², até 8 com as máquinas pequenas), C3 placa/forno 25 A (6 mm²), C4 máquinas de lavar e termoacumulador 16 A (2,5 mm²), C5 tomadas da cozinha e casas de banho; do T3 para cima a iluminação e as tomadas dividem-se pela zona de dia e de noite${negocio() ? " (em serviços e industrial o mesmo, dividido a partir de 100 m²)" : ""}. Pode mudar tudo.`;
   for (const r of document.querySelectorAll("input[name=disjuntor]")) r.checked = r.value === estado.quadro.disjuntor;
   const caixaC = $("circuitos");
   caixaC.replaceChildren();
   if (!estado.quadro.circuitos.length) caixaC.append(el("p", "ajuda", "Sem circuitos. Use \"Adicionar circuito\"."));
   estado.quadro.circuitos.forEach((c, i) => caixaC.append(cartaoCircuito(c, i)));
+  sincronizarProtecoes();
   desenharAvisosQuadro();
 }
 
@@ -587,14 +596,17 @@ function cartaoCircuito(c, i) {
   const f = el("fieldset", "cartao circuito");
   f.dataset.circuito = String(i);
   const leg = el("legend", null, `Circuito ${c.n}${c.nome ? ` — ${c.nome}` : ""}`);
-  f.append(leg);
+  // Código RTIEBT, cabo, grupo diferencial e AFDD (atualizados em desenharAvisosQuadro).
+  const rt = el("p", "ajuda circuito-rtiebt");
+  rt.id = `${id}-rtiebt`;
+  f.append(leg, rt);
   const nome = document.createElement("input");
   nome.id = `${id}-nome`;
   nome.maxLength = 60;
   nome.value = c.nome;
   nome.addEventListener("input", () => { c.nome = nome.value.slice(0, 60); leg.textContent = `Circuito ${c.n}${c.nome ? ` — ${c.nome}` : ""}`; quadroMudou(); desenharAvisosQuadro(); });
   const tipo = selectCom(Object.entries(TIPOS_CIRCUITO), c.tipo, `${id}-tipo`);
-  tipo.addEventListener("change", () => { c.tipo = tipo.value; quadroMudou(); desenharAvisosQuadro(); });
+  tipo.addEventListener("change", () => { c.tipo = tipo.value; lHum.hidden = !temTomadas(c); quadroMudou(); desenharAvisosQuadro(); });
   const amp = selectCom(AMPERES.map((a) => [a, `${a} A`]), c.amperes, `${id}-amperes`);
   amp.addEventListener("change", () => { c.amperes = Number(amp.value); quadroMudou(); desenharAvisosQuadro(); });
   const linha1 = el("div", "tres");
@@ -659,8 +671,12 @@ function cartaoCircuito(c, i) {
   const [lMed, cMed] = caixa("Medir o consumo", c.medir, `${id}-medir`);
   cInt.addEventListener("change", () => { c.inteligente = cInt.checked; quadroMudou(); desenharAvisosQuadro(); });
   cMed.addEventListener("change", () => { c.medir = cMed.checked; quadroMudou(); desenharAvisosQuadro(); });
+  // Tomadas da cozinha/casa de banho (C5): contam para o grupo diferencial certo.
+  const [lHum, cHum] = caixa("Tomadas de cozinha ou casa de banho (zona húmida)", !!c.zona_humida, `${id}-humida`);
+  lHum.hidden = !temTomadas(c);
+  cHum.addEventListener("change", () => { c.zona_humida = cHum.checked; quadroMudou(); desenharAvisosQuadro(); });
   const opcoes = el("div", "opcoes-circuito");
-  opcoes.append(lInt, lMed);
+  opcoes.append(lInt, lMed, lHum);
 
   const avisos = el("ul", "avisos-circuito");
   avisos.id = `${id}-avisos`;
@@ -679,7 +695,22 @@ function cartaoCircuito(c, i) {
   return f;
 }
 
+const temTomadas = (c) => c.tipo === "tomadas" || c.tipo === "misto";
+
+/** "C2 — Tomadas · cabo 2,5 mm² · diferencial 1 · AFDD" (circuito próprio sem código RTIEBT). */
+function textoRtiebt(c, r) {
+  const k = codigoCircuito(c);
+  const s = seccaoCabo(c.amperes);
+  const g = r.grupos.find((x) => x.circuitos.includes(c.n));
+  return [k ? `${k} — ${RTIEBT[k]}` : c.tipo === "maquina" ? "Circuito próprio" : "Misto (sem código RTIEBT)", s ? `cabo ${formatarMm2(s)}` : null, g ? `diferencial ${g.n}` : null, r.afdd.includes(c.n) ? "com AFDD" : null].filter(Boolean).join(" · ");
+}
+
 function desenharAvisosQuadro() {
+  const resumo = resumoQuadro(estado);
+  estado.quadro.circuitos.forEach((c, i) => {
+    const rt = $(`c${i}-rtiebt`);
+    if (rt) rt.textContent = textoRtiebt(c, resumo);
+  });
   estado.quadro.circuitos.forEach((c, i) => {
     const ul = $(`c${i}-avisos`);
     if (!ul) return;
@@ -689,7 +720,7 @@ function desenharAvisosQuadro() {
   });
   const g = $("quadro-avisos");
   g.replaceChildren();
-  const todos = avisosQuadro(estado.quadro.circuitos, opcoesAvisos(estado));
+  const todos = avisosEstado(estado);
   const geral = todos.filter((a) => !a.startsWith("Circuito "));
   // Mesma contagem que o preço: os circuitos só com "medir" levam sempre o SY1.
   const d = disjuntoresInteligentes(estado.quadro.circuitos, estado.quadro.disjuntor);
@@ -705,6 +736,7 @@ function desenharAvisosQuadro() {
     for (const a of geral) ul.append(el("li", null, a));
     g.append(ul);
   }
+  desenharResumoQuadro(resumo);
 }
 
 for (const r of document.querySelectorAll("input[name=disjuntor]")) {
@@ -716,6 +748,119 @@ $("circuito-adicionar").addEventListener("click", () => {
   desenharQuadro();
   $(`c${estado.quadro.circuitos.length - 1}-nome`)?.focus();
 });
+
+// ------------------------------------------------------------ 5. Quadro: proteções, tamanho e potência (quadro.js)
+/** Monta uma vez os controlos das proteções (pacotes, ligar/desligar cada item, pára-raios, quadro novo). */
+function montarProtecoes() {
+  const caixaP = $("quadro-protecoes");
+  const fsPac = el("fieldset", "escolhas");
+  fsPac.append(el("legend", null, "Pacote de proteções"));
+  const grelha = el("div", "escolhas-grelha tres-pacotes");
+  for (const [k, p] of Object.entries(PACOTES)) {
+    grelha.append(escolha("radio", "quadro-pacote", k, p.nome, p.ajuda, (sim) => {
+      if (!sim) return;
+      estado.quadro.protecoes = protecoesDoPacote(k, estado.quadro.protecoes?.idr_wifi);
+      estado.quadro.pacote = k;
+      protecoesMudaram();
+    }));
+  }
+  const pers = el("p", "ajuda");
+  pers.id = "quadro-personalizado";
+  fsPac.append(grelha, pers);
+
+  const fsItens = el("fieldset", "escolhas");
+  fsItens.append(el("legend", null, "O que leva o quadro"));
+  const [lIdr, cIdr] = caixa("Pessoas — diferenciais 40 A / 30 mA, um por grupo (obrigatório pela RTIEBT)", true, "prot-idr");
+  cIdr.disabled = true;
+  fsItens.append(lIdr);
+  for (const [k, p] of Object.entries(PROTECOES)) {
+    const [l, cb] = caixa(`${p.grupo} — ${p.nome}`, false, `prot-${k}`);
+    l.querySelector("span").append(el("small", "bloco-ajuda", p.ajuda));
+    cb.addEventListener("change", () => {
+      estado.quadro.protecoes = { ...estado.quadro.protecoes, [k]: cb.checked };
+      estado.quadro.pacote = pacoteDe(estado.quadro.protecoes);
+      protecoesMudaram();
+    });
+    fsItens.append(l);
+  }
+
+  const pergunta = (legenda, nome, opcoes, campo, curtas = false) => {
+    const fs = el("fieldset", "escolhas");
+    fs.append(el("legend", null, legenda));
+    const g = el("div", `escolhas-grelha ${curtas ? "tres-curtas" : "tres-pacotes"}`);
+    for (const [v, t] of [...Object.entries(opcoes), ["", "Não sei"]]) {
+      g.append(escolha("radio", nome, v, t, null, (sim) => { if (sim) { estado.quadro[campo] = v || null; protecoesMudaram(); } }));
+    }
+    fs.append(g);
+    return fs;
+  };
+  const fsRaios = pergunta("A casa tem pára-raios ou é alimentada por linha aérea?", "quadro-para-raios", PARA_RAIOS, "para_raios", true);
+  fsRaios.append(el("p", "ajuda", "Com pára-raios ou linha aérea (cabos nos postes até à casa) o descarregador de sobretensões é obrigatório."));
+  const fsQuadro = pergunta("O quadro atual serve ou quer quadro novo?", "quadro-novo", QUADRO_NOVO, "quadro_novo");
+  fsQuadro.append(el("p", "ajuda", "Com quadro novo (ou \"Não sei\") a caixa do quadro, o geral e os disjuntores entram no preço."));
+
+  const res = el("div", "cartao sim-quadro-resumo");
+  res.id = "quadro-resumo";
+  res.setAttribute("aria-live", "polite");
+  caixaP.replaceChildren(fsPac, fsItens, fsRaios, fsQuadro, res);
+}
+
+/** Põe os controlos das proteções como está no estado. */
+function sincronizarProtecoes() {
+  const q = estado.quadro;
+  const efetivas = protecoesEfetivas(q);
+  const pacote = pacoteDe(efetivas);
+  for (const i of document.querySelectorAll("input[name=quadro-pacote]")) i.checked = i.value === pacote;
+  $("quadro-personalizado").textContent = pacote === "personalizado" ? "Personalizado: escolheu as proteções uma a uma (um pacote volta a pô-las como estavam nele)." : "Depois pode ligar ou desligar cada item.";
+  for (const k of Object.keys(PROTECOES)) {
+    const cb = $(`prot-${k}`);
+    cb.checked = !!efetivas[k];
+    // Com pára-raios ou linha aérea, o descarregador é obrigatório.
+    cb.disabled = k === "descarregador" && q.para_raios === "sim";
+  }
+  for (const i of document.querySelectorAll("input[name=quadro-para-raios]")) i.checked = i.value === (q.para_raios ?? "");
+  for (const i of document.querySelectorAll("input[name=quadro-novo]")) i.checked = i.value === (q.quadro_novo ?? "");
+}
+
+function protecoesMudaram() {
+  agendarGravacao();
+  sincronizarProtecoes();
+  desenharAvisosQuadro();
+}
+
+/** "Quadro de N módulos (X ocupados, Y livres)", o que ocupa, os grupos diferenciais, a potência sugerida e o preço destes artigos. */
+function desenharResumoQuadro(r = resumoQuadro(estado)) {
+  const c = $("quadro-resumo");
+  if (!c) return;
+  c.replaceChildren();
+  const novo = levaQuadroNovo(estado.quadro);
+  c.append(el("p", "sim-quadro-tamanho", `${r.quadros > 1 ? `${r.quadros} quadros` : "Quadro"} de ${r.tamanho} módulos (${r.ocupados} ocupados, ${r.livres} livres)`));
+  c.append(el("p", "ajuda", novo
+    ? `Tamanho sugerido para um quadro novo, com pelo menos 25 % de módulos livres.${estado.quadro.quadro_novo ? "" : " (Não sabe se o atual serve: incluímos o quadro novo por precaução.)"}`
+    : `Mantém o quadro atual: precisa de ${r.novos} ${r.novos === 1 ? "módulo novo" : "módulos novos"} livres${r.novos > 12 ? " (acrescentámos a ampliação)" : ""}. Se o seu quadro tiver menos de ${r.ocupados} módulos, precisa de um quadro novo.`));
+  const ul = el("ul", "sim-quadro-linhas");
+  for (const l of r.linhas) ul.append(el("li", null, `${l.qtd} × ${l.nome} — ${l.modulos} ${l.modulos === 1 ? "módulo" : "módulos"}`));
+  c.append(ul);
+  const g = el("ul", "sim-quadro-grupos");
+  for (const x of r.grupos) {
+    const txt = x.circuitos.length ? `${x.circuitos.length === 1 ? "circuito" : "circuitos"} ${x.circuitos.join(", ")}` : "sem circuitos (fica pronto para os próximos)";
+    g.append(el("li", null, `Diferencial ${x.n}${x.carregador ? " (carregador do carro)" : ""}${r.protecoes.idr_wifi ? " Wi-Fi" : ""}: ${txt}`));
+  }
+  c.append(el("h4", null, "Grupos diferenciais"), g);
+  const pot = r.potencia;
+  const contratada = estado.casa.potencia_contratada_kva;
+  const curta = pot.kva === null || (contratada !== null && pot.kva > contratada);
+  const p = el("p", curta ? "sim-quadro-potencia curta" : "sim-quadro-potencia");
+  p.id = "quadro-potencia";
+  p.textContent = `Potência sugerida: ${pot.kva === null ? "acima de 41,4 kVA" : formatarKva(pot.kva)}${pot.trifasica ? " (trifásica)" : ""} · contratada: ${contratada === null ? "não sabe" : formatarKva(contratada)}${curta && contratada !== null ? " — pode ser curta" : ""}`;
+  c.append(p, el("p", "ajuda", `Soma das cargas do quadro com simultaneidade: a maior máquina a 100 %, a segunda a 50 %, as outras a 25 %, luzes, tomadas e máquinas pequenas a 40 % (cerca de ${formatarW(pot.carga_w)}); escalões da E-Redes.`));
+  // Preço destes artigos (catálogo): o mesmo cálculo do passo 6.
+  if (Array.isArray(catalogo)) {
+    const pq = calcularPreco(pedidosQuadro(estado), catalogo, configOrc);
+    if (pq.artigos_iva !== null) c.append(el("p", "ajuda", `Proteções e quadro: ${formatarEuro(pq.artigos_iva)} em material + ${formatarEuro(pq.mao_obra_iva)} de instalação (com IVA; os disjuntores inteligentes estão à parte).`));
+  }
+}
+montarProtecoes();
 
 // "Recalcular a partir da planta": se o cliente já mexeu, pede confirmação na página (sem diálogos nativos).
 function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "Isto substitui o que escreveu à mão pela sugestão. Continuar?", sim: textoSim = "Sim, recalcular" } = {}) {
@@ -1019,7 +1164,7 @@ function desenharPreco() {
 
   const av = $("preco-avisos");
   av.replaceChildren();
-  const avisos = avisosQuadro(estado.quadro.circuitos, opcoesAvisos(estado));
+  const avisos = avisosEstado(estado);
   if (!avisos.length) av.append(el("p", "ajuda", "Sem avisos."));
   else {
     const ul = el("ul", "avisos-circuito");

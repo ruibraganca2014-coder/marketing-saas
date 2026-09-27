@@ -6,7 +6,7 @@
 
 import {
   TIPOS_DIVISAO, TIPOS_DIVISAO_SERVICOS, TIPOS_DIVISAO_INDUSTRIAL, LIMITES_CASA, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, ESCALA_CM,
-  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara,
+  plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA,
 } from "./regras.js";
 
 const MARGEM = 50;            // cm à volta da planta
@@ -18,8 +18,8 @@ const MAX_LUZES = 8;
 
 /** Tamanhos (cm) das divisões que não têm botão no editor; as outras vêm dos botões (TIPOS_DIVISAO…). */
 const TAMANHOS = {
-  "Sala de estar": [500, 400], "Sala de jantar": [400, 350], "Sala e cozinha": [650, 400], "Sala de jantar e cozinha": [550, 400],
-  "Estúdio": [600, 450], "Estúdio e cozinha": [650, 450], "Escadas": [200, 300], "Exterior": [500, 300], "Oficina": [800, 600],
+  "Sala de estar": [500, 400], "Sala de jantar": [400, 350], "Kitnet": [650, 400],
+  "Estúdio": [600, 450], "Escadas": [200, 300], "Exterior": [500, 300], "Oficina": [800, 600],
 };
 /** Tamanho típico pelo nome; os botões do tipo de imóvel da casa têm prioridade (ex.: Escritório). */
 function tamanho(nome, casa) {
@@ -39,7 +39,7 @@ const semAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "
  */
 export function tipoDivisao(nome) {
   const s = semAcentos(nome);
-  if (/cozinha/.test(s) && /sala|estudio/.test(s)) return "sala_cozinha";
+  if (/^kitnet/.test(s) || (/cozinha/.test(s) && /sala|estudio/.test(s))) return "sala_cozinha";
   if (/^(cozinha|kitchenette|copa)/.test(s)) return "cozinha";
   if (/^(loja|sala aberta|restaurante)/.test(s)) return "loja";
   if (/^(sala|estudio|living)/.test(s)) return "sala";
@@ -116,8 +116,8 @@ function espacosNegocio(c) {
 
 /**
  * Divisões da casa (nome, piso e, no espaço principal de serviços/industrial, o tamanho), pela ordem
- * em que ficam na planta: "Entrada" (T1 e mais), salas, cozinha, corredor (T2 e mais: um por piso com
- * quartos), quartos, casas de banho, garagem, varanda, jardim. Com pisos > 1: piso 1 com a entrada,
+ * em que ficam na planta: salas, cozinha, corredor (T2 e mais: um por piso com
+ * quartos), quartos, casas de banho, garagem, varanda, jardim. Com pisos > 1: piso 1 com as
  * salas, cozinha, a primeira casa de banho, garagem e jardim; quartos e as outras casas de banho
  * repartidos pelos pisos de cima; a varanda no último; "Escadas (piso N)" em cada um. Escritório,
  * lavandaria, despensa… acrescentam-se na planta (botões) ou no passo "Divisões".
@@ -140,14 +140,15 @@ export function divisoesDaCasa(casa, maquinas = []) {
     const cbs = Math.min(6, Math.max(1, Math.round(Number(c.casas_banho) || 1)));
     const salas = Math.min(4, Math.max(1, Math.round(Number(c.salas) || 1)));
     const cima = pisos - 1;
-    if (quartos >= 1) add("Entrada");   // o estúdio (T0) não tem hall de entrada à parte
-    if (c.tipologia === "T0") add(x.kitnet ? "Estúdio e cozinha" : "Estúdio");   // sala e quarto na mesma divisão
+    // A "Entrada" só existe se o cliente a marcar em "A casa tem…" (senão a porta de entrada fica no corredor ou na sala).
+    if (x.entrada) add("Entrada");
+    // Kitnet: uma só divisão "Kitnet" com a cozinha (no T0, o estúdio com cozinha; com 2 salas, a de jantar).
+    if (c.tipologia === "T0") add(x.kitnet ? "Kitnet" : "Estúdio");   // sala e quarto na mesma divisão
     else {
       for (let i = 1; i <= salas; i++) {
         const nome = salas === 1 ? "Sala" : i === 1 ? "Sala de estar" : i === 2 ? "Sala de jantar" : `Sala ${i}`;
-        // Kitnet: a cozinha fica na sala (na de jantar quando há duas).
         const comCozinha = x.kitnet && (salas === 1 ? i === 1 : i === 2);
-        add(comCozinha ? (salas === 1 ? "Sala e cozinha" : "Sala de jantar e cozinha") : nome);
+        add(comCozinha ? "Kitnet" : nome);
       }
     }
     if (!x.kitnet) add("Cozinha");
@@ -155,14 +156,18 @@ export function divisoesDaCasa(casa, maquinas = []) {
     const qPiso = cima ? [0, ...repartir(quartos, cima)] : [quartos];
     const bPiso = cima ? [1, ...repartir(cbs - 1, cima)] : [cbs];
     let q = 0, b = 0, corredores = 0;
+    const querCorredor = x.corredor ?? quartos >= 2;
     const nomeCb = () => (cbs === 1 ? "Casa de banho" : `Casa de banho ${++b}`);
     for (let p = 1; p <= pisos; p++) {
-      // Corredor (T2 e mais): um por piso com quartos.
-      if (quartos >= 2 && qPiso[p - 1] > 0) add(++corredores === 1 ? "Corredor" : `Corredor ${corredores}`, p);
+      // Corredor ("A casa tem…"; por omissão no T2 e mais): um por piso com quartos (no piso 1 se não houver).
+      if (querCorredor && (qPiso[p - 1] > 0 || (p === 1 && !qPiso.some(Boolean)))) add(++corredores === 1 ? "Corredor" : `Corredor ${corredores}`, p);
       for (let i = 0; i < qPiso[p - 1]; i++) add(`Quarto ${++q}`, p);
       for (let i = 0; i < bPiso[p - 1]; i++) add(nomeCb(), p);
       if (pisos > 1) add(`Escadas (piso ${p})`, p);
     }
+    if (x.escritorio) add("Escritório");
+    if (x.lavandaria) add("Lavandaria");
+    if (x.despensa) add("Despensa");
     if (x.garagem) add("Garagem");
     if (x.varanda) add("Varanda", pisos);
     if (x.jardim) add("Jardim");
@@ -250,7 +255,7 @@ const DESTINO = {
   placa: COZINHA, forno: COZINHA, maquina_loica: COZINHA,
   maquina_lavar: ["lavandaria", "cozinha", "sala_cozinha", "garagem", "sala"],
   maquina_secar: ["lavandaria", "cozinha", "sala_cozinha", "garagem", "sala"],
-  // Termoacumulador: na cozinha (também a do estúdio com kitnet, "Estúdio e cozinha"), senão na garagem.
+  // Termoacumulador: na cozinha (também a "Kitnet"), senão na garagem.
   termoacumulador: ["cozinha", "sala_cozinha", "garagem", "lavandaria", "wc", "sala"],
   ar_condicionado: ["sala", "sala_cozinha", "loja", "escritorio", "rececao", "nave"],
   carregador_ve: ["garagem", "jardim"],
@@ -372,7 +377,7 @@ export function assinaturaCasa(casa, maquinas = []) {
   const negocio = perfil !== "habitacao";
   return JSON.stringify([
     perfil, negocio ? null : c.tipologia ?? null, negocio ? null : quartosDe(c), c.casas_banho, c.salas, c.pisos,
-    !!x.jardim, !!x.garagem, !!x.varanda, !!x.kitnet,
+    ...Object.keys(EXTRAS_CASA).map((k) => !!x[k]),
     negocio ? c.area_m2 ?? null : null, negocio ? c.espacos ?? null : null, [...maquinas].sort(),
   ]);
 }

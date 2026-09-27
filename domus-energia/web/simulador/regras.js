@@ -26,7 +26,9 @@ export const MODELOS_DEDICADOS = [
   // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
   "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
 ];
-export const AMPERES_PLACA = 32;          // placa: nunca tira a potência toda ao mesmo tempo (simultaneidade)
+// Placa e forno (RTIEBT C3): circuito de 25 A com cabo de 6 mm². A placa (7 200 W) nunca tira a potência
+// toda ao mesmo tempo (simultaneidade): não entra na conta dos 80 %.
+export const AMPERES_PLACA = 25;
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
 
@@ -48,6 +50,8 @@ export const TIPOS_CASA = {
 };
 /** Serviços (loja, escritório, restaurante) e industrial (armazém, oficina, fábrica): percurso próprio (área e espaços). */
 export const TIPOS_NEGOCIO = ["servicos", "industrial"];
+/** Tipos com contador de pisos (os outros têm sempre 1). */
+export const TIPOS_COM_PISOS = ["moradia", "alojamento_local", "outro"];
 /** Perfil do imóvel: "servicos", "industrial" ou "habitacao" (os outros tipos, e sem tipo). */
 export const perfilCasa = (tipo) => (TIPOS_NEGOCIO.includes(tipo) ? tipo : "habitacao");
 
@@ -66,7 +70,12 @@ export const EXTRAS_CASA = {
   jardim: "Jardim / exterior",
   garagem: "Garagem / arrecadação",
   varanda: "Varanda / terraço",
-  kitnet: "Kitnet (cozinha aberta)",
+  kitnet: "Kitnet",
+  entrada: "Entrada / hall",
+  corredor: "Corredor",
+  escritorio: "Escritório",
+  lavandaria: "Lavandaria",
+  despensa: "Despensa",
 };
 
 /**
@@ -567,14 +576,49 @@ export const circuitoProprio = (m) => MODELOS_DEDICADOS.includes(m?.modelo) || w
 /** Carga perigosa (≥ 2000 W): pede confirmação para ligar à distância. */
 export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
 
-/** Disjuntor sugerido para o circuito próprio de uma máquina: placa até 32 A; carregador VE 40 A; resto pelos 80 %. */
+/**
+ * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (RTIEBT C3,
+ * cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %.
+ */
 const ehCarregador = (m) => m?.modelo === "carregador_ve" || m?.modelo === "carregador_ve_22";
 
 export function amperesMaquina(m) {
   if (ehCarregador(m)) return AMPERES_VE;
-  if (m?.modelo === "placa") return Math.min(AMPERES_PLACA, amperesPara(watts(m)));
+  if (m?.modelo === "placa") return AMPERES_PLACA;
+  if (m?.modelo === "forno") return Math.max(AMPERES_PLACA, amperesPara(watts(m)));
   return amperesPara(watts(m));
 }
+
+/**
+ * Circuitos mínimos da RTIEBT (habitação; em serviços e industrial usamos o equivalente — §4):
+ * C1 iluminação 10 A / 1,5 mm²; C2 tomadas 16 A / 2,5 mm²; C3 placa e forno 25 A / 6 mm²;
+ * C4 máquinas de lavar e termoacumulador 16 A / 2,5 mm²; C5 tomadas das zonas húmidas (cozinha,
+ * casas de banho, lavandaria) 16 A / 2,5 mm², sempre atrás de um diferencial de 30 mA.
+ */
+export const RTIEBT = {
+  C1: "Iluminação",
+  C2: "Tomadas",
+  C3: "Placa e forno",
+  C4: "Máquinas de lavar e termoacumulador",
+  C5: "Tomadas de zonas húmidas",
+};
+const MODELOS_C3 = ["placa", "forno"];
+const MODELOS_C4 = ["maquina_lavar", "maquina_secar", "maquina_loica", "termoacumulador"];
+/** Código RTIEBT do circuito (C1–C5) pelo tipo, pela zona húmida e pelas máquinas; null para os outros (circuito próprio). */
+export function codigoCircuito(c) {
+  if (c?.tipo === "iluminacao") return "C1";
+  if (c?.tipo === "tomadas") return c.zona_humida ? "C5" : "C2";
+  const ms = c?.itens?.maquinas ?? [];
+  if (c?.tipo === "maquina" && ms.length) {
+    if (ms.every((m) => MODELOS_C3.includes(m.modelo))) return "C3";
+    if (ms.every((m) => MODELOS_C4.includes(m.modelo))) return "C4";
+  }
+  return null;
+}
+/** Secção mínima do cabo (mm², cobre, em tubo) para o disjuntor do circuito. */
+export const SECCOES_MM2 = { 6: 1.5, 10: 1.5, 16: 2.5, 20: 4, 25: 6, 32: 6, 40: 10 };
+export const seccaoCabo = (amperes) => SECCOES_MM2[amperes] ?? null;
+export const formatarMm2 = (s) => `${String(s).replace(".", ",")} mm²`;
 
 /** Máquinas que não entram na conta dos 80 %: a placa (simultaneidade) e o carregador VE (limita a corrente). */
 const semSobrecarga = (m) => m?.modelo === "placa" || ehCarregador(m);
@@ -585,7 +629,7 @@ export const trifasica = (m) => watts(m) > MAX_MONOFASICO_W;
 export function circuitoVazio(n, tipo = "misto") {
   return {
     n, amperes: tipo === "iluminacao" ? 10 : 16, tipo, nome: "", divisoes: [],
-    itens: { luzes: 0, tomadas: 0, maquinas: [] }, inteligente: true, medir: true,
+    itens: { luzes: 0, tomadas: 0, maquinas: [] }, inteligente: true, medir: true, zona_humida: false,
   };
 }
 
@@ -622,27 +666,56 @@ function agrupar(porDivisao, criar, somar, peso = () => 0, limite = Infinity) {
   return circuitos;
 }
 
+/** Nomes pela ordem: um só → "Iluminação"; vários → "Iluminação 1", "Iluminação 2"… */
+function nomear(circuitos, base) {
+  circuitos.forEach((c, i) => { c.nome = circuitos.length === 1 ? base : `${base} ${i + 1}`; });
+  return circuitos;
+}
+
 /**
- * Circuitos sugeridos a partir da contagem da planta (§4).
- * @param {{fases?: "mono"|"tri"|null}} [opcoes] numa casa trifásica, a máquina > 7,4 kW fica na
- *   proteção trifásica que já tem (sem disjuntor inteligente, que é 1P+N).
+ * Com `dividir` (T3 e mais; serviços e industrial grandes), agrupa à parte a zona de dia e a de noite
+ * (quartos, casas de banho, corredor): uma avaria num circuito não deixa a casa toda sem luz/tomadas.
+ * Se uma das zonas não tiver nada, parte a lista a meio (pela ordem das divisões).
+ */
+function porZonas(lista, fazer, dividir, noite) {
+  if (!dividir || lista.length < 2) return fazer(lista);
+  let a = lista.filter((x) => !noite(x.nome)), b = lista.filter((x) => noite(x.nome));
+  if (!a.length || !b.length) { const m = Math.ceil(lista.length / 2); a = lista.slice(0, m); b = lista.slice(m); }
+  return [...fazer(a), ...fazer(b)];
+}
+
+/**
+ * Circuitos sugeridos a partir da contagem da planta (§4), pelos circuitos mínimos da RTIEBT (C1–C5):
+ * iluminação (até 8 pontos por circuito de 10 A), tomadas (até 8 por circuito de 16 A, com as máquinas
+ * pequenas até 80 %), tomadas das zonas húmidas à parte (C5), circuito próprio para cada máquina grande
+ * (placa/forno C3 a 25 A, máquinas de lavar e termoacumulador C4).
+ * @param {{fases?: "mono"|"tri"|null, humida?: (nome:string)=>boolean, noite?: (nome:string)=>boolean, dividir?: boolean}} [opcoes]
+ *   `fases`: numa casa trifásica, a máquina > 7,4 kW fica na proteção trifásica que já tem (sem disjuntor
+ *   inteligente, que é 1P+N); `humida`: divisão de zona húmida (as tomadas vão para C5); `noite` e `dividir`:
+ *   T3 e mais — iluminação e tomadas repartidas pela zona de dia e de noite (pelo menos 2 de cada).
  */
 export function sugerirCircuitos(contagem, opcoes = {}) {
-  const luzes = agrupar(
+  const humida = typeof opcoes.humida === "function" ? opcoes.humida : () => false;
+  const noite = typeof opcoes.noite === "function" ? opcoes.noite : () => false;
+  const luzes = nomear(porZonas(
     contagem.filter((c) => c.luzes > 0).map((c) => ({ nome: c.nome, pontos: Array(c.luzes).fill(1) })),
-    (i) => ({ ...circuitoVazio(0, "iluminacao"), nome: `Iluminação ${i}` }),
-    (c) => { c.itens.luzes++; },
-  );
-  const tomadas = agrupar(
-    contagem.map((c) => ({
-      nome: c.nome,
-      pontos: [...Array(c.tomadas).fill({ t: "tomada" }), ...c.maquinas.filter((m) => !circuitoProprio(m)).map((m) => ({ t: "maquina", m }))],
-    })).filter((x) => x.pontos.length > 0),
-    (i) => ({ ...circuitoVazio(0, "tomadas"), nome: `Tomadas ${i}` }),
+    (l) => agrupar(l, () => ({ ...circuitoVazio(0, "iluminacao") }), (c) => { c.itens.luzes++; }),
+    opcoes.dividir, noite,
+  ), "Iluminação");
+  const pontosTomadas = contagem.map((c) => ({
+    nome: c.nome,
+    humida: humida(c.nome),
+    pontos: [...Array(c.tomadas).fill({ t: "tomada" }), ...c.maquinas.filter((m) => !circuitoProprio(m)).map((m) => ({ t: "maquina", m }))],
+  })).filter((x) => x.pontos.length > 0);
+  const agruparTomadas = (l, zonaHumida) => agrupar(
+    l,
+    () => ({ ...circuitoVazio(0, "tomadas"), zona_humida: zonaHumida }),
     (c, p) => { if (p.t === "tomada") c.itens.tomadas++; else c.itens.maquinas.push({ ...p.m }); },
     (p) => (p.t === "maquina" ? watts(p.m) : 0),
     limiteW(16),
   );
+  const tomadas = nomear(porZonas(pontosTomadas.filter((x) => !x.humida), (l) => agruparTomadas(l, false), opcoes.dividir, noite), "Tomadas");
+  const humidas = nomear(agruparTomadas(pontosTomadas.filter((x) => x.humida), true), "Tomadas zonas húmidas");
   const maquinas = [];
   for (const c of contagem) {
     for (const m of c.maquinas.filter(circuitoProprio)) {
@@ -657,9 +730,7 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
       });
     }
   }
-  if (luzes.length === 1) luzes[0].nome = "Iluminação";
-  if (tomadas.length === 1) tomadas[0].nome = "Tomadas";
-  return numerar([...luzes, ...tomadas, ...maquinas]);
+  return numerar([...luzes, ...tomadas, ...humidas, ...maquinas]);
 }
 
 export function numerar(circuitos) {
@@ -678,11 +749,7 @@ export function disjuntoresInteligentes(circuitos, disjuntor) {
   return { total: intel.length, sy2, sy1: intel.length - sy2 };
 }
 
-/**
- * Módulos novos no quadro (decisão do dono): o SY2 (com proteções) SUBSTITUI o disjuntor do
- * circuito → 0 módulos; o SY1 (sem proteções) nunca o substitui → fica ao lado, +2 módulos.
- */
-export const modulosNovos = (circuitos, disjuntor) => disjuntoresInteligentes(circuitos, disjuntor).sy1 * MODULOS_SY1;
+// Módulos do quadro (o SY2 substitui o disjuntor do circuito; o SY1 fica ao lado, +2 módulos): quadro.js resumoQuadro.
 
 const SKU_SY1 = "TONGOU-SY1-JWT";
 const rotulo = (c) => `Circuito ${c.n}${c.nome ? ` (${c.nome})` : ""}`;
@@ -708,6 +775,9 @@ export function avisosCircuito(c, opcoes = {}) {
   if (tomadas > MAX_PONTOS) r.push(aviso(c, `Tem ${tomadas} tomadas: o recomendado é até ${MAX_PONTOS} por circuito.`));
   if (c.tipo === "iluminacao" && c.amperes !== 10) r.push(aviso(c, "Para iluminação sugerimos um disjuntor de 10 A."));
   if (c.tipo === "tomadas" && c.amperes !== 16) r.push(aviso(c, "Para tomadas sugerimos um disjuntor de 16 A."));
+  if (codigoCircuito(c) === "C3" && Number.isFinite(amperes) && amperes < AMPERES_PLACA) {
+    r.push(aviso(c, `A RTIEBT pede para a placa e o forno um circuito de ${AMPERES_PLACA} A com cabo de ${formatarMm2(seccaoCabo(AMPERES_PLACA))}.`));
+  }
   const proprias = maqs.filter(circuitoProprio);
   const partilhado = luzes + tomadas > 0 || maqs.length > 1;
   if (partilhado) {
@@ -736,17 +806,20 @@ export function avisosCircuito(c, opcoes = {}) {
  * Todos os avisos do quadro: os de cada circuito, a ampliação do quadro (> 12 módulos novos),
  * a potência contratada e o lembrete das proteções (o SY2 substitui o disjuntor do circuito,
  * o SY1 não; diferencial de 30 mA).
- * @param {{disjuntor?: string, fases?: "mono"|"tri"|null, potencia_contratada_kva?: number|null}} [opcoes]
+ * @param {{disjuntor?: string, fases?: "mono"|"tri"|null, potencia_contratada_kva?: number|null, quadro_novo?: "atual"|"novo"|null}} [opcoes]
+ *   `quadro_novo` definido (passo do quadro, quadro.js): a ampliação e a potência passam a ser avisadas por avisosProtecoes.
  */
 export function avisosQuadro(circuitos, opcoes = {}) {
   const r = circuitos.flatMap((c) => avisosCircuito(c, opcoes));
   const d = disjuntoresInteligentes(circuitos, opcoes.disjuntor);
   const m = d.sy1 * MODULOS_SY1;
-  if (m > MAX_MODULOS) r.push(`Os disjuntores TONGOU-SY1-JWT ficam ao lado dos disjuntores dos circuitos: são ${m} módulos novos no quadro e acrescentámos a ampliação do quadro.${FIM_AVISO}`);
+  // Com o passo do quadro (quadro.js) a ampliação e o tamanho do quadro vêm de lá (`quadro_novo` definido).
+  if (m > MAX_MODULOS && opcoes.quadro_novo === undefined) r.push(`Os disjuntores TONGOU-SY1-JWT ficam ao lado dos disjuntores dos circuitos: são ${m} módulos novos no quadro e acrescentámos a ampliação do quadro.${FIM_AVISO}`);
   const total = circuitos.reduce((s, c) => s + (c.itens?.maquinas ?? []).reduce((t, x) => t + watts(x), 0), 0);
   const contratada = POTENCIAS_KVA.includes(opcoes.potencia_contratada_kva) ? opcoes.potencia_contratada_kva : null;
   const limite = contratada === null ? POTENCIA_CONTRATADA_W : Math.round(contratada * 1000);
-  if (total > limite) {
+  // Com o passo do quadro (quadro.js) a potência vem da potência sugerida (com simultaneidade).
+  if (total > limite && opcoes.quadro_novo === undefined) {
     r.push(`As máquinas somam ${formatarW(total)}: se funcionarem ao mesmo tempo podem passar a potência contratada ${contratada === null ? "(costuma ser 6,9 kVA)" : `de ${kva(contratada)}`}. Confirmamos a potência do contador.${FIM_AVISO}`);
   }
   if (d.total > 0) {

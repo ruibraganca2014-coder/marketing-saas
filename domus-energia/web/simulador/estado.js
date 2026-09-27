@@ -5,10 +5,12 @@ import {
   ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS, POTENCIAS_KVA, FASES,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, TIPOS_TELECOM,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
-  perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases,
+  perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
+  TIPOS_COM_PISOS,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO } from "./casa.js";
+import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo } from "./quadro.js";
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
@@ -43,7 +45,7 @@ const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 export function casaNova(cliente = false) {
   return {
     tipo: cliente ? null : "moradia", tipologia: cliente ? null : "T2", quartos: cliente ? null : 2, casas_banho: 1, salas: 1, pisos: 1,
-    extras: { jardim: false, garagem: false, varanda: false, kitnet: false },
+    extras: { jardim: false, garagem: false, varanda: false, kitnet: false, entrada: false, corredor: !cliente, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
     divisoes: null, localidade: "", potencia_contratada_kva: null, fases: cliente ? null : "mono",
   };
@@ -68,7 +70,7 @@ export function estadoNovo({ cliente = false } = {}) {
     plantaSaltada: false,
     plantaAuto: false,         // a planta é a que desenhámos a partir das divisões e o cliente ainda não lhe mexeu
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
-    quadro: { circuitos: [], disjuntor: SKU_SY2 },
+    quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },   // + pacote, proteções, pára-raios, quadro novo (quadro.js)
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
     divisoesEditadas: false,  // o cliente mexeu na lista de divisões: não a refazemos sozinhos
@@ -152,6 +154,7 @@ export function normalizarCircuito(c, i) {
     },
     inteligente: bool(c.inteligente),
     medir: bool(c.medir),
+    zona_humida: bool(c.zona_humida),   // tomadas de cozinha/casa de banho (RTIEBT C5)
   };
 }
 
@@ -194,8 +197,9 @@ export function normalizarEstado(v) {
     casas_banho: int(c.casas_banho, ...LIMITES_CASA.casas_banho, casasBanhoOmissao(tipologia)),
     salas: int(c.salas, ...LIMITES_CASA.salas, salasOmissao(tipologia)),
     // Só as moradias têm mais de um piso.
-    pisos: tipo === "moradia" ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1,
-    extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(x[k])])),
+    pisos: TIPOS_COM_PISOS.includes(tipo) ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1,
+    // Estados guardados antes do botão "Corredor": o corredor seguia a tipologia (T2 e mais).
+    extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, k === "corredor" && x[k] === undefined ? (quartosDe({ tipologia, quartos: c.quartos }) ?? 0) >= 2 : bool(x[k])])),
     area_m2: perfil === "habitacao" ? null : int(c.area_m2, ...LIMITES_CASA.area_m2, AREA_OMISSAO[perfil]),
     espacos: perfil === "habitacao" ? null : int(c.espacos, ...LIMITES_CASA.espacos, ESPACOS_OMISSAO[perfil]),
     divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1),
@@ -212,7 +216,7 @@ export function normalizarEstado(v) {
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   e.plantaBase = !migrar && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
-  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2 };
+  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q) };
   e.quadroEditado = bool(v.quadroEditado);
   e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao);
   e.divisoesEditadas = bool(v.divisoesEditadas);
@@ -258,7 +262,35 @@ export const opcoesAvisos = (estado) => ({
   disjuntor: estado.quadro?.disjuntor,
   fases: estado.casa?.fases ?? null,
   potencia_contratada_kva: estado.casa?.potencia_contratada_kva ?? null,
+  quadro_novo: estado.quadro?.quadro_novo ?? null,
 });
+
+/** Todos os avisos do quadro: os dos circuitos (regras.js) e os das proteções, tamanho e potência (quadro.js). */
+export const avisosEstado = (estado, circuitos = estado.quadro.circuitos) =>
+  [...avisosQuadro(circuitos, opcoesAvisos(estado)), ...avisosProtecoes({ casa: estado.casa, quadro: { ...estado.quadro, circuitos } })];
+
+/**
+ * `simulacao.quadro` (§6): circuitos (com o código RTIEBT, a secção do cabo, o grupo diferencial e o AFDD),
+ * pacote e proteções, respostas (pára-raios, quadro novo), grupos diferenciais, módulos e potência sugerida.
+ */
+export function quadroParaEnvio(estado, circuitos) {
+  const q = { ...estado.quadro, circuitos };
+  const r = resumoQuadro({ casa: estado.casa, quadro: q });
+  const grupoDe = (n) => r.grupos.find((g) => g.circuitos.includes(n))?.n ?? null;
+  return {
+    circuitos: circuitos.map((c) => ({ ...c, codigo: codigoCircuito(c), seccao_mm2: seccaoCabo(c.amperes), diferencial: grupoDe(c.n), afdd: r.afdd.includes(c.n) })),
+    disjuntor: q.disjuntor,
+    pacote: r.pacote,
+    protecoes: { ...r.protecoes },
+    para_raios: r.para_raios,
+    quadro_novo: r.quadro_novo,
+    quadro_novo_no_preco: levaQuadroNovo(q),
+    diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi })),
+    modulos: { tamanho: r.tamanho, quadros: r.quadros, ocupados: r.ocupados, livres: r.livres, cabe: r.cabe, novos: r.novos, linhas: r.linhas.map((l) => ({ nome: l.nome, qtd: l.qtd, modulos: l.modulos })) },
+    potencia_sugerida_kva: r.potencia.kva,
+    potencia_carga_w: r.potencia.carga_w,
+  };
+}
 
 /** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
@@ -360,7 +392,7 @@ export function casaParaEnvio(estado) {
     quartos: tipologia ? quartosDe(c) : null,
     casas_banho: tipologia ? int(c.casas_banho, ...LIMITES_CASA.casas_banho, 1) : null,
     salas: tipologia && tipologia !== "T0" ? int(c.salas, ...LIMITES_CASA.salas, 1) : null,
-    pisos: tipologia ? (c.tipo === "moradia" ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1) : null,
+    pisos: tipologia ? (TIPOS_COM_PISOS.includes(c.tipo) ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1) : null,
     extras: tipologia ? Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(c.extras?.[k])])) : null,
     area_m2: negocio ? int(c.area_m2, ...LIMITES_CASA.area_m2, AREA_OMISSAO[c.tipo]) : null,
     espacos: negocio ? int(c.espacos, ...LIMITES_CASA.espacos, ESPACOS_OMISSAO[c.tipo]) : null,
@@ -394,7 +426,7 @@ export function montarSimulacao(estado, preco, plano) {
     quer: normalizarQuer(estado.quer, estado.casa.tipo),
     planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
     telecom: telecomParaEnvio(estado),
-    quadro: { circuitos },
+    quadro: quadroParaEnvio(estado, circuitos),
     divisoes: estado.divisoes.map((d) => {
       const n = normalizarDivisao(d);
       return {
@@ -406,7 +438,7 @@ export function montarSimulacao(estado, preco, plano) {
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
-    avisos: avisosQuadro(circuitos, opcoesAvisos(estado)),
+    avisos: avisosEstado(estado, circuitos),
   };
 }
 

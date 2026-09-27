@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { writeFile, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { painelComEquipa } from './ajuda.js';
-import { abrirDb, versaoEsquema, MIGRACOES } from '../src/db.js';
+import { DatabaseSync } from 'node:sqlite';
+import { abrirDb, versaoEsquema, migrar, MIGRACOES } from '../src/db.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO } from '../src/catalogo-sementes.js';
 import { diaLisboa, somarDiasCivil } from '../src/util.js';
 
 let p;
@@ -52,8 +54,43 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 3, 'sementes não duplicadas');
   db2.close();
   const mem = abrirDb(':memory:');
-  assert.equal(versaoEsquema(mem), 2);
+  assert.equal(versaoEsquema(mem), MIGRACOES.length);
   mem.close();
+});
+
+test('migração 3 (catálogo do quadro): base existente recebe os artigos novos sem duplicar nem mudar preços editados', () => {
+  const db = new DatabaseSync(':memory:');
+  // Base "antiga": só as migrações 1 e 2, com o CEO a mudar um preço e a criar à mão um SKU que a migração 3 também traz.
+  MIGRACOES[0](db);
+  MIGRACOES[1](db);
+  db.exec('PRAGMA user_version = 2');
+  db.prepare("UPDATE catalogo SET preco_venda_iva_cent = 4444, atualizado = 'x' WHERE sku = 'TONGOU-SY2-JWT'").run();
+  db.prepare(`INSERT INTO catalogo (sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes, atualizado)
+    VALUES ('IDR-2P-40A-30MA', 'Diferencial do CEO', 'disjuntor', 3333, 0.4, '{}', 'x')`).run();
+  const antes = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
+  assert.equal(antes, SEMENTES_CATALOGO.length + 1);
+  migrar(db);
+  assert.equal(versaoEsquema(db), MIGRACOES.length);
+  const n = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
+  assert.equal(n, antes + SEMENTES_QUADRO.length - 1, 'todos os novos menos o que já existia');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM (SELECT sku FROM catalogo GROUP BY sku HAVING COUNT(*) > 1)').get().n, 0, 'sem duplicados');
+  assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TONGOU-SY2-JWT'").get().c, 4444, 'preço editado mantém-se');
+  const idr = db.prepare("SELECT nome, preco_venda_iva_cent AS c, horas_instalacao AS h FROM catalogo WHERE sku = 'IDR-2P-40A-30MA'").get();
+  assert.deepEqual({ ...idr }, { nome: 'Diferencial do CEO', c: 3333, h: 0.4 }, 'artigo do CEO com o mesmo SKU não é alterado');
+  for (const s of SEMENTES_QUADRO.filter((x) => x.sku !== 'IDR-2P-40A-30MA')) {
+    const a = db.prepare('SELECT preco_venda_iva_cent AS c, especificacoes AS e, ativo FROM catalogo WHERE sku = ?').get(s.sku);
+    assert.equal(a.c, Math.round(s.preco_venda_iva * 100), s.sku);
+    assert.equal(a.ativo, 1);
+    assert.match(JSON.parse(a.e).nota, /provisório — confirmar/, s.sku);
+  }
+  // Correr outra vez não faz nada (a versão já é a última).
+  migrar(db);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n);
+  db.close();
+  // Base nova: sementes e artigos do quadro, cada SKU uma vez.
+  const nova = abrirDb(':memory:');
+  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length);
+  nova.close();
 });
 
 test('orçamentos: atualizar estado, notas, visita, proposta; histórico; validação', async () => {

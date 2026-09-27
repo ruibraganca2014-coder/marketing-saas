@@ -302,6 +302,7 @@ function checklistAparelhos(sugeridos) {
       h("div", { class: "aparelho-canais" }, campoForm("Canais", h("input", { name: "canais", value: a.canais, maxlength: "1000", autocapitalize: "none", spellcheck: "false" }))),
       h("div", { class: "caixas" },
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "medidor", checked: a.medidor }), "Medidor"),
+        h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "geral", checked: !!a.geral }), "Medidor geral da casa"),
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "bateria", checked: a.bateria }), "A pilhas")));
     const li = h("li", { class: "aparelho-sug", dataset: { i: String(i) } },
       h("label", { class: "caixa aparelho-incluir" }, incluir, h("span", {}, h("strong", { class: "aparelho-nome", text: a.nome }), h("span", { class: "ajuda bloco-ajuda", text: a.origem || "" }))),
@@ -345,6 +346,11 @@ function lerAparelhos(caixa) {
     if (canais) a.canais = canais;
     if (divisao) a.divisao = divisao;
     a.medidor = c("medidor").checked;
+    if (c("geral").checked) {
+      // O servidor só aceita "geral" com medidor e sem pilhas (domus.sh --medidor --geral).
+      if (!a.medidor) return { erro: `${quem}: "Medidor geral da casa" só com "Medidor".`, campo: c("geral") };
+      a.geral = true;
+    }
     a.bateria = c("bateria").checked;
     out.push(a);
   }

@@ -13,6 +13,15 @@ const TIPOS_CASA = {
 };
 const FASES = { mono: "Monofásica", tri: "Trifásica" };
 const TIPOS_CIRCUITO = { iluminacao: "Iluminação", tomadas: "Tomadas", maquina: "Máquina", misto: "Misto" };
+// Quadro (web/simulador/quadro.js e regras.js RTIEBT): pacotes, proteções e respostas do cliente.
+const RTIEBT = { C1: "iluminação", C2: "tomadas", C3: "placa/forno", C4: "máquinas de lavar/termoacumulador", C5: "tomadas zona húmida" };
+const PACOTES = { essencial: "Essencial", recomendado: "Recomendado", completo: "Completo", personalizado: "Personalizado" };
+const PROTECOES = {
+  idr_wifi: "Diferenciais Wi-Fi com religação", descarregador: "Descarregador de sobretensões", rele_tensao: "Proteção de sobre/subtensão",
+  afdd: "AFDD (detetor de arco)", medidor_geral: "Medidor geral Wi-Fi", geral_wifi: "Disjuntor geral Wi-Fi",
+};
+const SIM_NAO = { sim: "Sim", nao: "Não" };
+const QUADRO_NOVO = { atual: "O atual serve", novo: "Quer quadro novo" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
   maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
@@ -29,7 +38,7 @@ const MODELOS = {
   outro: "Outra máquina",
 };
 // Passo "A casa" e "O que quer" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
-const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet (cozinha aberta)" };
+const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
 const OBJETIVOS = {
   poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
   distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",
@@ -207,6 +216,8 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
   const planta = sim.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : null;
   if (circuitos.length) partes.push(tabelaCircuitos(circuitos, planta));
+  const blocoQ = blocoQuadro(obj(sim.quadro), numero(casa.potencia_contratada_kva));
+  if (blocoQ) partes.push(blocoQ);
   const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object"
     && !(d.nome === FORA && !["luzes_regulaveis", "estores", "estores_sem_motor", "sensores_porta", "sensores_movimento", "tomadas_inteligentes"].some((k) => contar(d[k])) && !arr(d.interruptores).length));
   if (divs.length) partes.push(tabelaDivisoes(divs));
@@ -259,8 +270,11 @@ function tabelaCircuitos(circuitos, planta) {
     const divs = arr(c.divisoes).map((d) => nomeDivisao(planta, d)).filter(Boolean).join(", ");
     return h("tr", { dataset: { n: String(c.n ?? "") } },
       h("td", { class: "num", "data-rotulo": "N.º", text: String(c.n ?? "—") }),
-      h("td", { "data-rotulo": "Circuito" }, h("div", {}, h("span", { text: String(c.nome ?? TIPOS_CIRCUITO[c.tipo] ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [TIPOS_CIRCUITO[c.tipo] ?? c.tipo, divs].filter(Boolean).join(" · ") }))),
-      h("td", { class: "num", "data-rotulo": "Disjuntor", text: amp ? `${amp} A` : "—" }),
+      h("td", { "data-rotulo": "Circuito" }, h("div", {}, h("span", { text: String(c.nome ?? TIPOS_CIRCUITO[c.tipo] ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [
+        RTIEBT[c.codigo] ? `${c.codigo} ${RTIEBT[c.codigo]}` : TIPOS_CIRCUITO[c.tipo] ?? c.tipo, divs,
+        numero(c.diferencial) !== null ? `diferencial ${num(numero(c.diferencial))}` : null, c.afdd === true ? "AFDD" : null,
+      ].filter(Boolean).join(" · ") }))),
+      h("td", { class: "num", "data-rotulo": "Disjuntor", text: amp ? `${amp} A${numero(c.seccao_mm2) !== null ? ` · ${num(numero(c.seccao_mm2))} mm²` : ""}` : "—" }),
       h("td", { "data-rotulo": "Liga" }, h("div", {}, conteudo, excesso ? h("span", { class: "aviso-texto bloco-ajuda", text: `${num(m.sobrecarga)} W para ${amp} A` }) : null)),
       h("td", { "data-rotulo": "Inteligente" }, h("span", { class: "linha-selos" },
         c.inteligente ? selo("Inteligente", "orc-aceite") : h("span", { class: "ajuda", text: "Não" }),
@@ -271,6 +285,37 @@ function tabelaCircuitos(circuitos, planta) {
     h("div", { class: "tabela-rolar" }, h("table", { class: "tabela tabela-cartoes", id: "sim-circuitos" },
       h("thead", {}, h("tr", {}, ...["N.º", "Circuito", "Disjuntor", "Liga", "Inteligente"].map((t, i) => h("th", { scope: "col", class: i === 0 || i === 2 ? "num" : "", text: t })))),
       h("tbody", {}, ...linhas))));
+}
+
+/**
+ * Proteções e tamanho do quadro (simulacao.quadro: pacote, protecoes, para_raios, quadro_novo, diferenciais,
+ * modulos, potencia_sugerida_kva). Null numa simulação antiga sem estes campos.
+ */
+function blocoQuadro(q, contratada) {
+  if (q.pacote === undefined && q.modulos === undefined && q.potencia_sugerida_kva === undefined) return null;
+  const p = obj(q.protecoes);
+  const ligadas = Object.keys(PROTECOES).filter((k) => p[k] === true).map((k) => PROTECOES[k]);
+  const m = obj(q.modulos);
+  const difs = arr(q.diferenciais).filter((d) => d && typeof d === "object");
+  const kva = numero(q.potencia_sugerida_kva);
+  const carga = numero(q.potencia_carga_w);
+  const curta = kva !== null && contratada !== null && kva > contratada;
+  const linhas = [
+    ["Pacote", PACOTES[q.pacote] ?? (typeof q.pacote === "string" ? q.pacote : "—")],
+    ["Proteções", ["Diferenciais 30 mA", ...ligadas].join(", ")],
+    ["Pára-raios / linha aérea", SIM_NAO[q.para_raios] ?? "Não sabe"],
+    ["Quadro", `${QUADRO_NOVO[q.quadro_novo] ?? "Não sabe"}${q.quadro_novo_no_preco === true ? " (quadro novo no preço)" : ""}`],
+  ];
+  if (numero(m.tamanho) !== null) {
+    linhas.push(["Tamanho do quadro", `${(numero(m.quadros) ?? 1) > 1 ? `${num(numero(m.quadros))} × ` : ""}${num(numero(m.tamanho))} módulos (${num(numero(m.ocupados) ?? 0)} ocupados, ${num(numero(m.livres) ?? 0)} livres)${m.cabe === false && !((numero(m.quadros) ?? 1) > 1) ? " — não chega com 25 % livres" : ""}${q.quadro_novo === "atual" && numero(m.novos) !== null ? ` · ${num(numero(m.novos))} módulos novos no quadro atual` : ""}`]);
+  }
+  if (difs.length) linhas.push(["Grupos diferenciais", difs.slice(0, 20).map((d) => `${num(numero(d.n) ?? 0)}: ${arr(d.circuitos).filter((x) => numero(x) !== null).join(", ") || "—"}${d.carregador ? " (carregador)" : ""}`).join(" · ")]);
+  if (kva !== null || carga !== null) {
+    linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""} `, curta ? selo("Contratada curta", "aviso") : null)]);
+  }
+  const ml = arr(m.linhas).filter((l) => l && typeof l === "object").slice(0, 30);
+  return h("div", { class: "sim-bloco", id: "sim-quadro" }, h("h4", { text: "Proteções e tamanho do quadro" }), dados(linhas),
+    ml.length ? h("ul", { class: "ajuda" }, ...ml.map((l) => h("li", { text: `${num(numero(l.qtd) ?? 0)} × ${String(l.nome ?? "")} — ${num(numero(l.modulos) ?? 0)} módulos` }))) : null);
 }
 
 /** Contagem de um campo de divisão: número, lista (tamanho) ou booleano. */
@@ -382,6 +427,10 @@ function divisaoLimpa(s) {
 
 /** Categoria e pormenores de um SKU (catálogo do pedido; sem ele, pelo próprio SKU). */
 function tipoArtigo(sku, art) {
+  // Artigos do quadro (especificacoes.funcao): o medidor geral e o geral Wi-Fi são aparelhos; o resto é só material.
+  const funcao = obj(art?.especificacoes).funcao ?? (/^MEDIDOR-DIN/.test(sku) ? "medidor_geral" : /^GERAL-WIFI/.test(sku) ? "geral_wifi" : null);
+  if (funcao === "medidor_geral" || funcao === "geral_wifi") return { cat: funcao };
+  if (typeof funcao === "string") return { cat: "quadro" };
   const cat = art?.categoria ?? (/^TONGOU|DISJ/.test(sku) ? "disjuntor" : /^INT-|-\dCH$|MOD-/.test(sku) ? "interruptor" : /CURTAIN|ESTORE/.test(sku) ? "estore"
     : /SENS|PIR|PORTA/.test(sku) ? "sensor" : /TOMADA|PLUG/.test(sku) ? "tomada" : /DIMMER/.test(sku) ? "luz" : "outro");
   const esp = obj(art?.especificacoes);
@@ -402,7 +451,9 @@ function tipoArtigo(sku, art) {
  * - sensor de movimento → openbeken movimento + bateria;  tomada → openbeken com medidor;  regulador → canal "luz".
  * A quantidade de cada tipo vem dos artigos (itens); a planta e o quadro dão nomes, divisões e opções.
  * As telecomunicações (elementos telecom_*, "brevemente") não têm artigos nem aparelhos: nunca entram aqui.
- * Devolve [{id, tipo, nome, canais, divisao, medidor, bateria, origem}].
+ * - quadro: medidor geral Wi-Fi → openbeken medidor geral (sem canais); disjuntor geral Wi-Fi → openbeken com
+ *   medidor e canal "Geral" carga=perigosa (geral só sem medidor geral); os outros artigos do quadro são só material.
+ * Devolve [{id, tipo, nome, canais, divisao, medidor, geral, bateria, origem}].
  */
 export function aparelhosDaSimulacao(sim, catalogo = {}) {
   const planta = sim?.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : { divisoes: [], elementos: [] };
@@ -444,7 +495,7 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
     if (usados.has(id)) { let k = 2; while (usados.has(`${id}-${k}`)) k++; id = `${id}-${k}`; }
     if (!RE_ID.test(id)) id = `aparelho-${out.length + 1}`;
     usados.add(id);
-    out.push({ id, tipo: a.tipo, nome: nomeLimpo(a.nome) || id, canais: a.canais, divisao: divisaoLimpa(a.divisao ?? ""), medidor: !!a.medidor, bateria: !!a.bateria, origem: a.origem });
+    out.push({ id, tipo: a.tipo, nome: nomeLimpo(a.nome) || id, canais: a.canais, divisao: divisaoLimpa(a.divisao ?? ""), medidor: !!a.medidor, geral: !!a.geral && !!a.medidor, bateria: !!a.bateria, origem: a.origem });
   };
 
   // Disjuntores: um por circuito inteligente (pela ordem do quadro).
@@ -462,6 +513,18 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
       canais: `1:interruptor:${canalLimpo(nomeC) || "Circuito"}${m.perigosa ? ":carga=perigosa" : ""}`,
       divisao: divs.length === 1 ? divs[0] : "",
       origem: [skus.disjuntor?.[0], c ? `circuito ${c.n}${c.amperes ? ` (${c.amperes} A)` : ""}` : null, m.perigosa ? `carga perigosa: ${pesada.join(", ")}` : null].filter(Boolean).join(" · "),
+    });
+  }
+
+  // Quadro: o medidor geral (é o "geral" da casa: o consumo total soma só este) e o disjuntor geral Wi-Fi
+  // (corte remoto da casa toda → carga perigosa; mede, mas só é "geral" se não houver medidor geral).
+  if (quant.medidor_geral) {
+    juntar("medidor-geral", { tipo: "openbeken", nome: "Medidor geral", medidor: true, geral: true, canais: "", divisao: "", origem: `${skus.medidor_geral?.[0]} · consumo da casa toda` });
+  }
+  if (quant.geral_wifi) {
+    juntar("geral", {
+      tipo: "openbeken", nome: "Disjuntor geral", medidor: true, geral: !quant.medidor_geral, canais: "1:interruptor:Geral:carga=perigosa", divisao: "",
+      origem: `${skus.geral_wifi?.[0]} · corte remoto da casa toda (pede sempre confirmação)`,
     });
   }
 

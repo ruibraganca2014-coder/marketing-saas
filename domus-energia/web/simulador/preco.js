@@ -2,7 +2,8 @@
 // Só lógica, sem DOM. O catálogo vem de GET /api/catalogo ({itens, config}); sem
 // catálogo mostra-se a lista sem preços ("vamos enviar-lhe o preço").
 
-import { modulosNovos, disjuntoresInteligentes, MAX_MODULOS } from "./regras.js";
+import { disjuntoresInteligentes } from "./regras.js";
+import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
 
 export const CONFIG_OMISSAO = { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 };
 export const TEXTO_ESTIMATIVA = "Estimativa. O valor final é confirmado na visita técnica gratuita.";
@@ -16,6 +17,14 @@ export const PLANOS = {
 };
 
 const temProtecoes = (e) => Array.isArray(e?.protecoes) ? e.protecoes.length > 0 : e?.protecoes === true;
+/** Artigos do quadro (diferencial, AFDD, caixa…) têm `especificacoes.funcao`: nunca passam por disjuntor inteligente nem ampliação. */
+const funcao = (a) => (typeof a?.especificacoes?.funcao === "string" ? a.especificacoes.funcao : null);
+const comFuncao = (f) => (a) => funcao(a) === f;
+/** Caixas de quadro por tamanho (12–48 módulos). */
+const CAIXAS = Object.fromEntries(TAMANHOS_QUADRO.map((m) => [`caixa_${m}`, {
+  sku: `CAIXA-QUADRO-${m}`, nome: `Caixa de quadro elétrico ${m} módulos`,
+  procura: (a) => funcao(a) === "caixa_quadro" && Number(a.especificacoes?.modulos_caixa) === m,
+}]));
 
 /**
  * O que o simulador procura no catálogo: primeiro pelo SKU; se o CEO o mudou
@@ -23,11 +32,24 @@ const temProtecoes = (e) => Array.isArray(e?.protecoes) ? e.protecoes.length > 0
  */
 export const PEDIDOS = {
   disjuntor_protecoes: { sku: SKU_SY2, nome: "Disjuntor inteligente Wi-Fi com medição e proteções",
-    procura: (a) => a.categoria === "disjuntor" && temProtecoes(a.especificacoes) },
+    procura: (a) => a.categoria === "disjuntor" && !funcao(a) && temProtecoes(a.especificacoes) },
   disjuntor_simples: { sku: SKU_SY1, nome: "Disjuntor inteligente Wi-Fi com medição",
-    procura: (a) => a.categoria === "disjuntor" && !temProtecoes(a.especificacoes) },
+    procura: (a) => a.categoria === "disjuntor" && !funcao(a) && !temProtecoes(a.especificacoes) },
   ampliacao: { sku: "QUADRO-AMPLIACAO", nome: "Ampliação do quadro (calha DIN, módulos)",
-    procura: (a) => a.categoria === "acessorio" && /quadro/i.test(a.nome) },
+    procura: (a) => a.categoria === "acessorio" && !funcao(a) && /quadro/i.test(a.nome) },
+  // Quadro elétrico (§4.1): proteções, extras, disjuntores de um quadro novo e caixas.
+  diferencial: { sku: "IDR-2P-40A-30MA", nome: "Interruptor diferencial 2P 40 A 30 mA tipo AC",
+    procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi },
+  diferencial_wifi: { sku: "RCBO-WIFI-TOSMR1", nome: "Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1)",
+    procura: (a) => funcao(a) === "diferencial" && !!a.especificacoes?.wifi },
+  descarregador: { sku: "SPD-T2-1PN-40KA", nome: "Descarregador de sobretensões tipo 2", procura: comFuncao("descarregador") },
+  rele_tensao: { sku: "RELE-TENSAO-WIFI", nome: "Relé de proteção de sobretensão/subtensão Wi-Fi com religação", procura: comFuncao("rele_tensao") },
+  afdd: { sku: "AFDD-1PN-16A", nome: "Detetor de arco elétrico AFDD com disjuntor", procura: comFuncao("afdd") },
+  medidor_geral: { sku: "MEDIDOR-DIN-WIFI", nome: "Medidor de energia geral Wi-Fi", procura: comFuncao("medidor_geral") },
+  geral_wifi: { sku: "GERAL-WIFI-2P-63A", nome: "Disjuntor geral Wi-Fi com medição e corte remoto", procura: comFuncao("geral_wifi") },
+  disjuntor_circuito: { sku: "MCB-1PN-C", nome: "Disjuntor 1P+N curva C", procura: comFuncao("disjuntor_circuito") },
+  disjuntor_geral: { sku: "GERAL-2P-63A", nome: "Disjuntor geral 2P", procura: comFuncao("geral") },
+  ...CAIXAS,
   interruptor_1: { sku: "INT-VIDRO-1", nome: "Interruptor de parede tátil Wi-Fi 1 botão", procura: (a) => a.categoria === "interruptor" && Number(a.especificacoes?.botoes) === 1 },
   interruptor_2: { sku: "INT-VIDRO-2", nome: "Interruptor de parede tátil Wi-Fi 2 botões", procura: (a) => a.categoria === "interruptor" && Number(a.especificacoes?.botoes) === 2 },
   interruptor_3: { sku: "INT-VIDRO-3", nome: "Interruptor de parede tátil Wi-Fi 3 botões", procura: (a) => a.categoria === "interruptor" && Number(a.especificacoes?.botoes) === 3 },
@@ -52,7 +74,7 @@ const soma = (l, f) => l.reduce((s, x) => s + (Number(f(x)) || 0), 0);
 
 /**
  * Quantidades a partir das escolhas do cliente.
- * @param {{quadro:{circuitos:any[], disjuntor?:string}, divisoes:any[], extras?:{central?:boolean, termostatos?:number}}} s
+ * @param {{casa?:object, quadro:{circuitos:any[], disjuntor?:string, protecoes?:object, para_raios?:string|null, quadro_novo?:string|null}, divisoes:any[], extras?:{central?:boolean, termostatos?:number}}} s
  * @returns {{chave:string, qtd:number}[]}
  */
 export function pedidosDaSelecao(s) {
@@ -63,9 +85,9 @@ export function pedidosDaSelecao(s) {
   const d = disjuntoresInteligentes(circ, s.quadro?.disjuntor);
   add("disjuntor_protecoes", d.sy2);
   add("disjuntor_simples", d.sy1);
-  // O SY2 substitui o disjuntor do circuito (0 módulos); o SY1 fica ao lado (+2 módulos cada).
-  const mod = modulosNovos(circ, s.quadro?.disjuntor);
-  if (mod > MAX_MODULOS) add("ampliacao", Math.ceil((mod - MAX_MODULOS) / MAX_MODULOS));
+  // Quadro (§4.1): diferenciais, proteções escolhidas, caixa e disjuntores de um quadro novo, ou a
+  // ampliação do quadro atual (> 12 módulos novos; o SY2 substitui o disjuntor, o SY1 fica ao lado).
+  if (s.casa) for (const p of pedidosQuadro(s)) add(p.chave, p.qtd);
   const divs = s.divisoes ?? [];
   for (const b of [1, 2, 3, 4]) add(`interruptor_${b}`, soma(divs, (d) => (d.interruptores ?? []).filter((x) => x === b).length));
   add("estore", soma(divs, (d) => d.estores));
