@@ -10,13 +10,14 @@ Decisões do dono:
 ⚠️ As regras elétricas abaixo são **orientativas** (ajudam o cliente e a equipa); a solução final é sempre validada na visita por técnico habilitado.
 
 ## 1. Fluxo (site `simulador.html`, e área de cliente → "Ampliar a instalação")
-1. **A casa** — tipo (moradia/apartamento/alojamento local/outro), n.º de divisões, localidade.
+1. **A casa** — tipo (moradia/apartamento/alojamento local/outro), n.º de divisões, localidade, **potência contratada** (3,45 / 4,6 / 5,75 / 6,9 / 10,35 / 13,8 / 17,25 / 20,7 kVA / "Não sei") e **ligação** (Monofásica / Trifásica / "Não sei"). Na área de cliente com código ("Ampliar a instalação") este passo é **saltado**: começa na planta, os dados da casa são opcionais (tipo por escolher) e o passo 5 mostra-os com "Editar" (volta ao passo 1).
 2. **Planta** — desenhar ou carregar planta; colocar elementos (§2). Pode saltar este passo.
 3. **Quadro elétrico** — circuitos (§4): amperes, tipo, o que liga cada um, quais quer inteligentes. Pré-preenchido pela planta quando possível.
 4. **Divisões** — por divisão: interruptores (1–4 botões), estores, sensores de porta/janela e de movimento, luzes com brilho. Pré-preenchido pela planta.
 5. **Resumo e preço** — tabela de artigos (§5), mão de obra, intervalo, plano mensal sugerido; avisos elétricos.
 6. **Enviar** — nome + telefone/email → `POST /api/orcamento` com `simulacao` (§6). Na área de cliente, inclui `codigo_cliente`.
 O progresso fica guardado no navegador (`localStorage`, com try/catch) para continuar mais tarde.
+No passo 5, abaixo de 480 px, a tabela esconde a coluna do preço unitário (fica Qtd. e Total); o texto "Estimativa. O valor final é confirmado na visita técnica gratuita." aparece uma só vez (no cartão do total).
 
 ## 2. Planta
 - Editor em SVG, quadriculado de **50 cm**, zoom e deslocamento; funciona com toque (telemóvel) e rato.
@@ -34,7 +35,8 @@ O progresso fica guardado no navegador (`localStorage`, com try/catch) para cont
   | Máquina / eletrodoméstico | `maquina` | `modelo` ∈ termoacumulador, ar_condicionado, placa, forno, maquina_lavar, maquina_secar, maquina_loica, frigorifico, bomba_calor, carregador_ve, outro; `potencia_w` (valor típico pré-preenchido, editável) |
   | Sensor de porta/janela | `sensor_porta` | — |
   | Sensor de movimento | `sensor_movimento` | — |
-- **Contagem automática**: por divisão conta luzes, tomadas, interruptores, janelas com estore, portas de entrada (→ sensor sugerido), máquinas; sugere circuitos (§4) e artigos (§5). O cliente pode corrigir tudo à mão.
+- **Contagem automática**: por divisão conta luzes, tomadas, interruptores, janelas com estore, portas de entrada (→ sensor sugerido, salvo se já houver um sensor de porta desenhado a ≤ 1,5 m), máquinas; sugere circuitos (§4) e artigos (§5). O cliente pode corrigir tudo à mão.
+- **Portas e janelas na parede exterior**: uma porta, janela ou sensor de porta/janela com o centro fora de todas as divisões mas a **≤ 30 cm** de uma conta na divisão mais próxima (`divisao` = essa divisão). O painel usa a mesma regra quando o elemento não traz `divisao`.
 
 ### 2.1 Formato exato de `simulacao.planta` (partilhado pelo simulador e pelo visualizador do painel)
 Coordenadas em **centímetros** a partir do canto superior esquerdo; ângulos em graus (0, 90, 180, 270).
@@ -45,7 +47,7 @@ Coordenadas em **centímetros** a partir do canto superior esquerdo; ângulos em
  "elementos": [{"id": "e1", "tipo": "luz", "x_cm": 250, "y_cm": 200, "rot": 0, "divisao": "d1", "props": {"brilho": true}}]}
 ```
 - `tipo` ∈ porta, janela, quadro, tomada, luz, interruptor, maquina, sensor_porta, sensor_movimento (§2); `props` só com as propriedades da tabela de §2 (`entrada`, `estore`, `motorizado`, `dupla`, `brilho`, `botoes`, `modelo`, `potencia_w`).
-- `divisao` = id da divisão onde o elemento está (calculado pelo centro; `null` se fora).
+- `divisao` = id da divisão onde o elemento está (calculado pelo centro; portas, janelas e sensores de porta/janela até 30 cm fora contam na divisão mais próxima; `null` se fora).
 - Limites: ≤ 40 divisões, ≤ 400 elementos, `largura_cm`/`altura_cm` ≤ 10 000, imagem ≤ 700 KB.
 - O desenho (cores, ícones) vive num módulo único **`web/simulador/planta-svg.js`** sem dependências (função `desenharPlanta(svg, planta, {soLeitura})`), que o painel **copia** para `painel/public/vendor/planta-svg.js` (o painel não carrega nada de fora).
 
@@ -73,16 +75,20 @@ Configuração: `tarifa_hora_iva` (35 €), `margem_intervalo_pct` (15 %), `desl
 ## 4. Quadro elétrico e regras orientativas
 Cada circuito: `n`, `amperes` (6, 10, 16, 20, 25, 32, 40), `tipo` (iluminacao, tomadas, maquina, misto), `nome`, `divisoes`, `itens` (`luzes`, `tomadas`, `maquinas: [{modelo, potencia_w}]`), `inteligente` (bool), `medir` (bool).
 Avisos (texto simples, sem bloquear):
-- Potência das máquinas do circuito > 80 % de `amperes × 230 V` → "Este circuito pode não aguentar: X W para um disjuntor de Y A."
-- Iluminação: sugerir 10 A; mais de 8 pontos de luz num circuito → aviso. Tomadas: sugerir 16 A; mais de 8 tomadas num circuito → aviso. Máquinas de ≥ 2 000 W (termoacumulador, placa, forno, AC, carregador VE) → sugerir circuito próprio.
+- Potência das máquinas do circuito > 80 % de `amperes × 230 V` → "Este circuito pode não aguentar: X W para um disjuntor de Y A." (a placa e o carregador VE não entram nesta soma).
+- Iluminação: sugerir 10 A; mais de 8 pontos de luz num circuito → aviso. Tomadas: sugerir 16 A; mais de 8 tomadas num circuito → aviso.
+- **Circuito próprio pelo tipo de máquina** (seja qual for a potência): máquina de lavar roupa, máquina de secar, máquina da loiça, forno, placa, termoacumulador, ar condicionado, bomba de calor e carregador VE. Frigorífico e "outra máquina": circuito próprio só com ≥ 2 000 W. Uma destas máquinas num circuito partilhado com outras cargas → aviso "deve ter um circuito próprio".
+- **Placa**: potência típica 7 200 W → sugerir **32 A** e **sem aviso de sobrecarga** (simultaneidade: a placa nunca tira a potência toda ao mesmo tempo). Continua a ser carga perigosa quando inteligente.
+- **Carregador VE**: 7 400 W típicos, carrega a 32 A num disjuntor de **40 A** → sugerir 40 A, **sem aviso de sobrecarga** (o carregador limita a própria corrente); disjuntor escolhido < 40 A → aviso "precisa de um disjuntor de 40 A".
 - Circuito marcado inteligente → sugerir **TONGOU-SY2-JWT** se amperes ≤ 63 (com proteções); **SY1** como opção mais barata; cargas de ≥ 2 000 W marcadas como **carga perigosa** (relevante para a instalação e as automações).
-- Mais de 12 módulos novos → acrescentar QUADRO-AMPLIACAO.
+- **O disjuntor inteligente substitui o disjuntor normal do circuito** (decisão do dono): o **SY2** (com proteções) substitui o disjuntor de proteção do circuito → **0 módulos novos**; o **SY1** (sem proteções) nunca o substitui → o disjuntor existente fica e o SY1 ocupa **+2 módulos**. Circuitos só com "medir" levam o SY1.
+- Mais de 12 módulos novos (= 2 × n.º de SY1) → acrescentar QUADRO-AMPLIACAO (1 por cada 12 módulos a mais).
 - A conta dos 80 % é feita em watts inteiros (`round(0,8 × A × 230)`: 1104, 1840, 2944, 3680, 4600, 5888, 7360 W); exatamente 80 % não avisa. Potências inválidas, negativas ou não numéricas contam 0 (na planta: potência típica do modelo).
-- Na sugestão a partir da planta, as máquinas < 2 000 W juntam-se às tomadas sem passar 80 % de 16 A (2 944 W) por circuito; se passar, abre-se outro circuito de tomadas.
-- Máquina > 7 400 W → "acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N)".
+- Na sugestão a partir da planta, as máquinas sem circuito próprio (frigorífico, outra máquina < 2 000 W) juntam-se às tomadas sem passar 80 % de 16 A (2 944 W) por circuito; se passar, abre-se outro circuito de tomadas.
+- Máquina > 7 400 W → casa monofásica ou "Não sei": "acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N)"; casa **trifásica**: "os disjuntores inteligentes são monofásicos (1P+N), por isso esta máquina trifásica fica na proteção trifásica que já tem, sem disjuntor inteligente" (e a sugestão da planta deixa esse circuito sem inteligente/medição).
 - Circuito inteligente/medido com mais de 63 A → "os disjuntores inteligentes vão até 63 A".
-- Soma das máquinas de todos os circuitos > 6 900 W → aviso da potência contratada (é comum 6,9 kVA).
-- Havendo pelo menos um circuito inteligente/medido → lembrete: os disjuntores inteligentes não substituem as proteções do quadro (cada circuito mantém o disjuntor de proteção; diferencial de 30 mA). Com SY1 escolhido, diz também que o SY1 não tem proteções. `avisosQuadro(circuitos, {disjuntor})`.
+- Soma das máquinas de todos os circuitos > potência contratada indicada no passo 1 (kVA × 1000 W) → aviso "podem passar a potência contratada de X kVA"; com "Não sei" usa 6 900 W e diz "(costuma ser 6,9 kVA)".
+- Havendo pelo menos um circuito inteligente/medido → lembrete das proteções. Com SY2: "O disjuntor inteligente substitui o disjuntor do circuito; só o fazemos se o modelo tiver certificação europeia de proteção (EN 60898) — confirmamos na visita. A instalação tem de ter diferencial de 30 mA." Com SY1: o disjuntor do circuito fica (o SY1 não tem proteções) + diferencial de 30 mA. `avisosQuadro(circuitos, {disjuntor, fases, potencia_contratada_kva})`.
 Todos os avisos terminam em "(orientativo — confirmamos na visita)" e nunca bloqueiam o envio.
 
 ## 5. Preço
@@ -94,12 +100,14 @@ Todos os avisos terminam em "(orientativo — confirmamos na visita)" e nunca bl
 ## 6. Envio — `POST /api/orcamento`
 Campos atuais (`nome`, `telefone`, `email`, `localidade`, `servico`, `mensagem`, `website`) + `codigo_cliente?` + `simulacao` (≤ 1 MB):
 ```json
-{"versao": 1, "casa": {"tipo": "moradia", "divisoes": 7, "localidade": "Oeiras"},
+{"versao": 1, "casa": {"tipo": "moradia", "divisoes": 7, "localidade": "Oeiras", "potencia_contratada_kva": 6.9, "fases": "mono"},
  "planta": {"escala_cm": 50, "largura_cm": 2000, "altura_cm": 1500, "fundo": {"imagem": "data:image/jpeg;base64,...", "x_cm": 0, "y_cm": 0, "largura_cm": 2000, "opacidade": 0.5}, "divisoes": [...], "elementos": [...]},
  "quadro": {"circuitos": [...]}, "divisoes": [...],
  "itens": [{"sku": "TONGOU-SY2-JWT", "qtd": 4, "preco_iva": 54.9}], "mao_obra": {"horas": 7.5, "valor_iva": 262.5},
  "total": {"min": 690, "max": 930}, "plano_sugerido": "conforto", "avisos": ["..."]}
 ```
+`casa`: tudo opcional (`null` = não indicado; na área de cliente o passo 1 é saltado): `tipo` ∈ moradia, apartamento, alojamento_local, outro; `divisoes` inteiro 1–100; `localidade` ≤ 80; `potencia_contratada_kva` ∈ 3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7 (`null` = "Não sei"); `fases` ∈ `"mono"`, `"tri"` (`null` = "Não sei"). O painel valida estes campos (`painel/src/validar.js`) e mostra-os no resumo.
 Cada entrada de `divisoes` (nível de topo): `{"nome": "Sala", "interruptores": [2, 1], "estores": 1, "estores_sem_motor": 0, "sensores_porta": 1, "sensores_movimento": 1, "luzes_regulaveis": 2, "tomadas_inteligentes": 0}` — `interruptores` é a lista de botões de cada interruptor (1–4).
 
-O painel mostra a simulação no pedido de orçamento: resumo, tabela, avisos e a planta (visualizador só leitura), com "Converter em cliente e obra" a pré-preencher os aparelhos (`domus.sh aparelho …`) e o material da obra.
+O painel mostra a simulação no pedido de orçamento: resumo (casa, potência contratada e ligação), tabela, avisos e a planta (visualizador só leitura), com "Converter em cliente e obra" a pré-preencher os aparelhos (`domus.sh aparelho …`) e o material da obra. Os nomes escritos pelo cliente (divisões, circuitos) chegam aos pedidos sem aspas, `\`, `<` nem `>`.
+O catálogo público (`GET /api/catalogo`) tem `Cache-Control: public, max-age=60`.

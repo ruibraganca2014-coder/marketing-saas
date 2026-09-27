@@ -9,13 +9,21 @@ export const MAX_LADO_CM = 10_000;
 export const TENSAO = 230;
 export const FRACAO_SEGURA = 0.8;         // 80 % de amperes × 230 V
 export const MAX_PONTOS = 8;              // luzes ou tomadas por circuito
-export const POTENCIA_DEDICADA = 2000;    // W: máquina com circuito próprio / carga perigosa
+export const POTENCIA_DEDICADA = 2000;    // W: carga perigosa; frigorífico/outra máquina com circuito próprio
 export const MAX_MODULOS = 12;            // módulos novos antes de ampliar o quadro
+export const MODULOS_SY1 = 2;             // o SY1 (sem proteções) fica ao lado do disjuntor do circuito: +2 módulos
 export const MAX_MONOFASICO_W = 7400;     // acima disto (≈ 32 A a 230 V) costuma ser trifásico
-export const POTENCIA_CONTRATADA_W = 6900; // potência contratada comum (6,9 kVA) — só para o aviso
+export const POTENCIA_CONTRATADA_W = 6900; // potência contratada comum (6,9 kVA) — quando o cliente não sabe
+export const POTENCIAS_KVA = [3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7]; // escalões da potência contratada
+export const FASES = { mono: "Monofásica", tri: "Trifásica" };
+export const TOLERANCIA_PORTA_CM = 30;    // porta/janela fora das divisões mas a ≤ 30 cm de uma: conta nela
 export const AMPERES_MAX_INTELIGENTE = 63; // TONGOU SY1/SY2: até 63 A, 1P+N
 export const AMPERES = [6, 10, 16, 20, 25, 32, 40];
 export const AMPERES_MAQUINA = [16, 20, 25, 32, 40];
+/** Máquinas que têm sempre circuito próprio, seja qual for a potência (as outras: ≥ 2000 W). */
+export const MODELOS_DEDICADOS = ["maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve"];
+export const AMPERES_PLACA = 32;          // placa: nunca tira a potência toda ao mesmo tempo (simultaneidade)
+export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
 
 export const TIPOS_CIRCUITO = {
@@ -51,7 +59,7 @@ export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "br
 export const MODELOS = {
   termoacumulador: { nome: "Termoacumulador", w: 2000 },
   ar_condicionado: { nome: "Ar condicionado", w: 1500 },
-  placa: { nome: "Placa de cozinha", w: 3500 },
+  placa: { nome: "Placa de cozinha", w: 7200 },
   forno: { nome: "Forno", w: 2500 },
   maquina_lavar: { nome: "Máquina de lavar roupa", w: 2000 },
   maquina_secar: { nome: "Máquina de secar roupa", w: 2500 },
@@ -84,9 +92,31 @@ export function divisaoEm(planta, x, y) {
   return r;
 }
 
-/** Recalcula `divisao` de todos os elementos (pelo centro). Muda a planta. */
+/** Elementos que ficam na parede: fora das divisões mas a ≤ 30 cm de uma contam na mais próxima. */
+export const TIPOS_PAREDE = ["porta", "janela", "sensor_porta"];
+
+/**
+ * Divisão de um elemento: a que contém o centro; para portas, janelas e sensores de porta/janela
+ * fora de todas, a mais próxima a ≤ 30 cm (paredes exteriores). O painel faz o mesmo
+ * (painel/public/ecras/simulacao.js, divisaoDoElemento).
+ */
+export function divisaoDoElemento(planta, e) {
+  const x = Number(e?.x_cm) || 0, y = Number(e?.y_cm) || 0;
+  const dentro = divisaoEm(planta, x, y);
+  if (dentro || !TIPOS_PAREDE.includes(e?.tipo)) return dentro;
+  let r = null, melhor = TOLERANCIA_PORTA_CM;
+  for (const d of planta.divisoes) {
+    const dx = Math.max(d.x_cm - x, 0, x - (d.x_cm + d.largura_cm));
+    const dy = Math.max(d.y_cm - y, 0, y - (d.y_cm + d.altura_cm));
+    const dist = Math.hypot(dx, dy);
+    if (dist <= melhor) { melhor = dist; r = d.id; }
+  }
+  return r;
+}
+
+/** Recalcula `divisao` de todos os elementos (pelo centro; portas/janelas até 30 cm fora). Muda a planta. */
 export function atualizarDivisoes(planta) {
-  for (const e of planta.elementos) e.divisao = divisaoEm(planta, e.x_cm, e.y_cm);
+  for (const e of planta.elementos) e.divisao = divisaoDoElemento(planta, e);
   return planta;
 }
 
@@ -195,6 +225,25 @@ export function amperesPara(w) {
   return AMPERES_MAQUINA.find((a) => w <= limiteW(a)) ?? AMPERES_MAQUINA[AMPERES_MAQUINA.length - 1];
 }
 
+/** A máquina tem circuito próprio? Pelo tipo (MODELOS_DEDICADOS); frigorífico e outra máquina: ≥ 2000 W. */
+export const circuitoProprio = (m) => MODELOS_DEDICADOS.includes(m?.modelo) || watts(m) >= POTENCIA_DEDICADA;
+
+/** Carga perigosa (≥ 2000 W): pede confirmação para ligar à distância. */
+export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
+
+/** Disjuntor sugerido para o circuito próprio de uma máquina: placa até 32 A; carregador VE 40 A; resto pelos 80 %. */
+export function amperesMaquina(m) {
+  if (m?.modelo === "carregador_ve") return AMPERES_VE;
+  if (m?.modelo === "placa") return Math.min(AMPERES_PLACA, amperesPara(watts(m)));
+  return amperesPara(watts(m));
+}
+
+/** Máquinas que não entram na conta dos 80 %: a placa (simultaneidade) e o carregador VE (limita a corrente). */
+const semSobrecarga = (m) => m?.modelo === "placa" || m?.modelo === "carregador_ve";
+
+/** Máquina acima de 7,4 kW (costuma ser trifásica). */
+export const trifasica = (m) => watts(m) > MAX_MONOFASICO_W;
+
 export function circuitoVazio(n, tipo = "misto") {
   return {
     n, amperes: tipo === "iluminacao" ? 10 : 16, tipo, nome: "", divisoes: [],
@@ -235,8 +284,12 @@ function agrupar(porDivisao, criar, somar, peso = () => 0, limite = Infinity) {
   return circuitos;
 }
 
-/** Circuitos sugeridos a partir da contagem da planta (§4). */
-export function sugerirCircuitos(contagem) {
+/**
+ * Circuitos sugeridos a partir da contagem da planta (§4).
+ * @param {{fases?: "mono"|"tri"|null}} [opcoes] numa casa trifásica, a máquina > 7,4 kW fica na
+ *   proteção trifásica que já tem (sem disjuntor inteligente, que é 1P+N).
+ */
+export function sugerirCircuitos(contagem, opcoes = {}) {
   const luzes = agrupar(
     contagem.filter((c) => c.luzes > 0).map((c) => ({ nome: c.nome, pontos: Array(c.luzes).fill(1) })),
     (i) => ({ ...circuitoVazio(0, "iluminacao"), nome: `Iluminação ${i}` }),
@@ -245,7 +298,7 @@ export function sugerirCircuitos(contagem) {
   const tomadas = agrupar(
     contagem.map((c) => ({
       nome: c.nome,
-      pontos: [...Array(c.tomadas).fill({ t: "tomada" }), ...c.maquinas.filter((m) => m.potencia_w < POTENCIA_DEDICADA).map((m) => ({ t: "maquina", m }))],
+      pontos: [...Array(c.tomadas).fill({ t: "tomada" }), ...c.maquinas.filter((m) => !circuitoProprio(m)).map((m) => ({ t: "maquina", m }))],
     })).filter((x) => x.pontos.length > 0),
     (i) => ({ ...circuitoVazio(0, "tomadas"), nome: `Tomadas ${i}` }),
     (c, p) => { if (p.t === "tomada") c.itens.tomadas++; else c.itens.maquinas.push({ ...p.m }); },
@@ -254,10 +307,12 @@ export function sugerirCircuitos(contagem) {
   );
   const maquinas = [];
   for (const c of contagem) {
-    for (const m of c.maquinas.filter((x) => x.potencia_w >= POTENCIA_DEDICADA)) {
+    for (const m of c.maquinas.filter(circuitoProprio)) {
+      const semInteligente = opcoes.fases === "tri" && trifasica(m);
       maquinas.push({
         ...circuitoVazio(0, "maquina"),
-        amperes: amperesPara(m.potencia_w),
+        ...(semInteligente ? { inteligente: false, medir: false } : {}),
+        amperes: amperesMaquina(m),
         nome: `${nomeModelo(m.modelo)}, ${c.nome}`,
         divisoes: [c.nome],
         itens: { luzes: 0, tomadas: 0, maquinas: [{ ...m }] },
@@ -274,17 +329,37 @@ export function numerar(circuitos) {
   return circuitos;
 }
 
-/** N.º de disjuntores inteligentes (= módulos novos no quadro). */
-export const modulosNovos = (circuitos) => circuitos.filter((c) => c.inteligente || c.medir).length;
+/**
+ * Disjuntores inteligentes por modelo. `disjuntor` = SKU escolhido; "TONGOU-SY1-JWT" = sem proteções.
+ * Circuitos só com "medir" levam sempre o SY1 (mais barato, também mede).
+ * @returns {{total:number, sy2:number, sy1:number}}
+ */
+export function disjuntoresInteligentes(circuitos, disjuntor) {
+  const intel = circuitos.filter((c) => c.inteligente || c.medir);
+  const sy2 = disjuntor === SKU_SY1 ? 0 : intel.filter((c) => c.inteligente).length;
+  return { total: intel.length, sy2, sy1: intel.length - sy2 };
+}
 
+/**
+ * Módulos novos no quadro (decisão do dono): o SY2 (com proteções) SUBSTITUI o disjuntor do
+ * circuito → 0 módulos; o SY1 (sem proteções) nunca o substitui → fica ao lado, +2 módulos.
+ */
+export const modulosNovos = (circuitos, disjuntor) => disjuntoresInteligentes(circuitos, disjuntor).sy1 * MODULOS_SY1;
+
+const SKU_SY1 = "TONGOU-SY1-JWT";
 const rotulo = (c) => `Circuito ${c.n}${c.nome ? ` (${c.nome})` : ""}`;
 const aviso = (c, t) => `${rotulo(c)} — ${t}${FIM_AVISO}`;
+const kva = (v) => `${String(v).replace(".", ",")} kVA`;
 
-/** Avisos simples, sem bloquear (§4). Todos terminam em "(orientativo — confirmamos na visita)". */
-export function avisosCircuito(c) {
+/**
+ * Avisos simples, sem bloquear (§4). Todos terminam em "(orientativo — confirmamos na visita)".
+ * @param {{fases?: "mono"|"tri"|null}} [opcoes] ligação da casa (muda o texto do aviso trifásico)
+ */
+export function avisosCircuito(c, opcoes = {}) {
   const r = [];
   const maqs = c.itens?.maquinas ?? [];
-  const soma = maqs.reduce((s, m) => s + watts(m), 0);
+  // A placa e o carregador VE não entram na conta dos 80 % (simultaneidade / limita a corrente).
+  const soma = maqs.filter((m) => !semSobrecarga(m)).reduce((s, m) => s + watts(m), 0);
   const amperes = Number(c.amperes);
   if (Number.isFinite(amperes) && amperes > 0 && soma > limiteW(amperes)) {
     r.push(aviso(c, `Este circuito pode não aguentar: ${formatarW(soma)} para um disjuntor de ${c.amperes} A.`));
@@ -295,42 +370,53 @@ export function avisosCircuito(c) {
   if (tomadas > MAX_PONTOS) r.push(aviso(c, `Tem ${tomadas} tomadas: o recomendado é até ${MAX_PONTOS} por circuito.`));
   if (c.tipo === "iluminacao" && c.amperes !== 10) r.push(aviso(c, "Para iluminação sugerimos um disjuntor de 10 A."));
   if (c.tipo === "tomadas" && c.amperes !== 16) r.push(aviso(c, "Para tomadas sugerimos um disjuntor de 16 A."));
-  const grandes = maqs.filter((m) => watts(m) >= POTENCIA_DEDICADA);
+  const proprias = maqs.filter(circuitoProprio);
   const partilhado = luzes + tomadas > 0 || maqs.length > 1;
   if (partilhado) {
-    for (const m of grandes) r.push(aviso(c, `${nomeModelo(m.modelo)} (${formatarW(m.potencia_w)}) deve ter um circuito próprio.`));
+    for (const m of proprias) r.push(aviso(c, `${nomeModelo(m.modelo)} (${formatarW(watts(m))}) deve ter um circuito próprio.`));
   }
-  for (const m of maqs.filter((x) => watts(x) > MAX_MONOFASICO_W)) {
-    r.push(aviso(c, `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N).`));
+  if (maqs.some((m) => m.modelo === "carregador_ve") && Number.isFinite(amperes) && amperes > 0 && amperes < AMPERES_VE) {
+    r.push(aviso(c, `O carregador do carro elétrico carrega a 32 A: precisa de um disjuntor de ${AMPERES_VE} A (tem ${c.amperes} A).`));
+  }
+  for (const m of maqs.filter(trifasica)) {
+    r.push(aviso(c, opcoes.fases === "tri"
+      ? `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): os disjuntores inteligentes são monofásicos (1P+N), por isso esta máquina trifásica fica na proteção trifásica que já tem, sem disjuntor inteligente.`
+      : `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N).`));
   }
   if ((c.inteligente || c.medir) && amperes > AMPERES_MAX_INTELIGENTE) {
     r.push(aviso(c, `Os disjuntores inteligentes vão até ${AMPERES_MAX_INTELIGENTE} A: um circuito de ${amperes} A precisa de outra solução.`));
   }
   if (c.inteligente) {
-    for (const m of grandes) {
-      r.push(aviso(c, `Carga perigosa: ${nomeModelo(m.modelo)} (${formatarW(m.potencia_w)}). Na app, ligar à distância pede sempre confirmação.`));
+    for (const m of maqs.filter(cargaPerigosa)) {
+      r.push(aviso(c, `Carga perigosa: ${nomeModelo(m.modelo)} (${formatarW(watts(m))}). Na app, ligar à distância pede sempre confirmação.`));
     }
   }
   return r;
 }
 
 /**
- * Todos os avisos do quadro: os de cada circuito, a ampliação do quadro (> 12 módulos),
- * a potência contratada e o lembrete de que os disjuntores inteligentes não substituem
- * as proteções (disjuntor de proteção e diferencial de 30 mA).
- * @param {{disjuntor?: string}} [opcoes] disjuntor escolhido (SKU; "TONGOU-SY1-JWT" = sem proteções)
+ * Todos os avisos do quadro: os de cada circuito, a ampliação do quadro (> 12 módulos novos),
+ * a potência contratada e o lembrete das proteções (o SY2 substitui o disjuntor do circuito,
+ * o SY1 não; diferencial de 30 mA).
+ * @param {{disjuntor?: string, fases?: "mono"|"tri"|null, potencia_contratada_kva?: number|null}} [opcoes]
  */
 export function avisosQuadro(circuitos, opcoes = {}) {
-  const r = circuitos.flatMap(avisosCircuito);
-  const m = modulosNovos(circuitos);
-  if (m > MAX_MODULOS) r.push(`São ${m} disjuntores inteligentes novos no quadro: acrescentámos a ampliação do quadro.${FIM_AVISO}`);
+  const r = circuitos.flatMap((c) => avisosCircuito(c, opcoes));
+  const d = disjuntoresInteligentes(circuitos, opcoes.disjuntor);
+  const m = d.sy1 * MODULOS_SY1;
+  if (m > MAX_MODULOS) r.push(`Os disjuntores TONGOU-SY1-JWT ficam ao lado dos disjuntores dos circuitos: são ${m} módulos novos no quadro e acrescentámos a ampliação do quadro.${FIM_AVISO}`);
   const total = circuitos.reduce((s, c) => s + (c.itens?.maquinas ?? []).reduce((t, x) => t + watts(x), 0), 0);
-  if (total > POTENCIA_CONTRATADA_W) {
-    r.push(`As máquinas somam ${formatarW(total)}: se funcionarem ao mesmo tempo podem passar a potência contratada (é comum 6,9 kVA). Confirmamos a potência do contador.${FIM_AVISO}`);
+  const contratada = POTENCIAS_KVA.includes(opcoes.potencia_contratada_kva) ? opcoes.potencia_contratada_kva : null;
+  const limite = contratada === null ? POTENCIA_CONTRATADA_W : Math.round(contratada * 1000);
+  if (total > limite) {
+    r.push(`As máquinas somam ${formatarW(total)}: se funcionarem ao mesmo tempo podem passar a potência contratada ${contratada === null ? "(costuma ser 6,9 kVA)" : `de ${kva(contratada)}`}. Confirmamos a potência do contador.${FIM_AVISO}`);
   }
-  if (m > 0) {
-    const sy1 = opcoes.disjuntor === "TONGOU-SY1-JWT";
-    r.push(`${sy1 ? "O disjuntor TONGOU-SY1-JWT não tem proteções e os disjuntores inteligentes" : "Os disjuntores inteligentes"} não substituem as proteções do quadro: cada circuito mantém o seu disjuntor de proteção e a instalação tem de ter diferencial de 30 mA.${FIM_AVISO}`);
+  if (d.total > 0) {
+    const partes = [];
+    if (d.sy2) partes.push("O disjuntor inteligente substitui o disjuntor do circuito; só o fazemos se o modelo tiver certificação europeia de proteção (EN 60898) — confirmamos na visita.");
+    if (d.sy1) partes.push(`O disjuntor TONGOU-SY1-JWT não tem proteções: nunca substitui o disjuntor do circuito, que fica no quadro${d.sy2 ? " (nos circuitos só com medição)" : ""}.`);
+    partes.push("A instalação tem de ter diferencial de 30 mA.");
+    r.push(`${partes.join(" ")}${FIM_AVISO}`);
   }
   return r;
 }

@@ -8,7 +8,7 @@
 import { desenharPlanta, desenharIcone } from "./planta-svg.js";
 import {
   ELEMENTOS, TIPOS_ELEMENTO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
-  propsOmissao, atualizarDivisoes, divisaoEm,
+  propsOmissao, atualizarDivisoes, divisaoDoElemento,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 
@@ -303,7 +303,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       rot: 0, divisao: null, props: propsOmissao(tipo),
     };
     planta.elementos.push(e);
-    e.divisao = divisaoEm(planta, e.x_cm, e.y_cm);
+    e.divisao = divisaoDoElemento(planta, e);
     selecionado = e.id;
     const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro de uma divisão para contar nela";
     confirmar(`Na planta: ${ELEMENTOS[tipo].nome} (${onde}).`);

@@ -61,6 +61,10 @@
             <label>Quantas divisões tem? <small class="ajuda">Salas, quartos, cozinha, casas de banho…</small><input id="casa-divisoes" type="number" inputmode="numeric" min="1" max="40" step="1"></label>
             <label>Localidade<input id="casa-localidade" maxlength="80" autocomplete="address-level2"></label>
           </div>
+          <div class="duas">
+            <label>Potência contratada <small class="ajuda">Está na fatura da eletricidade.</small><select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9">6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option><option value="">Não sei</option></select></label>
+            <label>Ligação <small class="ajuda">Monofásica é a mais comum nas casas.</small><select id="casa-fases"><option value="mono">Monofásica</option><option value="tri">Trifásica</option><option value="">Não sei</option></select></label>
+          </div>
         </section>
 
         <!-- 2. Planta -->
@@ -114,6 +118,7 @@
         <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
           <h2 id="titulo-4" tabindex="-1">5. Resumo e preço</h2>
           <div class="msg info" id="preco-estado" role="status" hidden></div>
+          <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
           <div class="tabela-rolar" role="region" aria-labelledby="tabela-legenda" tabindex="0">
             <table class="sim-tabela" id="preco-tabela">

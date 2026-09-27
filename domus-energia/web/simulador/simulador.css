@@ -133,6 +133,12 @@ input, select { min-height: 44px; }
 /* ---------- Preço ---------- */
 .sim-total { display: grid; gap: 4px; text-align: center; }
 .sim-total p { margin: 0; }
+.sim-casa-resumo { margin-bottom: 16px; }
+.sim-casa-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sim-casa-topo h3 { margin: 0; }
+.sim-casa-dados { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 12px 0 0; }
+.sim-casa-dados dt { color: var(--texto-suave); font-weight: 600; }
+.sim-casa-dados dd { margin: 0; overflow-wrap: anywhere; }
 .sim-rotulo { color: var(--texto-suave); font-weight: 700; }
 .sim-intervalo { font-family: var(--letra-titulos); font-weight: 800; font-size: clamp(1.8rem, 7vw, 2.6rem); color: var(--texto); }
 .sim-nota { margin: 0; color: var(--texto-suave); }
@@ -149,7 +155,11 @@ input, select { min-height: 44px; }
 .sim-tabela tfoot th { text-align: right; font-weight: 700; }
 .sim-tabela tfoot .total th, .sim-tabela tfoot .total td { font-weight: 800; font-size: 1.05rem; }
 .sim-tabela tr:last-child > * { border-bottom: 0; }
-@media (max-width: 479px) { .sim-tabela th, .sim-tabela td { padding: 8px 8px; } .sim-tabela { font-size: .88rem; } }
+@media (max-width: 479px) {
+  .sim-tabela th, .sim-tabela td { padding: 8px 8px; } .sim-tabela { font-size: .88rem; }
+  /* Telemóvel: sem a coluna do preço unitário (fica Qtd. e Total), para os nomes não partirem em 6 linhas. */
+  .sim-tabela thead th:nth-child(3), .sim-tabela tbody tr > :nth-child(3):not(:last-child) { display: none; }
+}
 .sim-planos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
 .sim-plano { position: relative; padding: 18px; }
 .sim-plano h4 { margin: 0 0 4px; font-family: var(--letra-titulos); font-size: 1.2rem; }

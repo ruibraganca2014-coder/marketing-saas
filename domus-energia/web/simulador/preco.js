@@ -2,7 +2,7 @@
 // Só lógica, sem DOM. O catálogo vem de GET /api/catalogo ({itens, config}); sem
 // catálogo mostra-se a lista sem preços ("vamos enviar-lhe o preço").
 
-import { modulosNovos, MAX_MODULOS } from "./regras.js";
+import { modulosNovos, disjuntoresInteligentes, MAX_MODULOS } from "./regras.js";
 
 export const CONFIG_OMISSAO = { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 };
 export const TEXTO_ESTIMATIVA = "Estimativa. O valor final é confirmado na visita técnica gratuita.";
@@ -59,13 +59,12 @@ export function pedidosDaSelecao(s) {
   const r = [];
   const add = (chave, qtd) => { if (qtd > 0) r.push({ chave, qtd }); };
   const circ = s.quadro?.circuitos ?? [];
-  const inteligentes = circ.filter((c) => c.inteligente || c.medir);
-  const barato = s.quadro?.disjuntor === SKU_SY1;
   // Circuitos só com "medir" usam o disjuntor mais barato (também mede).
-  const comProtecoes = barato ? 0 : inteligentes.filter((c) => c.inteligente).length;
-  add("disjuntor_protecoes", comProtecoes);
-  add("disjuntor_simples", inteligentes.length - comProtecoes);
-  const mod = modulosNovos(circ);
+  const d = disjuntoresInteligentes(circ, s.quadro?.disjuntor);
+  add("disjuntor_protecoes", d.sy2);
+  add("disjuntor_simples", d.sy1);
+  // O SY2 substitui o disjuntor do circuito (0 módulos); o SY1 fica ao lado (+2 módulos cada).
+  const mod = modulosNovos(circ, s.quadro?.disjuntor);
   if (mod > MAX_MODULOS) add("ampliacao", Math.ceil((mod - MAX_MODULOS) / MAX_MODULOS));
   const divs = s.divisoes ?? [];
   for (const b of [1, 2, 3, 4]) add(`interruptor_${b}`, soma(divs, (d) => (d.interruptores ?? []).filter((x) => x === b).length));

@@ -5,7 +5,7 @@
 import {
   TIPOS_CASA, TIPOS_CIRCUITO, AMPERES, MODELOS, MAX_DIVISOES,
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
-  avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW,
+  avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES,
 } from "./regras.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, SKU_SY1, SKU_SY2,
@@ -13,7 +13,7 @@ import {
 } from "./preco.js";
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
-  lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao,
+  lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, opcoesAvisos, potenciaContratada,
 } from "./estado.js";
 import { criarEditor } from "./editor.js";
 
@@ -40,9 +40,12 @@ const numeroReal = (n) => { const d = String(n ?? "").replace(/^\+/, ""); return
 const params = new URLSearchParams(location.search);
 const modoCliente = params.get("cliente") === "1";
 const codigoCliente = modoCliente ? lerCodigoCliente(sessao ?? semArmazem) : null;
+// Área de cliente com código ("Ampliar a instalação"): a casa já é conhecida, começa na planta.
+const PASSO_INICIAL = codigoCliente ? 1 : 0;
+const estadoInicial = () => estadoNovo({ cliente: !!codigoCliente });
 
-let estado = estadoNovo();
-let visitado = 0;             // passo mais adiantado a que o cliente já chegou
+let estado = estadoInicial();
+let visitado = PASSO_INICIAL; // passo mais adiantado a que o cliente já chegou
 let catalogo = undefined;     // undefined = a carregar; null = falhou; array = itens
 let configOrc = null;
 let aEnviar = false;
@@ -166,7 +169,11 @@ function desenharCasa() {
   for (const i of g.querySelectorAll("input")) i.checked = i.value === estado.casa.tipo;
   $("casa-divisoes").value = estado.casa.divisoes ?? "";
   $("casa-localidade").value = estado.casa.localidade;
+  $("casa-potencia").value = estado.casa.potencia_contratada_kva === null ? "" : String(estado.casa.potencia_contratada_kva);
+  $("casa-fases").value = estado.casa.fases ?? "";
 }
+$("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value); agendarGravacao(); });
+$("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; agendarGravacao(); });
 $("casa-divisoes").addEventListener("input", () => {
   const v = Math.round(Number($("casa-divisoes").value));
   estado.casa.divisoes = $("casa-divisoes").value === "" || !(v >= 1) ? null : Math.min(40, v);
@@ -193,7 +200,9 @@ function desenharContagem() {
     add(l.interruptores.length, "interruptor", "interruptores");
     add(l.janelas, "janela", "janelas");
     add(l.estores + l.estores_sem_motor, "estore", "estores");
-    add(l.portas_entrada, "porta da rua (sensor sugerido)", "portas da rua (sensores sugeridos)");
+    // Porta da rua: sugere um sensor só quando ainda não há um desenhado ao lado.
+    add(l.portas_entrada_sem_sensor, "porta da rua (sensor sugerido)", "portas da rua (sensores sugeridos)");
+    add(l.portas_entrada - l.portas_entrada_sem_sensor, "porta da rua (já com sensor)", "portas da rua (já com sensor)");
     add(l.sensores_porta, "sensor de porta", "sensores de porta");
     add(l.sensores_movimento, "sensor de movimento", "sensores de movimento");
     add(l.quadros, "quadro elétrico", "quadros elétricos");
@@ -211,7 +220,7 @@ function prepararPassosSeguintes() {
   const temPlanta = !estado.plantaSaltada && (p.divisoes.length > 0 || p.elementos.length > 0);
   const cont = temPlanta ? contarPlanta(p) : null;
   if (!estado.quadroEditado) {
-    if (temPlanta && p.elementos.length) estado.quadro.circuitos = sugerirCircuitos(cont);
+    if (temPlanta && p.elementos.length) estado.quadro.circuitos = sugerirCircuitos(cont, { fases: estado.casa.fases });
     else if (!estado.quadro.circuitos.length || temPlanta) estado.quadro.circuitos = circuitosBase();
   }
   if (!estado.divisoesEditadas) {
@@ -282,7 +291,7 @@ function desenharQuadro() {
   $("quadro-recalcular").hidden = !temPlanta;
   const origem = $("quadro-origem");
   origem.hidden = !temPlanta;
-  origem.textContent = estado.quadroEditado ? "Alterou o quadro à mão: não o mudamos sozinhos. Use \"Recalcular a partir da planta\" para voltar à sugestão." : "Sugestão feita a partir da sua planta (luzes até 8 por circuito de 10 A, tomadas até 8 por circuito de 16 A, máquinas grandes com circuito próprio). Pode mudar tudo.";
+  origem.textContent = estado.quadroEditado ? "Alterou o quadro à mão: não o mudamos sozinhos. Use \"Recalcular a partir da planta\" para voltar à sugestão." : "Sugestão feita a partir da sua planta (luzes até 8 por circuito de 10 A, tomadas até 8 por circuito de 16 A, circuito próprio para as máquinas de lavar e secar, forno, placa, termoacumulador, ar condicionado, bomba de calor e carregador do carro). Pode mudar tudo.";
   for (const r of document.querySelectorAll("input[name=disjuntor]")) r.checked = r.value === estado.quadro.disjuntor;
   const caixaC = $("circuitos");
   caixaC.replaceChildren();
@@ -393,12 +402,12 @@ function desenharAvisosQuadro() {
     const ul = $(`c${i}-avisos`);
     if (!ul) return;
     ul.replaceChildren();
-    for (const a of avisosCircuito(c)) ul.append(el("li", null, a));
+    for (const a of avisosCircuito(c, opcoesAvisos(estado))) ul.append(el("li", null, a));
     ul.hidden = !ul.childElementCount;
   });
   const g = $("quadro-avisos");
   g.replaceChildren();
-  const todos = avisosQuadro(estado.quadro.circuitos, estado.quadro);
+  const todos = avisosQuadro(estado.quadro.circuitos, opcoesAvisos(estado));
   const geral = todos.filter((a) => !a.startsWith("Circuito "));
   const inteligentes = estado.quadro.circuitos.filter((c) => c.inteligente || c.medir).length;
   const p = el("p", "ajuda");
@@ -446,7 +455,7 @@ function ligarRecalcular(botaoId, editado, recalcular, desenhar) {
   });
 }
 ligarRecalcular("quadro-recalcular", () => estado.quadroEditado, () => {
-  estado.quadro.circuitos = sugerirCircuitos(contarPlanta(estado.planta));
+  estado.quadro.circuitos = sugerirCircuitos(contarPlanta(estado.planta), { fases: estado.casa.fases });
   estado.quadroEditado = false;
 }, desenharQuadro);
 ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
@@ -579,7 +588,38 @@ function calcular() {
   return { pedidos, preco, plano: planoSugerido(pedidos) };
 }
 
+// Abaixo de 480 px a coluna do preço unitário esconde-se (simulador.css): as linhas que ocupam
+// várias colunas (rodapé, "Nenhum artigo") têm de acompanhar, senão aparece uma coluna fantasma.
+const estreito = matchMedia("(max-width: 479px)");
+const colunasPreco = () => (estreito.matches ? 3 : 4);
+estreito.addEventListener?.("change", () => { if (estado.passo === 4 && !$("passo-4").hidden) desenharPreco(); });
+
+/** Área de cliente: os dados da casa (passo 1 saltado) com "Editar" para voltar a esse passo. */
+function desenharCasaResumo() {
+  const c = $("preco-casa");
+  c.hidden = !codigoCliente;
+  if (!codigoCliente) return;
+  c.replaceChildren();
+  const k = estado.casa;
+  const topo = el("div", "sim-casa-topo");
+  const editar = el("button", "btn sec pequeno", "Editar");
+  editar.type = "button";
+  editar.id = "preco-casa-editar";
+  editar.setAttribute("aria-label", "Editar os dados da casa (passo 1)");
+  editar.addEventListener("click", () => irPara(0));
+  topo.append(el("h3", null, "A casa"), editar);
+  const dl = el("dl", "sim-casa-dados");
+  const linha = (t, v) => dl.append(el("dt", null, t), el("dd", null, v));
+  linha("Tipo", TIPOS_CASA[k.tipo] ?? "Não indicado");
+  linha("Divisões", k.divisoes ? String(k.divisoes) : "Não indicado");
+  linha("Localidade", k.localidade.trim() || "Não indicada");
+  linha("Potência contratada", k.potencia_contratada_kva === null ? "Não sei" : `${String(k.potencia_contratada_kva).replace(".", ",")} kVA`);
+  linha("Ligação", FASES[k.fases] ?? "Não sei");
+  c.append(topo, dl);
+}
+
 function desenharPreco() {
+  desenharCasaResumo();
   const est = $("preco-estado");
   const { pedidos, preco, plano } = calcular();
   ultimoPreco = { preco, plano };
@@ -613,7 +653,7 @@ function desenharPreco() {
   if (!preco.linhas.length) {
     const tr = el("tr");
     const td = el("td", null, "Nenhum artigo.");
-    td.colSpan = 4;
+    td.colSpan = colunasPreco();
     tr.append(td);
     tb.append(tr);
   }
@@ -623,7 +663,7 @@ function desenharPreco() {
     const tr = el("tr", cls);
     const th = el("th", null, texto);
     th.scope = "row";
-    th.colSpan = 3;
+    th.colSpan = colunasPreco() - 1;
     tr.append(th, el("td", "n num", valor));
     tf.append(tr);
   };
@@ -635,7 +675,8 @@ function desenharPreco() {
   } else if (preco.linhas.length) {
     linhaRodape("Mão de obra", "a confirmar");
   }
-  $("preco-nota").textContent = "Preços com IVA incluído. " + TEXTO_ESTIMATIVA;
+  // O texto da estimativa já está no cartão do total: aqui só o IVA (não se repete).
+  $("preco-nota").textContent = "Preços com IVA incluído.";
 
   const pl = $("preco-planos");
   pl.replaceChildren();
@@ -651,7 +692,7 @@ function desenharPreco() {
 
   const av = $("preco-avisos");
   av.replaceChildren();
-  const avisos = avisosQuadro(estado.quadro.circuitos, estado.quadro);
+  const avisos = avisosQuadro(estado.quadro.circuitos, opcoesAvisos(estado));
   if (!avisos.length) av.append(el("p", "ajuda", "Sem avisos."));
   else {
     const ul = el("ul", "avisos-circuito");
@@ -790,8 +831,8 @@ function concluido(preco, semFundo) {
 
 $("fim-nova").addEventListener("click", () => {
   enviado = false;
-  estado = estadoNovo();
-  visitado = 0;
+  estado = estadoInicial();
+  visitado = PASSO_INICIAL;
   ultimoPreco = null;
   $("passo-fim").hidden = true;
   $("sim-navegacao").hidden = false;
@@ -818,7 +859,7 @@ function iniciar() {
     v.querySelector(".so-curto").textContent = "Cliente";
   }
   const guardado = carregarEstado(armazem ?? semArmazem);
-  if (guardado && temProgresso(guardado)) {
+  if (guardado && temProgresso(guardado, PASSO_INICIAL)) {
     const quando = guardado.guardado ? new Date(guardado.guardado) : null;
     const data = quando && !Number.isNaN(quando.getTime())
       ? quando.toLocaleString("pt-PT", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })
@@ -834,7 +875,8 @@ function iniciar() {
     });
     $("sim-recomecar").addEventListener("click", () => {
       apagarEstado(armazem ?? semArmazem);
-      estado = estadoNovo();
+      estado = estadoInicial();
+      visitado = PASSO_INICIAL;
       fecharRetomar();
     });
     $("sim-continuar").focus();

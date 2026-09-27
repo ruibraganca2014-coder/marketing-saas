@@ -955,7 +955,7 @@ export function criarApi(ctx) {
   function catalogoPublico(req, res) {
     const itens = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes FROM catalogo WHERE ativo = 1 AND visivel_cliente = 1 ORDER BY categoria, nome').all()
       .map((a) => ({ sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, especificacoes: JSON.parse(a.especificacoes || '{}') }));
-    responder(res, 200, { itens, config: lerConfigOrcamento() }, { 'Cache-Control': 'public, max-age=300' });
+    responder(res, 200, { itens, config: lerConfigOrcamento() }, { 'Cache-Control': 'public, max-age=60' });
   }
 
   // ------------------------------------------------------------ despacho

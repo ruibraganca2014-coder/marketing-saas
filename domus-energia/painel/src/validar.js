@@ -117,8 +117,30 @@ export function simulacao(v) {
   }
   const json = JSON.stringify(v);       // depois da verificação da profundidade (stringify é recursivo)
   if (Buffer.byteLength(json) > MAX_SIMULACAO) throw new ErroApi(413, 'A simulação é demasiado grande (máx. 1 MB).');
+  casaSimulacao(v.casa);
   limitesPlanta(v.planta);
   return json;
+}
+
+/**
+ * Dados da casa (docs/SIMULADOR-ORCAMENTO.md §6). Tudo opcional (na área de cliente o passo
+ * "A casa" é saltado): tipo, n.º de divisões, localidade, potência contratada (escalões em kVA)
+ * e ligação ("mono" | "tri"); null ou ausente = não indicado / "Não sei".
+ */
+export const TIPOS_CASA = ['moradia', 'apartamento', 'alojamento_local', 'outro'];
+export const POTENCIAS_KVA = [3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7];
+export const FASES = ['mono', 'tri'];
+function casaSimulacao(c) {
+  if (c === undefined || c === null) return;
+  if (typeof c !== 'object' || Array.isArray(c)) falha('Os dados da casa da simulação têm de ser um objeto.');
+  const vazio = (x) => x === undefined || x === null;
+  if (!vazio(c.tipo) && !TIPOS_CASA.includes(c.tipo)) falha(`Casa: tipo inválido (use: ${TIPOS_CASA.join(', ')}).`);
+  if (!vazio(c.divisoes) && !(Number.isInteger(c.divisoes) && c.divisoes >= 1 && c.divisoes <= 100)) falha('Casa: n.º de divisões entre 1 e 100.');
+  if (!vazio(c.localidade) && (typeof c.localidade !== 'string' || c.localidade.length > 80)) falha('Casa: localidade até 80 caracteres.');
+  if (!vazio(c.potencia_contratada_kva) && !POTENCIAS_KVA.includes(c.potencia_contratada_kva)) {
+    falha(`Casa: potência contratada inválida (use: ${POTENCIAS_KVA.map((x) => String(x).replace('.', ',')).join(' / ')} kVA, ou vazio se não sabe).`);
+  }
+  if (!vazio(c.fases) && !FASES.includes(c.fases)) falha('Casa: ligação inválida (use: mono, tri, ou vazio se não sabe).');
 }
 
 /**

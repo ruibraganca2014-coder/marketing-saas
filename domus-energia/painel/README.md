@@ -85,7 +85,7 @@ JSON em tudo; erros sempre `{"erro": "mensagem em pt-PT"}`. Valores em euros com
 | Pedido | |
 |---|---|
 | `POST /api/orcamento` | `{nome, telefone?, email?, localidade?, servico, mensagem?, website?, codigo_cliente?, simulacao?}` → `201 {"ok":true}`. `nome` 1–120, pelo menos `telefone` ou `email`, `servico` 1–80, `localidade` ≤ 80, `mensagem` ≤ 2000, `codigo_cliente` como os códigos de cliente. **`website` é o campo-armadilha**: preenchido → `201` mas descartado. **`simulacao`**: objeto JSON (senão `400`), até **1 MB** (`413`), no máximo 32 níveis; as imagens (ex. a planta) só como `data:image/jpeg;base64,…` ou `data:image/png;base64,…` (qualquer outro `data:` — SVG, HTML, GIF — é `400`); é guardada tal como chegou e devolvida em `GET orcamentos/:id`. Corpo até 1,25 MB. Limite **5 pedidos por hora por IP** (contam todos, incluindo os recusados e a armadilha) e 200 por hora no total → `429` + `Retry-After`. Mesmas regras de origem e JSON (CSRF) do painel. Fica com estado `novo` (conta em `pedidos_novos` no resumo) |
-| `GET /api/catalogo` | `{itens:[{sku, nome, categoria, preco_venda_iva, horas_instalacao, especificacoes}], config:{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva}}` — só artigos `ativo` e `visivel_cliente`; **nunca** `preco_compra`, `fornecedor` nem `link`. `Cache-Control: public, max-age=300` |
+| `GET /api/catalogo` | `{itens:[{sku, nome, categoria, preco_venda_iva, horas_instalacao, especificacoes}], config:{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva}}` — só artigos `ativo` e `visivel_cliente`; **nunca** `preco_compra`, `fornecedor` nem `link`. `Cache-Control: public, max-age=60` (um preço novo chega aos navegadores em ≤ 1 min) |
 
 ### Alertas
 

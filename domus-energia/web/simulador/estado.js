@@ -2,7 +2,7 @@
 // (docs/SIMULADOR-ORCAMENTO.md §1, §2.1, §6). Só lógica, sem DOM.
 
 import {
-  ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS,
+  ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS, POTENCIAS_KVA, FASES,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
@@ -24,12 +24,16 @@ export const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/g;
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
-export function estadoNovo() {
+/**
+ * Estado inicial. Na área de cliente ("Ampliar a instalação", com código de cliente) a casa já
+ * é conhecida: começa na planta e os dados da casa são opcionais (tipo por escolher).
+ */
+export function estadoNovo({ cliente = false } = {}) {
   return {
     versao: VERSAO,
-    passo: 0,
+    passo: cliente ? 1 : 0,
     guardado: null,
-    casa: { tipo: "moradia", divisoes: null, localidade: "" },
+    casa: { tipo: cliente ? null : "moradia", divisoes: null, localidade: "", potencia_contratada_kva: null, fases: null },
     planta: plantaVazia(),
     plantaSaltada: false,
     quadro: { circuitos: [], disjuntor: SKU_SY2 },
@@ -137,7 +141,13 @@ export function normalizarEstado(v) {
   e.passo = int(v.passo, 0, PASSOS.length - 2);   // nunca volta direto ao "Enviar"
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   const c = v.casa && typeof v.casa === "object" ? v.casa : {};
-  e.casa = { tipo: TIPOS_CASA[c.tipo] ? c.tipo : "moradia", divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1), localidade: txt(c.localidade, 80) };
+  e.casa = {
+    tipo: TIPOS_CASA[c.tipo] ? c.tipo : c.tipo === null ? null : "moradia",
+    divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1),
+    localidade: txt(c.localidade, 80),
+    potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
+    fases: FASES[c.fases] ? c.fases : null,
+  };
   e.planta = normalizarPlanta(v.planta);
   e.plantaSaltada = bool(v.plantaSaltada);
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
@@ -152,9 +162,23 @@ export function normalizarEstado(v) {
   return e;
 }
 
-/** Houve progresso que valha a pena retomar? */
-export function temProgresso(e) {
-  return !!e && (e.passo > 0 || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.casa.localidade);
+/** Potência contratada (kVA) de um dos escalões, ou null ("Não sei"). */
+export function potenciaContratada(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return POTENCIAS_KVA.includes(n) ? n : null;
+}
+
+/** Opções dos avisos do quadro: disjuntor escolhido e a instalação da casa (§4). */
+export const opcoesAvisos = (estado) => ({
+  disjuntor: estado.quadro?.disjuntor,
+  fases: estado.casa?.fases ?? null,
+  potencia_contratada_kva: estado.casa?.potencia_contratada_kva ?? null,
+});
+
+/** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa na planta) */
+export function temProgresso(e, passoInicial = 0) {
+  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== null || e.casa.fases !== null || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.casa.localidade);
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -243,9 +267,11 @@ export function montarSimulacao(estado, preco, plano) {
   return {
     versao: VERSAO,
     casa: {
-      tipo: estado.casa.tipo,
+      tipo: TIPOS_CASA[estado.casa.tipo] ? estado.casa.tipo : null,
       divisoes: estado.casa.divisoes ?? (estado.divisoes.length || null),
       localidade: textoSeguro(estado.casa.localidade || estado.contacto.localidade, 80) || null,
+      potencia_contratada_kva: potenciaContratada(estado.casa.potencia_contratada_kva),
+      fases: FASES[estado.casa.fases] ? estado.casa.fases : null,
     },
     planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
     quadro: { circuitos },
@@ -260,7 +286,7 @@ export function montarSimulacao(estado, preco, plano) {
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
-    avisos: avisosQuadro(circuitos, estado.quadro),
+    avisos: avisosQuadro(circuitos, opcoesAvisos(estado)),
   };
 }
 

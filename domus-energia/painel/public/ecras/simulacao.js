@@ -9,6 +9,7 @@ import * as desenho from "../vendor/planta-svg.js";
 
 export const PLANOS_SIM = { base: "Base", conforto: "Conforto", premium: "Premium" };
 const TIPOS_CASA = { moradia: "Moradia", apartamento: "Apartamento", alojamento_local: "Alojamento local", outro: "Outro" };
+const FASES = { mono: "Monofásica", tri: "Trifásica" };
 const TIPOS_CIRCUITO = { iluminacao: "Iluminação", tomadas: "Tomadas", maquina: "Máquina", misto: "Misto" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
@@ -48,10 +49,39 @@ function nomeDivisao(planta, id) {
   return d ? String(d.nome ?? id) : String(id);
 }
 
-/** Potência (W) das máquinas de um circuito e se tem carga perigosa (≥ 2000 W). */
+/**
+ * Divisão de um elemento da planta (a mesma regra do simulador, web/simulador/regras.js divisaoDoElemento):
+ * a que contém o centro (a última desenhada ganha); portas, janelas e sensores de porta/janela fora de
+ * todas contam na mais próxima a ≤ 30 cm (paredes exteriores). Usada quando o elemento não traz `divisao`.
+ */
+export const TOLERANCIA_PORTA_CM = 30;
+export function divisaoDoElemento(planta, e) {
+  const x = n0(e?.x_cm), y = n0(e?.y_cm);
+  const divs = arr(planta?.divisoes).filter((d) => d && typeof d === "object");
+  let r = null;
+  for (const d of divs) if (x >= n0(d.x_cm) && x <= n0(d.x_cm) + n0(d.largura_cm) && y >= n0(d.y_cm) && y <= n0(d.y_cm) + n0(d.altura_cm)) r = d.id;
+  if (r != null || !["porta", "janela", "sensor_porta"].includes(e?.tipo)) return r;
+  let melhor = TOLERANCIA_PORTA_CM;
+  for (const d of divs) {
+    const dx = Math.max(n0(d.x_cm) - x, 0, x - (n0(d.x_cm) + n0(d.largura_cm)));
+    const dy = Math.max(n0(d.y_cm) - y, 0, y - (n0(d.y_cm) + n0(d.altura_cm)));
+    const dist = Math.hypot(dx, dy);
+    if (dist <= melhor) { melhor = dist; r = d.id; }
+  }
+  return r;
+}
+
+/**
+ * Potência (W) das máquinas de um circuito e se tem carga perigosa (≥ 2000 W). `sobrecarga`: a soma para a
+ * conta dos 80 %, sem a placa (simultaneidade) nem o carregador VE (limita a corrente) — como no simulador.
+ */
 function maquinasDe(c) {
   const m = arr(obj(c.itens).maquinas).filter((x) => x && typeof x === "object");
-  return { lista: m, total: m.reduce((s, x) => s + n0(x.potencia_w), 0), perigosa: m.some((x) => n0(x.potencia_w) >= CARGA_PERIGOSA_W) };
+  const semConta = (x) => x.modelo === "placa" || x.modelo === "carregador_ve";
+  return {
+    lista: m, total: m.reduce((s, x) => s + n0(x.potencia_w), 0), perigosa: m.some((x) => n0(x.potencia_w) >= CARGA_PERIGOSA_W),
+    sobrecarga: m.filter((x) => !semConta(x)).reduce((s, x) => s + n0(x.potencia_w), 0),
+  };
 }
 
 // ---------------------------------------------------------------- visualizador
@@ -71,11 +101,14 @@ export function vistaSimulacao(sim, catalogo = {}) {
   if (total && typeof total === "object") estimativa = `${euros(total.min)} – ${euros(total.max)}`;
   else if (numero(total) !== null) estimativa = euros(total);
   const casaTxt = [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null, casa.localidade].filter(Boolean).join(" · ");
+  const kva = numero(casa.potencia_contratada_kva);
+  const instalacaoTxt = `${kva !== null ? `${num(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
 
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ["Casa", casaTxt || "—"],
+      ["Potência contratada e ligação", instalacaoTxt],
       ["Estimativa (c/ IVA)", estimativa],
       ["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"],
       ["Equipamentos", String(nItens)],
@@ -136,13 +169,13 @@ function tabelaCircuitos(circuitos, planta) {
       n0(it.tomadas) ? plural(n0(it.tomadas), "tomada", "tomadas") : null,
       ...m.lista.map((x) => `${MODELOS[x.modelo] ?? x.modelo ?? "Máquina"} ${num(x.potencia_w)} W`),
     ].filter(Boolean).join(", ") || "—";
-    const excesso = amp && m.total > amp * 230 * 0.8;
+    const excesso = amp && m.sobrecarga > Math.round(amp * 230 * 0.8);
     const divs = arr(c.divisoes).map((d) => nomeDivisao(planta, d)).filter(Boolean).join(", ");
     return h("tr", { dataset: { n: String(c.n ?? "") } },
       h("td", { class: "num", "data-rotulo": "N.º", text: String(c.n ?? "—") }),
       h("td", { "data-rotulo": "Circuito" }, h("div", {}, h("span", { text: String(c.nome ?? TIPOS_CIRCUITO[c.tipo] ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [TIPOS_CIRCUITO[c.tipo] ?? c.tipo, divs].filter(Boolean).join(" · ") }))),
       h("td", { class: "num", "data-rotulo": "Disjuntor", text: amp ? `${amp} A` : "—" }),
-      h("td", { "data-rotulo": "Liga" }, h("div", {}, conteudo, excesso ? h("span", { class: "aviso-texto bloco-ajuda", text: `${num(m.total)} W para ${amp} A` }) : null)),
+      h("td", { "data-rotulo": "Liga" }, h("div", {}, conteudo, excesso ? h("span", { class: "aviso-texto bloco-ajuda", text: `${num(m.sobrecarga)} W para ${amp} A` }) : null)),
       h("td", { "data-rotulo": "Inteligente" }, h("span", { class: "linha-selos" },
         c.inteligente ? selo("Inteligente", "orc-aceite") : h("span", { class: "ajuda", text: "Não" }),
         c.medir ? selo("Mede consumo", "info") : null,
@@ -252,10 +285,11 @@ const RE_ID = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 export function slug(s, max = 24) {
   return String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, max).replace(/-+$/, "");
 }
-const nomeLimpo = (s, max = 60) => String(s ?? "").replace(/["\\]/g, "").replace(/^[-\s]+/, "").trim().slice(0, max).trim();
-const canalLimpo = (s) => String(s ?? "").replace(/[:,"\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30).trim();
+// Nomes escritos pelo cliente (divisões, circuitos) vão para os pedidos do domus.sh: sem aspas, "\\", "<" nem ">".
+const nomeLimpo = (s, max = 60) => String(s ?? "").replace(/["\\<>]/g, "").replace(/^[-\s]+/, "").trim().slice(0, max).trim();
+const canalLimpo = (s) => String(s ?? "").replace(/[:,"\\<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30).trim();
 function divisaoLimpa(s) {
-  let t = String(s ?? "").replace(/["\\:,]/g, " ").replace(/\s+/g, " ").replace(/^[-\s]+/, "").trim();
+  let t = String(s ?? "").replace(/["\\:,<>]/g, " ").replace(/\s+/g, " ").replace(/^[-\s]+/, "").trim();
   while (new TextEncoder().encode(t).length > 40) t = t.slice(0, -1).trim();
   return t;
 }
@@ -286,7 +320,8 @@ function tipoArtigo(sku, art) {
 export function aparelhosDaSimulacao(sim, catalogo = {}) {
   const planta = sim?.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : { divisoes: [], elementos: [] };
   const els = planta.elementos;
-  const divDe = (e) => nomeDivisao(planta, e?.divisao);
+  // Sem `divisao` (ou planta antiga): a mesma regra do simulador (portas/janelas até 30 cm fora contam).
+  const divDe = (e) => (e ? nomeDivisao(planta, e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e)) : null);
   const quant = {}; const skus = {};
   const botoesLista = [];
   for (const i of arr(sim?.itens)) {

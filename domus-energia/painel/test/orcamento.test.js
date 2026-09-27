@@ -130,6 +130,37 @@ test('simulação: tipo e tamanho (≤ 1 MB), imagens só JPEG/PNG', async () =>
   assert.equal((await enviar({ ...BASE, simulacao: ok })).estado, 201);
 });
 
+test('simulação: dados da casa (§6) — potência contratada, ligação; tudo opcional na área de cliente', async () => {
+  const antes = contar();
+  const sim = (casa) => ({ versao: 1, casa });
+  for (const kva of [3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7]) {
+    for (const fases of ['mono', 'tri', null]) {
+      const r = await enviar({ ...BASE, nome: `Casa ${kva} ${fases}`, simulacao: sim({ tipo: 'moradia', divisoes: 5, localidade: 'Oeiras', potencia_contratada_kva: kva, fases }) });
+      assert.equal(r.estado, 201, `${kva} kVA ${fases}`);
+    }
+  }
+  // "Não sei" (null) e área de cliente sem o passo "A casa": tipo/divisões em falta.
+  for (const casa of [{ tipo: null, divisoes: null, localidade: null, potencia_contratada_kva: null, fases: null }, {}, { localidade: 'Porto' }, undefined]) {
+    const r = await enviar({ ...BASE, nome: 'Cliente amplia', codigo_cliente: 'joao', simulacao: sim(casa) });
+    assert.equal(r.estado, 201, JSON.stringify(casa));
+  }
+  const d = (await p.pedir('GET', `/painel/api/orcamentos/${p.app.db.prepare("SELECT id FROM orcamentos WHERE nome = 'Casa 10.35 tri'").get().id}`, { cookie: p.cookies.comercial })).json;
+  assert.equal(d.simulacao.casa.potencia_contratada_kva, 10.35);
+  assert.equal(d.simulacao.casa.fases, 'tri');
+  const depois = contar();
+  assert.equal(depois, antes + 28);
+  for (const [casa, re] of [
+    [{ potencia_contratada_kva: 7 }, /potência contratada/], [{ potencia_contratada_kva: '6.9' }, /potência contratada/], [{ potencia_contratada_kva: -1 }, /potência contratada/],
+    [{ fases: 'bifasica' }, /ligação/], [{ fases: 3 }, /ligação/], [{ tipo: 'castelo' }, /tipo/], [{ divisoes: 0 }, /divisões/], [{ divisoes: 2.5 }, /divisões/],
+    [{ localidade: 'L'.repeat(81) }, /localidade/], ['moradia', /objeto/], [[1], /objeto/],
+  ]) {
+    const r = await enviar({ ...BASE, simulacao: sim(casa) });
+    assert.equal(r.estado, 400, JSON.stringify(casa));
+    assert.match(r.json.erro, re);
+  }
+  assert.equal(contar(), depois);
+});
+
 test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10 000 cm, fundo ≤ 700 KB', async () => {
   const antes = contar();
   const planta = (x) => ({ versao: 1, planta: { escala_cm: 50, largura_cm: 2000, altura_cm: 1500, fundo: null, divisoes: [], elementos: [], ...x } });
@@ -177,7 +208,7 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
 
   const pub = await p.pedir('GET', '/api/catalogo', { site: false });
   assert.equal(pub.estado, 200);
-  assert.equal(pub.cabecalhos['cache-control'], 'public, max-age=300');
+  assert.equal(pub.cabecalhos['cache-control'], 'public, max-age=60');
   const skus = pub.json.itens.map((a) => a.sku);
   assert.ok(skus.includes('TONGOU-SY1-JWT') && skus.includes('NOVO-1'));
   assert.ok(!skus.includes('SENS-PIR-WIFI'), 'não visível ao cliente');
