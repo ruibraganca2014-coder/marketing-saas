@@ -5,7 +5,7 @@
 import {
   TIPOS_CASA, TIPOS_CIRCUITO, AMPERES, MODELOS, MAX_DIVISOES,
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
-  avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES,
+  avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
 } from "./regras.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, SKU_SY1, SKU_SY2,
@@ -409,9 +409,14 @@ function desenharAvisosQuadro() {
   g.replaceChildren();
   const todos = avisosQuadro(estado.quadro.circuitos, opcoesAvisos(estado));
   const geral = todos.filter((a) => !a.startsWith("Circuito "));
-  const inteligentes = estado.quadro.circuitos.filter((c) => c.inteligente || c.medir).length;
+  // Mesma contagem que o preço: os circuitos só com "medir" levam sempre o SY1.
+  const d = disjuntoresInteligentes(estado.quadro.circuitos, estado.quadro.disjuntor);
+  const SY2 = "disjuntor TONGOU-SY2-JWT (com proteções)";
+  const SY1 = "disjuntor TONGOU-SY1-JWT (só medição)";
+  const modelos = d.sy2 && d.sy1 ? `: ${d.sy2} com ${SY2} e ${d.sy1} com ${SY1}`
+    : d.total ? `: ${d.sy2 ? SY2 : SY1} em cada um` : "";
   const p = el("p", "ajuda");
-  p.textContent = `${inteligentes} ${inteligentes === 1 ? "circuito inteligente" : "circuitos inteligentes"}: ${estado.quadro.disjuntor === SKU_SY1 ? "disjuntor TONGOU-SY1-JWT (só medição)" : "disjuntor TONGOU-SY2-JWT (com proteções)"} em cada um.`;
+  p.textContent = `${d.total} ${d.total === 1 ? "circuito inteligente" : "circuitos inteligentes"}${modelos}.`;
   g.append(p);
   if (geral.length) {
     const ul = el("ul", "avisos-circuito");

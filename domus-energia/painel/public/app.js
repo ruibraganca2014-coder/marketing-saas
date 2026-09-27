@@ -1,8 +1,8 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio, #/clientes, #/clientes/<codigo>, #/alertas, #/orcamentos, #/orcamentos/<id>,
 // #/obras, #/obras/<id>, #/catalogo, #/pagamentos, #/equipa, #/auditoria.
-import { pedir, aoTerminarSessao, campo, lerPedido, ErroApi } from "./api.js";
-import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse } from "./ui.js";
+import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
+import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
 import clientes from "./ecras/clientes.js";
 import alertas from "./ecras/alertas.js";
@@ -118,7 +118,59 @@ function mostrarPainel() {
   const lista = $("nav-lista");
   lista.replaceChildren(...ECRAS.filter(permitido).map((e) =>
     h("li", {}, h("a", { href: `#/${e.id}`, dataset: { ecra: e.id }, text: e.nome }))));
+  const mudar = h("a", { href: "#", role: "button", "aria-haspopup": "dialog", text: "Mudar palavra-passe" });
+  mudar.addEventListener("click", (e) => { e.preventDefault(); abrirMenu(false); mudarPalavraPasse(); });
+  lista.append(h("li", { class: "nav-conta" }, mudar));
   encaminhar();
+  retomarPedidos();
+}
+
+// A própria pessoa muda a palavra-passe (a conta é criada com uma gerada pelo servidor).
+function mudarPalavraPasse() {
+  const j = janela("Mudar palavra-passe");
+  const msg = h("div", { class: "msg", role: "alert", hidden: true });
+  const f = h("form", { class: "form-grelha", novalidate: true },
+    h("input", { type: "email", name: "utilizador", value: eu.email, autocomplete: "username", hidden: true }),
+    campoForm("Palavra-passe atual", h("input", { name: "atual", type: "password", required: true, autocomplete: "current-password" })),
+    campoForm("Palavra-passe nova", h("input", { name: "nova", type: "password", required: true, minlength: "10", maxlength: "200", autocomplete: "new-password" }), "Pelo menos 10 caracteres."),
+    campoForm("Repita a nova", h("input", { name: "repetir", type: "password", required: true, autocomplete: "new-password" })),
+    h("p", { class: "ajuda", text: "As sessões abertas noutros aparelhos terminam." }),
+    h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Mudar" })),
+    msg);
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const el = f.elements;
+    if (!el.atual.value) { mensagem(msg, "Escreva a palavra-passe atual."); el.atual.focus(); return; }
+    if (el.nova.value.length < 10) { mensagem(msg, "A palavra-passe nova deve ter pelo menos 10 caracteres."); el.nova.focus(); return; }
+    if (el.nova.value !== el.repetir.value) { mensagem(msg, "As duas palavras-passe novas não são iguais."); el.repetir.focus(); return; }
+    const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
+    try {
+      await pedir("eu/senha", { corpo: { atual: el.atual.value, nova: el.nova.value } });
+      j.fechar();
+      avisar("Palavra-passe mudada.");
+    } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
+  });
+  j.corpo.append(f);
+  f.elements.atual.focus();
+}
+
+// Pedidos feitos antes de recarregar a página (ou de sair e voltar a entrar): continua à espera
+// deles, senão a palavra-passe de um cliente novo nunca chega a aparecer. Só os da própria
+// pessoa: ler o resultado apaga-o, e o CEO vê os pedidos de toda a equipa.
+const DESCRICAO_PEDIDO = {
+  cliente: (p) => [`Cliente ${p.cliente}`, p.cliente],
+  aparelho: (p) => [`Aparelho ${p.dados?.id ?? ""} de ${p.cliente}`, `${p.cliente}-${p.dados?.id ?? ""}`],
+  "remover-aparelho": (p) => [`Remover ${p.dados?.id ?? "aparelho"} de ${p.cliente}`],
+  plano: (p) => [`Plano de ${p.cliente}`],
+};
+async function retomarPedidos() {
+  let r;
+  try { r = await pedir("pedidos"); } catch { return; }
+  for (const p of lista(r, "pedidos")) {
+    if (!eu || p.por !== eu.email || !(p.estado === "pendente" || p.resultado_disponivel)) continue;
+    const [descricao, utilizador] = DESCRICAO_PEDIDO[p.tipo]?.(p) ?? [`Pedido ${p.tipo}`];
+    acompanharPedido(p.id, { descricao, utilizador });
+  }
 }
 
 // Menu no telemóvel

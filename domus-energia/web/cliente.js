@@ -307,22 +307,79 @@ function estadoLigacao(ligado) {
   e.classList.toggle("ok", ligado);
 }
 
-// "Lembrar-me": guarda código e palavra-passe só neste navegador.
-function lerLembrar() {
+// "Lembrar-me": guarda código e palavra-passe só neste navegador. A palavra-passe fica cifrada
+// (AES-GCM) com uma chave NÃO exportável guardada no IndexedDB: quem ler ou copiar o
+// localStorage não fica com ela. Não protege de código a correr na própria página.
+const BD_CHAVES = "domus-chaves";
+let versaoLembrar = 0; // "Sair" durante uma gravação em curso ganha sempre
+
+function chaveLembrar(criar) {
+  return new Promise((ok, falha) => {
+    const r = indexedDB.open(BD_CHAVES, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("chaves");
+    r.onerror = () => falha(r.error);
+    r.onsuccess = async () => {
+      const bd = r.result;
+      const pedido = (modo, f) => new Promise((ok2, falha2) => {
+        const p = f(bd.transaction("chaves", modo).objectStore("chaves"));
+        p.onsuccess = () => ok2(p.result);
+        p.onerror = () => falha2(p.error);
+      });
+      try {
+        let chave = await pedido("readonly", (s) => s.get("lembrar"));
+        if (!chave && criar) {
+          chave = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+          await pedido("readwrite", (s) => s.put(chave, "lembrar"));
+        }
+        ok(chave ?? null);
+      } catch (e) {
+        falha(e);
+      } finally {
+        bd.close();
+      }
+    };
+  });
+}
+const paraB64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+const deB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function lerLembrar() {
   try {
     const v = JSON.parse(localStorage.getItem(CHAVE_LEMBRAR));
-    if (v && typeof v.codigo === "string" && typeof v.password === "string") {
-      $("form-login").elements.codigo.value = v.codigo;
-      $("form-login").elements.lembrar.checked = true;
-      return v;
+    if (!v || typeof v.codigo !== "string") return null;
+    $("form-login").elements.codigo.value = v.codigo;
+    let password = null;
+    if (typeof v.cifra === "string" && typeof v.iv === "string") {
+      const chave = await chaveLembrar(false);
+      if (chave) {
+        const texto = await crypto.subtle.decrypt({ name: "AES-GCM", iv: deB64(v.iv) }, chave, deB64(v.cifra));
+        password = new TextDecoder().decode(texto);
+      }
+    } else if (typeof v.password === "string") {
+      password = v.password; // formato antigo, em texto simples: fica cifrado ao entrar
     }
-  } catch {}
-  return null;
+    if (password === null) return null;
+    $("form-login").elements.lembrar.checked = true;
+    return { codigo: v.codigo, password };
+  } catch {
+    return null;
+  }
 }
-function guardarLembrar(cod, password) {
-  try { localStorage.setItem(CHAVE_LEMBRAR, JSON.stringify({ codigo: cod, password })); } catch {}
+async function guardarLembrar(cod, password) {
+  const versao = versaoLembrar;
+  try {
+    const chave = await chaveLembrar(true);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const cifra = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, chave, new TextEncoder().encode(password));
+    if (versao !== versaoLembrar) return;
+    localStorage.setItem(CHAVE_LEMBRAR, JSON.stringify({ codigo: cod, iv: paraB64(iv), cifra: paraB64(cifra) }));
+  } catch {
+    // Sem IndexedDB ou WebCrypto (ex.: navegação privada): não guarda nada.
+    apagarLembrar();
+  }
 }
 function apagarLembrar() {
+  versaoLembrar++;
   try { localStorage.removeItem(CHAVE_LEMBRAR); } catch {}
 }
 
@@ -1137,5 +1194,6 @@ $("ntfy-copiar").addEventListener("click", async () => {
 
 // ---------- Arranque (no fim, depois de tudo estar definido) ----------
 mostrarVista(false);
-const guardado = lerLembrar();
-if (guardado) entrar(guardado.codigo, guardado.password, { lembrar: true, automatico: true });
+lerLembrar().then((guardado) => {
+  if (guardado && !cliente) entrar(guardado.codigo, guardado.password, { lembrar: true, automatico: true });
+});

@@ -194,3 +194,24 @@ test('primeiro arranque: PAINEL_CEO_EMAIL + PAINEL_CEO_PASS criam o CEO (só sem
     await r.fechar();
   }
 });
+
+test('mudar a própria palavra-passe: pede a atual, termina as outras sessões', async () => {
+  const u = await p.criarUtilizador('tecnico', 'muda@domus.teste');
+  const aqui = await p.entrar(u.email);
+  const noutroLado = await p.entrar(u.email);
+  const mudar = (corpo, cookie = aqui) => p.pedir('POST', '/painel/api/eu/senha', { corpo, cookie });
+
+  assert.equal((await mudar({ atual: 'errada-errada', nova: 'nova-senha-longa' })).estado, 400);
+  assert.equal((await mudar({ atual: SENHA, nova: 'curta' })).estado, 400);
+  assert.equal((await mudar({ atual: SENHA, nova: SENHA })).estado, 400);
+  assert.equal((await p.pedir('POST', '/painel/api/eu/senha', { corpo: { atual: SENHA, nova: 'nova-senha-longa' } })).estado, 401);
+
+  const r = await mudar({ atual: SENHA, nova: 'nova-senha-longa' });
+  assert.equal(r.estado, 200);
+  assert.equal((await p.pedir('GET', '/painel/api/eu', { cookie: aqui })).estado, 200, 'esta sessão continua');
+  assert.equal((await p.pedir('GET', '/painel/api/eu', { cookie: noutroLado })).estado, 401, 'as outras terminam');
+  assert.equal((await entrar(u.email, SENHA)).estado, 401);
+  assert.equal((await entrar(u.email, 'nova-senha-longa')).estado, 200);
+  const a = p.app.db.prepare('SELECT * FROM auditoria WHERE acao = \'palavra_passe_mudada\'').get();
+  assert.ok(a && !JSON.stringify(a).includes('nova-senha-longa'));
+});

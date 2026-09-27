@@ -13,7 +13,7 @@ import {
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
 import { ESTADOS_ORCAMENTO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
-import { hashSenha, problemaSenha, gerarSenha } from './senhas.js';
+import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 
@@ -38,6 +38,7 @@ export const ROTAS = [
   ['POST', 'entrar', 'publico', 'entrar'],
   ['POST', 'sair', 'publico', 'sair'],
   ['GET', 'eu', TODOS, 'eu'],
+  ['POST', 'eu/senha', TODOS, 'mudarSenha'],
   ['GET', 'resumo', TODOS, 'resumo'],
   ['GET', 'clientes', TODOS, 'clientes'],
   ['GET', 'clientes/:c', TODOS, 'cliente'],
@@ -282,6 +283,27 @@ export function criarApi(ctx) {
   h.eu = ({ res, u }) => responder(res, 200, {
     utilizador: { id: u.id, nome: u.nome, email: u.email, papel: u.papel }, sessao_expira: u.sessaoExpira,
   });
+
+  // A própria pessoa muda a palavra-passe (a que o CEO lhe entregou ao criar a conta).
+  // Pede a atual; as outras sessões terminam, esta continua.
+  h.mudarSenha = async ({ req, res, u, ip }) => {
+    const v = await lerJson(req, ['atual', 'nova']);
+    const espera = auth.porEmail.espera(u.email);
+    if (espera) throw new ErroApi(429, `Demasiadas tentativas. Tente de novo dentro de ${espera} s.`, { 'Retry-After': String(espera) });
+    if (typeof v.atual !== 'string' || !v.atual) falha('Indique a palavra-passe atual.');
+    const atual = db.prepare('SELECT hash FROM utilizadores WHERE id = ?').get(u.id);
+    if (!(await verificarSenha(v.atual, atual?.hash))) {
+      auth.porEmail.registar(u.email);
+      falha('A palavra-passe atual está errada.');
+    }
+    const prob = problemaSenha(v.nova);
+    if (prob) falha(prob);
+    if (v.nova === v.atual) falha('A palavra-passe nova tem de ser diferente da atual.');
+    db.prepare('UPDATE utilizadores SET hash = ?, atualizado = ? WHERE id = ?').run(await hashSenha(v.nova), agoraIso(), u.id);
+    db.prepare('DELETE FROM sessoes WHERE utilizador_id = ? AND id != ?').run(u.id, u.sessao);
+    auditar(u, 'palavra_passe_mudada', `utilizador:${u.id}`, null, ip);
+    responder(res, 200, { ok: true });
+  };
 
   h.resumo = async ({ res, u }) => {
     const hoje = diaLisboa(new Date(relogio()));

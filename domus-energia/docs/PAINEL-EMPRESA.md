@@ -30,6 +30,7 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 | Método e caminho | Papéis | O quê |
 |---|---|---|
 | `GET eu` | todos | utilizador atual e papel |
+| `POST eu/senha` | todos | mudar a própria palavra-passe (pede a atual; termina as outras sessões) |
 | `GET resumo` | todos (conteúdo por papel) | CEO: clientes por plano/estado, receita recorrente mensal (soma dos planos ativos s/ IVA), recebido este mês (CSV), pedidos novos, obras da semana, alertas críticos; técnico: as suas obras de hoje/semana + alertas; comercial: pedidos por estado + visitas da semana |
 | `GET clientes` / `GET clientes/:c` | todos (financeiro só CEO) | lista e ficha: plano, estado, próximo pagamento, n.º aparelhos, alertas, obras, pedido de orçamento de origem |
 | `POST clientes` | ceo, comercial | pede criação (`{codigo, nome, contacto, localidade}`) → pedido-admin |

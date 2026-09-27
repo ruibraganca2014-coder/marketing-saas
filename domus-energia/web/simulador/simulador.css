@@ -68,6 +68,11 @@ input, select { min-height: 44px; }
 .ferramenta:hover { border-color: var(--musgo); }
 .ferramenta[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
+/* Botões por tipo de divisão: mais baixos, ícone ao lado do nome. */
+.editor-divisoes { align-items: center; }
+.editor-barra-rotulo { flex: none; font-weight: 700; font-size: .85rem; color: var(--texto-suave); padding-right: 2px; }
+.ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; white-space: nowrap; }
+.ferramenta.tipo-divisao svg { width: 20px; height: 20px; }
 .editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .editor-barra2 .btn { min-width: 44px; }
 /* Altura reservada: a dica muda de tamanho a cada ação e a planta, por baixo, não pode saltar

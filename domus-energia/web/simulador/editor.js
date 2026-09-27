@@ -7,7 +7,7 @@
 
 import { desenharPlanta, desenharIcone } from "./planta-svg.js";
 import {
-  ELEMENTOS, TIPOS_ELEMENTO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
+  ELEMENTOS, TIPOS_ELEMENTO, TIPOS_DIVISAO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
   propsOmissao, atualizarDivisoes, divisaoDoElemento,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
@@ -82,7 +82,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
-  let modo = null;            // null | {tipo: "divisao"} | {tipo: "elemento", el: "tomada"} | {tipo: "calibrar", pontos: []}
+  let modo = null;            // null | {tipo: "divisao", div: "Quarto"} | {tipo: "elemento", el: "tomada"} | {tipo: "calibrar", pontos: []}
   let arrasto = null;
   let desfazer = [];
   let refazer = [];
@@ -95,21 +95,30 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   raiz.replaceChildren();
   raiz.classList.add("editor");
 
+  // Um botão por tipo de divisão: o nome fica logo certo (Quarto 1, Quarto 2, Sala…).
+  const barraDiv = el("div", "editor-barra editor-divisoes");
+  barraDiv.setAttribute("role", "toolbar");
+  barraDiv.setAttribute("aria-label", "Desenhar divisão");
+  barraDiv.append(el("span", "editor-barra-rotulo", "Divisões:"));
+  const ferramentas = {};
+  for (const t of TIPOS_DIVISAO) {
+    const b = botao("", "ferramenta tipo-divisao");
+    b.dataset.ferramenta = `div:${t.nome}`;
+    b.setAttribute("aria-pressed", "false");
+    const ic = svgEl("svg");
+    ic.setAttribute("viewBox", "0 0 48 48");
+    ic.setAttribute("aria-hidden", "true");
+    const r = svgEl("rect");
+    for (const [k, v] of Object.entries({ x: 9, y: 11, width: 30, height: 26, rx: 3, fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-dasharray": "5 3" })) r.setAttribute(k, v);
+    ic.append(r);
+    b.append(ic, el("span", null, t.nome));
+    ferramentas[`div:${t.nome}`] = b;
+    barraDiv.append(b);
+  }
+
   const barra = el("div", "editor-barra");
   barra.setAttribute("role", "toolbar");
   barra.setAttribute("aria-label", "Pôr na planta");
-  const bDivisao = botao("", "ferramenta");
-  bDivisao.dataset.ferramenta = "divisao";
-  bDivisao.setAttribute("aria-pressed", "false");
-  const icDiv = svgEl("svg");
-  icDiv.setAttribute("viewBox", "0 0 48 48");
-  icDiv.setAttribute("aria-hidden", "true");
-  const r = svgEl("rect");
-  for (const [k, v] of Object.entries({ x: 9, y: 11, width: 30, height: 26, rx: 3, fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-dasharray": "5 3" })) r.setAttribute(k, v);
-  icDiv.append(r);
-  bDivisao.append(icDiv, el("span", null, "Divisão"));
-  barra.append(bDivisao);
-  const ferramentas = { divisao: bDivisao };
   for (const t of TIPOS_ELEMENTO) {
     const b = botao("", "ferramenta");
     b.dataset.ferramenta = t;
@@ -193,7 +202,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
 
   lado.append(props, fundoSec, tamSec, listaSec);
   const principal = el("div", "editor-principal");
-  principal.append(barra, barra2, dica, selecao, area, ajudaTeclado);
+  principal.append(barraDiv, barra, barra2, dica, selecao, area, ajudaTeclado);
   raiz.append(principal, lado);
 
   // ---------------------------------------------------------------- vista
@@ -270,16 +279,27 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   }
 
   // ---------------------------------------------------------------- ações
-  function nomeNovaDivisao() {
+  const tipoDivisao = (nome) => TIPOS_DIVISAO.find((t) => t.nome === nome);
+  function nomeNovaDivisao(div) {
     const usados = new Set(planta.divisoes.map((d) => d.nome));
-    return NOMES_DIVISAO.find((n) => !usados.has(n)) ?? `Divisão ${planta.divisoes.length + 1}`;
+    const t = tipoDivisao(div);
+    if (!t || t.nome === "Outra") {
+      for (let n = planta.divisoes.length + 1; ; n++) if (!usados.has(`Divisão ${n}`)) return `Divisão ${n}`;
+    }
+    if (!t.numerar && !usados.has(t.nome)) return t.nome;
+    for (let n = t.numerar ? 1 : 2; ; n++) if (!usados.has(`${t.nome} ${n}`)) return `${t.nome} ${n}`;
+  }
+  /** Divisão com o tamanho típico do tipo, centrada em (x, y). */
+  function adicionarDivisaoEm(div, x, y) {
+    const t = tipoDivisao(div) ?? { w: 400, h: 300 };
+    return adicionarDivisao(x - t.w / 2, y - t.h / 2, t.w, t.h, div);
   }
 
-  function adicionarDivisao(x, y, w, h) {
+  function adicionarDivisao(x, y, w, h, div) {
     if (planta.divisoes.length >= MAX_DIVISOES) { avisar(`A planta já tem o máximo de ${MAX_DIVISOES} divisões.`); return null; }
     memorizar();
     const d = {
-      id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(),
+      id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(div),
       x_cm: limitar(ajustar(x, ESCALA_CM), 0, planta.largura_cm - ESCALA_CM),
       y_cm: limitar(ajustar(y, ESCALA_CM), 0, planta.altura_cm - ESCALA_CM),
       largura_cm: Math.max(ESCALA_CM, ajustar(w, ESCALA_CM)),
@@ -367,11 +387,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   function definirModo(m) {
     modo = m;
     for (const [k, b] of Object.entries(ferramentas)) {
-      b.setAttribute("aria-pressed", String(!!m && ((m.tipo === "divisao" && k === "divisao") || (m.tipo === "elemento" && m.el === k))));
+      b.setAttribute("aria-pressed", String(!!m && ((m.tipo === "divisao" && k === `div:${m.div}`) || (m.tipo === "elemento" && m.el === k))));
     }
     svg.classList.toggle("a-colocar", !!m);
     if (!m) dica.textContent = "Toque numa ferramenta e depois na planta. Arraste para deslocar; dois dedos ou a roda do rato para aproximar.";
-    else if (m.tipo === "divisao") dica.textContent = "Arraste na planta para desenhar a divisão (ou toque para uma de 4 × 3 m). Esc cancela.";
+    else if (m.tipo === "divisao") {
+      const t = tipoDivisao(m.div) ?? { w: 400, h: 300 };
+      dica.textContent = `Arraste na planta para desenhar: ${m.div === "Outra" ? "divisão" : m.div} (ou toque para uma de ${metros(t.w)} × ${metros(t.h)} m). Esc cancela.`;
+    }
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${ELEMENTOS[m.el].nome}. Esc cancela.`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     previsao = null;
@@ -386,12 +409,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       if (ev.detail === 0) {
         const c = centroColocacao();
         definirModo(null);
-        if (k === "divisao") adicionarDivisao(c.x - 200, c.y - 150, 400, 300);
+        if (k.startsWith("div:")) adicionarDivisaoEm(k.slice(4), c.x, c.y);
         else adicionarElemento(k, c.x, c.y);
         svg.focus({ preventScroll: true });
         return;
       }
-      definirModo(k === "divisao" ? { tipo: "divisao" } : { tipo: "elemento", el: k });
+      definirModo(k.startsWith("div:") ? { tipo: "divisao", div: k.slice(4) } : { tipo: "elemento", el: k });
     });
   }
   bDesfazer.addEventListener("click", anular);
@@ -516,9 +539,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     }
     if (a.tipo === "desenhar") {
       const pv = previsao;
+      const div = modo?.div;
       definirModo(null);
-      if (a.mexeu && pv && pv.w >= ESCALA_CM && pv.h >= ESCALA_CM) adicionarDivisao(pv.x, pv.y, pv.w, pv.h);
-      else adicionarDivisao(p.x - 200, p.y - 150, 400, 300);
+      if (a.mexeu && pv && pv.w >= ESCALA_CM && pv.h >= ESCALA_CM) adicionarDivisao(pv.x, pv.y, pv.w, pv.h, div);
+      else adicionarDivisaoEm(div, p.x, p.y);
       return;
     }
     if (a.tipo === "deslocar") {
@@ -774,7 +798,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const e = obterElemento(selecionado);
     if (!d && !e) {
       titulo.textContent = "Nada selecionado";
-      props.append(el("p", "ajuda", "Toque numa divisão ou num elemento para o editar. Para começar, escolha \"Divisão\" e desenhe a sala."));
+      props.append(el("p", "ajuda", "Toque numa divisão ou num elemento para o editar. Para começar, escolha o tipo de divisão (Sala, Quarto…) e toque ou desenhe na planta."));
       return;
     }
     const acoes = el("div", "form-botoes editor-mover");

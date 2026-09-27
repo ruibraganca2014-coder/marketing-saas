@@ -18,7 +18,7 @@ export default function equipa(el, ctx) {
 
   const resultado = (r, quem) => {
     const senha = palavraPasse(r);
-    if (senha) mostrarPalavraPasse(`Palavra-passe de ${quem}`, senha, { utilizador: quem, texto: "Entregue-a pessoalmente. A pessoa deve mudá-la no primeiro acesso." });
+    if (senha) mostrarPalavraPasse(`Palavra-passe de ${quem}`, senha, { utilizador: quem, texto: "Entregue-a pessoalmente. A pessoa deve mudá-la no primeiro acesso, em “Mudar palavra-passe” no menu." });
     else if (idPedido(r, { solto: false })) ctx.acompanharPedido(idPedido(r, { solto: false }), { descricao: `Conta ${quem}`, utilizador: quem });
   };
 

@@ -13,6 +13,7 @@ const TODOS = [C, T, M];
 // [método, caminho de teste, papéis com acesso, corpo]
 const MATRIZ = [
   ['GET', 'eu', TODOS],
+  ['POST', 'eu/senha', TODOS, {}],
   ['GET', 'resumo', TODOS],
   ['GET', 'clientes', TODOS],
   ['GET', 'clientes/joao', TODOS],

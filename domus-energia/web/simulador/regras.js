@@ -70,6 +70,24 @@ export const MODELOS = {
   outro: { nome: "Outra máquina", w: 1000 },
 };
 
+/**
+ * Botões "Desenhar divisão" do passo 2: nome e tamanho quando se toca sem arrastar (cm).
+ * `numerar`: o primeiro já leva número (Quarto 1, Quarto 2…); os outros só a partir do segundo (Sala, Sala 2).
+ */
+export const TIPOS_DIVISAO = [
+  { nome: "Sala", w: 500, h: 400 },
+  { nome: "Quarto", w: 350, h: 300, numerar: true },
+  { nome: "Cozinha", w: 350, h: 300 },
+  { nome: "Casa de banho", w: 250, h: 200 },
+  { nome: "Corredor", w: 400, h: 150 },
+  { nome: "Entrada", w: 200, h: 200 },
+  { nome: "Escritório", w: 300, h: 300 },
+  { nome: "Lavandaria", w: 200, h: 200 },
+  { nome: "Garagem", w: 500, h: 300 },
+  { nome: "Varanda", w: 300, h: 150 },
+  { nome: "Outra", w: 400, h: 300 },
+];
+
 export const NOMES_DIVISAO = ["Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Exterior"];
 
 const nf = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 0 });
