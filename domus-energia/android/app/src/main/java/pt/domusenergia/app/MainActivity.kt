@@ -19,9 +19,13 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import pt.domusenergia.app.data.Planos
+import pt.domusenergia.app.notificacoes.Fcm
 import pt.domusenergia.app.ui.App
 import pt.domusenergia.app.ui.DevicesViewModel
 import pt.domusenergia.app.ui.LocalPlataforma
@@ -89,9 +93,17 @@ class MainActivity : ComponentActivity() {
         val animacoes = ValueAnimator.areAnimatorsEnabled()
         setContent {
             val state by vm.state.collectAsStateWithLifecycle()
-            // Só pede para mostrar notificações se o plano as incluir (Conforto ou Premium).
+            // Só pede para mostrar notificações se o plano as incluir (Conforto ou Premium) e se houver
+            // Firebase: as notificações só chegam pelo FCM (DomusMessagingService); sem ele não há o que mostrar.
+            // Pede no máximo uma vez por sessão (rememberSaveable sobrevive a rodar o ecrã).
             val comNotificacoes = state.estado.permite(Planos.NOTIFICACOES)
-            LaunchedEffect(state.loggedIn, comNotificacoes) { if (state.loggedIn && comNotificacoes) pedirPermissaoNotificacoes() }
+            var jaPedimos by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(state.loggedIn, comNotificacoes) {
+                if (state.loggedIn && comNotificacoes && !jaPedimos && Fcm.disponivel(this@MainActivity)) {
+                    jaPedimos = true
+                    pedirPermissaoNotificacoes()
+                }
+            }
             DomusTema(
                 escuro = isSystemInDarkTheme(),
                 titulos = Fontes.titulos,

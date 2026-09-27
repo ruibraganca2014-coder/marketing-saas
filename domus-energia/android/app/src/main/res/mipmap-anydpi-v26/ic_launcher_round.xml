@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícone adaptativo (minSdk 26, não precisa de PNG por densidade): fundo musgo, casa e raio em creme. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/musgo" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <!-- Ícones temáticos (Android 13+): o sistema pinta a mesma forma. -->
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

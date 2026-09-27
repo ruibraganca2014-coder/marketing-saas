@@ -1,5 +1,6 @@
 package pt.domusenergia.app.ui
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -149,6 +150,8 @@ fun porDivisao(aparelhos: List<Aparelho>): List<Pair<String?, List<Aparelho>>> {
 }
 
 /** "Agora" a cada segundo (só enquanto [ativo]), para as contagens do alarme. */
+// Falso positivo do lint: o value é atribuído dentro do bloco do produceState.
+@SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun agoraAoSegundo(ativo: Boolean): Instant {
     val agora by produceState(Instant.now(), ativo) {
