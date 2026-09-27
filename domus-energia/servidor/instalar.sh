@@ -9,8 +9,10 @@
 # Corre como root (ou com sudo). Pode ser corrido de novo: não apaga nada, não
 # muda o .env existente e só cria o que falta.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/claude/kind-babbage-gdmaij/domus-energia/servidor/instalar.sh \
-#     | sudo bash -s -- --email ceo@exemplo.pt
+#   BRANCH=claude/kind-babbage-gdmaij     # depois do merge para master: BRANCH=master
+#   curl -fsSL "https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/$BRANCH/domus-energia/servidor/instalar.sh" \
+#     | sudo bash -s -- --branch "$BRANCH" --email ceo@exemplo.pt
+#   (Debian só com root, sem sudo: "| bash -s -- ..." em vez de "| sudo bash -s -- ...")
 #   sudo bash instalar.sh --email ceo@exemplo.pt       (a partir de um clone)
 #   sudo bash instalar.sh --atualizar                  (atualizar mais tarde)
 #   bash instalar.sh --simular --host 51-38-10-20.sslip.io  (ensaio: não muda nada)
@@ -18,6 +20,8 @@
 set -euo pipefail
 
 REPO_OMISSAO="https://github.com/ruibraganca2014-coder/marketing-saas.git"
+# Branch por omissão (o único sítio deste script onde está escrito). Depois de
+# fazer merge para master, trocar aqui e o BRANCH= do comando nos README.
 BRANCH_OMISSAO="claude/kind-babbage-gdmaij"
 DIR_OMISSAO="/opt/domus"
 UID_SERVICOS=1000                 # utilizador "node" dos contentores (motor, pagamentos, painel)
@@ -36,6 +40,11 @@ SEM_PERGUNTAS=0
 SERV=""                           # <repositório>/domus-energia/servidor
 CEO_SENHA=""                      # palavra-passe gerada (mostrada uma única vez)
 HTTPS_OK=0
+SERVICOS_FALTA=""                 # serviços que não arrancaram (vazio = todos a correr)
+ESPERA_APT_S=600                  # espera máxima pelo cloud-init e pelos cadeados do apt
+APT_CADEADOS="/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock"
+RE_PASTA='^[A-Za-z0-9/._-]+$'
+RE_HOST='^[A-Za-z0-9.-]+$'
 
 # -----------------------------------------------------------------------------
 # Mensagens
@@ -50,8 +59,9 @@ ajuda() {
 Instala (ou atualiza) o servidor Domus Energia neste VPS.
 
 Uso:
-  curl -fsSL <raw>/domus-energia/servidor/instalar.sh | sudo bash -s -- [opções]
+  curl -fsSL <raw>/<branch>/domus-energia/servidor/instalar.sh | sudo bash -s -- --branch <branch> [opções]
   sudo bash instalar.sh [opções]
+  (Debian só com root: "| bash -s -- ..." sem sudo)
 
 Opções:
   --host NOME       DOMUS_HOST (ex.: 51-38-10-20.sslip.io ou mqtt.domusenergia.pt).
@@ -67,7 +77,9 @@ Opções:
                     falta, serviços (docker compose up -d --build) e
                     temporizadores. Exige uma instalação feita.
   --simular         ensaio: mostra o que faria, sem instalar nem mudar nada
-  -y, --sim         não faz perguntas (aceita o endereço proposto)
+                    (faz as mesmas perguntas, se houver terminal)
+  -y, --sim         não faz perguntas (aceita o endereço proposto; sem
+                    terminal, por ex. num script, também não pergunta)
   -h, --help        esta ajuda
 
 Pode ser corrido de novo sem perigo: o .env existente nunca é alterado, os
@@ -94,13 +106,20 @@ senha_legivel() {
   printf '%s' "${s:0:$1}"
 }
 
-# Pergunta no terminal (mesmo com "curl | bash"). <pergunta> <valor proposto>
+# Há um terminal onde perguntar? (/dev/tty abre para ler e escrever; falha
+# sem terminal de controlo, ex. em cron ou ssh sem -t.)
+ha_terminal() { { : </dev/tty && : >/dev/tty; } 2>/dev/null; }
+
+# Pergunta no terminal. É chamada dentro de $(...) e, com "curl | bash", o
+# stdin é o próprio script: por isso escreve e lê diretamente em /dev/tty.
+# Imprime a resposta (ou o valor proposto). <pergunta> <valor proposto>
 perguntar() {
   local r=""
-  if (( SEM_PERGUNTAS || SIMULAR )) || [[ ! -t 1 ]] || ! { : </dev/tty; } 2>/dev/null; then
+  if (( SEM_PERGUNTAS )) || ! ha_terminal; then
     printf '%s' "$2"; return 0
   fi
-  read -r -p "    $1 [$2]: " r </dev/tty || true
+  printf '    %s [%s]: ' "$1" "$2" >/dev/tty
+  read -r r </dev/tty || true      # (sem IFS= : tira os espaços nas pontas)
   printf '%s' "${r:-$2}"
 }
 
@@ -123,6 +142,22 @@ g_dono() {
   else
     correr git "$@"
   fi
+}
+
+# DOMUS_HOST vai para URLs, para o config.js do site e para o .env: só letras,
+# dígitos, "." e "-". <valor> <origem>
+validar_host() {
+  [[ "$1" =~ $RE_HOST && "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] \
+    || erro "$2 inválido: '$1' (só letras, dígitos, '.' e '-')"
+}
+
+# A pasta vai para os ficheiros do systemd (sed) e para comandos: sem espaços
+# nem outros caracteres especiais. A simular (ex. num clone no Windows) só avisa.
+validar_pasta() { # <pasta> <origem>
+  [[ "$1" == /* && "$1" =~ $RE_PASTA ]] && return 0
+  local msg="$2 inválida: '$1' (caminho absoluto só com letras, dígitos, '/', '.', '_' e '-')"
+  if (( SIMULAR )); then aviso "$msg (a simular, continua)"; return 0; fi
+  erro "$msg"
 }
 
 validar_email() {
@@ -157,7 +192,8 @@ ler_opcoes() {
     shift
   done
   HOST="${HOST,,}"
-  if [[ -n "$HOST" && ! "$HOST" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]]; then erro "--host inválido: '$HOST'"; fi
+  if [[ -n "$HOST" ]]; then validar_host "$HOST" "--host"; fi
+  if [[ -n "$DIR" ]]; then validar_pasta "$DIR" "--dir"; fi
   validar_email
   [[ -n "$REPO" && -n "$BRANCH" ]] || erro "--repo e --branch não podem ficar vazios"
   [[ "$BRANCH" != -* ]] || erro "--branch inválido: '$BRANCH'"
@@ -187,14 +223,55 @@ verificar_so() {
   erro "sistema '${id:-desconhecido} $ver' não suportado. Use Ubuntu 22.04/24.04 ou Debian 12."
 }
 
+# Algum dos cadeados do apt/dpkg está em uso? O dpkg usa locks fcntl (o flock
+# não os vê): com o fuser (psmisc) vê-se quem tem o ficheiro aberto; sem ele,
+# procura-se o inode do ficheiro em /proc/locks. <ficheiro>...
+cadeado_ocupado() {
+  local f ino
+  for f in "$@"; do
+    [[ -e "$f" ]] || continue
+    if tem fuser; then
+      fuser "$f" >/dev/null 2>&1 && return 0
+      continue
+    fi
+    ino="$(stat -c %i "$f" 2>/dev/null)" || continue
+    grep -q ":$ino " /proc/locks 2>/dev/null && return 0
+  done
+  return 1
+}
+
+# Num VPS acabado de criar o cloud-init e o unattended-upgrades seguram o
+# cadeado do dpkg durante minutos: o apt-get (e o get.docker.com) falhariam.
+esperar_apt() {
+  if (( SIMULAR )); then
+    info "[simular] esperar pelo cloud-init (cloud-init status --wait) e pelos cadeados do apt/dpkg (até $((ESPERA_APT_S / 60)) min)"
+    return 0
+  fi
+  if tem cloud-init; then
+    info "a esperar que o cloud-init termine (até $((ESPERA_APT_S / 60)) min)..."
+    timeout "$ESPERA_APT_S" cloud-init status --wait >/dev/null 2>&1 \
+      || aviso "o cloud-init não terminou bem ou demorou demasiado (continua)"
+  fi
+  local t=0 avisado=0
+  # shellcheck disable=SC2086
+  while cadeado_ocupado $APT_CADEADOS; do
+    if (( ! avisado )); then info "À espera que o sistema termine as atualizações automáticas…"; avisado=1; fi
+    (( t < ESPERA_APT_S )) || erro "o apt continua ocupado ao fim de $((ESPERA_APT_S / 60)) min (veja: ps aux | grep -E 'apt|dpkg'); corra de novo mais tarde"
+    sleep 5; t=$((t + 5))
+  done
+  (( ! avisado )) || info "o apt está livre"
+}
+
 instalar_pacotes() {
   passo "Pacotes (git, curl, openssl) e Docker"
   local falta=() p
+  local apt=(env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=300)
   for p in git curl openssl flock; do tem "$p" || falta+=("$p"); done
   if (( ${#falta[@]} )); then
     info "a instalar: ${falta[*]}"
-    correr env DEBIAN_FRONTEND=noninteractive apt-get update -q
-    correr env DEBIAN_FRONTEND=noninteractive apt-get install -y -q ca-certificates curl git openssl util-linux
+    esperar_apt
+    correr "${apt[@]}" update -q
+    correr "${apt[@]}" install -y -q ca-certificates curl git openssl util-linux
   else
     info "git, curl e openssl já instalados"
   fi
@@ -202,10 +279,19 @@ instalar_pacotes() {
     info "Docker já instalado ($(docker compose version --short 2>/dev/null || echo compose))"
   else
     info "a instalar o Docker (script oficial get.docker.com)"
+    esperar_apt
     if (( SIMULAR )); then
       correr sh -c "curl -fsSL https://get.docker.com | sh"
     else
-      curl -fsSL https://get.docker.com | sh
+      # O get.docker.com corre o apt-get por dentro: APT_CONFIG dá-lhe também
+      # a espera pelo cadeado (o apt lê este ficheiro primeiro e depois, como
+      # sempre, o apt.conf.d/ e o apt.conf).
+      local conf
+      conf="$(mktemp)"
+      printf 'DPkg::Lock::Timeout "300";\n' > "$conf"
+      chmod 644 "$conf"
+      curl -fsSL https://get.docker.com | APT_CONFIG="$conf" sh || { rm -f "$conf"; erro "a instalação do Docker falhou (ver as mensagens acima)"; }
+      rm -f "$conf"
     fi
   fi
   correr systemctl enable --now docker
@@ -227,6 +313,7 @@ escolher_pasta() {
   fi
   DIR="${DIR:-$DIR_OMISSAO}"
   SERV="$DIR/domus-energia/servidor"
+  validar_pasta "$SERV" "pasta do servidor"
 }
 
 obter_codigo() {
@@ -273,6 +360,7 @@ escolher_host() {
     if [[ -n "$HOST" && "$HOST" != "$env_host" ]]; then
       aviso "o .env já tem DOMUS_HOST=$env_host e não é alterado (para mudar: edite $SERV/.env e corra de novo)"
     fi
+    validar_host "$env_host" "DOMUS_HOST do $SERV/.env"
     HOST="$env_host"
     info "$HOST (do .env)"
     return 0
@@ -286,7 +374,7 @@ escolher_host() {
     fi
     HOST="$(perguntar "Endereço do servidor" "${ip//./-}.sslip.io")"
     HOST="${HOST,,}"
-    [[ "$HOST" =~ ^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$ ]] || erro "endereço inválido: '$HOST'"
+    validar_host "$HOST" "endereço"
   fi
   info "$HOST"
   if [[ "$HOST" != *.sslip.io ]]; then
@@ -315,15 +403,17 @@ criar_env() {
   local tmp
   tmp="$(mktemp "$SERV/.env.XXXXXX")"
   chmod 600 "$tmp"
-  awk -v host="$HOST" \
-      -v motor="$(segredo 16)" -v ntfy="$(segredo 16)" -v pag="$(segredo 16)" \
-      -v painel="$(segredo 16)" -v sessao="$(segredo 32)" '
-    /^DOMUS_HOST=/           { print "DOMUS_HOST=" host; next }
-    /^MOTOR_MQTT_PASS=/      { print "MOTOR_MQTT_PASS=" motor; next }
-    /^NTFY_MOTOR_PASS=/      { print "NTFY_MOTOR_PASS=" ntfy; next }
-    /^PAGAMENTOS_MQTT_PASS=/ { print "PAGAMENTOS_MQTT_PASS=" pag; next }
-    /^PAINEL_MQTT_PASS=/     { print "PAINEL_MQTT_PASS=" painel; next }
-    /^SESSAO_SEGREDO=/       { print "SESSAO_SEGREDO=" sessao; next }
+  # Os segredos passam pelo ambiente (ENVIRON), não por argumentos: estes
+  # aparecem no "ps" a qualquer utilizador; o ambiente só o root o lê.
+  E_HOST="$HOST" \
+  E_MOTOR="$(segredo 16)" E_NTFY="$(segredo 16)" E_PAG="$(segredo 16)" \
+  E_PAINEL="$(segredo 16)" E_SESSAO="$(segredo 32)" awk '
+    /^DOMUS_HOST=/           { print "DOMUS_HOST=" ENVIRON["E_HOST"]; next }
+    /^MOTOR_MQTT_PASS=/      { print "MOTOR_MQTT_PASS=" ENVIRON["E_MOTOR"]; next }
+    /^NTFY_MOTOR_PASS=/      { print "NTFY_MOTOR_PASS=" ENVIRON["E_NTFY"]; next }
+    /^PAGAMENTOS_MQTT_PASS=/ { print "PAGAMENTOS_MQTT_PASS=" ENVIRON["E_PAG"]; next }
+    /^PAINEL_MQTT_PASS=/     { print "PAINEL_MQTT_PASS=" ENVIRON["E_PAINEL"]; next }
+    /^SESSAO_SEGREDO=/       { print "SESSAO_SEGREDO=" ENVIRON["E_SESSAO"]; next }
     { print }
   ' "$SERV/.env.example" > "$tmp"
   local k
@@ -353,19 +443,10 @@ preparar_pastas() {
 }
 
 # config.js do site com o endereço MQTT deste servidor (servido pelo Caddy no
-# lugar do web/config.js, sem mexer no código do git).
+# lugar do web/config.js, sem mexer no código do git): ./domus.sh config-site.
 gerar_config_site() {
   passo "config.js do site (wss://$HOST/mqtt)"
-  local orig="$DIR/domus-energia/web/config.js" dest="$SERV/config-site/config.js"
-  if (( SIMULAR )); then
-    info "[simular] $orig -> $dest (SEU-SERVIDOR -> $HOST)"
-    return 0
-  fi
-  mkdir -p "$SERV/config-site"
-  sed "s#wss://SEU-SERVIDOR/mqtt#wss://$HOST/mqtt#" "$orig" > "$dest.novo"
-  chmod 644 "$dest.novo"
-  mv -f "$dest.novo" "$dest"
-  info "$dest"
+  correr ./domus.sh config-site
 }
 
 abrir_firewall() {
@@ -424,7 +505,8 @@ esperar_servicos() { # <segundos> <serviço>...
     [[ -z "$falta" ]] && return 0
     sleep 2
   done
-  aviso "ao fim de ${limite}s ainda não estão a correr:$falta (veja: cd $SERV && docker compose logs$falta)"
+  aviso "ao fim de ${limite}s ainda não estão a correr:$falta (veja: cd $SERV && sudo docker compose logs$falta)"
+  SERVICOS_FALTA="${falta# }"
   return 1
 }
 
@@ -479,11 +561,11 @@ arrancar() {
     info "a pedir o certificado HTTPS (até 3 minutos)..."
     local t
     for (( t = 0; t < 180; t += 5 )); do
-      if curl -fsS -o /dev/null --max-time 5 "https://$HOST/"; then HTTPS_OK=1; break; fi
+      if curl -fs -o /dev/null --max-time 5 "https://$HOST/" 2>/dev/null; then HTTPS_OK=1; break; fi
       sleep 5
     done
     if (( HTTPS_OK )); then info "https://$HOST/ responde"; else
-      aviso "https://$HOST/ ainda não responde: portas 80/443 abertas no fornecedor? DNS? (docker compose logs caddy)"
+      aviso "https://$HOST/ ainda não responde: portas 80/443 abertas no fornecedor? DNS? (sudo docker compose logs caddy)"
     fi
   fi
 }
@@ -516,8 +598,23 @@ criar_ceo() {
 }
 
 resumo() {
-  local linha="============================================================================="
-  printf '\n%s\n Domus Energia instalada%s\n%s\n' "$linha" "$( (( SIMULAR )) && printf ' (SIMULAÇÃO: nada foi alterado)')" "$linha"
+  local linha="=============================================================================" titulo="Domus Energia instalada"
+  (( ! ATUALIZAR )) || titulo="Domus Energia atualizada"
+  [[ -z "$SERVICOS_FALTA" ]] || titulo="Domus Energia: INSTALAÇÃO INCOMPLETA (serviços parados: $SERVICOS_FALTA)"
+  printf '\n%s\n %s%s\n%s\n' "$linha" "$titulo" "$( (( SIMULAR )) && printf ' (SIMULAÇÃO: nada foi alterado)')" "$linha"
+  if [[ -n "$SERVICOS_FALTA" ]]; then
+    cat <<EOF
+ ATENÇÃO: estes serviços não arrancaram: $SERVICOS_FALTA
+ Diagnóstico:
+   cd $SERV
+   sudo docker compose ps                       # estado de cada serviço
+   sudo docker compose logs --tail 50 $SERVICOS_FALTA
+   free -h && df -h /                           # memória e disco
+ Depois de corrigir, corra de novo o instalador (não apaga nada):
+   sudo bash $SERV/instalar.sh --atualizar
+$linha
+EOF
+  fi
   cat <<EOF
  Site ................ https://$HOST/
  Área de cliente ..... https://$HOST/cliente.html
@@ -552,8 +649,10 @@ EOF
   4. App Android: MQTT_HOST = $HOST (android/app/build.gradle.kts).
   5. Cópias de segurança de $SERV/dados, mosquitto/seguranca e .env (README §12).
  Atualizar mais tarde:  sudo bash $SERV/instalar.sh --atualizar
+ Use sempre sudo no docker compose e no ./domus.sh (o .env e dados/ são do root).
 $linha
 EOF
+  [[ -z "$SERVICOS_FALTA" ]]    # código de saída 1 se a instalação ficou incompleta
 }
 
 main() {
@@ -567,6 +666,7 @@ main() {
     [[ -f "$SERV/.env" ]] || (( SIMULAR )) || erro "não há $SERV/.env: faça primeiro a instalação (sem --atualizar)"
     cd "$SERV" 2>/dev/null || (( SIMULAR )) || erro "não existe $SERV"
     HOST="$(ler_env "$SERV/.env" DOMUS_HOST)"; HOST="${HOST:-O-SEU-SERVIDOR}"
+    validar_host "$HOST" "DOMUS_HOST do $SERV/.env"
     preparar_pastas
     gerar_config_site
     criar_utilizadores

@@ -18,3 +18,8 @@ ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh sincronizar-planos
 # Não deixar uma execução presa (espera no máximo 50 s pelo cadeado).
 TimeoutStartSec=120
 Nice=10
+# A cada minuto o systemd escreveria "Starting/Finished" no journal (~2900
+# linhas por dia). Como no domus-pedidos.service: o que o domus.sh escreve
+# passa a "notice" e só se guarda daí para cima (as mudanças de ACL e as falhas).
+SyslogLevel=notice
+LogLevelMax=notice

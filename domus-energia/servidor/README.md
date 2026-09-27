@@ -18,11 +18,16 @@ Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../d
 Num VPS novo com **Ubuntu 22.04/24.04 ou Debian 12** (ver §1 para escolher um), entre por SSH e corra:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/claude/kind-babbage-gdmaij/domus-energia/servidor/instalar.sh \
-  | sudo bash -s -- --email o-seu-email@exemplo.pt
+BRANCH=claude/kind-babbage-gdmaij
+curl -fsSL "https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/$BRANCH/domus-energia/servidor/instalar.sh" \
+  | sudo bash -s -- --branch "$BRANCH" --email o-seu-email@exemplo.pt
 ```
 
-O [`instalar.sh`](instalar.sh) faz, por esta ordem: verifica o sistema; instala o git e o Docker se faltarem; copia o código para `/opt/domus`; descobre o IP público e propõe `DOMUS_HOST=<ip-com-hífenes>.sslip.io`; cria o `servidor/.env` com todas as palavras-passe geradas (`openssl rand`); cria as pastas `dados/` com os donos certos; abre as portas no `ufw` (se estiver ativo) e no `iptables` das imagens Oracle; cria os utilizadores internos (`./domus.sh admin`, que cria também `motor`, `pagamentos` e `painel`); arranca tudo (`docker compose up -d --build`) e espera pelo HTTPS; instala os temporizadores (planos a cada minuto, pedidos do painel a cada 5 s); cria o CEO do painel com uma palavra-passe gerada. No fim mostra os endereços e **a palavra-passe do CEO, uma única vez**.
+> Depois de fazer merge para `master`, trocar o branch no comando (`BRANCH=master`).
+>
+> **Debian só com root** (sem `sudo` instalado): entre como root e use `| bash -s -- --branch "$BRANCH" --email …` (sem `sudo`).
+
+O [`instalar.sh`](instalar.sh) faz, por esta ordem: verifica o sistema; espera que as atualizações automáticas de um VPS acabado de criar (cloud-init, unattended-upgrades) libertem o apt; instala o git e o Docker se faltarem; copia o código para `/opt/domus`; descobre o IP público e propõe `DOMUS_HOST=<ip-com-hífenes>.sslip.io`; cria o `servidor/.env` com todas as palavras-passe geradas (`openssl rand`); cria as pastas `dados/` com os donos certos; abre as portas no `ufw` (se estiver ativo) e no `iptables` das imagens Oracle; cria os utilizadores internos (`./domus.sh admin`, que cria também `motor`, `pagamentos` e `painel`); arranca tudo (`docker compose up -d --build`) e espera pelo HTTPS; instala os temporizadores (planos a cada minuto, pedidos do painel a cada 5 s); cria o CEO do painel com uma palavra-passe gerada. No fim mostra os endereços e **a palavra-passe do CEO, uma única vez**.
 
 | Opção | Para quê |
 |---|---|
@@ -33,9 +38,11 @@ O [`instalar.sh`](instalar.sh) faz, por esta ordem: verifica o sistema; instala 
 | `--simular` | ensaio: mostra o que faria sem mudar nada |
 | `-y` | não pergunta nada (aceita o endereço proposto) |
 
-Pode ser corrido de novo sem perigo: **nunca altera um `.env` existente** e só cria o que falta. Se o repositório for privado, o `curl` falha: clone-o à mão (`git clone … /opt/domus`) e corra `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --email …`.
+Pode ser corrido de novo sem perigo: **nunca altera um `.env` existente** e só cria o que falta. Se o repositório for privado, o `curl` falha: clone-o à mão (`git clone --branch "$BRANCH" … /opt/domus`) e corra `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --email …`.
 
 Falta só, à mão: abrir as portas na firewall do fornecedor (§2), o Stripe (§16.1) e os aparelhos (§8).
+
+> **Instalado com o `instalar.sh`: use sempre `sudo`** nos comandos deste guia (`sudo docker compose …`, `sudo ./domus.sh …`), na pasta **`/opt/domus/domus-energia/servidor`**: o `.env` e a pasta `dados/` são do root. Não edite o `web/config.js` no servidor (ver §6).
 
 O resto deste guia é a **instalação manual, passo a passo**, e serve de referência para perceber o que o instalador faz. Não é preciso saber Docker: basta copiar e colar os comandos pela ordem.
 
@@ -60,7 +67,7 @@ ssh root@51.38.10.20        # Hetzner (utilizador "root")
 Portas necessárias: **80** e **443** (HTTPS, TCP; 443 também UDP para HTTP/3) e **1883** (MQTT dos aparelhos, TCP). A porta **22** (SSH) tem de continuar aberta.
 
 **No painel do fornecedor:**
-- Oracle: *Networking → Virtual Cloud Networks → (a tua VCN) → Security Lists → Default → Add Ingress Rules*: origem `0.0.0.0/0`, TCP, portas `80,443,1883`.
+- Oracle: *Networking → Virtual Cloud Networks → (a tua VCN) → Security Lists → Default → Add Ingress Rules*: origem `0.0.0.0/0`, TCP, portas `80,443,1883`; e outra regra com origem `0.0.0.0/0`, **UDP**, porta `443` (HTTP/3).
 - Hetzner: *Firewalls → Create Firewall*: regras de entrada TCP 22, 80, 443, 1883 (e UDP 443) → aplicar ao servidor.
 
 **No próprio servidor.** A imagem Ubuntu da Oracle traz regras `iptables` que bloqueiam tudo; abre as portas assim:
@@ -72,6 +79,8 @@ sudo iptables -I INPUT 6 -m state --state NEW -p udp --dport 443 -j ACCEPT
 sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 1883 -j ACCEPT
 sudo netfilter-persistent save
 ```
+
+> **Atenção:** faça o `netfilter-persistent save` **só agora, antes de instalar o Docker** (§3). Depois de o Docker arrancar, o `save` grava também as regras do Docker (cadeias `DOCKER…`), que no arranque seguinte ficam duplicadas ou obsoletas e podem cortar o acesso aos serviços. Se precisar de abrir portas mais tarde, acrescente as linhas `-A INPUT …` à mão em `/etc/iptables/rules.v4`, antes da linha com `REJECT` (é o que o `instalar.sh` faz).
 
 Na Hetzner (Ubuntu sem firewall ativa) não é preciso fazer nada aqui. Se usares o `ufw`: `sudo ufw allow 22,80,443,1883/tcp && sudo ufw allow 443/udp`.
 
@@ -89,11 +98,13 @@ Confirma: `docker compose version` deve mostrar uma versão.
 ## 4. Copiar o projeto
 
 ```bash
-git clone <endereço-do-repositório> domus-energia
-cd domus-energia/servidor
+BRANCH=claude/kind-babbage-gdmaij      # depois do merge para master: BRANCH=master
+cd ~
+git clone --branch "$BRANCH" https://github.com/ruibraganca2014-coder/marketing-saas.git
+cd ~/marketing-saas/domus-energia/servidor
 ```
 
-A pasta `servidor/` tem de ficar ao lado de `web/`, `motor/` e `pagamentos/` (o Caddy serve `../web`; o motor e o serviço de pagamentos são construídos a partir de `../motor` e `../pagamentos`).
+O repositório é um monorepo: a pasta do servidor fica em **`~/marketing-saas/domus-energia/servidor`** (com o `instalar.sh`: `/opt/domus/domus-energia/servidor`). É esta a pasta dos comandos seguintes. A pasta `servidor/` tem de ficar ao lado de `web/`, `motor/` e `pagamentos/` (o Caddy serve `../web`; o motor e o serviço de pagamentos são construídos a partir de `../motor` e `../pagamentos`).
 
 ## 5. Configurar o `.env`
 
@@ -114,12 +125,15 @@ Grava com `Ctrl+O`, `Enter`, `Ctrl+X`.
 ```bash
 mkdir -p dados             # cria a pasta de estado com o teu utilizador (antes do Docker)
 sudo ./domus.sh listar     # como root: cria as pastas de dados/ com os donos certos (serviços com uid 1000)
+sudo ./domus.sh config-site   # config-site/config.js: a área de cliente liga-se a wss://<DOMUS_HOST>/mqtt
 docker compose up -d --build
 docker compose ps          # os 6 serviços devem estar "running"/"Up"
 docker compose logs -f caddy   # (Ctrl+C para sair) deve aparecer "certificate obtained successfully"
 ```
 
 Abre `https://<DOMUS_HOST>/` no browser: deve aparecer o site com cadeado.
+
+**`config.js` do site.** O `web/config.js` do git tem `mqttUrl: "wss://SEU-SERVIDOR/mqtt"`. O `./domus.sh config-site` gera `servidor/config-site/config.js` (uma cópia com `wss://<DOMUS_HOST>/mqtt`, pasta 755 e ficheiro 644) e o Caddy serve-o no lugar do original. Sem ele, a área de cliente tenta ligar-se a `SEU-SERVIDOR` e não entra. Corre-o de novo se mudares o `DOMUS_HOST` ou depois de atualizar o código (o `instalar.sh` fá-lo sozinho). **Não edites o `web/config.js` no servidor**: com alterações locais o `git pull` falha e o `instalar.sh --atualizar` deixa de atualizar o código ("há alterações locais"). Outros valores do `config.js` (contactos) mudam-se no repositório, com um commit.
 
 > Enquanto não criares o utilizador `motor` (passo 7) o motor vai tentar ligar-se e falhar: é normal.
 
@@ -253,10 +267,13 @@ O motor envia também notificações push pela Firebase se encontrar a conta de 
 
    ```bash
    # no teu PC
-   scp ~/Downloads/domus-energia-firebase-adminsdk-xxxx.json ubuntu@51.38.10.20:~/domus-energia/servidor/dados/motor/firebase-service-account.json
-   # no servidor
-   chmod 600 dados/motor/firebase-service-account.json
-   docker compose restart motor
+   scp ~/Downloads/domus-energia-firebase-adminsdk-xxxx.json ubuntu@51.38.10.20:/tmp/firebase-service-account.json
+   # no servidor, na pasta servidor/ (~/marketing-saas/domus-energia/servidor
+   # ou, com o instalar.sh, /opt/domus/domus-energia/servidor)
+   sudo mv /tmp/firebase-service-account.json dados/motor/
+   sudo chown 1000:1000 dados/motor/firebase-service-account.json
+   sudo chmod 600 dados/motor/firebase-service-account.json
+   sudo docker compose restart motor
    ```
 
    (No contentor do motor, este ficheiro aparece como `/dados/firebase-service-account.json`.)
@@ -267,13 +284,15 @@ O motor envia também notificações push pela Firebase se encontrar a conta de 
 Tudo o que importa está em `servidor/dados/` (clientes, aparelhos, palavra-passe do admin, estado do motor, conta Firebase, utilizadores do ntfy, mensagens retidas do Mosquitto, planos dos clientes em `dados/planos/`, o registo dos pagamentos `dados/pagamentos/pagamentos.csv` e a base de dados do painel da empresa `dados/painel/`), `servidor/mosquitto/seguranca/` (palavras-passe MQTT) e `servidor/.env`.
 
 ```bash
-cd ~/domus-energia/servidor
-sudo tar czf ~/domus-backup-$(date +%F).tar.gz dados mosquitto/seguranca .env
+cd /opt/domus/domus-energia/servidor        # instalado com o instalar.sh
+# cd ~/marketing-saas/domus-energia/servidor  # instalação manual (§4)
+sudo tar czf ~/domus-backup-$(date +%F).tar.gz dados mosquitto/seguranca .env config-site
+sudo chown "$USER" ~/domus-backup-*.tar.gz   # para o poder copiar com scp
 ```
 
-Copia o ficheiro para fora do VPS (ex.: `scp ubuntu@51.38.10.20:domus-backup-*.tar.gz .`). Para uma cópia diária automática: `sudo crontab -e` e acrescenta
-`15 3 * * * cd /home/ubuntu/domus-energia/servidor && tar czf /root/domus-backup-$(date +\%u).tar.gz dados mosquitto/seguranca .env`
-(guarda os últimos 7 dias). Para repor: parar (`docker compose down`), extrair o `.tar.gz` na pasta `servidor/` e `docker compose up -d`.
+Copia o ficheiro para fora do VPS (ex.: `scp ubuntu@51.38.10.20:domus-backup-*.tar.gz .`). Para uma cópia diária automática: `sudo crontab -e` e acrescenta (com a pasta da tua instalação)
+`15 3 * * * cd /opt/domus/domus-energia/servidor && tar czf /root/domus-backup-$(date +\%u).tar.gz dados mosquitto/seguranca .env config-site`
+(instalação manual: `cd /home/ubuntu/marketing-saas/domus-energia/servidor`; guarda os últimos 7 dias, em `/root`). Para repor: parar (`sudo docker compose down`), extrair o `.tar.gz` na pasta `servidor/` com `sudo tar xzpf …` (mantém donos e permissões) e `sudo docker compose up -d`.
 
 ## 13. Atualizar
 
@@ -282,8 +301,9 @@ Instalado com o `instalar.sh`: `sudo bash /opt/domus/domus-energia/servidor/inst
 À mão:
 
 ```bash
-cd ~/domus-energia && git pull
-cd servidor && docker compose pull && docker compose up -d --build
+cd ~/marketing-saas && git pull
+cd domus-energia/servidor && sudo ./domus.sh config-site
+docker compose pull && docker compose up -d --build
 ```
 
 Se os ficheiros de `systemd/` mudaram, copie-os de novo (§16.2) e faça `sudo systemctl daemon-reload`.
@@ -317,7 +337,7 @@ Para os aparelhos que suportam TLS (Shelly Gen2/Gen3). Os OpenBeken continuam na
 
 1. Certificado: o mais simples é reutilizar o do Caddy (o mesmo `HOST`). Copie-o para `mosquitto/certs/` (a pasta não vai para o git):
    ```bash
-   cd ~/domus-energia/servidor
+   cd /opt/domus/domus-energia/servidor   # ou ~/marketing-saas/domus-energia/servidor (manual)
    sudo mkdir -p mosquitto/certs
    D=/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$DOMUS_HOST
    docker compose cp caddy:$D/$DOMUS_HOST.crt mosquitto/certs/fullchain.pem

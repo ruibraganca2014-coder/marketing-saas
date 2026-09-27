@@ -22,6 +22,7 @@
 #   ./domus.sh painel-mqtt [palavra-passe]   (utilizador MQTT "painel": só lê domus/#)
 #   ./domus.sh processar-pedidos    (temporizador de 5 em 5 s: pedidos-admin escritos pelo painel)
 #   ./domus.sh painel-utilizador <email> <ceo|tecnico|comercial> ["Nome"]
+#   ./domus.sh config-site          (config-site/config.js com wss://DOMUS_HOST/mqtt)
 #
 # Estado (fonte de verdade, fora do git, em dados/):
 #   dados/admin.senha               palavra-passe do admin (usada para publicar)
@@ -213,6 +214,12 @@ Uso:
       Cria (ou repõe) um utilizador do painel da empresa. Pede a palavra-passe
       (mín. 10 caracteres) no terminal, ou lê a primeira linha do stdin, e
       escreve um pedido que o serviço painel aplica em poucos segundos.
+
+  ./domus.sh config-site
+      Gera config-site/config.js a partir de ../web/config.js com o mqttUrl
+      wss://DOMUS_HOST/mqtt (o Caddy serve-o no lugar do web/config.js). Corra
+      de novo depois de mudar o DOMUS_HOST ou de atualizar o código. Não edite
+      o web/config.js no servidor.
 EOF
 }
 
@@ -1176,7 +1183,6 @@ cmd_motor() {
   preparar_dados
   definir_senha_mqtt motor "$senha"
   aplicar_acl
-  : > "$MOTOR_MARCA"
   info "Utilizador 'motor' criado/atualizado no Mosquitto."
   if [[ -n "$env_senha" && "$senha" != "$env_senha" ]]; then
     aviso "a palavra-passe é diferente de MOTOR_MQTT_PASS no .env: atualize o .env e corra 'docker compose up -d motor'"
@@ -1189,6 +1195,8 @@ cmd_motor() {
   else
     aviso "falta NTFY_MOTOR_PASS no .env: o motor não vai conseguir enviar notificações ntfy"
   fi
+  # Só no fim: se o ntfy falhar, o "admin"/instalar.sh voltam a tentar.
+  : > "$MOTOR_MARCA"
   info "Se o motor já estava a correr: docker compose restart motor"
 }
 
@@ -1681,6 +1689,12 @@ tratar_pedido() { # <nome do ficheiro> [expirado]
   if [[ "$R_RESUMO" == recusado:* ]]; then aviso "pedido $id $R_RESUMO"; else info "pedido $id $R_RESUMO"; fi
 }
 
+# Há alguma coisa para processar-pedidos? (pedidos na fila, ou de uma execução
+# interrompida.) Só lê as pastas: não cria nem muda nada.
+ha_pedidos() {
+  compgen -G "$PEDIDOS_DIR/[pu]-*.json" >/dev/null || compgen -G "$PEDIDOS_PRIV/p-*.json" >/dev/null
+}
+
 cmd_processar_pedidos() {
   (( $# == 0 )) || erro "uso: ./domus.sh processar-pedidos"
   preparar_pedidos
@@ -1764,6 +1778,35 @@ cmd_painel_utilizador() {
   info "O pedido fica à espera e é aplicado quando o painel arrancar (é apagado ao fim de 1 hora)."
 }
 
+# config.js do site com o mqttUrl deste servidor (wss://DOMUS_HOST/mqtt). O
+# Caddy serve config-site/config.js no lugar do ../web/config.js, que fica
+# intacto no git (editá-lo no VPS impede o "instalar.sh --atualizar" de
+# atualizar o código). Corra de novo depois de mudar o DOMUS_HOST ou de
+# atualizar o código.
+cmd_config_site() {
+  (( $# == 0 )) || erro "uso: ./domus.sh config-site"
+  local host orig="../web/config.js" dir="config-site" dest tmp
+  dest="$dir/config.js"
+  host="$(ler_host)"
+  [[ "$host" != O-SEU-SERVIDOR ]] || erro "falta DOMUS_HOST no .env"
+  [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]] || erro "DOMUS_HOST inválido: '$host' (só letras, dígitos, '.' e '-')"
+  [[ -f "$orig" ]] || erro "não encontrei $orig (a pasta servidor/ tem de ficar ao lado de web/)"
+  grep -qF 'wss://SEU-SERVIDOR/mqtt' "$orig" \
+    || aviso "$orig não tem 'wss://SEU-SERVIDOR/mqtt' (foi editado?): o mqttUrl fica como está"
+  if [[ "$MODO" == simulacao ]]; then
+    simul "$orig -> $dest (mqttUrl: wss://$host/mqtt)"
+    return 0
+  fi
+  [[ ! -L "$dir" ]] || erro "$dir é um symlink: recusado"
+  mkdir -p "$dir"
+  chmod 755 "$dir"
+  tmp="$(mktemp "$dir/.config.js.XXXXXX")"
+  sed "s#wss://SEU-SERVIDOR/mqtt#wss://$host/mqtt#" "$orig" > "$tmp"
+  chmod 644 "$tmp"                      # o Caddy (contentor) só lê
+  mv -f -T -- "$tmp" "$dest"
+  info "$PWD/$dest gerado (mqttUrl: wss://$host/mqtt)."
+}
+
 # Evita duas execuções em simultâneo. [segundos de espera; por omissão 15 s,
 # porque o temporizador dos pedidos (a cada 5 s) segura o cadeado por instantes]
 bloquear() {
@@ -1784,7 +1827,11 @@ main() {
     plano)            bloquear; cmd_plano "$@" ;;
     sincronizar-planos) bloquear 50; cmd_sincronizar_planos "$@" ;;
     painel-mqtt)      bloquear; cmd_painel_mqtt "$@" ;;
-    processar-pedidos) bloquear 50; cmd_processar_pedidos "$@" ;;
+    processar-pedidos)
+      # A cada 5 s: sem pedidos sai logo, sem cadeado nem chmod/chown em dados/.
+      if (( $# == 0 )) && ! ha_pedidos; then exit 0; fi
+      bloquear 50; cmd_processar_pedidos "$@" ;;
+    config-site)      cmd_config_site "$@" ;;
     painel-utilizador) cmd_painel_utilizador "$@" ;;
     cliente)          bloquear; cmd_cliente "$@" ;;
     aparelho)         bloquear; cmd_aparelho "$@" ;;

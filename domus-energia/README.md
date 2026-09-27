@@ -55,10 +55,13 @@ Detalhes: [`local/README.md`](local/README.md).
 ### 2. No servidor (VPS), com um comando
 Num VPS com Ubuntu 22.04/24.04 ou Debian 12:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/claude/kind-babbage-gdmaij/domus-energia/servidor/instalar.sh \
-  | sudo bash -s -- --email o-seu-email@exemplo.pt
+BRANCH=claude/kind-babbage-gdmaij
+curl -fsSL "https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/$BRANCH/domus-energia/servidor/instalar.sh" \
+  | sudo bash -s -- --branch "$BRANCH" --email o-seu-email@exemplo.pt
 ```
-Instala o Docker, gera as palavras-passe, arranca tudo com HTTPS em `<ip-com-hífenes>.sslip.io` e mostra no fim os endereços e a palavra-passe do CEO do painel. Para atualizar: `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --atualizar`. Guia completo (e instalação manual): [`servidor/README.md`](servidor/README.md).
+Depois de fazer merge para `master`, trocar o branch no comando (`BRANCH=master`). Num Debian só com root (sem `sudo`): `| bash -s -- --branch "$BRANCH" --email …`.
+
+Instala o Docker, gera as palavras-passe, arranca tudo com HTTPS em `<ip-com-hífenes>.sslip.io` e mostra no fim os endereços e a palavra-passe do CEO do painel. Para atualizar: `sudo bash /opt/domus/domus-energia/servidor/instalar.sh --atualizar`. Depois de instalar, use sempre `sudo` no `docker compose` e no `./domus.sh` (em `/opt/domus/domus-energia/servidor`; o `.env` e os dados são do root). Guia completo (e instalação manual): [`servidor/README.md`](servidor/README.md).
 
 ### 3. App Android
 Em `android/app/build.gradle.kts` põe `MQTT_HOST` igual ao `DOMUS_HOST` do servidor, abre `android/` no Android Studio e carrega em ▶. O cliente entra com o código e a palavra-passe criados no painel (ou com `./domus.sh cliente`). Detalhes: [`android/README.md`](android/README.md).
