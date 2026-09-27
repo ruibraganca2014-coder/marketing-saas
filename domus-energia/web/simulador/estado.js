@@ -409,6 +409,26 @@ export function telecomParaEnvio(estado) {
   return { estado: "brevemente", texto: "Telecomunicações: brevemente — orçamento na visita.", pontos, total: Object.values(pontos).reduce((s, n) => s + n, 0) };
 }
 
+export const ESTADOS_DESLOCACAO = ["estimada", "visita", "sem_localidade", "fora_area"];
+
+/**
+ * `simulacao.deslocacao` (§5.1, §6) a partir de calcularDeslocacao() (./deslocacao.js): localidade escrita,
+ * concelho reconhecido e distrito (null se não reconhecido), distância estimada por estrada (km) e valor
+ * (€ c/ IVA; em "visita"/"sem_localidade" só o mínimo fixo; null quando fora da área). null sem cálculo.
+ */
+export function deslocacaoParaEnvio(d) {
+  if (!d || typeof d !== "object" || !ESTADOS_DESLOCACAO.includes(d.estado)) return null;
+  const n = (x, max) => (typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= max ? x : null);
+  return {
+    estado: d.estado,
+    localidade: textoSeguro(d.localidade, 80) || null,
+    concelho: textoSeguro(d.concelho, 60) || null,
+    distrito: textoSeguro(d.distrito, 60) || null,
+    distancia_km: n(d.distancia_km, 5000),
+    valor_iva: n(d.valor_iva, 100_000),
+  };
+}
+
 /**
  * `simulacao` do POST /api/orcamento (§6).
  * @param {object} estado
@@ -436,6 +456,7 @@ export function montarSimulacao(estado, preco, plano) {
     }),
     itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva })),
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
+    deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
     avisos: avisosEstado(estado, circuitos),

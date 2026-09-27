@@ -1,8 +1,10 @@
 // Catálogo (só CEO; docs/SIMULADOR-ORCAMENTO.md §3): artigos do simulador de orçamento com preço de compra,
 // preço de venda (c/ IVA), margem, horas de instalação e especificações; configuração do simulador
-// (tarifa por hora, margem do intervalo, deslocação). O público só vê GET /api/catalogo (sem custos).
+// (tarifa por hora, margem do intervalo, deslocação por distância). O público só vê GET /api/catalogo (sem custos).
 import { pedir, campo, lista, numero } from "../api.js";
 import { h, euros, num, selo, campoForm, escolha, janela, mensagem, avisar, carregando, erroEcra, data } from "../ui.js";
+// Os 308 concelhos (cópia de web/simulador/concelhos.js): a base da deslocação escolhe-se desta lista.
+import { CONCELHOS } from "../vendor/concelhos.js";
 
 export const CATEGORIAS = {
   disjuntor: "Disjuntor", interruptor: "Interruptor", sensor: "Sensor", estore: "Estore", tomada: "Tomada", luz: "Luz",
@@ -89,16 +91,26 @@ export default function catalogo(el) {
       h("div", { class: "tres" },
         campoForm("Tarifa por hora (€, c/ IVA)", entrada("tarifa_hora_iva", campo(config, "tarifa_hora_iva"), "1000")),
         campoForm("Margem do intervalo (%)", entrada("margem_intervalo_pct", campo(config, "margem_intervalo_pct"), "100", "0.1"), "Estimativa = total ± esta margem"),
-        campoForm("Deslocação (€, c/ IVA)", entrada("deslocacao_iva", campo(config, "deslocacao_iva"), "10000"))),
+        campoForm("Deslocação — valor fixo (€, c/ IVA)", entrada("deslocacao_iva", campo(config, "deslocacao_iva"), "10000"), "Mínimo de cada deslocação")),
+      h("fieldset", { class: "grupo" }, h("legend", { text: "Deslocação por distância" }),
+        h("p", { class: "ajuda", text: "Distância estimada desde a base: linha reta entre as sedes dos concelhos × 1,3 (estradas). Deslocação = valor fixo + preço por km acima dos km grátis. Acima da distância máxima (ou entre o continente e as ilhas, ou noutra ilha) o simulador mostra \"fora da área servida — contacte-nos\"." }),
+        h("div", { class: "duas" },
+          campoForm("Base (concelho)", escolha("deslocacao_base", Object.fromEntries(CONCELHOS.map((c) => [c[0], `${c[0]} (${c[1]})`])), String(campo(config, "deslocacao_base") ?? "Lisboa"), { required: true })),
+          campoForm("Km grátis", entrada("deslocacao_km_gratis", campo(config, "deslocacao_km_gratis"), "1000", "1"))),
+        h("div", { class: "duas" },
+          campoForm("Preço por km (€, c/ IVA)", entrada("deslocacao_preco_km_iva", campo(config, "deslocacao_preco_km_iva"), "100")),
+          campoForm("Distância máxima servida (km)", entrada("deslocacao_max_km", campo(config, "deslocacao_max_km"), "2000", "1")))),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar configuração" })), msg);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const corpo = {};
-      for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["margem_intervalo_pct", 100, "A margem do intervalo"], ["deslocacao_iva", 10000, "A deslocação"]]) {
+      for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["margem_intervalo_pct", 100, "A margem do intervalo"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
+        ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"]]) {
         const v = numero(f.elements[k].value);
         if (v === null || v < 0 || v > max) { mensagem(msg, `${rot} tem de ser um número entre 0 e ${num(max)}.`); f.elements[k].focus(); return; }
         corpo[k] = v;
       }
+      corpo.deslocacao_base = f.elements.deslocacao_base.value;
       const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
       try {
         config = await pedir("config-orcamento", { corpo }) ?? { ...config, ...corpo };

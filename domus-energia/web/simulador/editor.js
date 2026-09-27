@@ -1,5 +1,5 @@
 // Editor da planta (docs/SIMULADOR-ORCAMENTO.md §2): SVG com quadriculado de 50 cm,
-// deslocar e aproximar (roda do rato, dois dedos), eventos de ponteiro para rato e
+// deslocar e aproximar (botões − / +, Ctrl + roda do rato, dois dedos), eventos de ponteiro para rato e
 // toque, divisões (criar num sítio livre com os aparelhos habituais, mover, mudar a forma pelos cantos — paredes oblíquas),
 // elementos (colocar, mover, rodar, apagar; as telecomunicações "brevemente" à parte), propriedades, janela de edição (duplo
 // clique ou toque longo), anular/refazer, alternativa por teclado e lista acessível,
@@ -630,7 +630,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       b.setAttribute("aria-pressed", String(!!m && m.tipo === "elemento" && m.el === k));
     }
     svg.classList.toggle("a-colocar", !!m);
-    if (!m) dica.textContent = "Os botões das divisões acrescentam-nas logo; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; dois dedos ou a roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.";
+    if (!m) dica.textContent = "Os botões das divisões acrescentam-nas logo; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; − / +, dois dedos ou Ctrl + roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.";
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${ELEMENTOS[m.el].nome}. Esc cancela.`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
@@ -812,7 +812,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   });
   // O toque longo não abre o menu do navegador por cima da planta.
   svg.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  // A roda do rato faz scroll à página (não aproxima a planta); Ctrl + roda (e a pinça do touchpad,
+  // que chega como Ctrl + roda) continua a aproximar. Zoom também pelos botões − / +.
   svg.addEventListener("wheel", (ev) => {
+    if (!ev.ctrlKey) return;
     ev.preventDefault();
     const f = Math.exp(limitar(ev.deltaY, -300, 300) * (ev.deltaMode === 1 ? 0.05 : 0.0015));
     zoom(f, ev.clientX, ev.clientY);

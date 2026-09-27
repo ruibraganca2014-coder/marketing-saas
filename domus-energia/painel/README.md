@@ -78,15 +78,15 @@ JSON em tudo; erros sempre `{"erro": "mensagem em pt-PT"}`. Valores em euros com
 | `GET catalogo` | ceo | `{itens:[{id, sku, nome, categoria, fornecedor, link, preco_compra, preco_venda_iva, horas_instalacao, especificacoes, ativo, visivel_cliente, atualizado}], config}` |
 | `POST catalogo` | ceo | `{sku, nome, categoria, preco_venda_iva, fornecedor?, link?, preco_compra?, horas_instalacao?, especificacoes?, ativo?, visivel_cliente?}` → `201`. `sku` `[A-Z0-9._-]`; categorias `disjuntor`, `interruptor`, `sensor`, `estore`, `tomada`, `luz`, `termostato`, `central`, `acessorio`, `outro`; `link` só `https://`; `especificacoes` objeto ≤ 8 KB |
 | `POST catalogo/:id` | ceo | os mesmos campos, parciais → `200` |
-| `GET config-orcamento` | ceo | `{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva}` (35, 15, 0 por omissão) |
-| `POST config-orcamento` | ceo | parcial → `200` |
+| `GET config-orcamento` | ceo | `{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva, deslocacao_base, deslocacao_km_gratis, deslocacao_preco_km_iva, deslocacao_max_km}` (35, 15, 0, "Lisboa", 20, 0,40, 100 por omissão). `deslocacao_iva` = valor fixo (mínimo) de cada deslocação; o simulador soma-lhe (km − km grátis) × preço por km, com km = linha reta entre as sedes dos concelhos × 1,3 (docs/SIMULADOR-ORCAMENTO.md §5.1) |
+| `POST config-orcamento` | ceo | parcial → `200`. Limites: tarifa 0–1000, margem 0–100, fixo 0–10 000, km grátis 0–1000, €/km 0–100, máx. 0–2000 km; `deslocacao_base` = nome exato de um dos 308 concelhos (`public/vendor/concelhos.js`, cópia de `web/simulador/concelhos.js`) |
 
 ### Endpoints públicos (sem sessão)
 
 | Pedido | |
 |---|---|
 | `POST /api/orcamento` | `{nome, telefone?, email?, localidade?, servico, mensagem?, website?, codigo_cliente?, simulacao?}` → `201 {"ok":true}`. `nome` 1–120, pelo menos `telefone` ou `email`, `servico` 1–80, `localidade` ≤ 80, `mensagem` ≤ 2000, `codigo_cliente` como os códigos de cliente. **`website` é o campo-armadilha**: preenchido → `201` mas descartado. **`simulacao`**: objeto JSON (senão `400`), até **1 MB** (`413`), no máximo 32 níveis; as imagens (ex. a planta) só como `data:image/jpeg;base64,…` ou `data:image/png;base64,…` (qualquer outro `data:` — SVG, HTML, GIF — é `400`); é guardada tal como chegou e devolvida em `GET orcamentos/:id`. Corpo até 1,25 MB. Limite **5 pedidos por hora por IP** (contam todos, incluindo os recusados e a armadilha) e 200 por hora no total → `429` + `Retry-After`. Mesmas regras de origem e JSON (CSRF) do painel. Fica com estado `novo` (conta em `pedidos_novos` no resumo) |
-| `GET /api/catalogo` | `{itens:[{sku, nome, categoria, preco_venda_iva, horas_instalacao, especificacoes}], config:{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva}}` — só artigos `ativo` e `visivel_cliente`; **nunca** `preco_compra`, `fornecedor` nem `link`. `Cache-Control: public, max-age=60` (um preço novo chega aos navegadores em ≤ 1 min) |
+| `GET /api/catalogo` | `{itens:[{sku, nome, categoria, preco_venda_iva, horas_instalacao, especificacoes}], config:{tarifa_hora_iva, margem_intervalo_pct, deslocacao_iva, deslocacao_base, deslocacao_km_gratis, deslocacao_preco_km_iva, deslocacao_max_km}}` — a configuração só com estas chaves (lista fixa em `api.js` `CONFIG_PUBLICA`); só artigos `ativo` e `visivel_cliente`; **nunca** `preco_compra`, `fornecedor` nem `link`. `Cache-Control: public, max-age=60` (um preço novo chega aos navegadores em ≤ 1 min) |
 
 ### Alertas
 
@@ -136,9 +136,10 @@ Os testes (`node:test`, `test/*.test.js`) não precisam de Docker nem de interne
 - `auth` — scrypt, entrar/errado, cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/painel`), sair, expiração e renovação, limites por IP e por email, bloqueio de 15 min, contas desativadas, CSRF, primeiro CEO;
 - `papeis` — matriz de papéis de **todas** as rotas (anónimo/ceo/técnico/comercial; o teste falha se aparecer uma rota que a matriz não cobre), financeiro só para o CEO, ficheiros estáticos (tipos, sem listagem, sem fugas por `..`/symlink);
 - `orcamento` — formulário público (válido, armadilha, validação, limite por hora, simulação guardada e devolvida, tamanho, só JPEG/PNG), catálogo público sem custos/fornecedores, gestão do catálogo;
-- `crud` — orçamentos (estados, histórico, converter), obras (técnico só as suas e só alguns campos, comercial só lê), clientes, pagamentos/CSV, utilizadores, migrações (incl. a 3: uma base já existente recebe os artigos do quadro sem duplicar nem alterar preços editados), auditoria;
+- `crud` — orçamentos (estados, histórico, converter), obras (técnico só as suas e só alguns campos, comercial só lê), clientes, pagamentos/CSV, utilizadores, migrações (incl. a 3: uma base já existente recebe os artigos do quadro sem duplicar nem alterar preços editados; e a 4: a configuração da deslocação por distância sem perder valores editados), auditoria;
 - `pedidos` — JSON exato de cada tipo, execução real pelo `servidor/domus.sh processar-pedidos` (modo simulação), resultado com a palavra-passe mostrado uma vez, erros, `./domus.sh painel-utilizador`;
 - `alertas` — Mosquitto 2 real com a ACL gerada pelo `domus.sh` (precisa de `mosquitto`: `sudo apt-get install -y mosquitto mosquitto-clients`), lista viva e o utilizador `painel` sem permissão de escrita;
 - `resumo` — números de cada papel.
+- `deslocacao` — tabela dos 308 concelhos do simulador (`web/simulador/concelhos.js`, igual à cópia em `public/vendor/`), sugestões sem acentos, distância (haversine × 1,3), km grátis/€ por km/mínimo, fora da área e ilhas.
 
 Os testes do servidor (`servidor/testes/simulacao.sh` e `servidor/testes/acl.sh`) cobrem o `processar-pedidos` com pedidos válidos e maliciosos.

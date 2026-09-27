@@ -217,7 +217,7 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '11.04', '14.3', '6.82', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
     assert.ok(!pub.texto.includes(segredo), `o público não vê "${segredo}"`);
   }
-  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 });
+  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, especificacoes: { rede: 'zigbee' } });
 });
 
@@ -237,13 +237,50 @@ test('catálogo e configuração: validação e só o CEO', async () => {
   }
   let r = await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { tarifa_hora_iva: 40, margem_intervalo_pct: 20 } });
   assert.equal(r.estado, 200);
-  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0 });
+  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { margem_intervalo_pct: 101 } })).estado, 400);
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { outra: 1 } })).estado, 400);
-  assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0 });
+  assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   for (const papel of ['tecnico', 'comercial']) {
     assert.equal((await p.pedir('GET', '/painel/api/catalogo', { cookie: p.cookies[papel] })).estado, 403);
     assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { cookie: p.cookies[papel], corpo: { tarifa_hora_iva: 1 } })).estado, 403);
   }
   assert.ok(p.app.db.prepare('SELECT 1 FROM auditoria WHERE acao = \'config_orcamento_atualizada\'').get());
+});
+
+test('configuração da deslocação (base, km grátis, €/km, máximo): validação e exposição pública só do necessário', async () => {
+  const cab = { cookie: p.cookies.ceo };
+  const cfg = (corpo) => p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo });
+  let r = await cfg({ deslocacao_base: 'Évora', deslocacao_km_gratis: 10, deslocacao_preco_km_iva: 0.55, deslocacao_max_km: 150, deslocacao_iva: 5 });
+  assert.equal(r.estado, 200, r.texto);
+  assert.equal(r.json.deslocacao_base, 'Évora');
+  assert.equal(r.json.deslocacao_preco_km_iva, 0.55);
+  for (const corpo of [
+    { deslocacao_base: 'Evora' },            // nome exato da lista (com acento)
+    { deslocacao_base: 'Cacém' },            // freguesia, não concelho
+    { deslocacao_base: 12 },
+    { deslocacao_base: '' },
+    { deslocacao_km_gratis: -1 },
+    { deslocacao_preco_km_iva: 101 },
+    { deslocacao_max_km: 2001 },
+    { deslocacao_max_km: 'muito' },
+  ]) assert.equal((await cfg(corpo)).estado, 400, JSON.stringify(corpo));
+  assert.equal((await p.pedir('GET', '/painel/api/config-orcamento', cab)).json.deslocacao_base, 'Évora', 'valores inválidos não mudam nada');
+  // Uma chave que não é do simulador (ex. um custo interno) nunca aparece no /api/catalogo.
+  p.app.db.prepare("INSERT INTO config_orcamento (chave, valor) VALUES ('custo_interno_km', 0.12)").run();
+  const pub = (await p.pedir('GET', '/api/catalogo')).json.config;
+  assert.deepEqual(pub, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 5, deslocacao_base: 'Évora', deslocacao_km_gratis: 10, deslocacao_preco_km_iva: 0.55, deslocacao_max_km: 150 });
+  p.app.db.prepare("DELETE FROM config_orcamento WHERE chave = 'custo_interno_km'").run();
+  assert.ok(p.app.db.prepare("SELECT 1 FROM auditoria WHERE acao = 'config_orcamento_atualizada' AND detalhes LIKE '%deslocacao_base%'").get());
+  // Repõe os valores de exemplo.
+  assert.equal((await cfg({ deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, deslocacao_iva: 0 })).estado, 200);
+});
+
+test('simulação com deslocação (localidade, concelho, distrito, km, €) é aceite e guardada', async () => {
+  const deslocacao = { estado: 'estimada', localidade: 'Sintra', concelho: 'Sintra', distrito: 'Lisboa', distancia_km: 29, valor_iva: 3.6 };
+  const r = await enviar({ ...BASE, nome: 'Com deslocação', localidade: 'Sintra', simulacao: { versao: 1, casa: { localidade: 'Sintra' }, deslocacao, total: { min: 100, max: 130 } } });
+  assert.equal(r.estado, 201, r.texto);
+  const o = p.app.db.prepare("SELECT simulacao FROM orcamentos WHERE nome = 'Com deslocação'").get();
+  assert.deepEqual(JSON.parse(o.simulacao).deslocacao, deslocacao);
+  assert.equal((await enviar({ ...BASE, simulacao: { casa: { localidade: 'x'.repeat(81) } } })).estado, 400, 'casa.localidade ≤ 80');
 });

@@ -256,3 +256,10 @@ input, select { min-height: 44px; }
 .sim-quadro-tamanho { font-family: var(--letra-titulos); font-size: 1.15rem; font-weight: 800; }
 .sim-quadro-potencia { font-weight: 700; }
 .sim-quadro-potencia.curta { color: var(--alarme-texto); }
+
+/* Localidade: sugestões dos concelhos (combobox ARIA, app.js ligarLocalidade). */
+.sugestoes-caixa { position: relative; min-width: 0; }
+.sugestoes { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; margin: 0; padding: 4px; list-style: none; max-height: min(320px, 50vh); overflow-y: auto; background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio); box-shadow: var(--sombra); }
+.sugestoes li { display: flex; justify-content: space-between; gap: 12px; align-items: center; min-height: 44px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.sugestoes li small { color: var(--texto-suave); text-align: right; }
+.sugestoes li[aria-selected="true"], .sugestoes li:hover { background: var(--areia-suave); }

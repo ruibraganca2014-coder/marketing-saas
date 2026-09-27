@@ -16,6 +16,7 @@ import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
+import { CONCELHOS } from '../public/vendor/concelhos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -26,8 +27,15 @@ const MAX_APARELHOS_CONVERTER = 60;
 const CONFIG_ORCAMENTO = {
   tarifa_hora_iva: { min: 0, max: 1000 },
   margem_intervalo_pct: { min: 0, max: 100 },
-  deslocacao_iva: { min: 0, max: 10_000 },
+  deslocacao_iva: { min: 0, max: 10_000 },          // valor fixo (mínimo) de cada deslocação
+  deslocacao_km_gratis: { min: 0, max: 1000 },
+  deslocacao_preco_km_iva: { min: 0, max: 100 },
+  deslocacao_max_km: { min: 0, max: 2000 },
 };
+// Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
+const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
+// O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -958,10 +966,14 @@ export function criarApi(ctx) {
   h.configOrcamento = ({ res }) => responder(res, 200, lerConfigOrcamento());
 
   h.atualizarConfigOrcamento = async ({ req, res, u, ip }) => {
-    const v = await lerJson(req, Object.keys(CONFIG_ORCAMENTO));
+    const v = await lerJson(req, [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base']);
     const mud = {};
     for (const [k, lim] of Object.entries(CONFIG_ORCAMENTO)) {
       if (v[k] !== undefined) mud[k] = numero(v[k], k.replace(/_/g, ' '), { ...lim, nulo: false });
+    }
+    if (v.deslocacao_base !== undefined) {
+      if (typeof v.deslocacao_base !== 'string' || !NOMES_CONCELHOS.has(v.deslocacao_base)) falha('A base da deslocação tem de ser um dos 308 concelhos (nome da lista).');
+      mud.deslocacao_base = v.deslocacao_base;
     }
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     for (const [k, val] of Object.entries(mud)) db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(val, k);
@@ -1002,7 +1014,9 @@ export function criarApi(ctx) {
   function catalogoPublico(req, res) {
     const itens = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes FROM catalogo WHERE ativo = 1 AND visivel_cliente = 1 ORDER BY categoria, nome').all()
       .map((a) => ({ sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, especificacoes: JSON.parse(a.especificacoes || '{}') }));
-    responder(res, 200, { itens, config: lerConfigOrcamento() }, { 'Cache-Control': 'public, max-age=60' });
+    const cfg = lerConfigOrcamento();
+    const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
+    responder(res, 200, { itens, config }, { 'Cache-Control': 'public, max-age=60' });
   }
 
   // ------------------------------------------------------------ despacho

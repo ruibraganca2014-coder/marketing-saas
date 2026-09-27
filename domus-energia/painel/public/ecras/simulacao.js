@@ -47,6 +47,23 @@ const OBJETIVOS = {
 // Telecomunicações (ITED), "brevemente": fora do preço (simulacao.telecom.pontos).
 const TELECOM = { ati: "ATI", rj45: "RJ45", coaxial: "TV coaxial", fibra: "fibra", wifi: "Wi-Fi" };
 
+/**
+ * Deslocação (simulacao.deslocacao, docs/SIMULADOR-ORCAMENTO.md §5.1): concelho reconhecido, distância
+ * estimada por estrada e valor; null se a simulação não a traz (simulações antigas).
+ */
+function deslocacaoTxt(d) {
+  if (!d || typeof d !== "object") return null;
+  const t = (x) => (typeof x === "string" && x.trim() ? x.trim() : null);
+  const km = numero(d.distancia_km), v = numero(d.valor_iva);
+  const onde = t(d.concelho) ? `${t(d.concelho)}${t(d.distrito) ? ` (${t(d.distrito)})` : ""}` : null;
+  if (d.estado === "estimada") return `${onde ?? "—"} · ${km !== null ? `${num(km)} km (estimativa)` : "distância —"} · ${euros(v)}`;
+  if (d.estado === "fora_area") return `${onde ?? "—"}${km !== null ? ` · ${num(km)} km` : ""} — fora da área servida (contactar o cliente)`;
+  const minimo = v !== null && v > 0 ? ` · mínimo ${euros(v)}` : "";
+  if (d.estado === "visita") return `«${t(d.localidade) ?? ""}»: concelho não reconhecido — confirmar na visita${minimo}`;
+  if (d.estado === "sem_localidade") return `Localidade não indicada — confirmar na visita${minimo}`;
+  return null;
+}
+
 /** "T3 · 2 casas de banho · 2 salas · 2 pisos · jardim/exterior" (campos novos de `casa`; vazio se não houver tipologia). */
 function tipologiaTxt(casa) {
   if (typeof casa.tipologia !== "string") return "";
@@ -191,11 +208,13 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const pequenasTxt = arr(quer.pequenas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
   const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
   const telecom = sim.telecom && typeof sim.telecom === "object" ? sim.telecom : null;
+  const deslTxt = deslocacaoTxt(sim.deslocacao);
 
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ["Casa", casaTxt || "—"],
+      ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
       ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"]] : []),
@@ -212,7 +231,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
     partes.push(h("div", { class: "avisos-sim", role: "note" }, h("h4", { text: `Avisos (${avisos.length})` }),
       h("ul", {}, ...avisos.slice(0, 50).map((a) => h("li", { text: a })))));
   }
-  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo));
+  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva)));
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
   const planta = sim.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : null;
   if (circuitos.length) partes.push(tabelaCircuitos(circuitos, planta));
@@ -226,7 +245,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
   return h("section", { class: "simulacao", id: "simulacao-cliente" }, ...partes);
 }
 
-function tabelaItens(itens, mo, catalogo) {
+function tabelaItens(itens, mo, catalogo, desl = null) {
   let soma = 0;
   const linhas = itens.slice(0, 300).map((i) => {
     const sku = typeof i.sku === "string" ? i.sku : "";
@@ -246,7 +265,8 @@ function tabelaItens(itens, mo, catalogo) {
   const pe = [h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Artigos" }), h("td", { class: "num", text: euros(soma) }))];
   if (moValor !== null || numero(mo.horas) !== null) {
     pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: "3", text: `Mão de obra${numero(mo.horas) !== null ? ` (${num(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
-    pe.push(h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0)) })));
+    if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: "3", text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
+    pe.push(h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0)) })));
   }
   const fora = linhas.filter((l) => l.classList.contains("fora-catalogo")).length;
   return h("div", { class: "sim-bloco" }, h("h4", { text: "Artigos" }),

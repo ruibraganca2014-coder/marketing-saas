@@ -28,6 +28,7 @@ import {
   resumoQuadro, levaQuadroNovo, pedidosQuadro, formatarKva,
 } from "./quadro.js";
 import { criarEditor } from "./editor.js";
+import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -358,6 +359,79 @@ $("casa-area").addEventListener("change", () => {
   $("casa-area").value = String(estado.casa.area_m2 ?? AREA_OMISSAO[perfilCasa(estado.casa.tipo)] ?? "");
 });
 $("casa-localidade").addEventListener("input", () => { estado.casa.localidade = $("casa-localidade").value.slice(0, 80); agendarGravacao(); });
+
+/**
+ * Sugestões dos 308 concelhos enquanto escreve (combobox ARIA com lista; sem acentos: "evora" → Évora).
+ * Aceita texto livre (freguesia, aldeia): as sugestões só ajudam. Escolher uma = escrever o nome e
+ * disparar "input" (os ouvintes de cada campo guardam o valor).
+ */
+function ligarLocalidade(input) {
+  const rotulo = input.closest("label");
+  const caixa = el("div", "sugestoes-caixa");
+  const lista = el("ul", "sugestoes");
+  lista.id = `${input.id}-sugestoes`;
+  lista.setAttribute("role", "listbox");
+  lista.setAttribute("aria-label", "Concelhos sugeridos");
+  lista.hidden = true;
+  rotulo.before(caixa);
+  caixa.append(rotulo, lista); // a lista fica fora do <label> (não entra no nome do campo)
+  input.setAttribute("role", "combobox");
+  input.setAttribute("aria-autocomplete", "list");
+  input.setAttribute("aria-expanded", "false");
+  input.setAttribute("aria-controls", lista.id);
+  input.autocomplete = "off"; // senão o preenchimento automático do navegador tapa a lista
+  let ativo = -1;
+  const opcoes = () => [...lista.children];
+  const fechar = () => { lista.hidden = true; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); ativo = -1; };
+  const marcar = (i) => {
+    const os = opcoes();
+    ativo = i;
+    os.forEach((o, j) => o.setAttribute("aria-selected", String(j === i)));
+    if (os[i]) { input.setAttribute("aria-activedescendant", os[i].id); os[i].scrollIntoView({ block: "nearest" }); }
+    else input.removeAttribute("aria-activedescendant");
+  };
+  const escolher = (nome) => {
+    input.value = nome;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    fechar();
+  };
+  const abrir = () => {
+    const s = sugerirConcelhos(input.value);
+    // Já escrito por inteiro (ex. escolhido antes): não volta a abrir só com o próprio nome.
+    if (!s.length || (s.length === 1 && s[0].nome === input.value.trim())) { fechar(); return; }
+    lista.replaceChildren(...s.map((c, i) => {
+      const li = el("li");
+      li.id = `${lista.id}-${i}`;
+      li.setAttribute("role", "option");
+      li.setAttribute("aria-selected", "false");
+      li.append(el("span", null, c.nome), el("small", null, c.distrito));
+      li.addEventListener("pointerdown", (e) => e.preventDefault()); // o campo não perde o foco
+      li.addEventListener("click", () => escolher(c.nome));
+      return li;
+    }));
+    lista.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    marcar(-1);
+  };
+  input.addEventListener("input", (e) => { if (e.isTrusted) abrir(); });
+  input.addEventListener("blur", fechar);
+  input.addEventListener("keydown", (e) => {
+    const n = opcoes().length;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      if (lista.hidden) { abrir(); if (lista.hidden) return; }
+      e.preventDefault();
+      const m = opcoes().length;
+      marcar(e.key === "ArrowDown" ? (ativo + 1) % m : (ativo <= 0 ? m - 1 : ativo - 1));
+    } else if (e.key === "Enter" && !lista.hidden && ativo >= 0 && ativo < n) {
+      e.preventDefault();
+      escolher(opcoes()[ativo].firstChild.textContent);
+    } else if (e.key === "Escape" && !lista.hidden) {
+      e.preventDefault();
+      fechar();
+    }
+  });
+}
+ligarLocalidade($("casa-localidade"));
 
 // ------------------------------------------------------------ 2. O que quer
 const OBJETIVOS_AJUDA = {
@@ -1037,7 +1111,9 @@ async function carregarCatalogo() {
 
 function calcular() {
   const pedidos = pedidosDaSelecao(estado);
-  const preco = calcularPreco(pedidos, catalogo ?? null, configOrc);
+  // Local da obra: a localidade do passo 1 (ou, na área de cliente, a do contacto) — como em casaParaEnvio.
+  const deslocacao = calcularDeslocacao(estado.casa.localidade.trim() || estado.contacto.localidade.trim(), configOrc);
+  const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao);
   // "Desligar tudo ao fechar" (serviços/industrial) também é controlar à distância.
   return { pedidos, preco, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
 }
@@ -1099,6 +1175,10 @@ function desenharPreco() {
     total.append(el("p", "sim-rotulo", "Estimativa com instalação"));
     total.append(el("p", "sim-intervalo num", `${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
     if (!preco.completo) total.append(el("p", "ajuda", "Alguns artigos ainda não têm preço no catálogo: confirmamos na visita."));
+    if (preco.deslocacao.estado === "fora_area") {
+      const km = preco.deslocacao.distancia_km;
+      total.append(el("p", "msg info", `${preco.deslocacao.concelho}${km !== null ? ` (cerca de ${km} km)` : ""} fica fora da área servida — contacte-nos. A deslocação não está incluída.`));
+    }
   } else {
     total.append(el("p", "sim-intervalo", "Vamos enviar-lhe o preço"));
   }
@@ -1133,7 +1213,10 @@ function desenharPreco() {
   };
   if (preco.horas !== null && preco.linhas.length) {
     linhaRodape(`Mão de obra (${formatarHoras(preco.horas)} × ${formatarEuro(preco.config.tarifa_hora_iva)}/h)`, formatarEuro(preco.mao_obra_iva));
-    if (preco.deslocacao_iva > 0) linhaRodape("Deslocação", formatarEuro(preco.deslocacao_iva));
+    const d = preco.deslocacao;
+    if (d.estado === "estimada") linhaRodape(`Deslocação: ${d.distancia_km} km (estimativa)`, formatarEuro(d.valor_iva));
+    else if (d.estado === "fora_area") linhaRodape("Deslocação: fora da área servida — contacte-nos", "—");
+    else linhaRodape(`Deslocação: confirmada na visita${d.valor_iva > 0 ? " (mínimo)" : ""}`, d.valor_iva > 0 ? formatarEuro(d.valor_iva) : "—");
     linhaRodape("Total estimado", formatarEuro(preco.total), "total");
     linhaRodape(`Intervalo (± ${String(preco.config.margem_intervalo_pct).replace(".", ",")} %)`, `${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`);
   } else if (preco.linhas.length) {
@@ -1188,6 +1271,7 @@ for (const k of CAMPOS) {
     agendarGravacao();
   });
 }
+ligarLocalidade($("contacto-localidade"));
 
 function mostrarEnvio(texto, tipo, comContactos = false) {
   const m = $("enviar-msg");

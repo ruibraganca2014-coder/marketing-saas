@@ -151,6 +151,15 @@ export const MIGRACOES = [
   // 3 — artigos do quadro elétrico (proteções, extras, caixas): bases novas e já existentes recebem-nos;
   // INSERT OR IGNORE pelo SKU → sem duplicar e sem mexer num artigo que o CEO já tenha (preço editado ou SKU igual).
   (db) => semear(db, SEMENTES_QUADRO, true),
+  // 4 — deslocação por distância (docs/SIMULADOR-ORCAMENTO.md §5.1): base (concelho), km grátis, preço por km
+  // (c/ IVA) e distância máxima servida. O `deslocacao_iva` que já existe fica igual e passa a ser o valor
+  // fixo (mínimo) de cada deslocação. INSERT OR IGNORE: nunca mexe num valor que o CEO já tenha editado.
+  // A base é texto (nome do concelho): a coluna `valor` tem afinidade REAL, e o SQLite guarda como TEXT
+  // um valor que não é número (tabela não STRICT).
+  (db) => db.exec(`
+    INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
+      ('deslocacao_base', 'Lisboa'), ('deslocacao_km_gratis', 20), ('deslocacao_preco_km_iva', 0.4), ('deslocacao_max_km', 100);
+  `),
 ];
 
 /** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */

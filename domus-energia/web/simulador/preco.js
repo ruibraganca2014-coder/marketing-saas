@@ -104,12 +104,14 @@ export const cent = (x) => Math.round(x * 100) / 100;
 export const arredondar5 = (x) => Math.round(x / 5) * 5;
 
 /**
- * Preço (§5). catalogo = null quando o GET /api/catalogo falhou.
+ * Preço (§5). catalogo = null quando o GET /api/catalogo falhou. `deslocacao`: calcularDeslocacao() de
+ * ./deslocacao.js (§5.1) — soma o seu valor_iva (null = fora da área: não soma); sem ele soma o
+ * `deslocacao_iva` fixo (como antes).
  * @returns {{linhas:{chave:string, sku:string, nome:string, qtd:number, preco_iva:number|null, total:number|null, horas:number|null}[],
  *   horas:number|null, mao_obra_iva:number|null, deslocacao_iva:number, artigos_iva:number|null, total:number|null,
- *   min:number|null, max:number|null, completo:boolean, config:object}}
+ *   min:number|null, max:number|null, completo:boolean, config:object, deslocacao:object|null}}
  */
-export function calcularPreco(pedidos, catalogo, config) {
+export function calcularPreco(pedidos, catalogo, config, deslocacao = null) {
   const cfg = { ...CONFIG_OMISSAO };
   for (const k of Object.keys(CONFIG_OMISSAO)) {
     const v = Number(config?.[k]);
@@ -125,18 +127,18 @@ export function calcularPreco(pedidos, catalogo, config) {
     };
   });
   if (!catalogo) {
-    return { linhas, horas: null, mao_obra_iva: null, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, total: null, min: null, max: null, completo: false, config: cfg };
+    return { linhas, horas: null, mao_obra_iva: null, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, total: null, min: null, max: null, completo: false, config: cfg, deslocacao };
   }
   const completo = linhas.every((l) => l.preco_iva !== null);
   const horas = cent(soma(linhas, (l) => l.horas));
   const mao = cent(horas * cfg.tarifa_hora_iva);
   const artigos = cent(soma(linhas, (l) => l.total));
-  const desloc = linhas.length ? cfg.deslocacao_iva : 0;
+  const desloc = !linhas.length ? 0 : deslocacao ? deslocacao.valor_iva ?? 0 : cfg.deslocacao_iva;
   const total = cent(artigos + mao + desloc);
   const m = Math.min(cfg.margem_intervalo_pct, 100) / 100;
   return {
     linhas, horas, mao_obra_iva: mao, deslocacao_iva: desloc, artigos_iva: artigos, total,
-    min: Math.max(0, arredondar5(total * (1 - m))), max: arredondar5(total * (1 + m)), completo, config: cfg,
+    min: Math.max(0, arredondar5(total * (1 - m))), max: arredondar5(total * (1 + m)), completo, config: cfg, deslocacao,
   };
 }
 
