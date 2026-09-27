@@ -156,7 +156,7 @@ export default function clientes(el, ctx) {
       const corpo = { id, tipo: el.tipo.value, nome, medidor: el.medidor.checked, geral: el.geral.checked, bateria: el.bateria.checked };
       if (el.divisao.value.trim()) corpo.divisao = el.divisao.value.trim();
       if (el.canais.value.trim()) corpo.canais = el.canais.value.trim();
-      await enviarPedido(f, msg, `clientes/${encodeURIComponent(codigo)}/aparelhos`, corpo, `Aparelho ${id} de ${codigo}`, `${codigo}-${id}`, () => zonaF.replaceChildren(h("p", { class: "msg ok", text: "Pedido enviado. O servidor aplica-o dentro de minutos." })));
+      await enviarPedido(f, msg, `clientes/${encodeURIComponent(codigo)}/aparelhos`, corpo, `Aparelho ${id} de ${codigo}`, `${codigo}-${id}`, () => zonaF.replaceChildren(h("p", { class: "msg ok", text: "Pedido enviado. O servidor aplica-o em poucos segundos (~5 s)." })));
     });
     zonaF.replaceChildren(f);
     f.elements.id.focus();
@@ -219,7 +219,7 @@ export default function clientes(el, ctx) {
       if (!RE_CODIGO.test(corpo.codigo)) { mensagem(msg, "Código inválido: 1 a 32 letras minúsculas, números e '-' (sem '-' no início ou no fim)."); el.codigo.focus(); return; }
       const r = await enviarPedido(f, msg, "clientes", corpo, `Cliente ${corpo.codigo}`, corpo.codigo, () => {
         j.corpo.replaceChildren(
-          h("p", { class: "msg ok", text: `Pedido enviado. O servidor cria a conta de ${corpo.nome} dentro de minutos.` }),
+          h("p", { class: "msg ok", text: `Pedido enviado. O servidor cria a conta de ${corpo.nome} em poucos segundos (~5 s).` }),
           h("p", { text: "Quando estiver pronta, aparece aqui uma janela com a palavra-passe, só uma vez. Pode continuar a trabalhar." }),
           h("button", { class: "btn sec", type: "button", text: "Fechar", onclick: j.fechar }));
       });

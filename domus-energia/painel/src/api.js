@@ -34,6 +34,9 @@ const CONFIG_ORCAMENTO = {
  * sem sessão. Exportada para os testes verificarem a matriz de papéis de
  * TODAS as rotas.
  */
+/** Funções de canal que o domus.sh aceita (FUNCOES em servidor/domus.sh). */
+const FUNCOES_CANAL = ['interruptor', 'luz', 'estore', 'porta', 'movimento', 'bateria'];
+
 export const ROTAS = [
   ['POST', 'entrar', 'publico', 'entrar'],
   ['POST', 'sair', 'publico', 'sair'],
@@ -433,6 +436,14 @@ export function criarApi(ctx) {
     const canais = texto(v.canais, 'os canais', { max: 1000,
       re: /^[1-9]\d?:[a-z]+(:[^,:"\\]*)*(,[1-9]\d?:[a-z]+(:[^,:"\\]*)*)*$/,
       reMsg: 'Canais: formato "n:funcao[:nome][:opção]...", separados por vírgulas (ver domus.sh aparelho).' });
+    // As mesmas regras do domus.sh (FUNCOES; número de canal único): senão o erro só aparecia no servidor.
+    const numeros = new Set();
+    for (const item of canais ? canais.split(',') : []) {
+      const [n, funcao] = item.split(':');
+      if (!FUNCOES_CANAL.includes(funcao)) falha(`Canais: função "${funcao}" desconhecida (${FUNCOES_CANAL.join(', ')}).`);
+      if (numeros.has(n)) falha(`Canais: o canal ${n} aparece mais de uma vez.`);
+      numeros.add(n);
+    }
     const divisao = texto(v.divisao, 'a divisão', { max: 40, re: /^[^"\\:,-][^"\\:,]*$/, reMsg: 'Divisão: sem aspas, ":" ou ",".' });
     // O domus.sh conta a divisão em bytes (máx. 40) quando corre sem locale UTF-8 (cron/systemd).
     if (divisao && Buffer.byteLength(divisao) > 40) falha('Divisão demasiado longa (máx. 40 bytes; acentos contam 2).');
@@ -556,7 +567,21 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
-  h.converter = async ({ req, res, u, params, ip }) => {
+  // Dois "Converter" ao mesmo tempo (duplo clique, dois separadores): o 2.º espera pela verificação de
+  // `obra_id`, que só fica gravada no fim; sem isto criava obras e pedidos-admin em dobro.
+  const aConverter = new Set();
+  h.converter = async (ctx) => {
+    const chave = String(ctx.params.id);
+    if (aConverter.has(chave)) throw new ErroApi(409, 'Este pedido já está a ser convertido.');
+    aConverter.add(chave);
+    try {
+      return await converterOrcamento(ctx);
+    } finally {
+      aConverter.delete(chave);
+    }
+  };
+
+  async function converterOrcamento({ req, res, u, params, ip }) {
     const o = obterOrcamento(params.id);
     const v = await lerJson(req, ['codigo', 'data', 'hora', 'kit', 'tecnicos', 'notas', 'horas_estimadas', 'aparelhos'], 64 * 1024);
     if (o.estado !== 'aceite') throw new ErroApi(409, 'Só se converte um pedido com o estado "aceite".');

@@ -347,3 +347,30 @@ test('datas de Lisboa (resumo)', () => {
   assert.equal(somarDiasCivil('2026-10-25', 1), '2026-10-26');
   assert.match(diaLisboa(new Date()), /^\d{4}-\d{2}-\d{2}$/);
 });
+
+test('converter: dois pedidos ao mesmo tempo → só um converte (sem obras nem pedidos em dobro)', async () => {
+  const r0 = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Duplo Clique', email: 'duplo@exemplo.pt', servico: 'Casa inteligente' } });
+  assert.equal(r0.estado, 201);
+  const o = (await api('GET', 'orcamentos', 'comercial')).json.orcamentos.find((x) => x.nome === 'Duplo Clique');
+  await api('POST', `orcamentos/${o.id}`, 'comercial', { estado: 'aceite', data_visita: '2026-10-05' });
+  const antes = (await readdir(join(p.dados, 'pedidos-admin'))).length;
+  const aparelhos = [{ id: 'luz-sala', tipo: 'shelly', nome: 'Luz da sala', canais: '1:luz:Luz', divisao: 'Sala' }];
+  const rs = await Promise.all([1, 2].map(() => api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'duplo', aparelhos })));
+  assert.deepEqual(rs.map((r) => r.estado).sort(), [201, 409], rs.map((r) => r.texto).join(' | '));
+  assert.equal((await readdir(join(p.dados, 'pedidos-admin'))).length - antes, 2, 'um pedido de cliente + um de aparelho');
+  assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM obras WHERE orcamento_id = ?').get(o.id).n, 1);
+});
+
+test('aparelho: canais com número repetido ou função desconhecida são recusados (como no domus.sh)', async () => {
+  const r0 = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Canais Maus', email: 'canais@exemplo.pt', servico: 'Casa inteligente' } });
+  assert.equal(r0.estado, 201);
+  const o = (await api('GET', 'orcamentos', 'comercial')).json.orcamentos.find((x) => x.nome === 'Canais Maus');
+  await api('POST', `orcamentos/${o.id}`, 'comercial', { estado: 'aceite', data_visita: '2026-10-06' });
+  const base = { id: 'qx', tipo: 'openbeken', nome: 'Qx' };
+  for (const canais of ['1:interruptor:X,1:luz:Y', '1:tomada:X', '2:luz:A,3:portao:B']) {
+    const r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'canais', aparelhos: [{ ...base, canais }] });
+    assert.equal(r.estado, 400, `${canais} → ${r.texto}`);
+  }
+  const r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'canais', aparelhos: [{ ...base, canais: '1:interruptor:X,2:luz:Y' }] });
+  assert.equal(r.estado, 201, r.texto);
+});

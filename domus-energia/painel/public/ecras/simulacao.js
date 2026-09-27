@@ -63,8 +63,11 @@ export function limparPlanta(p) {
 }
 
 /** Nome de uma divisão da planta pelo id (ou o próprio texto). */
+// Linha que o simulador junta às divisões para os elementos fora de todas: não é uma divisão.
+const FORA = "Fora das divisões";
+
 function nomeDivisao(planta, id) {
-  if (id == null || id === "") return null;
+  if (id == null || id === "" || id === FORA) return null;
   const d = arr(planta?.divisoes).find((x) => x && x.id === id);
   return d ? String(d.nome ?? id) : String(id);
 }
@@ -170,7 +173,8 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
   const planta = sim.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : null;
   if (circuitos.length) partes.push(tabelaCircuitos(circuitos, planta));
-  const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object");
+  const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object"
+    && !(d.nome === FORA && !["luzes_regulaveis", "estores", "estores_sem_motor", "sensores_porta", "sensores_movimento", "tomadas_inteligentes"].some((k) => contar(d[k])) && !arr(d.interruptores).length));
   if (divs.length) partes.push(tabelaDivisoes(divs));
   if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta));
   partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é confirmado na visita técnica." }));
@@ -370,6 +374,23 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
   const els = planta.elementos;
   // Sem `divisao` (ou planta antiga): a mesma regra do simulador (portas/janelas até 30 cm fora contam).
   const divDe = (e) => (e ? nomeDivisao(planta, e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e)) : null);
+  // Aparelhos que não estão desenhados na planta (planta saltada, ou postos pelos objetivos): a divisão vem
+  // do passo "Divisões" (sim.divisoes), descontando as que já foram dadas por elementos da planta.
+  const filas = {};
+  const filaDe = (campo) => (filas[campo] ??= arr(sim?.divisoes).flatMap((d) => {
+    const nome = divisaoLimpa(obj(d).nome);
+    if (!nome || nome === FORA) return [];
+    const n = campo === "interruptores" ? arr(d.interruptores).length : contar(d[campo]);
+    return Array(Math.min(60, n)).fill(nome);
+  }));
+  const gastar = (campo, div) => { const f = filaDe(campo); const i = f.indexOf(div); if (i >= 0) f.splice(i, 1); };
+  const proxima = (campo) => filaDe(campo).shift() ?? null;
+  /** Divisões pela ordem: primeiro as dos elementos da planta; o resto, da fila do passo "Divisões". */
+  const divisoesPara = (campo, elementos, n) => {
+    const planta = elementos.slice(0, n).map((e) => divDe(e));
+    for (const d of planta) if (d) gastar(campo, d);
+    return Array.from({ length: n }, (_, k) => planta[k] ?? proxima(campo));
+  };
   const quant = {}; const skus = {};
   const botoesLista = [];
   for (const i of arr(sim?.itens)) {
@@ -412,10 +433,14 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
   // Interruptores: pelos botões; a planta dá a divisão.
   const intPlanta = els.filter((e) => e.tipo === "interruptor");
   const intUsados = new Set();
-  botoesLista.forEach((b, k) => {
-    let e = intPlanta.find((x) => !intUsados.has(x) && numero(obj(x.props).botoes) === b.botoes) ?? intPlanta.find((x) => !intUsados.has(x));
+  const intEls = botoesLista.map((b) => {
+    const e = intPlanta.find((x) => !intUsados.has(x) && numero(obj(x.props).botoes) === b.botoes) ?? intPlanta.find((x) => !intUsados.has(x));
     if (e) intUsados.add(e);
-    const div = divDe(e);
+    return e;
+  });
+  const intDivs = divisoesPara("interruptores", intEls, intEls.length);
+  botoesLista.forEach((b, k) => {
+    const div = intDivs[k];
     const canais = Array.from({ length: b.botoes }, (_, i) => `${i + 1}:interruptor:${b.botoes === 1 ? "Luz" : `Luz ${i + 1}`}`).join(",");
     juntar(div ? `interruptor-${slug(div, 16)}` : `interruptor-${k + 1}`, {
       tipo: "openbeken", nome: div ? `Interruptor ${div}` : `Interruptor ${k + 1}`, canais, divisao: div,
@@ -425,8 +450,9 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
 
   // Estores: janelas com estore (motorizado primeiro).
   const janelas = els.filter((e) => e.tipo === "janela" && obj(e.props).estore).sort((a, b) => Number(!!obj(b.props).motorizado) - Number(!!obj(a.props).motorizado));
+  const estDivs = divisoesPara("estores", janelas, quant.estore ?? 0);
   for (let k = 0; k < (quant.estore ?? 0); k++) {
-    const div = divDe(janelas[k]);
+    const div = estDivs[k];
     juntar(div ? `estore-${slug(div, 18)}` : `estore-${k + 1}`, {
       tipo: "shelly", nome: div ? `Estore ${div}` : `Estore ${k + 1}`, canais: "1:estore:Estore", divisao: div,
       origem: [skus.estore?.[0], div ? `janela: ${div}` : null].filter(Boolean).join(" · "),
@@ -449,8 +475,9 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
     if (!sensP.some((s) => s.porta === p)) sensP.push({ div: divDe(p), entrada: true, janela: false, porta: p });
   }
   sensP.sort((a, b) => Number(b.entrada) - Number(a.entrada));
+  for (const s of sensP.slice(0, quant.sensor_porta ?? 0)) if (s.div) gastar("sensores_porta", s.div);
   for (let k = 0; k < (quant.sensor_porta ?? 0); k++) {
-    const s = sensP[k] ?? { div: null, entrada: false, janela: false };
+    const s = sensP[k] ?? { div: proxima("sensores_porta"), entrada: false, janela: false };
     const coisa = s.janela ? "Janela" : s.entrada ? "Porta de entrada" : "Porta";
     const nome = s.entrada ? "Sensor da porta de entrada" : `Sensor da ${coisa.toLowerCase()}${s.div ? ` (${s.div})` : ""}`;
     juntar(s.entrada ? "porta-entrada" : `${s.janela ? "janela" : "porta"}-${slug(s.div ?? String(k + 1), 18)}`, {
@@ -462,8 +489,9 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
 
   // Sensores de movimento.
   const pir = els.filter((e) => e.tipo === "sensor_movimento");
+  const pirDivs = divisoesPara("sensores_movimento", pir, quant.sensor_movimento ?? 0);
   for (let k = 0; k < (quant.sensor_movimento ?? 0); k++) {
-    const div = divDe(pir[k]);
+    const div = pirDivs[k];
     juntar(div ? `movimento-${slug(div, 16)}` : `movimento-${k + 1}`, {
       tipo: "openbeken", nome: div ? `Movimento ${div}` : `Sensor de movimento ${k + 1}`, bateria: true, divisao: div,
       canais: "1:movimento:Movimento,2:bateria", origem: [skus.sensor_movimento?.[0], div].filter(Boolean).join(" · "),
@@ -475,8 +503,9 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
     juntar(`tomada-${k + 1}`, { tipo: "openbeken", nome: `Tomada ${k + 1}`, medidor: skus.tomadaMedidor !== false, canais: "1:interruptor:Tomada", origem: skus.tomada?.[0] });
   }
   const luzes = els.filter((e) => e.tipo === "luz" && obj(e.props).brilho);
+  const luzDivs = divisoesPara("luzes_regulaveis", luzes, quant.luz ?? 0);
   for (let k = 0; k < (quant.luz ?? 0); k++) {
-    const div = divDe(luzes[k]);
+    const div = luzDivs[k];
     juntar(div ? `luz-${slug(div, 18)}` : `luz-${k + 1}`, {
       tipo: "openbeken", nome: div ? `Luz ${div}` : `Luz regulável ${k + 1}`, canais: "1:luz:Luz", divisao: div,
       origem: [skus.luz?.[0], div ? `luz regulável: ${div}` : null].filter(Boolean).join(" · "),

@@ -49,6 +49,8 @@ function normalizarEu(r) {
 
 function mostrarLogin(texto = "", tipo = "erro") {
   eu = null;
+  // Os pedidos em espera eram da conta que saiu: não os mostrar (nem consultar) à próxima.
+  for (const p of [...pendentes.values()]) p.terminar();
   desmontar?.(); desmontar = null; ecraAtual = null;
   document.querySelectorAll("dialog.janela").forEach((d) => d.close());
   conteudo.replaceChildren();
@@ -228,7 +230,7 @@ window.addEventListener("hashchange", () => {
 });
 
 // ---------- Pedidos ao servidor (criar cliente, aparelho…): esperar pelo resultado ----------
-// O servidor aplica os pedidos em lote (minutos). Enquanto isso, uma faixa diz que está à espera;
+// O servidor aplica os pedidos a cada ~5 s (temporizador domus-pedidos). Enquanto isso, uma faixa diz que está à espera;
 // quando chega o resultado com palavra-passe, abre uma janela que a mostra UMA vez.
 const pendentes = new Map();
 export const INTERVALO_PEDIDOS = 4000;
@@ -250,12 +252,13 @@ function acompanharPedido(id, { descricao, utilizador } = {}) {
       else avisar(`${descricao ?? "Pedido"}: feito.`, "ok");
     } catch (e) {
       if (e instanceof ErroApi && e.estado === 404) { terminar(); avisar(`${descricao ?? "Pedido"}: o resultado já não está disponível.`, "info"); return; }
-      if (e instanceof ErroApi && e.estado === 401) { terminar(); return; }
+      if (e instanceof ErroApi && (e.estado === 401 || e.estado === 403)) { terminar(); return; }
       p.falhas++;
       p.t = setTimeout(verificar, Math.min(INTERVALO_PEDIDOS * (1 + p.falhas), 60000));
     }
   };
   function terminar() { clearTimeout(p.t); linha.remove(); pendentes.delete(id); resumirPendentes(); }
+  p.terminar = terminar;
   p.t = setTimeout(verificar, 800);
 }
 
