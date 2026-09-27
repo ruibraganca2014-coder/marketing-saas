@@ -260,7 +260,7 @@ export function montarSimulacao(estado, preco, plano) {
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
-    avisos: avisosQuadro(circuitos),
+    avisos: avisosQuadro(circuitos, estado.quadro),
   };
 }
 
@@ -272,7 +272,7 @@ export function problemaContacto(k) {
   if (!t(k.nome)) return { campo: "nome", texto: "Escreva o seu nome." };
   if (t(k.nome).length > 120) return { campo: "nome", texto: "O nome é demasiado longo (máx. 120 caracteres)." };
   if (!t(k.telefone) && !t(k.email)) return { campo: "telefone", texto: "Indique um telefone ou um email para o podermos contactar." };
-  if (t(k.telefone) && !RE_TELEFONE.test(t(k.telefone))) return { campo: "telefone", texto: "O telefone não parece certo (só números, espaços, +, parênteses e hífen)." };
+  if (t(k.telefone) && !RE_TELEFONE.test(t(k.telefone))) return { campo: "telefone", texto: "O telefone não parece certo: escreva o número completo (ex.: 912 345 678)." };
   if (t(k.email) && (t(k.email).length > 254 || !RE_EMAIL.test(t(k.email)))) return { campo: "email", texto: "O email não parece certo (ex.: nome@exemplo.pt)." };
   if (t(k.localidade).length > 80) return { campo: "localidade", texto: "A localidade é demasiado longa (máx. 80 caracteres)." };
   if (t(k.mensagem).length > 2000) return { campo: "mensagem", texto: "A mensagem é demasiado longa (máx. 2000 caracteres)." };

@@ -60,7 +60,7 @@ input, select { min-height: 44px; }
 /* ---------- Editor da planta ---------- */
 .editor { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 980px) { .editor { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
-.editor-principal { display: grid; gap: 10px; min-width: 0; }
+.editor-principal { display: grid; gap: 10px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
 .editor-barra { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
 @media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; } }
 .ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 78px; min-height: 64px; padding: 6px 4px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; }
@@ -70,7 +70,16 @@ input, select { min-height: 44px; }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
 .editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .editor-barra2 .btn { min-width: 44px; }
-.editor-dica { margin: 0; min-height: 1.5em; font-weight: 600; color: var(--texto-suave); }
+/* Altura reservada: a dica muda de tamanho a cada ação e a planta, por baixo, não pode saltar
+   entre o que a pessoa vê e o toque seguinte. */
+.editor-dica { margin: 0; min-height: calc(1.5em * 2); line-height: 1.5; font-weight: 600; color: var(--texto-suave); }
+@media (max-width: 719px) { .editor-dica { min-height: calc(1.5em * 4); font-size: .95rem; } }
+/* Ações do que está selecionado (altura fixa: a planta não salta quando se seleciona). */
+.editor-selecao { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 48px; padding: 2px 0; }
+.editor-selecao-nome { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
+.editor-selecao.vazia .editor-selecao-nome { font-weight: 600; color: var(--texto-suave); }
+.editor-selecao .btn { flex: none; padding-inline: 12px; }
+.editor-selecao .btn[hidden] { display: none; }
 .editor-area { position: relative; height: clamp(320px, 62vh, 640px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
 .editor-svg { display: block; width: 100%; height: 100%; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 .editor-svg:focus-visible { outline: 3px solid var(--areia); outline-offset: -3px; }
@@ -151,6 +160,9 @@ input, select { min-height: 44px; }
 
 /* ---------- Enviar ---------- */
 .sim-enviar { display: grid; gap: 14px; }
+/* Não fica escondida pelo topo nem pela barra de navegação fixa em baixo. */
+#enviar-msg, .editor-dica, #editor-props-titulo { scroll-margin: 90px 0 96px; }
+.sim-enviar input, .sim-enviar textarea { scroll-margin: 90px 0 96px; }
 .sim-sucesso .cartao { display: grid; gap: 12px; }
 .sim-sucesso h2 { margin: 0; font-size: 1.8rem; }
 .sim-sucesso h2:focus { outline: none; }

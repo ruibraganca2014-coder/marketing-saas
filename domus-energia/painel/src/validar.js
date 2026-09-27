@@ -117,5 +117,31 @@ export function simulacao(v) {
   }
   const json = JSON.stringify(v);       // depois da verificação da profundidade (stringify é recursivo)
   if (Buffer.byteLength(json) > MAX_SIMULACAO) throw new ErroApi(413, 'A simulação é demasiado grande (máx. 1 MB).');
+  limitesPlanta(v.planta);
   return json;
+}
+
+/**
+ * Limites da planta (docs/SIMULADOR-ORCAMENTO.md §2.1): ≤ 40 divisões, ≤ 400 elementos,
+ * largura/altura ≤ 10 000 cm, imagem de fundo ≤ 700 KB. O visualizador do painel desenha
+ * a planta: sem isto um pedido público podia pedir uma grelha de milhões de linhas.
+ */
+export const LIMITES_PLANTA = { divisoes: 40, elementos: 400, lado_cm: 10_000, imagem: 700 * 1024, escala_min: 10, escala_max: 1000 };
+function limitesPlanta(p) {
+  if (p === undefined || p === null) return;
+  if (typeof p !== 'object' || Array.isArray(p)) falha('A planta da simulação tem de ser um objeto.');
+  const L = LIMITES_PLANTA;
+  for (const [k, max, rot] of [['divisoes', L.divisoes, 'divisões'], ['elementos', L.elementos, 'elementos']]) {
+    if (p[k] === undefined || p[k] === null) continue;
+    if (!Array.isArray(p[k])) falha(`Planta: ${rot} tem de ser uma lista.`);
+    if (p[k].length > max) falha(`Planta: no máximo ${max} ${rot}.`);
+  }
+  for (const k of ['largura_cm', 'altura_cm']) {
+    const x = p[k];
+    if (x !== undefined && x !== null && !(typeof x === 'number' && x > 0 && x <= L.lado_cm)) falha(`Planta: ${k} entre 1 e ${L.lado_cm} cm.`);
+  }
+  const e = p.escala_cm;
+  if (e !== undefined && e !== null && !(typeof e === 'number' && e >= L.escala_min && e <= L.escala_max)) falha(`Planta: escala_cm entre ${L.escala_min} e ${L.escala_max}.`);
+  const img = typeof p.fundo === 'string' ? p.fundo : p.fundo && typeof p.fundo === 'object' ? p.fundo.imagem : null;
+  if (typeof img === 'string' && img.length > L.imagem) falha('Planta: a imagem de fundo tem no máximo 700 KB.');
 }

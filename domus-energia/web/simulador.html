@@ -135,6 +135,7 @@
           <h2 id="titulo-5" tabindex="-1">6. Enviar</h2>
           <p class="sub-passo">Enviamos a simulação à nossa equipa e contactamos para marcar a visita técnica gratuita. Deixe pelo menos um contacto (telefone ou email). * obrigatório</p>
           <div class="cartao sim-enviar">
+            <div class="msg" id="enviar-msg" role="status" hidden></div>
             <div class="duas">
               <label>Nome *<input id="contacto-nome" name="nome" maxlength="120" autocomplete="name" required></label>
               <label>Telefone<input id="contacto-telefone" name="telefone" type="tel" maxlength="30" autocomplete="tel"></label>
@@ -146,7 +147,6 @@
             <label>Mensagem (opcional)<textarea id="contacto-mensagem" name="mensagem" maxlength="2000"></textarea></label>
             <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
             <div class="armadilha" aria-hidden="true"><label>Website<input id="contacto-website" name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
-            <div class="msg" id="enviar-msg" role="status" hidden></div>
           </div>
         </section>
 

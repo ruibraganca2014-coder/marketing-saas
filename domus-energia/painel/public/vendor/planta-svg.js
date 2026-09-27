@@ -141,8 +141,9 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     svg.append(img);
   }
 
-  // Quadriculado de 50 cm (um só <path>); cada metro um pouco mais marcado.
-  if (grelha) {
+  // Quadriculado de 50 cm (um só <path>); cada metro um pouco mais marcado. Sem grelha se
+  // uma planta fora dos limites de §2.1 pedisse milhares de linhas (bloquearia o navegador).
+  if (grelha && L / esc + A / esc <= 2000) {
     let d = "";
     let dm = "";
     for (let x = esc; x < L; x += esc) (x % 100 === 0 ? (dm += `M${x} 0V${A}`) : (d += `M${x} 0V${A}`));

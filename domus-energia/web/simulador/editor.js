@@ -78,7 +78,7 @@ function numeroInput(valor, { min, max, step = 1, id }) {
  * @param {HTMLElement} raiz
  * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void}} opcoes
  */
-export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -134,6 +134,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
   const dica = el("p", "editor-dica");
   dica.id = "editor-dica";
   dica.setAttribute("role", "status");
+  // Sem anunciador próprio da página, as confirmações ("Na planta: Janela (divisão Cozinha).") aparecem na dica.
+  const avisar = anunciar ?? ((t) => { dica.textContent = t; });
+
+  // Ações rápidas do que está selecionado, logo por cima da planta: no telemóvel o painel de
+  // propriedades fica abaixo da planta, fora do ecrã. Altura fixa para a planta não saltar.
+  const selecao = el("div", "editor-selecao");
+  const selecaoNome = el("span", "editor-selecao-nome");
+  const sRodar = botao("Rodar");
+  sRodar.id = "selecao-rodar";
+  const sApagar = botao("Apagar", "btn sec pequeno perigo-sec");
+  sApagar.id = "selecao-apagar";
+  const sOpcoes = botao("Opções");
+  sOpcoes.id = "selecao-opcoes";
+  selecao.append(selecaoNome, sRodar, sApagar, sOpcoes);
 
   const area = el("div", "editor-area");
   const svg = svgEl("svg");
@@ -179,7 +193,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
 
   lado.append(props, fundoSec, tamSec, listaSec);
   const principal = el("div", "editor-principal");
-  principal.append(barra, barra2, dica, area, ajudaTeclado);
+  principal.append(barra, barra2, dica, selecao, area, ajudaTeclado);
   raiz.append(principal, lado);
 
   // ---------------------------------------------------------------- vista
@@ -229,7 +243,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
     atualizarDivisoes(planta);
     aoMudar(planta);
     desenharTudo();
-    if (texto) anunciar(texto);
+    if (texto) avisar(texto);
   }
   function anular() {
     if (!desfazer.length) return;
@@ -262,7 +276,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
   }
 
   function adicionarDivisao(x, y, w, h) {
-    if (planta.divisoes.length >= MAX_DIVISOES) { anunciar(`A planta já tem o máximo de ${MAX_DIVISOES} divisões.`); return null; }
+    if (planta.divisoes.length >= MAX_DIVISOES) { avisar(`A planta já tem o máximo de ${MAX_DIVISOES} divisões.`); return null; }
     memorizar();
     const d = {
       id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(),
@@ -280,7 +294,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
   }
 
   function adicionarElemento(tipo, x, y) {
-    if (planta.elementos.length >= MAX_ELEMENTOS) { anunciar(`A planta já tem o máximo de ${MAX_ELEMENTOS} elementos.`); return null; }
+    if (planta.elementos.length >= MAX_ELEMENTOS) { avisar(`A planta já tem o máximo de ${MAX_ELEMENTOS} elementos.`); return null; }
     memorizar();
     const e = {
       id: novoId("e", planta.elementos), tipo,
@@ -291,8 +305,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
     planta.elementos.push(e);
     e.divisao = divisaoEm(planta, e.x_cm, e.y_cm);
     selecionado = e.id;
-    const onde = e.divisao ? ` na ${obterDivisao(e.divisao)?.nome || "divisão"}` : "";
-    confirmar(`${ELEMENTOS[tipo].nome} colocado${onde}.`);
+    const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro de uma divisão para contar nela";
+    confirmar(`Na planta: ${ELEMENTOS[tipo].nome} (${onde}).`);
     return e;
   }
 
@@ -305,7 +319,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
     if (d) planta.divisoes = planta.divisoes.filter((x) => x !== d);
     if (e) planta.elementos = planta.elementos.filter((x) => x !== e);
     selecionado = null;
-    confirmar(d ? `Divisão "${d.nome}" apagada (os elementos ficaram).` : `${ELEMENTOS[e.tipo].nome} apagado.`);
+    confirmar(d ? `Divisão "${d.nome}" apagada (os elementos ficaram).` : `Apagado da planta: ${ELEMENTOS[e.tipo].nome}.`);
     svg.focus({ preventScroll: true });
   }
 
@@ -511,7 +525,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
       if (!a.mexeu) {
         selecionado = a.alvo;
         desenharTudo();
-        if (a.alvo) anunciar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada. Arraste para mover; use as pegas dos cantos para mudar o tamanho.`);
+        if (!a.alvo) definirModo(null);
+        else avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada. Arraste para mover; use as pegas dos cantos para mudar o tamanho.`);
       }
       return;
     }
@@ -707,7 +722,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
     } else {
       const b = botao("Calibrar: marcar uma parede");
       b.id = "calibrar";
-      b.addEventListener("click", () => { calibracao = { pontos: [] }; definirModo({ tipo: "calibrar", pontos: [] }); svg.focus({ preventScroll: true }); });
+      b.addEventListener("click", () => {
+        calibracao = { pontos: [] };
+        definirModo({ tipo: "calibrar", pontos: [] });
+        svg.focus({ preventScroll: true });
+        mostrarPlanta();
+      });
       cal.append(b);
     }
     const rem = botao("Remover o fundo");
@@ -845,8 +865,33 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
     apagar.addEventListener("click", apagarSelecionado);
     acoes.append(apagar);
     const onde = e.divisao ? obterDivisao(e.divisao)?.nome : null;
-    props.append(el("p", "ajuda", onde ? `Na divisão: ${onde}` : "Fora das divisões"), corpo, acoes);
+    props.append(el("p", "ajuda", onde ? `Na divisão: ${onde}` : "Fora das divisões. Arraste-o para dentro de uma divisão para o contarmos nela."), corpo, acoes);
   }
+
+  /** No telemóvel os painéis estão abaixo da planta: traz a planta (e a dica) de volta ao ecrã. */
+  function mostrarPlanta() {
+    const r = area.getBoundingClientRect();
+    if (r.top >= 0 && r.bottom <= innerHeight) return;
+    dica.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+
+  function desenharSelecao() {
+    const d = obterDivisao(selecionado);
+    const e = obterElemento(selecionado);
+    selecao.classList.toggle("vazia", !d && !e);
+    selecaoNome.textContent = d ? `Divisão: ${d.nome || "sem nome"}` : e ? descreverElemento(e) : "Nada selecionado";
+    sRodar.hidden = !e || !ELEMENTOS[e.tipo].roda;
+    sApagar.hidden = !d && !e;
+    sOpcoes.hidden = !d && !e;
+    sApagar.setAttribute("aria-label", d ? `Apagar a divisão ${d.nome || ""}`.trim() : e ? `Apagar: ${descreverElemento(e)}` : "Apagar");
+  }
+  sRodar.addEventListener("click", rodarSelecionado);
+  sApagar.addEventListener("click", apagarSelecionado);
+  sOpcoes.addEventListener("click", () => {
+    const t = document.getElementById("editor-props-titulo");
+    t?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    t?.focus({ preventScroll: true });
+  });
 
   // ---------------------------------------------------------------- lista acessível
   function desenharLista() {
@@ -959,6 +1004,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = () => {} }) {
   function desenharTudo() {
     const foco = chaveFoco(document.activeElement);
     desenhar();
+    desenharSelecao();
     desenharPropriedades();
     desenharLista();
     desenharFundo();

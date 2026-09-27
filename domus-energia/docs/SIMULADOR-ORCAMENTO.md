@@ -77,7 +77,13 @@ Avisos (texto simples, sem bloquear):
 - Iluminação: sugerir 10 A; mais de 8 pontos de luz num circuito → aviso. Tomadas: sugerir 16 A; mais de 8 tomadas num circuito → aviso. Máquinas de ≥ 2 000 W (termoacumulador, placa, forno, AC, carregador VE) → sugerir circuito próprio.
 - Circuito marcado inteligente → sugerir **TONGOU-SY2-JWT** se amperes ≤ 63 (com proteções); **SY1** como opção mais barata; cargas de ≥ 2 000 W marcadas como **carga perigosa** (relevante para a instalação e as automações).
 - Mais de 12 módulos novos → acrescentar QUADRO-AMPLIACAO.
-Todos os avisos terminam em "(orientativo — confirmamos na visita)".
+- A conta dos 80 % é feita em watts inteiros (`round(0,8 × A × 230)`: 1104, 1840, 2944, 3680, 4600, 5888, 7360 W); exatamente 80 % não avisa. Potências inválidas, negativas ou não numéricas contam 0 (na planta: potência típica do modelo).
+- Na sugestão a partir da planta, as máquinas < 2 000 W juntam-se às tomadas sem passar 80 % de 16 A (2 944 W) por circuito; se passar, abre-se outro circuito de tomadas.
+- Máquina > 7 400 W → "acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N)".
+- Circuito inteligente/medido com mais de 63 A → "os disjuntores inteligentes vão até 63 A".
+- Soma das máquinas de todos os circuitos > 6 900 W → aviso da potência contratada (é comum 6,9 kVA).
+- Havendo pelo menos um circuito inteligente/medido → lembrete: os disjuntores inteligentes não substituem as proteções do quadro (cada circuito mantém o disjuntor de proteção; diferencial de 30 mA). Com SY1 escolhido, diz também que o SY1 não tem proteções. `avisosQuadro(circuitos, {disjuntor})`.
+Todos os avisos terminam em "(orientativo — confirmamos na visita)" e nunca bloqueiam o envio.
 
 ## 5. Preço
 - Linhas: artigo × quantidade × `preco_venda_iva`; mão de obra = Σ(`horas_instalacao` × qtd) × `tarifa_hora_iva` + `deslocacao_iva`.

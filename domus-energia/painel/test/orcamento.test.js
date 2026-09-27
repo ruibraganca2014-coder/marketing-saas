@@ -130,6 +130,32 @@ test('simulação: tipo e tamanho (≤ 1 MB), imagens só JPEG/PNG', async () =>
   assert.equal((await enviar({ ...BASE, simulacao: ok })).estado, 201);
 });
 
+test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10 000 cm, fundo ≤ 700 KB', async () => {
+  const antes = contar();
+  const planta = (x) => ({ versao: 1, planta: { escala_cm: 50, largura_cm: 2000, altura_cm: 1500, fundo: null, divisoes: [], elementos: [], ...x } });
+  const div = (n) => Array.from({ length: n }, (_, i) => ({ id: `d${i + 1}`, nome: 'D', x_cm: 0, y_cm: 0, largura_cm: 100, altura_cm: 100 }));
+  const els = (n) => Array.from({ length: n }, (_, i) => ({ id: `e${i + 1}`, tipo: 'luz', x_cm: 10, y_cm: 10, rot: 0, divisao: null, props: {} }));
+  const img = (n) => `data:image/jpeg;base64,${'A'.repeat(n - 23)}`;
+  for (const [nome, sim, re] of [
+    ['41 divisões', planta({ divisoes: div(41) }), /40 divisões/],
+    ['401 elementos', planta({ elementos: els(401) }), /400 elementos/],
+    ['largura', planta({ largura_cm: 10_001 }), /largura_cm/],
+    ['altura texto', planta({ altura_cm: '900' }), /altura_cm/],
+    ['escala 1 cm', planta({ escala_cm: 1 }), /escala_cm/],
+    ['divisões não lista', planta({ divisoes: { a: 1 } }), /lista/],
+    ['planta lista', { planta: [1] }, /objeto/],
+    ['fundo grande', planta({ fundo: { imagem: img(700 * 1024 + 4), x_cm: 0, y_cm: 0, largura_cm: 2000, opacidade: 0.5 } }), /700 KB/],
+    ['fundo texto grande', planta({ fundo: img(700 * 1024 + 4) }), /700 KB/],
+  ]) {
+    const r = await enviar({ ...BASE, simulacao: sim });
+    assert.equal(r.estado, 400, nome);
+    assert.match(r.json.erro, re, nome);
+  }
+  assert.equal(contar(), antes);
+  const limite = planta({ largura_cm: 10_000, altura_cm: 10_000, divisoes: div(40), elementos: els(400), fundo: { imagem: img(700 * 1024), x_cm: 0, y_cm: 0, largura_cm: 2000, opacidade: 0.5 } });
+  assert.equal((await enviar({ ...BASE, simulacao: limite })).estado, 201, 'no limite');
+});
+
 test('catálogo público: só ativos e visíveis, sem preço de compra, fornecedor nem link; cache 300 s', async () => {
   const cab = { cookie: p.cookies.ceo };
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;

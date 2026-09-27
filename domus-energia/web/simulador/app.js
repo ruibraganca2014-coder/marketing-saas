@@ -57,7 +57,6 @@ const editor = criarEditor($("editor"), {
     textoSeguinte();
     agendarGravacao();
   },
-  anunciar: () => {},
 });
 
 // ------------------------------------------------------------ gravação
@@ -399,7 +398,7 @@ function desenharAvisosQuadro() {
   });
   const g = $("quadro-avisos");
   g.replaceChildren();
-  const todos = avisosQuadro(estado.quadro.circuitos);
+  const todos = avisosQuadro(estado.quadro.circuitos, estado.quadro);
   const geral = todos.filter((a) => !a.startsWith("Circuito "));
   const inteligentes = estado.quadro.circuitos.filter((c) => c.inteligente || c.medir).length;
   const p = el("p", "ajuda");
@@ -652,7 +651,7 @@ function desenharPreco() {
 
   const av = $("preco-avisos");
   av.replaceChildren();
-  const avisos = avisosQuadro(estado.quadro.circuitos);
+  const avisos = avisosQuadro(estado.quadro.circuitos, estado.quadro);
   if (!avisos.length) av.append(el("p", "ajuda", "Sem avisos."));
   else {
     const ul = el("ul", "avisos-circuito");
@@ -672,6 +671,7 @@ for (const k of CAMPOS) {
   $(`contacto-${k}`).addEventListener("input", () => {
     estado.contacto[k] = $(`contacto-${k}`).value;
     $(`contacto-${k}`).removeAttribute("aria-invalid");
+    $(`contacto-${k}`).removeAttribute("aria-describedby");
     agendarGravacao();
   });
 }
@@ -723,7 +723,10 @@ async function enviar() {
     mostrarEnvio(prob.texto, "erro");
     const i = $(`contacto-${prob.campo}`);
     i.setAttribute("aria-invalid", "true");
+    i.setAttribute("aria-describedby", "enviar-msg");
     i.focus();
+    // A mensagem fica por cima dos campos: garante que se vê (a barra de baixo tapa o fundo do ecrã).
+    $("enviar-msg").scrollIntoView({ block: "nearest" });
     return;
   }
   desenharPreco();
@@ -762,6 +765,8 @@ async function enviar() {
   botao.disabled = false;
   botao.textContent = "Enviar pedido";
   if (estadoHttp >= 200 && estadoHttp < 300) { concluido(preco, semFundo); return; }
+  // Erros do servidor: a mensagem (com as alternativas) aparece no ecrã, não escondida por cima.
+  queueMicrotask(() => $("enviar-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" }));
   if (estadoHttp === 429) mostrarEnvio("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone. A sua simulação fica guardada neste navegador.", "erro", true);
   else if (estadoHttp === 400) mostrarEnvio(`Há dados em falta ou inválidos${typeof erro === "string" ? `: ${erro.slice(0, 200)}` : "."} Verifique o formulário, ou fale connosco.`, "erro", true);
   else if (estadoHttp === 413) mostrarEnvio("A simulação é demasiado grande para enviar. Remova o fundo da planta e tente de novo, ou fale connosco.", "erro", true);
@@ -777,7 +782,7 @@ function concluido(preco, semFundo) {
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = preco?.min != null
-    ? `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}. ${TEXTO_ESTIMATIVA}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`
+    ? `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}. ${TEXTO_ESTIMATIVA.replace(/^Estimativa\. /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`
     : "Vamos enviar-lhe o preço depois de analisarmos a simulação.";
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   $("titulo-fim").focus();
