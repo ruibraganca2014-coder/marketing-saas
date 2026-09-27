@@ -21,10 +21,15 @@ object Modelos {
 
     private fun normal(t: String) = Normalizer.normalize(t, Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "").lowercase()
 
-    /** Canais com uma destas [funcoes]; os que têm no nome/divisão uma das [preferir] vêm primeiro. */
+    /**
+     * Canais com uma destas [funcoes]; os que têm no nome/divisão uma das [preferir] vêm primeiro.
+     * Nunca propõe uma carga perigosa nem o disjuntor geral ([Riscos.ehDisjuntorGeral]): um modelo de luzes
+     * não pode "apagar a luz" desligando a casa inteira.
+     */
     private fun canais(aparelhos: List<Aparelho>, funcoes: Set<String>, vararg preferir: String): List<Alvo> {
         val todos = aparelhos.flatMap { a ->
-            a.canais.filter { it.funcao in funcoes && !it.perigosa }.map { c -> Triple(a, c, Alvo(a.id, c.n)) }
+            a.canais.filter { it.funcao in funcoes && !it.perigosa && !Riscos.ehDisjuntorGeral(aparelhos, a, it.n) }
+                .map { c -> Triple(a, c, Alvo(a.id, c.n)) }
         }
         fun pontos(a: Aparelho, c: Canal): Int {
             val texto = normal("${a.nome} ${c.nome} ${a.divisaoDe(c).orEmpty()}")
@@ -46,7 +51,14 @@ object Modelos {
         val luzesSala = canais(aparelhos, LUZES, "sala", "candeeiro", "estar")
         val luzesQuarto = canais(aparelhos, LUZES, "quarto")
         val estores = canais(aparelhos, setOf(Funcao.ESTORE), "quarto", "sala")
-        val medidores = aparelhos.filter { it.medidor }.sortedBy { if (normal(it.nome).contains("quadro") || normal(it.nome).contains("geral")) 0 else 1 }
+        // O modelo "Consumo alto" é mesmo sobre o contador geral: esse vem primeiro (marcado "geral", ou pelo nome).
+        val medidores = aparelhos.filter { it.medidor }.sortedBy {
+            when {
+                it.geral -> 0
+                normal(it.nome).contains("quadro") || normal(it.nome).contains("geral") -> 1
+                else -> 2
+            }
+        }
         val todasLuzes = canais(aparelhos, LUZES)
 
         fun luzAcao(alvo: Alvo?, brilho: Int, duracaoMin: String = ""): RascunhoAcao {

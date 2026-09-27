@@ -65,6 +65,7 @@ import pt.domusenergia.app.data.Quando
 import pt.domusenergia.app.data.Rascunho
 import pt.domusenergia.app.data.RascunhoAcao
 import pt.domusenergia.app.data.RascunhoCondicoes
+import pt.domusenergia.app.data.Riscos
 import pt.domusenergia.app.ui.tema.FormaCartao
 import pt.domusenergia.app.ui.tema.FormaPilula
 import pt.domusenergia.app.ui.tema.LocalTerra
@@ -115,6 +116,8 @@ fun Assistente(
     var r by remember(inicial) { mutableStateOf(inicial) }
     var passo by remember(inicial) { mutableIntStateOf(passoInicial) }
     var tentou by remember { mutableStateOf(false) }
+    /** Ações arriscadas à espera de confirmação antes de guardar. */
+    var confirmar by remember { mutableStateOf<List<String>?>(null) }
     val nova = r.paraAutomacao(existentes.filterNot { it.id == r.idOriginal })
     val erros = Automacoes.validar(nova, ctx.aparelhos, ctx.cenas, ctx.config) +
         Automacoes.validarLista(Automacoes.guardar(existentes, nova, r.idOriginal))
@@ -180,7 +183,10 @@ fun Assistente(
             if (passo >= 2) {
                 val guardar = {
                     tentou = true
-                    if (erros.isEmpty()) onGuardar(nova)
+                    if (erros.isEmpty()) {
+                        val riscos = Riscos.descrever(nova.entao, ctx.aparelhos)
+                        if (riscos.isEmpty()) onGuardar(nova) else confirmar = riscos
+                    }
                 }
                 if (passo < PASSOS.lastIndex) {
                     OutlinedButton(onClick = guardar, enabled = podeGuardar && !aGuardar, shape = FormaPilula) { Text("Guardar") }
@@ -191,6 +197,17 @@ fun Assistente(
             if (passo < PASSOS.lastIndex) BotaoPilula("Seguinte", onClick = { passo++ })
         }
         Spacer(Modifier.height(24.dp))
+    }
+    confirmar?.let { linhas ->
+        ConfirmarRisco(
+            titulo = "Guardar esta automação?",
+            explicacao = "Esta automação vai mexer em circuitos importantes:",
+            linhas = linhas,
+            sim = "Sim, guardar assim",
+            nao = "Voltar e alterar",
+            onSim = { confirmar = null; onGuardar(nova) },
+            onNao = { confirmar = null },
+        )
     }
 }
 
@@ -230,7 +247,10 @@ private fun PassoObjetivo(r: Rascunho, onChange: (Rascunho) -> Unit, modelos: Li
             apoio = "Ex.: \"Acender a luz do corredor quando alguém passa, só à noite\" (${r.descricao.length}/${Automacoes.MAX_DESCRICAO})",
             linhas = 2,
         )
-        Campo(r.nome, { onChange(r.copy(nome = it)) }, "Nome curto")
+        Campo(
+            r.nome, { onChange(r.copy(nome = it.take(Automacoes.MAX_NOME))) }, "Nome curto",
+            apoio = "${r.nome.length}/${Automacoes.MAX_NOME}",
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Ativa", modifier = Modifier.weight(1f))
             Switch(checked = r.ativa, onCheckedChange = { onChange(r.copy(ativa = it)) }, colors = coresInterruptor())
@@ -271,7 +291,7 @@ private fun PassoGatilho(r: Rascunho, onChange: (Rascunho) -> Unit, ctx: Context
         }
         when (r.tipoQuando) {
             Rascunho.SENSOR -> {
-                Seletor("Aparelho", ctx.estados, r.sensor, { onChange(r.copy(sensor = it)) }, "Não tem sensores nem circuitos.")
+                Seletor("Aparelho", ctx.estados, r.sensor, { onChange(r.copy(sensor = it)) }, "Não tem sensores nem circuitos.", escolha = "Escolha o sensor…")
                 val f = ctx.canal(r.sensor)?.funcao
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Escolha(rotuloValor(f, 1), r.valor == 1) { onChange(r.copy(valor = 1)) }
@@ -281,7 +301,7 @@ private fun PassoGatilho(r: Rascunho, onChange: (Rascunho) -> Unit, ctx: Context
                     r.sensorDuranteMin, { onChange(r.copy(sensorDuranteMin = it)) },
                     "Há quanto tempo (min)",
                     teclado = KeyboardType.Decimal,
-                    apoio = "Ex.: 10 = \"sem movimento há 10 min\". Vazio = assim que muda.",
+                    apoio = "Ex.: 10 = \"sem movimento há 10 min\". Vazio = assim que muda. Até 1440 min (24 h).",
                 )
             }
             Rascunho.HORA -> {
@@ -463,10 +483,15 @@ fun EditorCondicoes(c: RascunhoCondicoes, onChange: (RascunhoCondicoes) -> Unit,
                 }
             }
         }
-        TextButton(onClick = { onChange(c.copy(aparelhos = c.aparelhos + (null to 1))) }) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = t.musgo)
+        // O motor aceita no máximo 10 condições de aparelhos.
+        val cabeMais = c.aparelhos.size < Automacoes.MAX_CONDICOES_APARELHOS
+        TextButton(onClick = { onChange(c.copy(aparelhos = c.aparelhos + (null to 1))) }, enabled = cabeMais) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (cabeMais) t.musgo else t.textoSuave)
             Spacer(Modifier.width(4.dp))
-            Text("Juntar estado de um aparelho", color = t.musgo)
+            Text(
+                if (cabeMais) "Juntar estado de um aparelho" else "Máximo de ${Automacoes.MAX_CONDICOES_APARELHOS} aparelhos",
+                color = if (cabeMais) t.musgo else t.textoSuave,
+            )
         }
     }
 }
@@ -577,26 +602,29 @@ fun EditorAcao(
         }
         when (acao.tipo) {
             RascunhoAcao.LIGAR, RascunhoAcao.DESLIGAR -> {
-                Seletor("Circuito ou luz", ctx.circuitos, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem circuitos.")
+                Seletor("Circuito ou luz", ctx.circuitos, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem circuitos.", escolha = "Escolha o circuito…")
                 val perigosa = ctx.canal(acao.alvo)?.perigosa == true && acao.tipo == RascunhoAcao.LIGAR
                 Campo(
                     acao.duracaoMin, { onChange(acao.copy(duracaoMin = it)) },
                     if (perigosa) "Durante (minutos, obrigatório)" else "Durante (minutos, opcional)",
                     teclado = KeyboardType.Decimal,
-                    apoio = if (perigosa) "Carga perigosa: no máximo 240 min (4 h)." else "Depois volta ao estado oposto.",
+                    apoio = if (perigosa) "Carga perigosa: no máximo 240 min (4 h)." else "Depois volta ao estado oposto. Até 1440 min (24 h).",
                 )
             }
             RascunhoAcao.LUZ -> {
-                Seletor("Luz", ctx.luzes, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem luzes com brilho.")
+                Seletor("Luz", ctx.luzes, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem luzes com brilho.", escolha = "Escolha a luz…")
                 Deslizador("Brilho", acao.brilho) { onChange(acao.copy(brilho = it)) }
             }
             RascunhoAcao.ALTERNAR ->
-                Seletor("Circuito ou luz", ctx.circuitos.filter { ctx.canal(it.first)?.perigosa != true }, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem circuitos.")
+                Seletor("Circuito ou luz", ctx.circuitos.filter { ctx.canal(it.first)?.perigosa != true }, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem circuitos.", escolha = "Escolha o circuito…")
             RascunhoAcao.ESTORE -> {
-                Seletor("Estore", ctx.estores, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem estores.")
+                Seletor("Estore", ctx.estores, acao.alvo, { onChange(acao.copy(alvo = it)) }, "Não tem estores.", escolha = "Escolha o estore…")
                 Deslizador("Posição", acao.posicao) { onChange(acao.copy(posicao = it)) }
             }
-            RascunhoAcao.NOTIFICAR -> Campo(acao.mensagem, { onChange(acao.copy(mensagem = it)) }, "Mensagem do aviso")
+            RascunhoAcao.NOTIFICAR -> Campo(
+                acao.mensagem, { onChange(acao.copy(mensagem = it.take(Automacoes.MAX_MENSAGEM))) }, "Mensagem do aviso",
+                apoio = "${acao.mensagem.length}/${Automacoes.MAX_MENSAGEM}",
+            )
             RascunhoAcao.ESPERAR -> {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(30 to "30 s", 60 to "1 min", 300 to "5 min", 600 to "10 min", 1800 to "30 min").forEach { (s, txt) ->

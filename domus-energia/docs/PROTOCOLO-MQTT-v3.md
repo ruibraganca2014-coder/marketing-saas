@@ -109,7 +109,7 @@ Campos novos da automação: `descricao` (≤ 200, a frase-objetivo), `categoria
 
 **Presença**: a app publica `domus/<c>/_presenca/set` `{"pessoa":"<id-do-telemóvel>","nome":"Rui","em_casa":true}` (geofence ≥ 100 m + Wi-Fi de casa; a app só publica depois de 10 min estáveis). O motor mantém `_presenca` (retido) `{"pessoas":{"<id>":{"nome","em_casa","desde"}},"alguem":true}`.
 
-**Testar agora / executar**: `domus/<c>/_automacoes/executar` `{"id":"...","testar":true}` → executa as ações ignorando gatilho e condições; resultado no registo com `"teste": true`. `{"id","avaliar":true}` → não executa, só diz se as condições seriam verdadeiras agora (registo `"avaliacao"`).
+**Testar agora / executar**: `domus/<c>/_automacoes/executar` `{"id":"...","testar":true}` → executa as ações ignorando gatilho e condições; resultado no registo com `"teste": true`. `{"id","avaliar":true}` → não executa, só diz se as condições seriam verdadeiras agora: o resultado fica só em `ultimos` (resultado `"avaliacao"`, com `ok`) e **não** altera `ultima`/`resultado`/`motivo`, que são sempre os da última execução real.
 
 **Registo** — `domus/<c>/_automacoes/registo` (retido):
 ```json
@@ -136,3 +136,12 @@ Continua a **não** poder escrever: `_config`, `_modo`, `_cenas`, `_saude`, `_en
 ## Notas de implementação (servidor)
 - **ACL por aparelho**: em vez de `domus/C/+/+/set`, o ficheiro gerado dá a cada cliente `domus/C/<id>/+/set`, `/rpc`, `/command`, `/command/+` para cada aparelho seu, mais a lista fixa de pedidos ao motor. Assim `+` nunca apanha caminhos dentro das áreas reservadas (ex. `_automacoes/admin/set`), e remover um aparelho retira também a permissão de o comandar (131 testes num Mosquitto real).
 - **§4 corrigido**: no OpenBeken não existem `linkChannel`/`SetButtonEvents`; o botão físico → relé local faz-se com os papéis de pino **Relay** e **Button** no mesmo canal. `divisao` é emitida por canal (herdada de `--divisao`), não ao nível do aparelho.
+
+## Correções após a revisão cruzada (27/09/2026)
+- **Contador geral**: aparelho com `"geral": true` (ao nível do aparelho, só com `medidor`; `domus.sh … --medidor --geral`). Se existir algum, o consumo total da casa (app, site e `_energia`) soma **só** os contadores gerais; se não, soma todos os medidores.
+- **Canais**: números de 1 a 64 em todos os componentes.
+- **Limites comuns** (validados no motor e repetidos na app e no site com mensagens simples): nome ≤ 80, mensagem ≤ 200, durações ≤ 24 h (`durante_s` ≤ 86 400), `entre` com horas diferentes, `se.aparelhos` ≤ 10, SE com pelo menos uma ação em ENTÃO, ≤ 20 ações e 2 níveis de SE.
+- **Última notícia de um aparelho**: a fonte é `_saude[id].ultima_noticia`; no histórico só contam eventos `sensor`/`alarme` (os avisos do motor sobre um aparelho **não** são sinal de vida).
+- **Registo**: "Avaliar agora" fica só em `ultimos` (resultado `avaliacao`) e não altera `ultima`/`resultado`.
+- **Tamanho das mensagens**: `max_packet_size` 1 MB no Mosquitto; o motor nunca publica mensagens acima do limite (o `registo` é encurtado).
+- **Mudança de hora (março)**: gatilhos de hora dentro da hora que não existe disparam uma vez no primeiro minuto depois do salto.

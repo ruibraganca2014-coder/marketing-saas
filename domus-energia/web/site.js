@@ -39,6 +39,8 @@ form.addEventListener("submit", async (e) => {
   }
 
   botao.disabled = true;
+  botao.textContent = "A enviar…";
+  mostrar(null);
   let error;
   try {
     ({ error } = await (await getSupabase()).from("pedidos_orcamento").insert(dados));
@@ -46,6 +48,7 @@ form.addEventListener("submit", async (e) => {
     error = e;
   }
   botao.disabled = false;
+  botao.textContent = "Enviar pedido";
 
   if (error) {
     mostrar("Não foi possível enviar. Tente pelo WhatsApp ou telefone.", false);
@@ -56,6 +59,7 @@ form.addEventListener("submit", async (e) => {
 });
 
 function mostrar(texto, ok) {
+  if (!texto) { msg.hidden = true; return; }
   msg.textContent = texto;
   msg.className = `msg ${ok ? "ok" : "erro"}`;
   msg.hidden = false;

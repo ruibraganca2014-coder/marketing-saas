@@ -6,6 +6,8 @@ mosquitto/seguranca/
 mosquitto/passwd
 mosquitto/acl
 mosquitto/data/
+# certificados TLS da porta 8883 (opcional)
+mosquitto/certs/
 mosquitto/log/
 # certificados e configuração do Caddy (se forem montados como pastas)
 caddy/data/

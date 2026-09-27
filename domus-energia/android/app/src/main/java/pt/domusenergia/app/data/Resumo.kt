@@ -39,17 +39,13 @@ data class Resumo(
             limiarEsperaW: Double = ConfigCasa.PADRAO.limiarEsperaW,
         ): Resumo {
             var emEspera = 0
-            var potencia = 0.0
-            var temMedidor = false
+            val temMedidor = aparelhos.any { it.medidor }
+            val potencia = Consumo.potenciaTotal(aparelhos) ?: 0.0
             var ligados = 0
             var circuitos = 0
             var portasAbertas = 0
             var portas = 0
             for (a in aparelhos) {
-                if (a.medidor) {
-                    temMedidor = true
-                    potencia += a.potenciaW ?: 0.0
-                }
                 for (c in a.canais) when (c.funcao) {
                     Funcao.INTERRUPTOR, Funcao.LUZ -> {
                         circuitos++
@@ -68,6 +64,24 @@ data class Resumo(
             )
         }
     }
+}
+
+/**
+ * Consumo total da casa, como o motor calcula o `_energia`: se houver contadores gerais (`"geral": true`),
+ * soma **só** esses (os outros medidores estão "dentro" deles e seriam contados duas vezes); senão soma
+ * todos os medidores.
+ */
+object Consumo {
+    /** Os medidores que contam para o total da casa. */
+    fun medidoresDoTotal(aparelhos: List<Aparelho>): List<Aparelho> {
+        val medidores = aparelhos.filter { it.medidor }
+        val gerais = medidores.filter { it.geral }
+        return gerais.ifEmpty { medidores }
+    }
+
+    /** Potência total agora (W); `null` se nenhum desses medidores tiver valor. */
+    fun potenciaTotal(aparelhos: List<Aparelho>): Double? =
+        medidoresDoTotal(aparelhos).mapNotNull { it.potenciaW }.takeIf { it.isNotEmpty() }?.sum()
 }
 
 /**

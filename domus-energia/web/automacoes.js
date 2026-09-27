@@ -4,7 +4,7 @@
 // Guardar publica a LISTA COMPLETA em `_automacoes/set`; o motor valida e volta a publicar
 // `_automacoes` (sucesso) ou um evento `erro` em `_eventos` (a lista não muda).
 import * as E from "./estado.js";
-import { el, botao, select, campo, input, caixa, chips, separar, hhmm, opcoesCanais, GRUPOS_SENSOR, DIAS, OPCOES_MODO, editorCondicoes, criarContexto, linhaAcao, listaAcoes } from "./editor.js";
+import { el, botao, select, campo, input, caixa, chips, separar, hhmm, opcoesCanais, GRUPOS_SENSOR, DIAS, OPCOES_MODO, editorCondicoes, criarContexto, linhaAcao, listaAcoes, marcarVazios, painelRisco } from "./editor.js";
 import { MODELOS, aplicarModelo } from "./modelos.js";
 
 const $ = (id) => document.getElementById(id);
@@ -33,6 +33,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
   let guardando = null;      // { anterior, timer, aoTerminar }
   let aEditar = null;        // null | { original: automação | null }
   let aApagar = null;        // id com confirmação aberta
+  let aConfirmar = null;     // { id, tipo } — Executar/Testar à espera de "Sim" (ações arriscadas)
   let msgTimer = null;
   let registo = {};          // lerRegisto(_automacoes/registo)
   let avisos = [];           // lerAvisos(_automacoes/avisos)
@@ -51,7 +52,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
   function guardar(nova, aoTerminar) {
     if (guardando) return;
     if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
-    if (JSON.stringify(nova) === JSON.stringify(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
+    if (E.jsonCanonico(nova) === E.jsonCanonico(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
     guardando = {
       anterior: textoAtual,
       aoTerminar,
@@ -68,9 +69,10 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
 
   function receberLista(nova, texto) {
     lista = nova ?? [];
-    const mudou = texto !== textoAtual;
     textoAtual = texto;
-    if (guardando && (mudou || texto !== guardando.anterior)) {
+    // Qualquer `_automacoes` que chegue depois de publicarmos é a resposta do motor — mesmo que o
+    // texto seja igual ao anterior (ex.: guardar sem mudanças reais depois de o motor normalizar).
+    if (guardando) {
       clearTimeout(guardando.timer);
       const cb = guardando.aoTerminar;
       guardando = null;
@@ -82,6 +84,19 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
 
   // Devolve true se o erro era para nós.
   function receberErro(ev) {
+    // Erros de executar / testar / avaliar (motor: "Automação não executada") vão para o cartão
+    // do pedido mais recente em curso, em vez de esperar 10 s por um "não respondeu".
+    if (/^Automação não executada/i.test(ev.titulo ?? "")) {
+      const emCurso = Object.values(pedidos).filter((p) => p.timer).sort((x, y) => y.desde - x.desde)[0];
+      if (emCurso) {
+        clearTimeout(emCurso.timer);
+        emCurso.timer = null;
+        emCurso.texto = ev.mensagem || "O servidor não executou o pedido.";
+        emCurso.classe = "erro";
+        desenharSeLivre();
+        return true;
+      }
+    }
     if (!guardando) return false;
     clearTimeout(guardando.timer);
     guardando = null;
@@ -105,7 +120,9 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
         else { p.texto = av?.motivo || "Avaliação recebida."; p.classe = "info"; }
       } else {
         const res = E.RESULTADOS[agora?.resultado] ?? agora?.resultado ?? "";
-        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}: ${res}${agora?.motivo ? ` — ${agora.motivo}` : ""}`;
+        // "Teste feito: Teste — …" repetia a palavra; quando o resultado é o próprio teste basta o motivo.
+        const mostrarRes = !((p.tipo === "testar" && agora?.resultado === "teste") || (p.tipo === "executar" && agora?.resultado === "executada"));
+        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}${mostrarRes ? `: ${res}` : ""}${agora?.motivo ? ` — ${agora.motivo}` : ""}`;
         p.classe = agora?.resultado === "falhou" ? "erro" : "ok";
       }
     }
@@ -118,16 +135,31 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
   function pedirExecutar(id, tipo) {
     if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return false; }
     clearTimeout(pedidos[id]?.timer);
-    const p = { tipo, antes: JSON.stringify(registo[id] ?? null), texto: tipo === "avaliar" ? "A avaliar…" : tipo === "testar" ? "A testar…" : "A executar…", classe: "info" };
+    const p = { tipo, desde: Date.now(), antes: JSON.stringify(registo[id] ?? null), texto: tipo === "avaliar" ? "A avaliar…" : tipo === "testar" ? "A testar…" : "A executar…", classe: "info" };
     p.timer = setTimeout(() => { p.timer = null; p.texto = "O servidor não respondeu. Tente de novo."; p.classe = "erro"; desenharSeLivre(); }, TEMPO_MOTOR);
     pedidos[id] = p;
-    const corpo = tipo === "testar" ? { id, testar: true } : tipo === "avaliar" ? { id, avaliar: true } : { id };
+    const corpo = tipo === "testar" ? { id, testar: true, por: "web" } : tipo === "avaliar" ? { id, avaliar: true, por: "web" } : { id, por: "web" };
     publicar("_automacoes/executar", corpo);
     desenharSeLivre();
     return true;
   }
 
+  // Executar e Testar agora mexem nos aparelhos: se a automação desliga o quadro geral ou liga
+  // uma carga perigosa, pede-se confirmação no cartão. Avaliar agora não age — nunca pergunta.
+  function executarComConfirmacao(id, tipo) {
+    const a = (lista ?? []).find((x) => x.id === id);
+    if (tipo !== "avaliar" && a && E.acoesArriscadas(a.entao, aparelhos(), { cenas: cenas() }).length) {
+      aConfirmar = { id, tipo };
+      aApagar = null;
+      desenhar();
+      document.querySelector(`.automacao[data-id="${CSS.escape(id)}"] .confirmar-risco .confirmar-titulo`)?.focus();
+      return false;
+    }
+    return pedirExecutar(id, tipo);
+  }
+
   function limpar() {
+    aConfirmar = null;
     clearTimeout(guardando?.timer);
     clearTimeout(msgTimer);
     for (const p of Object.values(pedidos)) clearTimeout(p.timer);
@@ -161,7 +193,8 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       const linha = el("span", `registo-linha resultado-${r.resultado ?? "x"}`);
       linha.textContent = `Última execução ${E.tempoRelativo(r.ultima, agora)} (${E.horaLisboa(r.ultima)}) · ${res}${r.teste && r.resultado !== "teste" ? " (teste)" : ""}`;
       caixaR.append(linha);
-      if (r.motivo) caixaR.append(el("span", "registo-motivo", r.motivo));
+      // Em pausa, o motivo já aparece na caixa "Em pausa" logo abaixo.
+      if (r.motivo && r.resultado !== "pausada") caixaR.append(el("span", "registo-motivo", r.motivo));
     }
     if (r?.semana != null) caixaR.append(el("span", "registo-semana", `${r.semana} ${r.semana === 1 ? "execução" : "execuções"} esta semana`));
     if (r?.resultado === "pausada") {
@@ -182,6 +215,16 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     return caixaR;
   }
 
+  // O motor escreve os avisos com os identificadores ('luz-corredor'); mostramos os nomes.
+  function textoAviso(x) {
+    let t = String(x.mensagem ?? "");
+    for (const id of x.ids ?? []) {
+      const a = (lista ?? []).find((k) => k.id === id);
+      if (a?.nome) t = t.split(`'${id}'`).join(`"${a.nome}"`);
+    }
+    return t;
+  }
+
   function desenhar() {
     const l = $("lista-automacoes");
     l.replaceChildren();
@@ -194,7 +237,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     av.replaceChildren();
     for (const x of avisos) {
       const d = el("div", "msg info aviso-conflito");
-      d.textContent = `Atenção: ${x.mensagem}`;
+      d.textContent = `Atenção: ${textoAviso(x)}`;
       av.append(d);
     }
 
@@ -221,7 +264,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       if (E.CATEGORIAS.includes(a.categoria)) cartao.append(el("span", `categoria categoria-${a.categoria}`, E.NOME_CATEGORIA[a.categoria]));
       if (a.descricao) cartao.append(el("p", "objetivo", String(a.descricao)));
       cartao.append(el("p", "descricao", E.descreverAutomacao(a, aparelhos(), cenas())));
-      for (const x of avisos.filter((x) => x.ids.includes(a.id))) cartao.append(el("p", "aviso-conflito-cartao", `Conflito: ${x.mensagem}`));
+      for (const x of avisos.filter((x) => x.ids.includes(a.id))) cartao.append(el("p", "aviso-conflito-cartao", `Conflito: ${textoAviso(x)}`));
       cartao.append(linhaRegisto(a));
       const p = pedidos[a.id];
       if (p) {
@@ -234,7 +277,23 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
         c.append(ICONE_CADEADO(), document.createTextNode("Criada pela Domus Energia"));
         cartao.append(c);
       }
-      if (aApagar === a.id && !a.bloqueada) {
+      const riscosExec = aConfirmar?.id === a.id ? E.acoesArriscadas(a.entao, aparelhos(), { cenas: cenas() }) : [];
+      if (riscosExec.length) {
+        const tipoExec = aConfirmar.tipo;
+        const conf = painelRisco(riscosExec, {
+          titulo: `${tipoExec === "testar" ? "Testar agora" : "Executar"} a automação "${a.nome ?? a.id}"? Vai fazer já:`,
+          textoSim: "Sim, executar",
+          textoNao: "Não executar",
+          aoSim: () => { aConfirmar = null; pedirExecutar(a.id, tipoExec); },
+          aoNao: () => {
+            aConfirmar = null;
+            desenhar();
+            document.querySelector(`.automacao[data-id="${CSS.escape(a.id)}"] .botoes button`)?.focus();
+          },
+        });
+        conf.classList.add("confirmar-execucao");
+        cartao.append(conf);
+      } else if (aApagar === a.id && !a.bloqueada) {
         const conf = el("div", "confirmar");
         conf.append(el("p", null, `Apagar a automação "${a.nome ?? a.id}"?`));
         const b = el("div", "botoes");
@@ -247,11 +306,11 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
         const b = el("div", "botoes");
         const ocupado = !!p?.timer;
         if (a.quando?.tipo === "manual") {
-          const ex = botao("Executar", "btn pequeno", () => pedirExecutar(a.id, "executar"));
+          const ex = botao("Executar", "btn pequeno", () => executarComConfirmacao(a.id, "executar"));
           ex.disabled = ocupado || a.ativa === false;
           b.append(ex);
         }
-        const testar = botao("Testar agora", "btn sec pequeno", () => pedirExecutar(a.id, "testar"));
+        const testar = botao("Testar agora", "btn sec pequeno", () => executarComConfirmacao(a.id, "testar"));
         testar.disabled = ocupado;
         testar.title = "Executa as ações já, sem esperar pelo gatilho nem ver as condições";
         const avaliar = botao("Avaliar agora", "btn sec pequeno", () => pedirExecutar(a.id, "avaliar"));
@@ -261,7 +320,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
         if (!a.bloqueada) {
           const editar = botao("Editar", "btn sec pequeno", () => abrirForm(a));
           editar.disabled = !!guardando || !!aEditar;
-          const apagar = botao("Apagar", "btn sec pequeno", () => { aApagar = a.id; desenhar(); });
+          const apagar = botao("Apagar", "btn sec pequeno", () => { aApagar = a.id; aConfirmar = null; desenhar(); });
           apagar.disabled = !!guardando || !!aEditar;
           b.append(editar, apagar);
         }
@@ -379,7 +438,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     const ordem = { porta: 0, movimento: 1, interruptor: 2, luz: 2 };
     const sensores = opcoesCanais(aps, ["porta", "movimento", "interruptor", "luz"], GRUPOS_SENSOR).sort((x, y) => ordem[x.funcao] - ordem[y.funcao]);
     const pSensor = el("div", "sub-painel");
-    const sensorSel = select("quando-sensor", sensores, q.tipo === "sensor" && q.aparelho ? `${q.aparelho}:${q.canal}` : sensores[0]?.valor);
+    const sensorSel = select("quando-sensor", sensores, q.tipo === "sensor" && q.aparelho ? `${q.aparelho}:${q.canal}` : null, "Escolha o aparelho…");
     const valorSel = document.createElement("select");
     valorSel.name = "quando-valor";
     const atualizarValores = () => {
@@ -425,7 +484,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     // potência
     const pPot = el("div", "sub-painel");
     const medidores = aps.filter((x) => x.medidor || x.v1).map((x) => ({ valor: x.id, texto: x.nome }));
-    pPot.append(campo("Medidor", select("quando-medidor", medidores, q.tipo === "potencia" ? q.aparelho : medidores[0]?.valor)));
+    pPot.append(campo("Medidor", select("quando-medidor", medidores, q.tipo === "potencia" && q.aparelho ? q.aparelho : null, "Escolha o medidor…")));
     const duasPot = el("div", "duas");
     duasPot.append(
       campo("Acima de (W)", input("quando-acima", "number", q.tipo === "potencia" ? q.acima_w : 3500, { min: "1", step: "1", inputmode: "numeric" })),
@@ -476,10 +535,28 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
         testarMsg.textContent = "Guarde primeiro a automação para a poder testar: o teste é feito pelo servidor com a versão guardada.";
         return;
       }
-      if (pedirExecutar(original.id, "testar")) {
+      const pedirTeste = () => {
+        if (!pedirExecutar(original.id, "testar")) return;
+        testarMsg.hidden = false;
         testarMsg.className = "msg info";
         testarMsg.textContent = "Teste pedido: o servidor executa já as ações da versão guardada (sem gatilho nem condições). Veja o resultado no cartão da automação.";
-      }
+      };
+      // O teste corre a versão guardada: se ela mexe no quadro geral ou numa carga perigosa, confirmar.
+      const guardada = (lista ?? []).find((x) => x.id === original.id);
+      const riscos = guardada ? E.acoesArriscadas(guardada.entao, aparelhos(), { cenas: cenas() }) : [];
+      if (!riscos.length) { pedirTeste(); return; }
+      testarMsg.hidden = true;
+      p3.querySelector("#testar-risco")?.remove();
+      const conf = painelRisco(riscos, {
+        titulo: `Testar agora a automação "${guardada.nome ?? guardada.id}"? Vai fazer já:`,
+        textoSim: "Sim, executar",
+        textoNao: "Não executar",
+        aoSim: () => { conf.remove(); pedirTeste(); },
+        aoNao: () => { conf.remove(); testar.focus(); },
+      });
+      conf.id = "testar-risco";
+      testar.after(conf);
+      conf.querySelector(".confirmar-titulo").focus();
     });
     testar.id = "testar-agora";
     p3.append(testar, testarMsg);
@@ -529,9 +606,16 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     }
     irPara(0);
 
+    // Confirmação de ações arriscadas (disjuntor geral, carga perigosa): mostra-se por cima dos
+    // botões; qualquer mudança no formulário a anula (a lista mostrada deixaria de ser verdade).
+    let risco = null;
+    const fecharRisco = () => { risco?.remove(); risco = null; botoes.hidden = false; };
+    form.addEventListener("input", fecharRisco);
+    form.addEventListener("change", fecharRisco);
+
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      if (guardando) return;
+      if (guardando || risco) return;
       const auto = lerForm();
       const erros = E.validarAutomacao(auto, aparelhos());
       if (!original && lista && lista.length >= MAX_AUTOMACOES) erros.push(`Máximo de ${MAX_AUTOMACOES} automações.`);
@@ -541,11 +625,33 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       if (erros.length) {
         const t = erros[0];
         irPara(/^(Dê um nome|A frase-objetivo|Categoria)/.test(t) ? 0 : /^Ação 1[:.]/.test(t) ? 2 : /^(Ação|Tem de ter)/.test(t) ? 4 : /^Condições/.test(t) ? 3 : 1);
+        // Aponta o campo vazio no passo aberto (e marca os dos outros passos).
+        const vazios = marcarVazios(form);
+        const aqui = vazios.find((s) => !s.closest("[hidden]"));
+        if (aqui) aqui.focus();
         return;
       }
       const atualL = lista ?? [];
       const nova = original ? atualL.map((x) => (x.id === original.id ? auto : x)) : [...atualL, auto];
-      guardar(nova, fecharForm);
+      const riscos = E.acoesArriscadas(auto.entao, aparelhos(), { cenas: cenas() });
+      if (!riscos.length || E.jsonCanonico(nova) === E.jsonCanonico(atualL)) { guardar(nova, fecharForm); return; }
+      risco = painelRisco(riscos, {
+        titulo: riscos.length === 1 ? "Atenção: esta automação faz uma coisa arriscada. Quer mesmo guardá-la assim?" : `Atenção: esta automação faz ${riscos.length} coisas arriscadas. Quer mesmo guardá-la assim?`,
+        textoSim: "Sim, guardar assim",
+        textoNao: "Voltar e alterar",
+        aoSim: () => { fecharRisco(); guardar(nova, fecharForm); },
+        aoNao: () => {
+          fecharRisco();
+          // Leva à ação arriscada: a 1.ª está no passo 3, as outras no passo 5.
+          const i = parseInt(riscos[0].caminho, 10);
+          irPara(i === 1 ? 2 : 4);
+          (i === 1 ? primeira : resto.linhas[i - 2])?.raiz.querySelector("select[name=acao]")?.focus();
+        },
+      });
+      risco.id = "auto-risco";
+      botoes.hidden = true;
+      botoes.before(risco);
+      risco.querySelector(".confirmar-titulo").focus();
     });
 
     function lerForm() {

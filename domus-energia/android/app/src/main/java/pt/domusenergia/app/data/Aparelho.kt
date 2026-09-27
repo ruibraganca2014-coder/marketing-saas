@@ -79,7 +79,8 @@ data class Canal(
  *
  * @property medidor publica potência/tensão/corrente/energia (na v1 todos os aparelhos mediam).
  * @property bateria aparelho a pilhas que dorme: nunca se mostra "Offline".
- * @property ultimaNoticia última mensagem recebida em direto (as retidas não contam, não sabemos a idade).
+ * @property ultimaNoticia última notícia do aparelho: `_saude.ultima_noticia` (ou, sem ela, o último evento
+ *   `sensor`/`alarme` do histórico) e as mensagens recebidas em direto (as retidas não contam: não sabemos a idade).
  */
 data class Aparelho(
     val id: String,
@@ -96,6 +97,8 @@ data class Aparelho(
     val canais: List<Canal> = emptyList(),
     /** v3: divisão do aparelho (ex.: "Sala"). */
     val divisao: String? = null,
+    /** Contador geral da casa (`"geral": true` num aparelho [medidor]). */
+    val geral: Boolean = false,
 ) {
     /** Pode receber comandos / mostrar valores como atuais. Aparelhos a pilhas não ficam "offline". */
     val disponivel: Boolean get() = bateria || online

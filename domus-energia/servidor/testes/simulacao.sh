@@ -97,6 +97,11 @@ deve_passar "luz do jardim com simulação de férias (Shelly, último estado)" 
 saida_tem "Shelly: restore_last sem auto_off" \
   'Switch.SetConfig?id=0&config={"initial_state":"restore_last","in_mode":"follow","auto_off":false}'
 
+deve_passar "medidor geral da casa (--medidor --geral)" \
+  aparelho joao contador openbeken "Contador geral" --medidor --geral contador-senha-1
+saida_tem "medidor geral: instruções de medição" "power"
+deve_passar "canal 64 (máximo)" aparelho joao muitos openbeken "Muitos" --canais "64:interruptor" muitos-senha-1
+
 deve_passar "--divisao= e nome com aspas" \
   aparelho joao estore shelly 'Estore "quarto"' --divisao='Quarto "grande"' --canais "1:estore" estore-senha-1
 deve_passar "listar" listar
@@ -120,6 +125,10 @@ assert l["jardim"]["canais"] == [{"n":1,"funcao":"interruptor","nome":"Jardim","
 assert l["estore"]["nome"] == 'Estore "quarto"'
 assert l["estore"]["canais"] == [{"n":1,"funcao":"estore","arranque":"desligado","divisao":'Quarto "grande"'}]
 assert all("divisao" not in a for a in l.values()), "divisao só nos canais"
+assert l["contador"]["medidor"] is True and l["contador"]["geral"] is True, l["contador"]
+assert all("geral" not in a for i, a in l.items() if i != "contador"), "geral só no medidor geral"
+assert l["termo"]["medidor"] is True
+assert l["muitos"]["canais"][0]["n"] == 64
 EOF
 then passa "JSON com entrada/simular/arranque/carga/divisao (omissões respeitadas)"
 else falha "JSON: $(cat "$TMP/saida")"; fi
@@ -156,8 +165,23 @@ deve_falhar "--divisao sem valor"                "--divisao precisa de um valor"
 deve_falhar "divisao demasiado longa"            "divisao demasiado longa"                  "${A[@]}" --divisao "$(printf 'a%.0s' {1..41})"
 deve_falhar "função inválida"                    "função inválida no canal 1: 'entrada'"   "${A[@]}" --canais "1:entrada"
 deve_falhar "canal repetido"                     "o canal 1 aparece repetido"               "${A[@]}" --canais "1:porta,1:bateria"
+deve_falhar "canal 65 (máximo 64, como o motor e as apps)" "número de canal inválido: '65' (1 a 64)" "${A[@]}" --canais "65:interruptor"
+deve_falhar "--geral sem --medidor"              "--geral só pode ser usado com --medidor"  "${A[@]}" --geral
+deve_falhar "--geral com --bateria"              "--geral não pode ser usado com --bateria" "${A[@]}" --medidor --geral --bateria --canais "1:porta"
 if grep -q '^x	' "$TMP/dados/clientes/joao.tsv"; then falha "um aparelho recusado ficou gravado"
 else passa "nenhum aparelho recusado ficou gravado"; fi
+
+echo "Palavra-passe do admin sem a pôr na linha de comando:"
+if printf 'senha-stdin-123\n' | "$DOMUS" admin > "$TMP/saida" 2> "$TMP/erros" \
+   && [[ "$(cat "$TMP/dados/admin.senha")" == senha-stdin-123 ]]; then passa "admin lê a palavra-passe do stdin"
+else falha "admin pelo stdin: $(tail -2 "$TMP/erros")"; fi
+if "$DOMUS" admin < /dev/null > "$TMP/saida" 2> "$TMP/erros"; then falha "admin sem palavra-passe foi aceite"
+elif grep -qF "sem palavra-passe no stdin" "$TMP/erros"; then passa "admin sem palavra-passe (stdin vazio) recusado"
+else falha "admin sem palavra-passe: $(tail -2 "$TMP/erros")"; fi
+if printf 'curta\n' | "$DOMUS" admin > "$TMP/saida" 2> "$TMP/erros"; then falha "palavra-passe curta aceite"
+elif grep -qF "pelo menos 8 caracteres" "$TMP/erros" && [[ "$(cat "$TMP/dados/admin.senha")" == senha-stdin-123 ]]; then passa "palavra-passe curta pelo stdin recusada (nada muda)"
+else falha "palavra-passe curta: $(tail -2 "$TMP/erros")"; fi
+deve_passar "admin com a palavra-passe no argumento continua a funcionar" admin admin-senha-1
 
 echo "ACL gerada:"
 acl="$TMP/mosq/acl"

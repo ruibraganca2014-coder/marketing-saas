@@ -60,6 +60,7 @@ import pt.domusenergia.app.data.Modos
 import pt.domusenergia.app.data.Relatorio
 import pt.domusenergia.app.data.SaudeCasa
 import pt.domusenergia.app.data.Resumo
+import pt.domusenergia.app.data.Riscos
 import pt.domusenergia.app.data.Textos
 import pt.domusenergia.app.ui.tema.FormaCartao
 import pt.domusenergia.app.ui.tema.FormaPilula
@@ -88,6 +89,11 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
         SaudeCasa.linhas(estado.aparelhos, estado.saude, agora).count { it.atencao }
     }
     val grupos = remember(estado.aparelhos) { porDivisao(estado.aparelhos) }
+    // Canais que são o disjuntor geral: desligá-los pede confirmação.
+    val gerais = remember(estado.aparelhos) {
+        estado.aparelhos.flatMap { a -> a.canais.filter { Riscos.ehDisjuntorGeral(estado.aparelhos, a, it.n) }.map { a.id to it.n } }.toSet()
+    }
+    val executarCena = executarComConfirmacao(estado.aparelhos, acoes)
     when {
         !estado.listaRecebida -> Box(Modifier.fillMaxSize(), Alignment.Center) {
             CircularProgressIndicator(color = LocalTerra.current.musgo)
@@ -99,7 +105,9 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
         ) {
             item(key = "_modos") { CartaoModos(state, acoes) }
             estado.cenas?.let { cenas ->
-                item(key = "_cenas") { LinhaCenas(cenas, state.ligado, acoes::executarCena) { onAbrir(Secundario.CENAS) } }
+                item(key = "_cenas") {
+                    LinhaCenas(cenas, state.ligado, { id -> cenas.firstOrNull { it.id == id }?.let(executarCena) }) { onAbrir(Secundario.CENAS) }
+                }
             }
             if (atencao > 0) item(key = "_saude") { AvisoSaude(atencao) { onAbrir(Secundario.SAUDE) } }
             item(key = "_resumo") { CartaoResumo(resumo) }
@@ -124,7 +132,7 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
                         )
                     }
                 }
-                items(lista, key = { it.id }) { a -> CartaoAparelho(a, agora, state.ligado, acoes, limiar) }
+                items(lista, key = { it.id }) { a -> CartaoAparelho(a, agora, state.ligado, acoes, limiar, gerais) }
             }
         }
     }
@@ -374,7 +382,15 @@ private fun Numero(valor: String, rotulo: String, modifier: Modifier = Modifier)
 }
 
 @Composable
-fun CartaoAparelho(a: Aparelho, agora: Instant, ligado: Boolean, acoes: Acoes, limiarEsperaW: Double = ConfigCasa.PADRAO.limiarEsperaW) {
+fun CartaoAparelho(
+    a: Aparelho,
+    agora: Instant,
+    ligado: Boolean,
+    acoes: Acoes,
+    limiarEsperaW: Double = ConfigCasa.PADRAO.limiarEsperaW,
+    /** Canais (aparelho, n) que são o disjuntor geral: desligar pede confirmação. */
+    gerais: Set<Pair<String, Int>> = emptySet(),
+) {
     val t = LocalTerra.current
     val controlavel = ligado && a.disponivel
     Cartao {
@@ -397,7 +413,7 @@ fun CartaoAparelho(a: Aparelho, agora: Instant, ligado: Boolean, acoes: Acoes, l
         if (a.medidor) LinhaMedidor(a)
         a.canais.forEachIndexed { i, c ->
             if (i > 0 || a.medidor) HorizontalDivider(color = t.borda)
-            LinhaCanal(a, c, agora, controlavel, acoes, EmEspera.canal(a, c, limiarEsperaW))
+            LinhaCanal(a, c, agora, controlavel, acoes, EmEspera.canal(a, c, limiarEsperaW), (a.id to c.n) in gerais)
         }
     }
 }
@@ -423,8 +439,28 @@ private fun LinhaMedidor(a: Aparelho) {
 }
 
 @Composable
-private fun LinhaCanal(a: Aparelho, c: Canal, agora: Instant, controlavel: Boolean, acoes: Acoes, emEspera: Boolean = false) {
+private fun LinhaCanal(
+    a: Aparelho,
+    c: Canal,
+    agora: Instant,
+    controlavel: Boolean,
+    acoes: Acoes,
+    emEspera: Boolean = false,
+    disjuntorGeral: Boolean = false,
+) {
     val t = LocalTerra.current
+    var confirmarDesligar by remember { mutableStateOf(false) }
+    if (confirmarDesligar) {
+        ConfirmarRisco(
+            titulo = "Desligar o ${a.nome}?",
+            linhas = emptyList(),
+            explicacao = "A casa inteira fica sem luz.",
+            sim = "Sim, desligar",
+            nao = "Cancelar",
+            onSim = { confirmarDesligar = false; acoes.ligar(a, c.n, false) },
+            onNao = { confirmarDesligar = false },
+        )
+    }
     // Canal sem nome próprio: o nome do aparelho já está no cabeçalho do cartão, mostra-se a função.
     val nome = if (!c.temNome) Funcao.rotulo(c.funcao) else c.nome
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -441,7 +477,7 @@ private fun LinhaCanal(a: Aparelho, c: Canal, agora: Instant, controlavel: Boole
             when (c.funcao) {
                 Funcao.INTERRUPTOR, Funcao.LUZ -> Switch(
                     checked = c.ligado == true,
-                    onCheckedChange = { acoes.ligar(a, c.n, it) },
+                    onCheckedChange = { if (!it && disjuntorGeral) confirmarDesligar = true else acoes.ligar(a, c.n, it) },
                     enabled = controlavel,
                     colors = coresInterruptor(),
                 )

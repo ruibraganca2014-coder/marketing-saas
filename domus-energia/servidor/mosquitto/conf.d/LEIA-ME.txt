@@ -1,0 +1,3 @@
+Configuração extra do Mosquitto: todos os ficheiros *.conf desta pasta são
+lidos no arranque (include_dir em ../mosquitto.conf). Por omissão não há
+nenhum. tls.conf.exemplo = porta 8883 com TLS (ver servidor/README.md).

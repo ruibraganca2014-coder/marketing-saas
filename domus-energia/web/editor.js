@@ -18,9 +18,19 @@ export function botao(texto, cls = "btn sec pequeno", aoClicar) {
 }
 
 // opcoes: [{ valor, texto, grupo? }]
-export function select(nome, opcoes, valor) {
+// `vazio` (ex.: "Escolha o circuito…"): primeira opção sem valor, escolhida enquanto `valor` for
+// nulo — nada fica pré-selecionado e o formulário não guarda enquanto não se escolher.
+export function select(nome, opcoes, valor, vazio = null) {
   const s = document.createElement("select");
   s.name = nome;
+  if (vazio) {
+    const op = el("option", null, vazio);
+    op.value = "";
+    op.disabled = true;
+    s.append(op);
+    s.dataset.escolha = "1";
+    s.addEventListener("change", () => { if (s.value) desmarcarFalta(s); });
+  }
   const grupos = new Map();
   for (const o of opcoes) {
     const op = el("option", null, o.texto);
@@ -36,7 +46,24 @@ export function select(nome, opcoes, valor) {
     s.append(op);
   }
   if (valor != null) s.value = valor;
+  else if (vazio) s.value = ""; // a opção vazia está desativada: sem isto o navegador escolheria a seguinte
   return s;
+}
+
+// Campos de escolha obrigatória ainda vazios: destacados (aria-invalid) com uma nota por baixo.
+// Ignora os que estão em painéis escondidos (outro tipo de ação), mas não os passos do assistente.
+export function marcarVazios(raiz) {
+  const vazios = [...raiz.querySelectorAll("select[data-escolha]")].filter((s) => !s.value && !s.closest("[hidden]:not(.passo-painel)"));
+  for (const s of vazios) {
+    s.setAttribute("aria-invalid", "true");
+    const caixaNota = s.closest("label") ?? s.parentElement;
+    if (!caixaNota.querySelector(":scope > .falta-escolher")) caixaNota.append(el("small", "falta-escolher", "Falta escolher — este campo está vazio."));
+  }
+  return vazios;
+}
+function desmarcarFalta(s) {
+  s.removeAttribute("aria-invalid");
+  (s.closest("label") ?? s.parentElement)?.querySelector(":scope > .falta-escolher")?.remove();
 }
 export function campo(rotulo, controlo, ajuda) {
   const l = el("label", null, rotulo);
@@ -82,12 +109,29 @@ export function opcoesCanais(aparelhos, funcoes, grupos = null) {
   const r = [];
   for (const a of aparelhos) for (const c of a.canais) {
     if (!funcoes.includes(c.funcao)) continue;
-    const o = { valor: `${a.id}:${c.n}`, texto: E.nomeCanal(aparelhos, a.id, c.n) + (c.carga === "perigosa" ? " (carga perigosa)" : ""), funcao: c.funcao, carga: c.carga ?? null };
+    const o = { valor: `${a.id}:${c.n}`, texto: E.nomeCanal(aparelhos, a.id, c.n) + (c.carga === "perigosa" ? " (carga perigosa)" : "") + (E.ehGeral(aparelhos, a.id, c.n) ? " (disjuntor geral — casa inteira)" : ""), funcao: c.funcao, carga: c.carga ?? null };
     if (grupos) o.grupo = grupos[c.funcao];
     r.push(o);
   }
   return r;
 }
+// Painel de confirmação na página (nunca confirm()) para ações arriscadas, com a lista em texto
+// simples. riscos: E.acoesArriscadas(...). Devolve o elemento; o foco vai para o título.
+export function painelRisco(riscos, { titulo, textoSim, textoNao, aoSim, aoNao }) {
+  const p = el("div", "confirmar confirmar-risco");
+  p.setAttribute("role", "group");
+  const t = el("p", "confirmar-titulo", titulo);
+  t.id = `risco-${Math.random().toString(36).slice(2, 8)}`;
+  t.tabIndex = -1;
+  p.setAttribute("aria-labelledby", t.id);
+  const ul = el("ul", "lista-riscos");
+  for (const r of riscos) ul.append(el("li", `risco-${r.tipo}`, r.texto));
+  const b = el("div", "botoes");
+  b.append(botao(textoSim, "btn perigo", aoSim), botao(textoNao, "btn sec", aoNao));
+  p.append(t, ul, b);
+  return p;
+}
+
 export const GRUPOS_SENSOR = { porta: "Portas e janelas", movimento: "Movimento", interruptor: "Interruptores e luzes", luz: "Interruptores e luzes" };
 export function estadosDe(funcao) {
   if (funcao === "porta") return [["1", "Aberta"], ["0", "Fechada"]];
@@ -153,7 +197,7 @@ export function editorCondicoes(se = {}, { aparelhos, prefixo = "se", alarme = t
   const linhas = [];
   const novaLinha = (x = {}) => {
     const linha = el("div", "linha-condicao");
-    const canal = select(`${prefixo}-ap-canal`, opcoes, x.aparelho ? `${x.aparelho}:${x.canal}` : opcoes[0]?.valor);
+    const canal = select(`${prefixo}-ap-canal`, opcoes, x.aparelho ? `${x.aparelho}:${x.canal}` : null, "Escolha o aparelho…");
     canal.setAttribute("aria-label", "Aparelho");
     const valor = document.createElement("select");
     valor.name = `${prefixo}-ap-valor`;
@@ -245,7 +289,7 @@ export function linhaAcao(x, ctx, { nivel = 0, rotulo = "Ação", aoRemover = nu
   const paineis = {};
 
   // ligar / desligar
-  const circ = select("acao-circuito", circuitos, (x.acao === "ligar" || x.acao === "desligar") && alvo ? alvo : circuitos[0]?.valor);
+  const circ = select("acao-circuito", circuitos, (x.acao === "ligar" || x.acao === "desligar") && alvo ? alvo : null, "Escolha o circuito…");
   const durante = input("acao-durante", "number", x.durante_s ? +(x.durante_s / 60).toFixed(2) : "", { min: "0", step: "any", inputmode: "decimal", placeholder: "sempre" });
   const aviso = el("small", "ajuda aviso-perigosa", "Carga perigosa: indique a duração (máximo 4 h = 240 min).");
   paineis.circ = el("div");
@@ -257,19 +301,19 @@ export function linhaAcao(x, ctx, { nivel = 0, rotulo = "Ação", aoRemover = nu
 
   // luz com brilho
   paineis.luz = el("div", "duas");
-  const luzSel = select("acao-luz", luzes, x.acao === "luz" && alvo ? alvo : luzes[0]?.valor);
+  const luzSel = select("acao-luz", luzes, x.acao === "luz" && alvo ? alvo : null, "Escolha a luz…");
   const brilho = input("acao-brilho", "number", x.brilho ?? 50, { min: "0", max: "100", step: "1", inputmode: "numeric" });
   paineis.luz.append(campo("Luz", luzSel), campo("Brilho (%)", brilho));
   if (!luzes.length) paineis.luz.append(el("small", "ajuda", "Não tem luzes com brilho."));
 
   // alternar
   paineis.alternar = el("div");
-  const altSel = select("acao-alternar", circuitos, x.acao === "alternar" && alvo ? alvo : circuitos[0]?.valor);
+  const altSel = select("acao-alternar", circuitos, x.acao === "alternar" && alvo ? alvo : null, "Escolha o circuito…");
   paineis.alternar.append(campo("Circuito", altSel));
 
   // estore
   paineis.estore = el("div", "duas");
-  const estSel = select("acao-estore", estores, x.acao === "estore" && alvo ? alvo : estores[0]?.valor);
+  const estSel = select("acao-estore", estores, x.acao === "estore" && alvo ? alvo : null, "Escolha o estore…");
   const posicao = input("acao-posicao", "number", x.posicao ?? 100, { min: "0", max: "100", step: "1", inputmode: "numeric" });
   paineis.estore.append(campo("Estore", estSel), campo("Posição (0 fechado – 100 aberto)", posicao));
 

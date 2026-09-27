@@ -179,6 +179,20 @@ object Automacoes {
     const val MAX_NIVEIS_SE = 2
     const val MAX_DESCRICAO = 200
 
+    // Limites do motor (motor/src/validacao.js), repetidos aqui com mensagens simples.
+    /** Nome de uma automação ou cena. */
+    const val MAX_NOME = 80
+    /** Texto de uma ação "notificar". */
+    const val MAX_MENSAGEM = 200
+    /** `durante_s` (gatilhos sensor/potência e ações ligar/desligar): 24 h. */
+    const val MAX_DURACAO_S = 86_400
+    /** Condições `se.aparelhos` por objeto de condições. */
+    const val MAX_CONDICOES_APARELHOS = 10
+    /** Canais: números de 1 a 64 (v3). */
+    val CANAIS = 1..64
+    /** `acima_w` do gatilho de potência. */
+    const val MAX_ACIMA_W = 100_000.0
+
     /** Duração máxima de uma carga perigosa ligada por automação (4 h). */
     const val MAX_PERIGOSA_S = 4 * 3600
     val ID_RE = Regex("^[a-z0-9-]{1,40}$")
@@ -479,14 +493,16 @@ object Automacoes {
 
         if (!ID_RE.matches(a.id)) erros += "Identificador inválido."
         if (a.nome.isBlank()) erros += "Dê um nome à automação."
+        else if (a.nome.length > MAX_NOME) erros += "O nome tem no máximo $MAX_NOME caracteres."
         if ((a.descricao?.length ?: 0) > MAX_DESCRICAO) erros += "O objetivo tem no máximo $MAX_DESCRICAO caracteres."
         if (a.categoria != null && a.categoria !in Categorias.TODAS) erros += "Categoria inválida."
         when (val q = a.quando) {
             is Quando.Sensor -> {
                 if (q.aparelho.isBlank()) erros += "Escolha o sensor."
+                else if (q.canal !in CANAIS) erros += "Canal inválido (de 1 a 64)."
                 else if (conhecidos && canal(q.aparelho, q.canal)?.funcao !in FUNCOES_GATILHO) erros += "Escolha um sensor, circuito ou luz."
                 if (q.valor != 0 && q.valor != 1) erros += "Escolha o estado do sensor."
-                if (q.duranteS != null && q.duranteS !in 1..86_400) erros += "Indique há quanto tempo (até 24 h)."
+                if (q.duranteS != null && q.duranteS !in 1..MAX_DURACAO_S) erros += "Indique há quanto tempo (até 24 h)."
             }
             is Quando.Hora -> {
                 if (!HORA_RE.matches(q.hora)) erros += "Indique a hora (HH:MM)."
@@ -496,7 +512,9 @@ object Automacoes {
                 if (q.aparelho.isBlank()) erros += "Escolha o medidor."
                 else if (conhecidos && aparelhos.firstOrNull { it.id == q.aparelho }?.medidor != true) erros += "Esse aparelho não mede consumo."
                 if (!(q.acimaW > 0)) erros += "Indique a potência (W)."
+                else if (q.acimaW > MAX_ACIMA_W) erros += "A potência vai até 100 000 W."
                 if (q.duranteS < 0) erros += "Indique durante quantos segundos."
+                else if (q.duranteS > MAX_DURACAO_S) erros += "O tempo acima do limite vai até 24 h (86 400 s)."
                 if (q.rearmarW != null && q.acimaW > 0 && !(q.rearmarW > 0 && q.rearmarW < q.acimaW)) erros += "O rearme tem de ficar abaixo do limite."
             }
             is Quando.Sol -> {
@@ -531,14 +549,16 @@ object Automacoes {
         val conhecidos = aparelhos.isNotEmpty()
         s.entre?.let { (de, ate) ->
             if (!HORA_RE.matches(de) || !HORA_RE.matches(ate)) erros += "${prefixo}Horário inválido (HH:MM)."
+            else if (de == ate) erros += "${prefixo}O horário tem de começar e acabar a horas diferentes."
         }
         s.dias?.let { if (it.isEmpty() || it.any { d -> d !in 1..7 }) erros += "${prefixo}Escolha pelo menos um dia na condição." }
         s.sol?.let { if (it != Condicoes.DIA && it != Condicoes.NOITE) erros += "${prefixo}Condição do sol inválida." }
         s.modo?.let { if (it.isEmpty() || it.any { m -> m !in Modos.TODOS }) erros += "${prefixo}Escolha pelo menos um modo." }
         s.presenca?.let { if (it != Condicoes.ALGUEM && it != Condicoes.NINGUEM) erros += "${prefixo}Condição de presença inválida." }
+        s.aparelhos?.let { if (it.size > MAX_CONDICOES_APARELHOS) erros += "${prefixo}No máximo $MAX_CONDICOES_APARELHOS condições de aparelhos." }
         s.aparelhos?.forEach { e ->
             val c = aparelhos.firstOrNull { it.id == e.aparelho }?.canal(e.canal)
-            if (e.aparelho.isBlank() || (conhecidos && c == null)) erros += "${prefixo}Escolha o aparelho da condição."
+            if (e.aparelho.isBlank() || e.canal !in CANAIS || (conhecidos && c == null)) erros += "${prefixo}Escolha o aparelho da condição."
             if (e.valor != 0 && e.valor != 1) erros += "${prefixo}Estado do aparelho inválido."
         }
         return erros
@@ -561,11 +581,20 @@ object Automacoes {
         fun canal(ap: String, n: Int): Canal? = aparelhos.firstOrNull { it.id == ap }?.canal(n)
         l.forEachIndexed { i, x ->
             val n = "$prefixo${i + 1}"
+            val alvo = when (x) {
+                is Acao.Ligar -> x.aparelho to x.canal
+                is Acao.Estore -> x.aparelho to x.canal
+                is Acao.Luz -> x.aparelho to x.canal
+                is Acao.Alternar -> x.aparelho to x.canal
+                else -> null
+            }
+            if (alvo != null && alvo.first.isNotBlank() && alvo.second !in CANAIS) erros += "Ação $n: canal inválido (de 1 a 64)."
             when (x) {
                 is Acao.Ligar -> {
                     if (x.aparelho.isBlank()) erros += "Ação $n: escolha o circuito."
                     else if (conhecidos && canal(x.aparelho, x.canal)?.funcao.let { it != Funcao.INTERRUPTOR && it != Funcao.LUZ }) erros += "Ação $n: escolha um circuito ou uma luz."
                     if (x.duranteS != null && x.duranteS <= 0) erros += "Ação $n: duração inválida."
+                    else if (x.duranteS != null && x.duranteS > MAX_DURACAO_S) erros += "Ação $n: a duração vai até 24 h (1440 min)."
                     val c = canal(x.aparelho, x.canal)
                     if (x.ligar && c?.perigosa == true) {
                         if (x.duranteS == null) erros += "Ação $n: ${c.nome} é uma carga perigosa; indique durante quanto tempo (máx. 4 h)."
@@ -577,7 +606,10 @@ object Automacoes {
                     else if (conhecidos && canal(x.aparelho, x.canal)?.funcao != Funcao.ESTORE) erros += "Ação $n: escolha um estore."
                     if (x.posicao !in 0..100) erros += "Ação $n: posição de 0 a 100."
                 }
-                is Acao.Notificar -> if (x.mensagem.isBlank()) erros += "Ação $n: escreva a mensagem."
+                is Acao.Notificar -> when {
+                    x.mensagem.isBlank() -> erros += "Ação $n: escreva a mensagem."
+                    x.mensagem.length > MAX_MENSAGEM -> erros += "Ação $n: a mensagem tem no máximo $MAX_MENSAGEM caracteres (tem ${x.mensagem.length})."
+                }
                 is Acao.Luz -> {
                     if (x.aparelho.isBlank()) erros += "Ação $n: escolha a luz."
                     else if (conhecidos && canal(x.aparelho, x.canal)?.funcao != Funcao.LUZ) erros += "Ação $n: escolha uma luz com brilho."

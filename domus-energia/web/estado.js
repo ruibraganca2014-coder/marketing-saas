@@ -42,7 +42,7 @@ export function lerAparelhos(texto) {
       const ns = new Set();
       for (const c of a.canais) {
         const n = Number(c?.n);
-        if (!Number.isInteger(n) || n < 1 || n > 32 || ns.has(n) || !FUNCOES.includes(c?.funcao)) continue;
+        if (!Number.isInteger(n) || n < 1 || n > 64 || ns.has(n) || !FUNCOES.includes(c?.funcao)) continue;
         ns.add(n);
         // v3 (§3): só se acrescentam os campos que vêm na mensagem.
         const extra = {};
@@ -61,6 +61,8 @@ export function lerAparelhos(texto) {
       divisao: divisaoPropria ?? canais.find((c) => c.divisao)?.divisao ?? null,
       tipo: a.tipo === "shelly" ? "shelly" : "openbeken",
       medidor: a.medidor === true,
+      // v3 §11: contador da casa inteira (só conta com `medidor`).
+      geral: a.medidor === true && a.geral === true,
       bateria: a.bateria === true,
       v1,
       canais: canais.map((c) => ({ ...c, temNome: !!c.temNome })),
@@ -183,9 +185,13 @@ export function aplicarMensagem(estados, id, aparelho, resto, texto, { agora = D
 }
 
 // Última notícia conhecida a partir do histórico do motor (para mensagens retidas antigas).
+// Só eventos que vêm de uma mensagem do próprio aparelho (sensor, alarme) são sinal de vida:
+// os avisos do motor ("Sem notícias", "Pilhas a acabar", "Aparelho offline"…) também trazem
+// `aparelho` mas dizem precisamente o contrário.
+const EVENTOS_DE_VIDA = ["sensor", "alarme"];
 export function notarHistorico(estados, eventos) {
   for (const ev of eventos) {
-    if (typeof ev.aparelho !== "string") continue;
+    if (typeof ev.aparelho !== "string" || !EVENTOS_DE_VIDA.includes(ev.tipo)) continue;
     const t = typeof ev.ts === "number" ? ev.ts : Date.parse(ev.ts);
     if (!Number.isFinite(t)) continue;
     const e = (estados[ev.aparelho] ??= { canais: {} });
@@ -193,9 +199,21 @@ export function notarHistorico(estados, eventos) {
   }
 }
 
+// `_saude` (v3 §5) é a fonte de verdade da última notícia quando existe (o motor vê todas as
+// mensagens, incluindo as que não geram eventos no histórico). Substitui o valor anterior.
+export function notarSaude(estados, saude) {
+  for (const [id, x] of Object.entries(saude ?? {})) {
+    const e = (estados[id] ??= { canais: {} });
+    e.ultimaNoticiaSaude = typeof x?.ultimaNoticia === "number" ? x.ultimaNoticia : null;
+  }
+}
+
 // ---------- Modelo normalizado ----------
 export function modelo(a, e = {}, agora = Date.now(), limiarEsperaW = LIMIAR_ESPERA_W) {
-  const ultima = Math.max(e.ultimaNoticia ?? 0, e.ultimaNoticiaHistorico ?? 0) || null;
+  // Com `_saude`, o histórico deixa de contar (só as mensagens ao vivo, que podem ser mais recentes).
+  const ultima = (e.ultimaNoticiaSaude != null
+    ? Math.max(e.ultimaNoticia ?? 0, e.ultimaNoticiaSaude)
+    : Math.max(e.ultimaNoticia ?? 0, e.ultimaNoticiaHistorico ?? 0)) || null;
   const temMedicao = a.medidor || (a.v1 && [e.potenciaW, e.tensaoV, e.correnteA, e.energiaKWh].some((v) => v != null));
   const m = {
     id: a.id,
@@ -203,6 +221,7 @@ export function modelo(a, e = {}, agora = Date.now(), limiarEsperaW = LIMIAR_ESP
     tipo: a.tipo,
     divisao: a.divisao ?? null,
     medidor: a.medidor,
+    geral: !!a.geral,
     temMedicao,
     bateria: a.bateria,
     online: !!e.online,
@@ -243,10 +262,16 @@ export function emEspera(m, c, limiarW = LIMIAR_ESPERA_W) {
 export const disponivel = (m) => m.bateria || m.online;
 
 // ---------- Resumo e fundo vivo ----------
+// v3 §11: se houver contadores gerais, o consumo da casa é só a soma deles (como o motor);
+// senão, a soma de todos os medidores.
+export function contaParaTotal(m, modelos) {
+  return modelos.some((x) => x.geral) ? !!m.geral : true;
+}
 export function resumo(modelos, alarme) {
   let potenciaW = 0, ligados = 0, circuitos = 0, portasAbertas = 0, portas = 0, online = 0, comLigacao = 0;
+  const haGeral = modelos.some((x) => x.geral);
   for (const m of modelos) {
-    if (m.temMedicao && m.potenciaW != null) potenciaW += m.potenciaW;
+    if (m.temMedicao && m.potenciaW != null && (!haGeral || m.geral)) potenciaW += m.potenciaW;
     if (!m.bateria) { comLigacao++; if (m.online) online++; }
     for (const c of m.canais) {
       if (c.funcao === "interruptor" || c.funcao === "luz") { circuitos++; if (c.ligado) ligados++; }
@@ -502,6 +527,14 @@ export function slug(nome, existentes = []) {
   }
 }
 
+// JSON com as chaves ordenadas — para comparar listas independentemente da ordem dos campos
+// (o motor normaliza e pode reordenar).
+export function jsonCanonico(v) {
+  const ord = (x) => (Array.isArray(x) ? x.map(ord) : x && typeof x === "object"
+    ? Object.fromEntries(Object.keys(x).sort().filter((k) => x[k] !== undefined).map((k) => [k, ord(x[k])])) : x);
+  return JSON.stringify(ord(v));
+}
+
 // ---------- Validação (o motor volta a validar; aqui só se evita publicar o que ele recusaria) ----------
 export const CATEGORIAS = ["conveniencia", "energia", "seguranca", "conforto", "rotina"];
 export const NOME_CATEGORIA = { conveniencia: "Conveniência", energia: "Poupança de energia", seguranca: "Segurança", conforto: "Conforto", rotina: "Rotina" };
@@ -509,6 +542,11 @@ export const EVENTOS_SISTEMA = ["aparelho_offline", "aparelho_online", "energia_
 export const MAX_ACOES = 20;
 export const MAX_NIVEIS_SE = 2;
 export const MAX_PERIGOSA_S = 4 * 3600;
+// Limites do motor (motor/src/validacao.js), repetidos aqui para dar a mensagem antes de publicar.
+export const MAX_DURACAO_S = 24 * 3600;
+export const MAX_NOME = 80;
+export const MAX_MENSAGEM = 200;
+export const MAX_CONDICOES_APARELHOS = 10;
 
 // Total de ações, contando as que estão dentro de SE/SENÃO.
 export function contarAcoes(lista) {
@@ -527,7 +565,99 @@ function acharCanal(aparelhos, id, n) {
 export function nomeCanal(aparelhos, id, n) {
   const { a, c } = acharCanal(aparelhos, id, n);
   if (!a) return id ?? "?";
+  // Canal com o mesmo nome do aparelho: não repetir ("Porta de entrada · Porta de entrada").
+  if (c?.temNome && c.nome === a.nome) return a.nome;
   return c && c.temNome && a.canais.length > 1 ? `${a.nome} · ${c.nome}` : c?.temNome ? c.nome : a.nome;
+}
+
+// ---------- Ações arriscadas (confirmação antes de guardar / executar) ----------
+const semAcentos = (t) => String(t ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/**
+ * O canal é o disjuntor geral da casa? Se algum aparelho estiver marcado `geral` (v3 §11), só
+ * esses contam; senão, qualquer canal de um aparelho com medição cujo nome ou divisão (do
+ * aparelho ou do canal) fale em "geral" ou "quadro" (sem distinguir maiúsculas nem acentos).
+ */
+export function ehGeral(aparelhos, id, n) {
+  const { a, c } = acharCanal(aparelhos, id, n);
+  if (!a) return false;
+  if (aparelhos.some((x) => x.geral)) return !!a.geral;
+  if (!a.medidor) return false;
+  return /geral|quadro/.test(semAcentos([a.nome, a.divisao, c?.nome, c?.divisao].filter(Boolean).join(" ")));
+}
+
+// "o Quadro geral", "a Bomba de calor", "as Tomadas" — artigo pela primeira palavra (heurística).
+export function comArtigo(nome) {
+  const t = String(nome ?? "");
+  const p = semAcentos(t).split(/\s+/)[0] ?? "";
+  let art = "";
+  if (/^(luzes|tvs)$/.test(p) || /as$/.test(p)) art = "as";
+  else if (/^(luz|tv|televisao)$/.test(p) || /(a|cao|dade|gem)$/.test(p)) art = "a";
+  else if (/(os|es)$/.test(p)) art = "os";
+  else if (/^[a-z]/.test(p)) art = "o";
+  return art ? `${art} ${t}` : t;
+}
+
+const LIGA_DESLIGA = ["ligar", "desligar", "alternar", "luz"];
+/**
+ * Ações que mexem no disjuntor geral (qualquer ligar/desligar/alternar/luz) ou que ligam uma carga
+ * perigosa (desligar uma carga perigosa não é arriscado), incluindo as de dentro de SE/SENÃO e as
+ * das cenas chamadas com {acao:"cena"} (expandidas com a lista retida `_cenas`, também cenas dentro
+ * de cenas, com proteção contra ciclos). Linhas com o mesmo texto aparecem uma só vez.
+ * @param {object[]} lista ações
+ * @param {object[]} aparelhos lerAparelhos
+ * @param {{cenas?: object[]}} [opcoes] cenas: lista retida `_cenas` (para expandir as ações "cena")
+ * @returns {{acao: object, tipo: "geral"|"perigosa", texto: string, caminho: string}[]}
+ *   caminho: posição da ação no formulário ("2", "3.então.1"); para as que vêm de uma cena, a da ação "cena".
+ */
+export function acoesArriscadas(lista, aparelhos = [], { cenas = [] } = {}) {
+  const r = [];
+  const vistos = new Set();
+  const percorrer = (acoes, { caminho = "", ramo = null, via = [], fixo = null, visitadas = new Set() }) => {
+    for (const [i, x] of (Array.isArray(acoes) ? acoes : []).entries()) {
+      const aqui = caminho ? `${caminho}.${i + 1}` : `${i + 1}`;
+      const pos = fixo ?? aqui;
+      if (x?.acao === "se") {
+        percorrer(x.entao, { caminho: `${aqui}.então`, ramo: "então", via, fixo, visitadas });
+        percorrer(x.senao, { caminho: `${aqui}.senão`, ramo: "senão", via, fixo, visitadas });
+        continue;
+      }
+      if (x?.acao === "cena") {
+        const c = (Array.isArray(cenas) ? cenas : []).find((k) => k?.id === x.cena);
+        if (!c || visitadas.has(c.id)) continue; // cena desconhecida, ou ciclo
+        percorrer(c.acoes, { caminho: aqui, ramo, via: [...via, String(c.nome ?? c.id)], fixo: pos, visitadas: new Set([...visitadas, c.id]) });
+        continue;
+      }
+      if (!LIGA_DESLIGA.includes(x?.acao) || !x.aparelho || !Number.isInteger(x.canal)) continue;
+      const { a, c } = acharCanal(aparelhos, x.aparelho, x.canal);
+      if (!a) continue;
+      // Apagar = desligar, ou luz a 0 %.
+      const apaga = x.acao === "desligar" || (x.acao === "luz" && x.brilho === 0);
+      const dur = x.durante_s ? ` durante ${duracao(x.durante_s)}` : "";
+      // De onde vem: ramo do SE mais interior e a cena (a mais exterior, que é a que se escolheu).
+      const partes = [];
+      if (ramo) partes.push(`no ${ramo === "senão" ? "SENÃO" : "ENTÃO"} de um SE`);
+      if (via.length) partes.push(`pela cena "${via[0]}"`);
+      const onde = partes.length ? ` (${partes.join(", ")})` : "";
+      let tipo = null, texto = "";
+      if (ehGeral(aparelhos, x.aparelho, x.canal)) {
+        tipo = "geral";
+        const quem = comArtigo(a.canais.length === 1 ? a.nome : nomeCanal(aparelhos, x.aparelho, x.canal));
+        if (apaga) texto = `Desligar ${quem}${dur}${onde} — a casa inteira fica sem luz.`;
+        else if (x.acao === "alternar") texto = `Alternar ${quem}${onde} — se estiver ligado, a casa inteira fica sem luz.`;
+        else if (x.durante_s) texto = `Ligar ${quem}${dur}${onde} — no fim desliga-se e a casa inteira fica sem luz.`;
+        else texto = `Ligar ${quem}${onde} — dá corrente à casa inteira.`;
+      } else if (c?.carga === "perigosa" && !apaga) {
+        tipo = "perigosa";
+        const quem = comArtigo(nomeCanal(aparelhos, x.aparelho, x.canal));
+        const verbo = x.acao === "alternar" ? "Alternar" : "Ligar";
+        texto = `${verbo} ${quem} (carga perigosa)${dur}${onde}.`;
+      }
+      if (tipo && !vistos.has(texto)) { vistos.add(texto); r.push({ acao: x, tipo, texto, caminho: pos }); }
+    }
+  };
+  percorrer(lista, {});
+  return r;
 }
 
 function validarCondicoes(se, erros, aparelhos, rot = "Condições") {
@@ -536,12 +666,14 @@ function validarCondicoes(se, erros, aparelhos, rot = "Condições") {
   if (typeof se !== "object" || Array.isArray(se)) { erros.push(`${p}condições inválidas.`); return; }
   if ("alarme" in se && typeof se.alarme !== "boolean") erros.push(`${p}condição de alarme inválida.`);
   if (se.entre && (!Array.isArray(se.entre) || se.entre.length !== 2 || !se.entre.every((h) => HORA_RE.test(h)))) erros.push(`${p}horário inválido (HH:MM).`);
+  else if (se.entre && se.entre[0] === se.entre[1]) erros.push(`${p}o horário tem de começar e acabar a horas diferentes.`);
   if ("dias" in se && (!Array.isArray(se.dias) || se.dias.length === 0 || se.dias.some((d) => !Number.isInteger(d) || d < 1 || d > 7))) erros.push(`${p}escolha pelo menos um dia.`);
   if ("sol" in se && se.sol !== "dia" && se.sol !== "noite") erros.push(`${p}condição de sol inválida.`);
   if ("modo" in se && (!Array.isArray(se.modo) || se.modo.length === 0 || se.modo.some((m) => !MODOS.includes(m)))) erros.push(`${p}escolha pelo menos um modo.`);
   if ("presenca" in se && se.presenca !== "alguem" && se.presenca !== "ninguem") erros.push(`${p}condição de presença inválida.`);
   if ("aparelhos" in se) {
     if (!Array.isArray(se.aparelhos) || se.aparelhos.length === 0) erros.push(`${p}estado de aparelhos inválido.`);
+    else if (se.aparelhos.length > MAX_CONDICOES_APARELHOS) erros.push(`${p}no máximo ${MAX_CONDICOES_APARELHOS} aparelhos nas condições.`);
     else for (const x of se.aparelhos) {
       if (!x?.aparelho || !Number.isInteger(x.canal) || (x.valor !== 0 && x.valor !== 1)) { erros.push(`${p}escolha o aparelho e o estado.`); break; }
     }
@@ -557,6 +689,7 @@ function validarAcoes(lista, erros, ctx, nivel = 0, prefixo = "") {
     if (x?.acao === "ligar" || x?.acao === "desligar") {
       if (!x.aparelho || !Number.isInteger(x.canal)) erros.push(`Ação ${n}: escolha o circuito.`);
       if (x.durante_s != null && !(Number.isInteger(x.durante_s) && x.durante_s > 0)) erros.push(`Ação ${n}: duração inválida.`);
+      else if (x.durante_s != null && x.durante_s > MAX_DURACAO_S) erros.push(`Ação ${n}: no máximo 24 h (1440 minutos).`);
       else if (x.acao === "ligar" && perigosa && x.durante_s == null) erros.push(`Ação ${n}: ${nome()} é uma carga perigosa — indique durante quanto tempo fica ligada (máx. 4 h).`);
       else if (x.acao === "ligar" && perigosa && x.durante_s > MAX_PERIGOSA_S) erros.push(`Ação ${n}: ${nome()} é uma carga perigosa — no máximo 4 h ligada.`);
     } else if (x?.acao === "luz") {
@@ -571,6 +704,7 @@ function validarAcoes(lista, erros, ctx, nivel = 0, prefixo = "") {
       if (!(Number.isInteger(x.posicao) && x.posicao >= 0 && x.posicao <= 100)) erros.push(`Ação ${n}: posição de 0 a 100.`);
     } else if (x?.acao === "notificar") {
       if (!String(x.mensagem ?? "").trim()) erros.push(`Ação ${n}: escreva a mensagem.`);
+      else if (String(x.mensagem).length > MAX_MENSAGEM) erros.push(`Ação ${n}: a mensagem tem no máximo ${MAX_MENSAGEM} caracteres.`);
     } else if (x?.acao === "esperar") {
       if (!(Number.isInteger(x.s) && x.s >= 1 && x.s <= 3600)) erros.push(`Ação ${n}: esperar de 1 a 3600 segundos.`);
     } else if (x?.acao === "modo") {
@@ -584,7 +718,8 @@ function validarAcoes(lista, erros, ctx, nivel = 0, prefixo = "") {
       else {
         if (!x.condicao || typeof x.condicao !== "object" || Object.keys(x.condicao).length === 0) erros.push(`Ação ${n}: escolha pelo menos uma condição para o SE.`);
         else validarCondicoes(x.condicao, erros, ctx.aparelhos, `Ação ${n}`);
-        if (contarAcoes(x.entao) + contarAcoes(x.senao) === 0) erros.push(`Ação ${n}: ponha pelo menos uma ação no ENTÃO ou no SENÃO.`);
+        // O motor exige pelo menos uma ação no ENTÃO (o SENÃO é opcional).
+        if (contarAcoes(x.entao) === 0) erros.push(`Ação ${n}: ponha pelo menos uma ação no ENTÃO (o SENÃO é opcional).`);
         validarAcoes(x.entao, erros, ctx, nivel + 1, `${n}.então`);
         validarAcoes(x.senao, erros, ctx, nivel + 1, `${n}.senão`);
       }
@@ -597,13 +732,14 @@ export function validarAutomacao(a, aparelhos = []) {
   const erros = [];
   if (!ID_AUTOMACAO_RE.test(a.id ?? "")) erros.push("Identificador inválido.");
   if (!String(a.nome ?? "").trim()) erros.push("Dê um nome à automação.");
+  else if (String(a.nome).length > MAX_NOME) erros.push(`Dê um nome à automação com até ${MAX_NOME} caracteres.`);
   if (a.descricao != null && String(a.descricao).length > 200) erros.push("A frase-objetivo tem no máximo 200 caracteres.");
   if (a.categoria != null && !CATEGORIAS.includes(a.categoria)) erros.push("Categoria inválida.");
   const q = a.quando ?? {};
   if (q.tipo === "sensor") {
     if (!q.aparelho || !Number.isInteger(q.canal)) erros.push("Escolha o sensor.");
     if (q.valor !== 0 && q.valor !== 1) erros.push("Escolha o estado do sensor.");
-    if (q.durante_s != null && !(Number.isInteger(q.durante_s) && q.durante_s >= 1 && q.durante_s <= 86400)) erros.push("Indique há quanto tempo (1 s a 24 h).");
+    if (q.durante_s != null && !(Number.isInteger(q.durante_s) && q.durante_s >= 1 && q.durante_s <= MAX_DURACAO_S)) erros.push("Indique há quanto tempo (1 s a 24 h).");
   } else if (q.tipo === "hora") {
     if (!HORA_RE.test(q.hora ?? "")) erros.push("Indique a hora (HH:MM).");
     if (!Array.isArray(q.dias) || q.dias.length === 0 || q.dias.some((d) => !Number.isInteger(d) || d < 1 || d > 7)) erros.push("Escolha pelo menos um dia.");
@@ -611,6 +747,7 @@ export function validarAutomacao(a, aparelhos = []) {
     if (!q.aparelho) erros.push("Escolha o medidor.");
     if (!(q.acima_w > 0)) erros.push("Indique a potência (W).");
     if (!(Number.isInteger(q.durante_s) && q.durante_s >= 0)) erros.push("Indique durante quantos segundos.");
+    else if (q.durante_s > MAX_DURACAO_S) erros.push("Durante no máximo 24 h (86400 segundos).");
     if (q.rearmar_w != null && !(q.rearmar_w > 0 && q.rearmar_w < q.acima_w)) erros.push("O rearme tem de ficar abaixo do limite (W).");
   } else if (q.tipo === "sol") {
     if (q.evento !== "nascer" && q.evento !== "por") erros.push("Escolha nascer ou pôr do sol.");
@@ -632,6 +769,7 @@ export function validarCena(c, aparelhos = []) {
   const erros = [];
   if (!ID_AUTOMACAO_RE.test(c.id ?? "")) erros.push("Identificador inválido.");
   if (!String(c.nome ?? "").trim()) erros.push("Dê um nome à cena.");
+  else if (String(c.nome).length > MAX_NOME) erros.push(`Dê um nome à cena com até ${MAX_NOME} caracteres.`);
   if (c.icone != null && !ICONES_CENA.includes(c.icone)) erros.push("Ícone inválido.");
   if (!Array.isArray(c.acoes) || c.acoes.length < 1 || contarAcoes(c.acoes) > MAX_ACOES) erros.push(`Tem de ter entre 1 e ${MAX_ACOES} ações.`);
   validarAcoes(c.acoes, erros, { aparelhos, cena: true });
@@ -828,6 +966,11 @@ export function listaSaude(modelos, saude = {}, agora = Date.now()) {
 }
 
 // ---------- v3: relatório da casa (§9) ----------
+// Como o motor (aviso "Sinal Wi-Fi fraco"): abaixo de −80 dBm.
+export const SINAL_FRACO_DBM = -80;
+// kWh com vírgula decimal (pt-PT).
+export const decimal = (v, casas = 1) => v.toFixed(casas).replace(".", ",");
+export const kwhTexto = (v, casas = 1) => `${decimal(v, casas)} kWh`;
 const ROTULOS_RELATORIO = [
   ["ligado", "Ligado"], ["espera", "Em espera"], ["desligado", "Desligado"], ["aberto", "Aberto"], ["fechado", "Fechado"],
   ["estores", "Estores"], ["offline", "Offline"], ["bateria", "Bateria fraca"], ["sinal", "Sinal fraco"],
@@ -841,10 +984,11 @@ export function construirRelatorio({ aparelhos = [], modelos = [], saude = {}, e
     return grupos.get(k);
   };
   let potenciaW = 0, temPotencia = false;
+  const haGeral = modelos.some((x) => x.geral);
   for (const m of modelos) {
     const a = porId[m.id];
     if (!a) continue;
-    if (m.temMedicao && typeof m.potenciaW === "number") { potenciaW += m.potenciaW; temPotencia = true; }
+    if (m.temMedicao && typeof m.potenciaW === "number" && (!haGeral || m.geral)) { potenciaW += m.potenciaW; temPotencia = true; }
     for (const c of m.canais) {
       const g = grupo(c.divisao ?? m.divisao);
       const nome = nomeCanal(aparelhos, m.id, c.n);
@@ -863,7 +1007,7 @@ export function construirRelatorio({ aparelhos = [], modelos = [], saude = {}, e
     const bat = s.bateria ?? bateriaDe(m);
     if (bat != null && bat < BATERIA_FRACA) g.bateria.push(`${m.nome} (${bat} %)`);
     else if (s.bateriaDias != null && s.bateriaDias < BATERIA_DIAS_POUCOS) g.bateria.push(`${m.nome} (≈ ${Math.round(s.bateriaDias)} dias)`);
-    if (typeof s.rssi === "number" && s.rssi < -70) g.sinal.push(`${m.nome} (${s.rssi} dBm)`);
+    if (typeof s.rssi === "number" && s.rssi < SINAL_FRACO_DBM) g.sinal.push(`${m.nome} (${s.rssi} dBm)`);
   }
   const algum = [...grupos.keys()].some((k) => k !== "");
   const divisoes = [...grupos.entries()]
@@ -891,7 +1035,7 @@ export function textoAlarme(al) {
 // Texto simples pt-PT para "Copiar".
 export function relatorioTexto(r) {
   const data = new Date(r.geradoEm).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  const kwh = (v) => (v == null ? "—" : `${v.toFixed(1)} kWh`);
+  const kwh = (v) => (v == null ? "—" : kwhTexto(v));
   const linhas = [
     `Relatório da casa — ${data}`,
     `Modo: ${r.modo ? NOME_MODO[r.modo] : "—"} · Alarme: ${textoAlarme(r.alarme)}`,

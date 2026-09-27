@@ -98,8 +98,10 @@ Abre `https://<DOMUS_HOST>/` no browser: deve aparecer o site com cadeado.
 ## 7. Criar o administrador e o motor
 
 ```bash
-./domus.sh admin 'UmaSenhaDeAdminLonga'
+./domus.sh admin          # pede a palavra-passe (duas vezes, sem a mostrar)
 ```
+
+A palavra-passe também pode vir do stdin (`printf '%s\n' "$SENHA" | ./domus.sh admin`) ou, como antes, no argumento (`./domus.sh admin 'UmaSenhaDeAdminLonga'`) — mas assim fica no histórico da shell (`~/.bash_history`), por isso prefere a pergunta.
 
 Na primeira vez isto também cria o utilizador **`motor`** no Mosquitto e no ntfy com as senhas do `.env`. Se mudares essas senhas no `.env`, corre `./domus.sh motor` e depois `docker compose up -d motor`.
 
@@ -120,8 +122,11 @@ O resultado mostra o login da app/site e o **tópico ntfy** do cliente.
 Aparelhos (`<cliente> <id> <tipo> "<Nome>" [opções] [palavra-passe]`):
 
 ```bash
-# Disjuntor com medição (Chayo/Tongou com OpenBeken), um canal
-./domus.sh aparelho joao quadro openbeken "Quadro geral" --medidor
+# Disjuntor com medição (Chayo/Tongou com OpenBeken), um canal. --geral: é o
+# medidor geral da casa — o consumo total (app, relatório, _energia) passa a
+# ser a soma dos medidores gerais, e não de todos os medidores (que contaria
+# duas vezes os circuitos que também têm medição própria, ex. o termoacumulador)
+./domus.sh aparelho joao quadro openbeken "Quadro geral" --medidor --geral
 
 # Interruptor de parede de 4 teclas na Sala: o Teto entra na simulação de
 # férias e volta ao último estado depois de um corte; a Varanda fica noutra divisão
@@ -161,7 +166,8 @@ Aparelhos (`<cliente> <id> <tipo> "<Nome>" [opções] [palavra-passe]`):
 | `divisao=Texto` | todos | divisão da casa desse canal (substitui `--divisao`) |
 
 - `--divisao "Sala"` dá a divisão a todos os canais do aparelho (os que não tenham `divisao=`). A divisão agrupa os aparelhos no relatório e na app.
-- Funções de canal: `interruptor`, `luz`, `estore`, `porta`, `movimento`, `bateria`. Sem `--canais` o aparelho tem um canal `interruptor` n.º 1 (desligado depois de um corte).
+- Funções de canal: `interruptor`, `luz`, `estore`, `porta`, `movimento`, `bateria`. Sem `--canais` o aparelho tem um canal `interruptor` n.º 1 (desligado depois de um corte). Números de canal: 1 a 64 (o mesmo limite do motor e das apps).
+- `--medidor` = o aparelho mede potência/energia; `--geral` (só com `--medidor`) marca-o como medidor geral da casa (`"geral": true` em `_aparelhos`).
 - Nomes e divisões não podem ter `:` nem `,`. Se precisar de um canal sem nome mas com opções, escreva só as opções (`1:porta:entrada`) ou deixe o nome vazio (`1:porta::entrada`).
 - Combinações proibidas (ex.: `entrada` num interruptor, `arranque=ultimo` com `carga=perigosa`) são recusadas com uma explicação e nada é gravado.
 - Ids e códigos: letras minúsculas, dígitos e `-` (máx. 32).
@@ -249,7 +255,11 @@ cd servidor && docker compose pull && docker compose up -d --build
 
 ## 14. Segurança — o que saber
 
-- **A porta 1883 não é cifrada.** Os disjuntores e interruptores com chip BK7231 (OpenBeken) não têm TLS fiável, por isso os aparelhos usam MQTT simples. Mitigações: cada aparelho tem **utilizador e palavra-passe próprios** e só pode ler/escrever no seu prefixo `domus/<cliente>/<aparelho>/#` (ACL); ninguém anónimo entra.
+- **A porta 1883 não é cifrada: o utilizador e a palavra-passe de cada aparelho passam em texto simples** (e também os estados e comandos). Quem conseguir escutar a rede entre a casa e o VPS (Wi-Fi da casa, operador) pode ler essas credenciais e fazer-se passar por esse aparelho. Os disjuntores e interruptores com chip BK7231 (OpenBeken) não têm TLS fiável, por isso usam MQTT simples. Mitigações:
+  - cada aparelho tem **utilizador e palavra-passe próprios** e só pode ler/escrever no seu prefixo `domus/<cliente>/<aparelho>/#` (ACL): uma credencial roubada só dá acesso a esse aparelho, nunca à casa nem ao alarme; ninguém anónimo entra;
+  - se suspeitar de uma credencial, corra de novo `./domus.sh aparelho …` (gera outra e corta a antiga);
+  - **Shelly: use a porta 8883 com TLS** (ver [MQTT com TLS](#mqtt-com-tls-porta-8883-opcional));
+  - quando as casas tiverem IP fixo, restrinja a 1883 na firewall a esses IPs (ex. `sudo ufw allow from 85.240.1.2 to any port 1883 proto tcp` em vez de aberta a todos).
 - A app e o site usam sempre **HTTPS/WSS** (porta 443, certificado automático).
 - Permissões (geradas pelo `domus.sh`, nunca editar à mão):
   - cliente `C`: lê `domus/C/#`; escreve apenas
@@ -260,7 +270,26 @@ cd servidor && docker compose pull && docker compose up -d --build
   - aparelho `C-A`: lê e escreve `domus/C/A/#`;
   - `motor` e `admin`: lê e escreve `domus/#`.
 - Removendo um aparelho, a ligação dele é cortada e a palavra-passe deixa de funcionar.
-- **Próximo passo recomendado:** ativar MQTT com TLS na porta **8883** para os Shelly (que suportam TLS), deixando a 1883 só para os OpenBeken; e, a prazo, restringir a 1883 por firewall aos IPs das casas dos clientes quando forem fixos.
+- O site e a área de cliente são servidos com `X-Frame-Options: DENY` e uma `Content-Security-Policy` (scripts só do próprio site e do `cdn.jsdelivr.net`; ligações só ao próprio site, ao `wss://HOST/mqtt` e ao Supabase; nenhuma página pode ser posta num `<iframe>`). Se mudar de CDN, de fontes ou de projeto Supabase, atualize a linha `Content-Security-Policy` em `caddy/Caddyfile`.
+- Limites do Mosquitto (`mosquitto/mosquitto.conf`): `max_connections 2000` (ligações simultâneas de aparelhos + app + site; subir se a empresa passar de ~1500 aparelhos) e `max_packet_size` de 1 MB (o motor nunca publica mais de 900 KB, `MQTT_MAX_PAYLOAD`).
+
+### MQTT com TLS (porta 8883, opcional)
+
+Para os aparelhos que suportam TLS (Shelly Gen2/Gen3). Os OpenBeken continuam na 1883. Sem este passo o servidor funciona como antes.
+
+1. Certificado: o mais simples é reutilizar o do Caddy (o mesmo `HOST`). Copie-o para `mosquitto/certs/` (a pasta não vai para o git):
+   ```bash
+   cd ~/domus-energia/servidor
+   sudo mkdir -p mosquitto/certs
+   D=/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$DOMUS_HOST
+   docker compose cp caddy:$D/$DOMUS_HOST.crt mosquitto/certs/fullchain.pem
+   docker compose cp caddy:$D/$DOMUS_HOST.key mosquitto/certs/privkey.pem
+   ```
+   (se o Caddy usou a ZeroSSL, a pasta é `acme.zerossl.com-v2-dv90`: veja com `docker compose exec caddy ls /data/caddy/certificates`). O Caddy renova o certificado a cada ~60 dias: repita a cópia uma vez por mês no `crontab` do root, seguida de `docker compose restart mosquitto`.
+2. Ative a porta: `cp mosquitto/conf.d/tls.conf.exemplo mosquitto/conf.d/tls.conf` e, no `docker-compose.yml`, tire o `#` da linha `- "8883:8883"`.
+3. Abra a porta **8883/TCP** na firewall (painel do fornecedor e `ufw`/`iptables`, como no passo 2) e reinicie: `docker compose up -d mosquitto`.
+4. No Shelly: *Settings → MQTT*: Server `HOST:8883`, ativar **Use SSL** (com verificação do certificado, "Default CA"). O resto (utilizador, palavra-passe, prefixo) fica igual.
+5. Teste: `mosquitto_sub -h <DOMUS_HOST> -p 8883 --capath /etc/ssl/certs -u joao -P 'SenhaDoJoao' -t 'domus/joao/#' -v`.
 - Mantém o sistema atualizado (`sudo apt-get update && sudo apt-get upgrade`) e usa só login SSH por chave.
 
 ## 15. Funcionar sem internet

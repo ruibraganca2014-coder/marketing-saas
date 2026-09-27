@@ -1,0 +1,11 @@
+# Porta MQTT com TLS (8883) para os aparelhos que a suportam (Shelly Gen2/Gen3).
+# Opcional: para ativar, copie este ficheiro para "tls.conf" (nesta pasta),
+# ponha os certificados em mosquitto/certs/ (ver README, "MQTT com TLS"),
+# abra a porta 8883 (firewall + docker-compose.yml) e reinicie o Mosquitto:
+#   docker compose restart mosquitto
+# As mesmas contas e permissões (passwd/acl) valem para todas as portas.
+listener 8883
+protocol mqtt
+certfile /mosquitto/config/certs/fullchain.pem
+keyfile /mosquitto/config/certs/privkey.pem
+tls_version tlsv1.2

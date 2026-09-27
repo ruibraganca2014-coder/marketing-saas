@@ -170,11 +170,11 @@ data class Relatorio(
             var offline = 0
             var bateriaFraca = 0
             var sinalFraco = 0
-            var potencia: Double? = null
+            // Potência total: só os contadores gerais, se houver (como o `_energia` do motor).
+            val potencia = Consumo.potenciaTotal(aparelhos)
             for (a in aparelhos) {
                 val s = estado.saude[a.id]
                 val sl = SaudeCasa.linha(a, s, agora)
-                if (a.medidor && a.potenciaW != null) potencia = (potencia ?: 0.0) + a.potenciaW
                 for (c in a.canais) {
                     val (texto, atencao) = estadoCanal(a, c, limiar) ?: continue
                     when (c.funcao) {

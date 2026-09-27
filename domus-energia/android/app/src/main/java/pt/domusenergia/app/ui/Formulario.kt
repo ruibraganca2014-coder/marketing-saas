@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
@@ -21,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +82,8 @@ fun <T> Seletor(
     onEscolher: (T) -> Unit,
     vazio: String,
     modifier: Modifier = Modifier,
+    /** Texto enquanto nada está escolhido (nada vem pré-escolhido). */
+    escolha: String = "Escolher ${rotulo.lowercase()}…",
 ) {
     val t = LocalTerra.current
     var aberto by remember { mutableStateOf(false) }
@@ -89,7 +94,7 @@ fun <T> Seletor(
     Box(modifier) {
         OutlinedButton(onClick = { aberto = true }, shape = FormaPilula, modifier = Modifier.fillMaxWidth()) {
             Text(
-                opcoes.firstOrNull { it.first == atual }?.second ?: "Escolher ${rotulo.lowercase()}…",
+                opcoes.firstOrNull { it.first == atual }?.second ?: escolha,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -178,4 +183,33 @@ val EspacoFormulario = 12.dp
 @Composable
 fun Recuo(content: @Composable () -> Unit) {
     Box(Modifier.padding(start = 8.dp)) { content() }
+}
+
+/**
+ * Confirmação antes de uma ação arriscada (disjuntor geral, carga perigosa): [linhas] em texto simples
+ * (ver [pt.domusenergia.app.data.Riscos]). "Voltar e alterar" / "Cancelar" = [onNao].
+ */
+@Composable
+fun ConfirmarRisco(
+    titulo: String,
+    linhas: List<String>,
+    sim: String,
+    nao: String,
+    onSim: () -> Unit,
+    onNao: () -> Unit,
+    explicacao: String? = null,
+) {
+    val t = LocalTerra.current
+    AlertDialog(
+        onDismissRequest = onNao,
+        title = { Text(titulo) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                explicacao?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                linhas.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium, color = t.texto) }
+            }
+        },
+        confirmButton = { TextButton(onClick = onSim) { Text(sim, color = t.alarme) } },
+        dismissButton = { TextButton(onClick = onNao) { Text(nao) } },
+    )
 }

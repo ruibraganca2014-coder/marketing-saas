@@ -18,7 +18,7 @@ MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
   - **Cenas**: fila com as cenas (toque = executar); "Gerir" abre a lista para criar/editar/apagar.
     As da Domus Energia (cadeado) só se executam.
   - Aviso "N aparelhos precisam de atenção" (offline, pilha fraca, sinal fraco) → **Saúde**.
-  - Resumo: potência agora, **Hoje X kWh** (`_energia`), ligados (com "em espera"), portas abertas.
+  - Resumo: potência agora (só os contadores `"geral": true`, se houver), **Hoje X kWh** (`_energia`), ligados (com "em espera"), portas abertas.
   - Aparelhos **agrupados por divisão**; canais ligados de aparelhos com medidor a gastar menos do que o
     limiar aparecem **Em espera**.
 - **Automações**: assistente em 5 passos (objetivo e categoria → gatilho → primeira ação → condições →
@@ -119,6 +119,11 @@ Versões: AGP 8.7.3, Kotlin 2.0.21, Gradle 8.14.3, compileSdk/targetSdk 35, minS
 **play-services-location 21.3.0**, **work-runtime-ktx 2.10.0**.
 
 ## Segurança (protótipo)
-A palavra-passe fica em `SharedPreferences` privadas da app (com `allowBackup="false"`).
-Próximo passo: `EncryptedSharedPreferences` / Android Keystore. A app nunca publica mensagens retidas
+A palavra-passe fica **cifrada** (AES-256-GCM) com uma chave do **Android Keystore** (`data/CofreSenha.kt` +
+`data/Sessao.kt`); nas `SharedPreferences` só fica o texto cifrado, e a palavra-passe em texto simples das versões
+anteriores é cifrada e apagada na primeira abertura. Sem dependências novas: não se usa
+`androidx.security:security-crypto` (EncryptedSharedPreferences), que a Google descontinuou. Se o Keystore
+falhar, a palavra-passe não é guardada (pede-se outra vez ao abrir). `allowBackup="false"` mantém-se.
+Ações arriscadas pedem confirmação: desligar o disjuntor geral na Casa, executar uma cena e guardar uma cena/
+automação que mexa no quadro geral ou numa carga perigosa (`data/Riscos.kt`). A app nunca publica mensagens retidas
 (um comando retido voltaria a ser executado quando o aparelho reiniciasse).

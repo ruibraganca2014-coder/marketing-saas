@@ -16,6 +16,7 @@ import path from 'node:path';
  * @property {string} fcmServiceAccount
  * @property {number} tickMs
  * @property {number} esperaArranqueMs
+ * @property {number} maxPayload
  */
 
 /**
@@ -38,5 +39,7 @@ export function lerConfig(env = process.env) {
     fcmServiceAccount: env.FCM_SERVICE_ACCOUNT ?? path.join(dadosDir, 'firebase-service-account.json'),
     tickMs: Number(env.MOTOR_TICK_MS) || 1000,
     esperaArranqueMs: Number(env.MOTOR_ESPERA_ARRANQUE_MS ?? 3000),
+    // Tem de ficar abaixo do max_packet_size do Mosquitto (1 MB em servidor/mosquitto/mosquitto.conf).
+    maxPayload: Number(env.MQTT_MAX_PAYLOAD) || 900 * 1024,
   };
 }

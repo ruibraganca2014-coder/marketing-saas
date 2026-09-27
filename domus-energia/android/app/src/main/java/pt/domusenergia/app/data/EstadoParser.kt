@@ -31,6 +31,8 @@ data class ConfigAparelho(
     val v1: Boolean,
     val canais: List<ConfigCanal>,
     val divisao: String? = null,
+    /** Contador geral da casa (`"geral": true`, só conta com [medidor]): ver [Consumo]. */
+    val geral: Boolean = false,
 )
 
 /**
@@ -82,7 +84,7 @@ data class Estado(
     /** Aparelhos a mostrar: os da lista, pela ordem da lista. */
     val aparelhos: List<Aparelho> by lazy {
         val noticias = EstadoParser.noticiasDoHistorico(historico)
-        lista.orEmpty().map { EstadoParser.construir(it, brutos[it.id].orEmpty(), noticias[it.id]) }
+        lista.orEmpty().map { EstadoParser.construir(it, brutos[it.id].orEmpty(), EstadoParser.ultimaNoticia(saude[it.id], noticias[it.id])) }
     }
 }
 
@@ -281,6 +283,7 @@ object EstadoParser {
                 v1 = v1,
                 canais = canais,
                 divisao = (item.opt("divisao") as? String)?.trim()?.ifEmpty { null },
+                geral = item.opt("geral") == true,
             )
         }
         return lista
@@ -289,7 +292,8 @@ object EstadoParser {
     // ---------- Modelo normalizado ----------
 
     /** Constrói o [Aparelho] a partir da configuração e das últimas mensagens de cada tópico. */
-    fun construir(cfg: ConfigAparelho, brutos: Map<String, Bruto>, noticiaHistorico: Instant? = null): Aparelho {
+    /** @param noticiaMotor última notícia segundo o motor ([ultimaNoticia]); junta-se às recebidas em direto. */
+    fun construir(cfg: ConfigAparelho, brutos: Map<String, Bruto>, noticiaMotor: Instant? = null): Aparelho {
         val shelly = cfg.tipo == Aparelho.TIPO_SHELLY
         fun texto(sub: String) = brutos[sub]?.payload
         fun json(sub: String) = texto(sub)?.let(::objeto)
@@ -379,7 +383,7 @@ object EstadoParser {
             r
         }
 
-        val ultima = brutos.values.mapNotNull { it.recebido }.fold(noticiaHistorico) { a, b -> maisRecente(a, b) }
+        val ultima = brutos.values.mapNotNull { it.recebido }.fold(noticiaMotor) { a, b -> maisRecente(a, b) }
         return Aparelho(
             id = cfg.id,
             nome = cfg.nome,
@@ -394,6 +398,7 @@ object EstadoParser {
             energiaKWh = energia,
             canais = canais,
             divisao = cfg.divisao,
+            geral = cfg.geral && cfg.medidor,
         )
     }
 
@@ -434,16 +439,31 @@ object EstadoParser {
             .take(max)
     }
 
-    /** Último evento conhecido de cada aparelho (para aparelhos a pilhas cujos valores chegaram retidos). */
+    /**
+     * Tipos de evento do histórico que são mesmo notícias do aparelho (uma porta que abriu, o alarme disparado
+     * por um sensor). Os `aviso` do motor sobre um aparelho ("Sem notícias", "Sensor do alarme offline",
+     * "Pilhas a acabar") falam *do* aparelho mas não vêm dele: não são sinal de vida.
+     */
+    private val EVENTOS_DE_VIDA = setOf(Evento.SENSOR, Evento.ALARME)
+
+    /** Último evento `sensor`/`alarme` de cada aparelho (para aparelhos a pilhas cujos valores chegaram retidos). */
     fun noticiasDoHistorico(historico: List<Evento>): Map<String, Instant> {
         val r = HashMap<String, Instant>()
         for (e in historico) {
+            if (e.tipo !in EVENTOS_DE_VIDA) continue
             val ap = e.aparelho ?: continue
             val ts = e.ts ?: continue
             if (r[ap]?.isAfter(ts) != true) r[ap] = ts
         }
         return r
     }
+
+    /**
+     * Última notícia conhecida pelo motor: `_saude[id].ultima_noticia` quando existe (é a fonte de verdade);
+     * senão, o último evento `sensor`/`alarme` do histórico. As mensagens que a app recebe em direto
+     * juntam-se depois, em [construir].
+     */
+    fun ultimaNoticia(saude: SaudeAparelho?, doHistorico: Instant?): Instant? = saude?.ultimaNoticia ?: doHistorico
 
     fun lerNtfy(payload: String): String? {
         val url = objeto(payload)?.opt("url") as? String ?: return null

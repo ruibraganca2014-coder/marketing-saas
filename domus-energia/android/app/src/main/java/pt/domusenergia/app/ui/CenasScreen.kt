@@ -44,6 +44,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Automacoes
+import pt.domusenergia.app.data.Riscos
+import pt.domusenergia.app.data.Aparelho
 import pt.domusenergia.app.data.Cena
 import pt.domusenergia.app.data.Cenas
 import pt.domusenergia.app.data.RascunhoAcao
@@ -63,6 +65,7 @@ fun CenasScreen(state: UiState, acoes: Acoes, editarInicial: Cena? = null) {
     var editar by remember { mutableStateOf(editarInicial) }
     var novaId by remember { mutableStateOf<String?>(null) } // id original da cena em edição (null = nova)
     var apagar by remember { mutableStateOf<Cena?>(null) }
+    val executar = executarComConfirmacao(estado.aparelhos, acoes)
 
     val e = editar
     if (e != null && lista != null) {
@@ -117,7 +120,7 @@ fun CenasScreen(state: UiState, acoes: Acoes, editarInicial: Cena? = null) {
                                 }
                             }
                         }
-                        BotaoPilula("Executar", onClick = { acoes.executarCena(c.id) }, enabled = state.ligado)
+                        BotaoPilula("Executar", onClick = { executar(c) }, enabled = state.ligado)
                     }
                     Ajuda(c.acoes.joinToString("; ") { Automacoes.descreverAcao(it, estado.aparelhos) }.ifEmpty { "Sem ações." })
                     if (!c.bloqueada) {
@@ -185,6 +188,7 @@ private fun EditorCena(
         mutableStateOf(inicial.acoes.map { RascunhoAcao.de(it) }.ifEmpty { listOf(RascunhoAcao()) })
     }
     var tentou by remember { mutableStateOf(false) }
+    var confirmar by remember { mutableStateOf<List<String>?>(null) }
     val id = if (nova) Automacoes.slug(nome, existentes.map { it.id }) else inicial.id
     val cena = Cena(id, nome.trim(), icone, false, acoesR.map { it.paraAcao() })
     val erros = Cenas.validar(cena, ctx.aparelhos) + Cenas.validarLista(Cenas.guardar(existentes, cena, if (nova) null else inicial.id))
@@ -195,7 +199,7 @@ private fun EditorCena(
             IconButton(onClick = onCancelar) { Icon(Icons.Filled.Close, contentDescription = "Cancelar") }
         }
         Cartao {
-            Campo(nome, { nome = it }, "Nome da cena")
+            Campo(nome, { nome = it.take(Automacoes.MAX_NOME) }, "Nome da cena", apoio = "${nome.length}/${Automacoes.MAX_NOME}")
             Titulo("Ícone")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Cenas.ICONES.forEach { i ->
@@ -224,11 +228,49 @@ private fun EditorCena(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             BotaoPilula(if (aGuardar) "A guardar…" else "Guardar", onClick = {
                 tentou = true
-                if (erros.isEmpty()) onGuardar(cena)
+                if (erros.isEmpty()) {
+                    val riscos = Riscos.descrever(cena.acoes, ctx.aparelhos)
+                    if (riscos.isEmpty()) onGuardar(cena) else confirmar = riscos
+                }
             }, enabled = podeGuardar && !aGuardar)
             TextButton(onClick = onCancelar) { Text("Cancelar") }
             if (aGuardar) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = t.musgo)
         }
         Spacer(Modifier.height(24.dp))
+    }
+    confirmar?.let { linhas ->
+        ConfirmarRisco(
+            titulo = "Guardar esta cena?",
+            explicacao = "Esta cena vai mexer em circuitos importantes:",
+            linhas = linhas,
+            sim = "Sim, guardar assim",
+            nao = "Voltar e alterar",
+            onSim = { confirmar = null; onGuardar(cena) },
+            onNao = { confirmar = null },
+        )
+    }
+}
+
+/**
+ * Executar uma cena, pedindo confirmação se ela mexer no disjuntor geral ou numa carga perigosa.
+ * Devolve a função a chamar com a cena (o diálogo fica na composição de quem a chama).
+ */
+@Composable
+fun executarComConfirmacao(aparelhos: List<Aparelho>, acoes: Acoes): (Cena) -> Unit {
+    var pendente by remember { mutableStateOf<Pair<Cena, List<String>>?>(null) }
+    pendente?.let { (c, linhas) ->
+        ConfirmarRisco(
+            titulo = "Executar \"${c.nome}\"?",
+            explicacao = "Esta cena vai:",
+            linhas = linhas,
+            sim = "Sim, executar",
+            nao = "Cancelar",
+            onSim = { pendente = null; acoes.executarCena(c.id) },
+            onNao = { pendente = null },
+        )
+    }
+    return { c ->
+        val riscos = Riscos.descrever(c.acoes, aparelhos)
+        if (riscos.isEmpty()) acoes.executarCena(c.id) else pendente = c to riscos
     }
 }

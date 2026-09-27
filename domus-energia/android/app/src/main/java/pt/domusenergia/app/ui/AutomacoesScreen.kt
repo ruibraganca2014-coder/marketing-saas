@@ -50,6 +50,7 @@ import pt.domusenergia.app.data.Modelos
 import pt.domusenergia.app.data.Quando
 import pt.domusenergia.app.data.Rascunho
 import pt.domusenergia.app.data.Registo
+import pt.domusenergia.app.data.Riscos
 import pt.domusenergia.app.data.Textos
 import pt.domusenergia.app.ui.tema.LocalTerra
 import pt.domusenergia.app.ui.tema.LocalVoltar
@@ -73,6 +74,7 @@ fun AutomacoesScreen(state: UiState, acoes: Acoes, editarInicial: Rascunho? = nu
     // null = lista; Rascunho = assistente aberto
     var editar by remember { mutableStateOf(editarInicial) }
     var apagar by remember { mutableStateOf<Automacao?>(null) }
+    val executar = executarAutomacaoComConfirmacao(aparelhos, cenas, acoes)
     val agora = agoraAtual()
 
     val r = editar
@@ -90,7 +92,8 @@ fun AutomacoesScreen(state: UiState, acoes: Acoes, editarInicial: Rascunho? = nu
             erroServidor = estado.ultimoErro?.let { "${it.titulo}: ${it.mensagem}" },
             onCancelar = { editar = null; acoes.limparErroAutomacoes() },
             onGuardar = { nova -> acoes.guardarAutomacoes(Automacoes.guardar(lista, nova, r.idOriginal)) { editar = null } },
-            onTestar = acoes::testarAutomacao,
+            // Testa a versão guardada: a confirmação de riscos é sobre essa (é a que o motor executa).
+            onTestar = { id -> lista.firstOrNull { it.id == id }?.let { executar(it, true) } },
             passoInicial = passoInicial,
         )
         return
@@ -133,8 +136,8 @@ fun AutomacoesScreen(state: UiState, acoes: Acoes, editarInicial: Rascunho? = nu
                         onAtiva = { v -> acoes.guardarAutomacoes(Automacoes.comAtiva(lista, a.id, v)) {} },
                         onEditar = { editar = Rascunho.de(a) },
                         onApagar = { apagar = a },
-                        onExecutar = { acoes.executarAutomacao(a.id) },
-                        onTestar = { acoes.testarAutomacao(a.id) },
+                        onExecutar = { executar(a, false) },
+                        onTestar = { executar(a, true) },
                         onAvaliar = { acoes.avaliarAutomacao(a.id) },
                     )
                 }
@@ -163,6 +166,32 @@ fun AutomacoesScreen(state: UiState, acoes: Acoes, editarInicial: Rascunho? = nu
             },
             dismissButton = { TextButton(onClick = { apagar = null }) { Text("Cancelar") } },
         )
+    }
+}
+
+/**
+ * "Executar" (manual) e "Testar agora" executam as ações já: se mexerem no disjuntor geral ou numa carga
+ * perigosa (também através de uma cena), pede confirmação com [ConfirmarRisco] e só publica depois do "Sim".
+ * Devolve a função a chamar com (automação, éTeste); o diálogo fica na composição de quem a chama.
+ */
+@Composable
+fun executarAutomacaoComConfirmacao(aparelhos: List<Aparelho>, cenas: List<Cena>, acoes: Acoes): (Automacao, Boolean) -> Unit {
+    var pendente by remember { mutableStateOf<Triple<Automacao, Boolean, List<String>>?>(null) }
+    fun publicar(a: Automacao, teste: Boolean) = if (teste) acoes.testarAutomacao(a.id) else acoes.executarAutomacao(a.id)
+    pendente?.let { (a, teste, linhas) ->
+        ConfirmarRisco(
+            titulo = if (teste) "Testar \"${a.nome}\" agora?" else "Executar \"${a.nome}\"?",
+            explicacao = if (teste) "O teste executa as ações já, sem ver as condições. Esta automação vai:" else "Esta automação vai:",
+            linhas = linhas,
+            sim = "Sim, executar",
+            nao = "Não executar",
+            onSim = { pendente = null; publicar(a, teste) },
+            onNao = { pendente = null },
+        )
+    }
+    return { a, teste ->
+        val riscos = Riscos.daAutomacao(a, aparelhos, cenas)
+        if (riscos.isEmpty()) publicar(a, teste) else pendente = Triple(a, teste, riscos)
     }
 }
 
@@ -223,6 +252,7 @@ private fun CartaoAutomacao(
 ) {
     val t = LocalTerra.current
     var verRegisto by remember { mutableStateOf(false) }
+    val execucao = registo?.ultimaExecucao
     Cartao(destaque = if (conflito) t.areia else null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -241,35 +271,37 @@ private fun CartaoAutomacao(
         Text(Automacoes.descrever(a, aparelhos, cenas), style = MaterialTheme.typography.bodySmall, color = t.textoSuave)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (conflito) Etiqueta("Conflito", t.argila)
-            if (registo?.resultado == Registo.PAUSADA) Etiqueta("Em pausa", t.argila)
+            if (execucao?.resultado == Registo.PAUSADA) Etiqueta("Em pausa", t.argila)
             if (!a.ativa) Etiqueta("Desativada", t.textoSuave)
         }
 
-        // ---- Registo: última execução, resultado, motivo
+        // ---- Registo: última execução, resultado, motivo. As respostas a "Avaliar agora" não são execuções:
+        // aparecem só na mensagem passageira (ver DevicesViewModel.pedidoAutomacao).
         HorizontalDivider(color = t.borda)
-        if (registo == null || registo.ultima == null) {
+        if (execucao?.ts == null) {
             Ajuda("Nunca executada." + if (a.quando == Quando.Manual) " Carregue em \"Executar\"." else "")
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Última: ${Textos.quando(registo.ultima, agora)} · ",
+                    "Última: ${Textos.quando(execucao.ts, agora)} · ",
                     style = MaterialTheme.typography.bodySmall,
                     color = t.textoSuave,
                 )
                 Text(
-                    Registo.rotulo(registo.resultado, registo.ok),
+                    Registo.rotulo(execucao.resultado, execucao.ok),
                     style = MaterialTheme.typography.labelMedium,
-                    color = corResultado(t, registo.resultado, registo.ok),
+                    color = corResultado(t, execucao.resultado, execucao.ok),
                 )
-                registo.semana?.let { Ajuda(" · $it esta semana") }
+                registo?.semana?.let { Ajuda(" · $it esta semana") }
             }
-            registo.motivo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = corResultado(t, registo.resultado, registo.ok)) }
-            if (registo.ultimos.isNotEmpty()) {
+            execucao.motivo?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = corResultado(t, execucao.resultado, execucao.ok)) }
+            val lista = registo?.execucoes.orEmpty()
+            if (lista.isNotEmpty()) {
                 TextButton(onClick = { verRegisto = !verRegisto }, contentPadding = PaddingValues(0.dp)) {
-                    Text(if (verRegisto) "Esconder registo" else "Ver registo (${registo.ultimos.size})", color = t.musgo)
+                    Text(if (verRegisto) "Esconder registo" else "Ver registo (${lista.size})", color = t.musgo)
                 }
                 if (verRegisto) {
-                    registo.ultimos.forEach { e ->
+                    lista.forEach { e ->
                         Row {
                             Text(
                                 (e.ts?.let { Textos.quando(it, agora) } ?: "—") + "  ",

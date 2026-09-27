@@ -13,8 +13,9 @@ import {
   cenasUsadas,
   conflitos,
   percorrerAcoes,
+  textoDuracao,
 } from './validacao.js';
-import { partesLocais, dentroDoIntervalo, horaLocal, somarDias, nomeDia, FUSO } from './tempo.js';
+import { partesLocais, dentroDoIntervalo, horaLocal, somarDias, nomeDia, paraMinutos, FUSO } from './tempo.js';
 import { horasSol, instanteSol } from './sol.js';
 import { NOMES_MODOS } from './relatorio.js';
 import { lerJson, eObjeto } from './util.js';
@@ -47,6 +48,23 @@ const POR_RE = /^[a-z0-9:_-]{1,60}$/;
  * @property {{nome: string, ate: number}[]} pausadas
  * @property {number} feitas
  */
+
+/** Tamanho máximo de `_automacoes/registo` (50 automações × 20 entradas passava dos 64 KB do broker). */
+export const MAX_REGISTO_BYTES = 200_000;
+
+/**
+ * Serializa o registo, encurtando `ultimos` (20 → 10 → 5 → 2 → 1 → 0 entradas
+ * por automação) até caber em MAX_REGISTO_BYTES. O estado guardado não muda.
+ * @param {Record<string, any>} registo
+ */
+export function textoRegistoLimitado(registo, limite = MAX_REGISTO_BYTES) {
+  let texto = JSON.stringify(registo);
+  for (const n of [10, 5, 2, 1, 0]) {
+    if (Buffer.byteLength(texto) <= limite) break;
+    texto = JSON.stringify(Object.fromEntries(Object.entries(registo).map(([id, r]) => [id, { ...r, ultimos: (r.ultimos ?? []).slice(0, n) }])));
+  }
+  return texto;
+}
 
 /** A automação mexe neste canal? */
 function mexeNoCanal(a, idAparelho, n) {
@@ -279,6 +297,11 @@ export const metodosAutomacoes = {
       this.log.aviso(`[cenas] ${c.codigo}/${cena.id}: demasiadas execuções encadeadas; ignorada`);
       return;
     }
+    // Mesmo limite anti-ciclo/abuso das automações (a app pode pedir a mesma cena em rajada).
+    if (!this.contarExecucao(`${c.codigo}/cena:${cena.id}`)) {
+      this.log.aviso(`[cenas] ${c.codigo}/${cena.id}: demasiadas execuções no último minuto; ignorada`);
+      return;
+    }
     this.log.info(`[cenas] ${c.codigo}/${cena.id}: executada (por ${por})`);
     this.sequencias = this.sequencias.filter((s) => !(s.cliente === c.codigo && s.origem === 'cena' && s.ref === cena.id));
     if (registarEvento) this.evento(c, { tipo: 'automacao', titulo: `Cena: ${cena.nome}`, mensagem: `Cena "${cena.nome}" executada (por ${por}).`, por });
@@ -290,6 +313,23 @@ export const metodosAutomacoes = {
     } finally {
       this.profundidade--;
     }
+  },
+
+  /**
+   * Limite de MAX_EXECUCOES_MINUTO execuções por minuto de uma automação ou
+   * cena (`chave`). Conta a execução e devolve true se ainda cabe no limite.
+   * @param {string} chave
+   */
+  contarExecucao(chave) {
+    const agora = this.relogio.agora();
+    const recentes = (this.execucoes.get(chave) ?? []).filter((t) => agora - t < 60_000);
+    if (recentes.length >= MAX_EXECUCOES_MINUTO) {
+      this.execucoes.set(chave, recentes);
+      return false;
+    }
+    recentes.push(agora);
+    this.execucoes.set(chave, recentes);
+    return true;
   },
 
   // ------------------------------------------------------------ executar
@@ -310,7 +350,7 @@ export const metodosAutomacoes = {
     const por = typeof v.por === 'string' && POR_RE.test(v.por) ? v.por : 'app';
     if (v.avaliar) {
       const r = this.avaliarCondicoes(c, a.se);
-      this.registar(c, a.id, 'avaliacao', r.ok ? 'As condições são verdadeiras agora.' : r.motivo, { ok: r.ok });
+      this.registarAvaliacao(c, a.id, r.ok ? 'As condições são verdadeiras agora.' : r.motivo, r.ok);
       return;
     }
     if (v.testar) {
@@ -368,7 +408,7 @@ export const metodosAutomacoes = {
       d.disparado = true;
       this.guardar();
       const nome = c.aparelhos?.get(q.aparelho)?.canais.get(q.canal)?.nome ?? q.aparelho;
-      this.executar(c, a, `${nome} = ${q.valor} há ${q.durante_s} s`);
+      this.executar(c, a, `${nome} = ${q.valor} há ${textoDuracao(q.durante_s)}`);
     }
   },
 
@@ -468,17 +508,24 @@ export const metodosAutomacoes = {
 
   /** Gatilhos por hora e por sol (uma vez por minuto). @param {Cliente} c */
   minutoAutomacoes(c, ms, local) {
-    const chave = `${local.data} ${local.hora}`;
     const minuto = Math.floor(ms / 60_000);
+    // Mudança de hora de março (Lisboa: 01:00 → 02:00): as horas locais que não
+    // existem nesse dia (01:00–01:59) disparam no primeiro minuto depois do salto.
+    const antes = partesLocais(ms - 60_000, FUSO);
+    const saltadas = antes.data === local.data && local.minutos - antes.minutos > 1 ? [antes.minutos + 1, local.minutos - 1] : null;
     for (const a of c.automacoes ?? []) {
       const q = a.quando;
       if (q.tipo === 'hora') {
-        if (q.hora !== local.hora || !q.dias.includes(local.diaSemana)) continue;
+        if (!q.dias.includes(local.diaSemana)) continue;
+        const m = paraMinutos(q.hora);
+        const saltada = saltadas && m >= saltadas[0] && m <= saltadas[1];
+        if (q.hora !== local.hora && !saltada) continue;
         // Na mudança de hora de outubro a mesma hora local repete-se: só uma vez.
+        const chave = `${local.data} ${q.hora}`;
         if (c.horaDisparos[a.id] === chave) continue;
         c.horaDisparos[a.id] = chave;
         this.guardar();
-        this.executar(c, a, `hora ${local.hora}`);
+        this.executar(c, a, saltada ? `hora ${q.hora} (não existiu hoje por causa da mudança de hora; executada às ${local.hora})` : `hora ${local.hora}`);
       } else if (q.tipo === 'sol') {
         const pos = this.cfg(c).local;
         if (!pos) continue;
@@ -571,15 +618,11 @@ export const metodosAutomacoes = {
         return false;
       }
     }
-    const agora = this.relogio.agora();
     const chave = `${c.codigo}/${a.id}`;
-    const recentes = (this.execucoes.get(chave) ?? []).filter((t) => agora - t < 60_000);
-    if (recentes.length >= MAX_EXECUCOES_MINUTO || this.profundidade >= MAX_PROFUNDIDADE) {
+    if (this.profundidade >= MAX_PROFUNDIDADE || !this.contarExecucao(chave)) {
       this.log.aviso(`[automações] ${chave}: demasiadas execuções (no último minuto ou encadeadas); ignorada`);
       return false;
     }
-    recentes.push(agora);
-    this.execucoes.set(chave, recentes);
     this.log.info(`[automações] ${chave}: ${teste ? 'teste' : 'executada'} (${motivo})`);
     // Um novo disparo substitui uma sequência (com "esperar") ainda pendente.
     this.sequencias = this.sequencias.filter((s) => !(s.cliente === c.codigo && s.origem === 'automacao' && s.ref === a.id));
@@ -714,7 +757,7 @@ export const metodosAutomacoes = {
       canal.carga === 'perigosa' &&
       (acao.acao === 'alternar' || (acao.acao === 'luz' && acao.brilho > 0) || (acao.acao === 'ligar' && (!acao.durante_s || acao.durante_s > MAX_PERIGOSA_S)))
     ) {
-      const m = `Recusado: ${canal.nome} é uma carga perigosa e só pode ser ligada com "durante_s" até 4 h.`;
+      const m = `Recusado: ${canal.nome} é uma carga perigosa e só pode ser ligada com uma duração de no máximo 4 horas.`;
       this.log.aviso(`[automações] ${c.codigo}/${ctx.ref}: ${m}`);
       if (ctx.origem === 'automacao') this.registar(c, ctx.ref, 'falhou', m, ctx.teste ? { teste: true } : {});
       return;
@@ -934,6 +977,25 @@ export const metodosAutomacoes = {
     this.guardar();
   },
 
+  /**
+   * "Avaliar agora": a resposta vai só para `ultimos` (resultado "avaliacao");
+   * `ultima`/`resultado`/`motivo` continuam a ser os da última execução real
+   * (as apps mostram-nos como "Última execução").
+   * @param {Cliente} c
+   */
+  registarAvaliacao(c, id, motivo, ok) {
+    if (!c.registo) c.registo = {};
+    const ts = this.agoraIso();
+    const anterior = c.registo[id] ?? { ultima: null, resultado: null, motivo: null };
+    c.registo[id] = {
+      ...anterior,
+      semana: this.semana(c, id),
+      ultimos: [{ ts, resultado: 'avaliacao', motivo, ok }, ...(anterior.ultimos ?? [])].slice(0, MAX_REGISTO),
+    };
+    c.registoSujo = true;
+    this.guardar();
+  },
+
   /** Execuções nos últimos 7 dias (hoje incluído). @param {Cliente} c */
   semana(c, id) {
     const cont = c.contagens[id];
@@ -953,6 +1015,6 @@ export const metodosAutomacoes = {
     c.registoSujo = false;
     const registo = c.registo ?? {};
     for (const [id, r] of Object.entries(registo)) r.semana = this.semana(c, id);
-    this.publicar(`domus/${c.codigo}/_automacoes/registo`, registo, true);
+    this.publicar(`domus/${c.codigo}/_automacoes/registo`, textoRegistoLimitado(registo), true);
   },
 };

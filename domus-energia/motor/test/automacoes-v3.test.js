@@ -31,7 +31,7 @@ test('sensor + durante_s: "sem movimento há 10 min" dispara uma vez; cancelado 
   m.msg(`${P}/sala-4g/4/get`, '0'); // o aparelho confirma
   m.avancar(3_600_000);
   assert.equal(m.comandos().length, 1);
-  assert.match(registo(m, 'apagar').motivo, /Movimento corredor = 0 há 600 s/);
+  assert.match(registo(m, 'apagar').motivo, /Movimento corredor = 0 há 10 minutos/);
 });
 
 test('sensor + durante_s sobrevive a um reinício do motor', () => {
@@ -130,7 +130,9 @@ test('manual: _automacoes/executar executa (com condições), testar ignora-as, 
   assert.match(r.motivo, /Condição 'modo = noite' falsa \(modo atual: casa\)/);
   m.msg(`${P}/_automacoes/executar`, { id: 'botao', avaliar: true });
   r = registo(m, 'botao');
-  assert.deepEqual([r.resultado, r.ok], ['avaliacao', false]);
+  // A avaliação vai só para "ultimos"; "resultado" continua a ser a última execução real.
+  assert.equal(r.resultado, 'condicao_falsa');
+  assert.deepEqual([r.ultimos[0].resultado, r.ultimos[0].ok], ['avaliacao', false]);
   assert.deepEqual(m.comandos(), []);
   m.msg(`${P}/_automacoes/executar`, { id: 'botao', testar: true });
   assert.deepEqual(m.comandos(), [`${P}/sala-4g/2/set=1`]);
@@ -387,7 +389,7 @@ test('carga perigosa e conflitos ao gravar; _automacoes/avisos retido', () => {
   m.msg(`${P}/_automacoes/set`, [{ id: 'aquecer', quando: { tipo: 'hora', hora: '06:00' }, entao: [{ acao: 'ligar', aparelho: 'termo', canal: 1 }] }]);
   const [ev] = m.eventos();
   assert.equal(ev.tipo, 'erro');
-  assert.match(ev.mensagem, /Termoacumulador" é uma carga perigosa: só pode ser ligada com "durante_s" até 14400 s \(4 h\)/);
+  assert.match(ev.mensagem, /Termoacumulador" é uma carga perigosa: só pode ser ligada com uma duração de no máximo 4 horas/);
   m.limpar();
   const q = { tipo: 'hora', hora: '07:00' };
   m.msg(`${P}/_automacoes/set`, [

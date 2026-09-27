@@ -7,12 +7,12 @@
 #           e ../docs/PROTOCOLO-MQTT-v3.md (v3: §3 campos novos, §4 regras nos
 #           aparelhos, §10 permissões)
 #
-#   ./domus.sh admin <palavra-passe>
+#   ./domus.sh admin [palavra-passe]       (sem argumento: pede-a no terminal ou lê do stdin)
 #   ./domus.sh motor [palavra-passe]
 #   ./domus.sh cliente <codigo> [palavra-passe]
 #   ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" \
 #              [--canais "1:interruptor:Teto:arranque=ultimo,2:interruptor:Termo:carga=perigosa"] \
-#              [--divisao "Sala"] [--medidor] [--bateria] [palavra-passe]
+#              [--divisao "Sala"] [--medidor [--geral]] [--bateria] [palavra-passe]
 #   ./domus.sh remover-aparelho <cliente> <id>
 #   ./domus.sh listar
 #   ./domus.sh acl            (só regenera o ficheiro acl e recarrega o Mosquitto)
@@ -21,7 +21,8 @@
 #   dados/admin.senha               palavra-passe do admin (usada para publicar)
 #   dados/.motor                    existe depois de o utilizador "motor" ser criado
 #   dados/clientes/<codigo>.tsv     um aparelho por linha, separado por TAB:
-#                                   id tipo medidor(0/1) bateria(0/1) canais nome divisao
+#                                   id tipo medidor(0/1/2) bateria(0/1) canais nome divisao
+#                                   (medidor 2 = medidor geral da casa, --geral)
 #                                   canais = "n:funcao:nome:entrada:simular:arranque:carga:divisao,..."
 #                                   (entrada/simular 0/1; linhas antigas "n:funcao:nome"
 #                                   e sem a coluna divisao continuam a ser aceites)
@@ -86,9 +87,13 @@ simul() { printf '[simulação] %s\n' "$*" >&2; }
 uso() {
   cat <<'EOF'
 Uso:
-  ./domus.sh admin <palavra-passe>
+  ./domus.sh admin [palavra-passe]
       Cria ou altera o utilizador administrador (admin). Na primeira vez também
       cria o utilizador "motor" com as palavras-passe do ficheiro .env.
+      Sem palavra-passe na linha de comando (recomendado: não fica no histórico
+      da shell), pede-a no terminal (duas vezes) ou lê a primeira linha do stdin:
+        ./domus.sh admin
+        printf '%s\n' "$SENHA" | ./domus.sh admin
 
   ./domus.sh motor [palavra-passe]
       Cria/atualiza o utilizador "motor" no Mosquitto e no ntfy. Sem
@@ -126,6 +131,10 @@ Uso:
               Sem --canais: um canal "interruptor" n.º 1.
         --divisao "Sala"  divisão do aparelho (herdada por todos os canais)
         --medidor   o aparelho mede potência/tensão/corrente/energia
+        --geral     (só com --medidor) medidor geral da casa: o consumo total
+                    da casa passa a ser a soma dos medidores gerais (em vez de
+                    todos os medidores, que contaria duas vezes os circuitos
+                    que também têm medição própria)
         --bateria   aparelho a pilhas (dorme; liga-se só quando há eventos)
       O script imprime os comandos a colar no aparelho (OpenBeken: autoexec.bat
       com SetStartValue; Shelly: endereços RPC para o browser) para que o
@@ -343,7 +352,7 @@ normalizar_canais() { # <espec>
     IFS=':' read -r -a campos <<< "$item"
     n="$(limpar_texto "${campos[0]}")"
     funcao="$(limpar_texto "${campos[1]:-}")"
-    [[ "$n" =~ ^[1-9][0-9]?$ ]] || erro "número de canal inválido: '$n' (1 a 99)"
+    [[ "$n" =~ ^[1-9][0-9]?$ ]] && (( n <= 64 )) || erro "número de canal inválido: '$n' (1 a 64)"
     [[ " $FUNCOES " == *" $funcao "* ]] || erro "função inválida no canal $n: '$funcao' (use: $FUNCOES)"
     [[ "$vistos" != *" $n "* ]] || erro "o canal $n aparece repetido"
     vistos+="$n "
@@ -434,9 +443,11 @@ json_aparelhos() { # <cliente>
   while IFS="$TAB" read -r id tipo med bat canais nome adiv; do
     (( primeiro )) || printf ','
     primeiro=0
-    printf '{"id":%s,"nome":%s,"tipo":%s,"medidor":%s,"bateria":%s,"canais":[' \
+    printf '{"id":%s,"nome":%s,"tipo":%s,"medidor":%s,"bateria":%s,' \
       "$(json_str "$id")" "$(json_str "$nome")" "$(json_str "$tipo")" \
-      "$(bool_json "$med")" "$(bool_json "$bat")"
+      "$(bool_json "$(( med >= 1 ))")" "$(bool_json "$bat")"
+    [[ "$med" == 2 ]] && printf '"geral":true,'
+    printf '"canais":['
     pc=1
     while IFS="$US" read -r n funcao cnome ent sim arr carga cdiv; do
       (( pc )) || printf ','
@@ -740,7 +751,7 @@ de internet). Mantenha arranque=desligado. Para um temporizador local, ver os
 scripts do OpenBeken (verificar na documentação do OpenBeken).
 EOF
   fi
-  if [[ "$med" == 1 ]]; then
+  if [[ "$med" == 1 || "$med" == 2 ]]; then
     cat <<'EOF'
 
 Medidor: configure o chip de medição (BL0937 / BL0942 / CSE7766) em
@@ -880,7 +891,7 @@ Documentação: https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/
               https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Mqtt
 EOF
   fi
-  if [[ "$med" == 1 ]]; then
+  if [[ "$med" == 1 || "$med" == 2 ]]; then
     printf '\nMedidor: a potência/energia vem em status/switch:0 (apower, voltage, current, aenergy.total).\n'
   fi
   if [[ "$bat" == 1 ]]; then
@@ -907,8 +918,27 @@ instrucoes_aparelho() { # <c> <id> <tipo> <nome> <senha> <medidor> <bateria> <ca
 # -----------------------------------------------------------------------------
 # Comandos
 # -----------------------------------------------------------------------------
+# Lê uma palavra-passe sem a pôr na linha de comando: no terminal pede-a duas
+# vezes sem eco; sem terminal lê a primeira linha do stdin.
+ler_senha() { # <descrição> — imprime a palavra-passe
+  local p p2
+  if [[ -t 0 ]]; then
+    read -r -s -p "Palavra-passe $1: " p || true; printf '\n' >&2
+    read -r -s -p "Repita a palavra-passe: " p2 || true; printf '\n' >&2
+    [[ "$p" == "$p2" ]] || erro "as palavras-passe não coincidem"
+  else
+    IFS= read -r p || [[ -n "$p" ]] || erro "sem palavra-passe no stdin"
+  fi
+  printf '%s' "$p"
+}
+
 cmd_admin() {
-  (( $# == 1 )) || erro "uso: ./domus.sh admin <palavra-passe>"
+  (( $# <= 1 )) || erro "uso: ./domus.sh admin [palavra-passe]  (sem argumento pede-a no terminal ou lê-a do stdin)"
+  if (( $# == 0 )); then
+    local senha
+    senha="$(ler_senha "do administrador (admin)")"
+    set -- "$senha"
+  fi
   validar_senha "$1"
   verificar_mosquitto
   preparar_dados
@@ -995,7 +1025,7 @@ EOF
 
 cmd_aparelho() {
   local -a pos=()
-  local canais="" med=0 bat=0 divisao="" tem_divisao=0
+  local canais="" med=0 bat=0 geral=0 divisao="" tem_divisao=0
   while (( $# )); do
     case "$1" in
       --canais)   (( $# >= 2 )) || erro "--canais precisa de um valor"; canais="$2"; shift 2 ;;
@@ -1003,13 +1033,19 @@ cmd_aparelho() {
       --divisao)  (( $# >= 2 )) || erro "--divisao precisa de um valor"; divisao="$2"; tem_divisao=1; shift 2 ;;
       --divisao=*) divisao="${1#--divisao=}"; tem_divisao=1; shift ;;
       --medidor)  med=1; shift ;;
+      --geral)    geral=1; shift ;;
       --bateria)  bat=1; shift ;;
       --*)        erro "opção desconhecida: $1" ;;
       *)          pos+=("$1"); shift ;;
     esac
   done
   (( ${#pos[@]} >= 4 && ${#pos[@]} <= 5 )) \
-    || erro 'uso: ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" [--canais "1:interruptor:Teto:arranque=ultimo"] [--divisao "Sala"] [--medidor] [--bateria] [palavra-passe]  (ver ./domus.sh ajuda)'
+    || erro 'uso: ./domus.sh aparelho <cliente> <id> <openbeken|shelly> "<Nome>" [--canais "1:interruptor:Teto:arranque=ultimo"] [--divisao "Sala"] [--medidor [--geral]] [--bateria] [palavra-passe]  (ver ./domus.sh ajuda)'
+  if (( geral )); then
+    (( med )) || erro "--geral só pode ser usado com --medidor (é o medidor geral da casa)"
+    (( bat )) && erro "--geral não pode ser usado com --bateria"
+    med=2
+  fi
   local c="${pos[0]}" id="${pos[1]}" tipo="${pos[2]}" nome="${pos[3]}" senha="${pos[4]:-}"
   validar_id "$c" "código de cliente"
   validar_id "$id" "id do aparelho"
@@ -1086,6 +1122,7 @@ cmd_listar() {
     while IFS="$TAB" read -r id tipo med bat canais nome adiv; do
       extra=""
       [[ "$med" == 1 ]] && extra+=" medidor"
+      [[ "$med" == 2 ]] && extra+=" medidor geral"
       [[ "$bat" == 1 ]] && extra+=" bateria"
       [[ -n "$adiv" ]] && extra+=" divisão: $adiv"
       printf '   %-20s %-10s %-24s utilizador: %s-%s%s\n' "$id" "$tipo" "$nome" "$c" "$id" "${extra:+  [${extra# }]}"

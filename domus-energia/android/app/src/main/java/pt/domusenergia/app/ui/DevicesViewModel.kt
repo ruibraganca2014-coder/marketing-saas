@@ -237,7 +237,7 @@ class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
             it.copy(aviso = when (tipo) { Registo.PEDIDO_AVALIAR -> "A avaliar…"; Registo.PEDIDO_TESTAR -> "A testar…"; else -> "A executar…" })
         }
         enviar()
-        val r = withTimeoutOrNull(10_000) { mqtt.estado.first { it.registo[id] != antes || it.ultimoErro != null } }
+        val r = withTimeoutOrNull(10_000) { mqtt.estado.first { Registo.respondeu(tipo, antes, it.registo[id]) || it.ultimoErro != null } }
         val texto = when {
             r == null -> "O servidor não respondeu. Tente de novo."
             r.ultimoErro != null -> r.ultimoErro.mensagem

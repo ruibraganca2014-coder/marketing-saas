@@ -30,10 +30,19 @@
 		file_server
 	}
 
+	# Segurança do site e da área de cliente:
+	# - ninguém pode pôr as páginas dentro de um <iframe> (clickjacking);
+	# - CSP: scripts só do próprio site e do cdn.jsdelivr.net (mqtt.js e
+	#   supabase-js); estilos próprios + Google Fonts ('unsafe-inline' porque há
+	#   atributos style="" e variáveis CSS postas pelo JavaScript); ligações só
+	#   ao próprio site, ao MQTT (wss://HOST/mqtt) e ao Supabase (orçamentos).
+	#   Se mudar de CDN, de fontes ou de Supabase, atualize esta linha.
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob:; connect-src 'self' wss://{$DOMUS_HOST} https://*.supabase.co; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 	}
 
 	log {
@@ -48,6 +57,8 @@ ntfy.{$DOMUS_HOST} {
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
 	}
 
 	log {

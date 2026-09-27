@@ -48,6 +48,7 @@ export function iniciar(config, opcoes = {}) {
     armazenamento,
     log: l,
     esperaArranqueMs: config.esperaArranqueMs,
+    maxPayload: config.maxPayload,
   });
 
   cliente = mqtt.connect(config.mqttUrl, {

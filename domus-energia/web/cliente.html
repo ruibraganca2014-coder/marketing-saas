@@ -77,7 +77,9 @@
               </div>
             </div>
             <div class="seletor-modo" id="modo-seletor" role="radiogroup" aria-label="Modo da casa"></div>
-            <div class="alarme-contagem" id="alarme-contagem" role="status" hidden>
+            <!-- role="timer": a contagem muda a cada segundo e não deve ser lida em voz alta a cada segundo;
+                 a mudança de estado é anunciada por #alarme-estado (role="status"). -->
+            <div class="alarme-contagem" id="alarme-contagem" role="timer" aria-labelledby="contagem-titulo" hidden>
               <b class="contagem-titulo" id="contagem-titulo"></b>
               <span class="contagem-valor num" id="contagem-valor"></span>
               <button class="btn perigo" id="alarme-desarmar" type="button">Desarmar (modo Casa)</button>

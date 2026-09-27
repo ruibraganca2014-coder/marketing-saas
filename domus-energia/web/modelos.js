@@ -1,7 +1,7 @@
 // Modelos prontos de automações (docs/AUTOMACOES-v3.md §4, guia da Vesternet).
 // Módulo puro: recebe os aparelhos do cliente (lerAparelhos) e devolve uma automação
 // pré-preenchida, ou { falta } quando a casa não tem o aparelho necessário.
-import { nomeCanal, MAX_ACOES } from "./estado.js";
+import { nomeCanal, ehGeral, MAX_ACOES } from "./estado.js";
 
 const norm = (t) => String(t ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -13,9 +13,13 @@ function canais(aparelhos, funcoes, filtro = () => true) {
   }
   return r;
 }
+// Os modelos nunca escolhem sozinhos o disjuntor geral nem uma carga perigosa: fora o `geral`
+// (ou o que o detetor de estado.js toma por ele), também tudo o que se chame "geral"/"quadro".
+const seguro = (aparelhos, a, c) => c.carga !== "perigosa" && !a.geral && !ehGeral(aparelhos, a.id, c.n)
+  && !/geral|quadro/.test(norm(`${a.nome} ${a.divisao ?? ""} ${c.nome ?? ""} ${c.divisao ?? ""}`));
 // Luzes "de iluminação": canais luz, ou interruptores de aparelhos sem medição (os com medição
 // costumam ser disjuntores de circuitos — termoacumulador, quadro geral — e não luzes).
-const luzes = (aparelhos) => canais(aparelhos, ["luz", "interruptor"], (a, c) => c.carga !== "perigosa" && (c.funcao === "luz" || !a.medidor));
+const luzes = (aparelhos) => canais(aparelhos, ["luz", "interruptor"], (a, c) => seguro(aparelhos, a, c) && (c.funcao === "luz" || !a.medidor));
 // Escolhe o primeiro cujo nome/divisão combina com uma das palavras, senão o primeiro.
 function preferir(lista, palavras, divisao) {
   if (divisao) { const d = lista.find((x) => x.divisao && norm(x.divisao) === norm(divisao)); if (d) return d; }
@@ -108,7 +112,8 @@ export function aplicarModelo(id, { aparelhos = [], config = null } = {}) {
     case "consumo": {
       const med = aparelhos.filter((a) => a.medidor || a.v1);
       if (!med.length) return { falta: "Este modelo precisa de um aparelho com medição de consumo e ainda não tem nenhum." };
-      const m = med.find((a) => /geral|quadro/.test(norm(a.nome))) ?? med[0];
+      // Este modelo é mesmo sobre o contador geral (só avisa; não liga nem desliga nada).
+      const m = med.find((a) => a.geral) ?? med.find((a) => /geral|quadro/.test(norm(a.nome))) ?? med[0];
       return { automacao: {
         nome: "Aviso de consumo alto",
         descricao: `Avisar quando ${m.nome} passa 3500 W durante 1 minuto, para evitar que o disjuntor dispare.`.slice(0, 200),
@@ -119,9 +124,11 @@ export function aplicarModelo(id, { aparelhos = [], config = null } = {}) {
     }
     case "bom-dia": {
       const estores = canais(aparelhos, ["estore"]);
-      const dimmers = canais(aparelhos, ["luz"], (a, c) => c.carga !== "perigosa");
+      const dimmers = canais(aparelhos, ["luz"], (a, c) => seguro(aparelhos, a, c));
       if (!estores.length && !dimmers.length) return { falta: "Este modelo precisa de estores ou de uma luz com brilho e ainda não tem nenhum." };
-      const entao = [{ acao: "modo", modo: "casa" }];
+      // Sem ação de modo (como na app Android): desarmar às 07:30 também desarmaria em Férias ou Fora.
+      // Só corre com a casa em modo Casa ou Noite.
+      const entao = [];
       for (const e of estores.slice(0, 5)) entao.push({ acao: "estore", ...alvo(e), posicao: 100 });
       if (dimmers.length) {
         const l = preferir(dimmers, ["quarto"]);
@@ -129,9 +136,10 @@ export function aplicarModelo(id, { aparelhos = [], config = null } = {}) {
       }
       return { automacao: {
         nome: "Bom dia",
-        descricao: "Nos dias úteis às 07:30, desarmar o modo Noite, subir os estores e acender a luz do quarto aos poucos.",
+        descricao: "Nos dias úteis às 07:30, com a casa em modo Casa ou Noite, subir os estores e acender a luz do quarto aos poucos.",
         categoria: "rotina", ativa: true,
         quando: { tipo: "hora", hora: "07:30", dias: [1, 2, 3, 4, 5] },
+        se: { modo: ["casa", "noite"] },
         entao,
       } };
     }

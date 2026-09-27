@@ -134,6 +134,7 @@ object Cenas {
         val erros = mutableListOf<String>()
         if (!Automacoes.ID_RE.matches(c.id)) erros += "Identificador inválido."
         if (c.nome.isBlank()) erros += "Dê um nome à cena."
+        else if (c.nome.length > Automacoes.MAX_NOME) erros += "O nome tem no máximo ${Automacoes.MAX_NOME} caracteres."
         if (c.icone !in ICONES) erros += "Escolha um ícone."
         if (c.acoes.isEmpty() || c.acoes.size > Automacoes.MAX_ACOES) erros += "Tem de ter entre 1 e ${Automacoes.MAX_ACOES} ações."
         erros += Automacoes.validarAcoes(c.acoes, aparelhos, null, "", permiteSe = false)
@@ -187,7 +188,14 @@ data class Execucao(
     val ok: Boolean? = null,
 )
 
-/** Registo de uma automação (`_automacoes/registo`, retido). */
+/**
+ * Registo de uma automação (`_automacoes/registo`, retido).
+ *
+ * "Avaliar agora" não executa nada: o resultado (`"avaliacao"`) é só uma resposta ao pedido. Os motores
+ * antigos punham-no também em [ultima]/[resultado]; os novos só em [ultimos]. Para mostrar "Última execução"
+ * use sempre [ultimaExecucao] (ignora as avaliações nas duas formas) e, para a resposta ao pedido,
+ * [ultimaAvaliacao].
+ */
 data class Registo(
     val ultima: Instant? = null,
     val resultado: String? = null,
@@ -197,6 +205,22 @@ data class Registo(
     val teste: Boolean? = null,
     val ok: Boolean? = null,
 ) {
+    /** O topo do registo ([ultima]/[resultado]) como uma entrada, se houver. */
+    private val topo: Execucao?
+        get() = resultado?.let { Execucao(ultima, it, motivo, teste, ok) }
+
+    /** Última execução a sério (executada, condição falsa, falhou, em pausa, teste), sem as avaliações. */
+    val ultimaExecucao: Execucao?
+        get() = listOfNotNull(topo?.takeIf { it.resultado != AVALIACAO }, ultimos.firstOrNull { it.resultado != AVALIACAO })
+            .maxByOrNull { it.ts ?: Instant.EPOCH }
+
+    /** Última resposta a "Avaliar agora" (só para a mensagem passageira). */
+    val ultimaAvaliacao: Execucao?
+        get() = ultimos.firstOrNull { it.resultado == AVALIACAO } ?: topo?.takeIf { it.resultado == AVALIACAO }
+
+    /** Entradas do registo a mostrar na lista "Ver registo" (sem as avaliações). */
+    val execucoes: List<Execucao> get() = ultimos.filter { it.resultado != AVALIACAO }
+
     companion object {
         const val EXECUTADA = "executada"
         const val CONDICAO_FALSA = "condicao_falsa"
@@ -215,16 +239,29 @@ data class Registo(
          */
         fun textoPedido(tipo: String, r: Registo?): String {
             if (tipo == PEDIDO_AVALIAR) {
+                val av = r?.ultimaAvaliacao
                 return when {
-                    r?.resultado != AVALIACAO -> r?.motivo ?: "Avaliação recebida."
-                    r.ok == true -> "Neste momento a automação executaria: as condições são verdadeiras."
-                    r.ok == false -> "Neste momento não executaria: ${r.motivo ?: "uma condição é falsa."}"
-                    else -> r.motivo ?: "Avaliação recebida."
+                    av == null -> r?.motivo ?: "Avaliação recebida."
+                    av.ok == true -> "Neste momento a automação executaria: as condições são verdadeiras."
+                    av.ok == false -> "Neste momento não executaria: ${av.motivo ?: "uma condição é falsa."}"
+                    else -> av.motivo ?: "Avaliação recebida."
                 }
             }
+            val e = r?.ultimaExecucao
             val inicio = if (tipo == PEDIDO_TESTAR) "Teste feito" else "Executada"
-            val res = rotulo(r?.resultado).takeIf { r?.resultado != null } ?: ""
-            return "$inicio: $res" + (r?.motivo?.let { " — $it" } ?: "")
+            val res = e?.let { rotulo(it.resultado) } ?: ""
+            return "$inicio: $res" + (e?.motivo?.let { " — $it" } ?: "")
+        }
+
+        /**
+         * O registo [depois] já traz a resposta ao pedido [tipo] feito quando o registo era [antes]:
+         * uma avaliação nova para "Avaliar agora", uma execução nova para "Executar"/"Testar agora".
+         * (Comparar o registo todo não chega: uma avaliação muda-o sem ser uma execução, e vice-versa.)
+         */
+        fun respondeu(tipo: String, antes: Registo?, depois: Registo?): Boolean = if (tipo == PEDIDO_AVALIAR) {
+            depois?.ultimaAvaliacao != null && depois.ultimaAvaliacao != antes?.ultimaAvaliacao
+        } else {
+            depois?.ultimaExecucao != null && depois.ultimaExecucao != antes?.ultimaExecucao
         }
 
         const val PEDIDO_EXECUTAR = "executar"

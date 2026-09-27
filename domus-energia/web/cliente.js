@@ -38,6 +38,9 @@ let secao = "casa";    // secção visível
 let historico = [];    // de _historico
 let vivos = [];        // de _eventos desde que entrou
 let rpcId = 0;
+let listaRecebida = false; // já chegou `_aparelhos`?
+let adiadas = [];      // mensagens de aparelhos que chegaram antes de `_aparelhos` (aplicadas depois)
+const MAX_ADIADAS = 2000;
 const temporizadores = new Set();
 
 const publicarJson = (sufixo, obj) => publicar(`domus/${codigo}/${sufixo}`, JSON.stringify(obj));
@@ -219,6 +222,8 @@ function terminar() {
   saude = {};
   historico = [];
   vivos = [];
+  listaRecebida = false;
+  adiadas = [];
   automacoes.limpar();
   cenas.limpar();
   definicoes.limpar();
@@ -292,6 +297,16 @@ function receber(topico, texto, retido) {
     switch (resto ? `${id}/${resto}` : id) {
       case "_aparelhos":
         aparelhos = E.lerAparelhos(texto);
+        if (!listaRecebida) {
+          // As mensagens retidas dos aparelhos podem chegar antes da lista: aplicá-las agora,
+          // pela ordem de chegada, já com a função de cada canal.
+          listaRecebida = true;
+          const pendentesLista = adiadas;
+          adiadas = [];
+          for (const [idA, restoA, textoA, retidoA] of pendentesLista) {
+            E.aplicarMensagem(estados, idA, aparelhos.find((x) => x.id === idA), restoA, textoA, { agora: Date.now(), retido: retidoA });
+          }
+        }
         desenhar();
         automacoes.desenhar();
         cenas.desenhar();
@@ -323,6 +338,8 @@ function receber(topico, texto, retido) {
         break;
       case "_saude":
         saude = E.lerSaude(texto);
+        E.notarSaude(estados, saude);
+        for (const a of aparelhos) if (a.bateria) atualizar(a.id, false);
         if (secao === "aparelhos") redesenharSaude();
         if (secao === "relatorio") redesenharRelatorio();
         break;
@@ -367,6 +384,10 @@ function receber(topico, texto, retido) {
     return;
   }
 
+  if (!listaRecebida) {
+    if (adiadas.length < MAX_ADIADAS) adiadas.push([id, resto, texto, retido]);
+    return;
+  }
   const a = aparelhos.find((x) => x.id === id);
   const r = E.aplicarMensagem(estados, id, a, resto, texto, { agora: Date.now(), retido });
   if (!r) return;
@@ -492,7 +513,12 @@ function criarLinha(a, c) {
   const linha = { raiz, ilus, estado };
 
   if (c.funcao === "interruptor" || c.funcao === "luz") {
-    const s = interruptor(`Ligar ou desligar ${nomeCompleto}`, (v) => pedir(a, c, { ligado: v }));
+    const s = interruptor(`Ligar ou desligar ${nomeCompleto}`, (v) => {
+      // Desligar o disjuntor geral deixa a casa às escuras: confirmar na página primeiro.
+      if (!v && E.ehGeral(aparelhos, a.id, c.n)) { confirmarGeral(a, c, linha); return; }
+      linha.confirmar?.remove();
+      pedir(a, c, { ligado: v });
+    });
     raiz.append(s.label);
     linha.sw = s;
   }
@@ -536,6 +562,30 @@ function criarLinha(a, c) {
   return linha;
 }
 
+function confirmarGeral(a, c, linha) {
+  linha.sw.input.checked = true; // ainda não mudou nada
+  if (linha.confirmar?.isConnected) { linha.confirmar.querySelector("p").focus(); return; }
+  const quem = E.comArtigo(a.canais.length === 1 ? a.nome : E.nomeCanal(aparelhos, a.id, c.n));
+  const conf = el("div", "confirmar confirmar-risco confirmar-geral");
+  conf.setAttribute("role", "group");
+  const p = el("p", null, `Desligar ${quem}? A casa inteira fica sem luz.`);
+  p.tabIndex = -1;
+  p.id = `geral-${a.id}-${c.n}`;
+  conf.setAttribute("aria-labelledby", p.id);
+  const botoes = el("div", "botoes");
+  const sim = el("button", "btn perigo pequeno", "Sim, desligar");
+  sim.type = "button";
+  sim.addEventListener("click", () => { conf.remove(); linha.confirmar = null; pedir(a, c, { ligado: false }); });
+  const nao = el("button", "btn sec pequeno", "Cancelar");
+  nao.type = "button";
+  nao.addEventListener("click", () => { conf.remove(); linha.confirmar = null; linha.sw.input.focus(); });
+  botoes.append(sim, nao);
+  conf.append(p, botoes);
+  linha.raiz.append(conf);
+  linha.confirmar = conf;
+  p.focus();
+}
+
 function atualizar(id, comResumo = true) {
   const k = cartoes[id];
   const a = aparelhos.find((x) => x.id === id);
@@ -558,10 +608,10 @@ function atualizar(id, comResumo = true) {
     } else ligacao = m.online ? "Online" : "Offline";
     k.detalhes.textContent = [
       ligacao,
-      m.potenciaW != null && `${m.potenciaW.toFixed(1)} W`,
+      m.potenciaW != null && `${E.decimal(m.potenciaW, 1)} W`,
       m.tensaoV != null && `${m.tensaoV.toFixed(0)} V`,
-      m.correnteA != null && `${m.correnteA.toFixed(2)} A`,
-      m.energiaKWh != null && `${m.energiaKWh.toFixed(2)} kWh`,
+      m.correnteA != null && `${E.decimal(m.correnteA, 2)} A`,
+      m.energiaKWh != null && E.kwhTexto(m.energiaKWh, 2),
     ].filter(Boolean).join(" · ");
     if (k.medidor) {
       k.medidor.hidden = !m.temMedicao;
@@ -650,8 +700,8 @@ function resumo() {
   $("total-online").textContent = `${r.online} / ${r.comLigacao}`;
   $("total-portas").textContent = r.portas ? String(r.portasAbertas) : "—";
   $("resumo-portas").classList.toggle("alerta", r.portasAbertas > 0 && !!alarme?.ativo);
-  $("total-hoje").textContent = energia?.hojeKWh != null ? `${energia.hojeKWh.toFixed(1)} kWh` : "—";
-  $("hoje-rotulo").textContent = energia?.ontemKWh != null ? `Energia hoje · ontem ${energia.ontemKWh.toFixed(1)} kWh` : "Energia hoje";
+  $("total-hoje").textContent = energia?.hojeKWh != null ? E.kwhTexto(energia.hojeKWh) : "—";
+  $("hoje-rotulo").textContent = energia?.ontemKWh != null ? `Energia hoje · ontem ${E.kwhTexto(energia.ontemKWh)}` : "Energia hoje";
 
   const f = E.fundoVivo(r);
   const painel = $("painel");
@@ -700,7 +750,11 @@ function pedir(a, c, pedido) {
   } else if ("brilho" in pedido) {
     esperado = { ligado: true, brilho: pedido.brilho };
     if (a.tipo === "shelly") rpc(prefixo, "Light.Set", { id: idc, on: true, brightness: pedido.brilho });
-    else { esperado = { brilho: pedido.brilho }; publicar(`${prefixo}/led_dimmer/set`, String(pedido.brilho)); }
+    else {
+      // Como o motor: acender o canal e depois o brilho (o led_dimmer sozinho não liga uma luz apagada).
+      publicar(`${prefixo}/${c.n}/set`, "1");
+      publicar(`${prefixo}/led_dimmer/set`, String(pedido.brilho));
+    }
   } else if ("posicao" in pedido || "estore" in pedido) {
     const alvo = "posicao" in pedido ? pedido.posicao : pedido.estore === "abrir" ? 100 : pedido.estore === "fechar" ? 0 : null;
     qualquer = true;
@@ -840,9 +894,12 @@ function desenharAlarme() {
   const agora = Date.now();
   const hora = (t) => (t ? E.horaLisboa(t) : null);
   const estado = $("alarme-estado");
-  if (modoPendente) estado.textContent = `A mudar para ${E.NOME_MODO[modoPendente.modo]}${modoPendente.forcar ? " (ignorando o que está aberto)" : ""}…`;
-  else if (!alarme && !modo) estado.textContent = "Estado desconhecido";
-  else if (!v3) estado.textContent = alarme.ativo ? (alarme.desde ? `Alarme ativo desde as ${hora(alarme.desde)}` : "Alarme ativo") : "Alarme desligado";
+  // Só muda o texto quando muda mesmo: é uma região "status" e os leitores de ecrã repetiriam
+  // a mesma frase a cada segundo durante a contagem.
+  let frase;
+  if (modoPendente) frase = `A mudar para ${E.NOME_MODO[modoPendente.modo]}${modoPendente.forcar ? " (ignorando o que está aberto)" : ""}…`;
+  else if (!alarme && !modo) frase = "Estado desconhecido";
+  else if (!v3) frase = alarme.ativo ? (alarme.desde ? `Alarme ativo desde as ${hora(alarme.desde)}` : "Alarme ativo") : "Alarme desligado";
   else {
     const t = {
       desarmado: "Alarme desarmado",
@@ -851,8 +908,9 @@ function desenharAlarme() {
       entrada: "Porta aberta — desarme o alarme",
       disparado: `ALARME DISPARADO${alarme?.desde ? ` às ${hora(alarme.desde)}` : ""}`,
     }[est] ?? "";
-    estado.textContent = t || (modo ? `Modo ${E.NOME_MODO[modo.modo]}` : "");
+    frase = t || (modo ? `Modo ${E.NOME_MODO[modo.modo]}` : "");
   }
+  if (estado.textContent !== frase) estado.textContent = frase;
 
   // Contagem decrescente (a armar / entrada) e disparado
   const cont = $("alarme-contagem");

@@ -56,7 +56,10 @@ o motor tiver perdido o seu estado local.
 {"pessoas":{"<id>":{"nome":"Rui","em_casa":true,"desde":"…Z"}},"alguem":true}
 // _automacoes/avisos (retido)
 [{"ids":["a","b"],"mensagem":"'a' liga e 'b' desliga Teto no mesmo gatilho"}]
-// _automacoes/registo (retido) — "ultimos" do mais recente para o mais antigo
+// _automacoes/registo (retido) — "ultimos" do mais recente para o mais antigo.
+// "Avaliar agora" só entra em "ultimos" (resultado "avaliacao", com "ok"): "ultima",
+// "resultado" e "motivo" são sempre os da última execução real (null se nunca executou).
+// Se a mensagem passar de 200 KB, "ultimos" é encurtado (10, 5, 2, 1, 0 por automação).
 {"<id>":{"ultima":"…Z","resultado":"executada"|"condicao_falsa"|"falhou"|"pausada"|"teste"|"avaliacao",
   "motivo":"…","semana":12,"teste"?:true,"ok"?:false,
   "ultimos":[{"ts":"…Z","resultado":"…","motivo":"…","teste"?:true,"ok"?:false}]}}
@@ -103,7 +106,8 @@ o motor tiver perdido o seu estado local.
   alternar, luz, estore, notificar, cena, modo, esperar, se/senão):
   - `hora` e `sol` avaliadas uma vez por minuto na hora de Lisboa (mudanças de
     hora tratadas pelo `Intl`; uma hora repetida em outubro só dispara uma
-    vez); nascer/pôr do sol pelo algoritmo da NOAA para `_config.local`;
+    vez; as horas que não existem no último domingo de março, 01:00–01:59,
+    disparam uma vez às 02:00); nascer/pôr do sol pelo algoritmo da NOAA para `_config.local`;
   - `sensor` com `durante_s`: dispara quando o canal está nesse valor há X s
     (a contagem é cancelada se o valor mudar e sobrevive a reinícios);
   - `potencia`: dispara quando fica acima de `acima_w` durante `durante_s`; só
@@ -131,8 +135,8 @@ o motor tiver perdido o seu estado local.
     dias;
   - **conflitos**: duas automações ativas com o mesmo gatilho que mexem no
     mesmo canal em sentidos opostos → `_automacoes/avisos` (não bloqueia);
-  - proteção contra ciclos: no máximo 20 execuções por automação por minuto e
-    8 execuções encadeadas (automação → modo → automação…).
+  - proteção contra ciclos: no máximo 20 execuções por automação (e por cena)
+    por minuto e 8 execuções encadeadas (automação → modo → automação…).
 - **Cenas**: máx. 30, ações da v3 exceto `se` e `cena`; as bloqueadas (da
   empresa) não são editáveis nem apagáveis pelo cliente; uma cena usada por
   uma automação não pode ser apagada; `_cenas/executar` publica um evento
@@ -169,6 +173,9 @@ o motor tiver perdido o seu estado local.
   modo/alarme, ligados, em espera (canal ligado de um medidor abaixo de
   `limiar_espera_w`), abertas, offline, bateria fraca, sinal fraco e consumo
   de hoje/ontem.
+- **Limite de notificações**: no máximo 10 notificações por cliente por minuto
+  (exceto as do alarme — disparo e aviso de entrada —, que passam sempre); as
+  que passam do limite ficam no histórico mas não são enviadas.
 - **Eventos** que geram notificação: `alarme` (prioridade `urgent`), `aviso`
   (`high`, exceto o aviso de entrada e o relatório, `default`) e a ação
   `notificar` (evento `automacao`, `default`). O evento `sensor` é publicado
@@ -180,7 +187,9 @@ o motor tiver perdido o seu estado local.
   continua.
 - **FCM** (opcional): API HTTP v1 com a conta de serviço; tokens que o FCM diz
   não existirem (`UNREGISTERED`/404) são apagados.
-- **Robustez**: mensagens inválidas nunca derrubam o serviço; gravação do
+- **Robustez**: nenhuma mensagem maior do que `MQTT_MAX_PAYLOAD` é publicada;
+  os contadores dos limites por minuto são limpos a cada minuto e o estado de um
+  aparelho removido de `_aparelhos` é esquecido; mensagens inválidas nunca derrubam o serviço; gravação do
   estado adiada (1 s) e atómica; religação automática ao broker; `SIGTERM`
   grava o estado e fecha a ligação.
 
@@ -214,6 +223,7 @@ o motor tiver perdido o seu estado local.
 | `TZ` | `Europe/Lisbon` | só para os registos; as automações usam sempre Europe/Lisbon |
 | `MOTOR_TICK_MS` | `1000` | intervalo do relógio interno (testes) |
 | `MOTOR_ESPERA_ARRANQUE_MS` | `3000` | espera pelas mensagens retidas antes de publicar o estado |
+| `MQTT_MAX_PAYLOAD` | `921600` (900 KB) | tamanho máximo de uma mensagem publicada; maiores são registadas como erro e **não** são publicadas (uma mensagem acima do `max_packet_size` do Mosquitto, 1 MB, faria o broker cortar a ligação e o motor ficaria num ciclo de religações) |
 
 ## Como corre no servidor
 

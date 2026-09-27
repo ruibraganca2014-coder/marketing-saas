@@ -68,11 +68,11 @@ test('campos novos da automação aceites; desconhecidos rejeitados', () => {
 test('gatilhos v3: sensor+durante_s, sol, presenca, modo, manual, sistema, potencia+rearmar_w', () => {
   assert.equal(ok(base({ quando: { tipo: 'sensor', aparelho: 'pir-corredor', canal: 1, valor: 0, durante_s: 600 } })).quando.durante_s, 600);
   assert.equal(ok(base({ quando: { tipo: 'sensor', aparelho: 'sala-4g', canal: 1, valor: true } })).quando.valor, 1); // interruptor também
-  erro(base({ quando: { tipo: 'sensor', aparelho: 'pir-corredor', canal: 1, valor: 0, durante_s: -1 } }), /durante_s/);
+  erro(base({ quando: { tipo: 'sensor', aparelho: 'pir-corredor', canal: 1, valor: 0, durante_s: -1 } }), /a duração tem de ser de pelo menos 1 segundo/);
   assert.deepEqual(ok(base({ quando: { tipo: 'sol', evento: 'por', desvio_min: -30 } })).quando, { tipo: 'sol', evento: 'por', desvio_min: -30 });
   assert.equal(ok(base({ quando: { tipo: 'sol', evento: 'nascer' } })).quando.desvio_min, 0);
   erro(base({ quando: { tipo: 'sol', evento: 'meio-dia' } }), /"nascer" ou "por"/);
-  erro(base({ quando: { tipo: 'sol', evento: 'por', desvio_min: 181 } }), /desvio_min.*-180 e 180/);
+  erro(base({ quando: { tipo: 'sol', evento: 'por', desvio_min: 181 } }), /desvio em relação ao sol.*-180 a 180/);
   erro(base({ quando: { tipo: 'sol', evento: 'por' } }), /localização da casa/, { config: { ...CONFIG_PADRAO, local: null } });
   ok(base({ quando: { tipo: 'presenca', evento: 'sai_ultimo' } }));
   erro(base({ quando: { tipo: 'presenca', evento: 'chega' } }), /chega_primeiro/);
@@ -115,8 +115,8 @@ test('ações v3: luz, alternar, cena, modo, esperar', () => {
   erro(base({ entao: [{ acao: 'alternar', aparelho: 'estore-quarto', canal: 1 }] }), /não é um interruptor nem uma luz/);
   erro(base({ entao: [{ acao: 'cena', cena: 'praia' }] }), /a cena "praia" não existe/);
   erro(base({ entao: [{ acao: 'modo', modo: 'fora', forcar: 1 }] }), /"forcar"/);
-  erro(base({ entao: [{ acao: 'esperar', s: 0 }] }), /"s".*1 e 3600/);
-  erro(base({ entao: [{ acao: 'esperar', s: 3601 }] }), /"s".*1 e 3600/);
+  erro(base({ entao: [{ acao: 'esperar', s: 0 }] }), /o tempo de espera tem de ser de pelo menos 1 segundo/);
+  erro(base({ entao: [{ acao: 'esperar', s: 3601 }] }), /o tempo de espera não pode passar de 1 hora/);
 });
 
 test('se/senão: no máximo 2 níveis e 20 ações no total (contando as aninhadas)', () => {
@@ -132,7 +132,7 @@ test('se/senão: no máximo 2 níveis e 20 ações no total (contando as aninhad
 });
 
 test('carga perigosa: só liga com durante_s ≤ 4 h (automações e cenas)', () => {
-  erro(base({ entao: [{ acao: 'ligar', aparelho: 'termo', canal: 1 }] }), /carga perigosa.*durante_s/);
+  erro(base({ entao: [{ acao: 'ligar', aparelho: 'termo', canal: 1 }] }), /carga perigosa.*duração/);
   erro(base({ entao: [{ acao: 'ligar', aparelho: 'termo', canal: 1, durante_s: 14_401 }] }), /carga perigosa/);
   erro(base({ entao: [{ acao: 'alternar', aparelho: 'termo', canal: 1 }] }), /carga perigosa/);
   erro(base({ entao: [{ acao: 'se', condicao: { modo: ['casa'] }, entao: [{ acao: 'ligar', aparelho: 'termo', canal: 1 }] }] }), /carga perigosa/);

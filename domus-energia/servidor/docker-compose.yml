@@ -27,9 +27,16 @@ services:
         chmod 0700 .
         chmod 0600 passwd acl
         chown -R mosquitto:mosquitto /mosquitto/data
+        # TLS opcional (conf.d/tls.conf): certificados legíveis só pelo Mosquitto.
+        if [ -d /mosquitto/config/certs ]; then
+          chown -R mosquitto:mosquitto /mosquitto/config/certs
+          chmod 0700 /mosquitto/config/certs
+          chmod 0600 /mosquitto/config/certs/*
+        fi
         exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
     ports:
       - "1883:1883"      # MQTT simples para os aparelhos (OpenBeken, Shelly)
+      # - "8883:8883"    # MQTT com TLS (opcional, ver README "MQTT com TLS")
     expose:
       - "9001"           # WebSocket, só na rede interna (o Caddy faz o HTTPS)
     environment:

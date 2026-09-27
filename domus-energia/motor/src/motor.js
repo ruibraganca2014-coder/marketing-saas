@@ -28,6 +28,10 @@ export const MAX_HISTORICO = 100;
 export const MAX_TOKENS_FCM = 10;
 export const BATERIA_FRACA = 15;
 export const SILENCIO_MS = 24 * 3600 * 1000;
+/** Tamanho máximo por omissão de uma mensagem publicada pelo motor (o broker aceita 1 MB). */
+export const MAX_PAYLOAD_PADRAO = 900 * 1024;
+/** Máximo de notificações (não de alarme) por cliente por minuto. */
+export const MAX_NOTIFICACOES_MINUTO = 10;
 export { MAX_EXECUCOES_MINUTO };
 
 /**
@@ -66,6 +70,7 @@ export { MAX_EXECUCOES_MINUTO };
  * @property {Armazenamento} [armazenamento]
  * @property {{info: Function, aviso: Function, erro: Function}} [log]
  * @property {number} [esperaArranqueMs] tempo a aguardar pelas mensagens retidas antes de publicar o estado
+ * @property {number} [maxPayload] tamanho máximo (bytes) de uma mensagem publicada; maiores são registadas e descartadas
  * @property {() => number} [aleatorio]  gerador [0, 1) da simulação de presença (injetável nos testes)
  */
 
@@ -162,6 +167,8 @@ export class Motor {
     this.log = opcoes.log ?? logPadrao;
     this.esperaArranqueMs = opcoes.esperaArranqueMs ?? 3000;
     this.aleatorio = opcoes.aleatorio ?? Math.random;
+    /** Tamanho máximo de uma mensagem publicada (bytes); ver MQTT_MAX_PAYLOAD. */
+    this.maxPayload = opcoes.maxPayload ?? MAX_PAYLOAD_PADRAO;
 
     /** @type {Map<string, Cliente>} */
     this.clientes = new Map();
@@ -179,6 +186,9 @@ export class Motor {
     /** Execuções recentes por automação (limite anti-ciclo). */
     /** @type {Map<string, number[]>} */
     this.execucoes = new Map();
+    /** Notificações enviadas no último minuto por cliente (limite anti-abuso). */
+    /** @type {Map<string, number[]>} */
+    this.notificacoesRecentes = new Map();
     /** Profundidade de execuções encadeadas (automação → modo → automação…). */
     this.profundidade = 0;
     /** Clientes cujo estado retido ainda tem de ser (re)publicado. */
@@ -369,7 +379,16 @@ export class Motor {
 
   publicar(topico, payload, retain = false) {
     try {
-      this.publicarBruto(topico, typeof payload === 'string' ? payload : JSON.stringify(payload), { retain });
+      const texto = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      // Uma mensagem QoS 1 maior do que o limite do broker (max_packet_size) faz o
+      // Mosquitto cortar a ligação; o cliente MQTT volta a enviá-la ao religar e o
+      // motor fica preso num ciclo de religações. Nunca a pôr na fila.
+      const bytes = Buffer.byteLength(texto);
+      if (bytes > this.maxPayload) {
+        this.log.erro(`[mqtt] mensagem para ${topico} com ${bytes} bytes (limite ${this.maxPayload}): não publicada`);
+        return;
+      }
+      this.publicarBruto(topico, texto, { retain });
     } catch (e) {
       this.log.erro(`[mqtt] erro ao publicar em ${topico}: ${e.message}`);
     }
@@ -510,6 +529,15 @@ export class Motor {
     const c = this.cliente(codigo);
     const novo = c.aparelhos === null;
     c.aparelhos = aparelhos;
+    // Aparelhos removidos: esquece o estado (canais, energia, saúde…).
+    let removidos = 0;
+    for (const id of [...c.estado.keys()]) {
+      if (!aparelhos.has(id)) {
+        c.estado.delete(id);
+        removidos++;
+      }
+    }
+    if (removidos) this.guardar();
     c.saudeSuja = true;
     this.log.info(`[aparelhos] ${codigo}: ${aparelhos.size} aparelho(s)`);
     if (novo) this.porSincronizar.add(codigo);
@@ -804,6 +832,19 @@ export class Motor {
       this.log.info(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (horas de silêncio)`);
       return;
     }
+    // Limite por cliente: no máximo MAX_NOTIFICACOES_MINUTO notificações por minuto, exceto as do
+    // alarme (disparo e aviso de entrada), que passam sempre. O evento fica no histórico na mesma.
+    if (ev.tipo !== 'alarme' && !opcoes.ignorarSilencio) {
+      const agora = this.relogio.agora();
+      const recentes = (this.notificacoesRecentes.get(c.codigo) ?? []).filter((t) => agora - t < 60_000);
+      if (recentes.length >= MAX_NOTIFICACOES_MINUTO) {
+        this.notificacoesRecentes.set(c.codigo, recentes);
+        this.log.aviso(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (mais de ${MAX_NOTIFICACOES_MINUTO} por minuto)`);
+        return;
+      }
+      recentes.push(agora);
+      this.notificacoesRecentes.set(c.codigo, recentes);
+    }
     const prioridade = opcoes.prioridade ?? (ev.tipo === 'alarme' ? 'urgent' : ev.tipo === 'aviso' ? 'high' : 'default');
     const tags = ev.tipo === 'alarme' ? ['rotating_light'] : ev.tipo === 'aviso' ? ['warning'] : ['house'];
     if (!c.topicoNtfy && !c.avisouSemNtfy) {
@@ -886,6 +927,7 @@ export class Motor {
   /** Trabalho feito uma vez por minuto. @param {number} ms início do minuto (UTC) */
   minuto(ms) {
     const local = partesLocais(ms, FUSO);
+    this.limparContadores();
     for (const c of this.clientes.values()) {
       const tarefas = [
         () => this.minutoAutomacoes(c, ms, local),
@@ -899,6 +941,18 @@ export class Motor {
         } catch (e) {
           this.log.erro(`[minuto] ${c.codigo}: ${e.stack ?? e.message}`);
         }
+      }
+    }
+  }
+
+  /** Esquece as execuções/notificações com mais de 1 min (limites anti-ciclo/anti-abuso). */
+  limparContadores() {
+    const agora = this.relogio.agora();
+    for (const mapa of [this.execucoes, this.notificacoesRecentes]) {
+      for (const [k, lista] of mapa) {
+        const recentes = lista.filter((t) => agora - t < 60_000);
+        if (recentes.length) mapa.set(k, recentes);
+        else mapa.delete(k);
       }
     }
   }

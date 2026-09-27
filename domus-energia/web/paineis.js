@@ -22,6 +22,28 @@ function facto(dl, rotulo, valor, cls) {
   dl.append(d);
 }
 
+// Conselhos simples para quem não é técnico, pela ordem dos avisos de listaSaude.
+function oQueFazer(x) {
+  const r = [];
+  const pilhas = (x.bateria != null && x.bateria < E.BATERIA_FRACA) || (x.bateriaDias != null && x.bateriaDias < E.BATERIA_DIAS_POUCOS);
+  if (x.online === false) r.push("Confirme que o aparelho tem corrente (disjuntor ligado) e que o Wi-Fi de casa está a funcionar. Muitas vezes volta sozinho em poucos minutos.");
+  if (x.atencao.some((t) => /^Sem notícias/.test(t))) r.push("Abra e feche a porta ou passe à frente do sensor para ele dar sinal. Se continuar sem notícias, as pilhas podem ter acabado.");
+  if (pilhas) r.push("Troque as pilhas do sensor por pilhas novas do mesmo tipo (veja as que lá estão). O sensor continua a funcionar até lá, mas pode deixar de avisar.");
+  if (x.sinal?.barras === 1) r.push("O aparelho está longe do router. Um repetidor de Wi-Fi perto dele costuma resolver.");
+  if ((x.reinicios24h ?? 0) > 5) r.push("Reiniciar muitas vezes pode ser falha de Wi-Fi ou de corrente. Se continuar amanhã, fale connosco.");
+  if (!r.length && x.atencao.length) r.push("Se o aviso continuar, fale connosco.");
+  return r;
+}
+function linkAjuda(nome) {
+  const w = window.DOMUS?.whatsapp;
+  if (!w || !/^\d{6,15}$/.test(String(w))) return null;
+  const a = el("a", "btn sec pequeno", "Pedir ajuda no WhatsApp");
+  a.href = `https://wa.me/${w}?text=${encodeURIComponent(`Olá Domus Energia, preciso de ajuda com o aparelho "${nome}".`)}`;
+  a.target = "_blank";
+  a.rel = "noopener";
+  return a;
+}
+
 export function desenharSaude(lista, agora = Date.now()) {
   const raiz = $("lista-saude");
   raiz.replaceChildren();
@@ -43,6 +65,15 @@ export function desenharSaude(lista, agora = Date.now()) {
       const ul = el("ul", "atencao-lista");
       for (const a of x.atencao) ul.append(el("li", null, a));
       c.append(ul);
+      const dicas = oQueFazer(x);
+      if (dicas.length) {
+        const d = el("div", "o-que-fazer");
+        d.append(el("b", null, "O que fazer"));
+        for (const t of dicas) d.append(el("p", null, t));
+        const ajuda = linkAjuda(x.nome);
+        if (ajuda) d.append(ajuda);
+        c.append(d);
+      }
     }
     const dl = el("dl", "factos");
     const ligacao = x.aPilhas ? "A pilhas (dorme entre eventos)"
@@ -72,8 +103,8 @@ export function desenharRelatorio(r) {
   facto(dl, "Modo", r.modo ? E.NOME_MODO[r.modo] : "—");
   facto(dl, "Alarme", E.textoAlarme(r.alarme), r.alarme?.estado === "disparado" || r.alarme?.estado === "entrada" ? "mau" : "");
   facto(dl, "Consumo agora", r.consumo.agoraW == null ? "—" : `${Math.round(r.consumo.agoraW)} W`);
-  facto(dl, "Hoje", r.consumo.hojeKWh == null ? "—" : `${r.consumo.hojeKWh.toFixed(1)} kWh`);
-  facto(dl, "Ontem", r.consumo.ontemKWh == null ? "—" : `${r.consumo.ontemKWh.toFixed(1)} kWh`);
+  facto(dl, "Hoje", r.consumo.hojeKWh == null ? "—" : E.kwhTexto(r.consumo.hojeKWh));
+  facto(dl, "Ontem", r.consumo.ontemKWh == null ? "—" : E.kwhTexto(r.consumo.ontemKWh));
   geral.append(dl);
   raiz.append(geral);
   if (!r.divisoes.length) raiz.append(el("p", "vazio", "Ainda sem estado dos aparelhos."));

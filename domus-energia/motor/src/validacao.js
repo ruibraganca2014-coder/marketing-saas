@@ -84,6 +84,25 @@ function inteiro(v, min, max, onde, campo) {
   return v;
 }
 
+/** Duração legível: 86400 → "24 horas", 3600 → "1 hora", 90 → "90 segundos". */
+export function textoDuracao(s) {
+  if (s % 3600 === 0) return s === 3600 ? '1 hora' : `${s / 3600} horas`;
+  if (s % 60 === 0) return s === 60 ? '1 minuto' : `${s / 60} minutos`;
+  return s === 1 ? '1 segundo' : `${s} segundos`;
+}
+
+/**
+ * Duração em segundos (durante_s, esperar). As mensagens são para pessoas (a
+ * app e o site mostram-nas tal e qual): falam de duração, não do nome do campo.
+ * @param {string} oque ex.: "a duração", "o tempo de espera"
+ */
+function duracao(v, min, max, onde, oque = 'a duração') {
+  if (!Number.isInteger(v)) falhar(`${onde}: ${oque} tem de ser um número inteiro de segundos.`);
+  if (v < min) falhar(`${onde}: ${oque} tem de ser de pelo menos ${textoDuracao(min)}.`);
+  if (v > max) falhar(`${onde}: ${oque} não pode passar de ${textoDuracao(max)}.`);
+  return v;
+}
+
 function binario(v, w, campo = 'valor') {
   if (v === true) return 1;
   if (v === false) return 0;
@@ -138,7 +157,7 @@ function validarQuando(q, ctx, onde) {
         falhar(`${w}: o canal ${q.canal} de "${q.aparelho}" é do tipo "${canal.funcao}" e não serve de sensor (use porta, movimento, interruptor ou luz).`);
       }
       const r = { tipo: 'sensor', aparelho: q.aparelho, canal: q.canal, valor: binario(q.valor, w) };
-      if (q.durante_s !== undefined && q.durante_s !== null && q.durante_s !== 0) r.durante_s = inteiro(q.durante_s, 1, MAX_DURACAO_S, w, 'durante_s');
+      if (q.durante_s !== undefined && q.durante_s !== null && q.durante_s !== 0) r.durante_s = duracao(q.durante_s, 1, MAX_DURACAO_S, w);
       return r;
     }
     case 'hora': {
@@ -153,7 +172,7 @@ function validarQuando(q, ctx, onde) {
       if (typeof q.acima_w !== 'number' || !Number.isFinite(q.acima_w) || q.acima_w <= 0 || q.acima_w > 100_000) {
         falhar(`${w}: "acima_w" tem de ser um número de watts entre 1 e 100000.`);
       }
-      const durante = q.durante_s === undefined ? 0 : inteiro(q.durante_s, 0, MAX_DURACAO_S, w, 'durante_s');
+      const durante = q.durante_s === undefined ? 0 : duracao(q.durante_s, 0, MAX_DURACAO_S, w);
       const r = { tipo: 'potencia', aparelho: q.aparelho, acima_w: q.acima_w, durante_s: durante };
       if (q.rearmar_w !== undefined) {
         if (typeof q.rearmar_w !== 'number' || !Number.isFinite(q.rearmar_w) || q.rearmar_w < 0 || q.rearmar_w >= q.acima_w) {
@@ -166,7 +185,10 @@ function validarQuando(q, ctx, onde) {
     case 'sol': {
       soCampos(q, ['tipo', 'evento', 'desvio_min'], w);
       if (q.evento !== 'nascer' && q.evento !== 'por') falhar(`${w}: "evento" tem de ser "nascer" ou "por".`);
-      const desvio = q.desvio_min === undefined ? 0 : inteiro(q.desvio_min, -180, 180, w, 'desvio_min');
+      if (q.desvio_min !== undefined && !(Number.isInteger(q.desvio_min) && q.desvio_min >= -180 && q.desvio_min <= 180)) {
+        falhar(`${w}: o desvio em relação ao sol tem de ser um número inteiro de minutos, no máximo 3 horas antes ou depois (-180 a 180).`);
+      }
+      const desvio = q.desvio_min ?? 0;
       precisaLocal(ctx, w);
       return { tipo: 'sol', evento: q.evento, desvio_min: desvio };
     }
@@ -266,10 +288,10 @@ function validarSe(se, ctx, onde) {
 function verificarPerigosa(canal, acao, w) {
   if (!canal || canal.carga !== 'perigosa') return;
   const nome = canal.nome;
-  if (acao.acao === 'alternar') falhar(`${w}: "${nome}" é uma carga perigosa; use "ligar" com "durante_s" (máx. 4 h) em vez de "alternar".`);
-  if (acao.acao === 'luz' && acao.brilho > 0) falhar(`${w}: "${nome}" é uma carga perigosa e só pode ser ligada com "ligar" e "durante_s" (máx. 4 h).`);
+  if (acao.acao === 'alternar') falhar(`${w}: "${nome}" é uma carga perigosa; use "ligar" com uma duração (no máximo ${textoDuracao(MAX_PERIGOSA_S)}) em vez de "alternar".`);
+  if (acao.acao === 'luz' && acao.brilho > 0) falhar(`${w}: "${nome}" é uma carga perigosa e só pode ser ligada com "ligar" e uma duração (no máximo ${textoDuracao(MAX_PERIGOSA_S)}).`);
   if (acao.acao === 'ligar' && (!acao.durante_s || acao.durante_s > MAX_PERIGOSA_S)) {
-    falhar(`${w}: "${nome}" é uma carga perigosa: só pode ser ligada com "durante_s" até ${MAX_PERIGOSA_S} s (4 h).`);
+    falhar(`${w}: "${nome}" é uma carga perigosa: só pode ser ligada com uma duração de no máximo ${textoDuracao(MAX_PERIGOSA_S)}.`);
   }
 }
 
@@ -291,7 +313,7 @@ function validarAcao(a, w, ctx, o) {
       }
       /** @type {any} */
       const r = { acao: a.acao, aparelho: a.aparelho, canal: a.canal };
-      if (a.durante_s !== undefined && a.durante_s !== null) r.durante_s = inteiro(a.durante_s, 1, MAX_DURACAO_S, w, 'durante_s');
+      if (a.durante_s !== undefined && a.durante_s !== null) r.durante_s = duracao(a.durante_s, 1, MAX_DURACAO_S, w);
       verificarPerigosa(canal, r, w);
       return r;
     }
@@ -325,7 +347,7 @@ function validarAcao(a, w, ctx, o) {
     }
     case 'esperar':
       soCampos(a, ['acao', 's'], w);
-      return { acao: 'esperar', s: inteiro(a.s, 1, 3600, w, 's') };
+      return { acao: 'esperar', s: duracao(a.s, 1, 3600, w, 'o tempo de espera') };
     case 'modo': {
       soCampos(a, ['acao', 'modo', 'forcar'], w);
       if (!MODOS.includes(a.modo)) falhar(`${w}: "modo" tem de ser ${MODOS.map((m) => `"${m}"`).join(', ')}.`);

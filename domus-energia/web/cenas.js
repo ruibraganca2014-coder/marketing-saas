@@ -2,7 +2,7 @@
 // e gestão (criar, editar, apagar) → lista completa em `_cenas/set`. As cenas `bloqueada`
 // (criadas pela Domus Energia) só se veem e executam.
 import * as E from "./estado.js";
-import { el, botao, input, campo, criarContexto, listaAcoes } from "./editor.js";
+import { el, botao, input, campo, criarContexto, listaAcoes, marcarVazios, painelRisco } from "./editor.js";
 import { criarIcone } from "./ilustracoes.js";
 import { ICONE_CADEADO } from "./automacoes.js";
 
@@ -19,6 +19,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   let aApagar = null;
   let aberto = false;     // painel "Gerir cenas"
   let msgTimer = null;
+  let aExecutar = null;   // id da cena com confirmação de execução aberta (ações arriscadas)
 
   function estado(texto, tipo = "info") {
     clearTimeout(msgTimer);
@@ -29,16 +30,26 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     if (tipo === "ok") msgTimer = setTimeout(() => { m.hidden = true; }, 4000);
   }
 
-  function executar(c) {
+  // Cenas que desligam o quadro geral ou ligam cargas perigosas pedem confirmação na página.
+  function executar(c, confirmado = false) {
     if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
+    if (!confirmado && E.acoesArriscadas(c.acoes, aparelhos(), { cenas: lista ?? [] }).length) {
+      aExecutar = c.id;
+      estado(null);
+      desenhar();
+      $("cenas-confirmar")?.querySelector(".confirmar-titulo")?.focus();
+      return;
+    }
+    aExecutar = null;
     publicar("_cenas/executar", { id: c.id, por: "web" });
+    desenhar();
     estado(`Cena "${c.nome ?? c.id}" pedida.`, "ok");
   }
 
   function guardar(nova, aoTerminar) {
     if (guardando) return;
     if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
-    if (JSON.stringify(nova) === JSON.stringify(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
+    if (E.jsonCanonico(nova) === E.jsonCanonico(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
     guardando = {
       anterior: textoAtual,
       aoTerminar,
@@ -51,9 +62,9 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
 
   function receberLista(nova, texto) {
     lista = nova ?? [];
-    const mudou = texto !== textoAtual;
     textoAtual = texto;
-    if (guardando && (mudou || texto !== guardando.anterior)) {
+    // Qualquer `_cenas` que chegue depois de publicarmos é a resposta do motor (mesmo texto incluído).
+    if (guardando) {
       clearTimeout(guardando.timer);
       const cb = guardando.aoTerminar;
       guardando = null;
@@ -73,8 +84,9 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   function limpar() {
     clearTimeout(guardando?.timer);
     clearTimeout(msgTimer);
-    lista = null; textoAtual = null; guardando = null; aEditar = null; aApagar = null; aberto = false;
+    lista = null; textoAtual = null; guardando = null; aEditar = null; aApagar = null; aberto = false; aExecutar = null;
     $("cenas-linha")?.replaceChildren();
+    $("cenas-confirmar")?.remove();
     $("cenas-lista")?.replaceChildren();
     $("form-cena-caixa")?.replaceChildren();
     if ($("cenas-estado")) $("cenas-estado").hidden = true;
@@ -102,11 +114,26 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
       const b = botao(null, "cena-botao", () => executar(c));
       b.dataset.id = c.id;
       const ic = el("span", "cena-icone");
-      ic.append(criarIcone(E.ICONES_CENA.includes(c.icone) ? c.icone : "estrela"));
+      ic.append(criarIcone(E.ICONES_CENA.includes(c.icone) ? c.icone : "casa"));
       b.append(ic, el("span", "cena-nome", String(c.nome ?? c.id)));
       b.setAttribute("aria-label", `Executar a cena ${c.nome ?? c.id}`);
       linha.append(b);
     }
+    // Confirmação de execução (debaixo da fila de botões, que desliza na horizontal).
+    $("cenas-confirmar")?.remove();
+    const pedida = aExecutar && lista.find((x) => x.id === aExecutar);
+    const riscos = pedida ? E.acoesArriscadas(pedida.acoes, aparelhos(), { cenas: lista }) : [];
+    if (pedida && riscos.length) {
+      const p = painelRisco(riscos, {
+        titulo: `Executar a cena "${pedida.nome ?? pedida.id}"? Vai fazer:`,
+        textoSim: "Sim, executar",
+        textoNao: "Não executar",
+        aoSim: () => executar(pedida, true),
+        aoNao: () => { aExecutar = null; desenhar(); linha.querySelector(`[data-id="${CSS.escape(pedida.id)}"]`)?.focus(); },
+      });
+      p.id = "cenas-confirmar";
+      linha.after(p);
+    } else aExecutar = null;
 
     // Painel de gestão
     $("nova-cena").disabled = !!guardando || !!aEditar || lista.length >= MAX_CENAS;
@@ -119,7 +146,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
       art.dataset.id = c.id;
       const topo = el("div", "cena-item-topo");
       const ic = el("span", "cena-icone");
-      ic.append(criarIcone(E.ICONES_CENA.includes(c.icone) ? c.icone : "estrela"));
+      ic.append(criarIcone(E.ICONES_CENA.includes(c.icone) ? c.icone : "casa"));
       topo.append(ic, el("b", null, String(c.nome ?? c.id)));
       art.append(topo);
       art.append(el("p", "descricao", E.descreverAcoes(c.acoes, aparelhos()).join("; ")));
@@ -154,7 +181,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     estado(null);
     const caixaF = $("form-cena-caixa");
     caixaF.replaceChildren();
-    const c = original ?? { icone: "estrela", acoes: [{ acao: "desligar" }] };
+    const c = original ?? { icone: "casa", acoes: [{ acao: "desligar" }] };
     const form = el("form", "form-cena");
     form.id = "form-cena";
     form.noValidate = true;
@@ -168,7 +195,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     for (const nome of E.ICONES_CENA) {
       const l = el("label", "icone-opcao");
       const r = input("cena-icone", "radio", nome);
-      r.checked = (c.icone ?? "estrela") === nome;
+      r.checked = (c.icone ?? "casa") === nome;
       r.setAttribute("aria-label", NOME_ICONE[nome]);
       l.append(r, criarIcone(nome));
       l.title = NOME_ICONE[nome];
@@ -195,24 +222,43 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     ok.type = "submit";
     botoes.append(ok, botao("Cancelar", "btn sec", fechar));
     form.append(botoes);
+    // Confirmação de ações arriscadas; qualquer mudança no formulário anula-a.
+    let risco = null;
+    const fecharRisco = () => { risco?.remove(); risco = null; botoes.hidden = false; };
+    form.addEventListener("input", fecharRisco);
+    form.addEventListener("change", fecharRisco);
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      if (guardando) return;
+      if (guardando || risco) return;
       const nome = form.elements["cena-nome"].value.trim();
       const cena = {
         id: original ? original.id : E.slug(nome, (lista ?? []).map((x) => x.id)).replace(/^automacao$/, "cena"),
         nome,
-        icone: form.querySelector("input[name=cena-icone]:checked")?.value ?? "estrela",
+        icone: form.querySelector("input[name=cena-icone]:checked")?.value ?? "casa",
         bloqueada: false,
         acoes: acoes.ler(),
       };
       const erros = E.validarCena(cena, aparelhos());
+      if (nome && (lista ?? []).some((x) => x.id !== cena.id && String(x.nome ?? "").trim().toLowerCase() === nome.toLowerCase())) erros.push("Já existe uma cena com este nome. Escolha outro nome.");
       if (!original && (lista?.length ?? 0) >= MAX_CENAS) erros.push(`Máximo de ${MAX_CENAS} cenas.`);
       erro.hidden = !erros.length;
       erro.replaceChildren(...erros.map((t) => el("div", null, t)));
-      if (erros.length) return;
+      if (erros.length) { marcarVazios(form)[0]?.focus(); return; }
       const atual = lista ?? [];
-      guardar(original ? atual.map((x) => (x.id === original.id ? cena : x)) : [...atual, cena], fechar);
+      const nova = original ? atual.map((x) => (x.id === original.id ? cena : x)) : [...atual, cena];
+      const riscos = E.acoesArriscadas(cena.acoes, aparelhos(), { cenas: lista ?? [] });
+      if (!riscos.length || E.jsonCanonico(nova) === E.jsonCanonico(atual)) { guardar(nova, fechar); return; }
+      risco = painelRisco(riscos, {
+        titulo: riscos.length === 1 ? "Atenção: esta cena faz uma coisa arriscada. Quer mesmo guardá-la assim?" : `Atenção: esta cena faz ${riscos.length} coisas arriscadas. Quer mesmo guardá-la assim?`,
+        textoSim: "Sim, guardar assim",
+        textoNao: "Voltar e alterar",
+        aoSim: () => { fecharRisco(); guardar(nova, fechar); },
+        aoNao: () => { fecharRisco(); acoes.linhas[parseInt(riscos[0].caminho, 10) - 1]?.raiz.querySelector("select[name=acao]")?.focus(); },
+      });
+      risco.id = "cena-risco";
+      botoes.hidden = true;
+      botoes.before(risco);
+      risco.querySelector(".confirmar-titulo").focus();
     });
     caixaF.append(form);
     desenhar();
