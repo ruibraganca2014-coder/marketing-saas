@@ -4,11 +4,14 @@
 
 import {
   TIPOS_CASA, TIPOS_CIRCUITO, AMPERES, MODELOS, MAX_DIVISOES,
-  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, OBJETIVOS,
+  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
   avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
+  perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
 } from "./regras.js";
-import { plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao } from "./casa.js";
+import {
+  plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
+} from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, SKU_SY1, SKU_SY2,
   formatarEuro, formatarEuroRedondo, formatarHoras,
@@ -16,6 +19,7 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, opcoesAvisos, potenciaContratada,
+  normalizarQuer, maquinasEscolhidas, fasesSugeridas, telecomParaEnvio,
 } from "./estado.js";
 import { criarEditor } from "./editor.js";
 
@@ -42,8 +46,8 @@ const numeroReal = (n) => { const d = String(n ?? "").replace(/^\+/, ""); return
 const params = new URLSearchParams(location.search);
 const modoCliente = params.get("cliente") === "1";
 const codigoCliente = modoCliente ? lerCodigoCliente(sessao ?? semArmazem) : null;
-// Índices dos passos (PASSOS em estado.js).
-const P = { casa: 0, quer: 1, planta: 2, quadro: 3, divisoes: 4, preco: 5, enviar: 6 };
+// Índices dos passos (PASSOS em estado.js): o quadro vem depois das divisões (dimensiona-se com tudo conhecido).
+const P = { casa: 0, quer: 1, planta: 2, divisoes: 3, quadro: 4, preco: 5, enviar: 6 };
 // Área de cliente com código ("Ampliar a instalação"): a casa já é conhecida, começa em "O que quer".
 const PASSO_INICIAL = codigoCliente ? P.quer : P.casa;
 const estadoInicial = () => estadoNovo({ cliente: !!codigoCliente });
@@ -76,6 +80,7 @@ function agendarGravacao() {
 }
 function gravar() {
   clearTimeout(temporizador);
+  temporizador = null;   // sem gravação pendente: ao sair não se grava (outro separador pode ter a mais recente)
   if (enviado) return;
   const r = guardarEstado(armazem ?? semArmazem, estado);
   $("sim-guardado").textContent = r === "ok" ? "Guardado neste navegador"
@@ -115,11 +120,13 @@ function desenharProgresso() {
 
 function irPara(i, { foco = true } = {}) {
   const de = estado.passo;
-  // Ao passar da planta para a frente (também a saltar da casa ou de "O que quer" pela barra):
-  // pré-preenche o quadro e as divisões (só o que o cliente ainda não mudou à mão).
+  // Ao passar da planta para a frente (também a saltar da casa ou de "O que quer" pela barra): planta
+  // (se ainda é a nossa), divisões, quadro e termóstatos pré-preenchidos (só o que o cliente ainda não
+  // mudou à mão).
   if (i > P.planta && de <= P.planta) prepararPassosSeguintes();
   estado.passo = Math.max(0, Math.min(PASSOS.length - 1, i));
   visitado = Math.max(visitado, estado.passo);
+  estado.visitado = visitado;
   mostrarPasso(foco);
   agendarGravacao();
 }
@@ -134,13 +141,14 @@ function mostrarPasso(foco = true) {
   if (p === P.quer) desenharQuer();
   if (p === P.planta) {
     if (preencherPlanta()) agendarGravacao();
+    editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
     editor.abrir(estado.planta, { reiniciarVista: true });
     desenharContagem();
     desenharPlantaOrigem();
     textoSeguinte();
   }
-  if (p === P.quadro) desenharQuadro();
   if (p === P.divisoes) desenharDivisoes();
+  if (p === P.quadro) desenharQuadro();
   if (p === P.preco) desenharPreco();
   if (p === P.enviar) desenharEnviar();
   desenharProgresso();
@@ -180,16 +188,21 @@ function escolha(tipo, nome, valor, texto, ajuda, aoMudar) {
   return l;
 }
 
-// Contadores − n +: [chave em estado.casa, rótulo, ajuda, "Menos …", "Mais …"].
+// Contadores − n +: [chave, rótulo, ajuda, "Menos …", "Mais …"], todos em estado.casa e na mesma grelha
+// (os escondidos não deixam buracos). O dos quartos anda com os botões da tipologia.
 const CONTADORES = [
-  ["quartos", "Quartos", "T5 ou mais: quantos quartos?", "Menos um quarto", "Mais um quarto"],
+  ["quartos", "Quartos", null, "Menos um quarto", "Mais um quarto"],
+  ["espacos", "Espaços", "Divisões, contando casas de banho e arrumos", "Menos um espaço", "Mais um espaço"],
   ["casas_banho", "Casas de banho", null, "Menos uma casa de banho", "Mais uma casa de banho"],
-  ["salas", "Salas", "2 = sala de estar e sala de jantar", "Menos uma sala", "Mais uma sala"],
-  ["pisos", "Pisos", "Rés-do-chão = 1; com andares: 2 ou 3", "Menos um piso", "Mais um piso"],
+  ["salas", "Salas", null, "Menos uma sala", "Mais uma sala"],
+  ["pisos", "Pisos", null, "Menos um piso", "Mais um piso"],
 ];
 const EXTRAS_AJUDA = { kitnet: "A cozinha fica na sala" };
+/** A casa dá divisões (tipologia, ou serviços/industrial)? Sem isso (área de cliente) vale a lista antiga. */
+const negocio = () => perfilCasa(estado.casa.tipo) !== "habitacao";
 
-// Escolher a tipologia repõe sempre os valores típicos; os contadores que mudaram ficam destacados.
+// Escolher a tipologia (botão T) repõe sempre os valores típicos: quartos, casas de banho e salas;
+// os que mudaram ficam destacados.
 function mudarTipologia(t) {
   const c = estado.casa;
   const antes = { quartos: c.quartos, casas_banho: c.casas_banho, salas: c.salas };
@@ -201,6 +214,45 @@ function mudarTipologia(t) {
   for (const k of Object.keys(antes)) if (antes[k] !== c[k]) destacar($(`contador-${k}`));
   agendarGravacao();
 }
+
+/**
+ * Contador dos quartos: muda o botão da tipologia (0 → T0, 1–4 → T1–T4, 5 ou mais → T5+) mas não
+ * repõe as casas de banho nem as salas (o cliente está a acertar só os quartos; o botão T repõe tudo).
+ */
+function mudarQuartos(n) {
+  const c = estado.casa;
+  c.quartos = n;
+  c.tipologia = tipologiaDeQuartos(n);
+}
+
+/**
+ * Tipo de imóvel: serviços e industrial têm percurso próprio (área e espaços em vez da tipologia);
+ * ao mudar de perfil (casa ↔ serviços ↔ industrial) a área e os espaços voltam aos típicos e as
+ * máquinas e objetivos que o novo perfil não tem saem da escolha.
+ */
+function mudarTipo(k) {
+  const c = estado.casa;
+  const perfilAntes = perfilCasa(c.tipo);
+  c.tipo = k;
+  if (k !== "moradia") c.pisos = 1;
+  const perfil = perfilCasa(k);
+  if (perfil !== "habitacao" && (perfil !== perfilAntes || c.area_m2 == null)) {
+    c.area_m2 = AREA_OMISSAO[perfil];
+    c.espacos = ESPACOS_OMISSAO[perfil];
+    $("casa-area").value = String(c.area_m2);
+    destacar($("contador-espacos"));
+  }
+  estado.quer = normalizarQuer(estado.quer, k);
+  sugerirLigacao();
+  sincronizarCasa();
+  agendarGravacao();
+}
+
+/** Ligação sugerida pelo tipo e pelas máquinas, enquanto o cliente não a escolheu (fasesEditadas). */
+function sugerirLigacao() {
+  if (estado.fasesEditadas) return;
+  estado.casa.fases = fasesSugeridas(estado);
+}
 function destacar(caixa) {
   if (!caixa || caixa.hidden) return;
   caixa.classList.remove("destaque");
@@ -211,14 +263,7 @@ function destacar(caixa) {
 function desenharCasa() {
   const g = $("casa-tipos");
   if (!g.childElementCount) {
-    for (const [k, nome] of Object.entries(TIPOS_CASA)) {
-      g.append(escolha("radio", "casa-tipo", k, nome, null, () => {
-        estado.casa.tipo = k;
-        if (k !== "moradia") estado.casa.pisos = 1;
-        sincronizarCasa();
-        agendarGravacao();
-      }));
-    }
+    for (const [k, nome] of Object.entries(TIPOS_CASA)) g.append(escolha("radio", "casa-tipo", k, nome, null, () => mudarTipo(k)));
     for (const t of TIPOLOGIAS) $("casa-tipologias").append(escolha("radio", "casa-tipologia", t, t, null, (sim) => { if (sim) mudarTipologia(t); }));
     for (const [k, texto, ajuda, menos, mais] of CONTADORES) {
       const caixa = el("div", "contador");
@@ -238,8 +283,9 @@ function desenharCasa() {
         b.id = `contador-${k}-${d > 0 ? "mais" : "menos"}`;
         b.setAttribute("aria-label", rotulo);
         b.addEventListener("click", () => {
-          const atual = estado.casa[k] ?? min;
-          estado.casa[k] = Math.min(max, Math.max(min, atual + d));
+          const novo = Math.min(max, Math.max(min, (estado.casa[k] ?? min) + d));
+          if (k === "quartos") mudarQuartos(novo);
+          else estado.casa[k] = novo;
           sincronizarCasa();
           agendarGravacao();
         });
@@ -258,30 +304,52 @@ function desenharCasa() {
   for (const i of g.querySelectorAll("input")) i.checked = i.value === estado.casa.tipo;
   sincronizarCasa();
   $("casa-localidade").value = estado.casa.localidade;
+  $("casa-area").value = estado.casa.area_m2 == null ? "" : String(estado.casa.area_m2);
   $("casa-potencia").value = estado.casa.potencia_contratada_kva === null ? "" : String(estado.casa.potencia_contratada_kva);
-  $("casa-fases").value = estado.casa.fases ?? "";
 }
 
-/** Tipologia, contadores e extras no ecrã a partir do estado. */
+/** Tipologia (ou área e espaços), contadores, extras e ligação no ecrã a partir do estado. */
 function sincronizarCasa() {
   const c = estado.casa;
+  const neg = negocio();
   for (const i of $("casa-tipologias").querySelectorAll("input")) i.checked = i.value === c.tipologia;
   for (const [k] of CONTADORES) {
     const [min, max] = LIMITES_CASA[k];
-    const v = c[k] ?? min;
+    const v = estado.casa[k] ?? min;
     $(`contador-${k}-valor`).textContent = String(v);
     $(`contador-${k}-menos`).disabled = v <= min;
     $(`contador-${k}-mais`).disabled = v >= max;
   }
-  // Quartos só no T5+ (nos outros vem da tipologia); no T0 (estúdio) não há salas à parte.
-  $("contador-quartos").hidden = c.tipologia !== "T5+";
-  $("contador-salas").hidden = c.tipologia === "T0";
-  // Só as moradias têm mais de um piso.
-  $("contador-pisos").hidden = c.tipo !== "moradia";
+  // Serviços e industrial: área e n.º de espaços; casas: tipologia, contadores e extras.
+  $("casa-tipologia-caixa").hidden = neg;
+  $("casa-extras-caixa").hidden = neg;
+  $("casa-negocio").hidden = !neg;
+  const casa = !neg && !!c.tipologia;
+  for (const [k] of CONTADORES) $(`contador-${k}`).hidden = k === "espacos" ? !neg : !casa;
+  // Quartos sempre (anda com a tipologia); no T0 (estúdio) não há salas à parte.
+  if (casa) {
+    $("contador-salas").hidden = c.tipologia === "T0";
+    // Só as moradias têm mais de um piso.
+    $("contador-pisos").hidden = c.tipo !== "moradia";
+  }
   for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!c.extras[i.value];
+  $("casa-fases").value = c.fases ?? "";
+  const s = fasesSugeridas(estado);
+  $("casa-fases-sugestao").textContent = s === "tri"
+    ? `Sugerimos: Trifásica (${c.tipo === "industrial" ? "industrial" : "máquinas trifásicas ou carregador de 22 kW"}).`
+    : s === "mono" ? "Sugerimos: Monofásica (a mais comum)." : "Monofásica é a mais comum nas casas.";
 }
 $("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value); agendarGravacao(); });
-$("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; agendarGravacao(); });
+$("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; estado.fasesEditadas = true; agendarGravacao(); });
+$("casa-area").addEventListener("input", () => {
+  const v = Math.round(Number($("casa-area").value));
+  const [min, max] = LIMITES_CASA.area_m2;
+  if (Number.isFinite(v) && v >= min && v <= max) { estado.casa.area_m2 = v; agendarGravacao(); }
+});
+$("casa-area").addEventListener("change", () => {
+  // Fora dos limites (ou vazio): volta ao último valor válido.
+  $("casa-area").value = String(estado.casa.area_m2 ?? AREA_OMISSAO[perfilCasa(estado.casa.tipo)] ?? "");
+});
 $("casa-localidade").addEventListener("input", () => { estado.casa.localidade = $("casa-localidade").value.slice(0, 80); agendarGravacao(); });
 
 // ------------------------------------------------------------ 2. O que quer
@@ -292,52 +360,83 @@ const OBJETIVOS_AJUDA = {
   luzes: "Interruptores inteligentes",
   distancia: "Ver e ligar a casa quando não está",
   clima: "Termóstato Wi-Fi",
+  horarios: "Luzes e máquinas ligam e desligam a horas",
+  iluminacao_auto: "Sensores de movimento acendem as luzes",
+  energia: "Ver o consumo de cada circuito",
+  desligar: "Um toque desliga o que ficou ligado",
 };
 const quer = (k) => estado.quer.objetivos.includes(k);
 
+/**
+ * Máquinas grandes, pequenas (por grupos) e objetivos do perfil do imóvel (casa, serviços ou industrial):
+ * refeitos quando o perfil muda. As máquinas mudam a ligação sugerida (carregador de 22 kW → trifásica).
+ */
 function desenharQuer() {
-  const gm = $("quer-maquinas"), go = $("quer-objetivos");
-  if (!gm.childElementCount) {
+  const gm = $("quer-maquinas"), gp = $("quer-pequenas"), go = $("quer-objetivos");
+  const perfil = perfilCasa(estado.casa.tipo);
+  if (gm.dataset.perfil !== perfil) {
+    gm.dataset.perfil = perfil;
     const alternar = (lista, chaves, k) => (sim) => {
       const s = new Set(estado.quer[lista]);
       if (sim) s.add(k); else s.delete(k);
       estado.quer[lista] = chaves.filter((x) => s.has(x));   // sempre pela ordem da lista
+      if (lista !== "objetivos") sugerirLigacao();
       agendarGravacao();
     };
-    for (const k of MAQUINAS_QUER) gm.append(escolha("checkbox", `quer-maquina-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternar("maquinas", MAQUINAS_QUER, k)));
-    for (const [k, texto] of Object.entries(OBJETIVOS)) go.append(escolha("checkbox", `quer-objetivo-${k}`, k, texto, OBJETIVOS_AJUDA[k], alternar("objetivos", Object.keys(OBJETIVOS), k)));
+    const maquina = (lista, chaves) => (k) => escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternar(lista, chaves, k));
+    const grandes = maquinasGrandesDe(estado.casa.tipo);
+    gm.replaceChildren(...grandes.map(maquina("maquinas", grandes)));
+    const pequenas = MAQUINAS_PEQUENAS[perfil].flatMap(([, l]) => l);
+    gp.replaceChildren(...MAQUINAS_PEQUENAS[perfil].map(([titulo, chaves]) => {
+      const f = el("fieldset", "escolhas quer-grupo");
+      f.append(el("legend", null, titulo));
+      const grelha = el("div", "escolhas-grelha");
+      grelha.append(...chaves.map(maquina("pequenas", pequenas)));
+      f.append(grelha);
+      return f;
+    }));
+    const objs = objetivosDe(estado.casa.tipo);
+    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternar("objetivos", objs, k))));
   }
   for (const i of gm.querySelectorAll("input")) i.checked = estado.quer.maquinas.includes(i.value);
+  for (const i of gp.querySelectorAll("input")) i.checked = estado.quer.pequenas.includes(i.value);
   for (const i of go.querySelectorAll("input")) i.checked = estado.quer.objetivos.includes(i.value);
 }
 
-// ------------------------------------------------------------ 3. Planta (pré-desenhada e contagem)
+// ------------------------------------------------------------ 3. Planta (pré-desenhada) — docs §1.1
+const assinaturaBase = () => assinaturaCasa(estado.casa, maquinasEscolhidas(estado.quer));
+/** A casa dá divisões? (tipologia, ou serviços/industrial; na área de cliente sem tipologia não.) */
+const casaDaDivisoes = () => !!estado.casa.tipologia || negocio();
+
 /**
- * Planta já desenhada a partir da casa e das máquinas (casa.js): quando está vazia, ou quando ainda é
- * a que desenhámos (o cliente não lhe mexeu) e a casa ou as máquinas mudaram. Nunca toca numa planta
- * em que o cliente mexeu. Sem tipologia (área de cliente com o passo 1 saltado) não desenha nada.
+ * Planta já desenhada a partir da casa e das máquinas (casa.js plantaDaCasa): quando está vazia, ou
+ * quando ainda é a que desenhámos (o cliente não lhe mexeu) e a casa ou as máquinas mudaram. Nunca
+ * toca numa planta em que o cliente mexeu. Sem tipologia (área de cliente com o passo 1 saltado) não
+ * desenha nada.
  */
 function preencherPlanta() {
-  if (!estado.casa.tipologia) return false;
-  const assinatura = assinaturaCasa(estado.casa, estado.quer.maquinas);
-  if (plantaTemConteudo(estado.planta) && !(estado.plantaAuto && estado.plantaBase !== assinatura)) return false;
-  estado.planta = plantaDaCasa(estado.casa, estado.quer.maquinas);
-  estado.plantaAuto = true;
-  estado.plantaBase = assinatura;
+  if (!casaDaDivisoes()) return false;
+  if (plantaTemConteudo(estado.planta) && !(estado.plantaAuto && estado.plantaBase !== assinaturaBase())) return false;
+  desenharDaCasa();
   return true;
+}
+function desenharDaCasa() {
+  estado.planta = plantaDaCasa(estado.casa, maquinasEscolhidas(estado.quer));
+  estado.plantaAuto = true;
+  estado.plantaBase = assinaturaBase();
 }
 
 /** A casa ou as máquinas mudaram depois de o cliente mexer na planta que desenhámos? */
-const plantaDesatualizada = () => !estado.plantaAuto && !!estado.plantaBase && !!estado.casa.tipologia
-  && plantaTemConteudo(estado.planta) && estado.plantaBase !== assinaturaCasa(estado.casa, estado.quer.maquinas);
+const plantaDesatualizada = () => !estado.plantaAuto && !!estado.plantaBase && casaDaDivisoes()
+  && plantaTemConteudo(estado.planta) && estado.plantaBase !== assinaturaBase();
 
 function desenharPlantaOrigem() {
   const o = $("planta-origem");
   const mudou = plantaDesatualizada();
   o.hidden = !(estado.plantaAuto || mudou);
   o.textContent = mudou
-    ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua planta. Se quiser, desenhamo-la de novo a partir do passo 1 (perde o que mudou nela)."
-    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos habituais (porta, interruptor, luz, sensor de movimento, janelas e tomadas), e as máquinas que escolheu. Arraste, ajuste e tire ou acrescente o que for preciso — ou salte este passo.";
+    ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua planta. Se quiser, desenhamo-la de novo a partir dos passos 1 e 2 (perde o que mudou nela)."
+    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos habituais (porta, interruptor, luz, sensor de movimento, janelas e tomadas), e as máquinas que escolheu. Arraste, ajuste, acrescente divisões (escritório, lavandaria, despensa…) com os botões e tire ou acrescente o que for preciso — ou salte este passo.";
   $("planta-refazer").hidden = !mudou;
   $("planta-saltar").hidden = !plantaTemConteudo(estado.planta);
   $("planta-botoes").hidden = $("planta-refazer").hidden && $("planta-saltar").hidden;
@@ -370,6 +469,7 @@ function desenharContagem() {
     add(l.sensores_movimento, "sensor de movimento", "sensores de movimento");
     add(l.quadros, "quadro elétrico", "quadros elétricos");
     for (const m of l.maquinas) partes.push(`${nomeModelo(m.modelo).toLowerCase()} (${formatarW(m.potencia_w)})`);
+    add(l.telecom, "ponto de telecomunicações (brevemente)", "pontos de telecomunicações (brevemente)");
     const li = el("li");
     li.append(el("b", null, `${l.nome}: `), document.createTextNode(partes.length ? partes.join(", ") : "nada ainda"));
     ul.append(li);
@@ -381,9 +481,9 @@ const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length 
 
 /**
  * Contagem para os passos seguintes: a da planta; sem planta (saltada), a da planta que a casa daria
- * (divisões pela tipologia e extras, máquinas escolhidas em "O que quer") sem a gravar.
+ * (divisões, aparelhos habituais e máquinas escolhidas em "O que quer"), sem a gravar.
  */
-const contagemAtual = () => contarPlanta(usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, estado.quer.maquinas));
+const contagemAtual = () => contarPlanta(usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasEscolhidas(estado.quer)));
 
 /**
  * Circuitos sugeridos (§4) a partir da contagem. Toda a casa tem luzes e tomadas: se não há nenhuma
@@ -393,8 +493,8 @@ function circuitosSugeridos(cont) {
   const c = sugerirCircuitos(cont, { fases: estado.casa.fases });
   const de = (tipo, nome) => { const l = c.filter((x) => x.tipo === tipo); return l.length ? l : [{ ...circuitoVazio(0, tipo), nome }]; };
   const r = numerar([...de("iluminacao", "Iluminação"), ...de("tomadas", "Tomadas"), ...c.filter((x) => x.tipo === "maquina")]);
-  // "Poupar energia": medir o consumo em todos os circuitos inteligentes (já é o que sugerimos por omissão).
-  if (quer("poupar")) for (const x of r) if (x.inteligente) x.medir = true;
+  // "Poupar energia" / "Controlo de energia": medir o consumo em todos os circuitos inteligentes (já é o que sugerimos por omissão).
+  if (quer("poupar") || quer("energia")) for (const x of r) if (x.inteligente) x.medir = true;
   return r;
 }
 
@@ -406,17 +506,17 @@ function divisoesSugeridas(cont) {
   return aplicarObjetivos(d, estado.quer.objetivos, planta ? cont : null);
 }
 
-/** Pré-preenche a planta (se ainda é a nossa), o quadro, as divisões e os termóstatos (só o que o cliente não mudou). */
+/** Pré-preenche a planta (se ainda é a nossa), as divisões, o quadro e os termóstatos (só o que o cliente não mudou). */
 function prepararPassosSeguintes() {
   preencherPlanta();
   const cont = contagemAtual();
-  if (!estado.quadroEditado) estado.quadro.circuitos = circuitosSugeridos(cont);
   if (!estado.divisoesEditadas) estado.divisoes = divisoesSugeridas(cont);
+  if (!estado.quadroEditado) estado.quadro.circuitos = circuitosSugeridos(cont);
   // "Aquecimento / ar condicionado": um termóstato por piso.
   if (!estado.termostatosEditados) estado.extras.termostatos = quer("clima") ? Math.max(1, estado.casa.pisos ?? 1) : 0;
 }
 
-// ------------------------------------------------------------ 4. Quadro
+// ------------------------------------------------------------ 5. Quadro
 function selectCom(opcoes, valor, id) {
   const s = document.createElement("select");
   if (id) s.id = id;
@@ -467,13 +567,13 @@ function quadroMudou() {
 function desenharQuadro() {
   const temPlanta = !estado.plantaSaltada && estado.planta.elementos.length > 0;
   // Sem planta, a sugestão vem da casa e das máquinas escolhidas (o botão também serve para voltar a ela).
-  const daCasa = !temPlanta && (!!estado.casa.tipologia || estado.quer.maquinas.length > 0);
+  const daCasa = !temPlanta && (!!estado.casa.tipologia || negocio() || estado.quer.maquinas.length > 0);
   const botao = $("quadro-recalcular");
   botao.textContent = temPlanta ? "Recalcular a partir da planta" : "Recalcular a partir da casa";
   botao.hidden = !temPlanta && !daCasa;
   const origem = $("quadro-origem");
   origem.hidden = !temPlanta && !daCasa;
-  origem.textContent = estado.quadroEditado ? `Alterou o quadro à mão: não o mudamos sozinhos. Use "${botao.textContent}" para voltar à sugestão.` : `Sugestão feita a partir da sua ${temPlanta ? "planta" : "casa e das máquinas que escolheu"} (luzes até 8 por circuito de 10 A, tomadas até 8 por circuito de 16 A, circuito próprio para as máquinas de lavar e secar, forno, placa, termoacumulador, ar condicionado, bomba de calor, bomba da piscina/rega e carregador do carro). Pode mudar tudo.`;
+  origem.textContent = estado.quadroEditado ? `Alterou o quadro à mão: não o mudamos sozinhos. Use "${botao.textContent}" para voltar à sugestão.` : `Sugestão feita a partir da sua ${temPlanta ? "planta" : "casa e das máquinas que escolheu"} (luzes até 8 por circuito de 10 A, tomadas até 8 por circuito de 16 A com as máquinas pequenas, circuito próprio para cada máquina grande). Pode mudar tudo.`;
   for (const r of document.querySelectorAll("input[name=disjuntor]")) r.checked = r.value === estado.quadro.disjuntor;
   const caixaC = $("circuitos");
   caixaC.replaceChildren();
@@ -511,7 +611,7 @@ function cartaoCircuito(c, i) {
   const divs = el("fieldset", "chips");
   divs.append(el("legend", null, "Divisões"));
   const nomes = nomesDivisoes();
-  if (!nomes.length) divs.append(el("p", "ajuda", "Ainda não há divisões (passo 5)."));
+  if (!nomes.length) divs.append(el("p", "ajuda", "Ainda não há divisões (passos 3 e 4)."));
   nomes.forEach((n, j) => {
     const [l, cb] = caixa(n, c.divisoes.includes(n), `${id}-div-${j}`);
     l.className = "chip";
@@ -650,20 +750,18 @@ ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
   estado.divisoes = divisoesSugeridas(contagemAtual());
   estado.divisoesEditadas = false;
 }, desenharDivisoes);
-// Planta em que o cliente mexeu e a casa mudou depois: só a refazemos se ele pedir (e confirmar).
+// Planta em que o cliente mexeu e a casa ou as máquinas mudaram depois: só a refazemos se ele pedir (e confirmar).
 ligarRecalcular("planta-refazer", () => true, () => {
-  estado.planta = plantaDaCasa(estado.casa, estado.quer.maquinas);
-  estado.plantaAuto = true;
-  estado.plantaBase = assinaturaCasa(estado.casa, estado.quer.maquinas);
+  desenharDaCasa();
   estado.plantaSaltada = false;
 }, () => {
   editor.abrir(estado.planta, { reiniciarVista: true });
   desenharContagem();
   desenharPlantaOrigem();
   textoSeguinte();
-}, { pergunta: "Isto apaga a planta atual (e o que desenhou nela) e desenha-a de novo a partir do passo 1. Continuar?", sim: "Sim, refazer" });
+}, { pergunta: "Isto apaga a planta atual (e o que desenhou nela) e desenha-a de novo a partir dos passos 1 e 2. Continuar?", sim: "Sim, refazer" });
 
-// ------------------------------------------------------------ 5. Divisões
+// ------------------------------------------------------------ 4. Divisões
 function divisoesMudou() {
   estado.divisoesEditadas = true;
   agendarGravacao();
@@ -671,17 +769,20 @@ function divisoesMudou() {
 
 function desenharDivisoes() {
   const temPlanta = usaPlanta();
-  const daCasa = !temPlanta && (!!estado.casa.tipologia || estado.quer.objetivos.length > 0);
+  const daCasa = !temPlanta && (casaDaDivisoes() || estado.quer.objetivos.length > 0);
   const botao = $("divisoes-recalcular");
   botao.textContent = temPlanta ? "Recalcular a partir da planta" : "Recalcular a partir da casa";
   botao.hidden = !temPlanta && !daCasa;
   const origem = $("divisoes-origem");
   origem.hidden = !temPlanta && !daCasa;
-  const efeitos = [quer("alarme") && "sensores do alarme", quer("estores") && "estores", quer("luzes") && "interruptores"].filter(Boolean);
+  const efeitos = [
+    quer("alarme") && "sensores do alarme", quer("estores") && "estores", (quer("luzes") || quer("horarios")) && "interruptores",
+    quer("iluminacao_auto") && "sensores de movimento",
+  ].filter(Boolean);
   const objetivos = efeitos.length ? ` e do que quer fazer (${efeitos.join(", ")})` : "";
   origem.textContent = estado.divisoesEditadas ? "Alterou as divisões à mão: não as mudamos sozinhos."
     : temPlanta ? `Preenchido a partir da sua planta (uma porta da rua conta como um sensor de porta sugerido)${objetivos}. Pode mudar tudo.`
-      : `Preenchido a partir da sua casa${objetivos}. Pode mudar tudo.`;
+      : `Preenchido a partir ${negocio() ? "do seu espaço" : "da sua casa"}${objetivos}. Pode mudar tudo.`;
   const c = $("divisoes");
   c.replaceChildren();
   if (!estado.divisoes.length) c.append(el("p", "ajuda", "Sem divisões. Use \"Adicionar divisão\"."));
@@ -792,7 +893,8 @@ async function carregarCatalogo() {
 function calcular() {
   const pedidos = pedidosDaSelecao(estado);
   const preco = calcularPreco(pedidos, catalogo ?? null, configOrc);
-  return { pedidos, preco, plano: planoSugerido(pedidos, { distancia: quer("distancia") }) };
+  // "Desligar tudo ao fechar" (serviços/industrial) também é controlar à distância.
+  return { pedidos, preco, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
 }
 
 // Abaixo de 480 px a coluna do preço unitário esconde-se (simulador.css): as linhas que ocupam
@@ -818,7 +920,9 @@ function desenharCasaResumo() {
   const dl = el("dl", "sim-casa-dados");
   const linha = (t, v) => dl.append(el("dt", null, t), el("dd", null, v));
   linha("Tipo", TIPOS_CASA[k.tipo] ?? "Não indicado");
-  if (k.tipologia) {
+  if (negocio()) {
+    linha("Área e espaços", `${k.area_m2} m² · ${k.espacos} ${k.espacos === 1 ? "espaço" : "espaços"}`);
+  } else if (k.tipologia) {
     const partes = [k.tipologia === "T5+" ? `T${quartosDe(k)}` : k.tipologia, `${k.casas_banho} ${k.casas_banho === 1 ? "casa de banho" : "casas de banho"}`];
     if (k.tipologia !== "T0") partes.push(`${k.salas} ${k.salas === 1 ? "sala" : "salas"}`);
     partes.push(`${k.pisos} ${k.pisos === 1 ? "piso" : "pisos"}`);
@@ -892,6 +996,9 @@ function desenharPreco() {
   }
   // O texto da estimativa já está no cartão do total: aqui só o IVA (não se repete).
   $("preco-nota").textContent = "Preços com IVA incluído.";
+  // Telecomunicações (ITED): ainda fora do preço, orçamentadas na visita.
+  const tel = telecomParaEnvio(estado);
+  $("preco-telecom").textContent = `${tel.texto}${tel.total ? ` (${tel.total} ${tel.total === 1 ? "ponto desenhado" : "pontos desenhados"} na planta)` : ""}`;
 
   const pl = $("preco-planos");
   pl.replaceChildren();
@@ -1029,7 +1136,10 @@ async function enviar() {
   // Erros do servidor: a mensagem (com as alternativas) aparece no ecrã, não escondida por cima.
   queueMicrotask(() => $("enviar-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" }));
   if (estadoHttp === 429) mostrarEnvio("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone. A sua simulação fica guardada neste navegador.", "erro", true);
-  else if (estadoHttp === 400) mostrarEnvio(`Há dados em falta ou inválidos${typeof erro === "string" ? `: ${erro.slice(0, 200)}` : "."} Verifique o formulário, ou fale connosco.`, "erro", true);
+  else if (estadoHttp === 400) {
+    const e = typeof erro === "string" ? erro.trim().slice(0, 200) : "";
+    mostrarEnvio(`Há dados em falta ou inválidos${e ? `: ${e}${/[.!?…]$/.test(e) ? "" : "."}` : "."} Verifique o formulário, ou fale connosco.`, "erro", true);
+  }
   else if (estadoHttp === 413) mostrarEnvio("A simulação é demasiado grande para enviar. Remova o fundo da planta e tente de novo, ou fale connosco.", "erro", true);
   else mostrarEnvio("Não foi possível enviar agora. A sua simulação fica guardada neste navegador: tente mais tarde, ou fale connosco pelo WhatsApp ou telefone.", "erro", true);
 }
@@ -1090,7 +1200,7 @@ function iniciar() {
     $("sim-form").hidden = true;
     $("sim-continuar").addEventListener("click", () => {
       estado = guardado;
-      visitado = estado.passo;
+      visitado = Math.max(estado.passo, estado.visitado ?? 0);
       fecharRetomar();
     });
     $("sim-recomecar").addEventListener("click", () => {

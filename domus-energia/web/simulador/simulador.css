@@ -58,14 +58,18 @@ input, select { min-height: 44px; }
 .escolhas legend small { display: block; font-weight: 600; }
 .escolha small { display: block; font-weight: 600; color: var(--texto-suave); }
 .escolha > span { display: grid; gap: 2px; }
-/* Contadores − n + (alvos de 44 px). */
-.contadores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
+/* Contadores − n + (alvos de 44 px), todos numa grelha: os escondidos (Pisos, Salas, Quartos…) não deixam buracos. */
+.contadores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); align-items: end; }
+.contadores:not(:has(.contador:not([hidden]))) { display: none; }
 .contador { display: grid; gap: 6px; min-width: 0; }
 .contador-rotulo { font-weight: 700; }
 .contador-caixa { display: flex; align-items: center; gap: 8px; }
 .contador-caixa .btn { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 1.3rem; line-height: 1; }
 .contador-valor { min-width: 2.5ch; text-align: center; font-weight: 800; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
 .contador[hidden] { display: none; }
+/* "O que quer": máquinas pequenas por grupos (Cozinha, Sala e quartos…). */
+.quer-grupos { display: grid; gap: 14px; }
+.quer-grupo > legend { font-size: 1rem; font-weight: 700; color: var(--texto-suave); }
 .caixa-linha { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 600; cursor: pointer; }
 .caixa-linha input { width: 24px; height: 24px; min-height: 0; padding: 0; accent-color: var(--musgo); flex: none; }
 .caixa-linha input:disabled + span { opacity: .6; }
@@ -85,8 +89,15 @@ input, select { min-height: 44px; }
 /* Botões por tipo de divisão: mais baixos, ícone ao lado do nome. */
 .editor-divisoes { align-items: center; }
 .editor-barra-rotulo { flex: none; font-weight: 700; font-size: .85rem; color: var(--texto-suave); padding-right: 2px; }
-.ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; white-space: nowrap; }
-.ferramenta.tipo-divisao svg { width: 20px; height: 20px; }
+.ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; text-align: left; }
+.ferramenta.tipo-divisao svg { width: 20px; height: 20px; flex: none; }
+/* Por baixo do nome, em letra pequena, o que a divisão traz ("porta, janela, luz…"). */
+.tipo-divisao-texto { display: grid; gap: 1px; }
+.tipo-divisao-nome { white-space: nowrap; }
+.tipo-divisao-traz { max-width: 150px; font-size: .68rem; font-weight: 600; line-height: 1.2; color: var(--texto-suave); }
+/* Telecomunicações ("brevemente"): tracejado, fora do preço. */
+.ferramenta.telecom { border-style: dashed; }
+.editor-telecom { align-items: center; }
 .editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .editor-barra2 .btn { min-width: 44px; }
 /* Altura reservada: a dica muda de tamanho a cada ação e a planta, por baixo, não pode saltar
@@ -223,9 +234,10 @@ input, select { min-height: 44px; }
   .sim-barra span { transition: none; }
 }
 
-/* Contador que a tipologia acabou de mudar: pisca uma vez. */
+/* Contador que a tipologia acabou de mudar: pisca uma vez (com movimento reduzido, não pisca). */
 .contador.destaque .contador-caixa { animation: contador-destaque 1.4s ease-out; border-radius: 999px; }
 @keyframes contador-destaque { 0%, 35% { background: var(--areia-suave); box-shadow: 0 0 0 3px var(--areia-suave); } 100% { background: transparent; box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .contador.destaque .contador-caixa { animation: none; } }
 /* Divisão acabada de criar: pisca ~1,5 s (editor.js DESTAQUE_MS); com movimento reduzido fica só destacada */
 .editor-svg .destaque-nova { animation: destaque-nova .5s ease-in-out 3 both; }
 @keyframes destaque-nova { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }

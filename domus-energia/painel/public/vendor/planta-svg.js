@@ -38,11 +38,22 @@ const COR = {
 const NOMES = {
   porta: "Porta", janela: "Janela", quadro: "Quadro elétrico", tomada: "Tomada", luz: "Ponto de luz",
   interruptor: "Interruptor", maquina: "Máquina", sensor_porta: "Sensor de porta/janela", sensor_movimento: "Sensor de movimento",
+  // Telecomunicações (ITED) — "brevemente": desenhadas com o disco tracejado, fora do preço.
+  telecom_ati: "ATI (armário de telecomunicações)", telecom_rj45: "Tomada de dados (RJ45)", telecom_coaxial: "Tomada de TV (coaxial)",
+  telecom_fibra: "Fibra ótica", telecom_wifi: "Ponto de acesso Wi-Fi",
 };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
-  frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
+  frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)",
+  arca_frigorifica: "Arca / vitrine frigorífica", maquina_cafe: "Máquina de café profissional", servidor: "Servidor / bastidor", compressor: "Compressor",
+  soldadura: "Máquina de soldar", maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador de carro elétrico 22 kW",
+  arca_congeladora: "Arca congeladora", micro_ondas: "Micro-ondas", exaustor: "Exaustor", cafeteira: "Cafeteira / chaleira", computador: "Computador",
+  consola: "Consola de jogos", desumidificador: "Desumidificador", aquecedor_portatil: "Aquecedor portátil", box_router: "Box / router do operador",
+  repetidor_wifi: "Repetidor Wi-Fi", nas: "NAS (discos em rede)", camara: "Câmara de vigilância", portao: "Portão automático", rega: "Rega automática",
+  iluminacao_jardim: "Iluminação de jardim / exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora", terminal_pagamento: "Caixa / terminal de pagamento",
+  reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas portáteis", aspirador_industrial: "Aspirador industrial", carregador_baterias: "Carregador de baterias",
+  outro: "Outra máquina",
 };
 
 // Ícones em traço (caixa 48 × 48, centro 24,24), no estilo das ilustrações "Terra".
@@ -60,6 +71,11 @@ const ICONES = {
   maquina_televisao: [["rect", { x: 9.5, y: 12, width: 29, height: 19, rx: 2.5 }, "t"], ["path", { d: "M19 36.5h10M24 31v5.5" }, "t"]],
   sensor_porta: [["rect", { x: 13, y: 14, width: 8, height: 20, rx: 2 }, "t"], ["rect", { x: 25, y: 16, width: 6, height: 16, rx: 2 }, "t"], ["path", { d: "M35 19.5c1.8 2.9 1.8 6.1 0 9" }, "t"]],
   sensor_movimento: [["circle", { cx: 18, cy: 24, r: 5.5 }, "t"], ["path", { d: "M27 18.5c2.6 3.4 2.6 7.6 0 11M31.5 15c4.3 5.5 4.3 12.5 0 18" }, "t"]],
+  telecom_ati: [["rect", { x: 13, y: 10, width: 22, height: 28, rx: 2.5 }, "t"], ["path", { d: "M17 16h14M17 21h14M17 26h14" }, "t"], ["circle", { cx: 24, cy: 32.5, r: 1.6 }, "c"]],
+  telecom_rj45: [["rect", { x: 13, y: 13, width: 22, height: 22, rx: 3 }, "t"], ["path", { d: "M18.5 20h11v8.5h-3V31h-5v-2.5h-3z" }, "t"]],
+  telecom_coaxial: [["circle", { cx: 24, cy: 24, r: 11.5 }, "t"], ["circle", { cx: 24, cy: 24, r: 5 }, "t"], ["circle", { cx: 24, cy: 24, r: 1.6 }, "c"]],
+  telecom_fibra: [["path", { d: "M10 30c5-9 9-9 14 0s9 9 14 0" }, "t"], ["circle", { cx: 10, cy: 30, r: 2 }, "c"], ["circle", { cx: 38, cy: 30, r: 2 }, "c"], ["path", { d: "M24 12v6" }, "t"]],
+  telecom_wifi: [["path", { d: "M12 20.5c7-6 17-6 24 0M16 25c4.6-3.8 11.4-3.8 16 0M20.2 29.4c2.2-1.7 5.4-1.7 7.6 0" }, "t"], ["circle", { cx: 24, cy: 33.5, r: 1.8 }, "c"]],
 };
 const ICONE_RAIO = [["path", { d: "M26 13 18 26h6l-2 9 8-13h-6z" }, "c"]];
 
@@ -262,9 +278,11 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     if (!soLeitura && raioToque > raio) g.append(no("circle", { r: raioToque, cx: 0, cy: 0 }, { fill: "transparent" }));
     if (sel) g.append(no("circle", { r: raio * 1.35, cx: 0, cy: 0 }, { fill: "none", stroke: COR.argila, "stroke-width": "3px", "stroke-dasharray": "6 4", "vector-effect": "non-scaling-stroke" }));
     const destaque = (e.tipo === "porta" && e.props?.entrada) || e.tipo === "maquina";
+    const telecom = String(e.tipo).startsWith("telecom_");
     g.append(no("circle", { r: raio, cx: 0, cy: 0 }, {
       fill: destaque ? `color-mix(in srgb, ${COR.areia} 30%, ${COR.fundo})` : COR.fundo,
-      stroke: e.tipo === "porta" && e.props?.entrada ? COR.argila : COR.musgo, "stroke-width": "2px", "vector-effect": "non-scaling-stroke",
+      stroke: e.tipo === "porta" && e.props?.entrada ? COR.argila : telecom ? COR.suave : COR.musgo, "stroke-width": "2px", "vector-effect": "non-scaling-stroke",
+      ...(telecom ? { "stroke-dasharray": "4 3" } : {}),
     }));
     const s = (raio * 1.5) / 48;
     const gi = no("g", { transform: `rotate(${rot}) scale(${s}) translate(-24 -24)` }, { "pointer-events": "none" });
@@ -275,7 +293,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
         : { fill: papel === "a" ? COR.argila : COR.areia, stroke: "none" }));
     }
     // Sentido (porta: para onde abre; janela/tomada/interruptor: a parede) — um traço na borda.
-    if (e.tipo === "porta" || e.tipo === "janela" || e.tipo === "tomada" || e.tipo === "interruptor") {
+    if (e.tipo === "porta" || e.tipo === "janela" || e.tipo === "tomada" || e.tipo === "interruptor" || e.tipo === "telecom_rj45" || e.tipo === "telecom_coaxial") {
       g.append(no("path", { d: `M${-raio * 0.7} ${-raio}H${raio * 0.7}`, transform: `rotate(${rot})` }, {
         fill: "none", stroke: COR.argila, "stroke-width": "4px", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke", "pointer-events": "none",
       }));

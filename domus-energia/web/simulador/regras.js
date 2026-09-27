@@ -21,7 +21,11 @@ export const AMPERES_MAX_INTELIGENTE = 63; // TONGOU SY1/SY2: até 63 A, 1P+N
 export const AMPERES = [6, 10, 16, 20, 25, 32, 40];
 export const AMPERES_MAQUINA = [16, 20, 25, 32, 40];
 /** Máquinas que têm sempre circuito próprio, seja qual for a potência (as outras: ≥ 2000 W). A bomba fica no exterior: circuito próprio. */
-export const MODELOS_DEDICADOS = ["maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve", "bomba"];
+export const MODELOS_DEDICADOS = [
+  "maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve", "bomba",
+  // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
+  "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
+];
 export const AMPERES_PLACA = 32;          // placa: nunca tira a potência toda ao mesmo tempo (simultaneidade)
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
@@ -33,16 +37,31 @@ export const TIPOS_CIRCUITO = {
   misto: "Misto",
 };
 
+/** Tipos de imóvel, pela ordem dos botões do passo "A casa". */
 export const TIPOS_CASA = {
-  moradia: "Moradia",
   apartamento: "Apartamento",
+  moradia: "Moradia",
   alojamento_local: "Alojamento local",
+  servicos: "Serviços",
+  industrial: "Industrial",
   outro: "Outro",
 };
+/** Serviços (loja, escritório, restaurante) e industrial (armazém, oficina, fábrica): percurso próprio (área e espaços). */
+export const TIPOS_NEGOCIO = ["servicos", "industrial"];
+/** Perfil do imóvel: "servicos", "industrial" ou "habitacao" (os outros tipos, e sem tipo). */
+export const perfilCasa = (tipo) => (TIPOS_NEGOCIO.includes(tipo) ? tipo : "habitacao");
 
-/** Passo "A casa": tipologia (T5+ pede o n.º de quartos), contadores e extras. */
+/**
+ * Passo "A casa": tipologia e contadores (o de quartos anda com a tipologia: 0 = T0, 1–4 = T1–T4,
+ * 5 ou mais = T5+), extras; serviços e industrial: área e n.º de espaços.
+ */
 export const TIPOLOGIAS = ["T0", "T1", "T2", "T3", "T4", "T5+"];
-export const LIMITES_CASA = { quartos: [5, 12], casas_banho: [1, 6], salas: [1, 4], pisos: [1, 4] };
+export const LIMITES_CASA = {
+  quartos: [0, 12], casas_banho: [1, 6], salas: [1, 4], pisos: [1, 4],
+  espacos: [1, 30], area_m2: [10, 5000],
+};
+/** Tipologia que corresponde a um n.º de quartos (0 → T0 … 5 ou mais → T5+). */
+export const tipologiaDeQuartos = (n) => (n >= 5 ? "T5+" : `T${Math.max(0, Math.round(n) || 0)}`);
 export const EXTRAS_CASA = {
   jardim: "Jardim / exterior",
   garagem: "Garagem / arrecadação",
@@ -50,8 +69,40 @@ export const EXTRAS_CASA = {
   kitnet: "Kitnet (cozinha aberta)",
 };
 
-/** Passo "O que quer": máquinas grandes (chaves de MODELOS) e objetivos. */
-export const MAQUINAS_QUER = ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "ar_condicionado", "carregador_ve", "bomba"];
+/**
+ * Passo "O que quer": máquinas grandes (circuito próprio), máquinas pequenas (ficam no circuito das
+ * tomadas; por grupos) e objetivos — cada perfil (habitação, serviços, industrial) tem as suas listas.
+ * `MAQUINAS_QUER`, `PEQUENAS_QUER` e `OBJETIVOS` (todas as chaves) servem para validar.
+ */
+export const MAQUINAS_GRANDES = {
+  habitacao: ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "ar_condicionado", "carregador_ve", "carregador_ve_22", "bomba"],
+  servicos: ["ar_condicionado", "arca_frigorifica", "maquina_cafe", "forno", "placa", "maquina_loica", "termoacumulador", "servidor", "carregador_ve", "carregador_ve_22"],
+  industrial: ["compressor", "soldadura", "maquina_trifasica", "portao_industrial", "ar_condicionado", "termoacumulador", "carregador_ve", "carregador_ve_22"],
+};
+export const MAQUINAS_PEQUENAS = {
+  habitacao: [
+    ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira"]],
+    ["Sala e quartos", ["televisao", "computador", "consola", "desumidificador", "aquecedor_portatil"]],
+    ["Telecomunicações", ["box_router", "repetidor_wifi", "nas", "camara"]],
+    ["Exterior e outros", ["portao", "rega", "iluminacao_jardim", "aspirador_robo"]],
+  ],
+  servicos: [
+    ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
+    ["Copa", ["frigorifico", "micro_ondas", "cafeteira"]],
+    ["Telecomunicações", ["box_router", "repetidor_wifi", "nas", "camara"]],
+  ],
+  industrial: [
+    ["Oficina", ["ferramentas", "aspirador_industrial", "carregador_baterias"]],
+    ["Escritório e vestiários", ["computador", "impressora", "micro_ondas", "frigorifico", "cafeteira"]],
+    ["Telecomunicações e exterior", ["box_router", "repetidor_wifi", "camara", "iluminacao_jardim"]],
+  ],
+};
+const unicos = (l) => [...new Set(l)];
+export const MAQUINAS_QUER = unicos(Object.values(MAQUINAS_GRANDES).flat());
+export const PEQUENAS_QUER = unicos(Object.values(MAQUINAS_PEQUENAS).flatMap((g) => g.flatMap(([, l]) => l)));
+export const maquinasGrandesDe = (tipo) => MAQUINAS_GRANDES[perfilCasa(tipo)];
+export const maquinasPequenasDe = (tipo) => MAQUINAS_PEQUENAS[perfilCasa(tipo)].flatMap(([, l]) => l);
+
 export const OBJETIVOS = {
   poupar: "Poupar energia",
   alarme: "Alarme e segurança",
@@ -59,7 +110,26 @@ export const OBJETIVOS = {
   luzes: "Luzes pelo telemóvel",
   distancia: "Controlar à distância (férias / alojamento local)",
   clima: "Aquecimento / ar condicionado",
+  horarios: "Horários de abertura",
+  iluminacao_auto: "Iluminação automática",
+  energia: "Controlo de energia",
+  desligar: "Desligar tudo ao fechar",
 };
+export const OBJETIVOS_PERFIL = {
+  habitacao: ["poupar", "alarme", "estores", "luzes", "distancia", "clima"],
+  servicos: ["horarios", "alarme", "iluminacao_auto", "energia", "desligar", "clima"],
+  industrial: ["horarios", "alarme", "iluminacao_auto", "energia", "desligar"],
+};
+export const objetivosDe = (tipo) => OBJETIVOS_PERFIL[perfilCasa(tipo)];
+
+/**
+ * Ligação sugerida (o cliente pode mudar): industrial, carregador de 22 kW ou máquina trifásica →
+ * trifásica; o resto monofásica; sem tipo (área de cliente) e sem essas máquinas → null (não sugere).
+ */
+export function sugerirFases(tipo, maquinas = []) {
+  if (tipo === "industrial" || maquinas.includes("carregador_ve_22") || maquinas.includes("maquina_trifasica")) return "tri";
+  return tipo ? "mono" : null;
+}
 
 /** Elementos da planta (§2): nome, se roda, propriedades por omissão. */
 export const ELEMENTOS = {
@@ -72,11 +142,22 @@ export const ELEMENTOS = {
   maquina: { nome: "Máquina", roda: false, props: { modelo: "termoacumulador", potencia_w: 2000 } },
   sensor_porta: { nome: "Sensor de porta/janela", roda: false, props: {} },
   sensor_movimento: { nome: "Sensor de movimento", roda: false, props: {} },
+  // Telecomunicações (ITED) — "brevemente": desenham-se, mas ficam fora do preço e dos circuitos.
+  telecom_ati: { nome: "ATI (armário de telecomunicações)", roda: false, props: {}, telecom: true },
+  telecom_rj45: { nome: "Tomada de dados (RJ45)", roda: true, props: {}, telecom: true },
+  telecom_coaxial: { nome: "Tomada de TV (coaxial)", roda: true, props: {}, telecom: true },
+  telecom_fibra: { nome: "Fibra ótica", roda: false, props: {}, telecom: true },
+  telecom_wifi: { nome: "Ponto de acesso Wi-Fi", roda: false, props: {}, telecom: true },
 };
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
+export const TIPOS_TELECOM = TIPOS_ELEMENTO.filter((t) => ELEMENTOS[t].telecom);
+export const ehTelecom = (tipo) => !!ELEMENTOS[tipo]?.telecom;
 export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "brilho", "botoes", "modelo", "potencia_w"];
 
-/** Máquinas: nome e potência típica (editável). */
+/**
+ * Máquinas: nome e potência típica (editável). As que não estão em MODELOS_DEDICADOS e têm menos de
+ * 2000 W (as máquinas pequenas) ficam no circuito das tomadas e contam na potência dele.
+ */
 export const MODELOS = {
   termoacumulador: { nome: "Termoacumulador", w: 2000 },
   ar_condicionado: { nome: "Ar condicionado", w: 1500 },
@@ -90,6 +171,38 @@ export const MODELOS = {
   bomba_calor: { nome: "Bomba de calor", w: 3000 },
   carregador_ve: { nome: "Carregador de carro elétrico", w: 7400 },
   bomba: { nome: "Bomba (piscina/rega)", w: 1100 },
+  // Máquinas grandes de serviços e industrial (circuito próprio).
+  arca_frigorifica: { nome: "Arca / vitrine frigorífica", w: 800 },
+  maquina_cafe: { nome: "Máquina de café profissional", w: 2800 },
+  servidor: { nome: "Servidor / bastidor", w: 600 },
+  compressor: { nome: "Compressor", w: 3000 },
+  soldadura: { nome: "Máquina de soldar", w: 5000 },
+  maquina_trifasica: { nome: "Máquina trifásica (torno, serra…)", w: 7500 },
+  portao_industrial: { nome: "Portão industrial", w: 750 },
+  carregador_ve_22: { nome: "Carregador de carro elétrico 22 kW (trifásico)", w: 22000 },
+  // Máquinas pequenas (circuito das tomadas).
+  arca_congeladora: { nome: "Arca congeladora", w: 150 },
+  micro_ondas: { nome: "Micro-ondas", w: 1200 },
+  exaustor: { nome: "Exaustor", w: 200 },
+  cafeteira: { nome: "Cafeteira / chaleira", w: 1500 },
+  computador: { nome: "Computador", w: 300 },
+  consola: { nome: "Consola de jogos", w: 200 },
+  desumidificador: { nome: "Desumidificador", w: 300 },
+  aquecedor_portatil: { nome: "Aquecedor portátil", w: 1500 },
+  box_router: { nome: "Box / router do operador", w: 20 },
+  repetidor_wifi: { nome: "Repetidor Wi-Fi", w: 10 },
+  nas: { nome: "NAS (discos em rede)", w: 40 },
+  camara: { nome: "Câmara de vigilância", w: 10 },
+  portao: { nome: "Portão automático", w: 300 },
+  rega: { nome: "Rega automática (programador)", w: 20 },
+  iluminacao_jardim: { nome: "Iluminação de jardim / exterior", w: 150 },
+  aspirador_robo: { nome: "Aspirador robô", w: 40 },
+  impressora: { nome: "Impressora", w: 500 },
+  terminal_pagamento: { nome: "Caixa / terminal de pagamento", w: 50 },
+  reclamo: { nome: "Reclamo luminoso", w: 150 },
+  ferramentas: { nome: "Ferramentas elétricas portáteis", w: 1200 },
+  aspirador_industrial: { nome: "Aspirador industrial", w: 1400 },
+  carregador_baterias: { nome: "Carregador de baterias", w: 500 },
   outro: { nome: "Outra máquina", w: 1000 },
 };
 
@@ -106,13 +219,39 @@ export const TIPOS_DIVISAO = [
   { nome: "Entrada", w: 200, h: 200 },
   { nome: "Escritório", w: 300, h: 300 },
   { nome: "Lavandaria", w: 200, h: 200 },
+  { nome: "Despensa", w: 200, h: 150 },
   { nome: "Garagem", w: 500, h: 300 },
   { nome: "Varanda", w: 300, h: 150 },
   { nome: "Jardim", w: 600, h: 400 },
   { nome: "Outra", w: 400, h: 300 },
 ];
+/** Tipos de espaço de serviços (loja, escritório, restaurante) e industrial (armazém, oficina, fábrica). */
+export const TIPOS_DIVISAO_SERVICOS = [
+  { nome: "Loja / sala aberta", w: 800, h: 600 },
+  { nome: "Escritório", w: 300, h: 300 },
+  { nome: "Receção", w: 300, h: 250 },
+  { nome: "Copa", w: 300, h: 250 },
+  { nome: "Instalações sanitárias", w: 250, h: 200 },
+  { nome: "Arrumos", w: 250, h: 200 },
+  { nome: "Montra", w: 400, h: 150 },
+  { nome: "Outra", w: 400, h: 300 },
+];
+export const TIPOS_DIVISAO_INDUSTRIAL = [
+  { nome: "Nave / oficina", w: 1500, h: 1000 },
+  { nome: "Escritório", w: 400, h: 300 },
+  { nome: "Armazém", w: 800, h: 600 },
+  { nome: "Vestiários", w: 400, h: 300 },
+  { nome: "Instalações sanitárias", w: 300, h: 250 },
+  { nome: "Cais / exterior", w: 600, h: 400 },
+  { nome: "Outra", w: 400, h: 300 },
+];
+/** Botões de divisão do editor para o tipo de imóvel. */
+export const tiposDivisaoPara = (tipo) => ({ servicos: TIPOS_DIVISAO_SERVICOS, industrial: TIPOS_DIVISAO_INDUSTRIAL }[perfilCasa(tipo)] ?? TIPOS_DIVISAO);
 
-export const NOMES_DIVISAO = ["Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Jardim", "Exterior"];
+export const NOMES_DIVISAO = [
+  "Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Jardim", "Exterior",
+  "Loja / sala aberta", "Receção", "Copa", "Instalações sanitárias", "Arrumos", "Montra", "Nave / oficina", "Armazém", "Vestiários", "Cais / exterior",
+];
 
 const nf = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 0 });
 export const formatarW = (w) => `${nf.format(Math.round(w)).replace(/[\u00a0\u202f]/g, " ")} W`;
@@ -220,8 +359,9 @@ export function paredesCruzam(pts) {
 
 /**
  * Cantos válidos para uma divisão: 3–24 pares de números, arredondados ao cm e dentro de
- * 0…L × 0…A, sem cantos repetidos seguidos, sem paredes cruzadas, com área ≥ 0,25 m²;
- * no sentido dos ponteiros do relógio no ecrã. null se não servirem.
+ * 0…L × 0…A (um canto fora da planta invalida a forma: não se corta), sem cantos repetidos
+ * seguidos, sem paredes cruzadas, com área ≥ 0,25 m²; no sentido dos ponteiros do relógio no ecrã.
+ * null se não servirem.
  */
 export function validarPontos(v, L = MAX_LADO_CM, A = MAX_LADO_CM) {
   if (!Array.isArray(v) || v.length < MIN_CANTOS || v.length > MAX_CANTOS) return null;
@@ -230,7 +370,8 @@ export function validarPontos(v, L = MAX_LADO_CM, A = MAX_LADO_CM) {
     if (!Array.isArray(q) || q.length !== 2) return null;
     const x = Number(q[0]), y = Number(q[1]);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    const p = [Math.round(limitar(x, 0, L)), Math.round(limitar(y, 0, A))];
+    const p = [Math.round(x), Math.round(y)];
+    if (p[0] < 0 || p[0] > L || p[1] < 0 || p[1] > A) return null;
     const u = pts[pts.length - 1];
     if (!u || u[0] !== p[0] || u[1] !== p[1]) pts.push(p);
   }
@@ -332,12 +473,14 @@ export function contarPlanta(planta) {
   const nova = (id, nome) => ({
     id, nome, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, interruptores: [],
     janelas: 0, estores: 0, estores_sem_motor: 0, portas: 0, portas_entrada: 0,
-    sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0,
+    sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0, telecom: 0,
   });
   const usados = new Set();
   for (const d of planta.divisoes) linhas.set(d.id, nova(d.id, d.nome || "Divisão"));
   for (const e of planta.elementos) {
     const id = e.divisao && linhas.has(e.divisao) ? e.divisao : FORA;
+    // Telecomunicações ("brevemente"): só se contam para mostrar; ficam fora dos circuitos e do preço.
+    if (ehTelecom(e.tipo)) { if (id !== FORA) linhas.get(id).telecom++; continue; }
     if (!linhas.has(id)) linhas.set(id, nova(null, "Fora das divisões"));
     const l = linhas.get(id);
     const p = e.props || {};
@@ -425,14 +568,16 @@ export const circuitoProprio = (m) => MODELOS_DEDICADOS.includes(m?.modelo) || w
 export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
 
 /** Disjuntor sugerido para o circuito próprio de uma máquina: placa até 32 A; carregador VE 40 A; resto pelos 80 %. */
+const ehCarregador = (m) => m?.modelo === "carregador_ve" || m?.modelo === "carregador_ve_22";
+
 export function amperesMaquina(m) {
-  if (m?.modelo === "carregador_ve") return AMPERES_VE;
+  if (ehCarregador(m)) return AMPERES_VE;
   if (m?.modelo === "placa") return Math.min(AMPERES_PLACA, amperesPara(watts(m)));
   return amperesPara(watts(m));
 }
 
 /** Máquinas que não entram na conta dos 80 %: a placa (simultaneidade) e o carregador VE (limita a corrente). */
-const semSobrecarga = (m) => m?.modelo === "placa" || m?.modelo === "carregador_ve";
+const semSobrecarga = (m) => m?.modelo === "placa" || ehCarregador(m);
 
 /** Máquina acima de 7,4 kW (costuma ser trifásica). */
 export const trifasica = (m) => watts(m) > MAX_MONOFASICO_W;
@@ -568,7 +713,7 @@ export function avisosCircuito(c, opcoes = {}) {
   if (partilhado) {
     for (const m of proprias) r.push(aviso(c, `${nomeModelo(m.modelo)} (${formatarW(watts(m))}) deve ter um circuito próprio.`));
   }
-  if (maqs.some((m) => m.modelo === "carregador_ve") && Number.isFinite(amperes) && amperes > 0 && amperes < AMPERES_VE) {
+  if (maqs.some(ehCarregador) && Number.isFinite(amperes) && amperes > 0 && amperes < AMPERES_VE) {
     r.push(aviso(c, `O carregador do carro elétrico carrega a 32 A: precisa de um disjuntor de ${AMPERES_VE} A (tem ${c.amperes} A).`));
   }
   for (const m of maqs.filter(trifasica)) {

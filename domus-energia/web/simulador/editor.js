@@ -1,20 +1,20 @@
 // Editor da planta (docs/SIMULADOR-ORCAMENTO.md §2): SVG com quadriculado de 50 cm,
 // deslocar e aproximar (roda do rato, dois dedos), eventos de ponteiro para rato e
 // toque, divisões (criar num sítio livre com os aparelhos habituais, mover, mudar a forma pelos cantos — paredes oblíquas),
-// elementos (colocar, mover, rodar, apagar), propriedades, janela de edição (duplo
+// elementos (colocar, mover, rodar, apagar; as telecomunicações "brevemente" à parte), propriedades, janela de edição (duplo
 // clique ou toque longo), anular/refazer, alternativa por teclado e lista acessível,
 // fundo (foto/PDF) com opacidade, escala e calibração; a vista ajusta-se ao conteúdo.
 // Todos os textos entram com textContent.
 
 import { desenharPlanta, desenharIcone } from "./planta-svg.js";
 import {
-  ELEMENTOS, TIPOS_ELEMENTO, TIPOS_DIVISAO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
+  ELEMENTOS, TIPOS_ELEMENTO, TIPOS_TELECOM, TIPOS_DIVISAO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
   MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2,
   propsOmissao, atualizarDivisoes, divisaoDoElemento, divisaoEm, pontosDivisao, areaPoligono, ehRetangulo, caixaPontos,
   distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
-import { aparelhosOmissao } from "./casa.js";
+import { aparelhosOmissao, resumoAparelhos } from "./casa.js";
 
 const HISTORICO_MAX = 100;
 const TOQUE_PX = 6;          // abaixo disto um arrasto é um toque
@@ -104,44 +104,63 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let ajusteAuto = false;     // a vista foi ajustada sozinha e o cliente ainda não a mexeu: reajusta se o tamanho mudar
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
+  let tiposDivisao = TIPOS_DIVISAO;   // botões de divisão (mudam com o tipo de imóvel: definirTiposDivisao)
 
   // ---------------------------------------------------------------- DOM
   raiz.replaceChildren();
   raiz.classList.add("editor");
 
-  // Um botão por tipo de divisão: cria-a logo, com o nome certo (Quarto 1, Quarto 2, Sala…).
+  // Um botão por tipo de divisão: cria-a logo, com o nome certo (Quarto 1, Quarto 2, Sala…); por
+  // baixo do nome, em letra pequena, o que traz (casa.js resumoAparelhos).
   const barraDiv = el("div", "editor-barra editor-divisoes");
   barraDiv.setAttribute("role", "toolbar");
   barraDiv.setAttribute("aria-label", "Acrescentar divisão");
-  barraDiv.append(el("span", "editor-barra-rotulo", "Divisões:"));
   const ferramentas = {};
-  const botoesDivisao = {};
-  for (const t of TIPOS_DIVISAO) {
-    const b = botao("", "ferramenta tipo-divisao");
-    b.dataset.divisao = t.nome;
-    b.setAttribute("aria-label", `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}`);
-    const ic = svgEl("svg");
-    ic.setAttribute("viewBox", "0 0 48 48");
-    ic.setAttribute("aria-hidden", "true");
-    const r = svgEl("rect");
-    for (const [k, v] of Object.entries({ x: 9, y: 11, width: 30, height: 26, rx: 3, fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-dasharray": "5 3" })) r.setAttribute(k, v);
-    ic.append(r);
-    b.append(ic, el("span", null, t.nome));
-    botoesDivisao[t.nome] = b;
-    barraDiv.append(b);
+  function desenharBotoesDivisao() {
+    barraDiv.replaceChildren(el("span", "editor-barra-rotulo", "Divisões:"));
+    for (const t of tiposDivisao) {
+      const traz = resumoAparelhos(t.nome, t.w, t.h);
+      const b = botao("", "ferramenta tipo-divisao");
+      b.dataset.divisao = t.nome;
+      b.setAttribute("aria-label", `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome} (com ${traz})`);
+      const ic = svgEl("svg");
+      ic.setAttribute("viewBox", "0 0 48 48");
+      ic.setAttribute("aria-hidden", "true");
+      const r = svgEl("rect");
+      for (const [k, v] of Object.entries({ x: 9, y: 11, width: 30, height: 26, rx: 3, fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-dasharray": "5 3" })) r.setAttribute(k, v);
+      ic.append(r);
+      const texto = el("span", "tipo-divisao-texto");
+      texto.append(el("span", "tipo-divisao-nome", t.nome), el("small", "tipo-divisao-traz", traz));
+      b.append(ic, texto);
+      // O botão cria-a logo (rato, toque ou teclado), num sítio livre.
+      b.addEventListener("click", () => {
+        definirModo(null);
+        if (criarDivisao(t.nome)) mostrarPlanta();
+      });
+      barraDiv.append(b);
+    }
   }
 
-  const barra = el("div", "editor-barra");
-  barra.setAttribute("role", "toolbar");
-  barra.setAttribute("aria-label", "Pôr na planta");
-  for (const t of TIPOS_ELEMENTO) {
-    const b = botao("", "ferramenta");
-    b.dataset.ferramenta = t;
-    b.setAttribute("aria-pressed", "false");
-    b.append(desenharIcone(svgEl("svg"), t, ELEMENTOS[t].props), el("span", null, ELEMENTOS[t].nome));
-    ferramentas[t] = b;
-    barra.append(b);
-  }
+  // Elementos: os da instalação elétrica e, à parte, as telecomunicações ("brevemente": fora do preço).
+  const barraFerramentas = (tipos, rotulo, cls = "") => {
+    const b0 = el("div", `editor-barra${cls}`);
+    b0.setAttribute("role", "toolbar");
+    b0.setAttribute("aria-label", rotulo);
+    for (const t of tipos) {
+      const b = botao("", `ferramenta${ELEMENTOS[t].telecom ? " telecom" : ""}`);
+      b.dataset.ferramenta = t;
+      b.setAttribute("aria-pressed", "false");
+      b.append(desenharIcone(svgEl("svg"), t, ELEMENTOS[t].props), el("span", null, ELEMENTOS[t].nome));
+      ferramentas[t] = b;
+      b0.append(b);
+    }
+    return b0;
+  };
+  const barra = barraFerramentas(TIPOS_ELEMENTO.filter((t) => !ELEMENTOS[t].telecom), "Pôr na planta");
+  const barraTelecom = barraFerramentas(TIPOS_TELECOM, "Telecomunicações (brevemente)", " editor-telecom");
+  const telecomRotulo = el("span", "editor-barra-rotulo", "Telecomunicações — brevemente:");
+  telecomRotulo.title = "Pode desenhá-las já; ainda não entram no preço (orçamento na visita).";
+  barraTelecom.prepend(telecomRotulo);
 
   const barra2 = el("div", "editor-barra2");
   const bDesfazer = botao("Anular");
@@ -217,7 +236,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
 
   lado.append(props, fundoSec, tamSec, listaSec);
   const principal = el("div", "editor-principal");
-  principal.append(barraDiv, barra, barra2, dica, selecao, area, ajudaTeclado);
+  principal.append(barraDiv, barra, barraTelecom, barra2, dica, selecao, area, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
@@ -314,6 +333,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   function confirmar(texto) {
     atualizarDivisoes(planta);
     aoMudar(planta);
+    // A planta fica sempre centrada e inteira à vista, a menos que o cliente tenha feito zoom ou
+    // deslocado a vista à mão (até carregar em "Ver tudo").
+    if (ajusteAuto) verTudo();
     desenharTudo();
     if (texto) avisar(texto);
   }
@@ -342,7 +364,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   }
 
   // ---------------------------------------------------------------- ações
-  const tipoDivisao = (nome) => TIPOS_DIVISAO.find((t) => t.nome === nome);
+  const tipoDivisao = (nome) => tiposDivisao.find((t) => t.nome === nome);
   function nomeNovaDivisao(div) {
     const usados = new Set(planta.divisoes.map((d) => d.nome));
     const t = tipoDivisao(div);
@@ -354,15 +376,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   }
   /**
    * Sítio (canto de cima à esquerda, cm) para uma divisão nova w × h que não sobrepõe as outras (pela
-   * caixa envolvente) nem apanha elementos soltos: primeiro encostada à direita ou por baixo de uma
-   * divisão (por ordem de leitura), depois a primeira posição livre da grelha de 50 cm dentro da
-   * planta; se nada couber, à direita de tudo (ou por baixo) — a planta alarga (criarDivisao).
+   * caixa envolvente) nem apanha elementos soltos (os que não estão dentro de nenhuma divisão; os
+   * aparelhos de uma divisão vizinha, junto à parede partilhada, não impedem de encostar): primeiro
+   * encostada à direita ou por baixo de uma divisão (por ordem de leitura), depois a primeira posição
+   * livre da grelha de 50 cm dentro da planta; se nada couber, à direita de tudo (ou por baixo), sempre
+   * na grelha de 50 cm — a planta alarga (criarDivisao).
    */
   function sitioLivre(w, h) {
     const caixas = planta.divisoes.map((d) => [d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm]);
+    const soltos = planta.elementos.filter((q) => !divisaoEm(planta, q.x_cm, q.y_cm));
     const livre = (x, y) => x >= 0 && y >= 0 && x + w <= MAX_LADO_CM && y + h <= MAX_LADO_CM
       && caixas.every(([a, b, c, e]) => x >= c || x + w <= a || y >= e || y + h <= b)
-      && planta.elementos.every((q) => q.x_cm < x - 20 || q.x_cm > x + w + 20 || q.y_cm < y - 20 || q.y_cm > y + h + 20);
+      && soltos.every((q) => q.x_cm < x - 20 || q.x_cm > x + w + 20 || q.y_cm < y - 20 || q.y_cm > y + h + 20);
     const cabe = (x, y) => x + w <= planta.largura_cm && y + h <= planta.altura_cm && livre(x, y);
     const encostadas = caixas.flatMap(([a, b, c, e]) => [[c, b], [a, e]]).sort((p, q) => p[1] - q[1] || p[0] - q[0]);
     const r = encostadas.find(([x, y]) => cabe(x, y));
@@ -370,8 +395,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     for (let y = ESCALA_CM; y + h <= planta.altura_cm; y += ESCALA_CM) {
       for (let x = ESCALA_CM; x + w <= planta.largura_cm; x += ESCALA_CM) if (cabe(x, y)) return [x, y];
     }
-    const c = caixas.length ? caixaConteudo() : { x: ESCALA_CM, y: ESCALA_CM, w: 0, h: 0 };
-    for (const [x, y] of [[c.x + c.w, c.y], [c.x, c.y + c.h], ...encostadas]) if (livre(x, y)) return [x, y];
+    // Fora da planta: à direita ou por baixo de tudo (divisões e elementos soltos, com a folga deles),
+    // arredondado para fora à grelha de 50 cm (o canto fica sempre na grelha).
+    const xs = [...caixas.flatMap(([a, , c]) => [a, c]), ...soltos.flatMap((q) => [q.x_cm - 20, q.x_cm + 20])];
+    const ys = [...caixas.flatMap(([, b, , e]) => [b, e]), ...soltos.flatMap((q) => [q.y_cm - 20, q.y_cm + 20])];
+    const fora = xs.length
+      ? [[Math.ceil(Math.max(...xs) / ESCALA_CM) * ESCALA_CM, Math.max(0, Math.floor(Math.min(...ys) / ESCALA_CM) * ESCALA_CM)],
+        [Math.max(0, Math.floor(Math.min(...xs) / ESCALA_CM) * ESCALA_CM), Math.ceil(Math.max(...ys) / ESCALA_CM) * ESCALA_CM]]
+      : [[ESCALA_CM, ESCALA_CM]];
+    for (const [x, y] of [...fora, ...encostadas]) if (livre(x, y)) return [x, y];
     return [0, 0];
   }
 
@@ -599,13 +631,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       definirModo({ tipo: "elemento", el: k });
     });
   }
-  // Divisões: o botão cria-a logo (rato, toque ou teclado), num sítio livre.
-  for (const [nome, b] of Object.entries(botoesDivisao)) {
-    b.addEventListener("click", () => {
-      definirModo(null);
-      if (criarDivisao(nome)) mostrarPlanta();
-    });
-  }
+  desenharBotoesDivisao();
   bDesfazer.addEventListener("click", anular);
   bRefazer.addEventListener("click", refazerAcao);
   bMais.addEventListener("click", () => zoom(1 / 1.4));
@@ -619,9 +645,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (ev.button !== undefined && ev.button > 0) return;
     svg.setPointerCapture?.(ev.pointerId);
     ponteiros.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
-    ajusteAuto = false;
     pararToqueLongo();
     if (ponteiros.size === 2) {
+      ajusteAuto = false;   // pinça: o cliente escolheu a vista
       // Dois dedos: aproximar/deslocar; cancela o arrasto (o que já mexeu fica memorizado).
       if (arrasto?.mexeu) terminarArrasto(); else arrasto = null;
       const [a, b] = [...ponteiros.values()];
@@ -689,6 +715,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const dx = p.x - arrasto.p0.x, dy = p.y - arrasto.p0.y;
     switch (arrasto.tipo) {
       case "deslocar":
+        ajusteAuto = false;   // deslocou a vista à mão
         fixarPonto(arrasto.p0, ev.clientX, ev.clientY);
         desenhar();
         break;
@@ -775,7 +802,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
 
   // ---------------------------------------------------------------- teclado
   svg.addEventListener("keydown", (ev) => {
-    ajusteAuto = false;
     if (ev.key === "Enter" && existe(selecionado ?? "")) { ev.preventDefault(); abrirDialogo(); return; }
     const passo = (obterDivisao(selecionado) ? PASSO_DIVISAO : PASSO_ELEMENTO) * (ev.shiftKey ? 5 : 1);
     const setas = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
@@ -1054,14 +1080,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const pts = pontosDivisao(d);
       const forma = el("div", "editor-props-campos");
       if (!d.pontos) {
-        const w = numeroInput(d.largura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.5, id: "divisao-largura" });
-        const h = numeroInput(d.altura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.5, id: "divisao-altura" });
+        const w = numeroInput(d.largura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.01, id: "divisao-largura" });
+        const h = numeroInput(d.altura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.01, id: "divisao-altura" });
         for (const [i, k, lim] of [[w, "largura_cm", () => planta.largura_cm - d.x_cm], [h, "altura_cm", () => planta.altura_cm - d.y_cm]]) {
           i.addEventListener("change", () => {
             const v = Number(i.value);
             if (!(v > 0)) return;
             memorizar();
-            d[k] = limitar(ajustar(v * 100, ESCALA_CM), ESCALA_CM, lim());
+            // Ao cm, como na janela de edição (a grelha de 50 cm é só para arrastar).
+            d[k] = limitar(Math.round(v * 100), ESCALA_CM, lim());
             confirmar();
           });
         }
@@ -1302,8 +1329,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       bRet.hidden = eRet();
       if (!eRet()) return;
       const c = caixaPontos(r.pts);
-      const w = numeroInput(c.largura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.5, id: "dlg-largura" });
-      const h = numeroInput(c.altura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.5, id: "dlg-altura" });
+      const w = numeroInput(c.largura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.01, id: "dlg-largura" });
+      const h = numeroInput(c.altura_cm / 100, { min: 0.5, max: MAX_LADO_CM / 100, step: 0.01, id: "dlg-altura" });
       for (const [i, k] of [[w, "largura_cm"], [h, "altura_cm"]]) {
         i.addEventListener("change", () => {
           const v = lerNumero(i.value);
@@ -1538,6 +1565,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
+    /** Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara). */
+    definirTiposDivisao(lista) {
+      if (lista === tiposDivisao) return;
+      tiposDivisao = lista;
+      desenharBotoesDivisao();
+    },
     get planta() { return planta; },
     /** Só para testes/depuração: estado da vista. */
     get vista() { return { ...vista }; },

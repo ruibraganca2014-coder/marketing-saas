@@ -127,7 +127,7 @@ export function simulacao(v) {
  * "A casa" é saltado): tipo, n.º de divisões, localidade, potência contratada (escalões em kVA)
  * e ligação ("mono" | "tri"); null ou ausente = não indicado / "Não sei".
  */
-export const TIPOS_CASA = ['moradia', 'apartamento', 'alojamento_local', 'outro'];
+export const TIPOS_CASA = ['moradia', 'apartamento', 'alojamento_local', 'servicos', 'industrial', 'outro'];
 export const POTENCIAS_KVA = [3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7];
 export const FASES = ['mono', 'tri'];
 function casaSimulacao(c) {

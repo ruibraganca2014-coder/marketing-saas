@@ -8,20 +8,35 @@ import { h, euros, num, selo, dados } from "../ui.js";
 import * as desenho from "../vendor/planta-svg.js";
 
 export const PLANOS_SIM = { base: "Base", conforto: "Conforto", premium: "Premium" };
-const TIPOS_CASA = { moradia: "Moradia", apartamento: "Apartamento", alojamento_local: "Alojamento local", outro: "Outro" };
+const TIPOS_CASA = {
+  moradia: "Moradia", apartamento: "Apartamento", alojamento_local: "Alojamento local", outro: "Outro", servicos: "Serviços", industrial: "Industrial",
+};
 const FASES = { mono: "Monofásica", tri: "Trifásica" };
 const TIPOS_CIRCUITO = { iluminacao: "Iluminação", tomadas: "Tomadas", maquina: "Máquina", misto: "Misto" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
   maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
-  bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
+  bomba: "Bomba (piscina/rega)",
+  // Serviços e industrial (web/simulador/regras.js MODELOS).
+  arca_frigorifica: "Arca/vitrine frigorífica", maquina_cafe: "Máquina de café", servidor: "Servidor/bastidor", compressor: "Compressor", soldadura: "Máquina de soldar",
+  maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador VE 22 kW",
+  // Máquinas pequenas (circuito das tomadas).
+  arca_congeladora: "Arca congeladora", micro_ondas: "Micro-ondas", exaustor: "Exaustor", cafeteira: "Cafeteira/chaleira", computador: "Computador", consola: "Consola",
+  desumidificador: "Desumidificador", aquecedor_portatil: "Aquecedor portátil", box_router: "Box/router", repetidor_wifi: "Repetidor Wi-Fi", nas: "NAS",
+  camara: "Câmara", portao: "Portão automático", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
+  terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
+  carregador_baterias: "Carregador de baterias",
+  outro: "Outra máquina",
 };
 // Passo "A casa" e "O que quer" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
 const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet (cozinha aberta)" };
 const OBJETIVOS = {
   poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
   distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",
+  horarios: "Horários de abertura", iluminacao_auto: "Iluminação automática", energia: "Controlo de energia", desligar: "Desligar tudo ao fechar",
 };
+// Telecomunicações (ITED), "brevemente": fora do preço (simulacao.telecom.pontos).
+const TELECOM = { ati: "ATI", rj45: "RJ45", coaxial: "TV coaxial", fibra: "fibra", wifi: "Wi-Fi" };
 
 /** "T3 · 2 casas de banho · 2 salas · 2 pisos · jardim/exterior" (campos novos de `casa`; vazio se não houver tipologia). */
 function tipologiaTxt(casa) {
@@ -35,9 +50,22 @@ function tipologiaTxt(casa) {
   partes.push(...Object.keys(EXTRAS_CASA).filter((k) => x[k] === true).map((k) => EXTRAS_CASA[k]));
   return partes.join(" · ");
 }
+/** Serviços e industrial: "120 m² · 5 espaços" (vazio nas casas). */
+function areaTxt(casa) {
+  const a = numero(casa.area_m2), e = numero(casa.espacos);
+  return [a !== null ? `${num(a)} m²` : null, e !== null ? plural(e, "espaço", "espaços") : null].filter(Boolean).join(" · ");
+}
+/** "Brevemente — orçamento na visita (1 ATI, 3 RJ45)". */
+function telecomTxt(t) {
+  const p = obj(t.pontos);
+  const partes = Object.keys(TELECOM).filter((k) => numero(p[k])).map((k) => `${num(numero(p[k]))} ${TELECOM[k]}`);
+  return `Brevemente — orçamento na visita${partes.length ? ` (${partes.join(", ")})` : ""}`;
+}
 const NOMES_ELEMENTOS = {
   porta: "Portas", janela: "Janelas", quadro: "Quadro elétrico", tomada: "Tomadas", luz: "Pontos de luz", interruptor: "Interruptores",
   maquina: "Máquinas", sensor_porta: "Sensores de porta/janela", sensor_movimento: "Sensores de movimento",
+  telecom_ati: "ATI (brevemente)", telecom_rj45: "Tomadas RJ45 (brevemente)", telecom_coaxial: "Tomadas de TV (brevemente)",
+  telecom_fibra: "Fibra ótica (brevemente)", telecom_wifi: "Pontos de acesso Wi-Fi (brevemente)",
 };
 const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 export const CARGA_PERIGOSA_W = 2000;
@@ -151,14 +179,20 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const instalacaoTxt = `${kva !== null ? `${num(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
   const quer = obj(sim.quer);
   const maquinasTxt = arr(quer.maquinas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
+  const pequenasTxt = arr(quer.pequenas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
   const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
+  const telecom = sim.telecom && typeof sim.telecom === "object" ? sim.telecom : null;
 
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ["Casa", casaTxt || "—"],
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
-      ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"], ["Objetivos", objetivosTxt || "Nenhum"]] : []),
+      ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
+      ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"]] : []),
+      ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),
+      ...(sim.quer !== undefined ? [["Objetivos", objetivosTxt || "Nenhum"]] : []),
+      ...(telecom ? [["Telecomunicações", telecomTxt(telecom)]] : []),
       ["Potência contratada e ligação", instalacaoTxt],
       ["Estimativa (c/ IVA)", estimativa],
       ["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"],
@@ -367,6 +401,7 @@ function tipoArtigo(sku, art) {
  * - sensor de porta → openbeken porta + bateria ("entrada" se o elemento/porta da planta for de entrada);
  * - sensor de movimento → openbeken movimento + bateria;  tomada → openbeken com medidor;  regulador → canal "luz".
  * A quantidade de cada tipo vem dos artigos (itens); a planta e o quadro dão nomes, divisões e opções.
+ * As telecomunicações (elementos telecom_*, "brevemente") não têm artigos nem aparelhos: nunca entram aqui.
  * Devolve [{id, tipo, nome, canais, divisao, medidor, bateria, origem}].
  */
 export function aparelhosDaSimulacao(sim, catalogo = {}) {
