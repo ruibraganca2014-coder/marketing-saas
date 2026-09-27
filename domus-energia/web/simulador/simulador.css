@@ -360,3 +360,8 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 .chip-tipo:focus-visible, .lista-planta .item-planta:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
 .lista-fora .item-grupo { padding: 0; color: var(--alarme-texto); }
 .editor-principal:fullscreen .editor-lista, .editor-principal.ecra-inteiro .editor-lista { display: none; }
+
+/* Tempo típico por passo e o que falta no total. */
+.sim-passo-tempo { display: block; font-size: .7rem; font-weight: 600; color: var(--texto-suave); line-height: 1.1; }
+.sim-falta { margin: 6px 0 0; text-align: right; font-size: .85rem; font-weight: 700; color: var(--texto-suave); }
+@media (max-width: 479px) { .sim-passo-tempo { display: none; } }

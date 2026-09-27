@@ -101,6 +101,10 @@ function gravar() {
 addEventListener("pagehide", () => { if (temporizador) gravar(); });
 
 // ------------------------------------------------------------ passos
+/** Minutos típicos de cada passo (pela ordem de PASSOS): só para o cliente saber quanto falta. */
+const MINUTOS_PASSO = [1, 2, 4, 2, 2, 1, 1];
+const minutosDe = (i) => (i === P.planta && estado.plantaSaltada ? 0 : MINUTOS_PASSO[i] ?? 1);
+
 function desenharProgresso() {
   const ol = $("sim-passos");
   ol.replaceChildren();
@@ -111,22 +115,35 @@ function desenharProgresso() {
     li.className = atual ? "atual" : i < estado.passo ? "feito" : "";
     const num = el("span", "sim-num", String(i + 1));
     num.setAttribute("aria-hidden", "true");
+    // Por baixo do nome: "feito" nos passos para trás, o tempo típico nos que faltam.
+    const tempo = el("span", "sim-passo-tempo", i < estado.passo ? "feito" : `~${Math.max(1, minutosDe(i))} min`);
+    tempo.setAttribute("aria-hidden", "true");
     if (i <= visitado && !atual && !aEnviar) {
       const b = el("button", "sim-passo-botao");
       b.type = "button";
-      b.append(num, el("span", "sim-passo-nome", nome));
+      b.append(num, el("span", "sim-passo-nome", nome), tempo);
       b.setAttribute("aria-label", `Passo ${i + 1}: ${nome}${i < estado.passo ? " (feito)" : ""}`);
       b.addEventListener("click", () => irPara(i));
       li.append(b);
     } else {
       const s = el("span", "sim-passo-botao");
-      s.append(num, el("span", "sim-passo-nome", nome));
+      s.append(num, el("span", "sim-passo-nome", nome), tempo);
       if (atual) s.setAttribute("aria-label", `Passo ${i + 1} de ${PASSOS.length}: ${nome} (atual)`);
       li.append(s);
     }
     ol.append(li);
   });
   $("sim-barra-cheia").style.width = `${((estado.passo + 1) / PASSOS.length) * 100}%`;
+  // "Faltam cerca de N min": o passo atual e os seguintes.
+  let falta = $("sim-falta");
+  if (!falta) {
+    falta = el("p", "sim-falta");
+    falta.id = "sim-falta";
+    falta.setAttribute("aria-live", "polite");
+    ol.after(falta);
+  }
+  const min = PASSOS.reduce((s, _, i) => s + (i >= estado.passo ? minutosDe(i) : 0), 0);
+  falta.textContent = aEnviar || estado.passo >= PASSOS.length - 1 ? "Último passo." : `Faltam cerca de ${min} min.`;
 }
 
 function irPara(i, { foco = true } = {}) {

@@ -317,10 +317,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, circuitoDe = null 
   const tamCorpo = el("div", "duas");
   tamSec.append(tamCorpo);
 
-  lado.append(fundoSec, tamSec);
+  lado.append(fundoSec, tamSec, listaSec);   // a lista da planta fica na coluna da direita, por baixo do tamanho
   const principal = el("div", "editor-principal");
   // A lista da planta fica por baixo da planta (o piso visível), antes da ajuda do teclado.
-  principal.append(fila, acoes, estadoLinha, area, listaSec, ajudaTeclado);
+  principal.append(fila, acoes, estadoLinha, area, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
