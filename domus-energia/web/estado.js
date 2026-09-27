@@ -6,6 +6,8 @@ export const CONTROLAVEIS = ["interruptor", "luz", "estore"];
 export const CALOR_MAX_W = 3500;
 export const SEM_NOTICIAS_MS = 24 * 3600 * 1000;
 export const MOVIMENTO_ANIMA_MS = 3000;
+// Aviso de falta de ligação (painel-erro e mensagens de cada separador); sai ao religar.
+export const SEM_LIGACAO = "Sem ligação ao servidor. Tente de novo daqui a pouco.";
 
 const ID_RE = /^[a-z0-9-]+$/;
 export const ID_AUTOMACAO_RE = /^[a-z0-9-]{1,40}$/;
@@ -435,7 +437,9 @@ export function lerRegisto(texto) {
   const v = typeof texto === "string" ? json(texto) : texto;
   if (!v || typeof v !== "object" || Array.isArray(v)) return {};
   const ms = (x) => { const t = typeof x === "string" ? Date.parse(x) : NaN; return Number.isFinite(t) ? t : null; };
-  const entrada = (u) => ({ ts: ms(u.ts ?? u.ultima), resultado: typeof u.resultado === "string" ? u.resultado : "", motivo: typeof u.motivo === "string" ? u.motivo : "", teste: u.teste === true, ok: typeof u.ok === "boolean" ? u.ok : null });
+  // Motores anteriores: "Teste: ações executadas (teste (web))." → "Ações executadas (pela web)."
+  const motivo = (m) => (typeof m === "string" ? m.replace(/^Teste: ações executadas \(teste \((\w+)\)\)\.$/, (_, por) => `Ações executadas (${por === "web" || por === "app" ? "pela" : "por"} ${por}).`) : "");
+  const entrada = (u) => ({ ts: ms(u.ts ?? u.ultima), resultado: typeof u.resultado === "string" ? u.resultado : "", motivo: motivo(u.motivo), teste: u.teste === true, ok: typeof u.ok === "boolean" ? u.ok : null });
   const r = {};
   for (const [id, x] of Object.entries(v)) {
     if (!x || typeof x !== "object") continue;

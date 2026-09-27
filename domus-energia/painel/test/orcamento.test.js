@@ -221,6 +221,32 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, especificacoes: { rede: 'zigbee' } });
 });
 
+test('nota "preço provisório — confirmar": só o CEO a vê; sai quando o CEO muda o preço de venda', async () => {
+  const cab = { cookie: p.cookies.ceo };
+  const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
+  const dif = lista.find((a) => a.especificacoes?.nota === 'preço provisório — confirmar');
+  const caixa = lista.find((a) => /^preço provisório — confirmar; /.test(a.especificacoes?.nota ?? ''));
+  assert.ok(dif && caixa, 'há artigos com a nota nas sementes');
+  const pub = await p.pedir('GET', '/api/catalogo');
+  assert.ok(!pub.texto.includes('provisório'), 'o público não vê a nota');
+  assert.ok(pub.json.itens.every((a) => !('nota' in a.especificacoes)));
+  // Outros campos não tiram a nota; o mesmo preço também não.
+  let r = await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { horas_instalacao: dif.horas_instalacao, preco_venda_iva: dif.preco_venda_iva } });
+  assert.equal(r.json.especificacoes.nota, 'preço provisório — confirmar');
+  r = await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { preco_venda_iva: dif.preco_venda_iva + 1 } });
+  assert.equal(r.estado, 200, r.texto);
+  assert.ok(!('nota' in r.json.especificacoes), 'preço confirmado: a nota sai');
+  assert.equal(r.json.especificacoes.funcao, dif.especificacoes.funcao, 'o resto das especificações fica');
+  r = await p.pedir('POST', `/painel/api/catalogo/${caixa.id}`, { ...cab, corpo: { preco_venda_iva: caixa.preco_venda_iva + 1, especificacoes: caixa.especificacoes } });
+  assert.equal(r.json.especificacoes.nota, caixa.especificacoes.nota.replace('preço provisório — confirmar; ', ''), 'o resto da nota fica');
+  // Repõe.
+  for (const a of [dif, caixa]) {
+    assert.equal((await p.pedir('POST', `/painel/api/catalogo/${a.id}`, { ...cab, corpo: { preco_venda_iva: a.preco_venda_iva } })).estado, 200);
+    r = await p.pedir('POST', `/painel/api/catalogo/${a.id}`, { ...cab, corpo: { especificacoes: a.especificacoes } });
+    assert.equal(r.json.especificacoes.nota, a.especificacoes.nota, 'a nota pode voltar a pôr-se à mão');
+  }
+});
+
 test('catálogo e configuração: validação e só o CEO', async () => {
   const cab = { cookie: p.cookies.ceo };
   for (const corpo of [
@@ -240,6 +266,13 @@ test('catálogo e configuração: validação e só o CEO', async () => {
   assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { margem_intervalo_pct: 101 } })).estado, 400);
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { outra: 1 } })).estado, 400);
+  // Mensagens com os nomes em português (não as chaves).
+  for (const [corpo, erro] of [
+    [{ deslocacao_km_gratis: 5000 }, 'Os km grátis da deslocação: entre 0 e 1000.'],
+    [{ tarifa_hora_iva: 'x' }, 'A tarifa por hora: tem de ser um número.'],
+    [{ deslocacao_max_km: null }, 'Indique a distância máxima da deslocação.'],
+    [{ deslocacao_preco_km_iva: -1 }, 'O preço por km da deslocação: entre 0 e 100.'],
+  ]) assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo })).json.erro, erro, JSON.stringify(corpo));
   assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   for (const papel of ['tecnico', 'comercial']) {
     assert.equal((await p.pedir('GET', '/painel/api/catalogo', { cookie: p.cookies[papel] })).estado, 403);

@@ -25,12 +25,12 @@ const LIMITE_ORCAMENTO = 1_250_000;   // bytes: simulação (≤ 1 MB) + campos
 const RE_SKU = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
 const MAX_APARELHOS_CONVERTER = 60;
 const CONFIG_ORCAMENTO = {
-  tarifa_hora_iva: { min: 0, max: 1000 },
-  margem_intervalo_pct: { min: 0, max: 100 },
-  deslocacao_iva: { min: 0, max: 10_000 },          // valor fixo (mínimo) de cada deslocação
-  deslocacao_km_gratis: { min: 0, max: 1000 },
-  deslocacao_preco_km_iva: { min: 0, max: 100 },
-  deslocacao_max_km: { min: 0, max: 2000 },
+  tarifa_hora_iva: { min: 0, max: 1000, rotulo: 'a tarifa por hora' },
+  margem_intervalo_pct: { min: 0, max: 100, rotulo: 'a margem do intervalo (%)' },
+  deslocacao_iva: { min: 0, max: 10_000, rotulo: 'o valor fixo da deslocação' },          // valor fixo (mínimo) de cada deslocação
+  deslocacao_km_gratis: { min: 0, max: 1000, rotulo: 'os km grátis da deslocação' },
+  deslocacao_preco_km_iva: { min: 0, max: 100, rotulo: 'o preço por km da deslocação' },
+  deslocacao_max_km: { min: 0, max: 2000, rotulo: 'a distância máxima da deslocação' },
 };
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
@@ -83,6 +83,24 @@ export const ROTAS = [
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
 });
+
+/** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
+function horasDaSimulacao(json) {
+  try {
+    const h = JSON.parse(json ?? 'null')?.mao_obra?.horas;
+    return typeof h === 'number' && Number.isFinite(h) && h > 0 && h <= 500 ? Math.round(h * 100) / 100 : null;
+  } catch { return null; }
+}
+
+/** Especificações (JSON) sem o "preço provisório — confirmar" da nota; null se não o tinham. */
+function semPrecoProvisorio(json) {
+  let e;
+  try { e = JSON.parse(json || '{}'); } catch { return null; }
+  if (!e || typeof e.nota !== 'string' || !/preço provisório — confirmar/i.test(e.nota)) return null;
+  const nota = e.nota.replace(/preço provisório — confirmar[;.]?s*/i, '').trim();
+  if (nota) e.nota = nota; else delete e.nota;
+  return JSON.stringify(e);
+}
 
 function encontrarRota(metodo, resto) {
   const segs = resto.split('/');
@@ -601,7 +619,7 @@ export function criarApi(ctx) {
     const data = dia(v.data ?? dataVisita, 'a data da obra', { obrigatorio: true });
     const h2 = hora(v.hora, 'a hora');
     const kit = opcao(v.kit, 'kit', Object.keys(KITS), { obrigatorio: false });
-    const horasEst = v.horas_estimadas !== undefined ? numero(v.horas_estimadas, 'as horas estimadas', { max: 500 }) : (kit ? KITS[kit] : null);
+    const horasEst = v.horas_estimadas !== undefined ? numero(v.horas_estimadas, 'as horas estimadas', { max: 500 }) : (horasDaSimulacao(o.simulacao) ?? (kit ? KITS[kit] : null));
     const notas = texto(v.notas, 'as notas', { max: 4000, multilinha: true });
     if (v.tecnicos !== undefined && u.papel !== 'ceo') throw new ErroApi(403, 'Só o CEO atribui técnicos.');
     const tecs = v.tecnicos === undefined ? [] : tecnicos(v.tecnicos);
@@ -957,6 +975,11 @@ export function criarApi(ctx) {
     const r = camposArtigo(await lerJson(req, CAMPOS_ARTIGO, 32 * 1024), true);
     if (!Object.keys(r).length) falha('Nada para alterar.');
     if (r.sku && r.sku !== a.sku && db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(r.sku)) throw new ErroApi(409, 'Já existe um artigo com este SKU.');
+    // Preço de venda mudado pelo CEO: deixa de ser "provisório" (tira essa parte da nota).
+    if (r.preco_venda_iva_cent !== undefined && r.preco_venda_iva_cent !== a.preco_venda_iva_cent) {
+      const esp = semPrecoProvisorio(r.especificacoes ?? a.especificacoes);
+      if (esp !== null) r.especificacoes = esp;
+    }
     const cols = Object.keys(r);
     db.prepare(`UPDATE catalogo SET ${cols.map((k) => `${k} = ?, `).join('')}atualizado = ? WHERE id = ?`).run(...cols.map((k) => r[k]), agoraIso(), a.id);
     auditar(u, 'catalogo_atualizado', `catalogo:${a.id}`, { sku: a.sku, campos: cols }, ip);
@@ -968,8 +991,8 @@ export function criarApi(ctx) {
   h.atualizarConfigOrcamento = async ({ req, res, u, ip }) => {
     const v = await lerJson(req, [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base']);
     const mud = {};
-    for (const [k, lim] of Object.entries(CONFIG_ORCAMENTO)) {
-      if (v[k] !== undefined) mud[k] = numero(v[k], k.replace(/_/g, ' '), { ...lim, nulo: false });
+    for (const [k, { rotulo, ...lim }] of Object.entries(CONFIG_ORCAMENTO)) {
+      if (v[k] !== undefined) mud[k] = numero(v[k], rotulo, { ...lim, nulo: false });
     }
     if (v.deslocacao_base !== undefined) {
       if (typeof v.deslocacao_base !== 'string' || !NOMES_CONCELHOS.has(v.deslocacao_base)) falha('A base da deslocação tem de ser um dos 308 concelhos (nome da lista).');
@@ -1013,7 +1036,11 @@ export function criarApi(ctx) {
 
   function catalogoPublico(req, res) {
     const itens = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes FROM catalogo WHERE ativo = 1 AND visivel_cliente = 1 ORDER BY categoria, nome').all()
-      .map((a) => ({ sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, especificacoes: JSON.parse(a.especificacoes || '{}') }));
+      .map((a) => {
+        // A "nota" é interna (ex.: "preço provisório — confirmar"): só o CEO a vê no painel.
+        const { nota, ...especificacoes } = JSON.parse(a.especificacoes || '{}');
+        return { sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, especificacoes };
+      });
     const cfg = lerConfigOrcamento();
     const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
     responder(res, 200, { itens, config }, { 'Cache-Control': 'public, max-age=60' });

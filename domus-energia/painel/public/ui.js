@@ -40,7 +40,8 @@ export const nomeDe = (mapa, v) => (v == null || v === "" ? "—" : mapa[v]?.nom
 
 // ---------- Formatação ----------
 const fmtEuro = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
-const fmtNum = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 1 });
+// Até 2 casas: potências (10,35 kVA) e horas (39,25 h) não se arredondam; inteiros ficam sem casas.
+const fmtNum = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 2 });
 export const euros = (v) => { const n = numero(v); return n === null ? "—" : fmtEuro.format(n); };
 export const num = (v) => { const n = numero(v); return n === null ? "—" : fmtNum.format(n); };
 

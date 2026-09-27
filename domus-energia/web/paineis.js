@@ -163,6 +163,11 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
     if (tipo === "ok") msgTimer = setTimeout(() => { m.hidden = true; }, 4000);
   }
 
+  // Ao religar ao servidor, o aviso de falta de ligação sai (os outros ficam).
+  function religado() {
+    if ($("config-estado").textContent === E.SEM_LIGACAO) estado(null);
+  }
+
   function receber(c) {
     config = c;
     if (guardando) {
@@ -291,7 +296,7 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
       erro.replaceChildren(...erros.map((t) => el("div", null, t)));
       if (erros.length) return;
       if (!Object.keys(parcial).length) { estado("Sem alterações.", "ok"); sujo = false; return; }
-      if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
+      if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return; }
       guardando = { timer: setTimeout(() => { guardando = null; estado("O servidor não respondeu. As definições não foram guardadas; tente de novo.", "erro"); atualizarBotao(); }, TEMPO_MOTOR) };
       publicar("_config/set", parcial);
       estado("A guardar…", "info");
@@ -305,5 +310,5 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
   // O plano mudou: volta a desenhar (sem perder o que a pessoa está a escrever).
   function replano() { if (!sujo && $("config-caixa")) desenhar(); }
 
-  return { receber, receberErro, limpar, desenhar, replano, config: () => config };
+  return { receber, religado, receberErro, limpar, desenhar, replano, config: () => config };
 }

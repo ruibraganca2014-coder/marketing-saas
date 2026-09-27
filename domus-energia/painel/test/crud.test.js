@@ -432,3 +432,25 @@ test('aparelho: canais com número repetido ou função desconhecida são recusa
   const r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'canais', aparelhos: [{ ...base, canais: '1:interruptor:X,2:luz:Y' }] });
   assert.equal(r.estado, 201, r.texto);
 });
+
+test('converter: horas da obra = mão de obra da simulação (se houver); o pedido pode mudá-las; sem simulação, as do kit', async () => {
+  const comSim = async (nome, sim) => {
+    const o = await novoOrcamento({ nome });
+    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(sim === null ? null : JSON.stringify(sim), o.id);
+    await api('POST', `orcamentos/${o.id}`, 'comercial', { estado: 'aceite' });
+    return o;
+  };
+  let o = await comSim('Horas Sim', { versao: 1, itens: [], mao_obra: { horas: 39.25, valor_iva: 1373.75 } });
+  let r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'horas-sim', kit: 'conforto', data: '2026-11-02' });
+  assert.equal(r.estado, 201, r.texto);
+  assert.equal(r.json.obra.horas_estimadas, 39.25, 'da simulação, não do kit');
+  o = await comSim('Horas Mudadas', { versao: 1, itens: [], mao_obra: { horas: 39.25 } });
+  r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'horas-mud', kit: 'conforto', data: '2026-11-02', horas_estimadas: 30.5 });
+  assert.equal(r.json.obra.horas_estimadas, 30.5, 'o valor do formulário ganha');
+  o = await comSim('Horas Kit', { versao: 1, itens: [], mao_obra: { horas: null } });
+  r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'horas-kit', kit: 'premium', data: '2026-11-02' });
+  assert.equal(r.json.obra.horas_estimadas, 10, 'simulação sem horas: as do kit');
+  o = await comSim('Sem Sim', null);
+  r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'horas-nada', kit: 'essencial', data: '2026-11-02' });
+  assert.equal(r.json.obra.horas_estimadas, 3, 'sem simulação: as do kit');
+});

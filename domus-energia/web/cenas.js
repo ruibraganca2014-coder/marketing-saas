@@ -30,9 +30,14 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     if (tipo === "ok") msgTimer = setTimeout(() => { m.hidden = true; }, 4000);
   }
 
+  // Ao religar ao servidor, o aviso de falta de ligação sai (os outros ficam).
+  function religado() {
+    if ($("cenas-estado").textContent === E.SEM_LIGACAO) estado(null);
+  }
+
   // Cenas que desligam o quadro geral ou ligam cargas perigosas pedem confirmação na página.
   function executar(c, confirmado = false) {
-    if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
+    if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return; }
     if (!confirmado && E.acoesArriscadas(c.acoes, aparelhos(), { cenas: lista ?? [] }).length) {
       aExecutar = c.id;
       estado(null);
@@ -48,7 +53,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
 
   function guardar(nova, aoTerminar) {
     if (guardando) return;
-    if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
+    if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return; }
     if (E.jsonCanonico(nova) === E.jsonCanonico(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
     guardando = {
       anterior: textoAtual,
@@ -270,5 +275,5 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     desenhar();
   }
 
-  return { desenhar, receberLista, receberErro, limpar, lista: () => lista ?? [] };
+  return { desenhar, religado, receberLista, receberErro, limpar, lista: () => lista ?? [] };
 }

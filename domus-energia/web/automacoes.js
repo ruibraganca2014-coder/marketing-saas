@@ -49,9 +49,14 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     if (tipo === "ok") msgTimer = setTimeout(() => { m.hidden = true; }, 4000);
   }
 
+  // Ao religar ao servidor, o aviso de falta de ligação sai (os outros ficam).
+  function religado() {
+    if ($("auto-estado").textContent === E.SEM_LIGACAO) estado(null);
+  }
+
   function guardar(nova, aoTerminar) {
     if (guardando) return;
-    if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return; }
+    if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return; }
     if (E.jsonCanonico(nova) === E.jsonCanonico(lista ?? [])) { estado("Sem alterações.", "ok"); aoTerminar?.(); return; }
     guardando = {
       anterior: textoAtual,
@@ -133,7 +138,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
   function desenharSeLivre() { if (lista != null) desenhar(); }
 
   function pedirExecutar(id, tipo) {
-    if (!ligado()) { estado("Sem ligação ao servidor. Tente de novo daqui a pouco.", "erro"); return false; }
+    if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return false; }
     clearTimeout(pedidos[id]?.timer);
     const p = { tipo, desde: Date.now(), antes: JSON.stringify(registo[id] ?? null), texto: tipo === "avaliar" ? "A avaliar…" : tipo === "testar" ? "A testar…" : "A executar…", classe: "info" };
     p.timer = setTimeout(() => { p.timer = null; p.texto = "O servidor não respondeu. Tente de novo."; p.classe = "erro"; desenharSeLivre(); }, TEMPO_MOTOR);
@@ -202,11 +207,15 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       p.textContent = `Em pausa: ${r.motivo || "alguém mexeu num aparelho à mão."}${a.ignorar_pausa ? "" : " A automação volta sozinha quando a pausa acabar."}`;
       caixaR.append(p);
     }
-    if (r?.ultimos?.length) {
+    // Só execuções reais (as de "Avaliar agora" ficam de fora); a mais recente já está em cima,
+    // com o motivo — a lista mostra as anteriores.
+    const execucoes = (r?.ultimos ?? []).filter((u) => u.resultado && u.resultado !== "avaliacao");
+    const anteriores = execucoes[0] && execucoes[0].ts === r.ultima && execucoes[0].resultado === r.resultado ? execucoes.slice(1) : execucoes;
+    if (anteriores.length) {
       const d = el("details", "ultimos");
-      d.append(el("summary", null, r.ultimos.length === 1 ? "Última execução" : `Últimas ${r.ultimos.length} execuções`));
+      d.append(el("summary", null, anteriores.length === 1 ? "Execução anterior" : `${anteriores.length} execuções anteriores`));
       const ul = el("ul");
-      for (const u of r.ultimos) {
+      for (const u of anteriores) {
         ul.append(el("li", null, `${u.ts ? new Date(u.ts).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · ${E.RESULTADOS[u.resultado] ?? u.resultado}${u.motivo ? ` — ${u.motivo}` : ""}`));
       }
       d.append(ul);
@@ -710,5 +719,5 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     desenhar();
   }
 
-  return { desenhar, receberLista, receberErro, receberRegisto, receberAvisos, limpar, lista: () => lista ?? [] };
+  return { desenhar, religado, receberLista, receberErro, receberRegisto, receberAvisos, limpar, lista: () => lista ?? [] };
 }

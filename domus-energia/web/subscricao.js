@@ -210,7 +210,8 @@ export function criarSubscricao({ api, codigo, irPara = (u) => window.location.a
     const caixa = $("aviso-plano");
     if (!caixa) return;
     const atraso = plano.estado === "em_atraso";
-    caixa.hidden = !atraso;
+    // No ecrã "A minha subscrição" o cartão já tem o aviso (e o botão): não se repete no topo.
+    caixa.hidden = !atraso || $("sec-subscricao")?.hidden === false;
     if (!atraso) { caixa.replaceChildren(); return; }
     caixa.replaceChildren();
     const t = el("div", "aviso-plano-texto");

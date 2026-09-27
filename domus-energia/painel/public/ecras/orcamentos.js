@@ -195,6 +195,11 @@ export default function orcamentos(el, ctx) {
     const sim = simulacaoDe(o);
     const sugeridos = sim ? aparelhosDaSimulacao(sim, catalogoDe(o)) : [];
     const listaAparelhos = sugeridos.length ? checklistAparelhos(sugeridos) : null;
+    // Horas da simulação do cliente (se houver) em vez das do kit; podem ser alteradas.
+    const horasSim = sim ? numero(campo(sim.mao_obra ?? {}, "horas")) : null;
+    const campoHoras = horasSim !== null && horasSim > 0
+      ? campoForm("Horas estimadas", h("input", { name: "horas_estimadas", type: "number", min: "0", max: "500", step: "0.05", inputmode: "decimal", required: true, value: String(horasSim) }), "Da simulação do cliente (em vez das horas do kit)")
+      : null;
     const f = h("form", { class: "form-grelha converter", id: "form-converter", novalidate: true },
       h("h3", { text: "Converter em cliente e obra" }),
       h("p", { class: "ajuda", text: "Pede ao servidor a conta do cliente e agenda a obra de instalação." }),
@@ -202,6 +207,7 @@ export default function orcamentos(el, ctx) {
         campoForm("Código do cliente", h("input", { name: "codigo", required: true, maxlength: "32", autocapitalize: "none", spellcheck: "false", value: sugerirCodigo(campo(o, "nome") ?? "") })),
         campoForm("Kit", escolha("kit", Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])), "conforto"))),
       campoForm("Data da obra", h("input", { name: "data", type: "date", required: true, value: isoDia(amanha) })),
+      campoHoras,
       listaAparelhos,
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Converter em cliente e obra" })),
       msg);
@@ -211,6 +217,11 @@ export default function orcamentos(el, ctx) {
       const corpo = { codigo: el.codigo.value.trim(), kit: el.kit.value, data: el.data.value };
       if (!RE_CODIGO.test(corpo.codigo)) { mensagem(msg, "Código inválido: 1 a 32 letras minúsculas, números e '-' (sem '-' no início ou no fim)."); el.codigo.focus(); return; }
       if (!corpo.data) { mensagem(msg, "Escolha a data da obra."); el.data.focus(); return; }
+      if (campoHoras) {
+        const horas = numero(el.horas_estimadas.value);
+        if (horas === null || horas < 0 || horas > 500) { mensagem(msg, "As horas estimadas têm de ser um número entre 0 e 500."); el.horas_estimadas.focus(); return; }
+        corpo.horas_estimadas = horas;
+      }
       if (listaAparelhos) {
         const r = lerAparelhos(listaAparelhos);
         if (r.erro) { mensagem(msg, r.erro); r.campo?.focus(); return; }

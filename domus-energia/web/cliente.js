@@ -122,6 +122,8 @@ function mostrarSeccao(nome) {
     s.tabIndex = sel || (semSeparador && s.dataset.sec === "casa") ? 0 : -1;
   }
   for (const k of SECCOES) $(`sec-${k}`).hidden = k !== nome;
+  // Aviso de pagamento em atraso (só tem conteúdo em atraso): no ecrã da subscrição basta o do cartão.
+  if ($("aviso-plano").childElementCount) $("aviso-plano").hidden = nome === "subscricao";
   for (const [id, sec] of [["abrir-definicoes", "definicoes"], ["abrir-subscricao", "subscricao"]]) {
     $(id).classList.toggle("ativo", nome === sec);
     if (nome === sec) $(id).setAttribute("aria-current", "page"); else $(id).removeAttribute("aria-current");
@@ -214,6 +216,9 @@ function entrar(cod, password, { lembrar, automatico = false }) {
     estadoLigacao(true);
     // O aviso de falta de ligação deixa de fazer sentido (os outros erros ficam).
     if ($("painel-erro").textContent === SEM_LIGACAO) mostrarErro(null);
+    automacoes.religado();
+    cenas.religado();
+    definicoes.religado();
     // `_plano` à parte: com a subscrição suspensa o servidor só deixa ler esse tópico (§3) e recusa o `#`.
     c.subscribe(`domus/${cod}/_plano`, { qos: 1 });
     c.subscribe(`domus/${cod}/#`, { qos: 1 }, (err, granted) => {
@@ -909,7 +914,7 @@ function pedir(a, c, pedido) {
   atualizar(a.id);
 }
 
-const SEM_LIGACAO = "Sem ligação ao servidor. Tente de novo daqui a pouco.";
+const SEM_LIGACAO = E.SEM_LIGACAO;
 function mostrarErro(texto) {
   $("painel-erro").hidden = !texto;
   $("painel-erro").textContent = texto ?? "";

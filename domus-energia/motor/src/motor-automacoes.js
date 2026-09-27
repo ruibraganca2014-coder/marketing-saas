@@ -371,7 +371,7 @@ export const metodosAutomacoes = {
       return;
     }
     if (v.testar) {
-      this.executar(c, a, `teste (${por})`, { teste: true });
+      this.executar(c, a, `${por === 'web' || por === 'app' ? 'pela' : 'por'} ${por}`, { teste: true });
       return;
     }
     if (!a.ativa) return erro(`A automação "${a.nome}" está desativada.`);
@@ -656,7 +656,8 @@ export const metodosAutomacoes = {
     const pausa = ctx.pausadas.length
       ? `Pausa manual: ${ctx.pausadas.map((x) => `${x.nome} até ${horaLocal(x.ate)}`).join(', ')}`
       : '';
-    if (teste) this.registar(c, a.id, 'teste', `Teste: ações executadas (${motivo}).`, { teste: true });
+    // O resultado "teste" já diz que é um teste: o motivo não o repete ("Ações executadas (pela web).").
+    if (teste) this.registar(c, a.id, 'teste', `Ações executadas (${motivo}).`, { teste: true });
     else if (pausa && ctx.feitas === 0) this.registar(c, a.id, 'pausada', `Disparou (${motivo}) mas não executou. ${pausa}.`);
     else this.registar(c, a.id, 'executada', `Disparou: ${motivo}.${pausa ? ` ${pausa} (ações nesses canais não executadas).` : ''}`);
     return true;
