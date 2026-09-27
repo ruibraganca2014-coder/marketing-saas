@@ -39,6 +39,12 @@ MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:
 - **Presença** (opcional, desligada por omissão) — ver abaixo.
 - **Notificações** (Firebase Cloud Messaging), se configurado — ver abaixo.
 - **A minha subscrição** (menu ⋮) e planos — ver abaixo.
+- **Simular orçamento**: no ecrã de entrada ("Ainda não é cliente?") abre `https://MQTT_HOST/simulador.html`
+  no navegador do sistema; em **A minha subscrição**, "Ampliar a instalação" abre `simulador.html?cliente=1`
+  (como na área de cliente do site). O endereço vem de `data/Site.kt` (mesmo `MQTT_HOST` do MQTT e do `/api/`).
+  Abre com `Intent.ACTION_VIEW` (sem WebView nem Custom Tabs). A app não passa o código de cliente ao site
+  (o site só o lê do sessionStorage do separador, nunca do endereço): o simulador abre com os passos todos e o
+  cliente identifica-se no contacto.
 
 ## Compilar
 1. Em `app/build.gradle.kts`, troca `SEU-SERVIDOR` pelo domínio do servidor

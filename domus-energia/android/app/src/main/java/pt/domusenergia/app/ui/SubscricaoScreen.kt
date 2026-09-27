@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Contactos
 import pt.domusenergia.app.data.Planos
+import pt.domusenergia.app.data.Site
 import pt.domusenergia.app.data.Subscricao
 import pt.domusenergia.app.data.TextosPlano
 import pt.domusenergia.app.ui.tema.FormaCartao
@@ -194,6 +195,18 @@ fun SubscricaoScreen(state: UiState, acoes: Acoes, escolherInicial: Boolean = fa
         Cartao {
             Titulo("O seu plano inclui")
             Planos.inclui(s.plano).forEach { Inclui(it) }
+        }
+
+        // Como o "Ampliar a instalação" da área de cliente no site: abre o simulador no navegador.
+        val abrirLink = LocalPlataforma.current.abrirLink
+        var semNavegador by remember { mutableStateOf(false) }
+        Cartao {
+            Titulo("Ampliar a instalação")
+            Ajuda("Quer mais aparelhos ou outras divisões? Simule o orçamento no site; abre no navegador.")
+            OutlinedButton(onClick = { semNavegador = !abrirLink(Site.simulador(cliente = true)) }, shape = FormaPilula) {
+                Text("Ampliar a instalação")
+            }
+            if (semNavegador) ErroPagamento("Não foi encontrado um navegador para abrir o simulador.")
         }
         Spacer(Modifier.height(16.dp))
     }

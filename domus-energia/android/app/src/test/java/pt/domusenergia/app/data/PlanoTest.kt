@@ -187,4 +187,10 @@ class PlanoTest {
             Contactos.whatsappUrl("351912345678", "Olá, sou cliente"),
         )
     }
+
+    @Test
+    fun `simulador no mesmo servidor da app`() {
+        assertEquals("https://exemplo.pt/simulador.html", Site.simulador(host = "exemplo.pt"))
+        assertEquals("https://exemplo.pt/simulador.html?cliente=1", Site.simulador(cliente = true, host = "exemplo.pt"))
+    }
 }

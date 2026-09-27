@@ -41,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -68,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import pt.domusenergia.app.data.Ligacao
 import pt.domusenergia.app.data.Planos
 import pt.domusenergia.app.data.Resumo
+import pt.domusenergia.app.data.Site
 import pt.domusenergia.app.ui.tema.FormaCartao
 import pt.domusenergia.app.ui.tema.FormaPilula
 import pt.domusenergia.app.ui.tema.LocalTerra
@@ -154,6 +156,22 @@ fun LoginScreen(loading: Boolean, error: String?, onLogin: (String, String) -> U
             }
             Text(if (loading) "A entrar…" else "Entrar")
         }
+        // Quem ainda não é cliente: simulador de orçamento do site (no navegador, fora da app).
+        val abrirLink = LocalPlataforma.current.abrirLink
+        var semNavegador by rememberSaveable { mutableStateOf(false) }
+        HorizontalDivider(color = LocalTerra.current.borda)
+        Text("Ainda não é cliente?", style = MaterialTheme.typography.titleMedium)
+        OutlinedButton(
+            onClick = { semNavegador = !abrirLink(Site.simulador()) },
+            shape = FormaPilula,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Simular orçamento") }
+        Text(
+            if (semNavegador) "Não foi encontrado um navegador para abrir o simulador."
+            else "Abre o simulador no navegador: escolha o que quer para a sua casa e veja uma estimativa do preço.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (semNavegador) MaterialTheme.colorScheme.error else LocalTerra.current.textoSuave,
+        )
     }
 }
 
