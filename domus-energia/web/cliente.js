@@ -212,6 +212,8 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       if (abrirSubscricaoAoEntrar) { abrirSubscricaoAoEntrar = false; abrirSubscricao(); }
     }
     estadoLigacao(true);
+    // O aviso de falta de ligação deixa de fazer sentido (os outros erros ficam).
+    if ($("painel-erro").textContent === SEM_LIGACAO) mostrarErro(null);
     // `_plano` à parte: com a subscrição suspensa o servidor só deixa ler esse tópico (§3) e recusa o `#`.
     c.subscribe(`domus/${cod}/_plano`, { qos: 1 });
     c.subscribe(`domus/${cod}/#`, { qos: 1 }, (err, granted) => {
@@ -857,7 +859,7 @@ function rpc(prefixo, method, params) {
 // pedido: { ligado } | { brilho } | { posicao } | { estore: "abrir"|"fechar"|"parar" }
 function pedir(a, c, pedido) {
   if (!cliente?.connected) {
-    mostrarErro("Sem ligação ao servidor. Tente de novo daqui a pouco.");
+    mostrarErro(SEM_LIGACAO);
     atualizar(a.id);
     return;
   }
@@ -907,6 +909,7 @@ function pedir(a, c, pedido) {
   atualizar(a.id);
 }
 
+const SEM_LIGACAO = "Sem ligação ao servidor. Tente de novo daqui a pouco.";
 function mostrarErro(texto) {
   $("painel-erro").hidden = !texto;
   $("painel-erro").textContent = texto ?? "";
@@ -959,7 +962,7 @@ function pedirModo(m, forcar) {
     caixa.classList.add("realce");
     return;
   }
-  if (!cliente?.connected) { mostrarErro("Sem ligação ao servidor. Tente de novo daqui a pouco."); return; }
+  if (!cliente?.connected) { mostrarErro(SEM_LIGACAO); return; }
   if (!forcar && m === modoAtual() && !modoPendente) return;
   mostrarErro(null);
   recusa = null;

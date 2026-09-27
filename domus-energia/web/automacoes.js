@@ -115,7 +115,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       p.timer = null;
       if (p.tipo === "avaliar") {
         const av = agora?.avaliacao;
-        if (av?.verdadeira === true) { p.texto = `Neste momento a automação executaria: as condições são verdadeiras.${av.motivo ? ` ${av.motivo}` : ""}`; p.classe = "ok"; }
+        if (av?.verdadeira === true) { p.texto = `Neste momento a automação executaria. ${av.motivo || "As condições são verdadeiras."}`; p.classe = "ok"; }
         else if (av?.verdadeira === false) { p.texto = `Neste momento não executaria: ${av.motivo || "uma condição é falsa."}`; p.classe = "info"; }
         else { p.texto = av?.motivo || "Avaliação recebida."; p.classe = "info"; }
       } else {
@@ -204,7 +204,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     }
     if (r?.ultimos?.length) {
       const d = el("details", "ultimos");
-      d.append(el("summary", null, `Últimas ${r.ultimos.length} execuções`));
+      d.append(el("summary", null, r.ultimos.length === 1 ? "Última execução" : `Últimas ${r.ultimos.length} execuções`));
       const ul = el("ul");
       for (const u of r.ultimos) {
         ul.append(el("li", null, `${u.ts ? new Date(u.ts).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · ${E.RESULTADOS[u.resultado] ?? u.resultado}${u.motivo ? ` — ${u.motivo}` : ""}`));

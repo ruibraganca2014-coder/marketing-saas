@@ -139,7 +139,9 @@ export function criarSubscricao({ api, codigo, irPara = (u) => window.location.a
     c.append(topo);
     const preco = el("p", "plano-preco");
     preco.append(el("b", "num", info.preco), document.createTextNode(" por mês, IVA incluído"));
-    c.append(preco, el("p", "plano-explicacao", PL.explicacaoEstado(plano)));
+    c.append(preco);
+    // Em atraso a explicação é o próprio aviso, que já aparece em baixo com o botão.
+    if (plano.estado !== "em_atraso") c.append(el("p", "plano-explicacao", PL.explicacaoEstado(plano)));
 
     const dl = el("dl", "factos");
     const facto = (rot, val) => { const d = el("div", "facto"); d.append(el("dt", null, rot), el("dd", null, val)); dl.append(d); };
