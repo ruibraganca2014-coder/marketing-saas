@@ -9,7 +9,7 @@ import {
   TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
-import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa } from "./casa.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 
 export const VERSAO = 1;
@@ -47,6 +47,7 @@ export function casaNova(cliente = false) {
     tipo: cliente ? null : "moradia", tipologia: cliente ? null : "T2", quartos: cliente ? null : 2, casas_banho: 1, salas: 1, pisos: 1,
     extras: { jardim: false, garagem: false, varanda: false, kitnet: false, entrada: false, corredor: !cliente, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
+    porPiso: null,             // casas com 2 ou mais pisos: [{quartos, casas_banho, salas, extras}] por piso (casa.js acertarPisos)
     divisoes: null, localidade: "", potencia_contratada_kva: null, fases: cliente ? null : "mono",
   };
 }
@@ -272,7 +273,12 @@ export function normalizarEstado(v) {
     localidade: txt(c.localidade, 80),
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
+    porPiso: Array.isArray(c.porPiso) ? c.porPiso : null,
   };
+  // Valores por piso (2 ou mais pisos); um estado sem eles fica com os da casa toda repartidos como antes
+  // (casa.js repartirPisos com o escritório no r/c: a planta desenhada é a mesma).
+  const semPorPiso = !Array.isArray(c.porPiso);
+  acertarPisos(e.casa, { antigo: semPorPiso });
   // Estado antigo: uma ligação já escolhida conta como escolhida pelo cliente; "Não sei" continua sugerível.
   e.fasesEditadas = v.fasesEditadas === undefined ? e.casa.fases !== null : bool(v.fasesEditadas);
   // "O que quer" por piso (`porPiso`); um estado antigo ({quantidades, pisos} por máquina) passa a ter a
@@ -285,14 +291,19 @@ export function normalizarEstado(v) {
   e.plantaAuto = bool(v.plantaAuto);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   e.plantaBase = !migrar && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
-  // "O que quer" ainda sem pisos: a assinatura guardada tinha as máquinas à maneira antiga; se era a das
-  // máquinas de então, passa a ser a de agora (a planta não fica "desatualizada" só pela migração).
-  if (e.plantaBase && (!vq.porPiso || typeof vq.porPiso !== "object")) {
+  // "O que quer" ainda sem pisos, ou a casa ainda sem valores por piso: a assinatura guardada foi feita à maneira
+  // antiga; se era a da casa e das máquinas de então, passa a ser a de agora (a planta não fica "desatualizada"
+  // só pela migração).
+  const querAntigo = !vq.porPiso || typeof vq.porPiso !== "object";
+  if (e.plantaBase && (querAntigo || semPorPiso)) {
     const comPisos = pisosDaCasa(e.casa) > 1;
     const ps = vq.pisos && typeof vq.pisos === "object" ? vq.pisos : {};
     const qt = vq.quantidades && typeof vq.quantidades === "object" ? vq.quantidades : {};
-    const velhas = maquinasEscolhidas(normalizarQuer({ maquinas: vq.maquinas, pequenas: vq.pequenas }, tipo)).map((k) => ({ modelo: k, qtd: int(qt[k], 1, MAX_QUANTIDADE, 1), piso: comPisos && Number.isInteger(ps[k]) ? ps[k] : null }));
-    if (e.plantaBase === assinaturaCasa(e.casa, velhas)) e.plantaBase = assinaturaCasa(e.casa, maquinasParaPlanta(e));
+    const velhas = querAntigo
+      ? maquinasEscolhidas(normalizarQuer({ maquinas: vq.maquinas, pequenas: vq.pequenas }, tipo)).map((k) => ({ modelo: k, qtd: int(qt[k], 1, MAX_QUANTIDADE, 1), piso: comPisos && Number.isInteger(ps[k]) ? ps[k] : null }))
+      : maquinasParaPlanta(e);
+    const casaAntes = semPorPiso ? { ...e.casa, porPiso: null } : e.casa;
+    if (e.plantaBase === assinaturaCasa(casaAntes, velhas)) e.plantaBase = assinaturaCasa(e.casa, maquinasParaPlanta(e));
   }
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
   e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q) };
@@ -545,6 +556,13 @@ export function casaParaEnvio(estado) {
     extras: tipologia ? Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(c.extras?.[k])])) : null,
     area_m2: negocio ? int(c.area_m2, ...LIMITES_CASA.area_m2, AREA_OMISSAO[c.tipo]) : null,
     espacos: negocio ? int(c.espacos, ...LIMITES_CASA.espacos, ESPACOS_OMISSAO[c.tipo]) : null,
+    // Com 2 ou mais pisos, o que tem cada piso (os totais acima são a soma); null com um só piso.
+    pisos_detalhe: tipologia && Array.isArray(c.porPiso) && c.porPiso.length > 1
+      ? c.porPiso.map((f, p) => ({
+        piso: p, quartos: int(f.quartos, 0, 12), casas_banho: int(f.casas_banho, 0, 6), salas: tipologia === "T0" ? null : int(f.salas, 0, 4),
+        extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(f.extras?.[k])])),
+      }))
+      : null,
   };
 }
 

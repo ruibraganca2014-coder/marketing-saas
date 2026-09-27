@@ -7,6 +7,7 @@
 import {
   TIPOS_DIVISAO, TIPOS_DIVISAO_SERVICOS, TIPOS_DIVISAO_INDUSTRIAL, LIMITES_CASA, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, ESCALA_CM,
   plantaVazia, propsOmissao, atualizarDivisoes, perfilCasa, tiposDivisaoPara, EXTRAS_CASA, MAX_PISO, pisoDe,
+  TIPOS_COM_PISOS, tipologiaDeQuartos,
 } from "./regras.js";
 
 const MARGEM = 50;            // cm à volta da planta
@@ -128,13 +129,98 @@ export function itemMaquina(m) {
   };
 }
 
+// ------------------------------------------------------------ passo 1 por piso (casas com 2 ou mais pisos)
+
+/** N.º de pisos da casa (1 nos tipos sem pisos). */
+const pisosCasa = (c) => (TIPOS_COM_PISOS.includes(c?.tipo) ? Math.min(MAX_PISO + 1, Math.max(1, Math.round(Number(c?.pisos) || 1))) : 1);
+/** A casa tem valores por piso? (tipo com pisos, tipologia escolhida e 2 ou mais pisos) */
+export const temPorPiso = (c) => !!c?.tipologia && perfilCasa(c?.tipo) === "habitacao" && pisosCasa(c) > 1;
+const LIMITES_PISO = { quartos: [0, 12], casas_banho: [0, 6], salas: [0, 4] };
+/** Valores de um piso (`casa.porPiso[p]`) com tipos e limites certos. */
+function valoresPiso(f) {
+  const o = f && typeof f === "object" ? f : {};
+  const x = o.extras && typeof o.extras === "object" ? o.extras : {};
+  return {
+    quartos: inteiro(o.quartos, LIMITES_PISO.quartos, 0),
+    casas_banho: inteiro(o.casas_banho, LIMITES_PISO.casas_banho, 0),
+    salas: inteiro(o.salas, LIMITES_PISO.salas, 0),
+    extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, x[k] === true])),
+  };
+}
+
+/**
+ * Valores típicos de cada piso a partir dos da casa toda (tipologia, casas de banho, salas, "A casa tem…"):
+ * r/c com as salas, a cozinha/kitnet, a 1.ª casa de banho, entrada, garagem, jardim, lavandaria e despensa;
+ * os pisos de cima com os quartos e as outras casas de banho (repartidos), o corredor onde há quartos (sem
+ * quartos, no r/c), o escritório no piso 1 e a varanda no último. `antigo`: o escritório fica no r/c (como
+ * antes dos valores por piso: migração dos estados guardados, que dão assim exatamente a mesma planta).
+ */
+export function repartirPisos(casa, { antigo = false } = {}) {
+  const c = casa ?? {};
+  const n = pisosCasa(c);
+  const x = c.extras ?? {};
+  const quartos = quartosDe(c) ?? 0;
+  const cbs = inteiro(c.casas_banho, LIMITES_CASA.casas_banho, 1);
+  const salas = inteiro(c.salas, LIMITES_CASA.salas, 1);
+  const cima = n - 1;
+  const qPiso = cima ? [0, ...repartir(quartos, cima)] : [quartos];
+  const bPiso = cima ? [1, ...repartir(cbs - 1, cima)] : [cbs];
+  const querCorredor = x.corredor ?? quartos >= 2;
+  return Array.from({ length: n }, (_, p) => {
+    const f = valoresPiso({ quartos: qPiso[p], casas_banho: bPiso[p], salas: p === 0 ? salas : 0 });
+    const e = f.extras;
+    if (p === 0) for (const k of ["entrada", "kitnet", "garagem", "jardim", "lavandaria", "despensa"]) e[k] = !!x[k];
+    e.corredor = !!querCorredor && (qPiso[p] > 0 || (p === 0 && !qPiso.some(Boolean)));
+    e.escritorio = !!x.escritorio && p === (antigo || !cima ? 0 : 1);
+    e.varanda = !!x.varanda && p === n - 1;
+    return f;
+  });
+}
+
+/**
+ * Acerta os valores por piso da casa (muda `casa`): com 2 ou mais pisos, `porPiso` (um por piso; se faltar
+ * ou o n.º de pisos mudou, os valores típicos — repartirPisos) e os totais da casa a partir dele (quartos e
+ * a tipologia, casas de banho, salas e "A casa tem…" = o que algum piso tem), dentro dos limites da casa
+ * (pelo menos 1 casa de banho e 1 sala); com 1 piso, `porPiso` = null (valem os totais).
+ */
+export function acertarPisos(casa, { antigo = false } = {}) {
+  const c = casa;
+  if (!c || typeof c !== "object") return c;
+  if (!temPorPiso(c)) { c.porPiso = null; return c; }
+  const n = pisosCasa(c);
+  c.porPiso = Array.isArray(c.porPiso) && c.porPiso.length === n ? c.porPiso.map(valoresPiso) : repartirPisos(c, { antigo });
+  const pp = c.porPiso;
+  const soma = (k) => pp.reduce((s, f) => s + f[k], 0);
+  // Totais nos limites da casa: tira do último piso que tiver a mais; o mínimo vai para o r/c.
+  for (const k of ["quartos", "casas_banho", "salas"]) {
+    const [min, max] = LIMITES_CASA[k];
+    for (let p = n - 1; p >= 0 && soma(k) > max; p--) pp[p][k] = Math.max(0, pp[p][k] - (soma(k) - max));
+    if (soma(k) < min) pp[0][k] += min - soma(k);
+  }
+  c.quartos = soma("quartos");
+  c.tipologia = tipologiaDeQuartos(c.quartos);
+  c.casas_banho = soma("casas_banho");
+  c.salas = soma("salas");
+  c.extras = Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, pp.some((f) => f.extras[k])]));
+  return c;
+}
+
+/** Resumo de um piso para o separador: "2 quartos · 1 WC", "1 sala · 1 WC" ("vazio" sem nada). */
+export function resumoPiso(f, tipologia = null) {
+  const partes = [];
+  if (f.salas && tipologia !== "T0") partes.push(`${f.salas} ${f.salas === 1 ? "sala" : "salas"}`);
+  if (f.quartos) partes.push(`${f.quartos} ${f.quartos === 1 ? "quarto" : "quartos"}`);
+  if (f.casas_banho) partes.push(`${f.casas_banho} WC`);
+  return partes.length ? partes.join(" · ") : "sem quartos nem WC";
+}
+
 /**
  * Divisões da casa (nome, piso — 0 = r/c — e, no espaço principal de serviços/industrial, o tamanho), pela
- * ordem em que ficam na planta: salas, cozinha, corredor (T2 e mais: um por piso com quartos), quartos,
- * casas de banho, garagem, varanda, jardim. Com pisos > 1: r/c com as salas, cozinha, a primeira casa de
- * banho, garagem e jardim; quartos e as outras casas de banho repartidos pelos pisos de cima; a varanda no
- * último; "Escadas (r/c)", "Escadas (piso 1)"… em cada um. Escritório, lavandaria, despensa… vêm de "A casa
- * tem…" (no r/c) ou acrescentam-se na planta (botões) e no passo "Divisões".
+ * ordem em que ficam na planta: salas, cozinha, corredor (T2 e mais), quartos, casas de banho, escritório,
+ * lavandaria, despensa, garagem, varanda, jardim. Com 2 ou mais pisos, **exatamente os valores de cada piso**
+ * (`casa.porPiso`, passo 1; sem eles, os típicos de repartirPisos com o escritório no r/c), piso a piso, com
+ * "Escadas (r/c)", "Escadas (piso 1)"… em cada um (divisoesPorPiso). Outras divisões acrescentam-se na planta
+ * (botões) e no passo "Divisões".
  * `maquinas` (grandes e pequenas: chaves ou itemMaquina): as que precisam de exterior (carregador, bomba,
  * rega, portão…) sem garagem nem jardim acrescentam "Exterior" (no r/c).
  */
@@ -147,49 +233,71 @@ export function divisoesDaCasa(casa, maquinas = []) {
   } else if (!c.tipologia) {
     const n = Math.min(MAX_DIVISOES, c.divisoes ?? 3);
     for (let i = 0; i < n; i++) add(ORDEM_SEM_TIPOLOGIA[i] ?? `Divisão ${i + 1}`);
+  } else if (temPorPiso(c)) {
+    const pp = Array.isArray(c.porPiso) && c.porPiso.length === pisosCasa(c) ? c.porPiso.map(valoresPiso) : repartirPisos(c, { antigo: true });
+    r = divisoesPorPiso(pp, c.tipologia);
   } else {
+    // Um só piso: os valores da casa toda (o corredor, por omissão, com 2 ou mais quartos).
     const x = c.extras ?? {};
-    const pisos = Math.min(4, Math.max(1, Math.round(Number(c.pisos) || 1)));
     const quartos = quartosDe(c);
-    const cbs = Math.min(6, Math.max(1, Math.round(Number(c.casas_banho) || 1)));
-    const salas = Math.min(4, Math.max(1, Math.round(Number(c.salas) || 1)));
-    const cima = pisos - 1;
-    // A "Entrada" só existe se o cliente a marcar em "A casa tem…" (senão a porta de entrada fica no corredor ou na sala).
-    if (x.entrada) add("Entrada");
-    // Kitnet: uma só divisão "Kitnet" com a cozinha (no T0, o estúdio com cozinha; com 2 salas, a de jantar).
-    if (c.tipologia === "T0") add(x.kitnet ? "Kitnet" : "Estúdio");   // sala e quarto na mesma divisão
-    else {
-      for (let i = 1; i <= salas; i++) {
-        const nome = salas === 1 ? "Sala" : i === 1 ? "Sala de estar" : i === 2 ? "Sala de jantar" : `Sala ${i}`;
-        const comCozinha = x.kitnet && (salas === 1 ? i === 1 : i === 2);
-        add(comCozinha ? "Kitnet" : nome);
-      }
-    }
-    if (!x.kitnet) add("Cozinha");
-    // Quartos e casas de banho: tudo no r/c, ou (com pisos) os quartos em cima.
-    const qPiso = cima ? [0, ...repartir(quartos, cima)] : [quartos];
-    const bPiso = cima ? [1, ...repartir(cbs - 1, cima)] : [cbs];
-    let q = 0, b = 0, corredores = 0;
-    const querCorredor = x.corredor ?? quartos >= 2;
-    const nomeCb = () => (cbs === 1 ? "Casa de banho" : `Casa de banho ${++b}`);
-    for (let p = 0; p < pisos; p++) {
-      // Corredor ("A casa tem…"; por omissão no T2 e mais): um por piso com quartos (no r/c se não houver).
-      if (querCorredor && (qPiso[p] > 0 || (p === 0 && !qPiso.some(Boolean)))) add(++corredores === 1 ? "Corredor" : `Corredor ${corredores}`, p);
-      for (let i = 0; i < qPiso[p]; i++) add(`Quarto ${++q}`, p);
-      for (let i = 0; i < bPiso[p]; i++) add(nomeCb(), p);
-      if (pisos > 1) add(nomeEscadas(p), p);
-    }
-    if (x.escritorio) add("Escritório");
-    if (x.lavandaria) add("Lavandaria");
-    if (x.despensa) add("Despensa");
-    if (x.garagem) add("Garagem");
-    if (x.varanda) add("Varanda", pisos - 1);
-    if (x.jardim) add("Jardim");
+    r = divisoesPorPiso([valoresPiso({
+      quartos, casas_banho: inteiro(c.casas_banho, LIMITES_CASA.casas_banho, 1), salas: inteiro(c.salas, LIMITES_CASA.salas, 1),
+      extras: { ...x, corredor: x.corredor ?? quartos >= 2 },
+    })], c.tipologia);
   }
   const tem = (tipos) => r.some((d) => tipos.includes(tipoDivisao(d.nome)));
   const lista = (Array.isArray(maquinas) ? maquinas : []).map((m) => itemMaquina(m).modelo);
   if (lista.some((m) => PRECISA_EXTERIOR[m] && !tem(PRECISA_EXTERIOR[m]))) add("Exterior");
   return r.slice(0, MAX_DIVISOES);
+}
+
+/**
+ * Divisões de uma casa com tipologia, piso a piso (`pp`: valores de cada piso, valoresPiso; 0 = r/c). Em cada
+ * piso, por esta ordem: Entrada, as salas ("Sala"; 2 na casa, "Sala de estar" + "Sala de jantar"; 3–4, "Sala
+ * 3"…, numeradas na casa toda) — com kitnet marcada nesse piso, uma delas é a "Kitnet" (a cozinha aberta: a
+ * única sala, senão a de jantar, senão a última do piso; sem salas no piso, a Kitnet sozinha) —, a Cozinha
+ * (sem kitnet em nenhum piso: no 1.º piso com salas), Corredor, Quarto 1…n, Casa de banho (1…n), Escadas (com
+ * 2 ou mais pisos), Escritório, Lavandaria, Despensa, Garagem, Varanda, Jardim. T0: um "Estúdio" (ou "Kitnet")
+ * no r/c, sem salas. Divisões iguais em pisos diferentes numeram-se ("Garagem 2", "Corredor 2").
+ */
+function divisoesPorPiso(pp, tipologia) {
+  const r = [];
+  const add = (nome, piso) => r.push({ nome, piso });
+  const n = pp.length;
+  const total = (k) => pp.reduce((s, f) => s + f[k], 0);
+  const vezes = (k) => pp.filter((f) => f.extras[k]).length;
+  const t0 = tipologia === "T0";
+  const S = t0 ? 0 : total("salas"), B = total("casas_banho");
+  const algumaKitnet = pp.some((f) => f.extras.kitnet);
+  const pisoCozinha = algumaKitnet ? -1 : t0 ? 0 : Math.max(0, pp.findIndex((f) => f.salas > 0));
+  const conta = {};
+  const numerado = (k, nome) => { conta[k] = (conta[k] ?? 0) + 1; return vezes(k) > 1 && conta[k] > 1 ? `${nome} ${conta[k]}` : nome; };
+  let s = 0, q = 0, b = 0;
+  pp.forEach((f, p) => {
+    const x = f.extras;
+    if (x.entrada) add(numerado("entrada", "Entrada"), p);
+    if (t0) {
+      if (p === 0) add(x.kitnet ? numerado("kitnet", "Kitnet") : "Estúdio", p);   // sala e quarto na mesma divisão
+      else if (x.kitnet) add(numerado("kitnet", "Kitnet"), p);
+    } else {
+      const s0 = s, fim = s0 + f.salas;
+      const comCozinha = !x.kitnet || !f.salas ? -1 : S === 1 ? 1 : s0 < 2 && fim >= 2 ? 2 : fim;
+      for (let i = s0 + 1; i <= fim; i++) {
+        s = i;
+        add(i === comCozinha ? numerado("kitnet", "Kitnet") : S === 1 ? "Sala" : i === 1 ? "Sala de estar" : i === 2 ? "Sala de jantar" : `Sala ${i}`, p);
+      }
+      if (x.kitnet && !f.salas) add(numerado("kitnet", "Kitnet"), p);
+    }
+    if (p === pisoCozinha) add("Cozinha", p);
+    if (x.corredor) add(numerado("corredor", "Corredor"), p);
+    for (let i = 0; i < f.quartos; i++) add(`Quarto ${++q}`, p);
+    for (let i = 0; i < f.casas_banho; i++) add(B === 1 ? "Casa de banho" : `Casa de banho ${++b}`, p);
+    if (n > 1) add(nomeEscadas(p), p);
+    for (const [k, nome] of [["escritorio", "Escritório"], ["lavandaria", "Lavandaria"], ["despensa", "Despensa"], ["garagem", "Garagem"], ["varanda", "Varanda"], ["jardim", "Jardim"]]) {
+      if (x[k]) add(numerado(k, nome), p);
+    }
+  });
+  return r;
 }
 
 /**
@@ -463,12 +571,15 @@ export function assinaturaCasa(casa, maquinas = []) {
   const x = c.extras ?? {};
   const perfil = perfilCasa(c.tipo);
   const negocio = perfil !== "habitacao";
+  // Valores por piso (passo 1 com 2 ou mais pisos): só entram quando existem (as assinaturas de um piso não mudam).
+  const pp = !negocio && temPorPiso(c) && Array.isArray(c.porPiso) ? c.porPiso.map(valoresPiso) : null;
   return JSON.stringify([
     perfil, negocio ? null : c.tipologia ?? null, negocio ? null : quartosDe(c), c.casas_banho, c.salas, c.pisos,
     ...Object.keys(EXTRAS_CASA).map((k) => !!x[k]),
     // Máquinas: a chave (como antes) e, se não for uma só no piso típico, "chave×2@1" (quantidade e piso).
     negocio ? c.area_m2 ?? null : null, negocio ? c.espacos ?? null : null,
     maquinas.map(itemMaquina).map((m) => (m.qtd === 1 && m.piso === null ? m.modelo : `${m.modelo}×${m.qtd}@${m.piso ?? "-"}`)).sort(),
+    ...(pp ? [pp.map((f) => [f.quartos, f.casas_banho, f.salas, Object.keys(EXTRAS_CASA).filter((k) => f.extras[k]).join("+")])] : []),
   ]);
 }
 

@@ -60,17 +60,22 @@
             <div class="escolhas-grelha seis" id="casa-tipos"></div>
           </fieldset>
           <fieldset class="escolhas" id="casa-tipologia-caixa">
-            <legend>Tipologia <small class="ajuda">T2 = 2 quartos; T0 = estúdio (sala e quarto na mesma divisão).</small></legend>
+            <legend>Tipologia <small class="ajuda" id="casa-tipologia-ajuda">T2 = 2 quartos; T0 = estúdio (sala e quarto na mesma divisão).</small></legend>
             <div class="escolhas-grelha seis" id="casa-tipologias"></div>
           </fieldset>
           <div class="duas" id="casa-negocio" hidden>
             <label>Área (m²) <small class="ajuda">Aproximada, de todo o espaço.</small><input id="casa-area" type="number" inputmode="numeric" min="10" max="5000" step="1"></label>
           </div>
-          <div class="contadores" id="casa-contadores"></div>
-          <fieldset class="escolhas" id="casa-extras-caixa">
-            <legend>A casa tem… <small class="ajuda">Toque para marcar ou desmarcar.</small></legend>
-            <div class="escolhas-grelha" id="casa-extras"></div>
-          </fieldset>
+          <!-- Pisos (moradia, alojamento local, outro); com 2 ou mais, um separador por piso com os valores desse piso. -->
+          <div class="contadores" id="casa-contadores-pisos"></div>
+          <div class="quer-pisos" id="casa-pisos" role="tablist" aria-label="Divisões por piso" hidden></div>
+          <div class="casa-painel" id="casa-painel">
+            <div class="contadores" id="casa-contadores"></div>
+            <fieldset class="escolhas" id="casa-extras-caixa">
+              <legend>A casa tem… <small class="ajuda" id="casa-extras-ajuda">Toque para marcar ou desmarcar.</small></legend>
+              <div class="escolhas-grelha" id="casa-extras"></div>
+            </fieldset>
+          </div>
           <label>Localidade<input id="casa-localidade" maxlength="80" autocomplete="address-level2"></label>
           <div class="duas">
             <label>Potência contratada <small class="ajuda">Está na fatura da eletricidade.</small><select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9">6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option><option value="">Não sei</option></select></label>

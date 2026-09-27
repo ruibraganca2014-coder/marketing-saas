@@ -80,6 +80,23 @@ function tipologiaTxt(casa) {
   partes.push(...Object.keys(EXTRAS_CASA).filter((k) => x[k] === true).map((k) => EXTRAS_CASA[k]));
   return partes.join(" · ");
 }
+/**
+ * Casas com 2 ou mais pisos (casa.pisos_detalhe): uma linha por piso, "Piso 1" → "3 quartos · 1 casa de banho ·
+ * corredor · varanda/terraço" (vazio nas simulações antigas ou com um só piso).
+ */
+function pisosDetalhe(casa) {
+  return arr(casa.pisos_detalhe).filter((f) => f && typeof f === "object").slice(0, 4).map((f, i) => {
+    const p = numero(f.piso) ?? i;
+    const q = numero(f.quartos), b = numero(f.casas_banho), s = numero(f.salas);
+    const partes = [
+      s ? plural(s, "sala", "salas") : null,
+      q ? plural(q, "quarto", "quartos") : null,
+      b ? plural(b, "casa de banho", "casas de banho") : null,
+      ...Object.keys(EXTRAS_CASA).filter((k) => obj(f.extras)[k] === true).map((k) => EXTRAS_CASA[k]),
+    ].filter(Boolean);
+    return [nomePiso(p), partes.join(" · ") || "—"];
+  });
+}
 /** Serviços e industrial: "120 m² · 5 espaços" (vazio nas casas). */
 function areaTxt(casa) {
   const a = numero(casa.area_m2), e = numero(casa.espacos);
@@ -230,6 +247,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ["Casa", casaTxt || "—"],
       ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
+      ...pisosDetalhe(casa),
       ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
       ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"]] : []),
       ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),

@@ -13,7 +13,10 @@
 //
 // Opções (todas opcionais):
 //   soLeitura   true → sem pegas nem destaque de seleção (visualizador)
-//   selecionado id da divisão ou do elemento selecionado (editor)
+//   selecionado id da divisão ou do elemento selecionado (editor): anel grosso cor de argila à volta, com um
+//               halo que pulsa devagar (classe `selecao-halo`, animada no CSS do simulador; parada com
+//               movimento reduzido); o resto fica esbatido (opacidade 0,35), menos os aparelhos da
+//               divisão selecionada
 //   vista       {x, y, w, h} em cm para o viewBox (por omissão, a planta toda)
 //   raio        raio dos ícones em cm (por omissão, proporcional ao tamanho da planta)
 //   raioToque   raio da zona de toque dos elementos em cm (≥ raio)
@@ -23,7 +26,8 @@
 //   piso        n.º do piso (0 = r/c) → só as divisões e os elementos desse piso (`piso` em falta = 0);
 //               todos os pisos partilham a mesma folha e a mesma escala
 //
-// Cada máquina tem o seu ícone (`maquina_<modelo>`; sem ícone próprio, o genérico). Os nomes das divisões
+// Cada máquina tem o seu ícone (`maquina_<modelo>`; sem ícone próprio, o genérico); os botões de divisão do
+// editor têm um desenho por tipo (`desenharIcone(svg, "divisao", {tipo})`: sofá, cama, fogão, banheira…). Os nomes das divisões
 // ficam por cima dos ícones (com contorno da cor do papel) e encolhem para caber na divisão.
 // Os tipos antigos de telecomunicações (telecom_*) já não existem: desenham-se com o ícone genérico.
 
@@ -116,6 +120,29 @@ const ICONES = {
   maquina_ferramentas: [["rect", { x: 10, y: 15, width: 19, height: 10, rx: 2 }, "t"], ["path", { d: "M29 20h9M16 25l-3 12h7.5l2-12" }, "t"]],
   maquina_aspirador_industrial: [["rect", { x: 11, y: 16, width: 20, height: 20, rx: 4 }, "t"], ["path", { d: "M11 21.5h20M31 23c6 0 7.5-6 5.5-12" }, "t"], ["circle", { cx: 15.5, cy: 38, r: 1.8 }, "c"], ["circle", { cx: 26.5, cy: 38, r: 1.8 }, "c"]],
   maquina_carregador_baterias: [["rect", { x: 9, y: 15, width: 25, height: 18, rx: 2 }, "t"], ["path", { d: "M34 20.5v7M14 24h6M17 21v6M25 24h5" }, "t"]],
+  // Divisões (botões do editor, desenharIcone(svg, "divisao", {tipo})): um desenho por tipo de divisão
+  // (web/simulador/casa.js tipoDivisao); sem desenho próprio, o quadrado tracejado de "Outra".
+  divisao_sala: [["path", { d: "M11 24v-6a3 3 0 0 1 3-3h20a3 3 0 0 1 3 3v6" }, "t"], ["path", { d: "M8 33v-8a3 3 0 0 1 6 0v3h20v-3a3 3 0 0 1 6 0v8zM12 33v3.5M36 33v3.5" }, "t"]],
+  divisao_quarto: [["path", { d: "M8 12v25M8 24h32v13M8 31h32" }, "t"], ["rect", { x: 11.5, y: 18, width: 9, height: 6, rx: 2 }, "t"]],
+  divisao_cozinha: [["rect", { x: 11, y: 14, width: 26, height: 24, rx: 2.5 }, "t"], ["rect", { x: 15, y: 24, width: 18, height: 10, rx: 1.5 }, "t"], ["path", { d: "M15 10h7M26 10h7" }, "t"], ["circle", { cx: 17, cy: 19, r: 1.4 }, "c"], ["circle", { cx: 24, cy: 19, r: 1.4 }, "c"], ["circle", { cx: 31, cy: 19, r: 1.4 }, "c"]],
+  divisao_wc: [["path", { d: "M8 24h32v3a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8z" }, "t"], ["path", { d: "M12 24V14.5a3.5 3.5 0 0 1 7 0M15 35l-1.5 3.5M33 35l1.5 3.5" }, "t"]],
+  divisao_corredor: [["path", { d: "M8 9l12 11v8L8 39M40 9L28 20v8l12 11M20 20h8M20 28h8" }, "t"]],
+  divisao_entrada: [["path", { d: "M16 34V10h16v24" }, "t"], ["rect", { x: 11, y: 34.5, width: 26, height: 4.5, rx: 1.5 }, "t"], ["circle", { cx: 28, cy: 23, r: 1.6 }, "c"]],
+  divisao_escritorio: [["path", { d: "M7 27h34M10 27v11M38 27v11M28 27v6h10" }, "t"], ["rect", { x: 13, y: 11, width: 15, height: 11, rx: 1.5 }, "t"], ["path", { d: "M20.5 22v5" }, "t"]],
+  divisao_lavandaria: [["path", { d: "M10 20h28l-3.5 17h-21z" }, "t"], ["path", { d: "M16 20c0-6 16-6 16 0M19 25v7M24 25v7M29 25v7" }, "t"]],
+  divisao_despensa: [["rect", { x: 10, y: 8, width: 28, height: 32, rx: 2 }, "t"], ["path", { d: "M10 18.5h28M10 29h28" }, "t"], ["rect", { x: 14, y: 12, width: 5, height: 6.5, rx: 1 }, "t"], ["rect", { x: 22, y: 21.5, width: 9, height: 7.5, rx: 1 }, "t"], ["circle", { cx: 17, cy: 35, r: 3 }, "t"]],
+  divisao_garagem: [["path", { d: "M8 32v-6l5-8h22l5 8v6zM15 25l2.5-4h13l2.5 4" }, "t"], ["circle", { cx: 15, cy: 33, r: 3 }, "t"], ["circle", { cx: 33, cy: 33, r: 3 }, "t"]],
+  divisao_varanda: [["path", { d: "M8 16h32M8 37h32M12 16v21M18 16v21M24 16v21M30 16v21M36 16v21" }, "t"]],
+  divisao_jardim: [["circle", { cx: 24, cy: 19, r: 10 }, "t"], ["path", { d: "M24 29v9M17 38h14" }, "t"]],
+  divisao_escadas: [["path", { d: "M9 38h7v-7h7v-7h7v-7h7v-7h2" }, "t"]],
+  divisao_sala_cozinha: [["path", { d: "M8 24v-4a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v4M6 32v-6a2.5 2.5 0 0 1 5 0v2h10v-2a2.5 2.5 0 0 1 5 0v6zM28 38V20h14v18M28 26h14" }, "t"], ["circle", { cx: 32, cy: 23, r: 1.2 }, "c"], ["circle", { cx: 38, cy: 23, r: 1.2 }, "c"]],
+  divisao_loja: [["path", { d: "M8 11h32l2 8H6zM6 19c0 3 5.3 3 5.3 0 0 3 5.3 3 5.3 0 0 3 5.3 3 5.3 0 0 3 5.3 3 5.3 0 0 3 5.3 3 5.3 0 0 3 5.3 3 5.3 0M10 22v16h28V22M20 38V29h8v9" }, "t"]],
+  divisao_rececao: [["path", { d: "M7 29h34v9H7z" }, "t"], ["path", { d: "M17 25a7 7 0 0 1 14 0zM24 15v3M14 25h20" }, "t"]],
+  divisao_montra: [["rect", { x: 8, y: 10, width: 32, height: 24, rx: 2 }, "t"], ["path", { d: "M8 16h32M6 38h36" }, "t"], ["circle", { cx: 17, cy: 26, r: 3.5 }, "t"], ["rect", { x: 26, y: 21, width: 7, height: 9, rx: 1 }, "t"]],
+  divisao_nave: [["path", { d: "M8 38V22l8-6v6l8-6v6l8-6v22M32 16V9h5v29M5 38h38M13 38v-8h6v8" }, "t"]],
+  divisao_armazem: [["rect", { x: 9, y: 25, width: 14, height: 13, rx: 1 }, "t"], ["rect", { x: 25, y: 25, width: 14, height: 13, rx: 1 }, "t"], ["rect", { x: 17, y: 11, width: 14, height: 13, rx: 1 }, "t"], ["path", { d: "M16 25v4M32 25v4M24 11v4" }, "t"]],
+  divisao_cais: [["path", { d: "M5 15h23v18H5zM28 22h8l6 6v5H28" }, "t"], ["circle", { cx: 12, cy: 35, r: 3 }, "t"], ["circle", { cx: 35, cy: 35, r: 3 }, "t"]],
+  divisao_outra: [["rect", { x: 9, y: 11, width: 30, height: 26, rx: 3, "stroke-dasharray": "5 3" }, "t"]],
 };
 const ICONE_RAIO = [["path", { d: "M26 13 18 26h6l-2 9 8-13h-6z" }, "c"]];
 
@@ -226,6 +253,7 @@ function icone(e) {
   if (e.tipo === "janela" && p.estore) return ICONES.janela_estore;
   if (e.tipo === "tomada" && p.dupla) return ICONES.tomada_dupla;
   if (e.tipo === "maquina" && ICONES[`maquina_${p.modelo}`]) return ICONES[`maquina_${p.modelo}`];
+  if (e.tipo === "divisao") return ICONES[`divisao_${p.tipo}`] || ICONES.divisao_outra;
   return ICONES[e.tipo] || ICONES.maquina;
 }
 
@@ -250,6 +278,14 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
   const elementos = (Array.isArray(planta?.elementos) ? planta.elementos : []).filter(soPiso);
   const nomesDivisao = new Map(divisoes.map((d) => [d.id, String(d.nome ?? "")]));
   const uid = `planta-${++contador}`;
+  // Seleção (editor): o resto fica esbatido; os aparelhos da divisão selecionada continuam nítidos.
+  const selDiv = !soLeitura && selecionado != null ? divisoes.find((d) => d.id === selecionado) ?? null : null;
+  const selEl = !soLeitura && selecionado != null ? elementos.find((e) => e.id === selecionado) ?? null : null;
+  const haSel = !!(selDiv || selEl);
+  const ESBATIDO = "0.35";
+  // O halo é redesenhado a cada mudança: o atraso negativo mantém o pulsar no mesmo ponto do ciclo (2 s).
+  const faseHalo = `-${Math.round((typeof performance !== "undefined" ? performance.now() : 0) % 2000)}ms`;
+  const halo = { fill: "none", stroke: COR.argila, opacity: "0.35", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke", "pointer-events": "none", "animation-delay": faseHalo };
 
   svg.replaceChildren();
   svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
@@ -304,30 +340,39 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     const x = Math.min(...pts.map((p) => p[0])), y = Math.min(...pts.map((p) => p[1]));
     const w = Math.max(...pts.map((p) => p[0])) - x, h = Math.max(...pts.map((p) => p[1])) - y;
     const sel = !soLeitura && selecionado === d.id;
-    const g = no("g", { "data-divisao": d.id });
+    const g = no("g", { "data-divisao": d.id }, haSel && !sel ? { opacity: ESBATIDO } : null);
     const t = no("title");
     t.textContent = ret ? `${d.nome || "Divisão"} (${fmtM(w)} × ${fmtM(h)} m, ${m2} m²)` : `${d.nome || "Divisão"} (${m2} m², ${pts.length} cantos)`;
     g.append(t);
     g.append(no("polygon", { points: pts.map((p) => `${p[0]},${p[1]}`).join(" ") }, {
       fill: sel ? COR.musgoClaro : `color-mix(in srgb, ${COR.musgoClaro} 55%, transparent)`,
-      stroke: sel ? COR.argila : COR.musgo, "stroke-width": sel ? "3px" : "2px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke",
+      stroke: COR.musgo, "stroke-width": "2px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke",
     }));
     const [ix, iy] = ret ? [x + letra * 0.4, y] : interior(pts);
     // Largura para o texto: a da divisão menos uma margem (retângulo); numa forma livre, 80 % da caixa.
     const largura = Math.max(letra, ret ? w - letra * 0.8 : w * 0.8);
     // Divisão baixa: o nome encolhe para caber na altura; a medida só aparece se couber por baixo dele.
     const tamNome = Math.min(letra, h / 1.35);
-    const nome = texto(String(d.nome ?? ""), tamNome, largura, 0.6, { fill: COR.texto, "font-weight": "700" },
+    const nome = texto(String(d.nome ?? ""), tamNome, largura, 0.6, { fill: COR.texto, "font-weight": "700", ...(haSel && !sel ? { opacity: ESBATIDO } : {}) },
       ret ? { x: ix, y: iy + tamNome * 1.15 } : { x: ix, y: iy - letra * 0.1, "text-anchor": "middle" });
     gn.append(nome);
     if (ret ? h >= letra * 2.5 : true) {
-      const medida = texto(ret ? `${fmtM(w)} × ${fmtM(h)} m · ${m2} m²` : `${m2} m²`, letra * 0.72, largura, 0.55, { fill: COR.suave },
+      const medida = texto(ret ? `${fmtM(w)} × ${fmtM(h)} m · ${m2} m²` : `${m2} m²`, letra * 0.72, largura, 0.55, { fill: COR.suave, ...(haSel && !sel ? { opacity: ESBATIDO } : {}) },
         ret ? { x: ix, y: iy + letra * 2.2 } : { x: ix, y: iy + letra * 0.85, "text-anchor": "middle" });
       gn.append(medida);
     }
     gd.append(g);
   }
   svg.append(gd);
+  // Divisão selecionada: halo largo que pulsa e, por cima, o anel grosso cheio (por cima das outras divisões,
+  // por baixo dos aparelhos).
+  if (selDiv) {
+    const pts = cantos(selDiv).map((p) => `${p[0]},${p[1]}`).join(" ");
+    const gs = no("g", { "data-camada": "selecao", "aria-hidden": "true" }, { "pointer-events": "none" });
+    gs.append(no("polygon", { points: pts, class: "selecao-halo" }, { ...halo, "stroke-width": "16px" }));
+    gs.append(no("polygon", { points: pts }, { fill: "none", stroke: COR.argila, "stroke-width": "5px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }));
+    svg.append(gs);
+  }
 
   // Elementos: ícone num disco, rodado quando faz sentido.
   const ge = no("g", { "data-camada": "elementos" });
@@ -335,12 +380,16 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     const x = numero(e.x_cm), y = numero(e.y_cm);
     const rot = [0, 90, 180, 270].includes(e.rot) ? e.rot : 0;
     const sel = !soLeitura && selecionado === e.id;
-    const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` });
+    const nitido = !haSel || sel || (selDiv && e.divisao === selDiv.id);
+    const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` }, nitido ? null : { opacity: ESBATIDO });
     const t = no("title");
     t.textContent = descrever(e, nomesDivisao);
     g.append(t);
     if (!soLeitura && raioToque > raio) g.append(no("circle", { r: raioToque, cx: 0, cy: 0 }, { fill: "transparent" }));
-    if (sel) g.append(no("circle", { r: raio * 1.35, cx: 0, cy: 0 }, { fill: "none", stroke: COR.argila, "stroke-width": "3px", "stroke-dasharray": "6 4", "vector-effect": "non-scaling-stroke" }));
+    if (sel) {
+      g.append(no("circle", { r: raio * 1.45, cx: 0, cy: 0, class: "selecao-halo" }, { ...halo, "stroke-width": "14px" }));
+      g.append(no("circle", { r: raio * 1.22, cx: 0, cy: 0 }, { fill: "none", stroke: COR.argila, "stroke-width": "5px", "vector-effect": "non-scaling-stroke", "pointer-events": "none" }));
+    }
     const destaque = (e.tipo === "porta" && e.props?.entrada) || e.tipo === "maquina";
     g.append(no("circle", { r: raio, cx: 0, cy: 0 }, {
       fill: destaque ? `color-mix(in srgb, ${COR.areia} 30%, ${COR.fundo})` : COR.fundo,
@@ -389,7 +438,8 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
 
 /**
  * Só o ícone de um tipo de elemento, num <svg> com viewBox 0 0 48 48 (paleta,
- * listas, legendas). Usa as mesmas cores do desenho da planta.
+ * listas, legendas). Usa as mesmas cores do desenho da planta. `tipo` "divisao" com `props.tipo` (sala,
+ * quarto, cozinha…; casa.js tipoDivisao): o desenho dessa divisão (botões do editor).
  */
 export function desenharIcone(svg, tipo, props = {}) {
   svg.replaceChildren();

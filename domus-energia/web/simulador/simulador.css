@@ -67,9 +67,9 @@ input, select { min-height: 44px; }
 .contadores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); align-items: end; }
 .contadores:not(:has(.contador:not([hidden]))) { display: none; }
 .contador { display: grid; gap: 6px; min-width: 0; }
-/* Com 6 colunas (como a tipologia), os pisos ficam à direita, por baixo do T5+. */
 @media (min-width: 720px) { .contadores { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
-#contador-pisos { grid-column: -2 / -1; }
+/* Passo 1 com 2 ou mais pisos: os contadores e "A casa tem…" do piso escolhido nos separadores (#casa-pisos). */
+.casa-painel { display: grid; gap: 16px; min-width: 0; }
 .contador-rotulo { font-weight: 700; }
 .contador-caixa { display: flex; align-items: center; gap: 8px; }
 .contador-caixa .btn { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 1.3rem; line-height: 1; }
@@ -87,35 +87,46 @@ input, select { min-height: 44px; }
 .editor { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 980px) { .editor { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
 .editor-principal { display: grid; gap: 10px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
-.editor-ferramentas { display: grid; gap: 10px; min-width: 0; }
-.editor-barra { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+/* Ferramentas em 3 grupos (divisões, elementos, máquinas), sem rótulos e separados só por um pequeno espaço;
+   todos os botões iguais (quadrados, desenho em cima, nome em baixo), por isso alinham em grelha. No telemóvel
+   cada grupo é uma fila que desliza para o lado e encaixa num botão (a página não rola na horizontal). */
+.editor-ferramentas { display: grid; gap: 12px; min-width: 0; }
+.editor-barra { display: flex; gap: 6px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 2px 2px 6px; scrollbar-width: thin; }
 .editor-barra[hidden] { display: none; }
-@media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; } }
-.ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; width: 78px; min-height: 64px; padding: 6px 4px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; }
-.ferramenta svg { width: 28px; height: 28px; color: var(--texto); }
+@media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; padding-bottom: 0; } }
+.ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; width: 80px; min-height: 80px; padding: 8px 4px 6px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; scroll-snap-align: start; }
+.ferramenta svg { width: 30px; height: 30px; flex: none; color: var(--texto); }
+.ferramenta-nome { display: block; max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
 .ferramenta:hover { border-color: var(--musgo); }
 .ferramenta[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
-/* Botões por tipo de divisão: mais baixos, ícone ao lado do nome. */
-.editor-divisoes { align-items: center; }
-.editor-barra-rotulo { flex: none; font-weight: 700; font-size: .85rem; color: var(--texto-suave); padding-right: 2px; }
-.ferramenta.tipo-divisao { flex-direction: row; width: auto; min-height: 44px; padding: 6px 12px; gap: 6px; font-size: .82rem; text-align: left; }
-.ferramenta.tipo-divisao svg { width: 20px; height: 20px; flex: none; }
-.tipo-divisao-nome { white-space: nowrap; }
-/* Máquinas (fila "Máquinas:"): um botão com o desenho de cada modelo, como os das divisões. */
-.ferramenta.maquina-ferramenta svg { width: 26px; height: 26px; }
-.editor-barra2 { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.editor-barra2 .btn { min-width: 44px; }
-/* Altura reservada: a dica muda de tamanho a cada ação e a planta, por baixo, não pode saltar
-   entre o que a pessoa vê e o toque seguinte. */
-.editor-dica { margin: 0; min-height: calc(1.5em * 2); line-height: 1.5; font-weight: 600; color: var(--texto-suave); }
-@media (max-width: 719px) { .editor-dica { min-height: calc(1.5em * 4); font-size: .95rem; } }
-/* Ações do que está selecionado (altura fixa: a planta não salta quando se seleciona). */
-.editor-selecao { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 48px; padding: 2px 0; }
-.editor-selecao-nome { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
-.editor-selecao.vazia .editor-selecao-nome { font-weight: 600; color: var(--texto-suave); }
-.editor-selecao .btn { flex: none; padding-inline: 12px; }
-.editor-selecao .btn[hidden] { display: none; }
+/* Barra única das ações, centrada por cima da planta (editor.js `acoes`): grupos separados por um pequeno
+   espaço; os botões que não se aplicam ficam desativados (a barra não muda de tamanho). No computador uma só
+   fila (as duas linhas do DOM desfazem-se: display contents; quebra se não couber); no telemóvel duas filas —
+   as ações gerais e as da seleção — que deslizam dentro de si (a página não rola na horizontal). */
+.editor-acoes { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 14px; min-width: 0; padding: 6px 8px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); }
+.editor-acoes-linha { display: contents; }
+.editor-acoes-grupo { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-width: 0; }
+.editor-acoes .g-historico { order: 1; }
+.editor-acoes .g-vista { order: 2; }
+.editor-acoes .g-selecao { order: 3; }
+.editor-acoes .g-fundo { order: 4; }
+.editor-acoes .editor-pisos { order: 5; }
+.editor-acoes .btn { flex: none; min-width: 44px; padding-inline: 12px; white-space: nowrap; }
+.editor-acoes .btn:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 719px) {
+  .editor-acoes { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 6px; padding: 6px; }
+  .editor-acoes-linha { display: flex; gap: 10px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; justify-content: safe center; padding-bottom: 2px; scrollbar-width: thin; }
+  .editor-acoes :is(.editor-acoes-grupo, .editor-pisos) { flex: none; flex-wrap: nowrap; }
+  .editor-acoes .btn { padding-inline: 10px; }
+}
+/* Por baixo da barra, discreto: o que está selecionado e o texto de estado. Altura reservada: a dica muda de
+   tamanho a cada ação e a planta, por baixo, não pode saltar entre o que a pessoa vê e o toque seguinte. */
+.editor-estado { display: grid; gap: 2px; min-width: 0; text-align: center; }
+.editor-selecao-nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; font-size: .9rem; color: var(--texto); }
+.editor-estado.vazia .editor-selecao-nome { font-weight: 600; color: var(--texto-suave); }
+.editor-dica { margin: 0; min-height: calc(1.4em * 2); line-height: 1.4; font-size: .88rem; font-weight: 600; color: var(--texto-suave); }
+@media (max-width: 719px) { .editor-dica { min-height: calc(1.4em * 3); } }
 /* A planta ocupa a altura que sobra entre o topo fixo (64 px) e a barra fixa de baixo ("Anterior/Seguinte",
    ~70 px): mostrarPlanta (editor.js) encosta-a por cima da barra (scroll-margin). */
 .editor-area { --topo-fixo: 72px; --barra-fixa: 84px; scroll-margin: var(--topo-fixo) 0 var(--barra-fixa); position: relative; height: clamp(320px, calc(100dvh - var(--topo-fixo) - var(--barra-fixa)), 1100px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
@@ -127,10 +138,13 @@ input, select { min-height: 44px; }
 .editor-lado .cartao { padding: 16px; }
 .editor-lado h3 { margin: 0 0 8px; font-size: 1.15rem; }
 .editor-lado h3:focus { outline: none; }
-.editor-props { display: grid; gap: 10px; }
-.editor-props > * { margin: 0; }
 .editor-props-campos { display: grid; gap: 6px; }
-.editor-mover .quadrado { width: 44px; padding: 0; font-size: 1.1rem; }
+/* Setas de mover na janela de edição. */
+.editor-mover { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.editor-mover legend { padding: 0; font-weight: 800; font-size: .95rem; }
+.editor-mover .ajuda { margin: 0; }
+.editor-mover .ajuda:empty { display: none; }
+.editor-mover .quadrado { width: 44px; min-width: 44px; padding: 0; font-size: 1.1rem; }
 .perigo-sec { border-color: var(--alarme) !important; color: var(--alarme-texto) !important; }
 .perigo-sec:hover { background: var(--alarme-suave) !important; }
 .editor-lado details > summary { cursor: pointer; font-weight: 800; font-family: var(--letra-titulos); font-size: 1.1rem; min-height: 44px; display: flex; align-items: center; }
@@ -226,7 +240,7 @@ input, select { min-height: 44px; }
 /* ---------- Enviar ---------- */
 .sim-enviar { display: grid; gap: 14px; }
 /* Não fica escondida pelo topo nem pela barra de navegação fixa em baixo. */
-#enviar-msg, .editor-dica, #editor-props-titulo { scroll-margin: 90px 0 96px; }
+#enviar-msg, .editor-dica { scroll-margin: 90px 0 96px; }
 .sim-enviar input, .sim-enviar textarea { scroll-margin: 90px 0 96px; }
 .sim-sucesso .cartao { display: grid; gap: 12px; }
 .sim-sucesso h2 { margin: 0; font-size: 1.8rem; }
@@ -252,6 +266,10 @@ input, select { min-height: 44px; }
 .editor-svg .destaque-nova { animation: destaque-nova .5s ease-in-out 3 both; }
 @keyframes destaque-nova { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .editor-svg .destaque-nova { animation: none; } }
+/* Seleção na planta (planta-svg.js): o halo à volta do anel pulsa devagar; parado com movimento reduzido. */
+.editor-svg .selecao-halo { animation: selecao-halo 2s ease-in-out infinite; }
+@keyframes selecao-halo { 0%, 100% { opacity: .18; } 50% { opacity: .6; } }
+@media (prefers-reduced-motion: reduce) { .editor-svg .selecao-halo { animation: none; } }
 
 /* ---------- Quadro: proteções, tamanho e potência (quadro.js) ---------- */
 #quadro-protecoes { display: grid; gap: 18px; }
@@ -274,10 +292,10 @@ input, select { min-height: 44px; }
 .sugestoes li small { color: var(--texto-suave); text-align: right; }
 .sugestoes li[aria-selected="true"], .sugestoes li:hover { background: var(--areia-suave); }
 
-/* Separadores por piso (editor.js desenharSeparadores): só com mais de um piso. */
-.editor-pisos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 0; margin-bottom: -10px; scrollbar-width: thin; }
+/* Separadores por piso (editor.js desenharSeparadores): só com mais de um piso, na barra das ações. */
+.editor-pisos { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; min-width: 0; }
 .editor-pisos[hidden] { display: none; }
-.editor-piso { flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 0; min-height: 44px; padding: 6px 14px; border: 2px solid var(--borda); border-bottom: 0; border-radius: 12px 12px 0 0; background: var(--superficie); color: var(--texto); font: 800 .9rem/1.2 var(--letra); cursor: pointer; }
+.editor-piso { flex: none; display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 44px; padding: 4px 12px; border: 2px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--texto); font: 800 .85rem/1.2 var(--letra); cursor: pointer; }
 .editor-piso small { font-weight: 600; font-size: .75rem; color: var(--texto-suave); }
 .editor-piso:hover { border-color: var(--musgo); }
 .editor-piso[aria-selected="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
@@ -289,19 +307,22 @@ input, select { min-height: 44px; }
 .editor-principal:fullscreen .editor-area, .editor-principal.ecra-inteiro .editor-area { flex: 1 1 auto; height: auto; min-height: 240px; }
 .editor-principal:fullscreen .editor-ajuda, .editor-principal.ecra-inteiro .editor-ajuda { display: none; }
 .editor-principal:fullscreen .editor-dica, .editor-principal.ecra-inteiro .editor-dica { min-height: 0; flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .85rem; line-height: 1.3; }
-.editor-principal:fullscreen :is(.editor-selecao, .editor-pisos), .editor-principal.ecra-inteiro :is(.editor-selecao, .editor-pisos) { flex: none; min-height: 44px; }
-/* Todas as barras numa só fila que desliza para o lado (Anular, zoom e "Sair" à frente): a planta fica com
-   a maior parte da altura (≥ 65 %, também no telemóvel). Os botões ficam baixos, o desenho ao lado do nome. */
+.editor-principal:fullscreen .editor-selecao-nome, .editor-principal.ecra-inteiro .editor-selecao-nome { display: none; }
+/* A barra das ações numa só fila que desliza para o lado (sem quebrar linha). */
+.editor-principal:fullscreen .editor-acoes, .editor-principal.ecra-inteiro .editor-acoes { flex: none; flex-direction: row; flex-wrap: nowrap; justify-content: safe center; align-items: center; gap: 6px 14px; overflow-x: auto; overflow-y: hidden; padding: 4px; scrollbar-width: thin; }
+.editor-principal:fullscreen .editor-acoes-linha, .editor-principal.ecra-inteiro .editor-acoes-linha { display: contents; }
+.editor-principal:fullscreen :is(.editor-acoes-grupo, .editor-pisos), .editor-principal.ecra-inteiro :is(.editor-acoes-grupo, .editor-pisos) { flex: none; flex-wrap: nowrap; }
+/* As ferramentas numa só fila que desliza para o lado: a planta fica com a maior parte da altura (≥ 65 %,
+   também no telemóvel). Os botões ficam baixos, o desenho ao lado do nome. */
 .editor-principal:fullscreen .editor-ferramentas, .editor-principal.ecra-inteiro .editor-ferramentas { display: flex; flex: none; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: thin; }
-.editor-principal:fullscreen :is(.editor-barra, .editor-barra2), .editor-principal.ecra-inteiro :is(.editor-barra, .editor-barra2) { flex: none; flex-wrap: nowrap; overflow: visible; padding: 0; gap: 6px; align-items: center; }
-.editor-principal:fullscreen .editor-barra2, .editor-principal.ecra-inteiro .editor-barra2 { order: -1; }
-.editor-principal:fullscreen .editor-barra2 .btn, .editor-principal.ecra-inteiro .editor-barra2 .btn { flex: none; white-space: nowrap; }
+.editor-principal:fullscreen .editor-barra, .editor-principal.ecra-inteiro .editor-barra { flex: none; flex-wrap: nowrap; overflow: visible; padding: 0; gap: 6px; align-items: center; }
 .editor-principal:fullscreen .ferramenta, .editor-principal.ecra-inteiro .ferramenta { flex-direction: row; width: auto; min-height: 44px; padding: 4px 10px; gap: 6px; font-size: .78rem; white-space: nowrap; }
 .editor-principal:fullscreen .ferramenta svg, .editor-principal.ecra-inteiro .ferramenta svg { width: 22px; height: 22px; }
 .editor-principal:fullscreen::backdrop { background: var(--fundo); }
 html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
-/* Em ecrã inteiro o "Sair" fica à frente na barra (no telemóvel não há Esc). */
+/* Em ecrã inteiro o "Sair" fica à frente no seu grupo e o grupo à frente na barra (no telemóvel não há Esc). */
 #editor-ecra-inteiro[aria-pressed="true"] { order: -1; border-color: var(--musgo); }
+.editor-acoes-grupo:has(#editor-ecra-inteiro[aria-pressed="true"]) { order: -1; }
 /* Janela de edição: o que é o elemento, distância às paredes, altura ao chão, cantos. */
 .editor-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--musgo-claro) 55%, transparent); font-size: .92rem; }
 .editor-info dt { font-weight: 700; color: var(--texto-suave); }

@@ -13,6 +13,7 @@ import {
 } from "./regras.js";
 import {
   plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
+  acertarPisos, temPorPiso, resumoPiso,
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, SKU_SY1, SKU_SY2,
@@ -214,22 +215,50 @@ const CONTADORES = [
   ["pisos", "Pisos", null, "Menos um piso", "Mais um piso"],
 ];
 const EXTRAS_AJUDA = {};
+/** Contadores que, com 2 ou mais pisos, são de cada piso (o separador à vista); os totais da casa são a soma. */
+const POR_PISO = ["quartos", "casas_banho", "salas"];
+let pisoCasa = 0;   // separador do passo 1 à vista (casas com 2 ou mais pisos; 0 = r/c)
+/** Valores por piso da casa (casa.js acertarPisos), ou null com um só piso. */
+const porPisoCasa = () => (temPorPiso(estado.casa) && Array.isArray(estado.casa.porPiso) ? estado.casa.porPiso : null);
+/** Valores à vista nos contadores e em "A casa tem…": os do piso escolhido, ou os da casa toda. */
+const valoresVisiveis = () => porPisoCasa()?.[pisoCasa] ?? estado.casa;
 /** A casa dá divisões (tipologia, ou serviços/industrial)? Sem isso (área de cliente) vale a lista antiga. */
 const negocio = () => perfilCasa(estado.casa.tipo) !== "habitacao";
 
-// Escolher a tipologia (botão T) repõe sempre os valores típicos: quartos, casas de banho e salas;
-// os que mudaram ficam destacados.
+// Escolher a tipologia (botão T) repõe sempre os valores típicos da casa toda: quartos, casas de banho e
+// salas (com pisos, repartidos pelos pisos: casa.js repartirPisos); os que mudaram ficam destacados.
 function mudarTipologia(t) {
   const c = estado.casa;
-  const antes = { quartos: c.quartos, casas_banho: c.casas_banho, salas: c.salas };
+  const v0 = valoresVisiveis();
+  const antes = { quartos: v0.quartos, casas_banho: v0.casas_banho, salas: v0.salas };
   c.tipologia = t;
   c.quartos = t === "T5+" ? Math.min(12, Math.max(5, c.quartos ?? 5)) : quartosDe({ tipologia: t });
   c.casas_banho = casasBanhoOmissao(t);
   c.salas = salasOmissao(t);
   c.extras.corredor = c.quartos >= 2;   // o corredor típico também segue a tipologia
+  c.porPiso = null;                     // com pisos: os valores típicos repartidos de novo
+  acertarPisos(c);
   sincronizarCasa();
-  for (const k of Object.keys(antes)) if (antes[k] !== c[k]) destacar($(`contador-${k}`));
+  const v = valoresVisiveis();
+  for (const k of Object.keys(antes)) if (antes[k] !== v[k]) destacar($(`contador-${k}`));
   agendarGravacao();
+}
+
+/**
+ * Contador de um piso (quartos, casas de banho ou salas no separador à vista): muda esse piso e os totais da
+ * casa (o botão T segue o total de quartos). Quando a tipologia muda, o corredor segue a regra do botão T
+ * (2 ou mais quartos na casa: em cada piso com quartos).
+ */
+function mudarNoPiso(k, d) {
+  const c = estado.casa;
+  const f = c.porPiso[pisoCasa];
+  const antes = c.tipologia;
+  f[k] = Math.max(0, f[k] + d);
+  acertarPisos(c);
+  if (k === "quartos" && c.tipologia !== antes) {
+    for (const g of c.porPiso) g.extras.corredor = c.quartos >= 2 && g.quartos > 0;
+    acertarPisos(c);
+  }
 }
 
 /**
@@ -255,6 +284,7 @@ function mudarTipo(k) {
   const perfilAntes = perfilCasa(c.tipo);
   c.tipo = k;
   if (!TIPOS_COM_PISOS.includes(k)) c.pisos = 1;
+  acertarPisos(c);
   const perfil = perfilCasa(k);
   if (perfil !== "habitacao" && (perfil !== perfilAntes || c.area_m2 == null)) {
     c.area_m2 = AREA_OMISSAO[perfil];
@@ -309,9 +339,14 @@ function desenharCasa() {
         b.id = `contador-${k}-${d > 0 ? "mais" : "menos"}`;
         b.setAttribute("aria-label", rotulo);
         b.addEventListener("click", () => {
-          const novo = Math.min(max, Math.max(min, (estado.casa[k] ?? min) + d));
-          if (k === "quartos") mudarQuartos(novo);
-          else estado.casa[k] = novo;
+          // Com 2 ou mais pisos, quartos/casas de banho/salas são do piso à vista.
+          if (porPisoCasa() && POR_PISO.includes(k)) mudarNoPiso(k, d);
+          else {
+            const novo = Math.min(max, Math.max(min, (estado.casa[k] ?? min) + d));
+            if (k === "quartos") mudarQuartos(novo);
+            else estado.casa[k] = novo;
+            acertarPisos(estado.casa);   // n.º de pisos mudou: valores típicos em cada piso
+          }
           sincronizarCasa();
           agendarGravacao();
         });
@@ -321,10 +356,15 @@ function desenharCasa() {
       caixa.append(rot);
       if (ajuda) caixa.append(el("small", "ajuda", ajuda));
       caixa.append(grupo);
-      $("casa-contadores").append(caixa);
+      // Os pisos ficam por cima dos separadores; os outros, no painel do piso (ou da casa toda).
+      $(k === "pisos" ? "casa-contadores-pisos" : "casa-contadores").append(caixa);
     }
     for (const [k, texto] of Object.entries(EXTRAS_CASA)) {
-      $("casa-extras").append(escolha("checkbox", `casa-extra-${k}`, k, texto, EXTRAS_AJUDA[k], (sim) => { estado.casa.extras[k] = sim; agendarGravacao(); }));
+      $("casa-extras").append(escolha("checkbox", `casa-extra-${k}`, k, texto, EXTRAS_AJUDA[k], (sim) => {
+        const pp = porPisoCasa();
+        if (pp) { pp[pisoCasa].extras[k] = sim; acertarPisos(estado.casa); desenharPisosCasa(); } else estado.casa.extras[k] = sim;
+        agendarGravacao();
+      }));
     }
   }
   for (const i of g.querySelectorAll("input")) i.checked = i.value === estado.casa.tipo;
@@ -338,14 +378,23 @@ function desenharCasa() {
 function sincronizarCasa() {
   const c = estado.casa;
   const neg = negocio();
+  acertarPisos(c);   // valores por piso (2 ou mais pisos) e os totais da casa a partir deles
   acertarQuer();   // menos pisos: as máquinas dos pisos que saíram passam para o último
+  const pp = porPisoCasa();
+  if (!pp || pisoCasa >= pp.length) pisoCasa = 0;
+  const vis = valoresVisiveis();
+  const noPiso = pp ? ` no ${nomePiso(pisoCasa)}` : "";
   for (const i of $("casa-tipologias").querySelectorAll("input")) i.checked = i.value === c.tipologia;
-  for (const [k] of CONTADORES) {
+  for (const [k, , , menos, mais] of CONTADORES) {
     const [min, max] = LIMITES_CASA[k];
-    const v = estado.casa[k] ?? min;
+    const dePiso = pp && POR_PISO.includes(k);
+    // De um piso: de 0 para cima, sem a casa toda sair dos limites (ex.: pelo menos 1 casa de banho).
+    const v = dePiso ? vis[k] : estado.casa[k] ?? min;
     $(`contador-${k}-valor`).textContent = String(v);
-    $(`contador-${k}-menos`).disabled = v <= min;
-    $(`contador-${k}-mais`).disabled = v >= max;
+    $(`contador-${k}-menos`).disabled = dePiso ? v <= 0 || c[k] - 1 < min : v <= min;
+    $(`contador-${k}-mais`).disabled = dePiso ? c[k] + 1 > max : v >= max;
+    $(`contador-${k}-menos`).setAttribute("aria-label", `${menos}${dePiso ? noPiso : ""}`);
+    $(`contador-${k}-mais`).setAttribute("aria-label", `${mais}${dePiso ? noPiso : ""}`);
   }
   // Serviços e industrial: área e n.º de espaços; casas: tipologia, contadores e extras.
   $("casa-tipologia-caixa").hidden = neg;
@@ -359,13 +408,62 @@ function sincronizarCasa() {
     // Só as moradias têm mais de um piso.
     $("contador-pisos").hidden = !TIPOS_COM_PISOS.includes(c.tipo);
   }
-  for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!c.extras[i.value];
+  for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!vis.extras?.[i.value];
+  $("casa-extras-ajuda").textContent = pp ? `No ${nomePiso(pisoCasa)}: toque para marcar ou desmarcar.` : "Toque para marcar ou desmarcar.";
+  $("casa-tipologia-ajuda").textContent = pp
+    ? "Na casa toda (T3 = 3 quartos ao todo): repartimos pelos pisos e pode acertar cada piso nos separadores."
+    : "T2 = 2 quartos; T0 = estúdio (sala e quarto na mesma divisão).";
+  desenharPisosCasa();
   $("casa-fases").value = c.fases ?? "";
   const s = fasesSugeridas(estado);
   $("casa-fases-sugestao").textContent = s === "tri"
     ? `Sugerimos: Trifásica (${c.tipo === "industrial" ? "industrial" : "máquinas trifásicas ou carregador de 22 kW"}).`
     : s === "mono" ? "Sugerimos: Monofásica (a mais comum)." : "Monofásica é a mais comum nas casas.";
 }
+/**
+ * Separadores por piso do passo 1 (casas com 2 ou mais pisos; o mesmo estilo dos de "O que quer"): cada um
+ * com o nome e um resumo ("2 quartos · 1 WC"); o piso escolhido mostra os seus quartos, casas de banho, salas
+ * e "A casa tem…". Role tablist; as setas mudam de piso. Escondidos com um só piso.
+ */
+function desenharPisosCasa() {
+  const pp = porPisoCasa();
+  const caixa = $("casa-pisos"), painel = $("casa-painel");
+  caixa.hidden = !pp;
+  if (!pp) {
+    caixa.replaceChildren();
+    painel.removeAttribute("role");
+    painel.removeAttribute("aria-labelledby");
+    return;
+  }
+  const n = pp.length;
+  caixa.replaceChildren(...pp.map((f, p) => {
+    const b = el("button", "editor-piso quer-piso");
+    b.type = "button";
+    b.id = `casa-piso-${p}`;
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(p === pisoCasa));
+    b.setAttribute("aria-controls", "casa-painel");
+    b.tabIndex = p === pisoCasa ? 0 : -1;
+    b.append(el("span", null, nomePiso(p)), el("small", null, resumoPiso(f, estado.casa.tipologia)));
+    b.addEventListener("click", () => mudarPisoCasa(p));
+    b.addEventListener("keydown", (ev) => {
+      const d = { ArrowRight: 1, ArrowLeft: -1, Home: -p, End: n - 1 - p }[ev.key];
+      if (d === undefined) return;
+      ev.preventDefault();
+      mudarPisoCasa((p + d + n) % n);
+      $(`casa-piso-${pisoCasa}`)?.focus();
+    });
+    return b;
+  }));
+  painel.setAttribute("role", "tabpanel");
+  painel.setAttribute("aria-labelledby", `casa-piso-${pisoCasa}`);
+}
+function mudarPisoCasa(p) {
+  if (p === pisoCasa) return;
+  pisoCasa = p;
+  sincronizarCasa();
+}
+
 $("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value); agendarGravacao(); });
 $("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; estado.fasesEditadas = true; agendarGravacao(); });
 $("casa-area").addEventListener("input", () => {
@@ -1354,6 +1452,10 @@ function desenharCasaResumo() {
     partes.push(`${k.pisos} ${k.pisos === 1 ? "piso" : "pisos"}`);
     const extras = Object.entries(EXTRAS_CASA).filter(([x]) => k.extras[x]).map(([, t]) => t.toLowerCase());
     linha("Tipologia", [...partes, ...extras].join(" · "));
+    // Com 2 ou mais pisos, o que tem cada piso.
+    for (const [p, f] of (porPisoCasa() ?? []).entries()) {
+      linha(nomePiso(p), [resumoPiso(f, k.tipologia), ...Object.entries(EXTRAS_CASA).filter(([x]) => f.extras[x]).map(([, t]) => t.toLowerCase())].join(" · "));
+    }
   } else {
     linha("Divisões", k.divisoes ? String(k.divisoes) : "Não indicado");
   }
@@ -1606,6 +1708,7 @@ function recomecar() {
   visitado = PASSO_INICIAL;
   ultimoPreco = null;
   pisoQuer = 0;
+  pisoCasa = 0;
   editor.limpar();
   mostrarEnvio(null);
   for (const c of document.querySelectorAll(".confirmar")) c.remove();
