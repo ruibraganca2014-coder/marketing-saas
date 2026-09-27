@@ -413,6 +413,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, circuitoDe = null 
     const juntar = (a, b, c, d) => { x1 = Math.min(x1, a); y1 = Math.min(y1, b); x2 = Math.max(x2, c); y2 = Math.max(y2, d); };
     for (const d of divisoesPiso()) juntar(d.x_cm, d.y_cm, d.x_cm + d.largura_cm, d.y_cm + d.altura_cm);
     for (const e of elementosPiso()) juntar(e.x_cm - 40, e.y_cm - 40, e.x_cm + 40, e.y_cm + 40);   // o ícone à volta do centro
+    if (planta.tamanho_fixo) juntar(0, 0, planta.largura_cm, planta.altura_cm);   // tamanho escolhido: mostra a folha toda
     const f = planta.fundo;
     if (f) {
       // A imagem só se vê dentro da planta (recorte do planta-svg.js).
@@ -616,8 +617,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, circuitoDe = null 
       if (d.pontos) d.pontos = d.pontos.map(([px, py]) => [px + dx, py + dy]);
     }
     for (const e of planta.elementos) { e.x_cm += dx; e.y_cm += dy; }
-    planta.largura_cm = limitar(Math.ceil((x2 + dx) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
-    planta.altura_cm = limitar(Math.ceil((y2 + dy) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
+    const w = limitar(Math.ceil((x2 + dx) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
+    const h = limitar(Math.ceil((y2 + dy) / ESCALA_CM) * ESCALA_CM + ESCALA_CM, 100, MAX_LADO_CM);
+    // Tamanho escolhido pelo cliente ("Tamanho da planta"): a folha só cresce se o conteúdo não couber.
+    planta.largura_cm = planta.tamanho_fixo ? Math.max(w, planta.largura_cm) : w;
+    planta.altura_cm = planta.tamanho_fixo ? Math.max(h, planta.altura_cm) : h;
+  }
+  /** Menor tamanho da folha que ainda contém as divisões e os elementos (cm). */
+  function tamanhoMinimo(k) {
+    const ate = k === "largura_cm"
+      ? [...planta.divisoes.map((d) => d.x_cm + d.largura_cm), ...planta.elementos.map((e) => e.x_cm)]
+      : [...planta.divisoes.map((d) => d.y_cm + d.altura_cm), ...planta.elementos.map((e) => e.y_cm)];
+    return Math.max(100, ...ate.map((v) => Math.ceil(v / ESCALA_CM) * ESCALA_CM));
   }
 
   function apagarSelecionado() {
@@ -1293,22 +1304,50 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, circuitoDe = null 
   }
 
   function desenharTamanho() {
+    // A escrever num dos campos: não os recria (perdia o cursor); só acerta os valores.
+    const campoW = tamCorpo.querySelector("#planta-largura"), campoH = tamCorpo.querySelector("#planta-altura");
+    if (campoW && campoH && tamCorpo.contains(document.activeElement)) {
+      if (document.activeElement !== campoW) campoW.value = String(planta.largura_cm / 100);
+      if (document.activeElement !== campoH) campoH.value = String(planta.altura_cm / 100);
+      return;
+    }
     tamCorpo.replaceChildren();
     const w = numeroInput(planta.largura_cm / 100, { min: 1, max: MAX_LADO_CM / 100, step: 0.5, id: "planta-largura" });
     const h = numeroInput(planta.altura_cm / 100, { min: 1, max: MAX_LADO_CM / 100, step: 0.5, id: "planta-altura" });
+    // Aplica enquanto se escreve (com uma pequena pausa) e ao sair do campo; nunca mais pequena do que o
+    // conteúdo (avisa e mostra o mínimo). A partir daí a folha fica com este tamanho (tamanho_fixo).
+    const aplicar = (i, k, final) => {
+      const v = Number(String(i.value).replace(",", "."));
+      if (!(v > 0)) return;
+      const min = tamanhoMinimo(k);
+      const novo = limitar(Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM, min, MAX_LADO_CM);
+      if (novo !== Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM) {
+        avisar(`A ${k === "largura_cm" ? "largura" : "altura"} da planta não pode ser menor do que ${metros(min)} m: as divisões ocupam até aí.`);
+        if (!final) return;
+      }
+      if (novo === planta[k] && planta.tamanho_fixo) { if (final) i.value = String(novo / 100); return; }
+      memorizar();
+      planta[k] = novo;
+      planta.tamanho_fixo = true;
+      verTudo();
+      confirmar();
+      if (final) i.value = String(planta[k] / 100);
+    };
     for (const [i, k] of [[w, "largura_cm"], [h, "altura_cm"]]) {
-      i.addEventListener("change", () => {
-        const v = Number(i.value);
-        if (!(v > 0)) return;
-        memorizar();
-        const min = k === "largura_cm" ? Math.max(100, ...planta.divisoes.map((d) => d.x_cm + d.largura_cm)) : Math.max(100, ...planta.divisoes.map((d) => d.y_cm + d.altura_cm));
-        planta[k] = limitar(Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM, min, MAX_LADO_CM);
-        for (const e of planta.elementos) { e.x_cm = Math.min(e.x_cm, planta.largura_cm); e.y_cm = Math.min(e.y_cm, planta.altura_cm); }
-        verTudo();
-        confirmar();
-      });
+      let espera = null;
+      i.addEventListener("input", () => { clearTimeout(espera); espera = setTimeout(() => aplicar(i, k, false), 500); });
+      i.addEventListener("change", () => { clearTimeout(espera); aplicar(i, k, true); });
     }
-    tamCorpo.append(campo("Largura (m)", w), campo("Altura (m)", h));
+    const ajustar = botao("Ajustar ao conteúdo", "btn sec pequeno");
+    ajustar.disabled = !planta.tamanho_fixo;
+    ajustar.addEventListener("click", () => {
+      memorizar();
+      delete planta.tamanho_fixo;
+      ajustarFolha();
+      verTudo();
+      confirmar("A planta voltou ao tamanho das divisões.");
+    });
+    tamCorpo.append(campo("Largura (m)", w), campo("Altura (m)", h), ajustar);
   }
 
   // ---------------------------------------------------------------- propriedades (janela de edição)

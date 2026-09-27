@@ -152,6 +152,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   if (!p || typeof p !== "object") return r;
   r.largura_cm = int(p.largura_cm, 100, MAX_LADO_CM, 2000);
   r.altura_cm = int(p.altura_cm, 100, MAX_LADO_CM, 1500);
+  if (p.tamanho_fixo === true) r.tamanho_fixo = true;   // o cliente escolheu o tamanho da folha
   const f = p.fundo;
   if (f && typeof f === "object" && typeof f.imagem === "string" && RE_IMAGEM.test(f.imagem) && f.imagem.length <= MAX_IMAGEM) {
     r.fundo = { imagem: f.imagem, x_cm: int(f.x_cm, -MAX_LADO_CM, MAX_LADO_CM), y_cm: int(f.y_cm, -MAX_LADO_CM, MAX_LADO_CM), largura_cm: int(f.largura_cm, 10, 2 * MAX_LADO_CM, r.largura_cm), opacidade: Math.round(num(f.opacidade, 0.1, 1, 0.5) * 100) / 100 };
