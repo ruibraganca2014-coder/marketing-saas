@@ -163,8 +163,11 @@ async function servirSite(req, res, caminho) {
   }
 }
 
+// "//x" seria lido como outro anfitrião; assim o caminho é sempre só o caminho.
+const caminhoDe = (url) => new URL(`${ORIGEM}${url.startsWith('/') ? url : `/${url}`}`).pathname;
+
 const servidor = http.createServer((req, res) => {
-  const caminho = new URL(req.url, ORIGEM).pathname;
+  const caminho = caminhoDe(req.url);
   const porta = destino(caminho);
   if (porta) return reencaminhar(req, res, porta);
   servirSite(req, res, caminho).catch(() => { res.writeHead(500); res.end(); });
@@ -172,7 +175,7 @@ const servidor = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 servidor.on('upgrade', (req, socket, cabeca) => {
-  const caminho = new URL(req.url, ORIGEM).pathname;
+  const caminho = caminhoDe(req.url);
   if (caminho !== '/mqtt' && !caminho.startsWith('/mqtt/')) return socket.destroy();
   wss.handleUpgrade(req, socket, cabeca, (ws) => broker.handle(createWebSocketStream(ws)));
 });
