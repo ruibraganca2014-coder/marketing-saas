@@ -8,7 +8,7 @@ import {
   contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
   avisosCircuito, avisosQuadro, plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES, disjuntoresInteligentes,
 } from "./regras.js";
-import { plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao } from "./casa.js";
+import { plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, SKU_SY1, SKU_SY2,
   formatarEuro, formatarEuroRedondo, formatarHoras,
@@ -185,25 +185,39 @@ const CONTADORES = [
   ["quartos", "Quartos", "T5 ou mais: quantos quartos?", "Menos um quarto", "Mais um quarto"],
   ["casas_banho", "Casas de banho", null, "Menos uma casa de banho", "Mais uma casa de banho"],
   ["salas", "Salas", "2 = sala de estar e sala de jantar", "Menos uma sala", "Mais uma sala"],
-  ["pisos", "Pisos", "Moradia com andares: 2 ou 3", "Menos um piso", "Mais um piso"],
+  ["pisos", "Pisos", "Rés-do-chão = 1; com andares: 2 ou 3", "Menos um piso", "Mais um piso"],
 ];
 const EXTRAS_AJUDA = { kitnet: "A cozinha fica na sala" };
 
+// Escolher a tipologia repõe sempre os valores típicos; os contadores que mudaram ficam destacados.
 function mudarTipologia(t) {
   const c = estado.casa;
+  const antes = { quartos: c.quartos, casas_banho: c.casas_banho, salas: c.salas };
   c.tipologia = t;
   c.quartos = t === "T5+" ? Math.min(12, Math.max(5, c.quartos ?? 5)) : quartosDe({ tipologia: t });
-  // As casas de banho seguem a tipologia enquanto o cliente não mexer no contador.
-  if (!estado.casasBanhoEditadas) c.casas_banho = casasBanhoOmissao(t);
+  c.casas_banho = casasBanhoOmissao(t);
+  c.salas = salasOmissao(t);
   sincronizarCasa();
+  for (const k of Object.keys(antes)) if (antes[k] !== c[k]) destacar($(`contador-${k}`));
   agendarGravacao();
+}
+function destacar(caixa) {
+  if (!caixa || caixa.hidden) return;
+  caixa.classList.remove("destaque");
+  void caixa.offsetWidth; // reinicia a animação se já estava destacado
+  caixa.classList.add("destaque");
 }
 
 function desenharCasa() {
   const g = $("casa-tipos");
   if (!g.childElementCount) {
     for (const [k, nome] of Object.entries(TIPOS_CASA)) {
-      g.append(escolha("radio", "casa-tipo", k, nome, null, () => { estado.casa.tipo = k; agendarGravacao(); }));
+      g.append(escolha("radio", "casa-tipo", k, nome, null, () => {
+        estado.casa.tipo = k;
+        if (k !== "moradia") estado.casa.pisos = 1;
+        sincronizarCasa();
+        agendarGravacao();
+      }));
     }
     for (const t of TIPOLOGIAS) $("casa-tipologias").append(escolha("radio", "casa-tipologia", t, t, null, (sim) => { if (sim) mudarTipologia(t); }));
     for (const [k, texto, ajuda, menos, mais] of CONTADORES) {
@@ -226,7 +240,6 @@ function desenharCasa() {
         b.addEventListener("click", () => {
           const atual = estado.casa[k] ?? min;
           estado.casa[k] = Math.min(max, Math.max(min, atual + d));
-          if (k === "casas_banho") estado.casasBanhoEditadas = true;
           sincronizarCasa();
           agendarGravacao();
         });
@@ -263,6 +276,8 @@ function sincronizarCasa() {
   // Quartos só no T5+ (nos outros vem da tipologia); no T0 (estúdio) não há salas à parte.
   $("contador-quartos").hidden = c.tipologia !== "T5+";
   $("contador-salas").hidden = c.tipologia === "T0";
+  // Só as moradias têm mais de um piso.
+  $("contador-pisos").hidden = c.tipo !== "moradia";
   for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!c.extras[i.value];
 }
 $("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value); agendarGravacao(); });
@@ -322,7 +337,7 @@ function desenharPlantaOrigem() {
   o.hidden = !(estado.plantaAuto || mudou);
   o.textContent = mudou
     ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua planta. Se quiser, desenhamo-la de novo a partir do passo 1 (perde o que mudou nela)."
-    : "Já desenhámos as divisões (com tamanhos típicos) e as máquinas que escolheu. Arraste e ajuste os tamanhos, e acrescente portas, janelas, luzes e tomadas — ou salte este passo.";
+    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos habituais (porta, interruptor, luz, sensor de movimento, janelas e tomadas), e as máquinas que escolheu. Arraste, ajuste e tire ou acrescente o que for preciso — ou salte este passo.";
   $("planta-refazer").hidden = !mudou;
   $("planta-saltar").hidden = !plantaTemConteudo(estado.planta);
   $("planta-botoes").hidden = $("planta-refazer").hidden && $("planta-saltar").hidden;

@@ -3,7 +3,7 @@
 // planta já desenhada (divisões em grelha, sem sobreposição, e as máquinas escolhidas) e
 // aparelhos sugeridos por divisão a partir dos objetivos.
 
-import { TIPOS_DIVISAO, MAX_DIVISOES, MAX_LADO_CM, ESCALA_CM, plantaVazia, propsOmissao, atualizarDivisoes } from "./regras.js";
+import { TIPOS_DIVISAO, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, ESCALA_CM, plantaVazia, propsOmissao, atualizarDivisoes } from "./regras.js";
 
 const MARGEM = 50;            // cm à volta da planta
 const LARGURA_LINHA = 1500;   // cm: largura máxima de uma linha de divisões
@@ -53,8 +53,10 @@ export function quartosDe(casa) {
   return Number(t.slice(1)) || 0;
 }
 
-/** Casas de banho por omissão: T0–T2 → 1, T3+ → 2. */
-export const casasBanhoOmissao = (tipologia) => (["T3", "T4", "T5+"].includes(tipologia) ? 2 : 1);
+/** Valores típicos ao escolher a tipologia (o cliente ajusta depois): casas de banho e salas. */
+const TIPICO = { T0: [1, 1], T1: [1, 1], T2: [1, 1], T3: [2, 1], T4: [2, 2], "T5+": [3, 2] };
+export const casasBanhoOmissao = (tipologia) => TIPICO[tipologia]?.[0] ?? 1;
+export const salasOmissao = (tipologia) => TIPICO[tipologia]?.[1] ?? 1;
 
 // Área de cliente sem tipologia: a lista antiga pelo n.º de divisões (3 se não indicado).
 const ORDEM_SEM_TIPOLOGIA = ["Sala", "Cozinha", "Quarto 1", "WC", "Quarto 2", "Corredor", "Quarto 3", "Casa de banho", "Escritório", "Entrada", "Lavandaria", "Garagem", "Varanda", "Despensa", "Exterior"];
@@ -116,6 +118,47 @@ export function divisoesDaCasa(casa, maquinas = []) {
   return r.slice(0, MAX_DIVISOES);
 }
 
+/**
+ * Aparelhos por omissão de uma divisão nova (§2.2), além do base que todas levam (porta, interruptor,
+ * ponto de luz, sensor de movimento): tipo de divisão → janela, televisão, n.º de tomadas.
+ */
+const APARELHOS_TIPO = {
+  quarto: { janela: true, tomadas: 2 },
+  sala: { janela: true, tv: true, tomadas: 3 },
+  sala_cozinha: { janela: true, tv: true, tomadas: 3 },
+  cozinha: { janela: true, tomadas: 3 },
+  escritorio: { janela: true, tomadas: 2 },
+  wc: { tomadas: 1 },
+  garagem: { tomadas: 1 },
+  jardim: { tomadas: 1 },
+};
+
+/**
+ * Aparelhos por omissão de uma divisão retangular (nome → tipo; caixa em cm), em sítios plausíveis e
+ * afastados uns dos outros (≥ 65 cm nas divisões de tamanho típico): porta na parede de baixo com o
+ * interruptor ao lado, janela na parede oposta (a de cima), luz ao centro, sensor de movimento no canto
+ * de cima à esquerda (vê a porta), tomadas nas paredes (esquerda, direita, baixo à direita) e a
+ * televisão na parede da direita. Ficam 10 cm para dentro das paredes: numa parede partilhada contam
+ * nesta divisão. Usada pelo editor (botões por tipo) e por plantaDaCasa. Devolve elementos sem id.
+ */
+export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura_cm: h }) {
+  const t = /^escritorio/.test(semAcentos(nome)) ? "escritorio" : tipoDivisao(nome);
+  const extra = APARELHOS_TIPO[t] ?? {};
+  const r = [];
+  const add = (tipo, dx, dy, rot = 0, modelo) => r.push({ tipo, x_cm: Math.round(x + dx), y_cm: Math.round(y + dy), rot, divisao: null, props: propsOmissao(tipo, modelo) });
+  const porta = Math.max(60, Math.round(w * 0.3));
+  add("porta", porta, h - 10);
+  // Interruptor ao lado da porta, do lado de fora da divisão (a luz fica ao centro, longe dele).
+  add("interruptor", porta - 70 >= 40 ? porta - 70 : Math.min(porta + 70, w - 30), h - 10);
+  add("luz", w / 2, h / 2);
+  add("sensor_movimento", 40, 40);
+  if (extra.janela) add("janela", w / 2, 10);
+  const tomadas = [[10, h / 2, 90], [w - 10, h / 2, 90], [w - Math.max(40, w * 0.2), h - 10, 0]];
+  for (const [dx, dy, rot] of tomadas.slice(0, extra.tomadas ?? 0)) add("tomada", dx, dy, rot);
+  if (extra.tv) add("maquina", w - 25, h * 0.25, 0, "televisao");
+  return r;
+}
+
 /** Onde fica cada máquina (tipos de divisão por ordem de preferência; senão a primeira divisão). */
 const DESTINO = {
   placa: ["cozinha", "sala_cozinha", "sala"],
@@ -164,23 +207,41 @@ export function plantaDaCasa(casa, maquinas = []) {
   const arred = (v) => Math.ceil(v / ESCALA_CM) * ESCALA_CM;
   p.largura_cm = Math.min(MAX_LADO_CM, Math.max(p.largura_cm, arred(maxX + MARGEM)));
   p.altura_cm = Math.min(MAX_LADO_CM, Math.max(p.altura_cm, arred(y + MARGEM)));
-  const porDivisao = new Map();
   let e = 0;
+  // Os aparelhos habituais de cada divisão (os mesmos dos botões do editor).
+  for (const d of p.divisoes) {
+    for (const a of aparelhosOmissao(d.nome, d)) {
+      if (p.elementos.length >= MAX_ELEMENTOS) break;
+      p.elementos.push({ id: `e${++e}`, ...a });
+    }
+  }
+  const jaPostas = new Set(p.elementos.filter((x) => x.tipo === "maquina").map((x) => x.props.modelo));
   for (const modelo of maquinas) {
+    // Uma máquina que já vai por omissão (ex.: a televisão da sala) não se põe duas vezes.
+    if (jaPostas.has(modelo) || p.elementos.length >= MAX_ELEMENTOS) continue;
     const d = divisaoParaMaquina(p.divisoes, modelo);
     if (!d) continue;
-    const i = porDivisao.get(d.id) ?? 0;
-    porDivisao.set(d.id, i + 1);
-    // Ao fundo da divisão, da esquerda para a direita; se não couber, sobe uma fila.
-    const porFila = Math.max(1, Math.floor((d.largura_cm - 50) / PASSO_MAQUINA));
-    const col = i % porFila, fila = Math.floor(i / porFila);
-    p.elementos.push({
-      id: `e${++e}`, tipo: "maquina",
-      x_cm: d.x_cm + 50 + col * PASSO_MAQUINA, y_cm: Math.max(d.y_cm + 25, d.y_cm + d.altura_cm - 50 - fila * PASSO_MAQUINA),
-      rot: 0, divisao: null, props: propsOmissao("maquina", modelo),
-    });
+    const [x_cm, y_cm] = lugarLivre(d, p.elementos);
+    p.elementos.push({ id: `e${++e}`, tipo: "maquina", x_cm, y_cm, rot: 0, divisao: null, props: propsOmissao("maquina", modelo) });
   }
   return atualizarDivisoes(p);
+}
+
+/**
+ * Sítio livre para mais um aparelho dentro da divisão (retângulo): o ponto da grelha de 25 cm, a
+ * 30 cm das paredes, mais longe dos aparelhos que já lá estão (a partir de PASSO_MAQUINA conta
+ * igual: fica o mais em baixo e à esquerda, "ao fundo da divisão").
+ */
+export function lugarLivre(d, elementos) {
+  const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
+  let melhor = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2], nota = -1;
+  for (let y = d.y_cm + d.altura_cm - 30; y >= d.y_cm + 30; y -= 25) {
+    for (let x = d.x_cm + 30; x <= d.x_cm + d.largura_cm - 30; x += 25) {
+      const n = Math.min(PASSO_MAQUINA, ...perto.map((q) => Math.hypot(q.x_cm - x, q.y_cm - y)));
+      if (n > nota) { nota = n; melhor = [x, y]; }
+    }
+  }
+  return melhor.map(Math.round);
 }
 
 /** Resumo do que gera a planta (para saber se a casa ou as máquinas mudaram depois). */

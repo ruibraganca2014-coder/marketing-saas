@@ -4,10 +4,10 @@
 import {
   ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS, POTENCIAS_KVA, FASES,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, OBJETIVOS,
-  plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio,
+  plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
-import { divisoesDaCasa, quartosDe, casasBanhoOmissao } from "./casa.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao } from "./casa.js";
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
@@ -48,7 +48,6 @@ export function estadoNovo({ cliente = false } = {}) {
     passo: cliente ? 1 : 0,
     guardado: null,
     casa: casaNova(cliente),
-    casasBanhoEditadas: false, // o cliente mexeu nas casas de banho: a tipologia já não as muda
     quer: { maquinas: [], objetivos: [] },
     planta: plantaVazia(),
     plantaSaltada: false,
@@ -89,7 +88,11 @@ export function normalizarPlanta(p) {
   for (const d of lista(p.divisoes, MAX_DIVISOES)) {
     if (!d || typeof d !== "object" || !idOk(d.id, "d")) continue;
     ids.add(d.id);
-    r.divisoes.push({ id: d.id, nome: txt(d.nome, 60), x_cm: int(d.x_cm, 0, MAX_LADO_CM), y_cm: int(d.y_cm, 0, MAX_LADO_CM), largura_cm: int(d.largura_cm, 50, MAX_LADO_CM, 400), altura_cm: int(d.altura_cm, 50, MAX_LADO_CM, 300) });
+    const n = { id: d.id, nome: txt(d.nome, 60), x_cm: int(d.x_cm, 0, MAX_LADO_CM), y_cm: int(d.y_cm, 0, MAX_LADO_CM), largura_cm: int(d.largura_cm, 50, MAX_LADO_CM, 400), altura_cm: int(d.altura_cm, 50, MAX_LADO_CM, 300) };
+    // Polígono (paredes oblíquas): 3–24 cantos dentro da planta, sem paredes cruzadas; senão fica o retângulo.
+    // Com cantos válidos, a caixa envolvente passa a ser a deles (um retângulo "normal" fica sem `pontos`).
+    const pts = d.pontos === undefined ? null : validarPontos(d.pontos, r.largura_cm, r.altura_cm);
+    r.divisoes.push(pts ? definirPontos(n, pts) : n);
   }
   for (const e of lista(p.elementos, MAX_ELEMENTOS)) {
     if (!e || typeof e !== "object" || !idOk(e.id, "e") || !ELEMENTOS[e.tipo]) continue;
@@ -165,20 +168,21 @@ export function normalizarEstado(v) {
   const c = v.casa && typeof v.casa === "object" ? v.casa : {};
   const x = c.extras && typeof c.extras === "object" ? c.extras : {};
   const tipologia = TIPOLOGIAS.includes(c.tipologia) ? c.tipologia : null;   // estado antigo: sem tipologia
+  const tipo = TIPOS_CASA[c.tipo] ? c.tipo : c.tipo === null ? null : "moradia";
   e.casa = {
-    tipo: TIPOS_CASA[c.tipo] ? c.tipo : c.tipo === null ? null : "moradia",
+    tipo,
     tipologia,
     quartos: tipologia === "T5+" ? int(c.quartos, ...LIMITES_CASA.quartos, 5) : quartosDe({ tipologia }),
     casas_banho: int(c.casas_banho, ...LIMITES_CASA.casas_banho, casasBanhoOmissao(tipologia)),
-    salas: int(c.salas, ...LIMITES_CASA.salas, 1),
-    pisos: int(c.pisos, ...LIMITES_CASA.pisos, 1),
+    salas: int(c.salas, ...LIMITES_CASA.salas, salasOmissao(tipologia)),
+    // Só as moradias têm mais de um piso.
+    pisos: tipo === "moradia" ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1,
     extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(x[k])])),
     divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1),
     localidade: txt(c.localidade, 80),
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
   };
-  e.casasBanhoEditadas = bool(v.casasBanhoEditadas);
   e.quer = normalizarQuer(v.quer);
   e.planta = normalizarPlanta(v.planta);
   e.plantaSaltada = bool(v.plantaSaltada);
@@ -291,7 +295,10 @@ export function plantaParaEnvio(planta) {
     largura_cm: p.largura_cm,
     altura_cm: p.altura_cm,
     fundo: p.fundo ? { imagem: p.fundo.imagem, x_cm: p.fundo.x_cm, y_cm: p.fundo.y_cm, largura_cm: p.fundo.largura_cm, opacidade: p.fundo.opacidade } : null,
-    divisoes: p.divisoes.map((d) => ({ id: d.id, nome: textoSeguro(d.nome, 60) || "Divisão", x_cm: d.x_cm, y_cm: d.y_cm, largura_cm: d.largura_cm, altura_cm: d.altura_cm })),
+    divisoes: p.divisoes.map((d) => ({
+      id: d.id, nome: textoSeguro(d.nome, 60) || "Divisão", x_cm: d.x_cm, y_cm: d.y_cm, largura_cm: d.largura_cm, altura_cm: d.altura_cm,
+      ...(d.pontos ? { pontos: d.pontos.map((q) => [q[0], q[1]]) } : {}),
+    })),
     elementos: p.elementos.map((e) => ({ id: e.id, tipo: e.tipo, x_cm: e.x_cm, y_cm: e.y_cm, rot: e.rot, divisao: e.divisao, props: { ...e.props } })),
   };
 }
@@ -313,7 +320,7 @@ export function casaParaEnvio(estado) {
     quartos: tipologia ? quartosDe(c) : null,
     casas_banho: tipologia ? int(c.casas_banho, ...LIMITES_CASA.casas_banho, 1) : null,
     salas: tipologia && tipologia !== "T0" ? int(c.salas, ...LIMITES_CASA.salas, 1) : null,
-    pisos: tipologia ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : null,
+    pisos: tipologia ? (c.tipo === "moradia" ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1) : null,
     extras: tipologia ? Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(c.extras?.[k])])) : null,
   };
 }

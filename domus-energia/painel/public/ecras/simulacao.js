@@ -13,7 +13,7 @@ const FASES = { mono: "Monofásica", tri: "Trifásica" };
 const TIPOS_CIRCUITO = { iluminacao: "Iluminação", tomadas: "Tomadas", maquina: "Máquina", misto: "Misto" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
-  maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
+  maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
   bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
 };
 // Passo "A casa" e "O que quer" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
@@ -79,16 +79,39 @@ export function divisaoDoElemento(planta, e) {
   const x = n0(e?.x_cm), y = n0(e?.y_cm);
   const divs = arr(planta?.divisoes).filter((d) => d && typeof d === "object");
   let r = null;
-  for (const d of divs) if (x >= n0(d.x_cm) && x <= n0(d.x_cm) + n0(d.largura_cm) && y >= n0(d.y_cm) && y <= n0(d.y_cm) + n0(d.altura_cm)) r = d.id;
+  for (const d of divs) if (distanciaDivisao(d, x, y) === 0) r = d.id;
   if (r != null || !["porta", "janela", "sensor_porta"].includes(e?.tipo)) return r;
   let melhor = TOLERANCIA_PORTA_CM;
   for (const d of divs) {
-    const dx = Math.max(n0(d.x_cm) - x, 0, x - (n0(d.x_cm) + n0(d.largura_cm)));
-    const dy = Math.max(n0(d.y_cm) - y, 0, y - (n0(d.y_cm) + n0(d.altura_cm)));
-    const dist = Math.hypot(dx, dy);
+    const dist = distanciaDivisao(d, x, y);
     if (dist <= melhor) { melhor = dist; r = d.id; }
   }
   return r;
+}
+
+/**
+ * Cantos da divisão: `pontos` ([[x, y], ...], 3–24, paredes oblíquas) ou os 4 cantos do retângulo
+ * (a mesma regra de web/simulador/regras.js pontosDivisao).
+ */
+function cantosDivisao(d) {
+  const p = d.pontos;
+  if (Array.isArray(p) && p.length >= 3 && p.length <= 24 && p.every((q) => Array.isArray(q) && numero(q[0]) !== null && numero(q[1]) !== null)) return p.map((q) => [numero(q[0]), numero(q[1])]);
+  const x = n0(d.x_cm), y = n0(d.y_cm), w = n0(d.largura_cm), h = n0(d.altura_cm);
+  return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+}
+
+/** 0 se o ponto está dentro da divisão (ou na parede); senão a distância à parede mais próxima (cm). */
+function distanciaDivisao(d, x, y) {
+  const pts = cantosDivisao(d);
+  let dentro = false, m = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    const dx = xi - xj, dy = yi - yj, l2 = dx * dx + dy * dy;
+    const t = l2 ? Math.min(1, Math.max(0, ((x - xj) * dx + (y - yj) * dy) / l2)) : 0;
+    m = Math.min(m, Math.hypot(x - (xj + t * dx), y - (yj + t * dy)));
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dentro = !dentro;
+  }
+  return dentro || m < 0.5 ? 0 : m;
 }
 
 /**

@@ -4,7 +4,8 @@
 //
 //   desenharPlanta(svg, planta, { soLeitura })
 //
-// - `planta` no formato do §2.1 (centímetros a partir do canto superior esquerdo).
+// - `planta` no formato do §2.1 (centímetros a partir do canto superior esquerdo). Uma divisão com
+//   `pontos` ([[x, y], ...], 3–24 cantos) é um polígono; sem eles, o retângulo x/y/largura/altura.
 // - Nenhum texto entra como HTML: nomes só com textContent (em <text> e <title>).
 // - Cores com as variáveis do tema "Terra" (docs/TEMA.md) e valores de recurso,
 //   aplicadas pelo CSSOM (funciona com CSP sem 'unsafe-inline').
@@ -17,7 +18,7 @@
 //   raio        raio dos ícones em cm (por omissão, proporcional ao tamanho da planta)
 //   raioToque   raio da zona de toque dos elementos em cm (≥ raio)
 //   letra       tamanho da letra dos nomes das divisões em cm
-//   pega        lado das pegas de redimensionar em cm
+//   pega        lado das pegas dos cantos em cm
 //   grelha      false → sem quadriculado
 
 const NS = "http://www.w3.org/2000/svg";
@@ -41,7 +42,7 @@ const NOMES = {
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
-  frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
+  frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
 };
 
 // Ícones em traço (caixa 48 × 48, centro 24,24), no estilo das ilustrações "Terra".
@@ -56,6 +57,7 @@ const ICONES = {
   luz: [["path", { d: "M18.3 27.8c-2.1-1.8-3.3-4.3-3.3-7C15 15.9 19 12 24 12s9 3.9 9 8.8c0 2.7-1.2 5.2-3.3 7-1 .9-1.6 2-1.6 3.3v.9h-8.2v-.9c0-1.3-.6-2.4-1.6-3.3z" }, "t"], ["path", { d: "M20.6 35.5h6.8" }, "t"]],
   interruptor: [["rect", { x: 14, y: 12, width: 20, height: 24, rx: 4 }, "t"], ["rect", { x: 20, y: 17.5, width: 8, height: 13, rx: 2 }, "t"]],
   maquina: [["rect", { x: 13, y: 11, width: 22, height: 26, rx: 3 }, "t"], ["circle", { cx: 24, cy: 26, r: 6.5 }, "t"], ["path", { d: "M17 15.5h5" }, "t"]],
+  maquina_televisao: [["rect", { x: 9.5, y: 12, width: 29, height: 19, rx: 2.5 }, "t"], ["path", { d: "M19 36.5h10M24 31v5.5" }, "t"]],
   sensor_porta: [["rect", { x: 13, y: 14, width: 8, height: 20, rx: 2 }, "t"], ["rect", { x: 25, y: 16, width: 6, height: 16, rx: 2 }, "t"], ["path", { d: "M35 19.5c1.8 2.9 1.8 6.1 0 9" }, "t"]],
   sensor_movimento: [["circle", { cx: 18, cy: 24, r: 5.5 }, "t"], ["path", { d: "M27 18.5c2.6 3.4 2.6 7.6 0 11M31.5 15c4.3 5.5 4.3 12.5 0 18" }, "t"]],
 };
@@ -71,6 +73,67 @@ function no(tag, atrs, estilo) {
 }
 
 const numero = (v, omissao = 0) => (Number.isFinite(Number(v)) ? Number(v) : omissao);
+
+// Forma das divisões (a mesma regra de web/simulador/regras.js; este módulo não tem dependências).
+const MAX_CANTOS = 24;
+/** Cantos da divisão: `pontos` válidos (3–24 pares de números) ou os 4 cantos do retângulo. */
+function cantos(d) {
+  const p = d?.pontos;
+  if (Array.isArray(p) && p.length >= 3 && p.length <= MAX_CANTOS && p.every((q) => Array.isArray(q) && Number.isFinite(Number(q[0])) && Number.isFinite(Number(q[1])))) {
+    return p.map((q) => [Number(q[0]), Number(q[1])]);
+  }
+  const x = numero(d?.x_cm), y = numero(d?.y_cm), w = Math.max(1, numero(d?.largura_cm)), h = Math.max(1, numero(d?.altura_cm));
+  return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+}
+function area(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) s += pts[i][0] * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * pts[i][1];
+  return s / 2;
+}
+/** 4 cantos com paredes só horizontais/verticais. */
+function retangular(pts) {
+  if (pts.length !== 4) return false;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4], c = pts[(i + 2) % 4];
+    const h1 = a[1] === b[1] && a[0] !== b[0], v1 = a[0] === b[0] && a[1] !== b[1];
+    const h2 = b[1] === c[1] && b[0] !== c[0], v2 = b[0] === c[0] && b[1] !== c[1];
+    if (!((h1 && v2) || (v1 && h2))) return false;
+  }
+  return true;
+}
+function dentro(x, y, pts) {
+  let r = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) r = !r;
+  }
+  return r;
+}
+/** Ponto para o nome: o centróide, ou (forma em L/U) o meio da faixa horizontal mais larga. */
+function interior(pts) {
+  const a = area(pts);
+  let cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    const f = x1 * y2 - x2 * y1;
+    cx += (x1 + x2) * f;
+    cy += (y1 + y2) * f;
+  }
+  if (a && dentro(cx / (6 * a), cy / (6 * a), pts)) return [cx / (6 * a), cy / (6 * a)];
+  const ys = pts.map((p) => p[1]), y0 = Math.min(...ys), h = Math.max(...ys) - y0;
+  let melhor = [pts[0][0], pts[0][1]], larg = -1;
+  for (const f of [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6]) {
+    const y = y0 + h * f;
+    const xs = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      if ((y1 > y) !== (y2 > y)) xs.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+    }
+    xs.sort((p, q) => p - q);
+    for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] - xs[i] > larg) { larg = xs[i + 1] - xs[i]; melhor = [(xs[i] + xs[i + 1]) / 2, y]; }
+  }
+  return melhor;
+}
 
 function descrever(e, nomesDivisao) {
   const p = e.props || {};
@@ -89,6 +152,7 @@ function icone(e) {
   const p = e.props || {};
   if (e.tipo === "janela" && p.estore) return ICONES.janela_estore;
   if (e.tipo === "tomada" && p.dupla) return ICONES.tomada_dupla;
+  if (e.tipo === "maquina" && ICONES[`maquina_${p.modelo}`]) return ICONES[`maquina_${p.modelo}`];
   return ICONES[e.tipo] || ICONES.maquina;
 }
 
@@ -154,28 +218,32 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     svg.append(g);
   }
 
-  // Divisões: retângulos com o nome no canto.
+  // Divisões: polígonos (um retângulo são 4 cantos). Retângulo: nome no canto e L × A; forma livre:
+  // nome e área num ponto de dentro.
   const gd = no("g", { "data-camada": "divisoes" });
   for (const d of divisoes) {
-    const x = numero(d.x_cm), y = numero(d.y_cm), w = Math.max(1, numero(d.largura_cm)), h = Math.max(1, numero(d.altura_cm));
+    const pts = cantos(d);
+    const ret = retangular(pts);
+    const m2 = fmtM2(Math.abs(area(pts)));
+    const x = Math.min(...pts.map((p) => p[0])), y = Math.min(...pts.map((p) => p[1]));
+    const w = Math.max(...pts.map((p) => p[0])) - x, h = Math.max(...pts.map((p) => p[1])) - y;
     const sel = !soLeitura && selecionado === d.id;
     const g = no("g", { "data-divisao": d.id });
     const t = no("title");
-    t.textContent = `${d.nome || "Divisão"} (${fmtM(w)} × ${fmtM(h)} m)`;
+    t.textContent = ret ? `${d.nome || "Divisão"} (${fmtM(w)} × ${fmtM(h)} m, ${m2} m²)` : `${d.nome || "Divisão"} (${m2} m², ${pts.length} cantos)`;
     g.append(t);
-    g.append(no("rect", { x, y, width: w, height: h }, {
+    g.append(no("polygon", { points: pts.map((p) => `${p[0]},${p[1]}`).join(" ") }, {
       fill: sel ? COR.musgoClaro : `color-mix(in srgb, ${COR.musgoClaro} 55%, transparent)`,
-      stroke: sel ? COR.argila : COR.musgo, "stroke-width": sel ? "3px" : "2px", "vector-effect": "non-scaling-stroke",
+      stroke: sel ? COR.argila : COR.musgo, "stroke-width": sel ? "3px" : "2px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke",
     }));
-    const nome = no("text", { x: x + letra * 0.4, y: y + letra * 1.15 }, {
-      fill: COR.texto, "font-size": `${letra}px`, "font-weight": "700", "font-family": "var(--letra, system-ui, sans-serif)", "pointer-events": "none",
-    });
+    const [ix, iy] = ret ? [x + letra * 0.4, y] : interior(pts);
+    const letraTexto = { fill: COR.texto, "font-size": `${letra}px`, "font-weight": "700", "font-family": "var(--letra, system-ui, sans-serif)", "pointer-events": "none" };
+    const letraMedida = { fill: COR.suave, "font-size": `${letra * 0.72}px`, "font-family": "var(--letra, system-ui, sans-serif)", "pointer-events": "none" };
+    const nome = no("text", ret ? { x: ix, y: iy + letra * 1.15 } : { x: ix, y: iy - letra * 0.1, "text-anchor": "middle" }, letraTexto);
     nome.textContent = String(d.nome ?? "");
     g.append(nome);
-    const medida = no("text", { x: x + letra * 0.4, y: y + letra * 2.2 }, {
-      fill: COR.suave, "font-size": `${letra * 0.72}px`, "font-family": "var(--letra, system-ui, sans-serif)", "pointer-events": "none",
-    });
-    medida.textContent = `${fmtM(w)} × ${fmtM(h)} m`;
+    const medida = no("text", ret ? { x: ix, y: iy + letra * 2.2 } : { x: ix, y: iy + letra * 0.85, "text-anchor": "middle" }, letraMedida);
+    medida.textContent = ret ? `${fmtM(w)} × ${fmtM(h)} m · ${m2} m²` : `${m2} m²`;
     g.append(medida);
     gd.append(g);
   }
@@ -217,23 +285,22 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
   }
   svg.append(ge);
 
-  // Pegas de redimensionar a divisão selecionada (editor).
+  // Pegas dos cantos da divisão selecionada (editor): data-pega = n.º do canto (0, 1, …).
   if (!soLeitura && selecionado) {
     const d = divisoes.find((x) => x.id === selecionado);
     if (d) {
       const gp = no("g", { "data-camada": "pegas" });
-      const x = numero(d.x_cm), y = numero(d.y_cm), w = numero(d.largura_cm), h = numero(d.altura_cm);
-      for (const [canto, cx, cy] of [["nw", x, y], ["ne", x + w, y], ["sw", x, y + h], ["se", x + w, y + h]]) {
+      cantos(d).forEach(([cx, cy], i) => {
         // Zona de toque grande (transparente) e, por cima, uma pega visível mais pequena
         // (não tapa o nome da divisão).
         const v = pega * 0.5;
-        gp.append(no("rect", { x: cx - pega / 2, y: cy - pega / 2, width: pega, height: pega, "data-pega": canto, "data-id": d.id }, {
-          fill: "transparent", cursor: canto === "nw" || canto === "se" ? "nwse-resize" : "nesw-resize",
+        gp.append(no("rect", { x: cx - pega / 2, y: cy - pega / 2, width: pega, height: pega, "data-pega": String(i), "data-id": d.id }, {
+          fill: "transparent", cursor: "move",
         }));
         gp.append(no("rect", { x: cx - v / 2, y: cy - v / 2, width: v, height: v, rx: v / 4 }, {
           fill: COR.fundo, stroke: COR.argila, "stroke-width": "3px", "vector-effect": "non-scaling-stroke", "pointer-events": "none",
         }));
-      }
+      });
       svg.append(gp);
     }
   }
@@ -259,6 +326,11 @@ export function desenharIcone(svg, tipo, props = {}) {
 
 function fmtM(cm) {
   return (Math.round(cm) / 100).toLocaleString("pt-PT", { maximumFractionDigits: 2 });
+}
+
+/** Área em m² (de cm²), com uma casa decimal no máximo. */
+function fmtM2(cm2) {
+  return (Math.round(cm2 / 1000) / 10).toLocaleString("pt-PT", { maximumFractionDigits: 1 });
 }
 
 export default desenharPlanta;

@@ -86,6 +86,7 @@ export const MODELOS = {
   maquina_secar: { nome: "Máquina de secar roupa", w: 2500 },
   maquina_loica: { nome: "Máquina de lavar loiça", w: 1800 },
   frigorifico: { nome: "Frigorífico", w: 150 },
+  televisao: { nome: "Televisão", w: 150 },
   bomba_calor: { nome: "Bomba de calor", w: 3000 },
   carregador_ve: { nome: "Carregador de carro elétrico", w: 7400 },
   bomba: { nome: "Bomba (piscina/rega)", w: 1100 },
@@ -124,11 +125,164 @@ export function propsOmissao(tipo, modelo) {
   return p;
 }
 
+// ------------------------------------------------------------ forma das divisões (§2.1)
+// Uma divisão é um retângulo (x_cm, y_cm, largura_cm, altura_cm) ou, com `pontos`, um polígono
+// [[x_cm, y_cm], ...] no sentido dos ponteiros do relógio no ecrã (y para baixo). A caixa
+// envolvente fica sempre atualizada (compatibilidade com o painel e estados antigos).
+
+export const MAX_CANTOS = 24;
+export const MIN_CANTOS = 3;
+export const AREA_MIN_CM2 = ESCALA_CM * ESCALA_CM;   // 0,25 m², a divisão mais pequena que se desenha
+
+/** Cantos da divisão: `pontos` ou os 4 cantos do retângulo (sempre uma lista nova de pares). */
+export function pontosDivisao(d) {
+  if (Array.isArray(d?.pontos) && d.pontos.length >= MIN_CANTOS) return d.pontos.map((p) => [Number(p[0]) || 0, Number(p[1]) || 0]);
+  const x = Number(d?.x_cm) || 0, y = Number(d?.y_cm) || 0, w = Number(d?.largura_cm) || 0, h = Number(d?.altura_cm) || 0;
+  return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+}
+
+/** Área com sinal (fórmula do laço): positiva no sentido dos ponteiros do relógio no ecrã. */
+export function areaAssinada(pts) {
+  let s = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    s += x1 * y2 - x2 * y1;
+  }
+  return s / 2;
+}
+export const areaPoligono = (pts) => Math.abs(areaAssinada(pts));
+
+/** Caixa envolvente {x_cm, y_cm, largura_cm, altura_cm}. */
+export function caixaPontos(pts) {
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x_cm: x, y_cm: y, largura_cm: Math.max(...xs) - x, altura_cm: Math.max(...ys) - y };
+}
+
+/** 4 cantos com paredes só horizontais/verticais (um retângulo "normal"). */
+export function ehRetangulo(pts) {
+  if (pts.length !== 4) return false;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4], c = pts[(i + 2) % 4];
+    // Paredes alternadamente horizontais e verticais, sem comprimento zero.
+    const h1 = a[1] === b[1] && a[0] !== b[0], v1 = a[0] === b[0] && a[1] !== b[1];
+    const h2 = b[1] === c[1] && b[0] !== c[0], v2 = b[0] === c[0] && b[1] !== c[1];
+    if (!((h1 && v2) || (v1 && h2))) return false;
+  }
+  return true;
+}
+
+/** Distância do ponto ao segmento a–b e a posição t (0–1) do ponto mais próximo. */
+export function distanciaSegmento(x, y, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.min(1, Math.max(0, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)) : 0;
+  return { dist: Math.hypot(x - (a[0] + t * dx), y - (a[1] + t * dy)), t };
+}
+
+/** Ponto dentro do polígono (as paredes contam como dentro, como no retângulo). */
+export function pontoEmPoligono(x, y, pts) {
+  let dentro = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if (distanciaSegmento(x, y, pts[j], pts[i]).dist < 0.5) return true;
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) dentro = !dentro;
+  }
+  return dentro;
+}
+
+/** 0 dentro; fora, a distância à parede mais próxima (cm). */
+export function distanciaPoligono(x, y, pts) {
+  if (pontoEmPoligono(x, y, pts)) return 0;
+  let m = Infinity;
+  for (let i = 0; i < pts.length; i++) m = Math.min(m, distanciaSegmento(x, y, pts[i], pts[(i + 1) % pts.length]).dist);
+  return m;
+}
+
+/** Duas paredes não vizinhas cruzam-se (ou tocam-se)? Polígono inválido. */
+export function paredesCruzam(pts) {
+  const n = pts.length;
+  const lado = (a, b, c) => Math.sign((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]));
+  const noSeg = (a, b, c) => Math.min(a[0], b[0]) <= c[0] && c[0] <= Math.max(a[0], b[0]) && Math.min(a[1], b[1]) <= c[1] && c[1] <= Math.max(a[1], b[1]);
+  const cruza = (p1, p2, p3, p4) => {
+    const d1 = lado(p3, p4, p1), d2 = lado(p3, p4, p2), d3 = lado(p1, p2, p3), d4 = lado(p1, p2, p4);
+    if (d1 !== d2 && d3 !== d4 && d1 && d2 && d3 && d4) return true;
+    return (!d1 && noSeg(p3, p4, p1)) || (!d2 && noSeg(p3, p4, p2)) || (!d3 && noSeg(p1, p2, p3)) || (!d4 && noSeg(p1, p2, p4));
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (j === i + 1 || (i === 0 && j === n - 1)) continue;   // paredes vizinhas partilham um canto
+      if (cruza(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Cantos válidos para uma divisão: 3–24 pares de números, arredondados ao cm e dentro de
+ * 0…L × 0…A, sem cantos repetidos seguidos, sem paredes cruzadas, com área ≥ 0,25 m²;
+ * no sentido dos ponteiros do relógio no ecrã. null se não servirem.
+ */
+export function validarPontos(v, L = MAX_LADO_CM, A = MAX_LADO_CM) {
+  if (!Array.isArray(v) || v.length < MIN_CANTOS || v.length > MAX_CANTOS) return null;
+  const pts = [];
+  for (const q of v) {
+    if (!Array.isArray(q) || q.length !== 2) return null;
+    const x = Number(q[0]), y = Number(q[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const p = [Math.round(limitar(x, 0, L)), Math.round(limitar(y, 0, A))];
+    const u = pts[pts.length - 1];
+    if (!u || u[0] !== p[0] || u[1] !== p[1]) pts.push(p);
+  }
+  if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+  if (pts.length < MIN_CANTOS || areaPoligono(pts) < AREA_MIN_CM2 || paredesCruzam(pts)) return null;
+  return areaAssinada(pts) < 0 ? pts.reverse() : pts;
+}
+
+/**
+ * Muda a forma da divisão para os cantos dados (já validados): um retângulo "normal" fica sem
+ * `pontos`; a caixa envolvente é sempre atualizada. Muda `d`.
+ */
+export function definirPontos(d, pts) {
+  Object.assign(d, caixaPontos(pts));
+  if (ehRetangulo(pts)) delete d.pontos;
+  else d.pontos = pts.map((p) => [p[0], p[1]]);
+  return d;
+}
+
+/** Um ponto dentro do polígono para o nome: o centróide, ou (forma em L/U) o meio da faixa mais larga. */
+export function pontoInterior(pts) {
+  const a = areaAssinada(pts);
+  let cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    const f = x1 * y2 - x2 * y1;
+    cx += (x1 + x2) * f;
+    cy += (y1 + y2) * f;
+  }
+  if (a) { cx /= 6 * a; cy /= 6 * a; }
+  if (a && pontoEmPoligono(cx, cy, pts)) return [cx, cy];
+  const c = caixaPontos(pts);
+  let melhor = [c.x_cm + c.largura_cm / 2, c.y_cm + c.altura_cm / 2], larg = -1;
+  for (const f of [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6]) {
+    const y = c.y_cm + c.altura_cm * f;
+    const xs = [];
+    for (let i = 0; i < pts.length; i++) {
+      const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      if ((y1 > y) !== (y2 > y)) xs.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+    }
+    xs.sort((p, q) => p - q);
+    for (let i = 0; i + 1 < xs.length; i += 2) if (xs[i + 1] - xs[i] > larg) { larg = xs[i + 1] - xs[i]; melhor = [(xs[i] + xs[i + 1]) / 2, y]; }
+  }
+  return melhor;
+}
+
 /** Id da divisão onde está o ponto (a última desenhada ganha, como no ecrã); null se fora. */
 export function divisaoEm(planta, x, y) {
   let r = null;
   for (const d of planta.divisoes) {
-    if (x >= d.x_cm && x <= d.x_cm + d.largura_cm && y >= d.y_cm && y <= d.y_cm + d.altura_cm) r = d.id;
+    if (x < d.x_cm || x > d.x_cm + d.largura_cm || y < d.y_cm || y > d.y_cm + d.altura_cm) continue;
+    if (!d.pontos || pontoEmPoligono(x, y, pontosDivisao(d))) r = d.id;
   }
   return r;
 }
@@ -137,7 +291,7 @@ export function divisaoEm(planta, x, y) {
 export const TIPOS_PAREDE = ["porta", "janela", "sensor_porta"];
 
 /**
- * Divisão de um elemento: a que contém o centro; para portas, janelas e sensores de porta/janela
+ * Divisão de um elemento: a que contém o centro (retângulo ou polígono); para portas, janelas e sensores de porta/janela
  * fora de todas, a mais próxima a ≤ 30 cm (paredes exteriores). O painel faz o mesmo
  * (painel/public/ecras/simulacao.js, divisaoDoElemento).
  */
@@ -147,9 +301,7 @@ export function divisaoDoElemento(planta, e) {
   if (dentro || !TIPOS_PAREDE.includes(e?.tipo)) return dentro;
   let r = null, melhor = TOLERANCIA_PORTA_CM;
   for (const d of planta.divisoes) {
-    const dx = Math.max(d.x_cm - x, 0, x - (d.x_cm + d.largura_cm));
-    const dy = Math.max(d.y_cm - y, 0, y - (d.y_cm + d.altura_cm));
-    const dist = Math.hypot(dx, dy);
+    const dist = distanciaPoligono(x, y, pontosDivisao(d));
     if (dist <= melhor) { melhor = dist; r = d.id; }
   }
   return r;
