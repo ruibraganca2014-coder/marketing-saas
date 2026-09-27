@@ -118,11 +118,14 @@ export function calcularPreco(pedidos, catalogo, config) {
   };
 }
 
-/** Plano mensal sugerido (§5): central → Premium; sensores/alarme → Conforto; senão Base. */
-export function planoSugerido(pedidos) {
+/**
+ * Plano mensal sugerido (§5): central → Premium; sensores/alarme ou o objetivo "controlar à distância"
+ * (`distancia`: avisos no telemóvel com a casa vazia) → Conforto; senão Base.
+ */
+export function planoSugerido(pedidos, { distancia = false } = {}) {
   const tem = (k) => pedidos.some((p) => p.chave === k && p.qtd > 0);
   if (tem("central")) return "premium";
-  if (tem("sensor_porta") || tem("sensor_movimento")) return "conforto";
+  if (tem("sensor_porta") || tem("sensor_movimento") || distancia) return "conforto";
   return "base";
 }
 

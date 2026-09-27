@@ -13,8 +13,28 @@ const FASES = { mono: "Monofásica", tri: "Trifásica" };
 const TIPOS_CIRCUITO = { iluminacao: "Iluminação", tomadas: "Tomadas", maquina: "Máquina", misto: "Misto" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
-  maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE", outro: "Outra máquina",
+  maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
+  bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
 };
+// Passo "A casa" e "O que quer" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
+const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet (cozinha aberta)" };
+const OBJETIVOS = {
+  poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
+  distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",
+};
+
+/** "T3 · 2 casas de banho · 2 salas · 2 pisos · jardim/exterior" (campos novos de `casa`; vazio se não houver tipologia). */
+function tipologiaTxt(casa) {
+  if (typeof casa.tipologia !== "string") return "";
+  const q = numero(casa.quartos);
+  const partes = [casa.tipologia === "T5+" && q !== null ? `T${num(q)} (T5+)` : casa.tipologia];
+  if (numero(casa.casas_banho) !== null) partes.push(plural(numero(casa.casas_banho), "casa de banho", "casas de banho"));
+  if (numero(casa.salas) !== null) partes.push(plural(numero(casa.salas), "sala", "salas"));
+  if (numero(casa.pisos) !== null) partes.push(plural(numero(casa.pisos), "piso", "pisos"));
+  const x = obj(casa.extras);
+  partes.push(...Object.keys(EXTRAS_CASA).filter((k) => x[k] === true).map((k) => EXTRAS_CASA[k]));
+  return partes.join(" · ");
+}
 const NOMES_ELEMENTOS = {
   porta: "Portas", janela: "Janelas", quadro: "Quadro elétrico", tomada: "Tomadas", luz: "Pontos de luz", interruptor: "Interruptores",
   maquina: "Máquinas", sensor_porta: "Sensores de porta/janela", sensor_movimento: "Sensores de movimento",
@@ -103,11 +123,16 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const casaTxt = [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null, casa.localidade].filter(Boolean).join(" · ");
   const kva = numero(casa.potencia_contratada_kva);
   const instalacaoTxt = `${kva !== null ? `${num(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
+  const quer = obj(sim.quer);
+  const maquinasTxt = arr(quer.maquinas).filter((m) => typeof m === "string").map((m) => MODELOS[m] ?? m).join(", ");
+  const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
 
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ["Casa", casaTxt || "—"],
+      ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
+      ...(sim.quer !== undefined ? [["Máquinas grandes", maquinasTxt || "Nenhuma"], ["Objetivos", objetivosTxt || "Nenhum"]] : []),
       ["Potência contratada e ligação", instalacaoTxt],
       ["Estimativa (c/ IVA)", estimativa],
       ["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"],

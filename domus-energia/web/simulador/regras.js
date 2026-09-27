@@ -20,8 +20,8 @@ export const TOLERANCIA_PORTA_CM = 30;    // porta/janela fora das divisões mas
 export const AMPERES_MAX_INTELIGENTE = 63; // TONGOU SY1/SY2: até 63 A, 1P+N
 export const AMPERES = [6, 10, 16, 20, 25, 32, 40];
 export const AMPERES_MAQUINA = [16, 20, 25, 32, 40];
-/** Máquinas que têm sempre circuito próprio, seja qual for a potência (as outras: ≥ 2000 W). */
-export const MODELOS_DEDICADOS = ["maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve"];
+/** Máquinas que têm sempre circuito próprio, seja qual for a potência (as outras: ≥ 2000 W). A bomba fica no exterior: circuito próprio. */
+export const MODELOS_DEDICADOS = ["maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve", "bomba"];
 export const AMPERES_PLACA = 32;          // placa: nunca tira a potência toda ao mesmo tempo (simultaneidade)
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
@@ -38,6 +38,27 @@ export const TIPOS_CASA = {
   apartamento: "Apartamento",
   alojamento_local: "Alojamento local",
   outro: "Outro",
+};
+
+/** Passo "A casa": tipologia (T5+ pede o n.º de quartos), contadores e extras. */
+export const TIPOLOGIAS = ["T0", "T1", "T2", "T3", "T4", "T5+"];
+export const LIMITES_CASA = { quartos: [5, 12], casas_banho: [1, 6], salas: [1, 4], pisos: [1, 4] };
+export const EXTRAS_CASA = {
+  jardim: "Jardim / exterior",
+  garagem: "Garagem / arrecadação",
+  varanda: "Varanda / terraço",
+  kitnet: "Kitnet (cozinha aberta)",
+};
+
+/** Passo "O que quer": máquinas grandes (chaves de MODELOS) e objetivos. */
+export const MAQUINAS_QUER = ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "ar_condicionado", "carregador_ve", "bomba"];
+export const OBJETIVOS = {
+  poupar: "Poupar energia",
+  alarme: "Alarme e segurança",
+  estores: "Estores automáticos",
+  luzes: "Luzes pelo telemóvel",
+  distancia: "Controlar à distância (férias / alojamento local)",
+  clima: "Aquecimento / ar condicionado",
 };
 
 /** Elementos da planta (§2): nome, se roda, propriedades por omissão. */
@@ -67,6 +88,7 @@ export const MODELOS = {
   frigorifico: { nome: "Frigorífico", w: 150 },
   bomba_calor: { nome: "Bomba de calor", w: 3000 },
   carregador_ve: { nome: "Carregador de carro elétrico", w: 7400 },
+  bomba: { nome: "Bomba (piscina/rega)", w: 1100 },
   outro: { nome: "Outra máquina", w: 1000 },
 };
 
@@ -85,10 +107,11 @@ export const TIPOS_DIVISAO = [
   { nome: "Lavandaria", w: 200, h: 200 },
   { nome: "Garagem", w: 500, h: 300 },
   { nome: "Varanda", w: 300, h: 150 },
+  { nome: "Jardim", w: 600, h: 400 },
   { nome: "Outra", w: 400, h: 300 },
 ];
 
-export const NOMES_DIVISAO = ["Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Exterior"];
+export const NOMES_DIVISAO = ["Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Jardim", "Exterior"];
 
 const nf = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 0 });
 export const formatarW = (w) => `${nf.format(Math.round(w)).replace(/[\u00a0\u202f]/g, " ")} W`;

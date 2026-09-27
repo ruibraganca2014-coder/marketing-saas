@@ -41,7 +41,7 @@ const NOMES = {
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
-  frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", outro: "Outra máquina",
+  frigorifico: "Frigorífico", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)", outro: "Outra máquina",
 };
 
 // Ícones em traço (caixa 48 × 48, centro 24,24), no estilo das ilustrações "Terra".

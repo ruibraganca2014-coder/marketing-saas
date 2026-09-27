@@ -3,16 +3,20 @@
 
 import {
   ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM, AMPERES, TIPOS_CIRCUITO, TIPOS_CASA, ELEMENTOS, MODELOS, POTENCIAS_KVA, FASES,
+  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, OBJETIVOS,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao } from "./casa.js";
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
 export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: código do cliente vindo da área de cliente
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
-export const PASSOS = ["A casa", "Planta", "Quadro elétrico", "Divisões", "Resumo e preço", "Enviar"];
+export const PASSOS = ["A casa", "O que quer", "Planta", "Quadro elétrico", "Divisões", "Resumo e preço", "Enviar"];
+// Estados guardados antes do passo "O que quer" (sem `passos`) tinham 6 passos: do 2.º em diante somam 1.
+const PASSOS_ANTIGOS = 6;
 export const SERVICO = "Simulador de orçamento";
 export const SERVICO_CLIENTE = "Ampliar a instalação (simulador)";
 
@@ -24,23 +28,38 @@ export const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/g;
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
+/** Casa por omissão: no site já com T2; na área de cliente tipo e tipologia por escolher. */
+export function casaNova(cliente = false) {
+  return {
+    tipo: cliente ? null : "moradia", tipologia: cliente ? null : "T2", quartos: cliente ? null : 2, casas_banho: 1, salas: 1, pisos: 1,
+    extras: { jardim: false, garagem: false, varanda: false, kitnet: false },
+    divisoes: null, localidade: "", potencia_contratada_kva: null, fases: null,
+  };
+}
+
 /**
  * Estado inicial. Na área de cliente ("Ampliar a instalação", com código de cliente) a casa já
- * é conhecida: começa na planta e os dados da casa são opcionais (tipo por escolher).
+ * é conhecida: começa em "O que quer" e os dados da casa são opcionais (tipo por escolher).
  */
 export function estadoNovo({ cliente = false } = {}) {
   return {
     versao: VERSAO,
+    passos: PASSOS.length,
     passo: cliente ? 1 : 0,
     guardado: null,
-    casa: { tipo: cliente ? null : "moradia", divisoes: null, localidade: "", potencia_contratada_kva: null, fases: null },
+    casa: casaNova(cliente),
+    casasBanhoEditadas: false, // o cliente mexeu nas casas de banho: a tipologia já não as muda
+    quer: { maquinas: [], objetivos: [] },
     planta: plantaVazia(),
     plantaSaltada: false,
+    plantaAuto: false,         // a planta é a que desenhámos a partir da casa e o cliente ainda não lhe mexeu
+    plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     quadro: { circuitos: [], disjuntor: SKU_SY2 },
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
     divisoesEditadas: false,
     extras: { central: false, termostatos: 0 },
+    termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
     contacto: { nome: "", telefone: "", email: "", localidade: "", mensagem: "" },
   };
 }
@@ -138,28 +157,52 @@ export function normalizarDivisao(d) {
 export function normalizarEstado(v) {
   const e = estadoNovo();
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
-  e.passo = int(v.passo, 0, PASSOS.length - 2);   // nunca volta direto ao "Enviar"
+  // Estado antigo (6 passos, sem "O que quer"): o passo 1 (planta) passa a 2, e assim por diante.
+  const antigo = v.passos !== PASSOS.length;
+  const passo = int(v.passo, 0, (antigo ? PASSOS_ANTIGOS : PASSOS.length) - 2);   // nunca volta direto ao "Enviar"
+  e.passo = antigo && passo >= 1 ? passo + 1 : passo;
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   const c = v.casa && typeof v.casa === "object" ? v.casa : {};
+  const x = c.extras && typeof c.extras === "object" ? c.extras : {};
+  const tipologia = TIPOLOGIAS.includes(c.tipologia) ? c.tipologia : null;   // estado antigo: sem tipologia
   e.casa = {
     tipo: TIPOS_CASA[c.tipo] ? c.tipo : c.tipo === null ? null : "moradia",
+    tipologia,
+    quartos: tipologia === "T5+" ? int(c.quartos, ...LIMITES_CASA.quartos, 5) : quartosDe({ tipologia }),
+    casas_banho: int(c.casas_banho, ...LIMITES_CASA.casas_banho, casasBanhoOmissao(tipologia)),
+    salas: int(c.salas, ...LIMITES_CASA.salas, 1),
+    pisos: int(c.pisos, ...LIMITES_CASA.pisos, 1),
+    extras: Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(x[k])])),
     divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1),
     localidade: txt(c.localidade, 80),
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
   };
+  e.casasBanhoEditadas = bool(v.casasBanhoEditadas);
+  e.quer = normalizarQuer(v.quer);
   e.planta = normalizarPlanta(v.planta);
   e.plantaSaltada = bool(v.plantaSaltada);
+  e.plantaAuto = bool(v.plantaAuto);
+  e.plantaBase = typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 500) : null;
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
   e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2 };
   e.quadroEditado = bool(v.quadroEditado);
   e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao);
   e.divisoesEditadas = bool(v.divisoesEditadas);
-  const x = v.extras && typeof v.extras === "object" ? v.extras : {};
-  e.extras = { central: bool(x.central), termostatos: int(x.termostatos, 0, 20) };
+  const ex = v.extras && typeof v.extras === "object" ? v.extras : {};
+  e.extras = { central: bool(ex.central), termostatos: int(ex.termostatos, 0, 20) };
+  // Estado antigo: termóstatos já escolhidos contam como mexidos (o objetivo "aquecimento" não os apaga).
+  e.termostatosEditados = v.termostatosEditados === undefined ? e.extras.termostatos > 0 : bool(v.termostatosEditados);
   const k = v.contacto && typeof v.contacto === "object" ? v.contacto : {};
   e.contacto = { nome: txt(k.nome, 120), telefone: txt(k.telefone, 30), email: txt(k.email, 254), localidade: txt(k.localidade, 80), mensagem: txt(k.mensagem, 2000) };
   return e;
+}
+
+/** Máquinas e objetivos do passo "O que quer": só as chaves conhecidas, sem repetidos, pela ordem das listas. */
+export function normalizarQuer(q) {
+  const o = q && typeof q === "object" ? q : {};
+  const so = (v, chaves) => (Array.isArray(v) ? chaves.filter((k) => v.includes(k)) : []);
+  return { maquinas: so(o.maquinas, MAQUINAS_QUER), objetivos: so(o.objetivos, Object.keys(OBJETIVOS)) };
 }
 
 /** Potência contratada (kVA) de um dos escalões, ou null ("Não sei"). */
@@ -176,7 +219,7 @@ export const opcoesAvisos = (estado) => ({
   potencia_contratada_kva: estado.casa?.potencia_contratada_kva ?? null,
 });
 
-/** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa na planta) */
+/** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
   return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== null || e.casa.fases !== null || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.casa.localidade);
 }
@@ -254,6 +297,28 @@ export function plantaParaEnvio(planta) {
 }
 
 /**
+ * `simulacao.casa` (§6). Com tipologia, `divisoes` é o total das divisões que a casa gera
+ * (compatível com o antigo "Quantas divisões tem?"); sem tipologia os campos novos vão a null.
+ */
+export function casaParaEnvio(estado) {
+  const c = estado.casa;
+  const tipologia = TIPOLOGIAS.includes(c.tipologia) ? c.tipologia : null;
+  return {
+    tipo: TIPOS_CASA[c.tipo] ? c.tipo : null,
+    divisoes: tipologia ? divisoesDaCasa(c).length : c.divisoes ?? (estado.divisoes.length || null),
+    localidade: textoSeguro(c.localidade || estado.contacto.localidade, 80) || null,
+    potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
+    fases: FASES[c.fases] ? c.fases : null,
+    tipologia,
+    quartos: tipologia ? quartosDe(c) : null,
+    casas_banho: tipologia ? int(c.casas_banho, ...LIMITES_CASA.casas_banho, 1) : null,
+    salas: tipologia && tipologia !== "T0" ? int(c.salas, ...LIMITES_CASA.salas, 1) : null,
+    pisos: tipologia ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : null,
+    extras: tipologia ? Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(c.extras?.[k])])) : null,
+  };
+}
+
+/**
  * `simulacao` do POST /api/orcamento (§6).
  * @param {object} estado
  * @param {ReturnType<import("./preco.js").calcularPreco>} preco
@@ -266,13 +331,8 @@ export function montarSimulacao(estado, preco, plano) {
   });
   return {
     versao: VERSAO,
-    casa: {
-      tipo: TIPOS_CASA[estado.casa.tipo] ? estado.casa.tipo : null,
-      divisoes: estado.casa.divisoes ?? (estado.divisoes.length || null),
-      localidade: textoSeguro(estado.casa.localidade || estado.contacto.localidade, 80) || null,
-      potencia_contratada_kva: potenciaContratada(estado.casa.potencia_contratada_kva),
-      fases: FASES[estado.casa.fases] ? estado.casa.fases : null,
-    },
+    casa: casaParaEnvio(estado),
+    quer: normalizarQuer(estado.quer),
     planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
     quadro: { circuitos },
     divisoes: estado.divisoes.map((d) => {

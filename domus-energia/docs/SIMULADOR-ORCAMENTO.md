@@ -10,19 +10,28 @@ Decisões do dono:
 ⚠️ As regras elétricas abaixo são **orientativas** (ajudam o cliente e a equipa); a solução final é sempre validada na visita por técnico habilitado.
 
 ## 1. Fluxo (site `simulador.html`, e área de cliente → "Ampliar a instalação")
-1. **A casa** — tipo (moradia/apartamento/alojamento local/outro), n.º de divisões, localidade, **potência contratada** (3,45 / 4,6 / 5,75 / 6,9 / 10,35 / 13,8 / 17,25 / 20,7 kVA / "Não sei") e **ligação** (Monofásica / Trifásica / "Não sei"). Na área de cliente com código ("Ampliar a instalação") este passo é **saltado**: começa na planta, os dados da casa são opcionais (tipo por escolher) e o passo 5 mostra-os com "Editar" (volta ao passo 1).
-2. **Planta** — desenhar ou carregar planta; colocar elementos (§2). Pode saltar este passo.
-3. **Quadro elétrico** — circuitos (§4): amperes, tipo, o que liga cada um, quais quer inteligentes. Pré-preenchido pela planta quando possível.
-4. **Divisões** — por divisão: interruptores (1–4 botões), estores, sensores de porta/janela e de movimento, luzes com brilho. Pré-preenchido pela planta.
-5. **Resumo e preço** — tabela de artigos (§5), mão de obra, intervalo, plano mensal sugerido; avisos elétricos.
-6. **Enviar** — nome + telefone/email → `POST /api/orcamento` com `simulacao` (§6). Na área de cliente, inclui `codigo_cliente`.
-O progresso fica guardado no navegador (`localStorage`, com try/catch) para continuar mais tarde.
-No passo 5, abaixo de 480 px, a tabela esconde a coluna do preço unitário (fica Qtd. e Total); o texto "Estimativa. O valor final é confirmado na visita técnica gratuita." aparece uma só vez (no cartão do total).
+1. **A casa** — tipo (moradia/apartamento/alojamento local/outro), **tipologia** (botões T0, T1, T2, T3, T4, T5+; T5+ mostra o contador "Quartos", 5–12; T0 = estúdio), contadores −/+ de **casas de banho** (1–6; por omissão T0–T2 → 1, T3+ → 2, e segue a tipologia enquanto o cliente não mexer no contador), **salas** (1–4; 2 = sala de estar + sala de jantar; escondido no T0) e **pisos** (1–4), **extras** sim/não (jardim/exterior, garagem/arrecadação, varanda/terraço, kitnet = cozinha aberta na sala), localidade, **potência contratada** (3,45 / 4,6 / 5,75 / 6,9 / 10,35 / 13,8 / 17,25 / 20,7 kVA / "Não sei") e **ligação** (Monofásica / Trifásica / "Não sei"). No site começa em T2. Na área de cliente com código ("Ampliar a instalação") este passo é **saltado**: começa em "O que quer", os dados da casa são opcionais (tipo e tipologia por escolher) e o passo 6 mostra-os com "Editar" (volta ao passo 1).
+2. **O que quer** — **máquinas grandes** sim/não (placa, forno, máquina de lavar roupa, máquina de lavar loiça, máquina de secar, termoacumulador, ar condicionado, carregador de carro elétrico, bomba da piscina/rega — os `modelo` de §2 com a potência típica) e **objetivos** sim/não (poupar energia, alarme e segurança, estores automáticos, luzes pelo telemóvel, controlar à distância, aquecimento/ar condicionado). Serve para pré-preencher os passos seguintes (§1.1).
+3. **Planta** — desenhar ou carregar planta; colocar elementos (§2). Já vem desenhada a partir dos passos 1 e 2 (§1.1). Pode saltar este passo (botão "Saltar a planta").
+4. **Quadro elétrico** — circuitos (§4): amperes, tipo, o que liga cada um, quais quer inteligentes. Pré-preenchido pela planta (ou, sem planta, pela casa e pelas máquinas).
+5. **Divisões** — por divisão: interruptores (1–4 botões), estores, sensores de porta/janela e de movimento, luzes com brilho. Pré-preenchido pela planta (ou pela casa) e pelos objetivos.
+6. **Resumo e preço** — tabela de artigos (§5), mão de obra, intervalo, plano mensal sugerido; avisos elétricos.
+7. **Enviar** — nome + telefone/email → `POST /api/orcamento` com `simulacao` (§6). Na área de cliente, inclui `codigo_cliente`.
+O progresso fica guardado no navegador (`localStorage`, com try/catch) para continuar mais tarde. O estado guarda `passos: 7`; um estado guardado antes do passo "O que quer" (sem `passos`, 6 passos) é migrado ao carregar: do passo 2 em diante soma 1 (não salta para o passo errado), e a casa fica sem tipologia (comporta-se como antes).
+No passo 6, abaixo de 480 px, a tabela esconde a coluna do preço unitário (fica Qtd. e Total); o texto "Estimativa. O valor final é confirmado na visita técnica gratuita." aparece uma só vez (no cartão do total).
+
+### 1.1 Pré-preenchimento (`web/simulador/casa.js`)
+Nada do que o cliente mudou à mão é apagado sozinho (planta, quadro, divisões e termóstatos têm cada um o seu "mexido").
+- **Divisões da casa** (pela tipologia e extras): salas ("Sala"; com 2, "Sala de estar" + "Sala de jantar"; 3–4, "Sala 3"…), "Cozinha" (sem kitnet; com kitnet a sala passa a "Sala e cozinha", ou "Sala de jantar e cozinha" com 2 salas), "Quarto 1…n", "Casa de banho" (ou "Casa de banho 1…n"), "Corredor" (T2+, um por piso com quartos), "Garagem", "Varanda", "Jardim". **T0** = uma divisão "Estúdio" (sala e quarto; com kitnet também a cozinha) sem quartos. **Pisos > 1**: piso 1 com salas, cozinha, a 1.ª casa de banho, garagem e jardim; quartos e as outras casas de banho repartidos pelos pisos de cima; varanda no último; uma divisão "Escadas (piso N)" em cada piso. Carregador sem garagem nem jardim, ou bomba sem jardim → acrescenta "Exterior". `casa.divisoes` (§6) = total destas divisões.
+- **Planta (passo 3)**: ao entrar no passo com a planta **vazia**, desenhamo-la: divisões com os tamanhos típicos de `TIPOS_DIVISAO` (mais Sala de estar 5 × 4, Sala de jantar 4 × 3,5, Sala e cozinha 6,5 × 4, Estúdio 6 × 4,5, Escadas 2 × 3, Exterior 5 × 3 m), em linhas de até 15 m sem sobreposição, cada piso num bloco abaixo do anterior (1 m de intervalo); as máquinas escolhidas vão para a divisão certa, ao fundo dela: placa/forno/loiça → cozinha (senão sala e cozinha / estúdio); lavar/secar → lavandaria, senão cozinha; termoacumulador → cozinha, senão garagem; ar condicionado → sala; carregador → garagem, senão jardim/exterior; bomba → jardim/exterior. Enquanto o cliente não mexe na planta ela é "nossa" e é redesenhada se ele mudar a casa ou as máquinas. **Depois de mexer, nunca é redesenhada sozinha**: se a casa ou as máquinas mudarem, o passo mostra o aviso e o botão "Refazer a partir do passo 1" (com confirmação na página; apaga a planta atual). O botão "Saltar a planta" (e "Seguinte" com a planta vazia) salta-a: a planta não é enviada nem usada.
+- **Sem planta** (saltada): o quadro e as divisões vêm da planta que a casa daria (as mesmas divisões e máquinas, sem a gravar); na área de cliente sem tipologia, a lista antiga (Sala, Cozinha, Quarto 1… pelo n.º de divisões, 3 se não indicado).
+- **Quadro**: sugestão da planta (§4); toda a casa tem luzes e tomadas, por isso sem nenhuma desenhada ficam os circuitos base "Iluminação" (10 A) e "Tomadas" (16 A); as máquinas têm circuito próprio (§4). "Recalcular a partir da planta/da casa" volta à sugestão.
+- **Objetivos → divisões** (só enquanto o cliente não mudou as divisões; nunca tira o que já lá está): **alarme** → 1 sensor de porta na entrada (divisão Entrada, senão Corredor, senão Sala) se ainda não houver nenhum (a porta da rua desenhada já conta, §2), e 1 sensor de movimento em cada sala e corredor; **estores automáticos** → estores motorizados nas salas e quartos que ainda não têm (com planta que tenha janelas: um por janela da divisão; sem janelas desenhadas: 1); **luzes pelo telemóvel** → 1 interruptor inteligente de 1 botão em cada divisão sem interruptores (menos jardim e varanda); **poupar energia** → medir o consumo em todos os circuitos inteligentes (já é o que sugerimos por omissão); **aquecimento/ar condicionado** → 1 termóstato Wi-Fi por piso (enquanto o cliente não mudar os termóstatos); **controlar à distância** → plano sugerido pelo menos Conforto (§5).
 
 ## 2. Planta
 - Editor em SVG, quadriculado de **50 cm**, zoom e deslocamento; funciona com toque (telemóvel) e rato.
 - **Fundo opcional**: foto (JPG/PNG) ou PDF (1.ª página renderizada com pdf.js, carregado de cdn.jsdelivr.net) → reduzido a ≤ 1600 px, JPEG, ≤ 700 KB; opacidade e escala ajustáveis (calibração: o cliente marca uma parede e diz o comprimento em metros).
-- **Divisões**: retângulos com nome (Sala, Cozinha, Quarto 1, WC, Corredor, Garagem, Exterior…), arrastar e redimensionar.
+- **Divisões**: retângulos com nome (Sala, Cozinha, Quarto 1, WC, Corredor, Garagem, Jardim, Exterior…), arrastar e redimensionar.
 - **Elementos** (ícones Terra), com rotação quando faz sentido:
   | Elemento | `tipo` | Propriedades |
   |---|---|---|
@@ -32,7 +41,7 @@ No passo 5, abaixo de 480 px, a tabela esconde a coluna do preço unitário (fic
   | Tomada | `tomada` | `dupla` |
   | Ponto de luz | `luz` | `brilho` (regulável) |
   | Interruptor | `interruptor` | `botoes` 1–4 |
-  | Máquina / eletrodoméstico | `maquina` | `modelo` ∈ termoacumulador, ar_condicionado, placa, forno, maquina_lavar, maquina_secar, maquina_loica, frigorifico, bomba_calor, carregador_ve, outro; `potencia_w` (valor típico pré-preenchido, editável) |
+  | Máquina / eletrodoméstico | `maquina` | `modelo` ∈ termoacumulador, ar_condicionado, placa, forno, maquina_lavar, maquina_secar, maquina_loica, frigorifico, bomba_calor, carregador_ve, bomba (piscina/rega, 1 100 W), outro; `potencia_w` (valor típico pré-preenchido, editável) |
   | Sensor de porta/janela | `sensor_porta` | — |
   | Sensor de movimento | `sensor_movimento` | — |
 - **Contagem automática**: por divisão conta luzes, tomadas, interruptores, janelas com estore, portas de entrada (→ sensor sugerido, salvo se já houver um sensor de porta desenhado a ≤ 1,5 m), máquinas; sugere circuitos (§4) e artigos (§5). O cliente pode corrigir tudo à mão.
@@ -81,7 +90,7 @@ Cada circuito: `n`, `amperes` (6, 10, 16, 20, 25, 32, 40), `tipo` (iluminacao, t
 Avisos (texto simples, sem bloquear):
 - Potência das máquinas do circuito > 80 % de `amperes × 230 V` → "Este circuito pode não aguentar: X W para um disjuntor de Y A." (a placa e o carregador VE não entram nesta soma).
 - Iluminação: sugerir 10 A; mais de 8 pontos de luz num circuito → aviso. Tomadas: sugerir 16 A; mais de 8 tomadas num circuito → aviso.
-- **Circuito próprio pelo tipo de máquina** (seja qual for a potência): máquina de lavar roupa, máquina de secar, máquina da loiça, forno, placa, termoacumulador, ar condicionado, bomba de calor e carregador VE. Frigorífico e "outra máquina": circuito próprio só com ≥ 2 000 W. Uma destas máquinas num circuito partilhado com outras cargas → aviso "deve ter um circuito próprio".
+- **Circuito próprio pelo tipo de máquina** (seja qual for a potência): máquina de lavar roupa, máquina de secar, máquina da loiça, forno, placa, termoacumulador, ar condicionado, bomba de calor, carregador VE e bomba da piscina/rega (fica no exterior). Frigorífico e "outra máquina": circuito próprio só com ≥ 2 000 W. Uma destas máquinas num circuito partilhado com outras cargas → aviso "deve ter um circuito próprio".
 - **Placa**: potência típica 7 200 W → sugerir **32 A** e **sem aviso de sobrecarga** (simultaneidade: a placa nunca tira a potência toda ao mesmo tempo). Continua a ser carga perigosa quando inteligente.
 - **Carregador VE**: 7 400 W típicos, carrega a 32 A num disjuntor de **40 A** → sugerir 40 A, **sem aviso de sobrecarga** (o carregador limita a própria corrente); disjuntor escolhido < 40 A → aviso "precisa de um disjuntor de 40 A".
 - Circuito marcado inteligente → sugerir **TONGOU-SY2-JWT** se amperes ≤ 63 (com proteções); **SY1** como opção mais barata; cargas de ≥ 2 000 W marcadas como **carga perigosa** (relevante para a instalação e as automações).
@@ -98,19 +107,23 @@ Todos os avisos terminam em "(orientativo — confirmamos na visita)" e nunca bl
 ## 5. Preço
 - Linhas: artigo × quantidade × `preco_venda_iva`; mão de obra = Σ(`horas_instalacao` × qtd) × `tarifa_hora_iva` + `deslocacao_iva`.
 - Intervalo: total × (1 − margem) … total × (1 + margem), arredondado a 5 €.
-- Plano mensal sugerido: com sensores/alarme → Conforto; com central Raspberry Pi → Premium; senão Base (mostrar os 3, destacar o sugerido).
+- Plano mensal sugerido: com sensores/alarme, ou com o objetivo "controlar à distância" (§1.1) → Conforto; com central Raspberry Pi → Premium; senão Base (mostrar os 3, destacar o sugerido).
 - Texto fixo: "Estimativa. O valor final é confirmado na visita técnica gratuita." Preços com IVA.
 
 ## 6. Envio — `POST /api/orcamento`
 Campos atuais (`nome`, `telefone`, `email`, `localidade`, `servico`, `mensagem`, `website`) + `codigo_cliente?` + `simulacao` (≤ 1 MB):
 ```json
-{"versao": 1, "casa": {"tipo": "moradia", "divisoes": 7, "localidade": "Oeiras", "potencia_contratada_kva": 6.9, "fases": "mono"},
+{"versao": 1, "casa": {"tipo": "moradia", "divisoes": 7, "localidade": "Oeiras", "potencia_contratada_kva": 6.9, "fases": "mono",
+          "tipologia": "T2", "quartos": 2, "casas_banho": 1, "salas": 1, "pisos": 1,
+          "extras": {"jardim": true, "garagem": false, "varanda": false, "kitnet": false}},
+ "quer": {"maquinas": ["placa", "forno", "maquina_lavar", "ar_condicionado"], "objetivos": ["alarme", "estores"]},
  "planta": {"escala_cm": 50, "largura_cm": 2000, "altura_cm": 1500, "fundo": {"imagem": "data:image/jpeg;base64,...", "x_cm": 0, "y_cm": 0, "largura_cm": 2000, "opacidade": 0.5}, "divisoes": [...], "elementos": [...]},
  "quadro": {"circuitos": [...]}, "divisoes": [...],
  "itens": [{"sku": "TONGOU-SY2-JWT", "qtd": 4, "preco_iva": 54.9}], "mao_obra": {"horas": 7.5, "valor_iva": 262.5},
  "total": {"min": 690, "max": 930}, "plano_sugerido": "conforto", "avisos": ["..."]}
 ```
 `casa`: tudo opcional (`null` = não indicado; na área de cliente o passo 1 é saltado): `tipo` ∈ moradia, apartamento, alojamento_local, outro; `divisoes` inteiro 1–100; `localidade` ≤ 80; `potencia_contratada_kva` ∈ 3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7 (`null` = "Não sei"); `fases` ∈ `"mono"`, `"tri"` (`null` = "Não sei"). O painel valida estes campos (`painel/src/validar.js`) e mostra-os no resumo.
+Campos do passo 1 (todos `null` quando não há tipologia, ex.: área de cliente com o passo 1 saltado): `tipologia` ∈ T0, T1, T2, T3, T4, T5+; `quartos` inteiro (0 no T0; T5+: 5–12); `casas_banho` 1–6; `salas` 1–4 (`null` no T0); `pisos` 1–4; `extras` `{jardim, garagem, varanda, kitnet}` (booleanos); com tipologia, `divisoes` = total das divisões geradas (§1.1). `quer` (passo 2): `maquinas` ⊂ placa, forno, maquina_lavar, maquina_loica, maquina_secar, termoacumulador, ar_condicionado, carregador_ve, bomba; `objetivos` ⊂ poupar, alarme, estores, luzes, distancia, clima (listas sem repetidos, pela ordem do simulador). O painel não valida estes campos um a um (a simulação é genérica: ≤ 1 MB, ≤ 32 níveis) e mostra-os no resumo ("Tipologia", "Máquinas grandes", "Objetivos").
 Cada entrada de `divisoes` (nível de topo): `{"nome": "Sala", "interruptores": [2, 1], "estores": 1, "estores_sem_motor": 0, "sensores_porta": 1, "sensores_movimento": 1, "luzes_regulaveis": 2, "tomadas_inteligentes": 0}` — `interruptores` é a lista de botões de cada interruptor (1–4).
 
 O painel mostra a simulação no pedido de orçamento: resumo (casa, potência contratada e ligação), tabela, avisos e a planta (visualizador só leitura), com "Converter em cliente e obra" a pré-preencher os aparelhos (`domus.sh aparelho …`) e o material da obra. Os nomes escritos pelo cliente (divisões, circuitos) chegam aos pedidos sem aspas, `\`, `<` nem `>`.
