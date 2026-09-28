@@ -119,7 +119,25 @@ export function simulacao(v) {
   if (Buffer.byteLength(json) > MAX_SIMULACAO) throw new ErroApi(413, 'A simulação é demasiado grande (máx. 1 MB).');
   casaSimulacao(v.casa);
   limitesPlanta(v.planta);
+  fotosSimulacao(v.fotos);
   return json;
+}
+
+/**
+ * Metadados das fotos (as fotos vêm depois, em POST /api/orcamento/fotos): lista até 40 de
+ * {chave, tipo, divisao, divisao_nome, piso, legenda}; textos curtos. O painel usa-os na galeria.
+ */
+function fotosSimulacao(f) {
+  if (f === undefined || f === null) return;
+  if (!Array.isArray(f)) falha('As fotos da simulação têm de ser uma lista.');
+  if (f.length > 40) falha('No máximo 40 fotos por pedido.');
+  for (const m of f) {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) falha('Fotos: cada foto tem de ser um objeto.');
+    if (typeof m.chave !== 'string' || !/^(?:quadro|[A-Za-z0-9_-]{1,64}:[a-z0-9_]{1,32})$/.test(m.chave)) falha('Fotos: chave inválida.');
+    for (const k of ['tipo', 'divisao', 'divisao_nome', 'legenda']) {
+      if (m[k] !== undefined && m[k] !== null && (typeof m[k] !== 'string' || m[k].length > 120)) falha(`Fotos: ${k} até 120 caracteres.`);
+    }
+  }
 }
 
 /**

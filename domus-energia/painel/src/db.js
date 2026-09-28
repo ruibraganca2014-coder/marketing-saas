@@ -160,6 +160,27 @@ export const MIGRACOES = [
     INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
       ('deslocacao_base', 'Lisboa'), ('deslocacao_km_gratis', 20), ('deslocacao_preco_km_iva', 0.4), ('deslocacao_max_km', 100);
   `),
+  // 5 — fotos do simulador (POST /api/orcamento/fotos) e leitura automática da foto do quadro.
+  // Só acrescenta tabelas e uma coluna: os pedidos que já existem ficam iguais (sem fotos).
+  (db) => db.exec(`
+    CREATE TABLE fotos_tokens (
+      hash TEXT PRIMARY KEY,                    -- SHA-256 do token (o token só vai para o browser)
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      expira INTEGER NOT NULL                   -- ms desde 1970
+    );
+    CREATE INDEX fotos_tokens_expira ON fotos_tokens(expira);
+    CREATE TABLE fotos (
+      id TEXT PRIMARY KEY,                      -- 24 hex aleatórios (também o nome do ficheiro)
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      chave TEXT NOT NULL,                      -- "quadro" ou "<id da divisão>:<tipo>"
+      tipo_mime TEXT NOT NULL CHECK (tipo_mime IN ('image/jpeg', 'image/png')),
+      bytes INTEGER NOT NULL,
+      legenda TEXT,
+      criado TEXT NOT NULL,
+      UNIQUE (orcamento_id, chave)
+    );
+    ALTER TABLE orcamentos ADD COLUMN leitura_quadro TEXT;   -- JSON da leitura automática (ou do erro)
+  `),
 ];
 
 /** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */

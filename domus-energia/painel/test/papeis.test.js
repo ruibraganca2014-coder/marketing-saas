@@ -27,6 +27,8 @@ const MATRIZ = [
   ['GET', 'orcamentos/999', [C, M]],
   ['POST', 'orcamentos/999', [C, M], {}],
   ['POST', 'orcamentos/999/converter', [C, M], {}],
+  ['GET', 'orcamentos/999/fotos/0123456789abcdef01234567', [C, M]],
+  ['POST', 'orcamentos/999/fotos/0123456789abcdef01234567/apagar', [C, M], {}],
   ['GET', 'obras', TODOS],
   ['GET', 'obras/999', TODOS],
   ['POST', 'obras', [C], {}],
@@ -57,7 +59,7 @@ before(async () => {
 after(() => p.fechar());
 
 const padrao = (caminho) => caminho.replace(/^clientes\/joao/, 'clientes/:c').replace(/aparelhos\/sala/, 'aparelhos/:a')
-  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id');
+  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto');
 
 test('a matriz cobre exatamente as rotas do servidor', () => {
   const doServidor = ROTAS.map((r) => `${r.metodo} ${r.caminho}`).sort();

@@ -1,10 +1,11 @@
 // Pedidos de orçamento: quadro por estado (computador) ou lista (telemóvel); ficha com notas, data da
 // visita, valor da proposta, motivo de perda, histórico e "Converter em cliente e obra" (orçamento aceite).
 // Com simulação: "Relatório técnico" (#/orcamentos/<id>/relatorio), vista para imprimir / guardar PDF.
+// Fotos do cliente (simulador): galeria na ficha (CEO/comercial podem apagar) e no relatório.
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -79,7 +80,8 @@ export default function orcamentos(el, ctx) {
         comEstado ? selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`) : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
-        simulacaoDe(o) || campo(o, "tem_simulacao") === true ? selo("Com simulação", "info") : null),
+        simulacaoDe(o) || campo(o, "tem_simulacao") === true ? selo("Com simulação", "info") : null,
+        numero(campo(o, "n_fotos")) > 0 ? selo(`${campo(o, "n_fotos")} ${campo(o, "n_fotos") === 1 ? "foto" : "fotos"}`, "info") : null),
       h("span", { class: "linha-extra ajuda", text: `Recebido ${data(campo(o, "criado", "criado_em"))}` })));
   }
 
@@ -132,6 +134,13 @@ export default function orcamentos(el, ctx) {
     const sim = simulacaoDe(o);
     if (sim) partes.push(vistaSimulacao(sim, catalogoDe(o)));
     else if (campo(o, "tem_simulacao") === true) partes.push(h("section", { class: "simulacao", id: "simulacao-cliente", dataset: { carregando: "" } }, h("h3", { text: "Simulação do cliente" }), carregando()));
+    const fotos = lista(campo(o, "fotos") ?? [], "fotos");
+    if (fotos.length) {
+      partes.push(h("section", { class: "fotos-pedido", id: "fotos-pedido" },
+        h("h3", { text: `Fotos do cliente (${fotos.length})` }),
+        h("p", { class: "ajuda", text: "Tiradas pelo cliente no simulador. Toque numa foto para a ver inteira." }),
+        galeriaFotos(id, fotos, { aoApagar: (f, b) => apagarFoto(j, id, f, b) })));
+    }
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
@@ -189,6 +198,19 @@ export default function orcamentos(el, ctx) {
     if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
       h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x) }), campo(x, "por", "utilizador", "email") ? h("span", { class: "ajuda", text: ` · ${txt(x, "por", "utilizador", "email")}` }) : null))));
     j.corpo.replaceChildren(...partes);
+  }
+
+  async function apagarFoto(j, id, f, b) {
+    try {
+      const r = await pedir(`orcamentos/${encodeURIComponent(id)}/fotos/${encodeURIComponent(f.id)}/apagar`, { corpo: {} });
+      const novo = campo(r, "orcamento") ?? r;
+      substituir(novo);
+      avisar("Foto apagada.");
+      if (ficha?.j === j) desenharFicha(j, novo);
+    } catch (erro) {
+      b.disabled = false; b.textContent = "Apagar";
+      avisar(erro.message, "erro");
+    }
   }
 
   function formConverter(j, o) {
@@ -283,7 +305,7 @@ export default function orcamentos(el, ctx) {
       corpo.replaceChildren(relatorioTecnico({
         id: campo(o, "id"), nome: campo(o, "nome"), telefone: campo(o, "telefone"), email: campo(o, "email"),
         localidade: campo(o, "localidade"), criado: campo(o, "criado", "criado_em"), data_visita: campo(o, "data_visita"),
-      }, sim, catalogoDe(o)));
+      }, sim, catalogoDe(o), { fotos: lista(campo(o, "fotos") ?? [], "fotos"), leitura: campo(o, "leitura_quadro") }));
       // O título dá o nome ao PDF guardado pelo browser.
       document.title = `Relatório técnico — ${txt(o, "nome")} (pedido ${campo(o, "id")})`;
       imprimir.disabled = false;

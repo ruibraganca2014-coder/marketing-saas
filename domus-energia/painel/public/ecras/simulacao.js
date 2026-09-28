@@ -558,7 +558,7 @@ const ehCarregador = (m) => typeof m === "string" && m.startsWith("carregador_ve
  * dos dados calculados (docs/SIMULADOR-ORCAMENTO.md §4, §4.1, §5.1, §6). [{tema, texto}], pela ordem da visita.
  * Simulações antigas (sem os campos novos) continuam a funcionar: o que não vem não se inventa.
  */
-export function aVerificarNaVisita(sim, catalogo = {}) {
+export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   if (!sim || typeof sim !== "object") return [];
   const s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), m = obj(q.modulos);
   const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
@@ -647,9 +647,130 @@ export function aVerificarNaVisita(sim, catalogo = {}) {
     if (semCat.length) por("Material", `${semCat.join(", ")} já não ${semCat.length === 1 ? "está" : "estão"} no catálogo: confirmar o material.`);
   }
 
+  // Leitura automática da foto do quadro (modelo de visão; só uma pista — confirmar tudo na visita).
+  for (const texto of verificarLeitura(leitura, numero(m.novos))) por("Foto do quadro", texto);
+
   // Avisos elétricos da simulação (os que o cliente viu), sem o "(orientativo — confirmamos na visita)".
   for (const a of arr(s.avisos).filter((x) => typeof x === "string" && x.trim()).slice(0, 50)) por("Aviso da simulação", semNota(a));
   return out;
+}
+
+// ---------------------------------------------------------------- fotos e leitura automática do quadro
+
+const ESTADOS_QUADRO_FOTO = { bom: "bom", razoavel: "razoável", antigo: "antigo", mau: "mau", nao_se_ve: "não se vê" };
+const CONFIANCA = { alta: "alta", media: "média", baixa: "baixa" };
+
+/** O que a leitura automática da foto do quadro manda confirmar na visita (textos). */
+function verificarLeitura(leitura, novos = null) {
+  const l = obj(leitura);
+  if (l.estado === "erro") return ["A leitura automática da foto do quadro falhou: ver a foto antes da visita."];
+  if (l.estado === "desligada") return ["Ver a foto do quadro enviada pelo cliente (leitura automática desligada)."];
+  if (l.estado !== "feita" || !l.leitura || typeof l.leitura !== "object") return [];
+  const x = obj(l.leitura);
+  if (x.e_quadro_eletrico === false) return ["A foto enviada não parece ser do quadro elétrico (leitura automática): pedir outra ao cliente ou ver na visita."];
+  const out = [];
+  const pre = "Leitura automática";
+  if (x.estado_aparente === "antigo" || x.estado_aparente === "mau") out.push(`${pre}: quadro com ar ${ESTADOS_QUADRO_FOTO[x.estado_aparente]} — confirmar o estado (isolamento, barramentos, terra) e se é para substituir.`);
+  if (x.fusiveis === true) out.push(`${pre}: tem FUSÍVEIS em vez de disjuntores — confirmar e prever a substituição.`);
+  if (x.sinais_aquecimento === true) out.push(`${pre}: possíveis SINAIS DE AQUECIMENTO (queimado/derretido) — verificar ligações e cabos com cuidado.`);
+  if (Array.isArray(x.diferenciais) && !x.diferenciais.length) out.push(`${pre}: não se vê nenhum diferencial — confirmar a proteção diferencial (obrigatória).`);
+  const livres = numero(x.modulos_livres_estimados);
+  if (livres !== null && novos !== null && livres < novos) out.push(`${pre}: ~${num(livres)} módulos livres para ${num(novos)} módulos novos — confirmar o espaço (ampliação ou quadro novo).`);
+  if (x.confianca === "baixa") out.push(`${pre} com confiança BAIXA (foto pouco nítida?): não confiar nos números.`);
+  const g = obj(x.disjuntor_geral);
+  const resumo = [
+    numero(x.disjuntores_total) !== null ? plural(numero(x.disjuntores_total), "disjuntor", "disjuntores") : null,
+    Array.isArray(x.diferenciais) ? plural(x.diferenciais.reduce((t, d) => t + n0(obj(d).quantidade), 0), "diferencial", "diferenciais") : null,
+    g.visivel ? `geral${numero(g.amperes) !== null ? ` ${num(numero(g.amperes))} A` : ""}` : "geral não visível",
+  ].filter(Boolean).join(", ");
+  out.push(`Confirmar a leitura automática da foto do quadro (${resumo}).`);
+  return out;
+}
+
+const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
+/** Endereço da foto no painel (reconstruído a partir dos ids, nunca copiado da resposta). */
+export const urlFoto = (orcamentoId, fotoId) => `/painel/api/orcamentos/${encodeURIComponent(String(orcamentoId))}/fotos/${encodeURIComponent(String(fotoId))}`;
+
+/** Uma miniatura (abre a foto inteira noutro separador). `extra`: nó a juntar à legenda (ex. botão Apagar). */
+function figuraFoto(orcamentoId, f, titulo, extra = null) {
+  const url = urlFoto(orcamentoId, f.id);
+  const legenda = typeof f.legenda === "string" && f.legenda.trim() ? f.legenda.trim() : null;
+  return h("figure", { class: "foto-cliente", dataset: { chave: String(f.chave ?? "") } },
+    h("a", { href: url, target: "_blank", rel: "noopener", title: "Abrir a foto inteira" },
+      h("img", { src: url, alt: [titulo, legenda].filter(Boolean).join(" — "), loading: "lazy", decoding: "async" })),
+    h("figcaption", {}, h("strong", { text: titulo }), legenda ? h("span", { class: "ajuda bloco-ajuda", text: legenda }) : null, extra));
+}
+
+/**
+ * Galeria das fotos do pedido: "Quadro elétrico" primeiro e depois por piso e divisão (tipo na legenda).
+ * `aoApagar(foto, botao)`: mostra "Apagar" (ficha do pedido); no relatório não.
+ */
+export function galeriaFotos(orcamentoId, fotos, { aoApagar } = {}) {
+  const lista = arr(fotos).filter((f) => f && typeof f === "object" && typeof f.id === "string");
+  const botao = (f) => (aoApagar ? botaoApagarFoto(f, aoApagar) : null);
+  const quadro = lista.filter((f) => f.chave === "quadro");
+  const outras = lista.filter((f) => f.chave !== "quadro");
+  const grupos = new Map();
+  for (const f of outras) {
+    const piso = Number.isInteger(f.piso) ? f.piso : null;
+    const div = String(f.divisao_nome ?? f.divisao ?? "Sem divisão");
+    const k = `${piso ?? ""}|${div}`;
+    if (!grupos.has(k)) grupos.set(k, { piso, div, fotos: [] });
+    grupos.get(k).fotos.push(f);
+  }
+  const variosPisos = new Set([...grupos.values()].map((g) => g.piso ?? 0)).size > 1;
+  const ordenados = [...grupos.values()].sort((a, b) => (a.piso ?? 0) - (b.piso ?? 0) || a.div.localeCompare(b.div, "pt"));
+  return h("div", { class: "galeria-fotos" },
+    quadro.length ? h("div", { class: "fotos-grupo" }, h("h4", { text: "Quadro elétrico" }),
+      h("div", { class: "fotos-grelha" }, ...quadro.map((f) => figuraFoto(orcamentoId, f, "Quadro elétrico", botao(f))))) : null,
+    ...ordenados.map((g) => h("div", { class: "fotos-grupo" },
+      h("h4", { text: `${g.div}${variosPisos || (g.piso ?? 0) > 0 ? ` · ${nomePiso(g.piso ?? 0)}` : ""}` }),
+      h("div", { class: "fotos-grelha" }, ...g.fotos.map((f) => figuraFoto(orcamentoId, f, nomeTipoFoto(f.tipo), botao(f)))))));
+}
+
+/** "Apagar" em dois toques (como o botaoConfirmar do painel). */
+function botaoApagarFoto(f, aoApagar) {
+  const b = h("button", { class: "btn sec pequeno foto-apagar nao-imprimir", type: "button", text: "Apagar" });
+  let armado = false, t;
+  b.addEventListener("click", async () => {
+    if (!armado) {
+      armado = true; b.textContent = "Apagar esta foto?"; b.classList.add("armado");
+      t = setTimeout(() => { armado = false; b.textContent = "Apagar"; b.classList.remove("armado"); }, 5000);
+      return;
+    }
+    clearTimeout(t); armado = false; b.disabled = true;
+    await aoApagar(f, b);
+  });
+  return b;
+}
+
+/** Estado da leitura automática da foto do quadro e, se feita, o que se leu (relatório técnico). */
+export function blocoLeituraQuadro(leitura, orcamentoId = null, fotoQuadro = null) {
+  const l = obj(leitura);
+  const aviso = (texto) => h("p", { class: "ajuda leitura-estado", text: texto });
+  const foto = fotoQuadro && orcamentoId != null ? figuraFoto(orcamentoId, fotoQuadro, "Foto do quadro") : null;
+  const com = (...filhos) => h("div", { class: "leitura-quadro" }, foto, h("div", {}, ...filhos));
+  if (l.estado === "desligada") return com(aviso("Leitura automática desligada (o servidor não tem a chave ANTHROPIC_API_KEY). Ver a foto do quadro."));
+  if (l.estado === "pendente") return com(aviso("A ler a foto do quadro… Atualize a página dentro de alguns segundos."));
+  if (l.estado === "erro") return com(aviso(`A leitura automática falhou${l.erro ? ` (${String(l.erro)})` : ""}. Ver a foto do quadro.`));
+  if (l.estado !== "feita") return foto ? com() : null;
+  const x = obj(l.leitura);
+  const grupos = (lista, fmt) => (arr(lista).length ? arr(lista).map((d) => `${num(n0(obj(d).quantidade))} × ${fmt(obj(d))}`).join(", ") : "nenhum visível");
+  const ou = (v, suf) => (numero(v) !== null ? `${num(numero(v))}${suf}` : "?");
+  const g = obj(x.disjuntor_geral);
+  const lin = x.e_quadro_eletrico === false
+    ? [["Foto", "Não parece ser um quadro elétrico."], ["Notas", String(x.notas || "—")]]
+    : [
+      ["Disjuntores", `${numero(x.disjuntores_total) !== null ? num(numero(x.disjuntores_total)) : "?"}${arr(x.disjuntores).length ? ` (${grupos(x.disjuntores, (d) => ou(d.amperes, " A"))})` : ""}`],
+      ["Diferenciais", grupos(x.diferenciais, (d) => `${ou(d.sensibilidade_ma, " mA")} / ${ou(d.amperes, " A")}`)],
+      ["Geral", g.visivel ? [typeof g.tipo === "string" ? g.tipo : null, numero(g.amperes) !== null ? `${num(numero(g.amperes))} A` : null].filter(Boolean).join(", ") || "visível" : "não visível"],
+      ["Módulos livres (estimativa)", numero(x.modulos_livres_estimados) !== null ? num(numero(x.modulos_livres_estimados)) : "?"],
+      ["Marcas", arr(x.marcas).filter((m) => typeof m === "string").join(", ") || "—"],
+      ["Estado aparente", [ESTADOS_QUADRO_FOTO[x.estado_aparente] ?? "—", x.fusiveis === true ? "com fusíveis" : null, x.sinais_aquecimento === true ? "sinais de aquecimento" : null].filter(Boolean).join(" · ")],
+      ["Notas", String(x.notas || "—")],
+    ];
+  lin.push(["Confiança", `${CONFIANCA[x.confianca] ?? "—"}${l.modelo ? ` · ${String(l.modelo)}` : ""}${l.quando ? `, ${data(l.quando)}` : ""}`]);
+  return com(dados(lin), l.foto_apagada ? aviso("A foto do quadro foi apagada depois desta leitura.") : null);
 }
 
 /** "3 luzes (1 regulável) · 2 interruptores (1 + 2 bot.) · …" dos elementos da planta de uma divisão. */
@@ -758,7 +879,7 @@ function plantaRelatorio(planta) {
  * "A VERIFICAR NA VISITA" e tudo o que a simulação calculou (o cliente só viu o preço e o plano).
  * `pedido`: {id, nome, telefone, email, localidade, criado, data_visita}.
  */
-export function relatorioTecnico(pedido, sim, catalogo = {}) {
+export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitura = null } = {}) {
   const o = obj(pedido), s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), mo = obj(s.mao_obra);
   const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
   const temPlanta = !!planta && !!(planta.divisoes.length || planta.elementos.length || planta.fundo);
@@ -768,7 +889,9 @@ export function relatorioTecnico(pedido, sim, catalogo = {}) {
   const t = (v) => (v == null || v === "" ? "—" : String(v));
   const seccao = (titulo, ...filhos) => h("section", { class: "rel-seccao" }, h("h3", { text: titulo }), ...filhos);
 
-  const verificar = aVerificarNaVisita(s, catalogo);
+  const verificar = aVerificarNaVisita(s, catalogo, leitura);
+  const listaFotos = arr(fotos).filter((f) => f && typeof f === "object" && typeof f.id === "string");
+  const fotoQuadro = listaFotos.find((f) => f.chave === "quadro") ?? null;
   const blocoVerificar = h("section", { class: "rel-verificar", id: "rel-verificar", "aria-labelledby": "rel-verificar-titulo" },
     h("h3", { id: "rel-verificar-titulo", text: `A VERIFICAR NA VISITA (${verificar.length})` }),
     verificar.length
@@ -817,6 +940,11 @@ export function relatorioTecnico(pedido, sim, catalogo = {}) {
   if (blocoQ) quadro.push(blocoQ);
   if (typeof q.disjuntor === "string") quadro.push(h("p", { class: "ajuda", text: `Disjuntor inteligente escolhido: ${q.disjuntor}.` }));
   if (quadro.length) partes.push(seccao("Quadro elétrico: circuitos, proteções e módulos", ...quadro));
+  const estadoLeitura = obj(leitura).estado;
+  const blocoLeitura = fotoQuadro || estadoLeitura === "feita" || estadoLeitura === "erro" ? blocoLeituraQuadro(leitura, o.id, fotoQuadro) : null;
+  if (blocoLeitura) partes.push(h("section", { class: "rel-seccao", id: "rel-leitura-quadro" }, h("h3", { text: "Leitura automática da foto do quadro (confirmar na visita)" }), blocoLeitura));
+  const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
+  if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
     partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true }),
       dados([["Estimativa dada ao cliente (c/ IVA)", estimativa], ["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])));

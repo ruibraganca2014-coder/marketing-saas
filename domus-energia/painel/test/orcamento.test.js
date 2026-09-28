@@ -15,10 +15,13 @@ const BASE = { nome: 'Ana Silva', telefone: '912 345 678', servico: 'Casa inteli
 const enviar = (corpo, opcoes = {}) => p.pedir('POST', '/api/orcamento', { corpo, ...opcoes });
 const contar = () => p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n;
 
-test('pedido válido → 201 {ok:true}, estado "novo", visível ao comercial', async () => {
+test('pedido válido → 201 {ok:true, fotos_token, fotos_max}, estado "novo", visível ao comercial', async () => {
   const r = await enviar({ ...BASE, email: 'ana@exemplo.pt', website: '' });
   assert.equal(r.estado, 201);
-  assert.deepEqual(r.json, { ok: true });
+  assert.deepEqual(Object.keys(r.json).sort(), ['fotos_max', 'fotos_token', 'ok']);
+  assert.equal(r.json.ok, true);
+  assert.equal(r.json.fotos_max, 40);
+  assert.match(r.json.fotos_token, /^[A-Za-z0-9_-]{43}$/);
   const lista = (await p.pedir('GET', '/painel/api/orcamentos', { cookie: p.cookies.comercial })).json.orcamentos;
   const o = lista.find((x) => x.nome === 'Ana Silva');
   assert.equal(o.estado, 'novo');
@@ -37,7 +40,8 @@ test('armadilha "website" preenchida → 201 mas descartado', async () => {
   const antes = contar();
   const r = await enviar({ ...BASE, website: 'http://spam.exemplo' });
   assert.equal(r.estado, 201);
-  assert.deepEqual(r.json, { ok: true });
+  assert.deepEqual(Object.keys(r.json).sort(), ['fotos_max', 'fotos_token', 'ok'], 'a mesma resposta de um pedido verdadeiro');
+  assert.match(r.json.fotos_token, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(contar(), antes);
 });
 

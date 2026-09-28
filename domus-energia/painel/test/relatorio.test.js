@@ -75,3 +75,27 @@ test('simulação antiga (sem perguntas do quadro nem deslocação) e sem planta
   assert.match(texto(l, 'Material'), /^JA-NAO-EXISTE já não está no catálogo/);
   assert.deepEqual(aVerificarNaVisita(null), [], 'sem simulação: nada');
 });
+
+test('leitura automática da foto do quadro alimenta "A verificar na visita" (feita, erro, desligada, não é quadro)', () => {
+  const sim = { quadro: { circuitos: [], pacote: 'recomendado', para_raios: 'nao', quadro_novo: 'atual', modulos: { novos: 6 } } };
+  const leitura = (x) => ({ estado: 'feita', leitura: {
+    e_quadro_eletrico: true, disjuntores_total: 5, disjuntores: [{ amperes: 16, quantidade: 5 }], diferenciais: [],
+    disjuntor_geral: { visivel: true, amperes: 25, tipo: null }, modulos_livres_estimados: 2, marcas: [], estado_aparente: 'antigo',
+    fusiveis: true, sinais_aquecimento: true, notas: '', confianca: 'baixa', ...x,
+  } });
+  const l = aVerificarNaVisita(sim, {}, leitura({}));
+  const t = texto(l, 'Foto do quadro');
+  assert.match(t, /ar antigo/);
+  assert.match(t, /FUSÍVEIS/);
+  assert.match(t, /SINAIS DE AQUECIMENTO/);
+  assert.match(t, /nenhum diferencial/);
+  assert.match(t, /~2 módulos livres para 6 módulos novos/);
+  assert.match(t, /confiança BAIXA/);
+  assert.match(t, /Confirmar a leitura automática da foto do quadro \(5 disjuntores, 0 diferenciais, geral 25 A\)/);
+  const bom = aVerificarNaVisita(sim, {}, leitura({ estado_aparente: 'bom', fusiveis: false, sinais_aquecimento: false, diferenciais: [{ sensibilidade_ma: 30, amperes: 40, quantidade: 2 }], modulos_livres_estimados: 8, confianca: 'alta' }));
+  assert.deepEqual(bom.filter((x) => x.tema === 'Foto do quadro').map((x) => x.texto), ['Confirmar a leitura automática da foto do quadro (5 disjuntores, 2 diferenciais, geral 25 A).']);
+  assert.match(texto(aVerificarNaVisita(sim, {}, leitura({ e_quadro_eletrico: false })), 'Foto do quadro'), /não parece ser do quadro/);
+  assert.match(texto(aVerificarNaVisita(sim, {}, { estado: 'erro', erro: 'x' }), 'Foto do quadro'), /falhou/);
+  assert.match(texto(aVerificarNaVisita(sim, {}, { estado: 'desligada' }), 'Foto do quadro'), /leitura automática desligada/);
+  for (const sem of [null, { estado: 'sem_foto' }, { estado: 'pendente' }]) assert.ok(!temas(aVerificarNaVisita(sim, {}, sem)).includes('Foto do quadro'), 'sem leitura: nada');
+});

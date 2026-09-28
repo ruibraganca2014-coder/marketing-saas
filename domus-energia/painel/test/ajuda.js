@@ -26,10 +26,10 @@ export const SENHA = 'senha-de-teste-1';
 export const DO_SITE = { Origin: ORIGEM, 'Sec-Fetch-Site': 'same-origin' };
 
 /**
- * Painel de teste. `env` acrescenta/substitui variáveis de ambiente.
- * Devolve {url, app, dados, relogio, pedir, entrar, criarUtilizador, fechar}.
+ * Painel de teste. `env` acrescenta/substitui variáveis de ambiente; `fetch` simula a API da
+ * Anthropic (leitura da foto do quadro). Devolve {url, app, dados, relogio, pedir, entrar, criarUtilizador, fechar}.
  */
-export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir } = {}) {
+export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'domus-painel-'));
   const dados = dadosDir ?? join(dir, 'dados');
   for (const p of ['painel', 'planos', 'pagamentos', 'clientes', 'pedidos-admin']) await mkdir(join(dados, p), { recursive: true });
@@ -42,13 +42,13 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir } 
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };
-  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt });
+  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, ...(fetch ? { fetch } : {}) });
   await new Promise((r) => app.servidor.listen(0, '127.0.0.1', r));
   const porta = app.servidor.address().port;
   let ipSeq = 0;
 
   /**
-   * Pedido HTTP. opções: corpo (objeto → JSON; string → tal e qual), cookie,
+   * Pedido HTTP. opções: corpo (objeto → JSON; string ou Buffer → tal e qual), cookie,
    * cabecalhos, ip (X-Forwarded-For; por omissão um IP novo por pedido para
    * não tocar nos limites), tipo (Content-Type).
    */
@@ -59,7 +59,7 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir } 
       h['X-Forwarded-For'] = ip ?? `10.0.${Math.floor(++ipSeq / 250)}.${(ipSeq % 250) + 1}`;
       let dadosCorpo = null;
       if (corpo !== undefined) {
-        dadosCorpo = Buffer.from(typeof corpo === 'string' ? corpo : JSON.stringify(corpo));
+        dadosCorpo = Buffer.isBuffer(corpo) ? corpo : Buffer.from(typeof corpo === 'string' ? corpo : JSON.stringify(corpo));
         h['Content-Type'] = tipo ?? 'application/json';
         h['Content-Length'] = dadosCorpo.length;
       } else if (tipo) {
@@ -69,10 +69,11 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir } 
         const partes = [];
         res.on('data', (p) => partes.push(p));
         res.on('end', () => {
-          const texto = Buffer.concat(partes).toString('utf8');
+          const bruto = Buffer.concat(partes);
+          const texto = bruto.toString('utf8');
           let json = null;
           try { json = texto ? JSON.parse(texto) : null; } catch { /* não é JSON */ }
-          resolve({ estado: res.statusCode, cabecalhos: res.headers, texto, json });
+          resolve({ estado: res.statusCode, cabecalhos: res.headers, texto, json, bruto });
         });
       });
       req.on('error', reject);

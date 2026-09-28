@@ -496,7 +496,10 @@ PAINEL_MQTT_PASS=...            # openssl rand -hex 16
 # PAINEL_CEO_EMAIL=ceo@exemplo.pt
 # PAINEL_CEO_PASS=...           # mín. 10 caracteres; APAGUE as duas linhas depois
 # PAINEL_ORIGENS=https://www.domusenergia.pt   # só se o site também abrir noutro endereço
+# ANTHROPIC_API_KEY=sk-ant-...  # opcional: leitura automática da foto do quadro (ver abaixo)
 ```
+
+**Fotos do simulador e leitura automática do quadro.** As fotos que o cliente tira no simulador chegam por `POST https://HOST/api/orcamento/fotos` (o Caddy encaminha-o para o painel) e ficam em `dados/painel/fotos/<pedido>/` — fora da pasta pública, servidas só a CEO/comercial com sessão. Com **`ANTHROPIC_API_KEY`** no `.env` (chave criada em https://console.anthropic.com → API keys), o painel envia **só a foto do quadro** (sem nome, contactos nem morada) ao modelo Claude Haiku 4.5, em segundo plano, e mostra a leitura (disjuntores, diferenciais, geral, módulos livres, marcas, estado) no Relatório técnico como "confirmar na visita"; custa perto de US$ 0,005 por foto (o custo de cada leitura fica no registo: `docker compose logs painel | grep "leitura do quadro"`). Sem a chave não se chama nada e o relatório diz "leitura automática desligada". Depois de pôr ou mudar a chave: `sudo docker compose up -d painel`. As fotos de pedidos perdidos ou sem seguimento há mais de 12 meses são apagadas sozinhas (ver `painel/README.md`).
 
 ```bash
 sudo ./domus.sh painel-mqtt            # utilizador MQTT "painel" (só leitura); o "admin" da 1.ª vez já o cria
@@ -526,7 +529,7 @@ O resultado vai para `dados/pedidos-admin/<id>.resultado.json` (**modo 600**, co
 
 ### 17.3 Cópias de segurança e manutenção
 
-- Copie `dados/painel/` (base de dados: utilizadores, orçamentos, obras, catálogo, auditoria) com as outras pastas de `dados/` (§12). Para uma cópia consistente com o serviço a correr: `docker compose exec painel node -e "new (require('node:sqlite').DatabaseSync)('/dados/painel/painel.db').exec(\"VACUUM INTO '/dados/painel/copia.db'\")"` e copie `copia.db`.
+- Copie `dados/painel/` (base de dados: utilizadores, orçamentos, obras, catálogo, auditoria; e `fotos/`, as fotos dos pedidos) com as outras pastas de `dados/` (§12). Para uma cópia consistente com o serviço a correr: `docker compose exec painel node -e "new (require('node:sqlite').DatabaseSync)('/dados/painel/painel.db').exec(\"VACUUM INTO '/dados/painel/copia.db'\")"` e copie `copia.db`.
 - `dados/pedidos-admin/feitos/` só tem os pedidos (sem palavras-passe); pode apagar os antigos.
 - Atualizar: `git pull && docker compose up -d --build painel` (as migrações da base de dados correm sozinhas no arranque).
 

@@ -168,6 +168,8 @@ services:
       PAINEL_CEO_PASS: ${PAINEL_CEO_PASS:-}
       CONFIAR_PROXY: "1"                          # IP real do visitante vem do Caddy (X-Forwarded-For)
       DADOS_DIR: /dados
+      # Leitura automática da foto do quadro (modelo de visão Claude). Vazio = desligada.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     expose:
       - "8080"           # só na rede interna (o Caddy faz o HTTPS)
     # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):

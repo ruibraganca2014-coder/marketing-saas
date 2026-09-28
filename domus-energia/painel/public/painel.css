@@ -415,6 +415,18 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .rel-planta-piso figcaption { font-weight: 800; margin: 6px 0; }
 .rel-planta-piso svg { display: block; width: 100%; height: auto; max-height: 240mm; border: 1px solid var(--borda); }
 
+/* ---------- Fotos do cliente (ficha do pedido e relatório) e leitura automática do quadro ---------- */
+.fotos-pedido { margin-top: 14px; }
+.fotos-grupo + .fotos-grupo { margin-top: 10px; }
+.fotos-grupo h4 { margin: 6px 0; }
+.fotos-grelha { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.foto-cliente { margin: 0; min-width: 0; }
+.foto-cliente img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid var(--borda); background: var(--musgo-claro); }
+.foto-cliente figcaption { margin-top: 4px; font-size: .88rem; overflow-wrap: anywhere; display: grid; gap: 4px; justify-items: start; }
+.leitura-quadro { display: grid; gap: 12px; align-items: start; }
+@media (min-width: 640px) { .leitura-quadro { grid-template-columns: minmax(0, 220px) minmax(0, 1fr); } }
+.leitura-estado { margin: 0; }
+
 @media print {
   @page { size: A4; margin: 12mm 11mm; }
   :root:is(*, [data-theme="dark"], :not([data-theme="light"])) {
@@ -445,4 +457,9 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
   .relatorio-tecnico .tabela-cartoes tbody td::before, .relatorio-tecnico .tabela-cartoes tbody th::before { content: none; }
   .relatorio-tecnico .tabela-cartoes td.num { text-align: right; }
   a[href]::after { content: none; }
+  /* Fotos: miniaturas pequenas (4 por linha), sem partir uma foto entre páginas. */
+  .relatorio-tecnico .fotos-grelha { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .relatorio-tecnico .foto-cliente { break-inside: avoid; page-break-inside: avoid; }
+  .relatorio-tecnico .foto-cliente img { max-height: 38mm; border-radius: 4px; }
+  .relatorio-tecnico .leitura-quadro { grid-template-columns: 45mm minmax(0, 1fr); }
 }

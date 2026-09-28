@@ -39,6 +39,7 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 | `GET alertas` | ceo, tecnico | lista viva de todas as casas: alarme disparado, aparelho offline, bateria fraca/`bateria_dias` < 21, sinal < −80, reinícios > 5/24 h, sem notícias; ordenada por gravidade; `?cliente=` |
 | `GET orcamentos` / `POST orcamentos/:id` | ceo, comercial | lista e atualização: estado `novo`/`contactado`/`visita_marcada`/`proposta_enviada`/`aceite`/`perdido`, notas, data da visita, valor da proposta, motivo de perda |
 | `POST orcamentos/:id/converter` | ceo, comercial | cria pedido de cliente + obra a partir do orçamento aceite |
+| `GET orcamentos/:id/fotos/:foto` / `POST orcamentos/:id/fotos/:foto/apagar` | ceo, comercial | fotos do cliente (simulador): ver e apagar (retenção automática: 12 meses sem seguimento; `painel/README.md`) |
 | `GET obras` / `POST obras` / `POST obras/:id` | ceo (tudo), comercial (ler), tecnico (as suas) | obra: cliente, data, técnico(s), kit, estado `agendada`/`em_curso`/`concluida`/`cancelada`, material (lista), horas estimadas (do kit: 3/7/10) e reais, notas |
 | `GET pagamentos` | ceo | linhas do CSV, totais por mês, exportar CSV |
 | `GET utilizadores` / `POST utilizadores` / `POST utilizadores/:id` | ceo | gerir contas do painel (criar, papel, desativar, repor palavra-passe) |

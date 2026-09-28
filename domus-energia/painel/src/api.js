@@ -17,6 +17,7 @@ import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.j
 import { LimiteTaxa } from './limite.js';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
+import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -63,6 +64,8 @@ export const ROTAS = [
   ['GET', 'orcamentos/:id', ['ceo', 'comercial'], 'orcamento'],
   ['POST', 'orcamentos/:id', ['ceo', 'comercial'], 'atualizarOrcamento'],
   ['POST', 'orcamentos/:id/converter', ['ceo', 'comercial'], 'converter'],
+  ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
+  ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
   ['GET', 'obras/:id', TODOS, 'obra'],
   ['POST', 'obras', ['ceo'], 'criarObra'],
@@ -146,6 +149,10 @@ export function criarApi(ctx) {
   if (auth) auth.auditar = auditar;
   if (pedidos) pedidos.auditar = auditar;
 
+  // Fotos do simulador e leitura automática da foto do quadro (fotos.js, leitura-quadro.js).
+  const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
+  const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
+
   // ------------------------------------------------------------ utilidades
   const fichas = () => new Map(db.prepare('SELECT * FROM fichas_cliente').all().map((f) => [f.codigo, f]));
   const pedidoPendente = (tipo, cliente) => db.prepare('SELECT id FROM pedidos_admin WHERE tipo = ? AND cliente = ? AND estado = \'pendente\'').get(tipo, cliente);
@@ -164,10 +171,13 @@ export function criarApi(ctx) {
       estado: o.estado, notas: o.notas, data_visita: o.data_visita, valor_proposta: deCent(o.valor_proposta_cent),
       motivo_perda: o.motivo_perda, cliente: o.cliente, obra_id: o.obra_id, pedido_id: o.pedido_id,
       tem_simulacao: o.simulacao !== null, simulacao_bytes: o.simulacao ? Buffer.byteLength(o.simulacao) : 0,
+      n_fotos: fotos.contar(o.id),
     };
     if (completo) {
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
       r.catalogo = artigosDaSimulacao(r.simulacao);
+      r.fotos = fotos.listar(o, r.simulacao);
+      r.leitura_quadro = fotos.leituraQuadro(o);
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
     }
@@ -546,6 +556,44 @@ export function criarApi(ctx) {
   };
 
   h.orcamento = ({ res, params }) => responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+
+  // Foto de um pedido: só para quem vê o orçamento (rota), com o tipo certo e sem que o browser a
+  // possa interpretar como outra coisa (nosniff, CSP sandbox). Não há listagem de pastas.
+  const obterFoto = (params) => {
+    const o = obterOrcamento(params.id);
+    const f = RE_ID_FOTO.test(params.foto) ? fotos.obter(o.id, params.foto) : null;
+    if (!f) throw new ErroApi(404, 'Foto não encontrada.');
+    return { o, f };
+  };
+
+  h.foto = async ({ res, params }) => {
+    const { f } = obterFoto(params);
+    let corpo;
+    try {
+      corpo = await fotos.ler(f);
+    } catch {
+      throw new ErroApi(404, 'Foto não encontrada.');
+    }
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Content-Type': f.tipo_mime,
+      'Content-Length': corpo.length,
+      'Content-Disposition': `inline; filename="pedido-${f.orcamento_id}-${f.chave.replace(/[^A-Za-z0-9_-]/g, '-')}.${f.tipo_mime === 'image/png' ? 'png' : 'jpg'}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(corpo);
+  };
+
+  h.apagarFoto = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const { o, f } = obterFoto(params);
+    await fotos.apagar(f);
+    auditar(u, 'foto_apagada', `orcamento:${o.id}`, { chave: f.chave }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
 
   function camposContacto(v, obrigatorio) {
     const r = {};
@@ -1022,7 +1070,8 @@ export function criarApi(ctx) {
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
-      return responder(res, 201, { ok: true });
+      // Mesma resposta que um pedido verdadeiro (não denuncia a armadilha); o token não existe na base.
+      return responder(res, 201, { ok: true, fotos_token: fotos.tokenFalso(), fotos_max: FOTOS_MAX });
     }
     const c = camposContacto(v, true);
     if (!c.telefone && !c.email) falha('Indique um telefone ou um email para o podermos contactar.');
@@ -1034,7 +1083,21 @@ export function criarApi(ctx) {
       c.servico, c.mensagem ?? null, codigoCli, sim).lastInsertRowid);
     auditar(null, 'orcamento_recebido', `orcamento:${id}`, { origem: 'site', simulacao: Boolean(sim) }, ip);
     registo.info(`orçamento ${id} recebido`);
-    responder(res, 201, { ok: true });
+    // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
+    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
+  }
+
+  /** POST /api/orcamento/fotos: uma foto (bytes) por pedido; token, chave e legenda nos cabeçalhos. */
+  async function fotoPublica(req, res, ip) {
+    if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
+    const espera = porIpFotos.espera(ip);
+    if (espera) {
+      registo.aviso(`fotos: limite atingido (ip ${ip})`);
+      throw new ErroApi(429, 'Recebemos demasiadas fotos seguidas deste endereço. Tente mais tarde.', { 'Retry-After': String(espera) });
+    }
+    porIpFotos.registar(ip);
+    const f = await fotos.receber(req);
+    responder(res, 201, { ok: true, id: f.id });
   }
 
   function catalogoPublico(req, res) {
@@ -1057,6 +1120,10 @@ export function criarApi(ctx) {
       if (caminho === '/api/orcamento') {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await orcamentoPublico(req, res, ip);
+      }
+      if (caminho === '/api/orcamento/fotos') {
+        if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
+        return await fotoPublica(req, res, ip);
       }
       if (caminho === '/api/catalogo') {
         if (req.method !== 'GET' && req.method !== 'HEAD') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET' });
@@ -1088,6 +1155,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar };
+  return { tratar, auditar, fotos };
 }
 

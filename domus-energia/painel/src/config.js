@@ -26,6 +26,8 @@ export function lerConfig(env = process.env) {
   if (!origensValidas.length) avisos.push('sem DOMUS_HOST/PAINEL_ORIGENS: todos os pedidos que alteram dados serão recusados');
   const mqttSenha = env.PAINEL_MQTT_PASS || env.MQTT_PASS || '';
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
+  const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
+  if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro fica desligada');
   return {
     porta: Number(env.PORTA || 8080),
     db: env.PAINEL_DB || join(dados, 'painel', 'painel.db'),
@@ -51,6 +53,12 @@ export function lerConfig(env = process.env) {
     limiteOrcamentoHora: Number(env.LIMITE_ORCAMENTO_HORA || 5),     // por IP
     limiteOrcamentoGlobal: Number(env.LIMITE_ORCAMENTO_GLOBAL || 200), // todos os IPs, por hora
     pedidosPollMs: Number(env.PEDIDOS_POLL_MS || 3000),
+    // Fotos do simulador (POST /api/orcamento/fotos): fora da pasta pública, uma pasta por pedido.
+    fotosDir: env.FOTOS_DIR || join(dados, 'painel', 'fotos'),
+    limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
+    // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
+    anthropicKey,
+    leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
     resultadoRetencaoMs: 7 * 24 * 3600_000,  // resultados nunca vistos são apagados ao fim de 7 dias
     avisos,
   };

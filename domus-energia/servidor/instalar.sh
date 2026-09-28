@@ -648,6 +648,8 @@ EOF
      sudo ./domus.sh aparelho <cliente> <id> openbeken "<Nome>" ...
   4. App Android: MQTT_HOST = $HOST (android/app/build.gradle.kts).
   5. Cópias de segurança de $SERV/dados, mosquitto/seguranca e .env (README §12).
+  6. Opcional — leitura automática da foto do quadro: pôr ANTHROPIC_API_KEY
+     no .env (console.anthropic.com) e  cd $SERV && sudo docker compose up -d painel
  Atualizar mais tarde:  sudo bash $SERV/instalar.sh --atualizar
  Use sempre sudo no docker compose e no ./domus.sh (o .env e dados/ são do root).
 $linha
