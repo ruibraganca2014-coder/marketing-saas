@@ -26,11 +26,17 @@ export function lerConfig(env = process.env) {
   if (!origensValidas.length) avisos.push('sem DOMUS_HOST/PAINEL_ORIGENS: todos os pedidos que alteram dados serão recusados');
   // Site público servido noutra origem do mesmo domínio (ex.: https://domusenergia.pt → API em https://api.domusenergia.pt):
   // CORS com credenciais só para estas origens, e só nas rotas públicas (/api/orcamento*, /api/catalogo, /api/conta/*).
+  // Só https:// (o cookie da conta vai com credenciais); http:// só para localhost, *.localhost e 127.0.0.1/[::1].
   const siteOrigens = [];
   for (const o of String(env.SITE_ORIGENS || '').split(',').map((x) => x.trim()).filter(Boolean)) {
     try {
       const u = new URL(o);
       if (u.origin !== o.replace(/\/$/, '') || !/^https?:$/.test(u.protocol)) throw new Error();
+      const local = u.hostname === 'localhost' || u.hostname.endsWith('.localhost') || u.hostname === '127.0.0.1' || u.hostname === '[::1]';
+      if (u.protocol === 'http:' && !local) {
+        avisos.push(`SITE_ORIGENS: origem sem https ignorada: ${o} (http:// só para localhost)`);
+        continue;
+      }
       siteOrigens.push(u.origin);
     } catch {
       avisos.push(`SITE_ORIGENS: origem inválida ignorada: ${o}`);

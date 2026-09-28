@@ -181,6 +181,8 @@ services:
       SMTP_UTILIZADOR: ${SMTP_UTILIZADOR:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_REMETENTE: ${EMAIL_REMETENTE:-}
+      SMTP_SEGURANCA: ${SMTP_SEGURANCA:-}           # vazio = pela porta (465 TLS direto, outras STARTTLS)
+      SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
     expose:
       - "8080"           # só na rede interna (o Caddy faz o HTTPS)
     # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):

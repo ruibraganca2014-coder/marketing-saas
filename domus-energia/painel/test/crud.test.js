@@ -114,6 +114,47 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   nova.close();
 });
 
+test('migração 8 (ids nunca reutilizados): base existente mantém dados, índices e chaves; um id apagado não volta', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA foreign_keys = ON');
+  for (const m of MIGRACOES.slice(0, 7)) m(db);
+  db.exec('PRAGMA user_version = 7');
+  const t = '2026-09-01T10:00:00.000Z';
+  db.prepare("INSERT INTO contas (id, email, hash, criado, atualizado) VALUES (1, 'a@exemplo.pt', 'h', ?, ?), (2, 'b@exemplo.pt', 'h', ?, ?)").run(t, t, t, t);
+  db.prepare("INSERT INTO orcamentos (id, criado, atualizado, nome, servico, conta_id) VALUES (1, ?, ?, 'A', 's', 1), (2, ?, ?, 'B', 's', 2), (3, ?, ?, 'C', 's', NULL)").run(t, t, t, t, t, t);
+  db.prepare("INSERT INTO fotos (id, orcamento_id, chave, tipo_mime, bytes, criado) VALUES ('f1', 2, 'quadro', 'image/jpeg', 10, ?)").run(t);
+  db.prepare("INSERT INTO contas_sessoes (id, conta_id, criada, expira, renovada) VALUES ('s1', 2, 1, 2, 1)").run();
+  // Apagados antes desta migração (só ficou o rasto na auditoria): o pedido 4 e a conta 3.
+  db.prepare("INSERT INTO auditoria (quando, acao, alvo) VALUES (?, 'orcamento_recebido', 'orcamento:4'), (?, 'conta_criada', 'conta:3')").run(t, t);
+  migrar(db);
+  assert.equal(versaoEsquema(db), MIGRACOES.length);
+  assert.equal(db.prepare('PRAGMA foreign_keys').get().foreign_keys, 1, 'chaves estrangeiras ligadas de novo');
+  for (const tabela of ['orcamentos', 'contas']) {
+    assert.match(db.prepare("SELECT sql FROM sqlite_master WHERE name = ?").get(tabela).sql, /id INTEGER PRIMARY KEY AUTOINCREMENT/);
+  }
+  assert.deepEqual(db.prepare('SELECT id, nome, conta_id FROM orcamentos ORDER BY id').all().map((x) => ({ ...x })),
+    [{ id: 1, nome: 'A', conta_id: 1 }, { id: 2, nome: 'B', conta_id: 2 }, { id: 3, nome: 'C', conta_id: null }]);
+  const indices = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'orcamentos'").all().map((x) => x.name).sort();
+  assert.deepEqual(indices, ['orcamentos_conta', 'orcamentos_estado']);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, 1, 'o DROP não apagou em cascata');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contas_sessoes').get().n, 1);
+  // Ids novos: nunca um já usado (nem o 4/3 que só ficou na auditoria), mesmo depois de apagar o último.
+  const novoOrc = () => Number(db.prepare("INSERT INTO orcamentos (criado, atualizado, nome, servico) VALUES (?, ?, 'N', 's')").run(t, t).lastInsertRowid);
+  const n5 = novoOrc();
+  assert.equal(n5, 5);
+  db.prepare('DELETE FROM orcamentos WHERE id = ?').run(n5);
+  assert.equal(novoOrc(), 6);
+  assert.equal(Number(db.prepare("INSERT INTO contas (email, hash, criado, atualizado) VALUES ('c@exemplo.pt', 'h', ?, ?)").run(t, t).lastInsertRowid), 4);
+  // As chaves estrangeiras continuam a apontar para as tabelas recriadas.
+  db.prepare('DELETE FROM orcamentos WHERE id = 2').run();
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, 0, 'fotos em cascata');
+  db.prepare('DELETE FROM contas WHERE id = 1').run();
+  assert.equal(db.prepare('SELECT conta_id FROM orcamentos WHERE id = 1').get().conta_id, null, 'ON DELETE SET NULL');
+  db.prepare('DELETE FROM contas WHERE id = 2').run();
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contas_sessoes').get().n, 0, 'sessões em cascata');
+  db.close();
+});
+
 test('orçamentos: atualizar estado, notas, visita, proposta; histórico; validação', async () => {
   const o = await novoOrcamento();
   let r = await api('POST', `orcamentos/${o.id}`, 'comercial', { estado: 'contactado', notas: 'Ligou de manhã.' });

@@ -3,7 +3,8 @@
 // obrigatório (587/25), AUTH PLAIN ou LOGIN, uma mensagem de texto (UTF-8, base64) por ligação.
 // Sem SMTP configurado (e sempre no modo local), o email é escrito no registo do painel:
 //   [email] para x@y: código 123456 …
-// A palavra-passe SMTP nunca é registada (nem nos erros: só o código e o texto da resposta do servidor).
+// A palavra-passe SMTP nunca é registada (nem nos erros: só o código e o texto da resposta do servidor); com SMTP
+// também não se regista o assunto nem o corpo das mensagens.
 
 import net from 'node:net';
 import tls from 'node:tls';
@@ -169,9 +170,10 @@ export function criarCorreio({ config, registo, local = false }) {
       registo.info(`[email] ${assunto}\n${texto}`);
       return Promise.resolve(true);
     }
+    // Com SMTP nunca se regista o assunto nem o corpo (podem levar códigos): só o resultado.
     const p = enviarSmtp(smtp, { de, para, assunto, texto })
-      .then(() => { registo.info(`email enviado (${assunto})`); return true; })
-      .catch((e) => { registo.erro(`email para o cliente não enviado (${assunto}): ${e.message}`); return false; });
+      .then(() => { registo.info('email enviado'); return true; })
+      .catch((e) => { registo.erro(`email para o cliente não enviado: ${e.message}`); return false; });
     emCurso.add(p);
     p.finally(() => emCurso.delete(p));
     return p;

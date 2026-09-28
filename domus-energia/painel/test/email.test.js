@@ -5,6 +5,7 @@
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import { readFileSync } from 'node:fs';
 import { enviarSmtp, criarCorreio, montarMensagem } from '../src/email.js';
 import { lerConfig } from '../src/config.js';
 
@@ -126,16 +127,17 @@ describe('cliente SMTP (servidor falso em memória)', () => {
     const config = { smtp: smtp(f.porta), emailRemetente: 'nao-responder@domusenergia.pt' };
     const c = criarCorreio({ config, registo });
     assert.equal(c.ligado, true);
-    assert.equal(await c.enviar({ para: 'cliente@exemplo.pt', assunto: 'A', texto: 'código 654321' }), true);
+    assert.equal(await c.enviar({ para: 'cliente@exemplo.pt', assunto: 'Assunto 777888', texto: 'código 654321', resumo: 'código 654321' }), true);
     const c2 = criarCorreio({ config: { ...config, smtp: smtp(f.porta, { password: 'errada' }) }, registo });
     const mau = await servidorFalso({ falhar535: true });
     abertos.push(mau.srv);
     const c3 = criarCorreio({ config: { ...config, smtp: smtp(mau.porta) }, registo });
-    assert.equal(await c3.enviar({ para: 'cliente@exemplo.pt', assunto: 'B', texto: 'x' }), false);
+    assert.equal(await c3.enviar({ para: 'cliente@exemplo.pt', assunto: 'Assunto 999000', texto: 'x' }), false);
     assert.ok(c2.ligado);
     assert.ok(linhas.some((l) => /não enviado/.test(l)));
     assert.ok(!linhas.join('\n').includes(SENHA_SMTP), 'a palavra-passe SMTP nunca vai para o registo');
     assert.ok(!linhas.join('\n').includes('654321'), 'com SMTP o código não vai para o registo');
+    assert.ok(!/777888|999000/.test(linhas.join('\n')), 'com SMTP nem o assunto vai para o registo (também no erro)');
   });
 });
 
@@ -158,6 +160,15 @@ describe('sem SMTP / modo local', () => {
     assert.equal(a.smtp.porta, 587);
     assert.equal(a.emailRemetente, 'nao-responder@domusenergia.pt');
     assert.equal(lerConfig({ SMTP_HOST: 'h', SMTP_PORTA: '465' }).smtp.seguranca, 'tls');
+    // SMTP_SEGURANCA e SMTP_TIMEOUT_MS (também no docker-compose e no .env.example); vazia = pela porta.
+    assert.deepEqual([lerConfig({ SMTP_HOST: 'h', SMTP_PORTA: '587', SMTP_SEGURANCA: 'tls', SMTP_TIMEOUT_MS: '5000' }).smtp].map((s) => [s.seguranca, s.timeoutMs])[0], ['tls', 5000]);
+    assert.equal(lerConfig({ SMTP_HOST: 'h', SMTP_PORTA: '587', SMTP_SEGURANCA: '' }).smtp.seguranca, 'starttls');
+    const compose = readFileSync(new URL('../../servidor/docker-compose.yml', import.meta.url), 'utf8');
+    const exemplo = readFileSync(new URL('../../servidor/.env.example', import.meta.url), 'utf8');
+    for (const v of ['SMTP_SEGURANCA', 'SMTP_TIMEOUT_MS']) {
+      assert.match(compose, new RegExp(`^\\s+${v}: \\$\\{${v}:-`, 'm'), `${v} no docker-compose`);
+      assert.match(exemplo, new RegExp(`^${v}=`, 'm'), `${v} no .env.example`);
+    }
     const b = lerConfig({});
     assert.equal(b.smtp, null);
     assert.ok(b.avisos.some((x) => /SMTP_HOST/.test(x)));

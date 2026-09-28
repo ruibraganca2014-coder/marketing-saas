@@ -227,7 +227,38 @@ export const MIGRACOES = [
     ALTER TABLE orcamentos ADD COLUMN proposta_aceite TEXT;   -- quando o cliente carregou em "Aceito a proposta" (ISO)
     CREATE INDEX orcamentos_conta ON orcamentos(conta_id);
   `),
+  // 8 — ids de pedidos e de contas nunca reutilizados (AUTOINCREMENT): sem ele, depois de apagar o último (RGPD)
+  // o registo seguinte ficava com o mesmo id e herdava a auditoria ("orcamento:<id>", "conta:<id>") de outra pessoa.
+  // Recria as duas tabelas pelo procedimento do SQLite (chaves estrangeiras desligadas, ver migrar): mesmas
+  // colunas (a partir do CREATE guardado), mesmos dados e índices. A sequência começa no maior id já visto,
+  // também na auditoria (um pedido apagado antes desta migração também não volta a ser usado).
+  semChaves((db) => {
+    for (const [tabela, alvo] of [['orcamentos', 'orcamento'], ['contas', 'conta']]) {
+      const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tabela).sql;
+      const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, `CREATE TABLE ${tabela}_novo`)
+        .replace(/\bid INTEGER PRIMARY KEY\b(?! AUTOINCREMENT)/i, 'id INTEGER PRIMARY KEY AUTOINCREMENT');
+      if (!/AUTOINCREMENT/.test(novo)) throw new Error(`migração 8: não foi possível ler o esquema de ${tabela}`);
+      const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(tabela).map((x) => x.sql);
+      db.exec(novo);
+      db.exec(`INSERT INTO ${tabela}_novo SELECT * FROM ${tabela}`);
+      db.exec(`DROP TABLE ${tabela}`);
+      db.exec(`ALTER TABLE ${tabela}_novo RENAME TO ${tabela}`);
+      for (const i of indices) db.exec(i);
+      const maxAud = db.prepare(`SELECT MAX(CAST(substr(alvo, ?) AS INTEGER)) AS m FROM auditoria WHERE alvo GLOB ?`)
+        .get(alvo.length + 2, `${alvo}:[0-9]*`).m ?? 0;
+      const maxId = db.prepare(`SELECT MAX(id) AS m FROM ${tabela}`).get().m ?? 0;
+      const seq = Math.max(maxAud, maxId);
+      db.prepare('DELETE FROM sqlite_sequence WHERE name = ?').run(tabela);
+      if (seq) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
+    }
+  }),
 ];
+
+/** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
+function semChaves(fn) {
+  fn.semChavesEstrangeiras = true;
+  return fn;
+}
 
 /** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */
 function semear(db, sementes, seExistir = false) {
@@ -259,15 +290,26 @@ export function migrar(db) {
   let v = versaoEsquema(db);
   if (v > MIGRACOES.length) throw new Error(`a base de dados é de uma versão mais recente (${v}) do que este programa (${MIGRACOES.length})`);
   while (v < MIGRACOES.length) {
+    const migracao = MIGRACOES[v];
+    // PRAGMA foreign_keys não muda dentro de uma transação: desliga antes e verifica tudo antes do COMMIT.
+    // Só falha se a migração criar referências inválidas (as que já existissem antes não contam).
+    const fk = migracao.semChavesEstrangeiras ? db.prepare('PRAGMA foreign_keys').get().foreign_keys : null;
+    if (fk) db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
-      MIGRACOES[v](db);
+      const invalidas = migracao.semChavesEstrangeiras ? db.prepare('PRAGMA foreign_key_check').all().length : 0;
+      migracao(db);
+      if (migracao.semChavesEstrangeiras && db.prepare('PRAGMA foreign_key_check').all().length > invalidas) {
+        throw new Error(`migração ${v + 1}: chaves estrangeiras inválidas`);
+      }
       v += 1;
       db.exec(`PRAGMA user_version = ${v}`);
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
       throw e;
+    } finally {
+      if (fk) db.exec('PRAGMA foreign_keys = ON');
     }
   }
 }

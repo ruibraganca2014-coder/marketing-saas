@@ -6,6 +6,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile, readdir } from 'node:fs/promises';
+import { createHash, createCipheriv, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { painelComEquipa, iniciarPainel, SENHA, esperar } from './ajuda.js';
 import { CODIGO_MS } from '../src/conta.js';
@@ -30,55 +31,116 @@ describe('conta de cliente', () => {
     return { id: p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id, token: r.json.fotos_token };
   }
 
-  test('criar: 201 com cookie próprio (HttpOnly, SameSite=Lax, Path=/api), código por email; validações; 409 se já existe', async () => {
+  /** Sessão de uma conta por confirmar como as que se abriam antes (criar abria logo a sessão). */
+  function sessaoAntiga(e) {
+    const token = randomBytes(32).toString('base64url');
+    const id = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(e).id;
+    const agora = p.relogio.agora();
+    p.app.db.prepare('INSERT INTO contas_sessoes (id, conta_id, criada, expira, renovada) VALUES (?, ?, ?, ?, ?)')
+      .run(createHash('sha256').update(token).digest('hex'), id, agora, agora + 3600_000, agora);
+    return `domus_conta=${token}`;
+  }
+
+  test('criar: sempre a mesma resposta (201, sem sessão), código por email (fora do assunto); email com conta → aviso; validações', async () => {
     const e = email();
     const r = await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
     assert.equal(r.estado, 201, r.texto);
-    const c = r.cabecalhos['set-cookie'][0];
+    assert.equal(r.cabecalhos['set-cookie'], undefined, 'a sessão só abre ao confirmar o código');
+    assert.equal(r.json.email, e);
+    assert.match(r.json.mensagem, /Enviámos um código/);
+    assert.match(p.codigo(e), /^\d{6}$/);
+    assert.doesNotMatch(p.emails.at(-1).assunto, /\d{6}/, 'o código não vai no assunto');
+    // Email que já tem conta: a mesma resposta; vai um aviso (sem código) para esse email.
+    const { email: ja } = await p.contaConfirmada(email());
+    const antes = p.emails.length;
+    const dup = await conta('POST', 'criar', { corpo: { email: ja.toUpperCase(), password: 'outra-palavra-passe' } });
+    assert.equal(dup.estado, 201);
+    assert.equal(dup.cabecalhos['set-cookie'], undefined);
+    assert.deepEqual({ ...dup.json, email: 'x' }, { ...r.json, email: 'x' });
+    assert.equal(p.emails.length, antes + 1);
+    assert.match(p.emails.at(-1).texto, /já existe uma conta/);
+    assert.match(p.emails.at(-1).texto, /Esqueci a palavra-passe/);
+    assert.equal(p.codigo(ja), null, 'aviso sem código');
+    // Conta por confirmar e a mesma palavra-passe (voltou mais tarde): recebe um código novo.
+    const n0 = p.emails.length;
+    assert.equal((await conta('POST', 'criar', { corpo: { email: e, password: SENHA } })).estado, 201);
+    assert.equal(p.emails.length, n0 + 1);
+    assert.match(p.codigo(e), /^\d{6}$/);
+    // …com outra palavra-passe (um terceiro): aviso, não código.
+    assert.equal((await conta('POST', 'criar', { corpo: { email: e, password: 'outra-palavra-passe' } })).estado, 201);
+    assert.equal(p.codigo(e), null);
+    assert.equal((await conta('POST', 'criar', { corpo: { email: 'nao-e-email', password: SENHA } })).estado, 400);
+    assert.equal((await conta('POST', 'criar', { corpo: { email: email(), password: 'curta' } })).estado, 400);
+    assert.equal((await conta('POST', 'criar', { corpo: { email: email(), password: SENHA, extra: 1 } })).estado, 400);
+  });
+
+  test('confirmar sem sessão (email, palavra-passe, código): erro sempre igual; abre a sessão (cookie próprio); 5 erradas gastam o código', async () => {
+    const e = email();
+    await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
+    const certo = p.codigo(e);
+    const errado = certo === '000000' ? '111111' : '000000';
+    const conf = (corpo, extra = {}) => conta('POST', 'confirmar', { corpo, ...extra });
+    // A palavra-passe errada (um terceiro) não gasta as tentativas do código.
+    for (let i = 0; i < 6; i++) assert.equal((await conf({ email: e, password: 'outra-palavra-passe', codigo: errado })).estado, 400);
+    const e1 = await conf({ email: e, password: SENHA, codigo: errado });
+    const nada = await conf({ email: 'nao-existe@exemplo.pt', password: SENHA, codigo: errado });
+    assert.equal(e1.estado, 400);
+    assert.deepEqual(e1.json, nada.json, 'a mesma resposta exista ou não a conta');
+    assert.equal((await conf({ email: e, password: SENHA, codigo: '12' })).estado, 400);
+    // Expirado: a mesma resposta.
+    p.relogio.avancar(CODIGO_MS + 1000);
+    const exp = await conf({ email: e, password: SENHA, codigo: certo });
+    assert.deepEqual([exp.estado, exp.json], [400, nada.json]);
+    // Código novo; 5 erradas gastam-no (mesmo o certo deixa de servir), sempre com a mesma resposta.
+    await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
+    const novo = p.codigo(e);
+    const mau = novo === '000000' ? '111111' : '000000';
+    for (let i = 0; i < 5; i++) assert.deepEqual((await conf({ email: e, password: SENHA, codigo: mau })).json, nada.json);
+    assert.deepEqual((await conf({ email: e, password: SENHA, codigo: novo })).json, nada.json);
+    // Outro código → confirma e abre a sessão.
+    await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
+    const ok = await conf({ email: e, password: SENHA, codigo: p.codigo(e) });
+    assert.equal(ok.estado, 200, ok.texto);
+    assert.deepEqual(ok.json.conta, { email: e, confirmado: true, nome: null, telefone: null, morada: null, localidade: null });
+    const c = ok.cabecalhos['set-cookie'][0];
     assert.match(c, /^domus_conta=[A-Za-z0-9_-]{43};/);
     assert.match(c, /HttpOnly/);
     assert.match(c, /SameSite=Lax/);
     assert.match(c, /Path=\/api;/);
     assert.doesNotMatch(c, /Secure/, 'http://127.0.0.1: sem Secure');
-    assert.deepEqual(r.json.conta, { email: e, confirmado: false, nome: null, telefone: null, morada: null, localidade: null });
-    assert.match(p.codigo(e), /^\d{6}$/);
-    assert.equal((await conta('POST', 'criar', { corpo: { email: e.toUpperCase(), password: SENHA } })).estado, 409);
-    assert.equal((await conta('POST', 'criar', { corpo: { email: 'nao-e-email', password: SENHA } })).estado, 400);
-    assert.equal((await conta('POST', 'criar', { corpo: { email: email(), password: 'curta' } })).estado, 400);
-    assert.equal((await conta('POST', 'criar', { corpo: { email: email(), password: SENHA, extra: 1 } })).estado, 400);
+    assert.equal((await conta('GET', 'eu', { cookie: ck(ok) })).estado, 200);
+    // Já confirmada: o código já não serve de nada (mesma resposta).
+    assert.deepEqual((await conf({ email: e, password: SENHA, codigo: '123456' })).json, nada.json);
     // Fora de localhost o cookie leva Secure.
-    const s = await conta('POST', 'criar', { corpo: { email: email(), password: SENHA }, cabecalhos: { Host: 'api.domusenergia.pt' } });
+    const s = await conta('POST', 'entrar', { corpo: { email: e, password: SENHA }, cabecalhos: { Host: 'api.domusenergia.pt' } });
     assert.match(s.cabecalhos['set-cookie'][0], /Secure/);
   });
 
-  test('código: errado (restam n), certo confirma, expirado (410), 5 tentativas → esgotado (429); reenviar', async () => {
+  test('sessão de conta por confirmar (aberta antes desta versão): código com mensagens detalhadas; reenviar 3/hora', async () => {
     const e = email();
-    const r = await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
-    const cookie = ck(r);
+    await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
+    const cookie = sessaoAntiga(e);
     const certo = p.codigo(e);
     const errado = certo === '000000' ? '111111' : '000000';
     const e1 = await conta('POST', 'confirmar', { cookie, corpo: { codigo: errado } });
     assert.equal(e1.estado, 400);
     assert.match(e1.json.erro, /Restam 4/);
-    assert.equal((await conta('POST', 'confirmar', { cookie, corpo: { codigo: '12' } })).estado, 400);
-    // Expirado
     p.relogio.avancar(CODIGO_MS + 1000);
     assert.equal((await conta('POST', 'confirmar', { cookie, corpo: { codigo: certo } })).estado, 410);
-    // Código novo; 5 erradas esgotam-no (mesmo o certo deixa de servir)
     assert.equal((await conta('POST', 'reenviar', { cookie, corpo: {} })).estado, 200);
     const novo = p.codigo(e);
     const mau = novo === '000000' ? '111111' : '000000';
     for (let i = 0; i < 4; i++) assert.equal((await conta('POST', 'confirmar', { cookie, corpo: { codigo: mau } })).estado, 400);
     assert.equal((await conta('POST', 'confirmar', { cookie, corpo: { codigo: mau } })).estado, 429);
     assert.equal((await conta('POST', 'confirmar', { cookie, corpo: { codigo: novo } })).estado, 429);
-    // Novo código → confirma
     assert.equal((await conta('POST', 'reenviar', { cookie, corpo: {} })).estado, 200);
     const ok = await conta('POST', 'confirmar', { cookie, corpo: { codigo: p.codigo(e) } });
     assert.equal(ok.estado, 200, ok.texto);
     assert.equal(ok.json.conta.confirmado, true);
-    // Reenviar: 3 por hora por email
+    // Reenviar: 3 por hora por email (o de criar conta também conta).
     const e2 = email();
-    const c2 = ck(await conta('POST', 'criar', { corpo: { email: e2, password: SENHA } }));
+    await conta('POST', 'criar', { corpo: { email: e2, password: SENHA } });
+    const c2 = sessaoAntiga(e2);
     assert.equal((await conta('POST', 'reenviar', { cookie: c2, corpo: {} })).estado, 200);
     assert.equal((await conta('POST', 'reenviar', { cookie: c2, corpo: {} })).estado, 200);
     const lim = await conta('POST', 'reenviar', { cookie: c2, corpo: {} });
@@ -86,29 +148,52 @@ describe('conta de cliente', () => {
     assert.ok(Number(lim.cabecalhos['retry-after']) > 0);
   });
 
-  test('entrar/sair: errada 401 (mesma mensagem que email inexistente), certa 200, sair invalida a sessão; limite por email', async () => {
+  test('entrar/sair: mesma mensagem para tudo (incl. conta por confirmar); sair invalida a sessão; terceiros não bloqueiam a conta', async () => {
     const { cookie, email: e } = await p.contaConfirmada(email());
     assert.equal((await conta('GET', 'eu', { cookie })).estado, 200);
     const mal = await conta('POST', 'entrar', { corpo: { email: e, password: 'errada-errada' } });
     const nada = await conta('POST', 'entrar', { corpo: { email: 'ninguem@exemplo.pt', password: 'errada-errada' } });
+    const porConfirmar = email();
+    await conta('POST', 'criar', { corpo: { email: porConfirmar, password: SENHA } });
+    const pc = await conta('POST', 'entrar', { corpo: { email: porConfirmar, password: SENHA } });
     assert.equal(mal.estado, 401);
     assert.equal(nada.estado, 401);
+    assert.equal(pc.estado, 401, 'conta por confirmar entra ao confirmar o código');
     assert.equal(mal.json.erro, nada.json.erro);
+    assert.equal(pc.json.erro, nada.json.erro);
     const ok = await conta('POST', 'entrar', { corpo: { email: e.toUpperCase(), password: SENHA } });
     assert.equal(ok.estado, 200);
     const c2 = ck(ok);
     assert.equal((await conta('POST', 'sair', { cookie: c2, corpo: {} })).estado, 200);
     assert.equal((await conta('GET', 'eu', { cookie: c2 })).estado, 401);
     assert.equal((await conta('GET', 'eu', { cookie })).estado, 200, 'a outra sessão continua');
-    // 5 por minuto por email (de IPs diferentes)
+    // De IPs diferentes, 20 falhas seguidas não bloqueiam a conta: a pessoa entra.
+    for (let i = 0; i < 20; i++) assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: 'errada-errada' } })).estado, 401);
+    assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: SENHA } })).estado, 200);
+    // Do mesmo IP: atraso progressivo curto a partir da 3.ª falha seguida (1 s, 2 s, …).
+    const ip = '198.51.100.7';
+    const errar = () => conta('POST', 'entrar', { corpo: { email: e, password: 'errada-errada' }, ip });
+    for (let i = 0; i < 3; i++) assert.equal((await errar()).estado, 401);
+    const a1 = await errar();
+    assert.equal(a1.estado, 429);
+    assert.equal(a1.cabecalhos['retry-after'], '1');
+    p.relogio.avancar(1100);
+    assert.equal((await errar()).estado, 401);
+    assert.equal((await errar()).cabecalhos['retry-after'], '2');
+    p.relogio.avancar(2100);
+    assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: SENHA }, ip })).estado, 200);
+    assert.equal((await errar()).estado, 429, 'limite do par email+IP: 5 por minuto');
+    p.relogio.avancar(61_000);
+    assert.equal((await errar()).estado, 401, 'depois de entrar o atraso recomeça do zero');
+    // Travão por email: 50 tentativas por hora (de quaisquer IPs).
     const e3 = email();
-    for (let i = 0; i < 5; i++) await conta('POST', 'entrar', { corpo: { email: e3, password: 'errada-errada' } });
+    for (let i = 0; i < 50; i++) assert.equal((await conta('POST', 'entrar', { corpo: { email: e3, password: 'errada-errada' } })).estado, 401);
     assert.equal((await conta('POST', 'entrar', { corpo: { email: e3, password: 'errada-errada' } })).estado, 429);
     // Sem Origin do site: recusado (CSRF)
     assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: SENHA }, site: false, cabecalhos: { Origin: 'https://mau.exemplo', 'Sec-Fetch-Site': 'cross-site' } })).estado, 403);
   });
 
-  test('esqueci: mesma resposta com e sem conta; repor com o código muda a palavra-passe e fecha as sessões', async () => {
+  test('esqueci: mesma resposta com e sem conta; repor indistinguível (também com o código gasto); muda a palavra-passe e fecha as sessões', async () => {
     const { cookie, email: e } = await p.contaConfirmada(email());
     const antes = p.emails.length;
     const a = await conta('POST', 'esqueci', { corpo: { email: e } });
@@ -116,29 +201,50 @@ describe('conta de cliente', () => {
     assert.equal(a.estado, 200);
     assert.deepEqual(a.json, b.json);
     assert.equal(p.emails.length, antes + 1, 'só um email (o da conta que existe)');
+    assert.doesNotMatch(p.emails.at(-1).assunto, /\d{6}/, 'o código não vai no assunto');
     const codigo = p.codigo(e);
     const nova = 'palavra-passe-nova-1';
-    assert.equal((await conta('POST', 'repor', { corpo: { email: e, codigo: codigo === '000000' ? '111111' : '000000', password: nova } })).estado, 400);
-    assert.equal((await conta('POST', 'repor', { corpo: { email: 'nao-existe@exemplo.pt', codigo, password: nova } })).estado, 400);
-    const r = await conta('POST', 'repor', { corpo: { email: e, codigo, password: nova } });
+    const mau = codigo === '000000' ? '111111' : '000000';
+    const inexistente = await conta('POST', 'repor', { corpo: { email: 'nao-existe@exemplo.pt', codigo, password: nova } });
+    assert.equal(inexistente.estado, 400);
+    // 6 erradas: sempre a mesma resposta que para um email sem conta (nunca "429 demasiadas tentativas").
+    for (let i = 0; i < 6; i++) {
+      const r = await conta('POST', 'repor', { corpo: { email: e, codigo: mau, password: nova } });
+      assert.deepEqual([r.estado, r.json], [inexistente.estado, inexistente.json]);
+    }
+    // …mas o código ficou gasto ao fim de 5.
+    assert.deepEqual((await conta('POST', 'repor', { corpo: { email: e, codigo, password: nova } })).json, inexistente.json);
+    await conta('POST', 'esqueci', { corpo: { email: e } });
+    const codigo2 = p.codigo(e);
+    const r = await conta('POST', 'repor', { corpo: { email: e, codigo: codigo2, password: nova } });
     assert.equal(r.estado, 200, r.texto);
     assert.equal((await conta('GET', 'eu', { cookie })).estado, 401, 'sessões antigas fechadas');
     assert.equal((await conta('GET', 'eu', { cookie: ck(r) })).estado, 200);
     assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: SENHA } })).estado, 401);
     assert.equal((await conta('POST', 'entrar', { corpo: { email: e, password: nova } })).estado, 200);
     // O código é de uso único.
-    assert.equal((await conta('POST', 'repor', { corpo: { email: e, codigo, password: 'outra-palavra-1' } })).estado, 400);
+    assert.equal((await conta('POST', 'repor', { corpo: { email: e, codigo: codigo2, password: 'outra-palavra-1' } })).estado, 400);
+    // Limite por email (10/hora), igual com e sem conta; e por IP (20/hora).
+    const { email: f } = await p.contaConfirmada(email());
+    for (const x of [f, 'tambem-nao-existe@exemplo.pt']) {
+      for (let i = 0; i < 10; i++) assert.equal((await conta('POST', 'repor', { corpo: { email: x, codigo: '123456', password: nova } })).estado, 400);
+      assert.equal((await conta('POST', 'repor', { corpo: { email: x, codigo: '123456', password: nova } })).estado, 429, x);
+    }
+    const ip = '198.51.100.20';
+    for (let i = 0; i < 20; i++) await conta('POST', 'repor', { corpo: { email: `ip${i}@exemplo.pt`, codigo: '123456', password: nova }, ip });
+    assert.equal((await conta('POST', 'repor', { corpo: { email: 'ip-fim@exemplo.pt', codigo: '123456', password: nova }, ip })).estado, 429);
   });
 
   test('POST /api/orcamento: com simulação exige sessão com email confirmado; pedido ligado à conta; sem simulação não', async () => {
     const corpo = { nome: 'Sem Conta', telefone: '912 000 222', servico: 'Casa inteligente', simulacao: SIM };
     assert.equal((await p.pedir('POST', '/api/orcamento', { corpo })).estado, 401);
     const e = email();
-    const nc = ck(await conta('POST', 'criar', { corpo: { email: e, password: SENHA } }));
-    assert.equal((await p.pedir('POST', '/api/orcamento', { corpo, cookie: nc })).estado, 403, 'email por confirmar');
+    await conta('POST', 'criar', { corpo: { email: e, password: SENHA } });
+    const antiga = sessaoAntiga(e);
+    assert.equal((await p.pedir('POST', '/api/orcamento', { corpo, cookie: antiga })).estado, 403, 'email por confirmar');
     // Guarda a simulação em curso (é apagada depois de enviar).
-    assert.equal((await conta('POST', 'simulacao', { cookie: nc, corpo: { estado: { versao: 5, passo: 6 } } })).estado, 200);
-    await conta('POST', 'confirmar', { cookie: nc, corpo: { codigo: p.codigo(e) } });
+    assert.equal((await conta('POST', 'simulacao', { cookie: antiga, corpo: { estado: { versao: 5, passo: 6 } } })).estado, 200);
+    const nc = ck(await conta('POST', 'confirmar', { corpo: { email: e, password: SENHA, codigo: p.codigo(e) } }));
     const r = await p.pedir('POST', '/api/orcamento', { corpo: { ...corpo, email: 'outro@exemplo.pt', morada: 'Rua B, 2', localidade: 'Évora' }, cookie: nc });
     assert.equal(r.estado, 201, r.texto);
     assert.ok(r.json.fotos_token);
@@ -183,8 +289,9 @@ describe('conta de cliente', () => {
     assert.equal((await p.pedir('GET', '/painel/api/orcamentos', { cookie: a.cookie })).estado, 401);
     assert.equal((await conta('GET', 'eu', { cookie: p.cookies.ceo })).estado, 401);
     // Sem email confirmado: não vê pedidos.
-    const nc = ck(await conta('POST', 'criar', { corpo: { email: email(), password: SENHA } }));
-    assert.equal((await conta('GET', 'pedidos', { cookie: nc })).estado, 403);
+    const e3 = email();
+    await conta('POST', 'criar', { corpo: { email: e3, password: SENHA } });
+    assert.equal((await conta('GET', 'pedidos', { cookie: sessaoAntiga(e3) })).estado, 403);
   });
 
   test('fotos na conta: acrescentar/trocar com as validações de fotos.js; ver; 409 depois de aceite', async () => {
@@ -282,6 +389,26 @@ describe('conta de cliente', () => {
     assert.equal((await conta('GET', 'casa', { cookie: b.cookie })).estado, 404, 'outra conta');
     assert.equal((await conta('GET', 'casa')).estado, 401, 'sem sessão');
     assert.ok(!JSON.stringify(p.app.db.prepare('SELECT detalhes FROM auditoria').all()).includes('SenhaMqttGerada1'), 'nunca na auditoria');
+    // AES-GCM com AAD (id da conta): a cifra copiada para outra conta não se lê.
+    p.app.db.prepare('UPDATE contas SET casa_codigo = ?, casa_cifra = ? WHERE email = ?').run('casa-b', cifra.casa_cifra, b.email);
+    assert.equal((await conta('GET', 'casa', { cookie: b.cookie })).estado, 404, 'cifra de outra conta');
+    // Etiqueta com menos de 16 bytes: recusada.
+    const [iv, tag, dados] = cifra.casa_cifra.split('.');
+    const curta = [iv, Buffer.from(tag, 'base64').subarray(0, 12).toString('base64'), dados].join('.');
+    p.app.db.prepare('UPDATE contas SET casa_cifra = ? WHERE email = ?').run(curta, a.email);
+    assert.equal((await conta('GET', 'casa', { cookie: a.cookie })).estado, 404, 'etiqueta curta');
+    // Cifra antiga (sem AAD): lê-se e fica logo cifrada de novo, com AAD.
+    const iv2 = randomBytes(12);
+    const cf = createCipheriv('aes-256-gcm', p.config.contaChave, iv2);
+    const d2 = Buffer.concat([cf.update('SenhaAntiga1', 'utf8'), cf.final()]);
+    const antiga = [iv2, cf.getAuthTag(), d2].map((x) => x.toString('base64')).join('.');
+    p.app.db.prepare('UPDATE contas SET casa_cifra = ? WHERE email = ?').run(antiga, a.email);
+    assert.equal((await conta('GET', 'casa', { cookie: a.cookie })).json.password, 'SenhaAntiga1');
+    const recifrada = p.app.db.prepare('SELECT casa_cifra FROM contas WHERE email = ?').get(a.email).casa_cifra;
+    assert.notEqual(recifrada, antiga);
+    assert.equal((await conta('GET', 'casa', { cookie: a.cookie })).json.password, 'SenhaAntiga1');
+    p.app.db.prepare('UPDATE contas SET casa_cifra = ? WHERE email = ?').run(recifrada, b.email);
+    assert.equal((await conta('GET', 'casa', { cookie: b.cookie })).estado, 404, 'a recifrada também só serve a esta conta');
     // Pedido convertido: a proposta já não se aceita e as fotos já não entram.
     assert.equal((await conta('POST', `pedidos/${id}/aceitar`, { cookie: a.cookie, corpo: {} })).estado, 409);
     assert.equal((await conta('POST', `pedidos/${id}/fotos`, { cookie: a.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'quadro' } })).estado, 409);
@@ -313,12 +440,37 @@ describe('conta de cliente', () => {
     assert.ok(!JSON.stringify(p.app.db.prepare('SELECT * FROM auditoria').all()).includes(a.email), 'o email não fica na auditoria');
     assert.equal((await painel('POST', `contas/${c.id}/apagar`, 'ceo', {})).estado, 404);
   });
+
+  test('apagar (RGPD): auditoria sem IPs nem detalhes do pedido e da conta; ids nunca reutilizados (o histórico não passa a outra pessoa)', async () => {
+    const IP = '203.0.113.77';
+    const a = await p.contaConfirmada(email());
+    const { id } = await pedidoComConta(a);
+    await conta('POST', `pedidos/${id}/fotos`, { cookie: a.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'quadro' }, ip: IP });
+    const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(a.email).id;
+    // Um pedido desta conta que fica (convertido): a linha fica, sem o IP.
+    p.app.db.prepare("INSERT INTO auditoria (quando, email, acao, alvo, ip) VALUES ('2026-09-01T10:00:00.000Z', ?, 'proposta_aceite_cliente', 'orcamento:999999', ?)").run(`conta:${contaId}`, IP);
+    const aud = (alvo) => p.app.db.prepare('SELECT acao, detalhes, ip, email FROM auditoria WHERE alvo = ? ORDER BY id').all(alvo).map((x) => ({ ...x }));
+    assert.ok(aud(`orcamento:${id}`).some((x) => x.ip === IP));
+    assert.ok(aud(`conta:${contaId}`).length);
+    assert.equal((await painel('POST', `contas/${contaId}/apagar`, 'ceo', {})).estado, 200);
+    assert.deepEqual(aud(`orcamento:${id}`), [{ acao: 'orcamento_apagado_rgpd', detalhes: null, ip: null, email: 'sistema' }]);
+    assert.deepEqual(aud(`conta:${contaId}`).map((x) => x.acao), ['conta_apagada'], 'só o rasto do CEO');
+    assert.deepEqual(aud('orcamento:999999').map((x) => [x.acao, x.ip]), [['proposta_aceite_cliente', null]]);
+    assert.ok(!JSON.stringify(p.app.db.prepare('SELECT * FROM auditoria').all()).includes(IP), 'o IP do cliente não fica');
+    // A seguir: nova conta e novo pedido nunca ficam com os ids apagados, nem com o histórico deles.
+    const b = await p.contaConfirmada(email());
+    const novo = await pedidoComConta(b);
+    assert.ok(novo.id > id, `${novo.id} > ${id}`);
+    assert.ok(p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(b.email).id > contaId);
+    const d = (await painel('GET', `orcamentos/${novo.id}`, 'ceo')).json;
+    assert.deepEqual(d.historico.map((x) => x.acao), ['orcamento_recebido']);
+  });
 });
 
 describe('site público noutra origem (SITE_ORIGENS): CORS e origem', () => {
   let p;
   const SITE = 'https://domusenergia.pt';
-  before(async () => { p = await iniciarPainel({ env: { SITE_ORIGENS: `${SITE}, nao-e-url, https://domusenergia.pt/caminho` } }); });
+  before(async () => { p = await iniciarPainel({ env: { SITE_ORIGENS: `${SITE}, nao-e-url, https://domusenergia.pt/caminho, http://inseguro.exemplo, http://qc1.localhost:8080` } }); });
   after(() => p.fechar());
 
   test('preflight OPTIONS: 204 só para as origens da lista, com os cabeçalhos X-Fotos-*; nunca "*"', async () => {
@@ -343,8 +495,10 @@ describe('site público noutra origem (SITE_ORIGENS): CORS e origem', () => {
     const r = await p.pedir('POST', '/api/conta/criar', { site: false, cabecalhos: cab, corpo: { email: 'site@exemplo.pt', password: SENHA } });
     assert.equal(r.estado, 201, r.texto);
     assert.equal(r.cabecalhos['access-control-allow-origin'], SITE);
-    assert.match(r.cabecalhos['set-cookie'][0], /SameSite=Lax/);
-    const cookie = ck(r);
+    const cf = await p.pedir('POST', '/api/conta/confirmar', { site: false, cabecalhos: cab, corpo: { email: 'site@exemplo.pt', password: SENHA, codigo: p.codigo('site@exemplo.pt') } });
+    assert.equal(cf.estado, 200, cf.texto);
+    assert.match(cf.cabecalhos['set-cookie'][0], /SameSite=Lax/);
+    const cookie = ck(cf);
     const g = await p.pedir('GET', '/api/conta/eu', { site: false, cookie, cabecalhos: { Origin: SITE, 'Sec-Fetch-Site': 'same-site' } });
     assert.equal(g.estado, 200);
     assert.equal(g.cabecalhos['access-control-allow-origin'], SITE);
@@ -354,8 +508,9 @@ describe('site público noutra origem (SITE_ORIGENS): CORS e origem', () => {
     const f = await p.pedir('POST', '/api/orcamento', { site: false, cabecalhos: cab, corpo: { nome: 'Site', telefone: '912 000 444', servico: 'Casa inteligente' } });
     assert.equal(f.estado, 201, f.texto);
     assert.equal(f.cabecalhos['access-control-allow-origin'], SITE);
-    // Origem inválida na variável: ignorada com aviso.
-    assert.ok(p.config.avisos.some((a) => /SITE_ORIGENS/.test(a)));
-    assert.deepEqual(p.config.siteOrigens, [SITE]);
+    // Origem inválida na variável, ou http:// fora de localhost: ignorada com aviso.
+    assert.ok(p.config.avisos.some((a) => /SITE_ORIGENS: origem inválida/.test(a)));
+    assert.ok(p.config.avisos.some((a) => a.includes('SITE_ORIGENS: origem sem https ignorada: http://inseguro.exemplo')));
+    assert.deepEqual(p.config.siteOrigens, [SITE, 'http://qc1.localhost:8080']);
   });
 });

@@ -112,9 +112,10 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
   async function contaConfirmada(email = `cliente${++ipSeq}@exemplo.pt`, senha = SENHA) {
     const r = await pedir('POST', '/api/conta/criar', { corpo: { email, password: senha } });
     if (r.estado !== 201) throw new Error(`criar conta: ${r.estado} ${r.texto}`);
-    const cookie = r.cabecalhos['set-cookie'][0].split(';')[0];
-    const c = await pedir('POST', '/api/conta/confirmar', { corpo: { codigo: codigo(email) }, cookie });
+    // A sessão abre ao confirmar o código (com o email e a palavra-passe).
+    const c = await pedir('POST', '/api/conta/confirmar', { corpo: { email, password: senha, codigo: codigo(email) } });
     if (c.estado !== 200) throw new Error(`confirmar conta: ${c.estado} ${c.texto}`);
+    const cookie = c.cabecalhos['set-cookie'][0].split(';')[0];
     return { cookie, email };
   }
 

@@ -1,6 +1,7 @@
 // Conta de cliente (docs/CONTA-CLIENTE.md): /api/conta/*, servida pelo painel.
 // - email + palavra-passe (scrypt, as regras do painel); email confirmado por código de 6 dígitos (15 min,
-//   5 tentativas); "esqueci a palavra-passe" por código (a resposta nunca diz se o email existe);
+//   5 tentativas); "criar conta" e "esqueci a palavra-passe" respondem sempre o mesmo (nunca dizem se o email
+//   tem conta); a sessão abre ao confirmar o código;
 // - sessão própria: cookie `domus_conta` (HttpOnly, SameSite=Lax, Path=/api, Secure fora de localhost) guardado
 //   como SHA-256 na tabela contas_sessoes — separada das sessões do painel: uma conta de cliente não abre
 //   nenhuma rota /painel/api/;
@@ -121,15 +122,19 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
     criarIp: lim(5, 3600_000), criarEmail: lim(3, 3600_000),
-    entrarIp: lim(10, 60_000), entrarEmail: lim(5, 60_000),
-    codigoIp: lim(20, 3600_000),
+    // Entrar: por IP e por par email+IP; por email só um travão alto (um terceiro não consegue bloquear a conta).
+    entrarIp: lim(10, 60_000), entrarPar: lim(5, 60_000), entrarEmail: lim(50, 3600_000),
+    codigoIp: lim(20, 3600_000), reporEmail: lim(10, 3600_000),
     emailEnvio: lim(3, 3600_000), emailIp: lim(10, 3600_000),
     esqueciIp: lim(5, 3600_000),
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
   };
-  const falhasEntrar = new Map();   // email → {n, ate}: 10 falhas seguidas → 15 min bloqueada
+  // Falhas seguidas a entrar, por par email+IP → atraso progressivo curto (1 s, 2 s, 4 s… até 60 s) a partir da 3.ª.
+  const falhasEntrar = new Map();   // "email|ip" → {n, ate, ultima}
+  const FALHAS_ESQUECER_MS = 15 * 60_000;
+  const parEntrar = (email, ip) => `${email}|${ip}`;
 
   function esperar(pares) {
     const s = Math.max(...pares.map(([l, k]) => l.espera(k)));
@@ -141,6 +146,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   const quem = (c) => ({ id: null, email: `conta:${c.id}` });
 
   // ------------------------------------------------------------ sessão
+  // Path=/api (e não /api/conta): o POST /api/orcamento com simulação também usa esta sessão. O cookie chega assim
+  // aos pagamentos (/api/* no Caddy), que o ignoram (usam Bearer) e nunca registam cabeçalhos.
   function cookie(req, token, maxAgeS) {
     return `${COOKIE_CONTA}=${token}; Path=/api; HttpOnly;${hostLocal(req) ? '' : ' Secure;'} SameSite=Lax; Max-Age=${maxAgeS}`;
   }
@@ -211,7 +218,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
 
   function enviarCodigo(email, tipo, codigo) {
     const site = config.siteUrl ? `${config.siteUrl}/conta.html` : null;
-    const assunto = tipo === 'confirmar' ? `Domus Energia: o seu código é ${codigo}` : `Domus Energia: código para mudar a palavra-passe (${codigo})`;
+    // O código vai só no corpo (o assunto aparece em notificações e nos registos).
+    const assunto = tipo === 'confirmar' ? 'Domus Energia: confirme o seu email' : 'Domus Energia: mudar a palavra-passe';
     const texto = [
       'Olá,',
       '',
@@ -230,6 +238,23 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     return correio.enviar({ para: email, assunto, texto, resumo: `código ${codigo} (${tipo === 'confirmar' ? 'confirmar o email' : 'mudar a palavra-passe'})` });
   }
 
+  /** "Criar conta" com um email que já tem conta: vai este aviso em vez do código (a resposta ao browser é a mesma). */
+  function enviarAvisoConta(email) {
+    const site = config.siteUrl ? `${config.siteUrl}/conta.html` : null;
+    const texto = [
+      'Olá,',
+      '',
+      'Alguém tentou criar uma conta na Domus Energia com este email, mas já existe uma conta com ele.',
+      '',
+      'Se foi você, entre com a sua palavra-passe, ou use "Esqueci a palavra-passe" para receber um código e escolher uma nova.',
+      'Se não foi você, ignore este email: a sua conta continua igual.',
+      ...(site ? ['', `A sua conta: ${site}`] : []),
+      '',
+      'Domus Energia',
+    ].join('\n');
+    return correio.enviar({ para: email, assunto: 'Domus Energia: já tem conta com este email', texto, resumo: 'aviso: pediram para criar conta com um email que já tem conta' });
+  }
+
   function emailValido(v) {
     const e = texto(v, 'o email', { max: 254, obrigatorio: true, re: RE_EMAIL, reMsg: 'O email não parece certo (ex.: nome@exemplo.pt).' });
     return e.toLowerCase();
@@ -244,6 +269,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   // ------------------------------------------------------------ handlers
   const h = {};
 
+  // Criar conta: a resposta é sempre a mesma (não revela se o email já tem conta) e não abre sessão — a sessão abre
+  // ao confirmar o código (POST confirmar com email, palavra-passe e código). Email novo → conta por confirmar e
+  // código; conta por confirmar com a mesma palavra-passe → código novo; qualquer outra conta → aviso por email.
   h.criar = async ({ req, res, ip }) => {
     const v = await lerJson(req, ['email', 'password']);
     const email = emailValido(v.email);
@@ -251,40 +279,52 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (prob) falha(prob);
     esperar([[L.criarIp, ip], [L.criarEmail, email]]);
     contar([[L.criarIp, ip], [L.criarEmail, email]]);
-    if (db.prepare('SELECT 1 FROM contas WHERE email = ?').get(email)) {
-      throw new ErroApi(409, 'Já existe uma conta com este email. Entre com a sua palavra-passe, ou use "Esqueci a palavra-passe".');
+    const existe = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
+    const podeEnviar = !L.emailEnvio.espera(email);   // 3 emails por hora por email; acima disso, em silêncio
+    if (podeEnviar) L.emailEnvio.registar(email);
+    if (!existe) {
+      const agora = agoraIso();
+      const id = Number(db.prepare('INSERT INTO contas (email, hash, criado, atualizado) VALUES (?, ?, ?, ?)')
+        .run(email, await hashSenha(v.password), agora, agora).lastInsertRowid);
+      auditar(quem({ id }), 'conta_criada', `conta:${id}`, null, ip);
+      if (podeEnviar) enviarCodigo(email, 'confirmar', novoCodigo(id, 'confirmar'));
+    } else {
+      const mesma = await verificarSenha(v.password, existe.hash);   // scrypt nos dois casos: tempo parecido
+      if (podeEnviar) {
+        if (mesma && existe.ativo && !existe.confirmado) enviarCodigo(email, 'confirmar', novoCodigo(existe.id, 'confirmar'));
+        else enviarAvisoConta(email);
+      }
     }
-    const agora = agoraIso();
-    const id = Number(db.prepare('INSERT INTO contas (email, hash, criado, atualizado) VALUES (?, ?, ?, ?)')
-      .run(email, await hashSenha(v.password), agora, agora).lastInsertRowid);
-    auditar(quem({ id }), 'conta_criada', `conta:${id}`, null, ip);
-    const c = abrirSessao(req, id);
-    L.emailEnvio.registar(email);
-    enviarCodigo(email, 'confirmar', novoCodigo(id, 'confirmar'));
-    responder(res, 201, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(id)) }, { 'Set-Cookie': c });
+    responder(res, 201, { ok: true, email, mensagem: 'Enviámos um código para o email. Veja também o correio não desejado (spam).' });
   };
 
+  // Entrar: só contas com o email confirmado (uma conta por confirmar entra ao confirmar o código). A mesma resposta
+  // para tudo o que falha. Limites por IP e por par email+IP, com atraso progressivo curto; por email só um travão
+  // alto (50/h), para que um terceiro não consiga bloquear a conta de alguém.
   h.entrar = async ({ req, res, ip }) => {
     const v = await lerJson(req, ['email', 'password']);
     if (typeof v.email !== 'string' || typeof v.password !== 'string' || !v.email || !v.password) falha('Indique o email e a palavra-passe.');
     if (v.email.length > 254 || v.password.length > 200) throw new ErroApi(401, 'Email ou palavra-passe errados.');
     const email = v.email.trim().toLowerCase();
-    esperar([[L.entrarIp, ip], [L.entrarEmail, email]]);
-    contar([[L.entrarIp, ip], [L.entrarEmail, email]]);
-    const f = falhasEntrar.get(email);
-    if (f?.ate > relogio()) {
-      const s = Math.ceil((f.ate - relogio()) / 1000);
-      throw new ErroApi(429, `Conta bloqueada temporariamente depois de várias tentativas falhadas. Tente de novo dentro de ${Math.ceil(s / 60)} min.`, { 'Retry-After': String(s) });
+    const par = parEntrar(email, ip);
+    esperar([[L.entrarIp, ip], [L.entrarPar, par], [L.entrarEmail, email]]);
+    const agora = relogio();
+    const f = falhasEntrar.get(par);
+    if (f?.ate > agora) {
+      const s = Math.ceil((f.ate - agora) / 1000);
+      throw new ErroApi(429, `Demasiadas tentativas. Tente de novo dentro de ${s} s.`, { 'Retry-After': String(s) });
     }
+    contar([[L.entrarIp, ip], [L.entrarPar, par], [L.entrarEmail, email]]);
     const c = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
     const ok = await verificarSenha(v.password, c?.hash);
-    if (!ok || !c || !c.ativo) {
-      const n = (f?.ate ? 0 : f?.n ?? 0) + 1;
-      falhasEntrar.set(email, n >= 10 ? { n: 0, ate: relogio() + 15 * 60_000 } : { n, ate: 0 });
-      if (falhasEntrar.size > 10_000) falhasEntrar.clear();
-      throw new ErroApi(401, 'Email ou palavra-passe errados.');
+    if (!ok || !c || !c.ativo || !c.confirmado) {
+      const n = (f && agora - f.ultima < FALHAS_ESQUECER_MS ? f.n : 0) + 1;
+      falhasEntrar.set(par, { n, ultima: agora, ate: n >= 3 ? agora + Math.min(2 ** (n - 3), 60) * 1000 : 0 });
+      // Limpeza por expiração (nunca apaga os atrasos em curso).
+      if (falhasEntrar.size > 10_000) for (const [k, x] of falhasEntrar) if (agora - x.ultima >= FALHAS_ESQUECER_MS) falhasEntrar.delete(k);
+      throw new ErroApi(401, 'Email ou palavra-passe errados. Se criou a conta e ainda não confirmou o email, use "Criar conta" outra vez, com a mesma palavra-passe, para receber um código novo.');
     }
-    falhasEntrar.delete(email);
+    falhasEntrar.delete(par);
     const ck = abrirSessao(req, c.id);
     responder(res, 200, { conta: publico(c) }, { 'Set-Cookie': ck });
   };
@@ -301,7 +341,11 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     tem_casa: Boolean(c.casa_codigo), sessao_expira: c.sessaoExpira,
   });
 
+  // Confirmar o email. Sem sessão (depois de "Criar conta"): {email, password, codigo}, sempre a mesma resposta de
+  // erro; as tentativas do código só contam com a palavra-passe certa (um terceiro não o gasta); abre a sessão.
+  // Com sessão (contas por confirmar com sessão aberta antes desta versão): {codigo}, com as mensagens detalhadas.
   h.confirmar = async ({ req, res, c, ip }) => {
+    if (!c) return confirmarSemSessao({ req, res, ip });
     const v = await lerJson(req, ['codigo']);
     if (c.confirmado) return responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) });
     esperar([[L.codigoIp, ip]]);
@@ -314,6 +358,27 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     auditar(quem(c), 'conta_email_confirmado', `conta:${c.id}`, null, ip);
     responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) });
   };
+
+  const ERRO_CODIGO = 'Código errado ou expirado. Confirme o código, ou peça um novo (ao fim de 5 tentativas erradas o código deixa de valer).';
+
+  async function confirmarSemSessao({ req, res, ip }) {
+    const v = await lerJson(req, ['email', 'password', 'codigo']);
+    const email = emailValido(v.email);
+    if (typeof v.password !== 'string' || !v.password || v.password.length > 200) falha('Indique a palavra-passe da conta.');
+    esperar([[L.codigoIp, ip]]);
+    contar([[L.codigoIp, ip]]);
+    const codigo = String(v.codigo ?? '').replace(/\s/g, '');
+    if (!RE_CODIGO.test(codigo)) falha('O código tem 6 algarismos.');
+    const c = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
+    const ok = await verificarSenha(v.password, c?.hash);
+    const r = ok && c.ativo && !c.confirmado ? verificarCodigo(c.id, 'confirmar', codigo) : { r: 'errado' };
+    if (r.r !== 'ok') throw new ErroApi(400, ERRO_CODIGO);
+    const agora = agoraIso();
+    db.prepare('UPDATE contas SET confirmado = ?, atualizado = ? WHERE id = ?').run(agora, agora, c.id);
+    auditar(quem(c), 'conta_email_confirmado', `conta:${c.id}`, null, ip);
+    const ck = abrirSessao(req, c.id);
+    responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) }, { 'Set-Cookie': ck });
+  }
 
   h.reenviar = async ({ req, res, c, ip }) => {
     await lerJson(req, []);
@@ -344,20 +409,19 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const email = emailValido(v.email);
     const prob = problemaSenha(v.password);
     if (prob) falha(prob);
-    esperar([[L.codigoIp, ip]]);
-    contar([[L.codigoIp, ip]]);
+    // A mesma resposta e os mesmos limites (por IP e por email) exista ou não a conta; o código deixa de valer ao
+    // fim de 5 tentativas erradas, mas quem as faz não fica a saber (continua a ver "errado ou expirado").
+    esperar([[L.codigoIp, ip], [L.reporEmail, email]]);
+    contar([[L.codigoIp, ip], [L.reporEmail, email]]);
     const codigo = String(v.codigo ?? '').replace(/\s/g, '');
     const c = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
-    const r = c && c.ativo && RE_CODIGO.test(codigo) ? verificarCodigo(c.id, 'repor', codigo) : { r: 'errado', restam: null };
-    if (r.r !== 'ok') {
-      if (r.r === 'esgotado') throw mensagemCodigo(r);
-      throw new ErroApi(400, 'Código errado ou expirado. Confirme o código, ou peça um novo.');
-    }
+    const r = c && c.ativo && RE_CODIGO.test(codigo) ? verificarCodigo(c.id, 'repor', codigo) : { r: 'errado' };
+    if (r.r !== 'ok') throw new ErroApi(400, ERRO_CODIGO);
     const agora = agoraIso();
     // Quem recebeu o código no email também confirmou o email.
     db.prepare('UPDATE contas SET hash = ?, confirmado = COALESCE(confirmado, ?), atualizado = ? WHERE id = ?').run(await hashSenha(v.password), agora, agora, c.id);
     db.prepare('DELETE FROM contas_sessoes WHERE conta_id = ?').run(c.id);
-    falhasEntrar.delete(email);
+    for (const k of falhasEntrar.keys()) if (k.startsWith(`${email}|`)) falhasEntrar.delete(k);
     auditar(quem(c), 'conta_palavra_passe_reposta', `conta:${c.id}`, null, ip);
     const ck = abrirSessao(req, c.id);
     responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) }, { 'Set-Cookie': ck });
@@ -474,7 +538,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     esperar([[L.casa, String(c.id)]]);
     contar([[L.casa, String(c.id)]]);
     const r = db.prepare('SELECT casa_codigo, casa_cifra FROM contas WHERE id = ?').get(c.id);
-    const password = c.confirmado && r?.casa_cifra ? decifrar(r.casa_cifra) : null;
+    const password = c.confirmado && r?.casa_cifra ? decifrar(r.casa_cifra, c.id) : null;
     if (!r?.casa_codigo || !password) {
       throw new ErroApi(404, r?.casa_codigo
         ? `A entrada com email ainda não está disponível para a sua casa. Entre com o código de cliente (${r.casa_codigo}) e a palavra-passe que recebeu.`
@@ -484,23 +548,40 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   };
 
   // ------------------------------------------------------------ cifra (CONTA_CHAVE)
-  function cifrar(texto) {
+  // AAD = "conta:<id>": uma cifra copiada para outra conta não se lê. Etiqueta sempre de 16 bytes.
+  const aad = (contaId) => Buffer.from(`conta:${contaId}`, 'utf8');
+  function cifrar(texto, contaId) {
     const iv = randomBytes(12);
-    const cf = createCipheriv('aes-256-gcm', config.contaChave, iv);
+    const cf = createCipheriv('aes-256-gcm', config.contaChave, iv, { authTagLength: 16 });
+    cf.setAAD(aad(contaId));
     const dados = Buffer.concat([cf.update(texto, 'utf8'), cf.final()]);
     return [iv, cf.getAuthTag(), dados].map((b) => b.toString('base64')).join('.');
   }
-  function decifrar(s) {
+  /** Decifra (com o AAD da conta; o que foi cifrado antes, sem AAD, também se lê — e é logo cifrado de novo). */
+  function decifrar(s, contaId) {
     if (!config.contaChave) return null;
-    try {
-      const [iv, tag, dados] = String(s).split('.').map((b) => Buffer.from(b, 'base64'));
-      const d = createDecipheriv('aes-256-gcm', config.contaChave, iv);
-      d.setAuthTag(tag);
-      return Buffer.concat([d.update(dados), d.final()]).toString('utf8');
-    } catch {
-      registo.aviso('conta: credenciais da casa ilegíveis (CONTA_CHAVE mudou?)');
-      return null;
+    const partes = String(s).split('.');
+    const [iv, tag, dados] = partes.map((b) => Buffer.from(b, 'base64'));
+    const tentar = (comAad) => {
+      try {
+        const d = createDecipheriv('aes-256-gcm', config.contaChave, iv, { authTagLength: 16 });
+        if (comAad) d.setAAD(aad(contaId));
+        d.setAuthTag(tag);
+        return Buffer.concat([d.update(dados), d.final()]).toString('utf8');
+      } catch {
+        return null;
+      }
+    };
+    let texto = null;
+    if (partes.length === 3 && iv.length === 12 && tag.length === 16) {
+      texto = tentar(true);
+      if (texto === null) {
+        texto = tentar(false);
+        if (texto !== null) db.prepare('UPDATE contas SET casa_cifra = ? WHERE id = ?').run(cifrar(texto, contaId), contaId);
+      }
     }
+    if (texto === null) registo.aviso('conta: credenciais da casa ilegíveis (CONTA_CHAVE mudou?)');
+    return texto;
   }
 
   /**
@@ -512,7 +593,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const o = db.prepare('SELECT conta_id, cliente FROM orcamentos WHERE id = ?').get(p.orcamento_id);
     if (!o?.conta_id) return;
     const codigo = r.cliente || o.cliente || p.cliente;
-    const cifra = r.password && config.contaChave ? cifrar(r.password) : null;
+    const cifra = r.password && config.contaChave ? cifrar(r.password, o.conta_id) : null;
     db.prepare('UPDATE contas SET casa_codigo = ?, casa_cifra = COALESCE(?, casa_cifra), atualizado = ? WHERE id = ?').run(codigo, cifra, agoraIso(), o.conta_id);
     auditar(null, 'conta_casa_ligada', `conta:${o.conta_id}`, { cliente: codigo, entrada_com_email: Boolean(cifra) });
   }
@@ -568,10 +649,16 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     for (const id of alvos) await fotos.apagarTodas(id);
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Auditoria: o histórico dos pedidos apagados e da conta sai (com os IPs e os detalhes); de cada pedido fica só
+      // uma linha "apagado (RGPD)" sem dados pessoais (a da conta é a "conta_apagada" que o chamador escreve).
+      // Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
       for (const id of alvos) {
         db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
-        db.prepare('UPDATE auditoria SET detalhes = NULL WHERE alvo = ?').run(`orcamento:${id}`);
+        db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
+        auditar(null, 'orcamento_apagado_rgpd', `orcamento:${id}`);
       }
+      db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`conta:${c.id}`);
+      db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`conta:${c.id}`);
       db.prepare('DELETE FROM contas WHERE id = ?').run(c.id);
       db.exec('COMMIT');
     } catch (e) {
@@ -631,7 +718,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'esqueci', null, 'esqueci'],
     ['POST', 'repor', null, 'repor'],
     ['GET', 'eu', 'sessao', 'eu'],
-    ['POST', 'confirmar', 'sessao', 'confirmar'],
+    ['POST', 'confirmar', 'opcional', 'confirmar'],
     ['POST', 'reenviar', 'sessao', 'reenviar'],
     ['GET', 'simulacao', 'sessao', 'lerSimulacao'],
     ['POST', 'simulacao', 'sessao', 'guardarSimulacao'],
@@ -660,7 +747,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       if (rota.nome !== 'acrescentarFoto' && !tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     }
     let c = null;
-    if (rota.sessao) {
+    if (rota.sessao === 'opcional') c = sessao(req, res);
+    else if (rota.sessao) {
       c = sessao(req, res);
       if (!c) throw new ErroApi(401, 'Sessão inválida ou expirada. Entre de novo na sua conta.');
       if (rota.sessao === 'confirmada' && !c.confirmado) throw new ErroApi(403, 'Confirme primeiro o seu email com o código que lhe enviámos.');
