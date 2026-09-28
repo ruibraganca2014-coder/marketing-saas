@@ -230,51 +230,107 @@ window.addEventListener("hashchange", () => {
 });
 
 // ---------- Pedidos ao servidor (criar cliente, aparelho…): esperar pelo resultado ----------
-// O servidor aplica os pedidos a cada ~5 s (temporizador domus-pedidos). Enquanto isso, uma faixa diz que está à espera;
-// quando chega o resultado com palavra-passe, abre uma janela que a mostra UMA vez.
+// O servidor aplica os pedidos a cada ~5 s (temporizador domus-pedidos). Um só ciclo para todos os pedidos em
+// espera: GET pedidos UMA vez por ciclo (o estado de todos); só os que acabaram são lidos um a um (GET pedidos/:id
+// mostra o resultado uma vez). O intervalo começa em 4 s e cresce enquanto nada muda (até 60 s); com o separador
+// escondido não se pergunta nada; ao fim de 30 min sem mudanças pára (cada pedido renova a sessão: não a
+// manter aberta para sempre) e a faixa oferece "Verificar agora". Quando chega o resultado com palavra-passe,
+// abre uma janela que a mostra UMA vez. Uma só faixa compacta, que se abre para ver a lista.
 const pendentes = new Map();
 export const INTERVALO_PEDIDOS = 4000;
+export const INTERVALO_PEDIDOS_MAX = 60000;
+export const PARAR_PEDIDOS_MS = 30 * 60 * 1000;
+const ciclo = { t: null, intervalo: INTERVALO_PEDIDOS, ultimaMudanca: 0, parado: false, aCorrer: false, aberta: false };
+
 function acompanharPedido(id, { descricao, utilizador } = {}) {
   if (!id || pendentes.has(id)) return;
-  const linha = h("div", { class: "pedido-pendente" }, h("span", { class: "rodar", "aria-hidden": "true" }), h("span", { text: `${descricao ?? "Pedido"}: à espera do servidor…` }));
-  $("pedidos-pendentes").append(linha);
-  const p = { linha, falhas: 0 };
+  const p = { descricao: descricao ?? "Pedido", utilizador, linha: h("li", { class: "pedido-pendente", text: descricao ?? "Pedido" }) };
+  p.terminar = () => { pendentes.delete(id); desenharFaixa(); if (!pendentes.size) pararCiclo(); };
   pendentes.set(id, p);
-  resumirPendentes();
-  const verificar = async () => {
-    if (!eu) { terminar(); return; }
-    try {
-      const r = await lerPedido(id);
-      if (r.estado === "pendente") { p.t = setTimeout(verificar, INTERVALO_PEDIDOS); return; }
-      terminar();
-      if (r.estado === "erro") { avisar(`${descricao ?? "Pedido"}: não foi feito. ${r.erro ?? ""}`.trim(), "erro"); return; }
-      if (r.senha) mostrarPalavraPasse(`${descricao ?? "Pedido"}: feito`, r.senha, { utilizador: utilizador ?? campo(r.resultado, "utilizador", "codigo"), texto: "O servidor aplicou o pedido. Entregue estes dados ao cliente." });
-      else avisar(`${descricao ?? "Pedido"}: feito.`, "ok");
-    } catch (e) {
-      if (e instanceof ErroApi && e.estado === 404) { terminar(); avisar(`${descricao ?? "Pedido"}: o resultado já não está disponível.`, "info"); return; }
-      if (e instanceof ErroApi && (e.estado === 401 || e.estado === 403)) { terminar(); return; }
-      p.falhas++;
-      p.t = setTimeout(verificar, Math.min(INTERVALO_PEDIDOS * (1 + p.falhas), 60000));
-    }
-  };
-  function terminar() { clearTimeout(p.t); linha.remove(); pendentes.delete(id); resumirPendentes(); }
-  p.terminar = terminar;
-  p.t = setTimeout(verificar, 800);
+  // Um pedido novo recomeça o ciclo depressa.
+  ciclo.intervalo = INTERVALO_PEDIDOS; ciclo.ultimaMudanca = Date.now(); ciclo.parado = false;
+  desenharFaixa();
+  agendar(800);
 }
 
-/** Muitos pedidos de uma vez (ex.: converter com aparelhos): mostra 3 faixas e "mais N". */
-const MAX_FAIXAS = 3;
-function resumirPendentes() {
+function pararCiclo() { clearTimeout(ciclo.t); ciclo.t = null; }
+function agendar(ms = ciclo.intervalo) {
+  pararCiclo();
+  if (!pendentes.size || ciclo.parado || document.hidden) return;
+  ciclo.t = setTimeout(verificarPedidos, ms);
+}
+
+async function verificarPedidos() {
+  ciclo.t = null;
+  if (!eu) { for (const p of [...pendentes.values()]) p.terminar(); return; }
+  if (!pendentes.size || ciclo.aCorrer) return;
+  ciclo.aCorrer = true;
+  let mudou = false;
+  try {
+    let estados = null;
+    try { estados = new Map(lista(await pedir("pedidos"), "pedidos").map((x) => [String(campo(x, "id")), x])); }
+    catch (e) { if (e instanceof ErroApi && (e.estado === 401 || e.estado === 403)) return; }
+    // Os que já não estão pendentes (ou que a lista não traz, até 3 por ciclo) leem-se um a um.
+    const ids = [...pendentes.keys()];
+    const aLer = estados ? ids.filter((id) => estados.has(id) && estados.get(id).estado !== "pendente") : [];
+    if (estados) aLer.push(...ids.filter((id) => !estados.has(id)).slice(0, 3));
+    for (const id of aLer) {
+      const p = pendentes.get(id);
+      if (!p || !eu) continue;
+      try {
+        const r = await lerPedido(id);
+        if (r.estado === "pendente") continue;
+        mudou = true;
+        p.terminar();
+        if (r.estado === "erro") avisar(`${p.descricao}: não foi feito. ${r.erro ?? ""}`.trim(), "erro");
+        else if (r.senha) mostrarPalavraPasse(`${p.descricao}: feito`, r.senha, { utilizador: p.utilizador ?? campo(r.resultado, "utilizador", "codigo"), texto: "O servidor aplicou o pedido. Entregue estes dados ao cliente." });
+        else avisar(`${p.descricao}: feito.`, "ok");
+      } catch (e) {
+        if (e instanceof ErroApi && e.estado === 404) { mudou = true; p.terminar(); avisar(`${p.descricao}: o resultado já não está disponível.`, "info"); }
+        else if (e instanceof ErroApi && (e.estado === 401 || e.estado === 403)) { mudou = true; p.terminar(); }
+      }
+    }
+  } finally {
+    ciclo.aCorrer = false;
+  }
+  const agora = Date.now();
+  if (mudou) { ciclo.intervalo = INTERVALO_PEDIDOS; ciclo.ultimaMudanca = agora; }
+  else ciclo.intervalo = Math.min(Math.round(ciclo.intervalo * 1.5), INTERVALO_PEDIDOS_MAX);
+  if (pendentes.size && agora - ciclo.ultimaMudanca >= PARAR_PEDIDOS_MS) { ciclo.parado = true; desenharFaixa(); return; }
+  agendar();
+}
+
+// Separador escondido: pára; ao voltar, pergunta logo (e recomeça depressa).
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { pararCiclo(); return; }
+  if (!pendentes.size || ciclo.parado) return;
+  ciclo.intervalo = INTERVALO_PEDIDOS;
+  agendar(300);
+});
+
+/** Uma só faixa: "N pedidos à espera do servidor" (abre a lista); parada → "Verificar agora". */
+function desenharFaixa() {
   const zona = $("pedidos-pendentes");
-  const linhas = [...zona.querySelectorAll(".pedido-pendente")];
-  linhas.forEach((l, i) => { l.hidden = i >= MAX_FAIXAS; });
-  let mais = zona.querySelector(".pedidos-mais");
-  const n = linhas.length - MAX_FAIXAS;
-  if (n > 0) {
-    if (!mais) { mais = h("div", { class: "pedidos-mais" }); zona.append(mais); }
-    mais.textContent = `e mais ${n} ${n === 1 ? "pedido" : "pedidos"} à espera do servidor…`;
-    zona.append(mais);
-  } else mais?.remove();
+  const n = pendentes.size;
+  if (!n) { zona.replaceChildren(); ciclo.aberta = false; return; }
+  const [um] = pendentes.values();
+  const texto = n === 1 ? `${um.descricao}: à espera do servidor…` : `${n} pedidos à espera do servidor…`;
+  const partes = [ciclo.parado ? h("span", { class: "pedidos-parado", "aria-hidden": "true", text: "⏸" }) : h("span", { class: "rodar", "aria-hidden": "true" }),
+    h("span", { class: "pedidos-texto", text: ciclo.parado ? `${n === 1 ? um.descricao : `${n} pedidos`}: parei de verificar.` : texto })];
+  if (ciclo.parado) {
+    partes.push(h("button", { class: "btn sec pequeno", type: "button", id: "pedidos-verificar", text: "Verificar agora", onclick: () => {
+      ciclo.parado = false; ciclo.intervalo = INTERVALO_PEDIDOS; ciclo.ultimaMudanca = Date.now(); desenharFaixa(); agendar(0);
+    } }));
+  }
+  let listaEl = null;
+  if (n > 1) {
+    listaEl = h("ul", { class: "pedidos-lista", id: "pedidos-lista", hidden: !ciclo.aberta }, ...[...pendentes.values()].slice(0, 50).map((p) => p.linha),
+      n > 50 ? h("li", { class: "ajuda", text: `e mais ${n - 50}` }) : null);
+    partes.push(h("button", { class: "botao-icone pedidos-abrir", type: "button", "aria-controls": "pedidos-lista", "aria-expanded": String(ciclo.aberta),
+      "aria-label": ciclo.aberta ? "Esconder a lista dos pedidos" : "Ver a lista dos pedidos", title: ciclo.aberta ? "Esconder" : "Ver a lista", text: ciclo.aberta ? "▾" : "▸",
+      onclick: () => { ciclo.aberta = !ciclo.aberta; desenharFaixa(); $("pedidos-pendentes").querySelector(".pedidos-abrir")?.focus(); } }));
+  }
+  zona.replaceChildren(...[h("div", { class: "pedidos-faixa" }, ...partes), listaEl].filter(Boolean));
 }
 
 arrancar();

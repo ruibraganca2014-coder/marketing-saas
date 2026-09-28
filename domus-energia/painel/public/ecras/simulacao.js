@@ -3,7 +3,7 @@
 // só de leitura (§2.1, desenhada por vendor/planta-svg.js) com zoom e deslocamento.
 // Também sugere os aparelhos a pedir ao servidor ("Converter em cliente e obra"): aparelhosDaSimulacao().
 import { numero } from "../api.js";
-import { h, euros, num, selo, dados } from "../ui.js";
+import { h, euros, num, selo, dados, data } from "../ui.js";
 // Importação em namespace: o módulo vem do simulador (web/simulador/planta-svg.js) e só se garante desenharPlanta.
 import * as desenho from "../vendor/planta-svg.js";
 
@@ -276,8 +276,10 @@ export function vistaSimulacao(sim, catalogo = {}) {
   return h("section", { class: "simulacao", id: "simulacao-cliente" }, ...partes);
 }
 
-function tabelaItens(itens, mo, catalogo, desl = null) {
-  let soma = 0;
+/** Artigos, mão de obra e deslocação. `horas`: mais uma coluna com as horas de instalação do catálogo (relatório técnico). */
+function tabelaItens(itens, mo, catalogo, desl = null, { horas = false } = {}) {
+  let soma = 0, somaHoras = 0;
+  const cols = horas ? 4 : 3;
   const linhas = itens.slice(0, 300).map((i) => {
     const sku = typeof i.sku === "string" ? i.sku : "";
     const art = catalogo && typeof catalogo === "object" ? catalogo[sku] : null;
@@ -286,28 +288,34 @@ function tabelaItens(itens, mo, catalogo, desl = null) {
     const sub = preco === null ? null : Math.round(preco * qtd * 100) / 100;
     soma += sub ?? 0;
     const marca = !art ? selo("Já não está no catálogo", "grav-critica") : art.ativo === false ? selo("Inativo no catálogo", "aviso") : null;
+    const hArt = numero(art?.horas_instalacao);
+    const hLinha = hArt === null ? null : Math.round(hArt * qtd * 100) / 100;
+    somaHoras += hLinha ?? 0;
     return h("tr", { dataset: { sku }, class: art ? "" : "fora-catalogo" },
       h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), marca)),
       h("td", { class: "num", "data-rotulo": "Qtd.", text: num(qtd) }),
+      horas ? h("td", { class: "num", "data-rotulo": "Horas", text: hLinha === null ? "—" : `${num2(hLinha)} h` }) : null,
       h("td", { class: "num", "data-rotulo": "Preço", text: euros(preco) }),
       h("td", { class: "num", "data-rotulo": "Subtotal", text: euros(sub) }));
   });
   const moValor = numero(mo.valor_iva);
-  const pe = [h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Artigos" }), h("td", { class: "num", text: euros(soma) }))];
+  const pe = [h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: horas && somaHoras ? `Artigos (${num2(somaHoras)} h de instalação no catálogo)` : "Artigos" }), h("td", { class: "num", text: euros(soma) }))];
   if (moValor !== null || numero(mo.horas) !== null) {
-    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: "3", text: `Mão de obra${numero(mo.horas) !== null ? ` (${num2(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
-    if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: "3", text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
-    pe.push(h("tr", {}, h("th", { scope: "row", colspan: "3", text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0)) })));
+    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: String(cols), text: `Mão de obra${numero(mo.horas) !== null ? ` (${num2(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
+    if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: String(cols), text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
+    pe.push(h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0)) })));
   }
   const fora = linhas.filter((l) => l.classList.contains("fora-catalogo")).length;
   return h("div", { class: "sim-bloco" }, h("h4", { text: "Artigos" }),
     fora ? h("p", { class: "msg info", text: `${plural(fora, "artigo já não está", "artigos já não estão")} no catálogo: confirme o material antes da obra.` }) : null,
     h("div", { class: "tabela-rolar" }, h("table", { class: "tabela tabela-cartoes", id: "sim-itens" },
-      h("thead", {}, h("tr", {}, h("th", { scope: "col", text: "Artigo" }), h("th", { scope: "col", class: "num", text: "Qtd." }), h("th", { scope: "col", class: "num", text: "Preço" }), h("th", { scope: "col", class: "num", text: "Subtotal" }))),
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", text: "Artigo" }), h("th", { scope: "col", class: "num", text: "Qtd." }), horas ? h("th", { scope: "col", class: "num", text: "Horas" }) : null, h("th", { scope: "col", class: "num", text: "Preço" }), h("th", { scope: "col", class: "num", text: "Subtotal" }))),
       h("tbody", {}, ...linhas), h("tfoot", {}, ...pe))));
 }
 
-function tabelaCircuitos(circuitos, planta) {
+/** Tabela dos circuitos. `divisoesSim`: com ela (relatório técnico), junta o piso de cada circuito nas casas com pisos. */
+function tabelaCircuitos(circuitos, planta, divisoesSim = null) {
+  const comPisos = divisoesSim !== null && [...arr(planta?.divisoes), ...divisoesSim].some((d) => pisoDe(d) > 0);
   const linhas = circuitos.slice(0, 80).map((c) => {
     const it = obj(c.itens);
     const m = maquinasDe(c);
@@ -323,6 +331,7 @@ function tabelaCircuitos(circuitos, planta) {
       h("td", { class: "num", "data-rotulo": "N.º", text: String(c.n ?? "—") }),
       h("td", { "data-rotulo": "Circuito" }, h("div", {}, h("span", { text: String(c.nome ?? TIPOS_CIRCUITO[c.tipo] ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [
         RTIEBT[c.codigo] ? `${c.codigo} ${RTIEBT[c.codigo]}` : TIPOS_CIRCUITO[c.tipo] ?? c.tipo, divs,
+        comPisos ? pisosDoCircuito(c, planta, divisoesSim).map(nomePiso).join(" + ") || null : null,
         numero(c.diferencial) !== null ? `diferencial ${num(numero(c.diferencial))}` : null, c.afdd === true ? "AFDD" : null,
       ].filter(Boolean).join(" · ") }))),
       h("td", { class: "num", "data-rotulo": "Disjuntor", text: amp ? `${amp} A${numero(c.seccao_mm2) !== null ? ` · ${num(numero(c.seccao_mm2))} mm²` : ""}` : "—" }),
@@ -503,6 +512,317 @@ function vistaPlanta(planta) {
     h("div", { class: "planta-vista" }, svg),
     h("p", { class: "ajuda", text: "Arraste para deslocar; roda do rato ou dois dedos para o zoom. Passe por cima de um elemento para ver o que é." }),
     porTipo.size ? h("ul", { class: "planta-legenda" }, ...[...porTipo].map(([t, n]) => h("li", { text: `${t}: ${n}` }))) : null);
+}
+
+// ---------------------------------------------------------------- relatório técnico (eletricista)
+
+/** Pisos (ordenados) das divisões de um circuito: pelo id/nome na planta ou, sem planta, no passo "Divisões". */
+function pisosDoCircuito(c, planta, divisoesSim = []) {
+  const s = new Set();
+  const todas = [...arr(planta?.divisoes), ...arr(divisoesSim)].filter((d) => d && typeof d === "object");
+  for (const ref of arr(c?.divisoes)) {
+    const d = todas.find((x) => (x.id != null && x.id === ref) || x.nome === ref);
+    if (d) s.add(pisoDe(d));
+  }
+  return [...s].sort((a, b) => a - b);
+}
+
+/** Área (m²) de uma divisão da planta (polígono ou retângulo). */
+function areaDivisao(d) {
+  const p = cantosDivisao(d);
+  let a = 0;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += (p[j][0] + p[i][0]) * (p[j][1] - p[i][1]);
+  return Math.abs(a) / 2 / 10000;
+}
+/** Divisão com paredes oblíquas (forma livre): `pontos` válidos que não são só os 4 cantos. */
+const formaLivre = (d) => Array.isArray(d?.pontos) && d.pontos.length >= 3 && cantosDivisao(d).length !== 4;
+const semNota = (t) => String(t).replace(/\s*\(orientativo — confirmamos na visita\)\s*$/i, "").trim();
+const metros = (cm) => `${fmt2.format(Math.round(n0(cm)) / 100)} m`;
+const m2 = (a) => `${fmt2.format(Math.round(a * 10) / 10)} m²`;
+
+/** Máquinas da simulação com a potência: as dos circuitos (com o circuito) ou, sem quadro, as da planta. */
+function maquinasDaSimulacao(sim, planta) {
+  const out = [];
+  for (const c of arr(obj(sim.quadro).circuitos).filter((x) => x && typeof x === "object")) {
+    for (const m of maquinasDe(c).lista) out.push({ modelo: m.modelo, w: n0(m.potencia_w), circuito: c });
+  }
+  if (!out.length && planta) {
+    for (const e of planta.elementos.filter((x) => x.tipo === "maquina")) out.push({ modelo: obj(e.props).modelo, w: n0(obj(e.props).potencia_w), elemento: e });
+  }
+  return out;
+}
+const ehCarregador = (m) => typeof m === "string" && m.startsWith("carregador_ve");
+
+/**
+ * "A VERIFICAR NA VISITA": o que o eletricista tem de confirmar, a partir das respostas "Não sei", dos avisos e
+ * dos dados calculados (docs/SIMULADOR-ORCAMENTO.md §4, §4.1, §5.1, §6). [{tema, texto}], pela ordem da visita.
+ * Simulações antigas (sem os campos novos) continuam a funcionar: o que não vem não se inventa.
+ */
+export function aVerificarNaVisita(sim, catalogo = {}) {
+  if (!sim || typeof sim !== "object") return [];
+  const s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), m = obj(q.modulos);
+  const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
+  const divisoesSim = arr(s.divisoes).filter((d) => d && typeof d === "object" && d.nome !== FORA);
+  const out = [];
+  const por = (tema, texto) => out.push({ tema, texto });
+  const quadroNovo = q.pacote !== undefined || q.modulos !== undefined || q.potencia_sugerida_kva !== undefined;
+
+  // Localidade e deslocação.
+  const d = obj(s.deslocacao);
+  if (d.estado === "visita") por("Localidade", `«${String(d.localidade ?? "")}» não foi reconhecida como concelho: confirmar a morada e o valor da deslocação (só está o mínimo).`);
+  else if (d.estado === "sem_localidade") por("Localidade", "O cliente não indicou a localidade: confirmar a morada e o valor da deslocação.");
+  else if (d.estado === "fora_area") por("Localidade", `${d.concelho ?? d.localidade ?? "A localidade"}${numero(d.distancia_km) !== null ? ` (${num(numero(d.distancia_km))} km estimados)` : ""} fica fora da área servida: decidir se se faz a obra e o preço da deslocação (não está no total).`);
+
+  // Pára-raios / linha aérea (descarregador tipo 2).
+  const desc = obj(q.protecoes).descarregador === true;
+  if (q.para_raios === "sim") por("Pára-raios / linha aérea", `O cliente diz que SIM: o descarregador de sobretensões tipo 2 é obrigatório${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
+  else if (quadroNovo && q.para_raios !== "nao") por("Pára-raios / linha aérea", `O cliente NÃO SABE: verificar se há pára-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é obrigatório${desc ? " (já está incluído)" : " (não está incluído)"}.`);
+
+  // Quadro antigo / atual / novo.
+  const antigo = q.quadro_antigo;
+  const novos = numero(m.novos);
+  if (antigo === "sim") por("Quadro elétrico", "O cliente diz que o quadro é ANTIGO (orçamentado quadro novo): confirmar o estado (isolamento, barramentos, terra), o local e se se aproveita alguma coisa.");
+  else if (q.quadro_novo === "novo") por("Quadro elétrico", "Quadro novo no orçamento: confirmar o local, o espaço e a passagem dos circuitos para o quadro novo.");
+  else if (q.quadro_novo === "atual") por("Quadro elétrico", `O cliente diz que o quadro atual serve: confirmar o estado e se há espaço para ${novos !== null ? `${num(novos)} módulos novos` : "os módulos novos"}${novos !== null && novos > 12 ? " (acima de 12: ampliação incluída)" : ""}.`);
+  else if (quadroNovo) por("Quadro elétrico", `O cliente NÃO SABE se o quadro ${antigo === undefined ? "atual serve" : "é antigo"}: verificar o estado; ${q.quadro_novo_no_preco === false ? "o quadro novo não está no preço" : "o preço inclui quadro novo por precaução — sai se o atual servir"}${novos !== null ? ` (no atual seriam ${num(novos)} módulos novos)` : ""}.`);
+  if ((numero(m.quadros) ?? 1) > 1 || m.cabe === false) por("Quadro elétrico", `Nem um quadro de 48 módulos deixa 25 % livres (${num(numero(m.ocupados) ?? 0)} módulos ocupados): ${plural(numero(m.quadros) ?? 1, "quadro", "quadros")} — confirmar o espaço e a organização.`);
+  if (!quadroNovo && arr(q.circuitos).length) por("Quadro elétrico", "Simulação antiga, sem as perguntas do quadro (pára-raios, quadro atual, proteções): verificar tudo na visita.");
+
+  // Potência contratada e ligação.
+  const kva = numero(casa.potencia_contratada_kva), sug = numero(q.potencia_sugerida_kva), carga = numero(q.potencia_carga_w);
+  const cargaTxt = carga !== null ? ` (cargas ≈ ${num(carga)} W)` : "";
+  const temCasa = Object.keys(casa).length > 0;
+  if (temCasa && kva === null) por("Potência contratada", `O cliente NÃO SABE: ver no contador ou na fatura${sug !== null ? `; sugerida ${num2(sug)} kVA${cargaTxt}` : ""}.`);
+  else if (sug !== null && sug > kva) por("Potência contratada", `${num2(kva)} kVA pode ser CURTA: sugerida ${num2(sug)} kVA${cargaTxt} — falar com o cliente sobre o aumento de potência.`);
+  if (quadroNovo && sug === null && carga !== null) por("Potência contratada", `Cargas ≈ ${num(carga)} W: acima de 41,4 kVA (contrato especial).`);
+  if (temCasa && casa.fases == null) por("Ligação", "O cliente NÃO SABE se a ligação é monofásica ou trifásica: verificar no contador ou no quadro (muda os módulos e as máquinas trifásicas).");
+  else if (casa.fases === "tri") por("Ligação", "Trifásica: confirmar o equilíbrio das fases; geral, diferenciais, descarregador, relé e medidor são tetrapolares (o dobro dos módulos); as máquinas trifásicas ficam na proteção trifásica, sem disjuntor inteligente.");
+  if (casa.fases !== "tri" && sug !== null && sug > 13.8) por("Ligação", `A potência sugerida (${num2(sug)} kVA) pede ligação trifásica.`);
+
+  // Máquinas ≥ 2000 W e carregador do carro.
+  const maqs = maquinasDaSimulacao(s, planta);
+  for (const x of maqs.filter((y) => y.w >= CARGA_PERIGOSA_W && !ehCarregador(y.modelo))) {
+    const c = x.circuito;
+    const onde = c
+      ? `circuito ${c.n ?? "?"}${c.codigo ? ` (${c.codigo})` : ""}: ${numero(c.amperes) !== null ? `${num(numero(c.amperes))} A` : "disjuntor —"}${numero(c.seccao_mm2) !== null ? `, cabo ${num(numero(c.seccao_mm2))} mm²` : ""}${numero(c.diferencial) !== null ? `, diferencial ${num(numero(c.diferencial))}` : ""}${c.inteligente ? ", inteligente (carga perigosa na app)" : ""}`
+      : "sem circuito na simulação";
+    const partilhado = c && (maquinasDe(c).lista.length > 1 || n0(obj(c.itens).luzes) + n0(obj(c.itens).tomadas) > 0);
+    por("Máquina ≥ 2000 W", `${MODELOS[x.modelo] ?? x.modelo ?? "Máquina"} ${num(x.w)} W — ${onde}. Confirmar circuito próprio, secção do cabo e disjuntor${partilhado ? " (NÃO está sozinha no circuito)" : ""}.`);
+  }
+  const carregadores = maqs.filter((y) => ehCarregador(y.modelo));
+  if (carregadores.length || arr(obj(s.quer).maquinas).some(ehCarregador)) {
+    const x = carregadores[0], c = x?.circuito;
+    const difProprio = arr(q.diferenciais).some((g) => g && g.carregador);
+    por("Carregador do carro", `${x ? `${MODELOS[x.modelo] ?? "Carregador"} ${num(x.w)} W` : "Pedido pelo cliente"}${c ? ` — circuito ${c.n ?? "?"}${numero(c.amperes) !== null ? ` de ${num(numero(c.amperes))} A` : ""}${numero(c.seccao_mm2) !== null ? `, ${num(numero(c.seccao_mm2))} mm²` : ""}` : ""}: circuito próprio (40 A) e diferencial próprio tipo A ou B (RTIEBT secção 722)${difProprio ? " — previsto" : " — NÃO previsto"}; ver se o carregador já o traz, a distância ao quadro e o local.`);
+  }
+
+  // Pisos com quadro parcial e circuitos que atravessam pisos.
+  const parciais = numero(m.parciais) ?? 0;
+  if (parciais > 0) {
+    const pisos = planta && typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [...new Set(divisoesSim.map(pisoDe))].sort((a, b) => a - b);
+    const cima = pisos.filter((p) => p > 0);
+    por("Quadros parciais", `${plural(parciais, "quadro parcial", "quadros parciais")}${numero(m.tamanho_parcial) !== null ? ` de ${num(numero(m.tamanho_parcial))} módulos` : ""}${cima.length ? ` (${cima.map(nomePiso).join(", ")})` : ""}: confirmar o local em cada piso, o cabo de alimentação desde o quadro geral e o corte do piso.`);
+    for (const c of arr(q.circuitos).filter((x) => x && typeof x === "object")) {
+      const ps = pisosDoCircuito(c, planta, divisoesSim);
+      if (ps.length > 1) por("Quadros parciais", `Circuito ${c.n ?? "?"} (${String(c.nome ?? TIPOS_CIRCUITO[c.tipo] ?? "—")}) serve ${ps.map(nomePiso).join(" e ")}: decidir em que quadro fica (ou dividi-lo).`);
+    }
+  }
+
+  // Planta: forma livre, divisões sem aparelhos, elementos fora.
+  if (planta && planta.divisoes.length) {
+    const comPisos = planta.divisoes.some((x) => pisoDe(x) > 0);
+    const livres = planta.divisoes.filter(formaLivre);
+    if (livres.length) por("Planta", `Divisões de forma livre (paredes oblíquas): ${livres.map((x) => `${String(x.nome ?? x.id)} (${m2(areaDivisao(x))}${comPisos ? `, ${nomePiso(pisoDe(x))}` : ""})`).join(", ")} — medir no local e confirmar a posição dos aparelhos.`);
+    const divDe = (e) => (e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e));
+    const vazias = planta.divisoes.filter((x) => !planta.elementos.some((e) => divDe(e) === x.id));
+    if (vazias.length) por("Planta", `Sem nenhum aparelho desenhado: ${vazias.map((x) => String(x.nome ?? x.id)).join(", ")} — confirmar com o cliente.`);
+    const fora = planta.elementos.filter((e) => e.tipo !== "quadro" && divDe(e) == null);
+    if (fora.length) por("Planta", `${plural(fora.length, "elemento fora das divisões", "elementos fora das divisões")} (${[...new Set(fora.map((e) => NOMES_ELEMENTOS[e.tipo] ?? String(e.tipo)))].join(", ")}): confirmar onde ficam.`);
+  } else if (!planta && divisoesSim.length) por("Planta", "O cliente não desenhou a planta: a posição dos aparelhos define-se na visita.");
+
+  // Material que já não está no catálogo.
+  const cat = obj(catalogo);
+  if (Object.keys(cat).length) {
+    const semCat = [...new Set(arr(s.itens).filter((i) => i && typeof i.sku === "string" && !cat[i.sku]).map((i) => i.sku))];
+    if (semCat.length) por("Material", `${semCat.join(", ")} já não ${semCat.length === 1 ? "está" : "estão"} no catálogo: confirmar o material.`);
+  }
+
+  // Avisos elétricos da simulação (os que o cliente viu), sem o "(orientativo — confirmamos na visita)".
+  for (const a of arr(s.avisos).filter((x) => typeof x === "string" && x.trim()).slice(0, 50)) por("Aviso da simulação", semNota(a));
+  return out;
+}
+
+/** "3 luzes (1 regulável) · 2 interruptores (1 + 2 bot.) · …" dos elementos da planta de uma divisão. */
+function aparelhosTxt(els) {
+  const de = (t) => els.filter((e) => e.tipo === t);
+  const p = (e) => obj(e.props);
+  const partes = [];
+  const luzes = de("luz");
+  if (luzes.length) { const r = luzes.filter((e) => p(e).brilho).length; partes.push(`${plural(luzes.length, "luz", "luzes")}${r ? ` (${num(r)} ${r === 1 ? "regulável" : "reguláveis"})` : ""}`); }
+  const ints = de("interruptor");
+  if (ints.length) partes.push(`${plural(ints.length, "interruptor", "interruptores")} (${ints.map((e) => Math.min(4, Math.max(1, numero(p(e).botoes) ?? 1))).join(" + ")} bot.)`);
+  const toms = de("tomada");
+  if (toms.length) { const d = toms.filter((e) => p(e).dupla).length; partes.push(`${plural(toms.length, "tomada", "tomadas")}${d ? ` (${num(d)} ${d === 1 ? "dupla" : "duplas"})` : ""}`); }
+  const jan = de("janela");
+  if (jan.length) {
+    const mot = jan.filter((e) => p(e).estore && p(e).motorizado).length, man = jan.filter((e) => p(e).estore && !p(e).motorizado).length;
+    const est = [mot ? `${num(mot)} com estore motorizado` : null, man ? `${num(man)} com estore manual` : null].filter(Boolean).join(", ");
+    partes.push(`${plural(jan.length, "janela", "janelas")}${est ? ` (${est})` : ""}`);
+  }
+  const portas = de("porta");
+  if (portas.length) partes.push(`${plural(portas.length, "porta", "portas")}${portas.some((e) => p(e).entrada) ? " (da rua)" : ""}`);
+  const sp = de("sensor_porta").length, sm = de("sensor_movimento").length;
+  if (sp) partes.push(plural(sp, "sensor de porta/janela", "sensores de porta/janela"));
+  if (sm) partes.push(plural(sm, "sensor de movimento", "sensores de movimento"));
+  if (de("quadro").length) partes.push("quadro elétrico");
+  for (const e of de("maquina")) partes.push(`${MODELOS[p(e).modelo] ?? "Máquina"} ${num(n0(p(e).potencia_w))} W`);
+  const alturas = els.filter((e) => e.altura_cm !== null && e.altura_cm !== "" && numero(e.altura_cm) !== null)
+    .map((e) => `${typeof e.nome === "string" && e.nome.trim() ? e.nome.trim() : (NOMES_ELEMENTOS[e.tipo] ?? String(e.tipo))} a ${metros(e.altura_cm)}`);
+  if (alturas.length) partes.push(`alturas dadas pelo cliente: ${alturas.join(", ")}`);
+  return partes.join(" · ") || "—";
+}
+
+/** Divisões e aparelhos por piso (da planta): uma tabela por piso, com o equipamento inteligente do passo "Divisões". */
+function divisoesPorPiso(planta, divisoesSim) {
+  const pisos = typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [0];
+  const divDe = (e) => (e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e));
+  const inteligente = (d) => {
+    const x = divisoesSim.find((y) => y.nome === d.nome && pisoDe(y) === pisoDe(d));
+    if (!x) return "—";
+    const est = contar(x.estores), sem = contar(x.estores_sem_motor), lr = contar(x.luzes_regulaveis ?? x.luzes_brilho), sp = contar(x.sensores_porta), sm = contar(x.sensores_movimento), ti = contar(x.tomadas_inteligentes);
+    const ints = arr(x.interruptores);
+    return [
+      ints.length ? `${plural(ints.length, "interruptor", "interruptores")} (${ints.map((i) => numero(obj(i).botoes ?? i) ?? 1).join(" + ")} bot.)` : null,
+      est ? plural(est, "estore motorizado", "estores motorizados") : null, sem ? `${num(sem)} sem motor` : null,
+      lr ? plural(lr, "luz regulável", "luzes reguláveis") : null, sp ? plural(sp, "sensor de porta", "sensores de porta") : null,
+      sm ? plural(sm, "sensor de movimento", "sensores de movimento") : null, ti ? plural(ti, "tomada inteligente", "tomadas inteligentes") : null,
+    ].filter(Boolean).join(" · ") || "—";
+  };
+  return pisos.map((p) => {
+    const linhas = planta.divisoes.filter((d) => pisoDe(d) === p).map((d) => h("tr", {},
+      h("th", { scope: "row", "data-rotulo": "Divisão", text: String(d.nome ?? d.id ?? "—") }),
+      h("td", { class: "num", "data-rotulo": "Área" }, h("div", {}, m2(areaDivisao(d)), h("span", { class: "ajuda bloco-ajuda", text: formaLivre(d) ? "forma livre" : `${metros(d.largura_cm)} × ${metros(d.altura_cm)}` }))),
+      h("td", { "data-rotulo": "Na planta", text: aparelhosTxt(planta.elementos.filter((e) => divDe(e) === d.id)) }),
+      h("td", { "data-rotulo": "Inteligente", text: inteligente(d) })));
+    return h("div", { class: "sim-bloco rel-piso", dataset: { piso: String(p) } }, h("h4", { text: pisos.length > 1 ? nomePiso(p) : "Divisões" }),
+      linhas.length
+        ? h("div", { class: "tabela-rolar" }, h("table", { class: "tabela tabela-cartoes rel-divisoes" },
+          h("thead", {}, h("tr", {}, ...["Divisão", "Área", "Na planta", "Inteligente (passo Divisões)"].map((t, i) => h("th", { scope: "col", class: i === 1 ? "num" : "", text: t })))),
+          h("tbody", {}, ...linhas)))
+        : h("p", { class: "ajuda", text: "Sem divisões desenhadas neste piso." }));
+  });
+}
+
+/** Máquinas por piso: as da planta (com potência e divisão) ou, sem planta, as do passo "O que quer" (quer.pisos). */
+function maquinasPorPiso(sim, planta) {
+  const quer = obj(sim.quer), qtds = obj(quer.quantidades), pisosQ = obj(quer.pisos);
+  const porPiso = new Map();
+  const juntar = (p, t) => { if (!porPiso.has(p)) porPiso.set(p, []); porPiso.get(p).push(t); };
+  const naPlanta = planta ? planta.elementos.filter((e) => e.tipo === "maquina") : [];
+  if (naPlanta.length) {
+    for (const e of naPlanta) {
+      const div = nomeDivisao(planta, e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e));
+      juntar(pisoDe(e), `${MODELOS[obj(e.props).modelo] ?? "Máquina"} ${num(n0(obj(e.props).potencia_w))} W${div ? ` (${div})` : ""}`);
+    }
+  } else {
+    for (const m of [...arr(quer.maquinas), ...arr(quer.pequenas)].filter((x) => typeof x === "string")) {
+      const ps = pisosQ[m];
+      const q = numero(qtds[m]) ?? 1;
+      if (ps && typeof ps === "object") {
+        for (const k of Object.keys(ps)) { const n = numero(ps[k]); if (n > 0) juntar(pisoDe({ piso: k }), `${MODELOS[m] ?? m}${n > 1 ? ` ×${num(n)}` : ""}`); }
+      } else juntar(pisoDe({ piso: ps }), `${MODELOS[m] ?? m}${q > 1 ? ` ×${num(q)}` : ""}`);
+    }
+  }
+  const pisos = [...porPiso.keys()].sort((a, b) => a - b);
+  if (!pisos.length) return null;
+  const variosPisos = pisos.length > 1 || pisos[0] > 0;
+  return h("div", { class: "sim-bloco" },
+    dados(pisos.map((p) => [variosPisos ? nomePiso(p) : "Casa", porPiso.get(p).join(", ")])),
+    naPlanta.length ? null : h("p", { class: "ajuda", text: "Do passo \"O que quer\" (a planta não tem máquinas desenhadas)." }));
+}
+
+/** Planta no relatório: no ecrã a vista com zoom e separadores; na impressão, um desenho por piso. */
+function plantaRelatorio(planta) {
+  const pisos = typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [0];
+  const impressao = pisos.map((p) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    try { desenho.desenharPlanta(svg, planta, { soLeitura: true, ...(pisos.length > 1 ? { piso: p } : {}) }); } catch { return null; }
+    svg.setAttribute("aria-label", `Planta${pisos.length > 1 ? `, ${nomePiso(p)}` : ""}`);
+    return h("figure", { class: "rel-planta-piso" }, pisos.length > 1 ? h("figcaption", { text: nomePiso(p) }) : null, svg);
+  });
+  return [h("div", { class: "planta-interativa" }, vistaPlanta(planta)), h("div", { class: "so-impressao" }, ...impressao)];
+}
+
+/**
+ * Relatório técnico para o eletricista (vista para imprimir / guardar PDF pelo browser): cabeçalho com o cliente,
+ * "A VERIFICAR NA VISITA" e tudo o que a simulação calculou (o cliente só viu o preço e o plano).
+ * `pedido`: {id, nome, telefone, email, localidade, criado, data_visita}.
+ */
+export function relatorioTecnico(pedido, sim, catalogo = {}) {
+  const o = obj(pedido), s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), mo = obj(s.mao_obra);
+  const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
+  const temPlanta = !!planta && !!(planta.divisoes.length || planta.elementos.length || planta.fundo);
+  const divisoesSim = arr(s.divisoes).filter((d) => d && typeof d === "object" && d.nome !== FORA);
+  const circuitos = arr(q.circuitos).filter((c) => c && typeof c === "object");
+  const itens = arr(s.itens).filter((i) => i && typeof i === "object");
+  const t = (v) => (v == null || v === "" ? "—" : String(v));
+  const seccao = (titulo, ...filhos) => h("section", { class: "rel-seccao" }, h("h3", { text: titulo }), ...filhos);
+
+  const verificar = aVerificarNaVisita(s, catalogo);
+  const blocoVerificar = h("section", { class: "rel-verificar", id: "rel-verificar", "aria-labelledby": "rel-verificar-titulo" },
+    h("h3", { id: "rel-verificar-titulo", text: `A VERIFICAR NA VISITA (${verificar.length})` }),
+    verificar.length
+      ? h("ul", {}, ...verificar.map((v) => h("li", {}, h("strong", { text: `${v.tema}: ` }), v.texto)))
+      : h("p", { text: "Nada assinalado pela simulação. Confirmar na mesma o quadro, a terra e a potência contratada." }));
+
+  const kva = numero(casa.potencia_contratada_kva), sug = numero(q.potencia_sugerida_kva), carga = numero(q.potencia_carga_w);
+  let estimativa = "—";
+  if (s.total && typeof s.total === "object") estimativa = `${euros(s.total.min)} – ${euros(s.total.max)}`;
+  else if (numero(s.total) !== null) estimativa = euros(s.total);
+  const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
+
+  const partes = [
+    h("header", { class: "rel-cabecalho" },
+      h("p", { class: "rel-marca", text: "Domus Energia · Relatório técnico para a visita" }),
+      h("h2", { id: "rel-titulo", text: `${t(o.nome)} — pedido n.º ${t(o.id)}` }),
+      dados([
+        ["Cliente", t(o.nome)],
+        ["Contacto", [o.telefone, o.email].filter(Boolean).join(" · ") || "—"],
+        ["Localidade", t(o.localidade ?? casa.localidade)],
+        ["Pedido recebido", data(o.criado)],
+        ...(o.data_visita ? [["Visita", data(o.data_visita)]] : []),
+        ["Relatório de", data(new Date().toISOString())],
+      ])),
+    blocoVerificar,
+    seccao("Casa e pisos", dados([
+      ["Imóvel", [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null].filter(Boolean).join(" · ") || "—"],
+      ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
+      ...pisosDetalhe(casa),
+      ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
+      ["Potência contratada", kva !== null ? `${num2(kva)} kVA` : "NÃO SABE"],
+      ["Ligação", FASES[casa.fases] ?? "NÃO SABE"],
+      ["Potência sugerida", h("span", {}, `${sug !== null ? `${num2(sug)} kVA` : q.pacote !== undefined ? "acima de 41,4 kVA" : "—"}${carga !== null ? ` (cargas ≈ ${num(carga)} W, com simultaneidade)` : ""} `, sug !== null && kva !== null && sug > kva ? selo("Contratada curta", "aviso") : null)],
+      ...(objetivos ? [["Objetivos do cliente", objetivos]] : []),
+      ["Deslocação", deslocacaoTxt(s.deslocacao) ?? "—"],
+    ])),
+  ];
+  const maqs = maquinasPorPiso(s, planta);
+  if (maqs) partes.push(seccao("Máquinas por piso", maqs));
+  const divs = temPlanta && planta.divisoes.length ? divisoesPorPiso(planta, divisoesSim) : divisoesSim.length ? [tabelaDivisoes(divisoesSim)] : [];
+  if (divs.length) partes.push(seccao("Divisões e aparelhos por piso", ...divs));
+  if (temPlanta) partes.push(seccao("Planta", ...plantaRelatorio(planta)));
+  const quadro = [];
+  if (circuitos.length) quadro.push(tabelaCircuitos(circuitos, planta, divisoesSim));
+  const blocoQ = blocoQuadro(q, kva);
+  if (blocoQ) quadro.push(blocoQ);
+  if (typeof q.disjuntor === "string") quadro.push(h("p", { class: "ajuda", text: `Disjuntor inteligente escolhido: ${q.disjuntor}.` }));
+  if (quadro.length) partes.push(seccao("Quadro elétrico: circuitos, proteções e módulos", ...quadro));
+  if (itens.length) {
+    partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true }),
+      dados([["Estimativa dada ao cliente (c/ IVA)", estimativa], ["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])));
+  }
+  partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado na visita técnica." }));
+  return h("article", { class: "relatorio-tecnico simulacao", id: "relatorio-tecnico", "aria-labelledby": "rel-titulo" }, ...partes);
 }
 
 // ---------------------------------------------------------------- aparelhos sugeridos

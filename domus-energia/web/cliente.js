@@ -200,6 +200,8 @@ function entrar(cod, password, { lembrar, automatico = false }) {
     if (c !== cliente) return;
     if (!entrou) {
       entrou = true;
+      // Um "A tentar de novo…" de uma tentativa anterior não pode ficar no ecrã de entrada (aparecia depois de "Sair").
+      erroLogin(null);
       if (lembrar) guardarLembrar(cod, password);
       else if (!automatico) apagarLembrar();
       $("utilizador").textContent = `Cliente: ${cod}`;
@@ -292,6 +294,8 @@ function terminar() {
   $("painel").style.removeProperty("--calor");
   $("painel").style.removeProperty("--alarme-on");
   mostrarErro(null);
+  // Quem chama e quer mostrar um erro (ex.: palavra-passe errada) mostra-o depois de terminar().
+  erroLogin(null);
   mostrarSeccao("casa");
   mostrarVista(false);
   repor();

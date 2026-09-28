@@ -97,7 +97,7 @@ function semPrecoProvisorio(json) {
   let e;
   try { e = JSON.parse(json || '{}'); } catch { return null; }
   if (!e || typeof e.nota !== 'string' || !/preço provisório — confirmar/i.test(e.nota)) return null;
-  const nota = e.nota.replace(/preço provisório — confirmar[;.]?s*/i, '').trim();
+  const nota = e.nota.replace(/preço provisório — confirmar[;.]?\s*/i, '').trim();
   if (nota) e.nota = nota; else delete e.nota;
   return JSON.stringify(e);
 }
@@ -189,7 +189,10 @@ export function criarApi(ctx) {
       if (!a) continue;
       let esp = {};
       try { esp = JSON.parse(a.especificacoes || '{}'); } catch { /* ignorado */ }
-      out[a.sku] = { nome: a.nome, categoria: a.categoria, especificacoes: esp, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, ativo: Boolean(a.ativo) };
+      // A "nota" é interna (ex.: "preço provisório — confirmar"), como no /api/catalogo: não sai aqui para
+      // ninguém (o CEO vê-a no ecrã Catálogo; o visualizador não a usa).
+      const { nota, ...especificacoes } = esp && typeof esp === 'object' && !Array.isArray(esp) ? esp : {};
+      out[a.sku] = { nome: a.nome, categoria: a.categoria, especificacoes, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, ativo: Boolean(a.ativo) };
     }
     return out;
   }

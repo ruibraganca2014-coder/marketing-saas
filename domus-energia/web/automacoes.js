@@ -87,6 +87,12 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     desenhar();
   }
 
+  // Motivo do motor em linguagem simples, com maiúscula (quando aparece sozinho).
+  function simples(t) {
+    const s = E.motivoSimples(t, aparelhos());
+    return s ? s[0].toUpperCase() + s.slice(1) : s;
+  }
+
   // Devolve true se o erro era para nós.
   function receberErro(ev) {
     // Erros de executar / testar / avaliar (motor: "Automação não executada") vão para o cartão
@@ -96,6 +102,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       if (emCurso) {
         clearTimeout(emCurso.timer);
         emCurso.timer = null;
+        emCurso.depois = emCurso.antes;
         emCurso.texto = ev.mensagem || "O servidor não executou o pedido.";
         emCurso.classe = "erro";
         desenharSeLivre();
@@ -113,21 +120,25 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
   function receberRegisto(r) {
     registo = r ?? {};
     for (const [id, p] of Object.entries(pedidos)) {
-      if (!p.timer) continue;
       const agora = registo[id];
-      if (JSON.stringify(agora ?? null) === p.antes) continue;
+      const json = JSON.stringify(agora ?? null);
+      // Resultado já mostrado ("Teste feito — …", "Executada", avaliação): se o registo mudou depois (ex.: uma
+      // execução real pelo gatilho), a mensagem já não é a última coisa que aconteceu — sai (a linha do registo diz).
+      if (!p.timer) { if (p.depois !== undefined && json !== p.depois) delete pedidos[id]; continue; }
+      if (json === p.antes) continue;
       clearTimeout(p.timer);
       p.timer = null;
+      p.depois = json;
       if (p.tipo === "avaliar") {
         const av = agora?.avaliacao;
-        if (av?.verdadeira === true) { p.texto = `Neste momento a automação executaria. ${av.motivo || "As condições são verdadeiras."}`; p.classe = "ok"; }
-        else if (av?.verdadeira === false) { p.texto = `Neste momento não executaria: ${av.motivo || "uma condição é falsa."}`; p.classe = "info"; }
-        else { p.texto = av?.motivo || "Avaliação recebida."; p.classe = "info"; }
+        if (av?.verdadeira === true) { p.texto = `Neste momento a automação executaria. ${simples(av.motivo) || "As condições verificam-se."}`; p.classe = "ok"; }
+        else if (av?.verdadeira === false) { p.texto = `Neste momento não executaria: ${E.motivoSimples(av.motivo, aparelhos()) || "uma condição não se verifica."}`; p.classe = "info"; }
+        else { p.texto = simples(av?.motivo) || "Avaliação recebida."; p.classe = "info"; }
       } else {
         const res = E.RESULTADOS[agora?.resultado] ?? agora?.resultado ?? "";
         // "Teste feito: Teste — …" repetia a palavra; quando o resultado é o próprio teste basta o motivo.
         const mostrarRes = !((p.tipo === "testar" && agora?.resultado === "teste") || (p.tipo === "executar" && agora?.resultado === "executada"));
-        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}${mostrarRes ? `: ${res}` : ""}${agora?.motivo ? ` — ${agora.motivo}` : ""}`;
+        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}${mostrarRes ? `: ${res}` : ""}${agora?.motivo ? ` — ${E.motivoSimples(agora.motivo, aparelhos())}` : ""}`;
         p.classe = agora?.resultado === "falhou" ? "erro" : "ok";
       }
     }
@@ -141,7 +152,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
     if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return false; }
     clearTimeout(pedidos[id]?.timer);
     const p = { tipo, desde: Date.now(), antes: JSON.stringify(registo[id] ?? null), texto: tipo === "avaliar" ? "A avaliar…" : tipo === "testar" ? "A testar…" : "A executar…", classe: "info" };
-    p.timer = setTimeout(() => { p.timer = null; p.texto = "O servidor não respondeu. Tente de novo."; p.classe = "erro"; desenharSeLivre(); }, TEMPO_MOTOR);
+    p.timer = setTimeout(() => { p.timer = null; p.depois = p.antes; p.texto = "O servidor não respondeu. Tente de novo."; p.classe = "erro"; desenharSeLivre(); }, TEMPO_MOTOR);
     pedidos[id] = p;
     const corpo = tipo === "testar" ? { id, testar: true, por: "web" } : tipo === "avaliar" ? { id, avaliar: true, por: "web" } : { id, por: "web" };
     publicar("_automacoes/executar", corpo);
@@ -199,12 +210,12 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       linha.textContent = `Última execução ${E.tempoRelativo(r.ultima, agora)} (${E.horaLisboa(r.ultima)}) · ${res}${r.teste && r.resultado !== "teste" ? " (teste)" : ""}`;
       caixaR.append(linha);
       // Em pausa, o motivo já aparece na caixa "Em pausa" logo abaixo.
-      if (r.motivo && r.resultado !== "pausada") caixaR.append(el("span", "registo-motivo", r.motivo));
+      if (r.motivo && r.resultado !== "pausada") caixaR.append(el("span", "registo-motivo", simples(r.motivo)));
     }
     if (r?.semana != null) caixaR.append(el("span", "registo-semana", `${r.semana} ${r.semana === 1 ? "execução" : "execuções"} esta semana`));
     if (r?.resultado === "pausada") {
       const p = el("div", "pausa");
-      p.textContent = `Em pausa: ${r.motivo || "alguém mexeu num aparelho à mão."}${a.ignorar_pausa ? "" : " A automação volta sozinha quando a pausa acabar."}`;
+      p.textContent = `Em pausa: ${E.motivoSimples(r.motivo, aparelhos()) || "alguém mexeu num aparelho à mão."}${a.ignorar_pausa ? "" : " A automação volta sozinha quando a pausa acabar."}`;
       caixaR.append(p);
     }
     // Só execuções reais (as de "Avaliar agora" ficam de fora); a mais recente já está em cima,
@@ -216,7 +227,7 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       d.append(el("summary", null, anteriores.length === 1 ? "Execução anterior" : `${anteriores.length} execuções anteriores`));
       const ul = el("ul");
       for (const u of anteriores) {
-        ul.append(el("li", null, `${u.ts ? new Date(u.ts).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · ${E.RESULTADOS[u.resultado] ?? u.resultado}${u.motivo ? ` — ${u.motivo}` : ""}`));
+        ul.append(el("li", null, `${u.ts ? new Date(u.ts).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"} · ${E.RESULTADOS[u.resultado] ?? u.resultado}${u.motivo ? ` — ${E.motivoSimples(u.motivo, aparelhos())}` : ""}`));
       }
       d.append(ul);
       caixaR.append(d);

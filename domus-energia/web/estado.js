@@ -430,7 +430,51 @@ export function lerCenas(texto) {
   return Array.isArray(v) ? v.filter((c) => c && typeof c === "object" && typeof c.id === "string" && Array.isArray(c.acoes)) : null;
 }
 
-export const RESULTADOS = { executada: "Executada", condicao_falsa: "Condição falsa", falhou: "Falhou", pausada: "Em pausa", teste: "Teste", avaliacao: "Avaliação" };
+export const RESULTADOS = { executada: "Executada", condicao_falsa: "Não executou (condições)", falhou: "Falhou", pausada: "Em pausa", teste: "Teste", avaliacao: "Avaliação" };
+
+/**
+ * Motivos do registo das automações (motor/src/motor-automacoes.js avaliarCondicoes/executar) em linguagem
+ * simples: "Movimento corredor = 1" → "Movimento corredor detetou movimento"; "Condição 'modo = noite' falsa
+ * (modo atual: casa)" → "a casa não está em modo Noite (está em modo Casa)". Traduz-se aqui (e não no motor)
+ * para valer também para os registos já guardados. O que não reconhece fica como está.
+ */
+export function motivoSimples(texto, aparelhos = []) {
+  if (typeof texto !== "string" || !texto) return texto ?? "";
+  const funcaoDe = (nome) => {
+    for (const a of aparelhos ?? []) for (const c of a?.canais ?? []) if (c?.nome === nome) return c.funcao;
+    const a = (aparelhos ?? []).find((x) => x?.nome === nome);
+    if (a?.canais?.length) return a.canais[0].funcao;
+    return /movimento|presen/i.test(nome) ? "movimento" : /porta|janela/i.test(nome) ? "porta" : null;
+  };
+  const estadoCanal = (nome, v) => {
+    const f = funcaoDe(nome), on = String(v) === "1";
+    if (f === "movimento") return `${nome} ${on ? "detetou movimento" : "sem movimento"}`;
+    if (f === "porta") return `${nome} ${on ? "aberta" : "fechada"}`;
+    return `${nome} ${on ? "ligado" : "desligado"}`;
+  };
+  const modos = (s) => s.split(" ou ").map((m) => NOME_MODO[m.trim()] ?? m.trim()).join(" ou ");
+  const condicao = (desc, atual = "") => {
+    let m;
+    if ((m = /^alarme = (ligado|desligado)$/.exec(desc))) return m[1] === "ligado" ? "o alarme não está ligado" : "o alarme está ligado";
+    if ((m = /^entre (\S+) e (\S+)$/.exec(desc))) return `fora do horário das ${m[1]} às ${m[2]}${/^agora: /.test(atual) ? ` (eram ${atual.slice(7)})` : ""}`;
+    if ((m = /^dias = (.+)$/.exec(desc))) return `não é um dos dias escolhidos (${m[1]}${/^hoje: /.test(atual) ? `; hoje é ${atual.slice(6)}` : ""})`;
+    if ((m = /^sol = (dia|noite)$/.exec(desc))) {
+      if (/localização/.test(atual)) return "falta a localização da casa (nas Definições) para saber quando é dia";
+      const horas = atual.replace(/^agora é (dia|noite);?\s*/, "");
+      return `${m[1] === "noite" ? "ainda é de dia" : "já é de noite"}${horas ? ` (${horas})` : ""}`;
+    }
+    if ((m = /^modo = (.+)$/.exec(desc))) return `a casa não está em modo ${modos(m[1])}${/^modo atual: /.test(atual) ? ` (está em modo ${modos(atual.slice(12))})` : ""}`;
+    if ((m = /^presença = (alguém|ninguém)$/.exec(desc))) return m[1] === "alguém" ? "não está ninguém em casa" : `está alguém em casa${/^em casa: /.test(atual) ? ` (${atual.slice(9)})` : ""}`;
+    if ((m = /^(.+) = ([01])$/.exec(desc))) {
+      if (/^valor atual: [01]$/.test(atual)) return estadoCanal(m[1], atual.slice(-1));
+      return `não se sabe o estado de ${m[1]}`;
+    }
+    return `a condição "${desc}" não se verifica${atual ? ` (${atual})` : ""}`;
+  };
+  return texto
+    .replace(/Condição '([^']*)' falsa(?: \(((?:[^()]|\([^()]*\))*)\))?/g, (_, desc, atual) => condicao(desc, atual ?? ""))
+    .replace(/([^\s(:,'"][^()=:,'"]*?) = ([01])(?=$|[\s).,;])/g, (_, nome, v) => estadoCanal(nome.trim(), v));
+}
 // Registo do motor: {"<id>": {ultima, resultado, motivo, semana, teste?, ok?, ultimos:[{ts, resultado, motivo, teste?, ok?}]}}.
 // "Avaliar agora" chega como resultado "avaliacao" com ok true/false; separamo-lo da última execução real.
 export function lerRegisto(texto) {

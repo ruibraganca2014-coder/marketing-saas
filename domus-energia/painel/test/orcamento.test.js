@@ -245,6 +245,25 @@ test('nota "preço provisório — confirmar": só o CEO a vê; sai quando o CEO
     r = await p.pedir('POST', `/painel/api/catalogo/${a.id}`, { ...cab, corpo: { especificacoes: a.especificacoes } });
     assert.equal(r.json.especificacoes.nota, a.especificacoes.nota, 'a nota pode voltar a pôr-se à mão');
   }
+  // A nota a meio do texto: sai com o ";" e os espaços a seguir (e nada mais).
+  r = await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { especificacoes: { ...dif.especificacoes, nota: 'Modelo X; preço provisório — confirmar;stock limitado' } } });
+  r = await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { preco_venda_iva: dif.preco_venda_iva + 2 } });
+  assert.equal(r.json.especificacoes.nota, 'Modelo X; stock limitado');
+  await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { preco_venda_iva: dif.preco_venda_iva, especificacoes: dif.especificacoes } });
+});
+
+test('GET orcamentos/:id: os artigos da simulação não trazem a nota interna (nem ao CEO nem ao comercial)', async () => {
+  const sim = { versao: 1, itens: [{ sku: 'IDR-2P-40A-30MA', qtd: 2, preco_iva: 45 }, { sku: 'CAIXA-QUADRO-12', qtd: 1, preco_iva: 40 }] };
+  assert.equal((await enviar({ ...BASE, nome: 'Nota Interna', simulacao: sim })).estado, 201);
+  const o = (await p.pedir('GET', '/painel/api/orcamentos', { cookie: p.cookies.ceo })).json.orcamentos.find((x) => x.nome === 'Nota Interna');
+  for (const papel of ['ceo', 'comercial']) {
+    const r = await p.pedir('GET', `/painel/api/orcamentos/${o.id}`, { cookie: p.cookies[papel] });
+    assert.equal(r.estado, 200);
+    assert.deepEqual(Object.keys(r.json.catalogo).sort(), ['CAIXA-QUADRO-12', 'IDR-2P-40A-30MA']);
+    assert.ok(!r.texto.includes('provisório'), `${papel}: sem "preço provisório"`);
+    for (const a of Object.values(r.json.catalogo)) assert.ok(!('nota' in a.especificacoes), papel);
+    assert.equal(r.json.catalogo['IDR-2P-40A-30MA'].especificacoes.funcao, 'diferencial', 'o resto das especificações fica');
+  }
 });
 
 test('catálogo e configuração: validação e só o CEO', async () => {

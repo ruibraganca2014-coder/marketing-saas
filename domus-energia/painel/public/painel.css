@@ -318,7 +318,13 @@ a.linha:hover { border-color: var(--musgo); }
 .avisos { position: fixed; right: 16px; bottom: 16px; left: 16px; z-index: 60; display: grid; gap: 8px; justify-items: end; pointer-events: none; }
 .avisos .msg { max-width: 420px; box-shadow: var(--sombra); pointer-events: auto; }
 .pedidos-pendentes { position: fixed; left: 16px; bottom: 16px; z-index: 30; pointer-events: none; display: grid; gap: 6px; max-width: calc(100vw - 32px); }
-.pedido-pendente, .pedidos-mais { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 999px; background: var(--superficie); border: 1px solid var(--borda); box-shadow: var(--sombra); font-weight: 600; font-size: .92rem; }
+/* Uma só faixa compacta ("N pedidos à espera do servidor"), que se abre para ver a lista. */
+.pedidos-faixa { pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 999px; background: var(--superficie); border: 1px solid var(--borda); box-shadow: var(--sombra); font-weight: 600; font-size: .88rem; max-width: 100%; justify-self: start; }
+.pedidos-texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pedidos-faixa .botao-icone { width: 36px; height: 36px; font-size: 1rem; }
+.pedidos-lista { pointer-events: auto; list-style: none; margin: 0; padding: 8px 12px; max-height: 40vh; overflow: auto; border-radius: 12px; background: var(--superficie); border: 1px solid var(--borda); box-shadow: var(--sombra); font-size: .88rem; justify-self: start; }
+.pedidos-lista[hidden] { display: none; }
+.pedido-pendente { padding: 3px 0; }
 .rodar { width: 16px; height: 16px; border-radius: 50%; border: 3px solid var(--musgo-claro); border-top-color: var(--musgo); animation: rodar 1s linear infinite; flex: none; }
 @keyframes rodar { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rodar { animation: none; } * { transition: none !important; } }
@@ -390,3 +396,53 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .aparelho-campos { display: grid; gap: 8px 12px; grid-template-columns: 1fr; }
 @media (min-width: 640px) { .aparelho-campos { grid-template-columns: repeat(4, minmax(0, 1fr)); } .aparelho-canais { grid-column: span 3; } }
 .aparelho-campos .campo { font-size: .88rem; }
+
+/* ---------- Relatório técnico (orçamentos → #/orcamentos/<id>/relatorio; imprimir / guardar PDF) ---------- */
+.com-relatorio > :not(.relatorio-zona) { display: none !important; }
+.relatorio-tecnico { max-width: 980px; }
+.rel-cabecalho { border-bottom: 2px solid var(--musgo); padding-bottom: 8px; margin-bottom: 12px; }
+.rel-marca { margin: 0; font-weight: 800; color: var(--musgo-texto); font-size: .9rem; letter-spacing: .02em; }
+.rel-cabecalho h2 { margin: 2px 0 8px; overflow-wrap: anywhere; }
+.rel-verificar { margin: 12px 0 18px; padding: 12px 16px; border-radius: 12px; background: var(--alarme-suave); border: 2px solid var(--alarme); }
+.rel-verificar h3 { margin: 0 0 6px; color: var(--alarme-texto); letter-spacing: .03em; }
+.rel-verificar ul { margin: 0; padding-left: 20px; display: grid; gap: 5px; }
+.rel-seccao { margin-top: 18px; }
+.rel-seccao > h3 { margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--borda); }
+.rel-divisoes td, .rel-divisoes th { vertical-align: top; }
+.rel-rodape { margin-top: 18px; }
+.so-impressao { display: none; }
+.rel-planta-piso { margin: 0 0 10px; }
+.rel-planta-piso figcaption { font-weight: 800; margin: 6px 0; }
+.rel-planta-piso svg { display: block; width: 100%; height: auto; max-height: 240mm; border: 1px solid var(--borda); }
+
+@media print {
+  @page { size: A4; margin: 12mm 11mm; }
+  :root:is(*, [data-theme="dark"], :not([data-theme="light"])) {
+    color-scheme: light;
+    --fundo: #fff; --superficie: #fff; --texto: #111; --texto-suave: #444; --borda: #bbb;
+    --musgo: #4c5a26; --musgo-claro: #eef0d9; --musgo-texto: #3d4a1c; --argila-texto: #7a4210; --alarme: #a4372a; --alarme-texto: #8c2a1f;
+    --sobre-musgo: #fff; --areia-suave: #fbf1df; --alarme-suave: #fbe9e5; --sombra: none;
+  }
+  body { background: #fff; color: #111; font-size: 10.5pt; }
+  .topo-painel, .navegacao, .pedidos-pendentes, .avisos, .saltar, .nao-imprimir, dialog { display: none !important; }
+  .corpo-painel { display: block !important; }
+  .conteudo { padding: 0 !important; max-width: none; }
+  .relatorio-tecnico { max-width: none; }
+  .relatorio-tecnico .planta-interativa { display: none; }
+  .relatorio-tecnico .so-impressao { display: block; }
+  .rel-planta-piso { break-inside: avoid; page-break-inside: avoid; }
+  .rel-seccao > h3, .relatorio-tecnico h4 { break-after: avoid; page-break-after: avoid; }
+  .relatorio-tecnico tr, .rel-verificar li, .dados > div { break-inside: avoid; page-break-inside: avoid; }
+  .relatorio-tecnico .tabela-rolar { overflow: visible; }
+  .relatorio-tecnico .selo-p { border: 1px solid currentColor; }
+  /* Na impressão as tabelas ficam tabelas (a folha A4 pode ter menos de 700 px e cair nos cartões do telemóvel). */
+  .relatorio-tecnico .tabela-cartoes { display: table; width: 100%; }
+  .relatorio-tecnico .tabela-cartoes thead { display: table-header-group; position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+  .relatorio-tecnico .tabela-cartoes tbody { display: table-row-group; }
+  .relatorio-tecnico .tabela-cartoes tfoot { display: table-footer-group; }
+  .relatorio-tecnico .tabela-cartoes tr { display: table-row; }
+  .relatorio-tecnico .tabela-cartoes tbody td, .relatorio-tecnico .tabela-cartoes tbody th, .relatorio-tecnico .tabela-cartoes tfoot td, .relatorio-tecnico .tabela-cartoes tfoot th { display: table-cell; padding: 4px 6px; border-bottom: 1px solid var(--borda); }
+  .relatorio-tecnico .tabela-cartoes tbody td::before, .relatorio-tecnico .tabela-cartoes tbody th::before { content: none; }
+  .relatorio-tecnico .tabela-cartoes td.num { text-align: right; }
+  a[href]::after { content: none; }
+}

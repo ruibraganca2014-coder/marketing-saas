@@ -1,9 +1,10 @@
 // Pedidos de orçamento: quadro por estado (computador) ou lista (telemóvel); ficha com notas, data da
 // visita, valor da proposta, motivo de perda, histórico e "Converter em cliente e obra" (orçamento aceite).
+// Com simulação: "Relatório técnico" (#/orcamentos/<id>/relatorio), vista para imprimir / guardar PDF.
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -119,7 +120,9 @@ export default function orcamentos(el, ctx) {
     const tel = campo(o, "telefone"), email = campo(o, "email");
     const contactos = h("div", { class: "form-botoes" },
       tel ? h("a", { class: "btn sec pequeno", href: `tel:${String(tel).replace(/[^\d+]/g, "")}`, text: `Ligar ${tel}` }) : null,
-      email ? h("a", { class: "btn sec pequeno", href: `mailto:${encodeURIComponent(email).replace(/%40/g, "@")}`, text: "Enviar email" }) : null);
+      email ? h("a", { class: "btn sec pequeno", href: `mailto:${encodeURIComponent(email).replace(/%40/g, "@")}`, text: "Enviar email" }) : null,
+      simulacaoDe(o) || campo(o, "tem_simulacao") === true
+        ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
     const partes = [
       h("div", { class: "linha-selos" }, selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`)),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
@@ -192,6 +195,8 @@ export default function orcamentos(el, ctx) {
     const id = String(campo(o, "id"));
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const amanha = new Date(); amanha.setDate(amanha.getDate() + 7);
+    // Com visita marcada, a obra começa por omissão no dia da visita (pode ser mudada).
+    const diaVisita = paraInput(campo(o, "data_visita")).slice(0, 10);
     const sim = simulacaoDe(o);
     const sugeridos = sim ? aparelhosDaSimulacao(sim, catalogoDe(o)) : [];
     const listaAparelhos = sugeridos.length ? checklistAparelhos(sugeridos) : null;
@@ -206,7 +211,7 @@ export default function orcamentos(el, ctx) {
       h("div", { class: "duas" },
         campoForm("Código do cliente", h("input", { name: "codigo", required: true, maxlength: "32", autocapitalize: "none", spellcheck: "false", value: sugerirCodigo(campo(o, "nome") ?? "") })),
         campoForm("Kit", escolha("kit", Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])), "conforto"))),
-      campoForm("Data da obra", h("input", { name: "data", type: "date", required: true, value: isoDia(amanha) })),
+      campoForm("Data da obra", h("input", { name: "data", type: "date", required: true, value: diaVisita || isoDia(amanha) }), diaVisita ? "Dia da visita (pode mudar)." : null),
       campoHoras,
       listaAparelhos,
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Converter em cliente e obra" })),
@@ -257,10 +262,54 @@ export default function orcamentos(el, ctx) {
     if (redesenhar) desenhar();
   }
 
+  // ---------- Relatório técnico (para o eletricista; imprimir / guardar PDF) ----------
+  let relatorio = null;
+  const tituloAntes = document.title;
+  function abrirRelatorio(id) {
+    if (relatorio?.id === id) return;
+    fecharRelatorio();
+    const volta = h("a", { class: "btn sec pequeno", href: `#/orcamentos/${encodeURIComponent(id)}`, text: "Voltar ao pedido" });
+    const imprimir = h("button", { class: "btn pequeno", type: "button", id: "imprimir-relatorio", text: "Imprimir / guardar PDF", disabled: true, onclick: () => window.print() });
+    const corpo = h("div", {}, carregando());
+    const caixa = h("div", { class: "relatorio-zona" }, h("div", { class: "ecra-topo nao-imprimir" }, h("h1", { text: "Relatório técnico" }), h("div", { class: "form-botoes" }, volta, imprimir)), corpo);
+    relatorio = { id, caixa };
+    el.classList.add("com-relatorio");
+    el.append(caixa);
+    pedir(`orcamentos/${encodeURIComponent(id)}`, { sinal: ctrl.signal }).then((r) => {
+      if (relatorio?.caixa !== caixa) return;
+      const o = campo(r, "orcamento") ?? r;
+      const sim = simulacaoDe(o);
+      if (!sim) { corpo.replaceChildren(h("p", { class: "vazio", text: "Este pedido não tem simulação: não há relatório técnico." })); return; }
+      corpo.replaceChildren(relatorioTecnico({
+        id: campo(o, "id"), nome: campo(o, "nome"), telefone: campo(o, "telefone"), email: campo(o, "email"),
+        localidade: campo(o, "localidade"), criado: campo(o, "criado", "criado_em"), data_visita: campo(o, "data_visita"),
+      }, sim, catalogoDe(o)));
+      // O título dá o nome ao PDF guardado pelo browser.
+      document.title = `Relatório técnico — ${txt(o, "nome")} (pedido ${campo(o, "id")})`;
+      imprimir.disabled = false;
+    }).catch((e) => {
+      if (e.name === "AbortError" || relatorio?.caixa !== caixa) return;
+      corpo.replaceChildren(e.estado === 404 ? h("p", { class: "vazio", text: "Pedido não encontrado." }) : erroEcra(e, () => { fecharRelatorio(); abrirRelatorio(id); }));
+    });
+    caixa.querySelector("h1").setAttribute("tabindex", "-1");
+    caixa.querySelector("h1").focus();
+  }
+  function fecharRelatorio() {
+    if (!relatorio) return;
+    relatorio.caixa.remove();
+    relatorio = null;
+    el.classList.remove("com-relatorio");
+    document.title = tituloAntes;
+  }
+
   const esperarLista = carregar();
   const api = {
-    rota(resto) { if (resto[0]) abrirFicha(resto[0]); else { ficha?.j.fechar(); ficha = null; } },
-    desmontar: () => ctrl.abort(),
+    rota(resto) {
+      if (resto[0] && resto[1] === "relatorio") { ficha?.j.fechar(); ficha = null; abrirRelatorio(resto[0]); return; }
+      fecharRelatorio();
+      if (resto[0]) abrirFicha(resto[0]); else { ficha?.j.fechar(); ficha = null; }
+    },
+    desmontar: () => { ctrl.abort(); fecharRelatorio(); },
   };
   api.rota(ctx.resto);
   return api;
