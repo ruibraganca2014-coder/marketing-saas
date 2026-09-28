@@ -126,6 +126,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
   let tiposDivisao = TIPOS_DIVISAO;   // botões de divisão (mudam com o tipo de imóvel: definirTiposDivisao)
+  let modelosJanela = null;   // modelos da lista "Qual é?" (os do perfil do imóvel: definirMaquinas); null = todos
   let pisoAtual = 0;          // separador visível: só as divisões e os elementos deste piso (0 = r/c)
   let pisosPedidos = 1;       // pisos da casa (definirPisos); aparecem também os pisos que já têm coisas
   let ultimoToque = null;     // {t, x, y}: o toque anterior, para o duplo clique (DUPLO_MS)
@@ -1454,7 +1455,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (tipo === "maquina") {
       const s = document.createElement("select");
       s.id = `${pre}-modelo`;
-      for (const [k, m] of Object.entries(MODELOS)) { const o = document.createElement("option"); o.value = k; o.textContent = m.nome; s.append(o); }
+      // Só os modelos do perfil do imóvel, e sempre o que já está escolhido (mesmo que seja de outro perfil).
+      for (const [k, m] of Object.entries(MODELOS)) {
+        if (modelosJanela && !modelosJanela.includes(k) && k !== p.modelo) continue;
+        const o = document.createElement("option"); o.value = k; o.textContent = m.nome; s.append(o);
+      }
       s.value = p.modelo;
       s.addEventListener("change", mudar(() => { p.modelo = s.value; p.potencia_w = MODELOS[s.value].w; }));
       r.push(campo("Qual é?", s));
@@ -1828,8 +1833,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       tiposDivisao = lista;
       desenharBotoesDivisao();
     },
-    /** Fila "Máquinas:": um botão por modelo (chaves de regras.js MODELOS), pela ordem dada. */
-    definirMaquinas(lista) {
+    /**
+     * Fila "Máquinas:": um botão por modelo (chaves de regras.js MODELOS), pela ordem dada. `janela`: os modelos
+     * da lista "Qual é?" da janela da máquina (os do perfil do imóvel; sem ela, todos).
+     */
+    definirMaquinas(lista, janela = null) {
+      modelosJanela = Array.isArray(janela) ? janela : null;
       const l = [...new Set(lista)].filter((m) => MODELOS[m]);
       if (l.join() === modelosMaq.join()) return;
       modelosMaq = l;

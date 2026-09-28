@@ -178,7 +178,7 @@ input, select { min-height: 44px; }
 .aparelho-icone { width: 36px; height: 36px; color: var(--texto); }
 .aparelho-texto { display: grid; gap: 0; min-width: 0; }
 .aparelho-texto small { color: var(--texto-suave); font-size: .82rem; overflow-wrap: anywhere; }
-.aparelho-nome { justify-self: start; min-height: 44px; padding: 0; border: 0; background: none; color: var(--texto); font: 800 1rem/1.2 var(--letra); text-align: left; text-decoration: underline; text-decoration-color: var(--borda); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
+.aparelho-nome { justify-self: start; min-height: 44px; min-width: 44px; padding: 0; border: 0; background: none; color: var(--texto); font: 800 1rem/1.2 var(--letra); text-align: left; text-decoration: underline; text-decoration-color: var(--borda); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
 .aparelho-nome:hover { text-decoration-color: var(--musgo); }
 .aparelho-nome:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; border-radius: 4px; }
 .aparelho .contador-caixa { gap: 4px; }

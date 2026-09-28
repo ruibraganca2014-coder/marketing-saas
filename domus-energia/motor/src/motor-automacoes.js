@@ -45,6 +45,7 @@ const POR_RE = /^[a-z0-9:_-]{1,60}$/;
  * @property {string} nome        nome a usar nas notificações
  * @property {Automacao} [a]
  * @property {boolean} teste
+ * @property {boolean} [manual]  executada à mão pelo cliente: ignora a pausa manual
  * @property {string} por         quem aparece como autor (ex.: "automacao:luz", "cena:cinema")
  * @property {{nome: string, ate: number}[]} pausadas
  * @property {number} feitas
@@ -367,7 +368,11 @@ export const metodosAutomacoes = {
     const por = typeof v.por === 'string' && POR_RE.test(v.por) ? v.por : 'app';
     if (v.avaliar) {
       const r = this.avaliarCondicoes(c, a.se);
-      this.registarAvaliacao(c, a.id, r.ok ? 'As condições são verdadeiras agora.' : r.motivo, r.ok);
+      if (!r.ok) return this.registarAvaliacao(c, a.id, r.motivo, false);
+      // Condições verdadeiras, mas os canais onde age podem estar em pausa manual.
+      const pausa = this.pausasDe(c, a);
+      if (pausa.todos) return this.registarAvaliacao(c, a.id, `Pausa manual: ${pausa.texto}.`, false);
+      this.registarAvaliacao(c, a.id, `As condições são verdadeiras agora.${pausa.texto ? ` Pausa manual: ${pausa.texto} (ações nesses canais não seriam executadas).` : ''}`, true);
       return;
     }
     if (v.testar) {
@@ -375,7 +380,8 @@ export const metodosAutomacoes = {
       return;
     }
     if (!a.ativa) return erro(`A automação "${a.nome}" está desativada.`);
-    this.executar(c, a, `executada à mão (${por})`);
+    // Pedido explícito do cliente: ignora a pausa manual.
+    this.executar(c, a, `executada à mão (${por})`, { manual: true });
   },
 
   // ------------------------------------------------------------ gatilhos
@@ -620,13 +626,15 @@ export const metodosAutomacoes = {
   /**
    * Executa uma automação (se ativa e se as condições se verificarem).
    * Com `teste`, ignora o estado ativo, as condições e a pausa manual.
+   * Com `manual` (executada à mão), ignora só a pausa manual.
    * @param {Cliente} c
    * @param {Automacao} a
    * @param {string} motivo
-   * @param {{teste?: boolean}} [o]
+   * @param {{teste?: boolean, manual?: boolean}} [o]
    */
   executar(c, a, motivo, o = {}) {
     const teste = o.teste === true;
+    const manual = o.manual === true;
     // Modo básico (subscrição suspensa/cancelada): nenhuma automação corre.
     if (!this.pode(c, 'automacoes')) return false;
     if (!teste) {
@@ -646,7 +654,7 @@ export const metodosAutomacoes = {
     // Um novo disparo substitui uma sequência (com "esperar") ainda pendente.
     this.sequencias = this.sequencias.filter((s) => !(s.cliente === c.codigo && s.origem === 'automacao' && s.ref === a.id));
     /** @type {ContextoExecucao} */
-    const ctx = { origem: 'automacao', ref: a.id, nome: a.nome, a, teste, por: `automacao:${a.id}`, pausadas: [], feitas: 0 };
+    const ctx = { origem: 'automacao', ref: a.id, nome: a.nome, a, teste, manual, por: `automacao:${a.id}`, pausadas: [], feitas: 0 };
     this.profundidade++;
     try {
       this.correrAcoes(c, ctx, a.entao);
@@ -684,6 +692,7 @@ export const metodosAutomacoes = {
             acoes: fila,
             quando: this.relogio.agora() + acao.s * 1000,
             ...(ctx.teste ? { teste: true } : {}),
+            ...(ctx.manual ? { manual: true } : {}),
           });
           this.guardar();
         }
@@ -725,7 +734,7 @@ export const metodosAutomacoes = {
       if (s.origem === 'automacao') {
         const a = (c.automacoes ?? []).find((x) => x.id === s.ref);
         if (!a || (!a.ativa && !s.teste)) continue;
-        ctx = { origem: 'automacao', ref: a.id, nome: a.nome, a, teste: !!s.teste, por: `automacao:${a.id}`, pausadas: [], feitas: 0 };
+        ctx = { origem: 'automacao', ref: a.id, nome: a.nome, a, teste: !!s.teste, manual: !!s.manual, por: `automacao:${a.id}`, pausadas: [], feitas: 0 };
       } else {
         const cena = (c.cenas ?? []).find((x) => x.id === s.ref);
         ctx = { origem: 'cena', ref: s.ref, nome: cena?.nome ?? s.ref, teste: false, por: `cena:${s.ref}`, pausadas: [], feitas: 0 };
@@ -790,7 +799,7 @@ export const metodosAutomacoes = {
       return;
     }
     // Pausa manual: alguém mexeu neste canal há pouco.
-    if (ctx.origem === 'automacao' && !ctx.teste && !ctx.a?.ignorar_pausa) {
+    if (ctx.origem === 'automacao' && !ctx.teste && !ctx.manual && !ctx.a?.ignorar_pausa) {
       const ate = this.pausaAtiva(c, ap.id, acao.canal);
       if (ate) {
         ctx.pausadas.push({ nome: canal.nome, ate });
@@ -943,6 +952,34 @@ export const metodosAutomacoes = {
     if (ate && ate > this.relogio.agora()) return ate;
     if (ate) delete c.pausas[k];
     return null;
+  },
+
+  /**
+   * Canais onde a automação age que estão em pausa manual ("Avaliar agora").
+   * `todos`: todos os canais onde age estão em pausa (não faria nada).
+   * @param {Cliente} c
+   * @param {Automacao} a
+   * @returns {{texto: string, todos: boolean}}
+   */
+  pausasDe(c, a) {
+    if (a.ignorar_pausa) return { texto: '', todos: false };
+    const canais = new Map();
+    percorrerAcoes(a.entao, (x) => {
+      if (['ligar', 'desligar', 'alternar', 'luz', 'estore'].includes(x.acao)) canais.set(`${x.aparelho}/${x.canal}`, x);
+    });
+    const pausadas = [];
+    for (const x of canais.values()) {
+      const ate = this.pausaAtiva(c, x.aparelho, x.canal);
+      if (ate) pausadas.push(`${c.aparelhos?.get(x.aparelho)?.canais.get(x.canal)?.nome ?? `${x.aparelho} canal ${x.canal}`} até ${horaLocal(ate)}`);
+    }
+    return { texto: pausadas.join(', '), todos: pausadas.length > 0 && pausadas.length === canais.size };
+  },
+
+  /** `pausa_manual_min` passou a 0: as pausas em curso acabam. @param {Cliente} c */
+  levantarPausas(c) {
+    if (!Object.keys(c.pausas).length) return;
+    c.pausas = {};
+    this.guardar();
   },
 
   /**

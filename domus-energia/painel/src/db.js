@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6 } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -181,6 +181,10 @@ export const MIGRACOES = [
     );
     ALTER TABLE orcamentos ADD COLUMN leitura_quadro TEXT;   -- JSON da leitura automática (ou do erro)
   `),
+  // 6 — disjuntor tetrapolar 4P (máquina trifásica com quadro novo; docs/SIMULADOR-ORCAMENTO.md §3 e §4.1).
+  // Só os SKUs novos (uma base nova já os recebeu na migração 3); INSERT OR IGNORE: nunca mexe num artigo do CEO
+  // nem volta a pôr um artigo do quadro que ele tenha apagado.
+  (db) => semear(db, SEMENTES_QUADRO.filter((s) => SKUS_MIGRACAO_6.includes(s.sku)), true),
 ];
 
 /** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */

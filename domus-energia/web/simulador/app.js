@@ -7,7 +7,7 @@ import {
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
   plantaTemConteudo, nomeModelo, formatarW, FASES,
-  perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
+  perfilCasa, maquinasGrandesDe, modelosDoPerfil, objetivosDe, tiposDivisaoPara,
   TIPOS_COM_PISOS, nomePiso, pisoDe,
 } from "./regras.js";
 import {
@@ -184,7 +184,7 @@ function mostrarPasso(foco = true) {
   if (p === P.planta) {
     if (preencherPlanta()) agendarGravacao();
     editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
-    editor.definirMaquinas(maquinasEditor());
+    editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
     editor.definirPisos(pisosDaCasa(estado.casa));
     editor.abrir(estado.planta, { reiniciarVista: true });
     desenharContagem();
@@ -1103,19 +1103,19 @@ async function carregarFotosDoEstado() {
 
 /**
  * `simulacao.fotos` (§6): as fotos das linhas que ainda existem (e a do quadro), sem as imagens, pela ordem do
- * passo 4; `legenda` = "Sala — Tomadas" (com pisos, "(Piso 1)").
+ * passo 4 (por piso); `legenda` = "Sala — Tomadas" (com pisos, "· Piso 1"). A do quadro geral é a "quadro".
  */
 function fotosParaEnvio() {
   const r = [];
   if (fotos.has("quadro")) r.push({ chave: "quadro", tipo: "quadro", divisao: null, divisao_nome: null, piso: null, legenda: "Quadro elétrico" });
   const planta = plantaDivisoes();
   const comPisos = Math.max(pisosDaCasa(estado.casa), ...planta.divisoes.map((d) => pisoDe(d) + 1)) > 1;
-  for (const d of planta.divisoes) {
+  for (const d of divisoesPorOrdem(planta)) {
     for (const l of linhasDivisao(planta, d)) {
-      const chave = `${d.id}:${l.k}`;
-      if (!fotos.has(chave)) continue;
+      const chave = chaveFoto(planta, d, l);
+      if (chave === "quadro" || !fotos.has(chave)) continue;
       const nome = d.nome || "Divisão";
-      r.push({ chave, tipo: l.tipo, divisao: d.id, divisao_nome: nome, piso: pisoDe(d), legenda: `${nome} — ${nomeLinha(l)}${comPisos ? ` (${nomePiso(pisoDe(d))})` : ""}` });
+      r.push({ chave, tipo: l.tipo, divisao: d.id, divisao_nome: nome, piso: pisoDe(d), legenda: `${nome} — ${nomeLinha(l)}${comPisos ? ` · ${nomePiso(pisoDe(d))}` : ""}` });
     }
   }
   return r.slice(0, MAX_FOTOS);
@@ -1171,6 +1171,20 @@ function linhasDivisao(planta, d) {
   }
   const ordem = (l) => (l.modelo ? ORDEM_TIPOS.length : ORDEM_TIPOS.indexOf(l.tipo));
   return [...m.values()].sort((a, b) => ordem(a) - ordem(b));
+}
+/** Divisões pela ordem do passo 4: por piso (r/c primeiro) e, em cada piso, pela ordem da planta. */
+const divisoesPorOrdem = (planta) => [...planta.divisoes].sort((a, b) => pisoDe(a) - pisoDe(b));
+/**
+ * Chave da foto de uma linha: `<id da divisão>:<tipo>` (máquinas `<id>:<modelo>`). O quadro geral (o 1.º quadro
+ * pela ordem do passo 4, o do piso mais baixo: quadro.js pisosDosQuadros) partilha a foto do passo 5, "quadro" —
+ * uma só foto do quadro, a que o painel lê sozinho; os quadros parciais dos outros pisos têm a sua.
+ */
+function chaveFoto(planta, d, l) {
+  if (l.tipo === "quadro") {
+    const geral = divisoesPorOrdem(planta).find((x) => planta.elementos.some((e) => e.tipo === "quadro" && e.divisao === x.id));
+    if (geral?.id === d.id) return "quadro";
+  }
+  return `${d.id}:${l.k}`;
 }
 const nomeLinha = (l, n = l.els.length) => (l.modelo ? MODELOS[l.modelo].nome : NOMES_TIPO[l.tipo][n === 1 ? 0 : 1]);
 const nomeUm = (l) => (l.modelo ? MODELOS[l.modelo].nome : NOMES_TIPO[l.tipo][0]);
@@ -1246,7 +1260,7 @@ function garantirPlanta() {
 function garantirEditor() {
   if (editor.planta === estado.planta) return;
   editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
-  editor.definirMaquinas(maquinasEditor());
+  editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
   editor.definirPisos(pisosDaCasa(estado.casa));
   editor.abrir(estado.planta, { reiniciarVista: true });
 }
@@ -1284,7 +1298,7 @@ function acrescentar(d, l, ev = null) {
   irPara(P.planta, { foco: false });
   const oque = l ? (l.modelo ? `a nova máquina (${MODELOS[l.modelo].nome.toLowerCase()})` : NOMES_TIPO[l.tipo][2]) : null;
   const texto = !d ? "Use os botões das divisões (Sala, Quarto…) para acrescentar a divisão; depois toque em \"Voltar às divisões\"."
-    : oque && teclado ? `Pusemos ${oque} no meio de "${d.nome}": mova-a com as setas (ou arraste-a) para o sítio certo.`
+    : oque && teclado ? `Pusemos ${oque} no meio de "${d.nome}": ${oque.startsWith("a ") ? "mova-a com as setas (ou arraste-a)" : "mova-o com as setas (ou arraste-o)"} para o sítio certo.`
       : oque ? `Toque na planta, dentro de "${d.nome}", onde fica ${oque}.`
         : `Escolha o aparelho nas ferramentas e toque na planta, dentro de "${d.nome}".`;
   editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: teclado && !!l });
@@ -1506,7 +1520,7 @@ function linhaAparelho(d, l, planta) {
   cont.append(menos, valor, mais);
   linha.append(ic, txt, cont);
   // Foto (opcional): uma por tipo de aparelho e divisão.
-  const chave = `${d.id}:${l.k}`;
+  const chave = chaveFoto(planta, d, l);
   const foto = fotos.get(chave);
   const rotuloFoto = `${nome} (${onde})`;
   const depois = (ok, texto) => {
@@ -1725,6 +1739,16 @@ for (const k of CAMPOS) {
 }
 ligarLocalidade($("contacto-localidade"));
 
+// Contactos configurados de verdade (não os valores de exemplo): os mesmos botões de mostrarEnvio.
+const temWhatsapp = () => numeroReal(cfg.whatsapp);
+const temTelefone = () => typeof cfg.telefone === "string" && numeroReal(cfg.telefone);
+const temEmail = () => typeof cfg.email === "string" && /^[^@\s]+@[^@\s]+$/.test(cfg.email);
+/** "pelo WhatsApp, por telefone ou por email" — só os meios mostrados; "" sem nenhum. */
+function meiosContacto() {
+  const m = [temWhatsapp() && "pelo WhatsApp", temTelefone() && "por telefone", temEmail() && "por email"].filter(Boolean);
+  return m.length <= 1 ? m.join("") : `${m.slice(0, -1).join(", ")} ou ${m[m.length - 1]}`;
+}
+
 function mostrarEnvio(texto, tipo, comContactos = false) {
   const m = $("enviar-msg");
   m.replaceChildren();
@@ -1741,7 +1765,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
     if (preco?.min != null) partes.push(`Estimativa: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`);
     partes.push(`${estado.divisoes.length} ${estado.divisoes.length === 1 ? "divisão" : "divisões"}.`);
     const texto2 = partes.join("\n").slice(0, 1500);
-    if (numeroReal(cfg.whatsapp)) {
+    if (temWhatsapp()) {
       const w = el("a", "btn sec pequeno", "Enviar pelo WhatsApp");
       w.id = "enviar-whatsapp";
       w.href = `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(texto2)}`;
@@ -1749,12 +1773,12 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
       w.rel = "noopener";
       acoes.append(w);
     }
-    if (typeof cfg.telefone === "string" && numeroReal(cfg.telefone)) {
+    if (temTelefone()) {
       const t = el("a", "btn sec pequeno", `Ligar ${cfg.telefoneVisivel ?? cfg.telefone}`);
       t.href = `tel:${cfg.telefone}`;
       acoes.append(t);
     }
-    if (typeof cfg.email === "string" && /^[^@\s]+@[^@\s]+$/.test(cfg.email)) {
+    if (temEmail()) {
       const e = el("a", "btn sec pequeno", "Enviar por email");
       e.href = `mailto:${cfg.email}?subject=${encodeURIComponent("Simulação de orçamento")}&body=${encodeURIComponent(texto2)}`;
       acoes.append(e);
@@ -1827,13 +1851,15 @@ async function enviar() {
   botao.textContent = "Enviar pedido";
   // Erros do servidor: a mensagem (com as alternativas) aparece no ecrã, não escondida por cima.
   queueMicrotask(() => $("enviar-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" }));
-  if (estadoHttp === 429) mostrarEnvio("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone. A sua simulação fica guardada neste navegador.", "erro", true);
+  // Só os meios de contacto que aparecem por baixo da mensagem (mostrarEnvio).
+  const fale = meiosContacto();
+  if (estadoHttp === 429) mostrarEnvio(`Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora${fale ? `, ou fale connosco ${fale}` : ""}. A sua simulação fica guardada neste navegador.`, "erro", true);
   else if (estadoHttp === 400) {
     const e = typeof erro === "string" ? erro.trim().slice(0, 200) : "";
     mostrarEnvio(`Há dados em falta ou inválidos${e ? `: ${e}${/[.!?…]$/.test(e) ? "" : "."}` : "."} Verifique o formulário, ou fale connosco.`, "erro", true);
   }
   else if (estadoHttp === 413) mostrarEnvio("A simulação é demasiado grande para enviar. Remova o fundo da planta e tente de novo, ou fale connosco.", "erro", true);
-  else mostrarEnvio("Não foi possível enviar agora. A sua simulação fica guardada neste navegador: tente mais tarde, ou fale connosco pelo WhatsApp ou telefone.", "erro", true);
+  else mostrarEnvio(`Não foi possível enviar agora. A sua simulação fica guardada neste navegador: tente mais tarde${fale ? `, ou fale connosco ${fale}` : ""}.`, "erro", true);
 }
 
 /**
@@ -1948,7 +1974,7 @@ $("sim-recomecar-topo").addEventListener("click", () => {
   if (b.parentElement.querySelector(".confirmar")) return;
   const c = el("div", "confirmar");
   c.setAttribute("role", "alert");
-  c.append(el("p", null, "Isto apaga a simulação toda — a casa, o que quer, a planta, as divisões, o quadro e o contacto — também deste navegador. Continuar?"));
+  c.append(el("p", null, "Isto apaga a simulação toda — a casa, o que quer, a planta, as divisões, as fotos, o quadro e o contacto — também deste navegador. Continuar?"));
   const bs = el("div", "botoes");
   const sim = el("button", "btn pequeno", "Sim, começar de novo");
   sim.type = "button";

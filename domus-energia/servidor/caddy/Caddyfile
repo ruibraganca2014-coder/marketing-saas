@@ -5,6 +5,7 @@
 #   https://HOST/api/*       -> pagamentos (sessão, checkout, portal; porta interna 8080)
 #   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe, assinados)
 #   https://HOST/api/orcamento  -> painel (formulário público; ANTES da regra /api/*)
+#   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, ≤ 1 MB cada; idem)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...

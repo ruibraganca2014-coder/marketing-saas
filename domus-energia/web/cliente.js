@@ -196,8 +196,18 @@ function entrar(cod, password, { lembrar, automatico = false }) {
   });
   cliente = c;
 
+  // 1.ª ligação: servidor inacessível (WebSocket recusado, sem internet, sem resposta em 10 s) →
+  // aviso claro, botão de volta e sem novas tentativas. Depois de entrar, o mqtt.js volta a ligar sozinho.
+  const semServidor = () => {
+    if (c !== cliente || entrou) return;
+    terminar();
+    erroLogin("Não foi possível ligar ao servidor. Verifique a internet e tente de novo.");
+  };
+  const limite = setTimeout(semServidor, 10_000);
+
   c.on("connect", () => {
     if (c !== cliente) return;
+    clearTimeout(limite);
     if (!entrou) {
       entrou = true;
       // Um "A tentar de novo…" de uma tentativa anterior não pode ficar no ecrã de entrada (aparecia depois de "Sair").
@@ -233,18 +243,19 @@ function entrar(cod, password, { lembrar, automatico = false }) {
     if (c !== cliente) return;
     // CONNACK 4 (utilizador/palavra-passe errados) ou 5 (não autorizado): não insistir.
     if (err?.code === 4 || err?.code === 5 || /not authori[sz]ed|bad user/i.test(err?.message ?? "")) {
+      clearTimeout(limite);
       apagarLembrar();
       terminar();
       credenciais = null;
       erroLogin("Código ou palavra-passe errados.");
       return;
     }
-    if (!entrou) erroLogin("Não foi possível ligar ao servidor. A tentar de novo…");
+    if (!entrou) { clearTimeout(limite); semServidor(); }
   });
 
   c.on("reconnect", () => c === cliente && estadoLigacao(false));
-  c.on("offline", () => c === cliente && estadoLigacao(false));
-  c.on("close", () => c === cliente && entrou && estadoLigacao(false));
+  c.on("offline", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else estadoLigacao(false); });
+  c.on("close", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else estadoLigacao(false); });
   c.on("message", (topico, payload, packet) => c === cliente && receber(topico, payload.toString(), !!packet?.retain));
 }
 
@@ -782,7 +793,11 @@ function atualizarLinha(a, c, linha, disponivel, agora) {
       break;
     }
     case "porta":
-      linha.estado.textContent = c.aberto == null ? "Sem informação" : `${c.aberto ? "Aberta" : "Fechada"}${quando(c.ultimaMudanca ?? estados[a.id]?.ultimaNoticia)}`;
+      // "Aberta"/"Fechada" já está no selo: o texto diz só quando mudou.
+      {
+        const t = c.ultimaMudanca ?? estados[a.id]?.ultimaNoticia;
+        linha.estado.textContent = c.aberto == null ? "Sem informação" : t ? `${c.ultimaMudanca ? "Mudou" : "Atualizado"} ${E.tempoRelativo(t, agora)}` : "";
+      }
       linha.selo.textContent = c.aberto == null ? "—" : c.aberto ? "Aberta" : "Fechada";
       linha.selo.className = `selo-estado${c.aberto ? " quente" : ""}`;
       atualizarIlustracao(linha.ilus, "porta", { aberto: !!c.aberto });

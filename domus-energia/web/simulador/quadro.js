@@ -250,12 +250,12 @@ export function resumoQuadro(estado) {
   novos += Math.max(0, gruposGeral.length - 1) * MODULOS.diferencial * P;
   // Artigos (disjuntores, AFDD, inteligentes): todos os circuitos; módulos e linhas: só os do quadro geral.
   let disj = 0, nAfdd = 0, sy2 = 0, sy1 = 0;
-  let disjG = 0, mDisj = 0, nAfddG = 0, mAfdd = 0, sy2G = 0, sy1G = 0, mSy = 0, tetra = 0;
+  let disjG = 0, mDisj = 0, nAfddG = 0, mAfdd = 0, sy2G = 0, sy1G = 0, mSy = 0, tetra = 0, tetraT = 0;
   for (const c of circuitos) {
     const g = quadroDe(c) === geral;
     const i = inteligenteDe(c, q.disjuntor);
     const comAfdd = afdd.includes(c.n);
-    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { if (g) tetra++; continue; }
+    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { tetraT++; if (g) tetra++; continue; }
     if (comAfdd) { nAfdd++; if (g) { nAfddG++; mAfdd += MODULOS.afdd; novos += i === "sy2" ? MODULOS.afdd : MODULOS.afdd - MODULOS.disjuntor; } }
     if (i === "sy2") { sy2++; if (g) { sy2G++; mSy += MODULOS.sy; } }
     else if (!comAfdd) { disj++; if (g) { disjG++; mDisj += MODULOS.disjuntor; } }
@@ -279,7 +279,7 @@ export function resumoQuadro(estado) {
   return {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
-    disjuntores: disj, sy2, sy1,
+    disjuntores: disj, sy2, sy1, tetrapolares: tetraT,
     parciais, pisos_quadros: pisosQ,
     potencia: potenciaSugerida(circuitos),
   };
@@ -290,8 +290,10 @@ export const levaQuadroNovo = (q) => q?.quadro_novo !== "atual";
 
 /**
  * Artigos do quadro para o preço (preco.js): diferenciais (Wi-Fi ou não), descarregador, relé de tensão,
- * AFDD, medidor e geral Wi-Fi; com quadro novo a caixa (mais uma de 12 módulos por quadro parcial), o geral
- * e os disjuntores dos circuitos sem SY2/AFDD; com o quadro atual, a ampliação quando há mais de 12 módulos novos.
+ * AFDD, medidor e geral Wi-Fi; com quadro novo a caixa (mais uma de 12 módulos por quadro parcial), o geral,
+ * os disjuntores dos circuitos sem SY2/AFDD e um tetrapolar (4P) por circuito de máquina trifásica numa casa
+ * trifásica; com o quadro atual, a ampliação quando há mais de 12 módulos novos (a máquina trifásica fica na
+ * proteção trifásica que já tem).
  * @returns {{chave:string, qtd:number}[]}
  */
 export function pedidosQuadro(estado) {
@@ -309,6 +311,7 @@ export function pedidosQuadro(estado) {
     // O geral (salvo com o geral Wi-Fi) e o de cada quadro parcial (a saída do piso, no geral).
     add("disjuntor_geral", (p.geral_wifi ? 0 : 1) + r.parciais);
     add("disjuntor_circuito", r.disjuntores);
+    add("disjuntor_tetrapolar", r.tetrapolares);
     // Caixas: a(s) do geral e as dos parciais (as de 12 módulos juntam-se numa linha).
     if (r.tamanho === TAMANHO_PARCIAL) add(`caixa_${r.tamanho}`, r.quadros + r.parciais);
     else { add(`caixa_${r.tamanho}`, r.quadros); add(`caixa_${TAMANHO_PARCIAL}`, r.parciais); }

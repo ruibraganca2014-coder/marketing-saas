@@ -30,6 +30,7 @@ export function lerConfig(env = process.env) {
   if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro fica desligada');
   return {
     porta: Number(env.PORTA || 8080),
+    anfitriao: env.ANFITRIAO || undefined,   // sem ele: todas as interfaces (como antes); o lançador local usa 127.0.0.1
     db: env.PAINEL_DB || join(dados, 'painel', 'painel.db'),
     planosDir: env.PLANOS_DIR || join(dados, 'planos'),
     clientesDir: env.CLIENTES_DIR || join(dados, 'clientes'),

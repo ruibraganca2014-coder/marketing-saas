@@ -48,6 +48,7 @@ export const PEDIDOS = {
   medidor_geral: { sku: "MEDIDOR-DIN-WIFI", nome: "Medidor de energia geral Wi-Fi", procura: comFuncao("medidor_geral") },
   geral_wifi: { sku: "GERAL-WIFI-2P-63A", nome: "Disjuntor geral Wi-Fi com medição e corte remoto", procura: comFuncao("geral_wifi") },
   disjuntor_circuito: { sku: "MCB-1PN-C", nome: "Disjuntor 1P+N curva C", procura: comFuncao("disjuntor_circuito") },
+  disjuntor_tetrapolar: { sku: "MCB-4P-C", nome: "Disjuntor tetrapolar 4P", procura: comFuncao("disjuntor_tetrapolar") },
   disjuntor_geral: { sku: "GERAL-2P-63A", nome: "Disjuntor geral 2P", procura: comFuncao("geral") },
   ...CAIXAS,
   interruptor_1: { sku: "INT-VIDRO-1", nome: "Interruptor de parede tátil Wi-Fi 1 botão", procura: (a) => a.categoria === "interruptor" && Number(a.especificacoes?.botoes) === 1 },

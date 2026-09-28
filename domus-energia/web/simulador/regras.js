@@ -121,6 +121,8 @@ export const MAQUINAS_QUER = unicos(Object.values(MAQUINAS_GRANDES).flat());
 export const PEQUENAS_QUER = unicos(Object.values(MAQUINAS_PEQUENAS).flatMap((g) => g.flatMap(([, l]) => l)));
 export const maquinasGrandesDe = (tipo) => MAQUINAS_GRANDES[perfilCasa(tipo)];
 export const maquinasPequenasDe = (tipo) => MAQUINAS_PEQUENAS[perfilCasa(tipo)].flatMap(([, l]) => l);
+/** Modelos de máquina do perfil do imóvel (as grandes, as pequenas e "outro"): a lista "Qual é?" da janela. */
+export const modelosDoPerfil = (tipo) => [...maquinasGrandesDe(tipo), ...maquinasPequenasDe(tipo), "outro"];
 
 export const OBJETIVOS = {
   poupar: "Poupar energia",
@@ -839,7 +841,8 @@ const kva = (v) => `${String(v).replace(".", ",")} kVA`;
 
 /**
  * Avisos simples, sem bloquear (§4). Todos terminam em "(orientativo — confirmamos na visita)".
- * @param {{fases?: "mono"|"tri"|null}} [opcoes] ligação da casa (muda o texto do aviso trifásico)
+ * @param {{fases?: "mono"|"tri"|null, quadro_novo?: "atual"|"novo"|null}} [opcoes] ligação da casa e resposta do
+ *   quadro (mudam o texto do aviso trifásico)
  */
 export function avisosCircuito(c, opcoes = {}) {
   const r = [];
@@ -874,8 +877,10 @@ export function avisosCircuito(c, opcoes = {}) {
     r.push(aviso(c, `O carregador do carro elétrico carrega a 32 A: precisa de um disjuntor de ${AMPERES_VE} A (tem ${c.amperes} A).`));
   }
   for (const m of maqs.filter(trifasica)) {
+    // Com quadro novo (ou "Não sei", quadro.js levaQuadroNovo) o preço leva um disjuntor tetrapolar (4P) para ela.
+    const quadroNovo = opcoes.quadro_novo !== undefined && opcoes.quadro_novo !== "atual";
     r.push(aviso(c, opcoes.fases === "tri"
-      ? `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): os disjuntores inteligentes são monofásicos (1P+N), por isso esta máquina trifásica fica na proteção trifásica que já tem, sem disjuntor inteligente.`
+      ? `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): os disjuntores inteligentes são monofásicos (1P+N), por isso esta máquina trifásica ${quadroNovo ? "leva um disjuntor tetrapolar (4P) no quadro novo" : "fica na proteção trifásica que já tem"}, sem disjuntor inteligente.`
       : `${nomeModelo(m.modelo)} (${formatarW(watts(m))}): acima de 7,4 kW costuma ser preciso ligação trifásica, e os disjuntores inteligentes são monofásicos (1P+N).`));
   }
   if ((c.inteligente || c.medir) && amperes > AMPERES_MAX_INTELIGENTE) {

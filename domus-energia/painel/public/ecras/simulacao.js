@@ -596,7 +596,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   else if (sug !== null && sug > kva) por("Potência contratada", `${num2(kva)} kVA pode ser CURTA: sugerida ${num2(sug)} kVA${cargaTxt} — falar com o cliente sobre o aumento de potência.`);
   if (quadroNovo && sug === null && carga !== null) por("Potência contratada", `Cargas ≈ ${num(carga)} W: acima de 41,4 kVA (contrato especial).`);
   if (temCasa && casa.fases == null) por("Ligação", "O cliente NÃO SABE se a ligação é monofásica ou trifásica: verificar no contador ou no quadro (muda os módulos e as máquinas trifásicas).");
-  else if (casa.fases === "tri") por("Ligação", "Trifásica: confirmar o equilíbrio das fases; geral, diferenciais, descarregador, relé e medidor são tetrapolares (o dobro dos módulos); as máquinas trifásicas ficam na proteção trifásica, sem disjuntor inteligente.");
+  else if (casa.fases === "tri") por("Ligação", `Trifásica: confirmar o equilíbrio das fases; geral, diferenciais, descarregador, relé e medidor são tetrapolares (o dobro dos módulos); ${q.quadro_novo_no_preco === true ? "as máquinas trifásicas levam um disjuntor tetrapolar (4P) no quadro novo" : "as máquinas trifásicas ficam na proteção trifásica que já existe"}, sem disjuntor inteligente.`);
   if (casa.fases !== "tri" && sug !== null && sug > 13.8) por("Ligação", `A potência sugerida (${num2(sug)} kVA) pede ligação trifásica.`);
 
   // Máquinas ≥ 2000 W e carregador do carro.
@@ -687,7 +687,7 @@ function verificarLeitura(leitura, novos = null) {
   return out;
 }
 
-const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
+export const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
 /** Endereço da foto no painel (reconstruído a partir dos ids, nunca copiado da resposta). */
 export const urlFoto = (orcamentoId, fotoId) => `/painel/api/orcamentos/${encodeURIComponent(String(orcamentoId))}/fotos/${encodeURIComponent(String(fotoId))}`;
 
@@ -962,7 +962,13 @@ export function slug(s, max = 24) {
 }
 // Nomes escritos pelo cliente (divisões, circuitos) vão para os pedidos do domus.sh: sem aspas, "\\", "<" nem ">".
 const nomeLimpo = (s, max = 60) => String(s ?? "").replace(/["\\<>]/g, "").replace(/^[-\s]+/, "").trim().slice(0, max).trim();
-const canalLimpo = (s) => String(s ?? "").replace(/[:,"\\<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30).trim();
+// Nome do canal: até 30 caracteres (limite do painel; nem o converter nem o domus.sh impõem outro), cortado na última palavra inteira.
+function canalLimpo(s) {
+  const t = String(s ?? "").replace(/[:,="\\<>]/g, " ").replace(/\s+/g, " ").trim();
+  if (t.length <= 30) return t;
+  const c = t.slice(0, 31), i = c.lastIndexOf(" ");
+  return (i > 0 ? c.slice(0, i) : c.slice(0, 30)).trim();
+}
 function divisaoLimpa(s) {
   let t = String(s ?? "").replace(/["\\:,<>]/g, " ").replace(/\s+/g, " ").replace(/^[-\s]+/, "").trim();
   while (new TextEncoder().encode(t).length > 40) t = t.slice(0, -1).trim();

@@ -363,6 +363,7 @@ export function validarConfig(c) {
   inteiro("offline_min", 1, 1440, "Aviso de aparelho offline (min)");
   inteiro("pausa_manual_min", 0, 480, "Pausa depois de mexer à mão (min)");
   if ("silencio" in c && c.silencio !== null && !(Array.isArray(c.silencio) && c.silencio.length === 2 && c.silencio.every((h) => HORA_RE.test(h)))) erros.push("Horas de silêncio inválidas (HH:MM).");
+  else if (c.silencio?.[0] != null && c.silencio[0] === c.silencio[1]) erros.push("As horas de silêncio não podem ser iguais.");
   if ("relatorio_diario" in c && c.relatorio_diario !== null && !HORA_RE.test(c.relatorio_diario ?? "")) erros.push("Hora do relatório inválida (HH:MM).");
   if ("local" in c && c.local !== null) {
     const { lat, lon } = c.local ?? {};

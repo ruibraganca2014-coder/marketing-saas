@@ -137,9 +137,11 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       } else {
         const res = E.RESULTADOS[agora?.resultado] ?? agora?.resultado ?? "";
         // "Teste feito: Teste — …" repetia a palavra; quando o resultado é o próprio teste basta o motivo.
-        const mostrarRes = !((p.tipo === "testar" && agora?.resultado === "teste") || (p.tipo === "executar" && agora?.resultado === "executada"));
-        p.texto = `${p.tipo === "testar" ? "Teste feito" : "Executada"}${mostrarRes ? `: ${res}` : ""}${agora?.motivo ? ` — ${E.motivoSimples(agora.motivo, aparelhos())}` : ""}`;
-        p.classe = agora?.resultado === "falhou" ? "erro" : "ok";
+        const mostrarRes = !((p.tipo === "testar" && agora?.resultado === "teste") || (p.tipo === "executar" && ["executada", "condicao_falsa"].includes(agora?.resultado)));
+        // "Executada" só quando executou mesmo (em pausa ou com condições falsas não executa).
+        const prefixo = p.tipo === "testar" ? "Teste feito" : agora?.resultado === "executada" ? "Executada" : "Não executada";
+        p.texto = `${prefixo}${mostrarRes ? `: ${res}` : ""}${agora?.motivo ? ` — ${E.motivoSimples(agora.motivo, aparelhos())}` : ""}`;
+        p.classe = agora?.resultado === "falhou" ? "erro" : prefixo === "Não executada" ? "info" : "ok";
       }
     }
     desenharSeLivre();
@@ -218,9 +220,9 @@ export function criarAutomacoes({ publicar, ligado, aparelhos, cenas = () => [],
       p.textContent = `Em pausa: ${E.motivoSimples(r.motivo, aparelhos()) || "alguém mexeu num aparelho à mão."}${a.ignorar_pausa ? "" : " A automação volta sozinha quando a pausa acabar."}`;
       caixaR.append(p);
     }
-    // Só execuções reais (as de "Avaliar agora" ficam de fora); a mais recente já está em cima,
-    // com o motivo — a lista mostra as anteriores.
-    const execucoes = (r?.ultimos ?? []).filter((u) => u.resultado && u.resultado !== "avaliacao");
+    // Só execuções reais, como em "N execuções esta semana" (avaliações, testes e pausas ficam de fora);
+    // a mais recente já está em cima, com o motivo — a lista mostra as anteriores.
+    const execucoes = (r?.ultimos ?? []).filter((u) => u.resultado === "executada" && !u.teste);
     const anteriores = execucoes[0] && execucoes[0].ts === r.ultima && execucoes[0].resultado === r.resultado ? execucoes.slice(1) : execucoes;
     if (anteriores.length) {
       const d = el("details", "ultimos");

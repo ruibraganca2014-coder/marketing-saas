@@ -250,7 +250,9 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
 
     const fL = el("fieldset");
     fL.append(el("legend", null, "Localização (nascer e pôr do sol)"));
-    const cidade = select("cfg-cidade", [{ valor: "", texto: "Escolher uma cidade…" }, ...E.CIDADES.map((x) => ({ valor: x.nome, texto: x.nome }))], "");
+    // Coordenadas de uma cidade da lista (com uma pequena tolerância): essa cidade aparece escolhida.
+    const atual = c.local ? E.CIDADES.find((x) => Math.abs(x.lat - c.local.lat) < 0.02 && Math.abs(x.lon - c.local.lon) < 0.02) : null;
+    const cidade = select("cfg-cidade", [{ valor: "", texto: "Escolher uma cidade…" }, ...E.CIDADES.map((x) => ({ valor: x.nome, texto: x.nome }))], atual?.nome ?? "");
     const lat = input("cfg-lat", "number", c.local?.lat ?? "", { min: "-90", max: "90", step: "any", inputmode: "decimal", placeholder: "38.72" });
     const lon = input("cfg-lon", "number", c.local?.lon ?? "", { min: "-180", max: "180", step: "any", inputmode: "decimal", placeholder: "-9.14" });
     cidade.addEventListener("change", () => {
@@ -270,8 +272,10 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
     const b = el("div", "form-botoes");
     b.append(ok);
     form.append(fA, fN, fP, fL, erro, b);
-    form.addEventListener("input", () => { sujo = true; });
-    form.addEventListener("change", () => { sujo = true; });
+    // Ao corrigir, um erro antigo do servidor deixa de fazer sentido.
+    const mexeu = () => { sujo = true; if ($("config-estado").classList.contains("erro")) estado(null); };
+    form.addEventListener("input", mexeu);
+    form.addEventListener("change", mexeu);
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -294,7 +298,7 @@ export function criarDefinicoes({ publicar, ligado, permite = () => true, bloque
       const erros = E.validarConfig(parcial);
       erro.hidden = !erros.length;
       erro.replaceChildren(...erros.map((t) => el("div", null, t)));
-      if (erros.length) return;
+      if (erros.length) { estado(null); return; }
       if (!Object.keys(parcial).length) { estado("Sem alterações.", "ok"); sujo = false; return; }
       if (!ligado()) { estado(E.SEM_LIGACAO, "erro"); return; }
       guardando = { timer: setTimeout(() => { guardando = null; estado("O servidor não respondeu. As definições não foram guardadas; tente de novo.", "erro"); atualizarBotao(); }, TEMPO_MOTOR) };

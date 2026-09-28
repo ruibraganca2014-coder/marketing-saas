@@ -105,7 +105,7 @@ Campos novos da automação: `descricao` (≤ 200, a frase-objetivo), `categoria
 - `{"acao":"se","condicao":{/* como "se" */},"entao":[...],"senao":[...]}` — máx. 2 níveis; total ≤ 20 ações contando as aninhadas.
 - `ligar` com `durante_s`: temporizador que **recomeça** a cada novo disparo (já na v2).
 
-**Pausa manual**: quando um canal controlável muda por alguém que não o motor (botão físico, app), as automações que agem nesse canal ficam em pausa `pausa_manual_min` para esse canal (exceto `ignorar_pausa`). A pausa aparece no registo.
+**Pausa manual**: quando um canal controlável muda por alguém que não o motor (botão físico, app), as automações que agem nesse canal ficam em pausa `pausa_manual_min` para esse canal (exceto `ignorar_pausa`). A pausa aparece no registo. Executar à mão (`_automacoes/executar` sem `testar`/`avaliar`) é um pedido explícito do cliente e ignora a pausa; "avaliar" diz se os canais estão em pausa (`ok: false` se todos os canais onde age estiverem em pausa). Mudar `pausa_manual_min` para 0 levanta as pausas em curso.
 
 **Presença**: a app publica `domus/<c>/_presenca/set` `{"pessoa":"<id-do-telemóvel>","nome":"Rui","em_casa":true}` (geofence ≥ 100 m + Wi-Fi de casa; a app só publica depois de 10 min estáveis). O motor mantém `_presenca` (retido) `{"pessoas":{"<id>":{"nome","em_casa","desde"}},"alguem":true}`.
 

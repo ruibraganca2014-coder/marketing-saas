@@ -47,7 +47,7 @@ test('_config/set inválido: evento erro e nada muda (campos desconhecidos inclu
     [{ atraso_entrada_s: -1 }, /atraso_entrada_s/],
     [{ pausa_manual_min: 481 }, /pausa_manual_min.*0 e 480/],
     [{ silencio: ['23:00'] }, /silencio/],
-    [{ silencio: ['23:00', '23:00'] }, /não podem ser iguais/],
+    [{ silencio: ['23:00', '23:00'] }, /As horas de silêncio não podem ser iguais\./],
     [{ relatorio_diario: '8h' }, /relatorio_diario/],
     [{ local: { lat: 99, lon: 0 } }, /lat/],
     [{ local: { lat: 38, lon: -9, alt: 3 } }, /campo desconhecido "alt"/],

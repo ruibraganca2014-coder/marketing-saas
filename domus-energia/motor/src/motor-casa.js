@@ -54,6 +54,8 @@ export const metodosCasa = {
       return;
     }
     c.config = r.config;
+    // Sem pausa depois de mexer à mão: as pausas em curso também acabam.
+    if (!c.config.pausa_manual_min) this.levantarPausas(c);
     this.log.info(`[config] ${codigo}: configuração atualizada`);
     this.publicar(`domus/${codigo}/_config`, c.config, true);
     this.guardar();

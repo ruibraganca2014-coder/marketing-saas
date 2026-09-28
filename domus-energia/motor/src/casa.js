@@ -60,7 +60,7 @@ function validarCampo(k, v) {
       if (!Array.isArray(v) || v.length !== 2 || !v.every((h) => typeof h === 'string' && HORA_RE.test(h))) {
         return '"silencio" tem de ser ["HH:MM", "HH:MM"] (ex.: ["23:00", "07:00"]) ou null.';
       }
-      return v[0] === v[1] ? 'As horas de "silencio" não podem ser iguais.' : null;
+      return v[0] === v[1] ? 'As horas de silêncio não podem ser iguais.' : null;
     case 'relatorio_diario':
       return v === null || (typeof v === 'string' && HORA_RE.test(v)) ? null : '"relatorio_diario" tem de ser "HH:MM" ou null.';
     case 'local': {

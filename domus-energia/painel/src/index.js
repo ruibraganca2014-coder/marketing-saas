@@ -10,7 +10,7 @@ process.umask(0o077);
 const registo = criarRegisto();
 const config = lerConfig();
 const app = await criarApp({ config, registo });
-app.servidor.listen(config.porta, () => registo.info(`painel à escuta na porta ${config.porta}`));
+app.servidor.listen(config.porta, config.anfitriao, () => registo.info(`painel à escuta na porta ${config.porta}${config.anfitriao ? ` (${config.anfitriao})` : ''}`));
 
 let aTerminar = false;
 for (const sinal of ['SIGTERM', 'SIGINT']) {

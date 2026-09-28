@@ -348,6 +348,42 @@ test('pausa manual: canal mexido à mão pausa as automações desse canal (exce
   assert.equal(m.motor.pausaAtiva(m.motor.clientes.get('joao'), 'sala-4g', 4), null);
 });
 
+test('pausa manual: executar à mão ignora-a, avaliar mostra-a e pausa_manual_min = 0 levanta-a', () => {
+  const m = motorV3({ agora: '2026-06-15T12:00:00Z' }); // 13:00 em Lisboa
+  guardar(m, [{ id: 'luz', quando: { tipo: 'sensor', aparelho: 'pir-corredor', canal: 1, valor: 1 }, entao: [{ acao: 'ligar', aparelho: 'sala-4g', canal: 4 }] }]);
+  m.msg(`${P}/sala-4g/4/get`, '1');
+  m.msg(`${P}/sala-4g/4/get`, '0'); // mexido à mão: pausa até 14:00
+  assert.equal(registo(m, 'luz').resultado, 'pausada');
+  // Avaliar agora: as condições verificam-se, mas o único canal está em pausa.
+  m.msg(`${P}/_automacoes/executar`, { id: 'luz', avaliar: true });
+  let av = registo(m, 'luz').ultimos[0];
+  assert.equal(av.resultado, 'avaliacao');
+  assert.equal(av.ok, false);
+  assert.equal(av.motivo, 'Pausa manual: Corredor até 14:00.');
+  // Executar à mão é um pedido explícito: age mesmo em pausa.
+  m.limpar();
+  m.msg(`${P}/_automacoes/executar`, { id: 'luz', por: 'web' });
+  assert.deepEqual(m.comandos(), [`${P}/sala-4g/4/set=1`]);
+  assert.equal(registo(m, 'luz').resultado, 'executada');
+  assert.equal(registo(m, 'luz').motivo, 'Disparou: executada à mão (web).');
+  // O gatilho continua a respeitar a pausa.
+  m.msg(`${P}/sala-4g/4/get`, '1');
+  m.msg(`${P}/sala-4g/4/get`, '0');
+  m.limpar();
+  m.msg(`${P}/pir-corredor/1/get`, '1');
+  assert.deepEqual(m.comandos(), []);
+  // pausa_manual_min = 0: as pausas em curso acabam logo.
+  m.msg(`${P}/_config/set`, { pausa_manual_min: 0 });
+  assert.deepEqual(m.motor.clientes.get('joao').pausas, {});
+  m.msg(`${P}/_automacoes/executar`, { id: 'luz', avaliar: true });
+  av = registo(m, 'luz').ultimos[0];
+  assert.equal(av.ok, true);
+  assert.equal(av.motivo, 'As condições são verdadeiras agora.');
+  m.msg(`${P}/pir-corredor/1/get`, '0');
+  m.msg(`${P}/pir-corredor/1/get`, '1');
+  assert.deepEqual(m.comandos(), [`${P}/sala-4g/4/set=1`]);
+});
+
 test('registo: aparelho do gatilho offline, ação sem resposta em 5 s, máximo 20 entradas', () => {
   const m = motorV3({ agora: '2026-06-15T13:02:00Z' }); // 14:02 em Lisboa
   guardar(m, [

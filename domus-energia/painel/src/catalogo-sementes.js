@@ -1,7 +1,7 @@
 // Sementes do catálogo (docs/SIMULADOR-ORCAMENTO.md §3). Preços de venda
 // PROVISÓRIOS: o CEO confirma-os no painel. preco_compra null = desconhecido.
 // SEMENTES_CATALOGO entra na primeira vez (migração 2); SEMENTES_QUADRO (fim do ficheiro) pela migração 3,
-// só com os SKUs que ainda não existem. Depois o catálogo é do CEO.
+// só com os SKUs que ainda não existem (os de SKUS_MIGRACAO_6 também pela migração 6). Depois o catálogo é do CEO.
 
 const interruptores = [1, 2, 3, 4].map((b, i) => ({
   sku: `INT-VIDRO-${b}`,
@@ -100,6 +100,8 @@ const caixa = (m, filas, preco, horas) => ({
   categoria: 'acessorio', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: horas,
   especificacoes: { funcao: 'caixa_quadro', modulos_caixa: m, filas, nota: `${PROVISORIO}; as horas incluem passar os circuitos para o quadro novo` },
 });
+/** SKUs de SEMENTES_QUADRO acrescentados depois da migração 3: entram nas bases já existentes pela migração 6. */
+export const SKUS_MIGRACAO_6 = ['MCB-4P-C'];
 export const SEMENTES_QUADRO = [
   { sku: 'IDR-2P-40A-30MA', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo AC', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
@@ -125,6 +127,10 @@ export const SEMENTES_QUADRO = [
   { sku: 'MCB-1PN-C', nome: 'Disjuntor 1P+N curva C (6–40 A) — quadro novo', categoria: 'disjuntor',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 14.9, horas_instalacao: 0.25,
     especificacoes: { funcao: 'disjuntor_circuito', curva: 'C', amperes: [6, 10, 16, 20, 25, 32, 40], modulos: 1, nota: PROVISORIO } },
+  // Migração 6 (bases já existentes): o disjuntor da máquina trifásica numa casa trifásica, com quadro novo.
+  { sku: 'MCB-4P-C', nome: 'Disjuntor tetrapolar 4P curva C (10–40 A) — máquina trifásica, quadro novo', categoria: 'disjuntor',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 34.9, horas_instalacao: 0.25,
+    especificacoes: { funcao: 'disjuntor_tetrapolar', curva: 'C', polos: 4, amperes: [10, 16, 20, 25, 32, 40], modulos: 4, nota: PROVISORIO } },
   { sku: 'GERAL-2P-63A', nome: 'Disjuntor geral 2P (40–63 A) — quadro novo', categoria: 'disjuntor',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 29.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'geral', amperes: [40, 50, 63], modulos: 2, nota: PROVISORIO } },

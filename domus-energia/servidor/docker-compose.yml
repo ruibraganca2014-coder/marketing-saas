@@ -13,6 +13,7 @@
 #   https://HOST/stripe/webhook -> pagamentos (eventos do Stripe)
 #   https://HOST/painel/        -> painel da empresa (equipa; API em /painel/api/)
 #   https://HOST/api/orcamento  -> painel (formulário público de orçamento)
+#   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, uma a uma, ≤ 1 MB)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador)
 
 services:

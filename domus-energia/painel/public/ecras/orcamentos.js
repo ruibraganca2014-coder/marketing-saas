@@ -5,7 +5,7 @@
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -196,7 +196,7 @@ export default function orcamentos(el, ctx) {
 
     const hist = lista(campo(o, "historico") ?? [], "historico");
     if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
-      h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x) }), campo(x, "por", "utilizador", "email") ? h("span", { class: "ajuda", text: ` · ${txt(x, "por", "utilizador", "email")}` }) : null))));
+      h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x, sim) }), campo(x, "por", "utilizador", "email") ? h("span", { class: "ajuda", text: ` · ${txt(x, "por", "utilizador", "email")}` }) : null))));
     j.corpo.replaceChildren(...partes);
   }
 
@@ -339,16 +339,25 @@ export default function orcamentos(el, ctx) {
 
 const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
-  orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada",
+  orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
 };
-/** Uma linha do histórico: {texto} ou {acao, detalhes} (registo de auditoria). */
-function textoHistorico(x) {
+/** Nome legível de uma foto pela chave ("quadro" ou "divisao:tipo"), com os dados da simulação se os houver. */
+function nomeFotoChave(chave, sim) {
+  if (chave === "quadro") return "Quadro elétrico";
+  const m = (Array.isArray(sim?.fotos) ? sim.fotos : []).find((f) => f && f.chave === chave) ?? {};
+  const [divisao, tipo] = chave.split(":");
+  const s = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  return [nomeTipoFoto(s(m.tipo) ?? tipo), s(m.divisao_nome) ?? divisao, s(m.legenda)].filter(Boolean).join(" · ");
+}
+/** Uma linha do histórico: {texto} ou {acao, detalhes} (registo de auditoria). `sim`: simulação do pedido (nomes das fotos). */
+function textoHistorico(x, sim) {
   const t = campo(x, "texto", "descricao");
   if (t) return String(t);
   const acao = String(campo(x, "acao") ?? "");
   const d = campo(x, "detalhes");
   const partes = [ACOES[acao] ?? (acao.replace(/_/g, " ") || "—")];
   if (d && typeof d === "object") {
+    if (acao === "foto_apagada" && typeof d.chave === "string" && d.chave) partes[0] = `Foto apagada: ${nomeFotoChave(d.chave, sim)}`;
     if (d.estado) partes.push(`estado: ${ESTADOS_ORC[d.estado] ?? d.estado}`);
     if (d.data_visita) partes.push(`visita: ${data(d.data_visita)}`);
     if (d.valor_proposta != null) partes.push(`proposta: ${euros(d.valor_proposta)}`);

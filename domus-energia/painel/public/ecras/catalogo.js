@@ -149,6 +149,7 @@ export default function catalogo(el) {
     const id = String(campo(a, "id"));
     const m = margem(campo(a, "preco_venda_iva"), campo(a, "preco_compra"));
     const ativo = campo(a, "ativo") !== false, visivel = campo(a, "visivel_cliente") !== false;
+    const nota = campo(a, "especificacoes")?.nota, provisorio = typeof nota === "string" && /preço provisório/i.test(nota);
     return h("tr", { dataset: { id, sku: String(campo(a, "sku") ?? "") }, class: `${ativo ? "" : "inativo"} ${m.aviso ? `margem-${m.aviso}` : ""}`.trim() },
       h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("strong", { class: "bloco-ajuda", text: String(campo(a, "nome") ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [campo(a, "sku"), campo(a, "fornecedor")].filter(Boolean).join(" · ") }))),
       h("td", { "data-rotulo": "Categoria", text: CATEGORIAS[campo(a, "categoria")] ?? String(campo(a, "categoria") ?? "—") }),
@@ -156,7 +157,7 @@ export default function catalogo(el) {
       h("td", { class: "num", "data-rotulo": "Venda c/ IVA", text: euros(campo(a, "preco_venda_iva")) }),
       h("td", { class: "celula-margem", "data-rotulo": "Margem" }, h("span", { class: "linha-selos" }, ...celulaMargem(m))),
       h("td", { class: "num", "data-rotulo": "Horas", text: horas(campo(a, "horas_instalacao")) }),
-      h("td", { "data-rotulo": "Estado" }, h("span", { class: "linha-selos" }, ativo ? selo("Ativo", "orc-aceite") : selo("Inativo", "obra-cancelada"), visivel ? null : selo("Escondido do cliente", "aviso"))),
+      h("td", { "data-rotulo": "Estado" }, h("span", { class: "linha-selos" }, ativo ? selo("Ativo", "orc-aceite") : selo("Inativo", "obra-cancelada"), visivel ? null : selo("Escondido do cliente", "aviso"), provisorio ? selo("Preço provisório", "aviso") : null)),
       h("td", { class: "acoes" }, h("button", { class: "btn sec pequeno", type: "button", text: "Editar", "aria-label": `Editar ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirArtigo(a) })));
   }
 

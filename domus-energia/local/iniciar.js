@@ -66,10 +66,12 @@ await new Promise((ok) => servidorMqtt.listen(PORTA_MQTT, '127.0.0.1', ok));
 
 // ---------------------------------------------------------------- serviços
 const filhos = [];
+const { ANTHROPIC_API_KEY: chaveAnthropic, ...ambiente } = process.env;
 function arrancar(nome, env) {
   const f = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.js'], {
     cwd: join(RAIZ, nome),
-    env: { ...process.env, TZ: 'Europe/Lisbon', MQTT_URL: `mqtt://127.0.0.1:${PORTA_MQTT}`, ...env },
+    // A chave da Anthropic só vai para o painel (é passada em `env`); os outros serviços não a recebem.
+    env: { ...ambiente, TZ: 'Europe/Lisbon', MQTT_URL: `mqtt://127.0.0.1:${PORTA_MQTT}`, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const prefixo = `[${nome}] `;
@@ -84,6 +86,7 @@ function arrancar(nome, env) {
 
 arrancar('painel', {
   PORTA: String(PORTA_PAINEL),
+  ANFITRIAO: '127.0.0.1',
   DADOS_DIR: DADOS,
   PAINEL_ORIGENS: ORIGEM,
   MQTT_USER: 'painel',
@@ -92,7 +95,7 @@ arrancar('painel', {
   PAINEL_CEO_PASS: segredos.ceoPass,
   CONFIAR_PROXY: '1',
   // Leitura automática da foto do quadro: só se a variável existir no terminal que corre o npm start.
-  ...(process.env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY } : {}),
+  ...(chaveAnthropic ? { ANTHROPIC_API_KEY: chaveAnthropic } : {}),
 });
 arrancar('pagamentos', {
   PORTA: String(PORTA_PAGAMENTOS),
@@ -135,8 +138,14 @@ function reencaminhar(req, res, porta) {
     r.pipe(res);
   });
   p.on('error', () => {
+    if (res.headersSent) return res.destroy();
     res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('Serviço ainda a arrancar ou parado. Vê o terminal.');
+  });
+  // Resposta antes do fim do corpo (ex.: 401/413 nas fotos): o resto do corpo ficava por ler e a
+  // ligação keep-alive morria no pedido seguinte (ECONNRESET). Lê-se e deita-se fora, como o Node faz.
+  res.on('finish', () => {
+    if (!req.complete) { req.unpipe(p); req.resume(); }
   });
   req.pipe(p);
 }
