@@ -140,7 +140,8 @@ test('orçamentos: atualizar estado, notas, visita, proposta; histórico; valida
 });
 
 test('converter: só "aceite"; cria pedido de cliente + obra com material da simulação; uma vez', async () => {
-  const r0 = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Rui Costa', email: 'rui@exemplo.pt', localidade: 'Sintra', servico: 'Casa inteligente',
+  const { cookie } = await p.contaConfirmada('rui@exemplo.pt');
+  const r0 = await p.pedir('POST', '/api/orcamento', { cookie, corpo: { nome: 'Rui Costa', email: 'rui@exemplo.pt', localidade: 'Sintra', servico: 'Casa inteligente',
     simulacao: { versao: 1, itens: [{ sku: 'TONGOU-SY2-JWT', qtd: 4 }, { sku: 'SENS-PORTA-WIFI', qtd: 2 }, { sku: 'inválido!', qtd: 1 }] } } });
   assert.equal(r0.estado, 201);
   const o = (await api('GET', 'orcamentos', 'comercial')).json.orcamentos.find((x) => x.nome === 'Rui Costa');
@@ -189,7 +190,8 @@ test('converter: só "aceite"; cria pedido de cliente + obra com material da sim
 
 test('converter com aparelhos: validados como POST clientes/:c/aparelhos; pedidos-admin pela ordem (cliente, depois aparelhos)', async () => {
   const sim = { versao: 1, itens: [{ sku: 'TONGOU-SY2-JWT', qtd: 1, preco_iva: 54.9 }, { sku: 'SENS-PORTA-WIFI', qtd: 1, preco_iva: 19.9 }, { sku: 'JA-NAO-EXISTE', qtd: 2, preco_iva: 5 }] };
-  const r0 = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Sara Lima', telefone: '912000333', servico: 'Casa inteligente', simulacao: sim } });
+  const { cookie } = await p.contaConfirmada();
+  const r0 = await p.pedir('POST', '/api/orcamento', { cookie, corpo: { nome: 'Sara Lima', telefone: '912000333', servico: 'Casa inteligente', simulacao: sim } });
   assert.equal(r0.estado, 201);
   const o = (await api('GET', 'orcamentos', 'comercial')).json.orcamentos.find((x) => x.nome === 'Sara Lima');
   // A ficha completa traz os artigos do catálogo da simulação, sem dados privados.

@@ -24,6 +24,31 @@ export function lerConfig(env = process.env) {
     }
   }
   if (!origensValidas.length) avisos.push('sem DOMUS_HOST/PAINEL_ORIGENS: todos os pedidos que alteram dados serão recusados');
+  // Site público servido noutra origem do mesmo domínio (ex.: https://domusenergia.pt → API em https://api.domusenergia.pt):
+  // CORS com credenciais só para estas origens, e só nas rotas públicas (/api/orcamento*, /api/catalogo, /api/conta/*).
+  const siteOrigens = [];
+  for (const o of String(env.SITE_ORIGENS || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    try {
+      const u = new URL(o);
+      if (u.origin !== o.replace(/\/$/, '') || !/^https?:$/.test(u.protocol)) throw new Error();
+      siteOrigens.push(u.origin);
+    } catch {
+      avisos.push(`SITE_ORIGENS: origem inválida ignorada: ${o}`);
+    }
+  }
+  // Conta de cliente: chave (32 bytes, hex ou base64) para guardar cifradas as credenciais MQTT da casa.
+  let contaChave = null;
+  const ch = String(env.CONTA_CHAVE || '').trim();
+  if (ch) {
+    const b = /^[0-9a-fA-F]{64}$/.test(ch) ? Buffer.from(ch, 'hex') : Buffer.from(ch, 'base64');
+    if (b.length === 32) contaChave = b;
+    else avisos.push('CONTA_CHAVE inválida (32 bytes: 64 caracteres hex, ou base64): a área de cliente não abre com o email');
+  } else {
+    avisos.push('sem CONTA_CHAVE: a conta de cliente não guarda as credenciais da casa (a área de cliente só entra com o código)');
+  }
+  const smtpHost = String(env.SMTP_HOST || '').trim();
+  const smtpPorta = Number(env.SMTP_PORTA || 587);
+  if (!smtpHost && env.EMAIL_LOCAL !== '1') avisos.push('sem SMTP_HOST: os emails das contas de cliente (códigos) ficam só no registo do painel');
   const mqttSenha = env.PAINEL_MQTT_PASS || env.MQTT_PASS || '';
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
   const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
@@ -61,6 +86,24 @@ export function lerConfig(env = process.env) {
     anthropicKey,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
     resultadoRetencaoMs: 7 * 24 * 3600_000,  // resultados nunca vistos são apagados ao fim de 7 dias
+    // Conta de cliente (docs/CONTA-CLIENTE.md)
+    siteOrigens: [...new Set(siteOrigens)],
+    contaChave,
+    contaSessaoMs: 7 * 24 * 3600_000,        // inatividade máxima da sessão da conta (renovada a cada pedido)
+    contaSessaoMaxMs: 30 * 24 * 3600_000,    // duração máxima absoluta
+    smtp: smtpHost ? {
+      host: smtpHost,
+      porta: smtpPorta,
+      utilizador: String(env.SMTP_UTILIZADOR || ''),
+      password: String(env.SMTP_PASSWORD || ''),
+      // 465 = TLS direto; as outras portas STARTTLS obrigatório. "nenhuma" só para testes/servidores locais.
+      seguranca: ['tls', 'starttls', 'nenhuma'].includes(env.SMTP_SEGURANCA) ? env.SMTP_SEGURANCA : (smtpPorta === 465 ? 'tls' : 'starttls'),
+      timeoutMs: Number(env.SMTP_TIMEOUT_MS || 20_000),
+    } : null,
+    emailRemetente: String(env.EMAIL_REMETENTE || '').trim(),
+    emailLocal: env.EMAIL_LOCAL === '1',     // modo local: os emails vão sempre para o registo (nunca SMTP)
+    // Endereço do site nos emails (ligação para a conta).
+    siteUrl: String(env.SITE_URL || siteOrigens[0] || env.PUBLIC_URL || (env.DOMUS_HOST ? `https://${env.DOMUS_HOST}` : '')).replace(/\/+$/, ''),
     avisos,
   };
 }

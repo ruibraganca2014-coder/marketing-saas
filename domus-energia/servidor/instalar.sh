@@ -392,12 +392,14 @@ criar_env() {
       v="$(ler_env "$env" "$k")"
       if [[ -z "$v" || "$v" == troca-isto* ]]; then aviso "$k está vazio ou por preencher no .env"; fi
     done
+    # Conta de cliente (opcional): sem CONTA_CHAVE a área de cliente só entra com o código.
+    [[ -n "$(ler_env "$env" CONTA_CHAVE)" ]] || info "sem CONTA_CHAVE no .env: a conta de cliente não abre a área de cliente com o email (gere com: openssl rand -hex 32)"
     return 0
   fi
-  local chaves="DOMUS_HOST MOTOR_MQTT_PASS NTFY_MOTOR_PASS PAGAMENTOS_MQTT_PASS PAINEL_MQTT_PASS SESSAO_SEGREDO"
+  local chaves="DOMUS_HOST MOTOR_MQTT_PASS NTFY_MOTOR_PASS PAGAMENTOS_MQTT_PASS PAINEL_MQTT_PASS SESSAO_SEGREDO CONTA_CHAVE"
   if (( SIMULAR )); then
     info "[simular] criar a partir de .env.example (modo 600) com: $chaves"
-    info "[simular] palavras-passe: openssl rand -hex 16; SESSAO_SEGREDO: openssl rand -hex 32"
+    info "[simular] palavras-passe: openssl rand -hex 16; SESSAO_SEGREDO e CONTA_CHAVE: openssl rand -hex 32"
     return 0
   fi
   local tmp
@@ -407,13 +409,14 @@ criar_env() {
   # aparecem no "ps" a qualquer utilizador; o ambiente só o root o lê.
   E_HOST="$HOST" \
   E_MOTOR="$(segredo 16)" E_NTFY="$(segredo 16)" E_PAG="$(segredo 16)" \
-  E_PAINEL="$(segredo 16)" E_SESSAO="$(segredo 32)" awk '
+  E_PAINEL="$(segredo 16)" E_SESSAO="$(segredo 32)" E_CONTA="$(segredo 32)" awk '
     /^DOMUS_HOST=/           { print "DOMUS_HOST=" ENVIRON["E_HOST"]; next }
     /^MOTOR_MQTT_PASS=/      { print "MOTOR_MQTT_PASS=" ENVIRON["E_MOTOR"]; next }
     /^NTFY_MOTOR_PASS=/      { print "NTFY_MOTOR_PASS=" ENVIRON["E_NTFY"]; next }
     /^PAGAMENTOS_MQTT_PASS=/ { print "PAGAMENTOS_MQTT_PASS=" ENVIRON["E_PAG"]; next }
     /^PAINEL_MQTT_PASS=/     { print "PAINEL_MQTT_PASS=" ENVIRON["E_PAINEL"]; next }
     /^SESSAO_SEGREDO=/       { print "SESSAO_SEGREDO=" ENVIRON["E_SESSAO"]; next }
+    /^CONTA_CHAVE=/          { print "CONTA_CHAVE=" ENVIRON["E_CONTA"]; next }
     { print }
   ' "$SERV/.env.example" > "$tmp"
   local k
@@ -650,6 +653,9 @@ EOF
   5. Cópias de segurança de $SERV/dados, mosquitto/seguranca e .env (README §12).
   6. Opcional — leitura automática da foto do quadro: pôr ANTHROPIC_API_KEY
      no .env (console.anthropic.com) e  cd $SERV && sudo docker compose up -d painel
+  7. Conta de cliente: os códigos por email precisam de SMTP_* no .env (ex.: Brevo,
+     300/dia grátis; README do painel). Sem SMTP ficam só no registo:
+     cd $SERV && sudo docker compose logs painel | grep -F "[email]"
  Atualizar mais tarde:  sudo bash $SERV/instalar.sh --atualizar
  Use sempre sudo no docker compose e no ./domus.sh (o .env e dados/ são do root).
 $linha

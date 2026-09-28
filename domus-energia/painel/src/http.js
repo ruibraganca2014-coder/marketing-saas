@@ -110,3 +110,46 @@ export function verificarOrigem(req, origens) {
   if (origem !== undefined) return origens.includes(origem);
   return sfs === 'same-origin' && origens.length > 0;
 }
+
+/**
+ * CSRF das rotas públicas (/api/orcamento*, /api/conta/*): como verificarOrigem, e também um pedido do site
+ * público servido noutra origem do MESMO site registável (ex.: https://domusenergia.pt → https://api.domusenergia.pt):
+ * `Sec-Fetch-Site: same-site` com `Origin` numa das `siteOrigens` (SITE_ORIGENS). "cross-site" é sempre recusado.
+ */
+export function verificarOrigemPublica(req, origens, siteOrigens = []) {
+  if (verificarOrigem(req, [...origens, ...siteOrigens])) return true;
+  const sfs = req.headers['sec-fetch-site'];
+  const origem = req.headers.origin;
+  return sfs === 'same-site' && origem !== undefined && siteOrigens.includes(origem);
+}
+
+const CORS_CABECALHOS = 'Content-Type, X-Fotos-Token, X-Foto-Chave, X-Foto-Legenda';
+
+/**
+ * CORS com credenciais para o site público noutra origem (SITE_ORIGENS). Só acrescenta cabeçalhos quando a
+ * `Origin` do pedido está na lista (nunca "*"). Devolve true se tratou um preflight (OPTIONS) — já respondido.
+ */
+export function cors(req, res, siteOrigens) {
+  const origem = req.headers.origin;
+  const permitida = origem !== undefined && siteOrigens.includes(origem);
+  res.setHeader('Vary', 'Origin');
+  if (permitida) {
+    res.setHeader('Access-Control-Allow-Origin', origem);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
+  }
+  if (req.method !== 'OPTIONS') return false;
+  if (!permitida) {
+    responder(res, 403, { erro: 'Origem não permitida.' });
+    return true;
+  }
+  res.writeHead(204, {
+    ...CABECALHOS_SEGURANCA,
+    'Access-Control-Allow-Methods': 'GET, POST',
+    'Access-Control-Allow-Headers': CORS_CABECALHOS,
+    'Access-Control-Max-Age': '600',
+    'Content-Length': 0,
+  });
+  res.end();
+  return true;
+}

@@ -185,6 +185,48 @@ export const MIGRACOES = [
   // Só os SKUs novos (uma base nova já os recebeu na migração 3); INSERT OR IGNORE: nunca mexe num artigo do CEO
   // nem volta a pôr um artigo do quadro que ele tenha apagado.
   (db) => semear(db, SEMENTES_QUADRO.filter((s) => SKUS_MIGRACAO_6.includes(s.sku)), true),
+  // 7 — conta de cliente (docs/CONTA-CLIENTE.md): contas (email + palavra-passe), sessões próprias (separadas das
+  // do painel), códigos de 6 dígitos (confirmar o email, repor a palavra-passe), simulação em curso guardada na
+  // conta e credenciais MQTT da casa cifradas. Nos orçamentos: a conta, a morada, o texto da proposta e quando o
+  // cliente a aceitou online. Os pedidos que já existem ficam sem conta (conta_id NULL) e iguais a antes.
+  (db) => db.exec(`
+    CREATE TABLE contas (
+      id INTEGER PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      hash TEXT NOT NULL,
+      confirmado TEXT,                          -- quando o email foi confirmado (ISO) ou NULL
+      ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0, 1)),
+      nome TEXT, telefone TEXT, morada TEXT, localidade TEXT,
+      simulacao TEXT,                           -- estado do simulador em curso (JSON), para retomar noutro aparelho
+      simulacao_atualizada TEXT,
+      casa_codigo TEXT,                         -- código do cliente (MQTT) da casa desta conta
+      casa_cifra TEXT,                          -- palavra-passe MQTT da casa, AES-256-GCM com CONTA_CHAVE (iv.tag.cifra, base64)
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL,
+      ultimo_acesso TEXT
+    );
+    CREATE TABLE contas_sessoes (
+      id TEXT PRIMARY KEY,                      -- SHA-256 do token (o token só existe no cookie domus_conta)
+      conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+      criada INTEGER NOT NULL,
+      expira INTEGER NOT NULL,
+      renovada INTEGER NOT NULL
+    );
+    CREATE INDEX contas_sessoes_conta ON contas_sessoes(conta_id);
+    CREATE TABLE contas_codigos (
+      conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+      tipo TEXT NOT NULL CHECK (tipo IN ('confirmar', 'repor')),
+      hash TEXT NOT NULL,                       -- SHA-256 (com a conta e o tipo) do código de 6 dígitos
+      expira INTEGER NOT NULL,
+      tentativas INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (conta_id, tipo)
+    );
+    ALTER TABLE orcamentos ADD COLUMN conta_id INTEGER REFERENCES contas(id) ON DELETE SET NULL;
+    ALTER TABLE orcamentos ADD COLUMN morada TEXT;
+    ALTER TABLE orcamentos ADD COLUMN proposta_texto TEXT;
+    ALTER TABLE orcamentos ADD COLUMN proposta_aceite TEXT;   -- quando o cliente carregou em "Aceito a proposta" (ISO)
+    CREATE INDEX orcamentos_conta ON orcamentos(conta_id);
+  `),
 ];
 
 /** Insere sementes do catálogo; `seExistir`: salta os SKUs que já existem (nunca altera um artigo). */

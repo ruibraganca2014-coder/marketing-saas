@@ -58,6 +58,14 @@ export default function inicio(el, ctx) {
       if (campo(alertas, "ligado") === false) kpi("Ligação às casas", "Sem ligação", { href: "#/alertas", destaque: "perigo", ajuda: "Os alertas podem estar desatualizados" });
     } else if (alertas !== undefined && criticos === undefined) kpi("Alertas", num(contar(alertas)), { href: "#/alertas", destaque: contar(alertas) > 0 ? "atencao" : "" });
     if (criticos !== undefined) kpi("Alertas críticos", num(contar(criticos)), { href: "#/alertas", destaque: contar(criticos) > 0 ? "perigo" : "" });
+    // Propostas aceites pelo cliente na conta (online) e ainda por converter em cliente e obra.
+    const aceites = campo(r, "propostas_aceites_online");
+    if (Array.isArray(aceites) && aceites.length) {
+      blocos.push(h("section", { class: "cartao", id: "propostas-aceites-online" }, h("h2", { text: "Propostas aceites online (por converter)" }),
+        h("ul", { class: "lista-curta" }, ...aceites.map((o) => h("li", {}, h("a", { class: "lista-curta-item", href: `#/orcamentos/${encodeURIComponent(campo(o, "id"))}` },
+          h("span", { class: "num quando", text: data(campo(o, "quando")) }), h("span", { class: "lc-quem", text: txt(o, "nome") }),
+          h("span", { class: "ajuda", text: campo(o, "valor_proposta") != null ? `${euros(campo(o, "valor_proposta"))} + IVA` : "" })))))));
+    }
     const pendentes = campo(r, "pedidos_admin_pendentes");
     if (pendentes !== undefined && numero(pendentes) > 0) kpi("Pedidos ao servidor por aplicar", num(pendentes), { ajuda: "Clientes, aparelhos ou planos à espera do servidor" });
 

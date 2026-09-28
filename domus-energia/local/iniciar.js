@@ -5,12 +5,16 @@
 //   ws://localhost:8080/mqtt       -> broker MQTT (aedes, em vez do Mosquitto)
 //   mqtt://localhost:1883          -> o mesmo broker, para aparelhos e ferramentas
 //   http://localhost:8080/painel/  -> painel da empresa (porta interna 8081)
-//   http://localhost:8080/api/...  -> pagamentos (porta interna 8082); /api/orcamento(/fotos) e /api/catalogo -> painel
+//   http://localhost:8080/api/...  -> pagamentos (porta interna 8082); /api/orcamento(/fotos), /api/catalogo e
+//                                     /api/conta/* (conta de cliente) -> painel
 //
 // Diferenças para o servidor a sério (é só para desenvolver e testar):
 //   - o broker aceita qualquer utilizador e palavra-passe e não tem ACL;
 //   - não há ntfy (as notificações do motor falham e ficam no registo);
-//   - o ./domus.sh não corre: os pedidos do painel (criar clientes, aparelhos) ficam pendentes.
+//   - o ./domus.sh não corre: os pedidos do painel (criar clientes, aparelhos) ficam pendentes;
+//   - os emails das contas de cliente (códigos) não saem: aparecem neste terminal, "[painel] [email] para x: código 123456".
+//
+// Outras origens para testar no browser (ex.: http://qc1.localhost:8080): ORIGENS_EXTRA="http://qc1.localhost:8080,..." npm start.
 //
 // Uso: npm run instalar (uma vez) e depois npm start.
 
@@ -35,6 +39,8 @@ const PORTA_MQTT = Number(process.env.PORTA_MQTT || 1883);
 const PORTA_PAINEL = 8081;
 const PORTA_PAGAMENTOS = 8082;
 const ORIGEM = `http://localhost:${PORTA_SITE}`;
+// Origens aceites pelo painel nos pedidos que alteram dados (CSRF): a do site e as de ORIGENS_EXTRA.
+const ORIGENS = [ORIGEM, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
 
 for (const s of ['painel', 'planos', 'clientes', 'pagamentos', 'pedidos-admin', 'motor']) {
   mkdirSync(join(DADOS, s), { recursive: true });
@@ -56,6 +62,11 @@ if (!existsSync(fichSegredos)) {
   }, null, 2));
 }
 const segredos = JSON.parse(readFileSync(fichSegredos, 'utf8'));
+// Chave da conta de cliente (CONTA_CHAVE), acrescentada aos local.json antigos.
+if (!segredos.contaChave) {
+  segredos.contaChave = randomBytes(32).toString('hex');
+  writeFileSync(fichSegredos, JSON.stringify(segredos, null, 2));
+}
 
 // ---------------------------------------------------------------- broker MQTT
 const broker = await Aedes.createBroker({
@@ -88,8 +99,11 @@ arrancar('painel', {
   PORTA: String(PORTA_PAINEL),
   ANFITRIAO: '127.0.0.1',
   DADOS_DIR: DADOS,
-  PAINEL_ORIGENS: ORIGEM,
+  PAINEL_ORIGENS: ORIGENS,
   MQTT_USER: 'painel',
+  // Conta de cliente: os emails (códigos) vão sempre para o terminal; chave local para as credenciais da casa.
+  EMAIL_LOCAL: '1',
+  CONTA_CHAVE: segredos.contaChave,
   PAINEL_MQTT_PASS: 'local',
   PAINEL_CEO_EMAIL: segredos.ceoEmail,
   PAINEL_CEO_PASS: segredos.ceoPass,
@@ -125,7 +139,7 @@ const TIPOS = {
 };
 
 function destino(caminho) {
-  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo') return PORTA_PAINEL;
+  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo' || caminho.startsWith('/api/conta/')) return PORTA_PAINEL;
   if (caminho === '/painel' || caminho.startsWith('/painel/')) return PORTA_PAINEL;
   if (caminho.startsWith('/api/') || caminho === '/stripe/webhook') return PORTA_PAGAMENTOS;
   return null;
@@ -198,6 +212,7 @@ Domus Energia a correr localmente
   Site:           ${ORIGEM}/
   Área de cliente ${ORIGEM}/cliente.html   (qualquer código e palavra-passe entram: o broker local não verifica)
   Simulador:      ${ORIGEM}/simulador.html
+  Conta:          ${ORIGEM}/conta.html     (códigos dos emails aparecem aqui, "[email] para ...")
   Painel:         ${ORIGEM}/painel/        (credenciais do CEO em local/dados/local.json)
   MQTT:           mqtt://localhost:${PORTA_MQTT}  e  ws://localhost:${PORTA_SITE}/mqtt
 Ctrl+C para parar.

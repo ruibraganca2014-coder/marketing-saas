@@ -171,6 +171,16 @@ services:
       DADOS_DIR: /dados
       # Leitura automática da foto do quadro (modelo de visão Claude). Vazio = desligada.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Conta de cliente (docs/CONTA-CLIENTE.md): site público noutra origem (Vercel) com CORS, chave das
+      # credenciais da casa e SMTP dos códigos por email (sem SMTP_HOST os emails ficam no registo do painel).
+      SITE_ORIGENS: ${SITE_ORIGENS:-}
+      SITE_URL: ${SITE_URL:-}
+      CONTA_CHAVE: ${CONTA_CHAVE:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORTA: ${SMTP_PORTA:-587}
+      SMTP_UTILIZADOR: ${SMTP_UTILIZADOR:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_REMETENTE: ${EMAIL_REMETENTE:-}
     expose:
       - "8080"           # só na rede interna (o Caddy faz o HTTPS)
     # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):

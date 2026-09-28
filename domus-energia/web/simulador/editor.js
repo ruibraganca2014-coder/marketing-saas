@@ -4,7 +4,7 @@
 // toque, divisões (criar num sítio livre com os aparelhos habituais, mover, mudar a forma pelos cantos — paredes oblíquas),
 // elementos (colocar, mover, rodar, apagar; as máquinas com um botão por modelo), janela de edição simples (duplo clique,
 // toque longo, Enter ou "Opções": divisão — nome, medidas e piso; elemento — a escolha do seu tipo e Rodar), divisões
-// que nunca se sobrepõem (nem roubam os aparelhos umas às outras), anular/refazer, alternativa por teclado (barras
+// que se podem sobrepor sem roubarem os aparelhos umas às outras (cada aparelho guarda a sua), anular/refazer, alternativa por teclado (barras
 // com setas), fundo (foto/PDF) com opacidade, escala e calibração; a vista ajusta-se ao conteúdo.
 // Todos os textos entram com textContent.
 
@@ -14,10 +14,11 @@ import {
   MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2, MAX_PISO,
   propsOmissao, atualizarDivisoes, divisaoDoElemento, divisaoEm, pontosDivisao, areaPoligono, caixaPontos,
   distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior, pisoDe, nomePiso,
-  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, divisoesSobrepostas,
+  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { aparelhosOmissao, resumoAparelhos, tipoDivisao as tipoDoNome } from "./casa.js";
+import { imprimirPlanta, guardarPdf } from "./imprimir.js";
 
 const HISTORICO_MAX = 100;
 const TOQUE_PX = 6;          // abaixo disto um arrasto é um toque
@@ -38,8 +39,10 @@ const NOMES_CURTOS = {
   televisao: "TV", maquina_lavar: "Máq. lavar roupa", maquina_secar: "Máq. secar roupa", maquina_loica: "Máq. lavar loiça",
   placa: "Placa", carregador_ve: "Carregador do carro", carregador_ve_22: "Carregador 22 kW", bomba: "Bomba piscina/rega",
   arca_frigorifica: "Arca/vitrine", maquina_cafe: "Máq. de café", servidor: "Servidor", maquina_trifasica: "Máq. trifásica",
-  box_router: "Box/router", nas: "NAS", camara: "Câmara", rega: "Rega", iluminacao_jardim: "Luz de jardim",
+  box_router: "Box/router", nas: "NAS", camara: "Câmara", rega: "Rega", iluminacao_jardim: "Luz exterior",
   terminal_pagamento: "Terminal pagamento", ferramentas: "Ferramentas", cafeteira: "Cafeteira", outro: "Outra",
+  esquentador: "Esquentador", radiador: "Radiador", cafe_expresso: "Café expresso", campainha_video: "Campainha vídeo",
+  carregador_bicicleta: "Carreg. bicicleta", toalheiro: "Aquec. toalhas", hidromassagem: "Hidro­massagem",
   // Palavras mais largas do que o botão: hífen opcional (­) onde se pode partir.
   termoacumulador: "Termo­acumulador", ar_condicionado: "Ar condi­cionado", desumidificador: "Desumidi­ficador",
 };
@@ -225,6 +228,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const bEcra = botao("Ecrã inteiro");
   bEcra.id = "editor-ecra-inteiro";
   bEcra.setAttribute("aria-pressed", "false");
+  // Só a planta, uma folha A4 por piso (imprimir.js).
+  const bImprimir = botao("Imprimir");
+  bImprimir.id = "editor-imprimir";
+  bImprimir.setAttribute("aria-label", "Imprimir a planta (uma folha por piso)");
+  const bPdf = botao("Guardar PDF");
+  bPdf.id = "editor-pdf";
+  bPdf.setAttribute("aria-label", "Guardar a planta em PDF (uma página por piso)");
   // As barras de ferramentas juntas, por baixo umas das outras; em ecrã inteiro numa só fila que desliza para o
   // lado (a planta fica com a maior parte da altura).
   const fila = el("div", "editor-ferramentas");
@@ -270,7 +280,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   acoes.setAttribute("aria-label", "Ações da planta");
   const grupo = (cls, ...xs) => { const g = el("div", `editor-acoes-grupo ${cls}`); g.append(...xs); return g; };
   const linhaGeral = el("div", "editor-acoes-linha");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra), grupo("g-fundo", bFundo), separadores);
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra, bImprimir, bPdf), grupo("g-fundo", bFundo), separadores);
   const linhaSelecao = el("div", "editor-acoes-linha");
   linhaSelecao.append(grupo("g-selecao", sRodar, sDuplicar, sOpcoes, sApagar));
   acoes.append(linhaGeral, linhaSelecao);
@@ -604,7 +614,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     let n = 0;
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (planta.elementos.length >= MAX_ELEMENTOS) break;
-      planta.elementos.push({ id: novoId("e", planta.elementos), ...a, piso: pisoAtual });
+      planta.elementos.push({ id: novoId("e", planta.elementos), ...a, piso: pisoAtual, divisao: d.id });
       n++;
     }
     ajustarFolha();
@@ -625,7 +635,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(tipo, modelo),
     };
     planta.elementos.push(e);
-    e.divisao = divisaoDoElemento(planta, e);
+    // Numa zona sobreposta: a divisão selecionada (ex.: "+" do passo Divisões); sem ela, a desenhada por cima.
+    e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? divisaoDoElemento(planta, e);
     selecionado = e.id;
     const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro de uma divisão para contar nela";
     confirmar(`Na planta: ${nomeFerramenta(tipo, modelo)} (${onde}).`);
@@ -695,10 +706,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       e.x_cm = limitar(e.x_cm + dx, 0, planta.largura_cm);
       e.y_cm = limitar(e.y_cm + dy, 0, planta.altura_cm);
     } else {
-      const dentro = elementosDentro(d), ignorar = jaSobrepostas(d), repor = fotografia(d, dentro);
-      moverDivisao(d, dx, dy, dentro, d.x_cm, d.y_cm, d.pontos ?? null);
-      const o = sobreposta(d, undefined, ignorar);
-      if (o) { repor(); desfazer.pop(); avisar(textoSobreposta(o)); desenhar(); return true; }
+      moverDivisao(d, dx, dy, elementosDentro(d), d.x_cm, d.y_cm, d.pontos ?? null);
     }
     confirmar();
     return true;
@@ -707,25 +715,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const elementosDentro = (d) => planta.elementos.filter((x) => x.divisao === d.id).map((x) => [x, x.x_cm, x.y_cm]);
   const caixaDe = (d) => ({ x_cm: d.x_cm, y_cm: d.y_cm, largura_cm: d.largura_cm, altura_cm: d.altura_cm });
 
-  // ---------------------------------------------------------------- divisões sem sobreposição
-  // Mover, arrastar um canto ou mudar as medidas nunca deixa uma divisão por cima de outra do mesmo piso (senão a
-  // de cima ficava com os aparelhos da zona comum e a outra aparecia "sem aparelhos"): o movimento é recusado,
-  // com um aviso. As que já se sobrepunham (plantas antigas) não impedem de mexer (`ignorar`).
-  /** A divisão do mesmo piso por cima da qual `d` (com os cantos `pts`) ficaria, ou null. */
-  function sobreposta(d, pts = pontosDivisao(d), ignorar = null) {
-    return planta.divisoes.find((o) => o !== d && pisoDe(o) === pisoDe(d) && !ignorar?.has(o.id) && divisoesSobrepostas(pts, pontosDivisao(o))) ?? null;
-  }
-  /** Ids das divisões que já se sobrepõem a `d`. */
-  const jaSobrepostas = (d) => new Set(planta.divisoes.filter((o) => o !== d && pisoDe(o) === pisoDe(d) && divisoesSobrepostas(pontosDivisao(d), pontosDivisao(o))).map((o) => o.id));
-  const textoSobreposta = (o) => `Não pode ficar por cima de "${o.nome || "outra divisão"}": as divisões não se sobrepõem (encostadas, sim).`;
-  /** Guarda a forma e o sítio de `d` e dos aparelhos `dentro` ([[elemento, …]]); devolve a função que os repõe. */
-  function fotografia(d, dentro) {
-    const f = { x: d.x_cm, y: d.y_cm, w: d.largura_cm, h: d.altura_cm, pts: d.pontos ? d.pontos.map((q) => [...q]) : null, els: dentro.map(([e]) => [e, e.x_cm, e.y_cm]) };
-    return () => {
-      Object.assign(d, { x_cm: f.x, y_cm: f.y, largura_cm: f.w, altura_cm: f.h });
-      if (f.pts) d.pontos = f.pts.map((q) => [...q]); else delete d.pontos;
-      for (const [e, x, y] of f.els) { e.x_cm = x; e.y_cm = y; }
-    };
+  // ---------------------------------------------------------------- divisões sobrepostas (permitido)
+  // As divisões podem ficar umas por cima das outras (arrastar, cantos, setas, medidas, duplicar). Os aparelhos
+  // não mudam de divisão por isso: cada um guarda a sua (`divisao`), a divisão movida leva os seus
+  // (elementosDentro) e atualizarDivisoes(…, {manter: true}) nunca a tira a quem ainda lá está.
+  /** A divisão selecionada, se contém o ponto (cm): numa zona sobreposta ganha ela (é a desenhada por cima). */
+  function selecionadaEm(x, y) {
+    const s = obterDivisao(selecionado);
+    return s && pisoDe(s) === pisoAtual && pontoEmPoligono(x, y, pontosDivisao(s)) ? s : null;
   }
 
   /**
@@ -813,8 +810,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     pts.splice(i, 1);
     const v = validarPontos(pts, planta.largura_cm, planta.altura_cm);
     if (!v) { avisar("Sem este canto as paredes cruzavam-se ou a divisão ficava pequena demais: mova-o em vez de o apagar."); return; }
-    const o = sobreposta(d, v, jaSobrepostas(d));
-    if (o) { avisar(`Sem este canto a divisão ficava por cima de "${o.nome || "outra divisão"}": mova-o em vez de o apagar.`); return; }
     memorizar();
     const c0 = caixaDe(d), dentro = elementosDentro(d);
     definirPontos(d, v);
@@ -870,7 +865,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       });
       if (melhor) return { tipo: "parede", d: sel, i: melhor.i, ponto: melhor.ponto };
     }
-    const id = divisaoEm(planta, p.x, p.y, pisoAtual);
+    const id = selecionadaEm(p.x, p.y)?.id ?? divisaoEm(planta, p.x, p.y, pisoAtual);
     return id ? { tipo: "divisao", d: obterDivisao(id) } : null;
   }
 
@@ -916,6 +911,21 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   bMais.addEventListener("click", () => zoom(1 / 1.4));
   bMenos.addEventListener("click", () => zoom(1.4));
   bTudo.addEventListener("click", () => { verTudo(); desenhar(); });
+  bImprimir.addEventListener("click", () => { if (planta) imprimirPlanta(planta, nPisos()); });
+  bPdf.addEventListener("click", async () => {
+    if (!planta || bPdf.disabled) return;
+    bPdf.disabled = true;
+    avisar("A preparar o PDF…");
+    try {
+      await guardarPdf(planta, nPisos());
+      avisar(`PDF guardado: planta-domus.pdf (${nPisos() > 1 ? `${nPisos()} páginas, uma por piso` : "1 página"}).`);
+    } catch {
+      avisar("Não foi possível fazer o PDF neste navegador. Experimente \"Imprimir\" e escolha \"Guardar como PDF\".");
+    } finally {
+      bPdf.disabled = false;
+      bPdf.focus({ preventScroll: true });
+    }
+  });
 
   // ---------------------------------------------------------------- ecrã inteiro
   // Só a planta e as ferramentas (Fullscreen API no contentor; sem ela, um recurso CSS que ocupa a janela).
@@ -993,7 +1003,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     const alvo = ev.target.closest?.("[data-pega], [data-elemento], [data-divisao]");
     if (alvo?.dataset.pega) {
       const d = obterDivisao(alvo.dataset.id);
-      if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d), c0: caixaDe(d), dentro: elementosDentro(d), ignorar: jaSobrepostas(d) }; return; }
+      if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d), c0: caixaDe(d), dentro: elementosDentro(d) }; return; }
     }
     if (alvo?.dataset.elemento) {
       const e = obterElemento(alvo.dataset.elemento);
@@ -1007,8 +1017,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     }
     if (alvo?.dataset.divisao && selecionado === alvo.dataset.divisao) {
       const d = obterDivisao(alvo.dataset.divisao);
-      const dentro = elementosDentro(d);
-      arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro, ignorar: jaSobrepostas(d), repor: fotografia(d, dentro) };
+      arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro: elementosDentro(d) };
       return;
     }
     // Divisão não selecionada ou vazio: arrastar desloca a vista; tocar seleciona.
@@ -1046,28 +1055,23 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
         desenhar();
         break;
       case "divisao": {
-        // Por cima de outra divisão do mesmo piso não: fica no último sítio livre (terminarArrasto avisa).
+        // Pode ficar por cima de outra divisão; leva só os seus aparelhos.
         if (inicio) memorizar();
         const a = arrasto;
         moverDivisao(a.d, dx, dy, a.dentro, a.x0, a.y0, a.pts0);
-        const o = sobreposta(a.d, undefined, a.ignorar);
-        if (o) { a.repor(); a.bloqueada = o; } else a.repor = fotografia(a.d, a.dentro);
         desenhar();
         break;
       }
       case "canto": {
-        // O canto anda livre (qualquer ângulo); ajusta à grelha de 50 cm, salvo com Shift ou Alt (ao cm). Uma forma
-        // que ficasse por cima de outra divisão não é aceite (o canto fica na última posição boa).
+        // O canto anda livre (qualquer ângulo); ajusta à grelha de 50 cm, salvo com Shift ou Alt (ao cm). A forma
+        // pode ficar por cima de outra divisão.
         if (inicio) memorizar();
         const { d, i, pts0 } = arrasto;
         const livre = ev.shiftKey || ev.altKey;
         const x = livre ? pts0[i][0] + dx : ajustar(pts0[i][0] + dx, ESCALA_CM);
         const y = livre ? pts0[i][1] + dy : ajustar(pts0[i][1] + dy, ESCALA_CM);
-        const repor = fotografia(d, arrasto.dentro);
         if (moverCanto(d, pts0, i, x, y)) {
           acompanhar(d, arrasto.c0, arrasto.dentro);
-          const o = sobreposta(d, undefined, arrasto.ignorar);
-          if (o) { repor(); arrasto.bloqueada = o; }
           desenhar();
         }
         break;
@@ -1102,8 +1106,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     // O texto de estado diz sempre o que aconteceu (senão ficava o aviso de um arrasto anterior).
     const nome = (x) => `"${x?.nome || "Divisão"}"`;
     if (a.tipo === "elemento") atualizarDivisoes(planta, { manter: true });   // a divisão onde ficou, para o texto
-    confirmar(a.bloqueada ? textoSobreposta(a.bloqueada)
-      : a.tipo === "canto" ? `Forma de ${nome(a.d)} mudada (${m2(areaPoligono(pontosDivisao(a.d)))} m²).`
+    confirmar(a.tipo === "canto" ? `Forma de ${nome(a.d)} mudada (${m2(areaPoligono(pontosDivisao(a.d)))} m²).`
         : a.tipo === "divisao" ? `${nome(a.d)} mudada de sítio.`
           : a.tipo === "elemento" ? `${descreverElemento(a.e)} mudado de sítio${a.e.divisao ? ` (${obterDivisao(a.e.divisao)?.nome || "divisão"})` : " (fora das divisões)"}.` : undefined);
   }
@@ -1387,33 +1390,51 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const tamH = numeroInput(15, { min: 1, max: MAX_LADO_CM / 100, step: 0.5, id: "planta-altura" });
   const tamAjustar = botao("Ajustar ao conteúdo", "btn sec pequeno");
   tamAjustar.id = "planta-ajustar";
-  // Aplica enquanto se escreve (com uma pequena pausa) e ao sair do campo; nunca mais pequena do que o conteúdo
-  // (avisa e mostra o mínimo). A partir daí a folha fica com este tamanho (tamanho_fixo).
+  // Aviso curto por baixo dos campos (a dica fica por cima da planta, fora da vista no telemóvel).
+  const tamMsg = el("p", "msg", "");
+  tamMsg.setAttribute("role", "status");
+  tamMsg.hidden = true;
+  let tamMsgFim = null;
+  function avisoTamanho(t) {
+    tamMsg.textContent = t;
+    tamMsg.hidden = false;
+    clearTimeout(tamMsgFim);
+    tamMsgFim = setTimeout(() => { tamMsg.hidden = true; }, 5000);
+  }
+  // Aplica enquanto se escreve (com uma pequena pausa), sem nunca reescrever o campo onde se escreve: um valor a
+  // meio ("2" antes de "20") abaixo do mínimo espera. Ao sair do campo (ou Enter) um valor abaixo do mínimo passa
+  // ao mínimo, com o aviso. A partir daí a folha fica com este tamanho (tamanho_fixo, gravado).
   function aplicarTamanho(i, k, final) {
     if (!planta) return;
     const v = Number(String(i.value).replace(",", "."));
-    if (!(v > 0)) return;
+    if (!(v > 0)) { if (final) i.value = String(planta[k] / 100); return; }
+    const pedido = Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM;
     const min = tamanhoMinimo(k);
-    const novo = limitar(Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM, min, MAX_LADO_CM);
-    if (novo !== Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM) {
-      avisar(`A ${k === "largura_cm" ? "largura" : "altura"} da planta não pode ser menor do que ${metros(min)} m: as divisões ocupam até aí.`);
-      if (!final) return;
+    if (pedido < min && !final) return;
+    const novo = limitar(pedido, min, MAX_LADO_CM);
+    if (novo !== planta[k] || !planta.tamanho_fixo) {
+      memorizar();
+      planta[k] = novo;
+      planta.tamanho_fixo = true;
+      verTudo();
+      confirmar();
     }
-    if (novo === planta[k] && planta.tamanho_fixo) { if (final) i.value = String(novo / 100); return; }
-    memorizar();
-    planta[k] = novo;
-    planta.tamanho_fixo = true;
-    verTudo();
-    confirmar();
+    if (pedido < min) avisoTamanho(`Mínimo ${metros(min)} m para caber tudo.`);
+    else if (pedido > MAX_LADO_CM) avisoTamanho(`Máximo ${metros(MAX_LADO_CM)} m.`);
     if (final) i.value = String(planta[k] / 100);
   }
   for (const [i, k] of [[tamW, "largura_cm"], [tamH, "altura_cm"]]) {
-    let espera = null;
-    i.addEventListener("input", () => { clearTimeout(espera); espera = setTimeout(() => aplicarTamanho(i, k, false), 500); });
-    i.addEventListener("change", () => { clearTimeout(espera); aplicarTamanho(i, k, true); });
+    let espera = null, escreveu = false;
+    i.addEventListener("input", () => { escreveu = true; clearTimeout(espera); espera = setTimeout(() => aplicarTamanho(i, k, false), 500); });
+    // Só depois de escrever (entrar e sair do campo sem escrever não fixa o tamanho).
+    const fim = () => { clearTimeout(espera); if (!escreveu) return; escreveu = false; aplicarTamanho(i, k, true); };
+    i.addEventListener("change", fim);
+    i.addEventListener("blur", fim);
+    i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); fim(); } });
   }
+  // Sempre ativo: com a folha já à medida, carregar não muda nada.
   tamAjustar.addEventListener("click", () => {
-    if (!planta?.tamanho_fixo) return;
+    if (!planta) return;
     memorizar();
     delete planta.tamanho_fixo;
     ajustarFolha();
@@ -1421,11 +1442,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     confirmar("A planta voltou ao tamanho das divisões.");
   });
   tamCorpo.append(campo("Largura (m)", tamW), campo("Altura (m)", tamH), tamAjustar);
+  tamSec.append(tamMsg);
   function desenharTamanho() {
     if (!planta) return;
     if (document.activeElement !== tamW) tamW.value = String(planta.largura_cm / 100);
     if (document.activeElement !== tamH) tamH.value = String(planta.altura_cm / 100);
-    tamAjustar.disabled = !planta.tamanho_fixo;
   }
 
   // ---------------------------------------------------------------- propriedades (janela de edição)
@@ -1544,8 +1565,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     memorizar();
     const dx = e.x_cm + 50 <= planta.largura_cm ? 50 : -50;
     const c = { ...structuredClone(e), id: novoId("e", planta.elementos), x_cm: limitar(e.x_cm + dx, 0, planta.largura_cm) };
-    planta.elementos.push(c);
-    c.divisao = divisaoDoElemento(planta, c);
+    planta.elementos.push(c);   // fica na divisão do original enquanto lá couber (confirmar: atualizarDivisoes manter)
     selecionado = c.id;
     confirmar(`Duplicado: ${descreverElemento(c)} (ao lado).`);
   }
@@ -1677,9 +1697,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       const v = validarPontos(cantosComMedidas(d, r.largura, r.altura), MAX_LADO_CM, MAX_LADO_CM);
       if (!v) { erroDialogo("Com estas medidas a divisão fica fora da planta ou pequena demais: experimente outras.", document.getElementById("dlg-largura")); return; }
       const outroPiso = r.piso !== pisoDe(d);
-      // No mesmo piso não pode ficar por cima de outra divisão (a que já estava por cima, numa planta antiga, não conta).
-      const o = outroPiso ? null : sobreposta(d, v, jaSobrepostas(d));
-      if (o) { erroDialogo(`Com estas medidas fica por cima de "${o.nome || "outra divisão"}". Diminua-a, ou afaste-a primeiro na planta.`, document.getElementById("dlg-largura")); return; }
       memorizar();
       d.nome = String(r.nome ?? "").trim().slice(0, 60) || "Divisão";
       const cx = caixaPontos(v);

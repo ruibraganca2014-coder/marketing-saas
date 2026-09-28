@@ -147,6 +147,8 @@ export class Pedidos {
       .run(estado, r.concluido || iso(this.relogio()), r.ok ? null : (r.erro || 'Falhou.'), p.id);
     p.estado = estado;
     this.auditar(null, `pedido_${estado}`, `pedido:${p.id}`, { tipo: p.tipo, cliente: p.cliente, erro: r.ok ? undefined : r.erro });
+    // Conta de cliente: um cliente criado a partir de um pedido com conta fica ligado a ela (conta.js).
+    try { this.aoResultado?.(p, r); } catch (e) { this.registo.erro(`pedido ${p.id}: ligar à conta: ${e.message}`); }
   }
 
   /**

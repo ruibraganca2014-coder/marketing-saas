@@ -497,7 +497,12 @@ PAINEL_MQTT_PASS=...            # openssl rand -hex 16
 # PAINEL_CEO_PASS=...           # mín. 10 caracteres; APAGUE as duas linhas depois
 # PAINEL_ORIGENS=https://www.domusenergia.pt   # só se o site também abrir noutro endereço
 # ANTHROPIC_API_KEY=sk-ant-...  # opcional: leitura automática da foto do quadro (ver abaixo)
+CONTA_CHAVE=...                 # conta de cliente: openssl rand -hex 32 (o instalar.sh já a gera); não mudar
+# SMTP_HOST=smtp-relay.brevo.com  SMTP_PORTA=587  SMTP_UTILIZADOR=...  SMTP_PASSWORD=...  EMAIL_REMETENTE=...
+# SITE_ORIGENS=https://domusenergia.pt   # só com o site público noutro endereço (Vercel)
 ```
+
+**Conta de cliente** ([`../docs/CONTA-CLIENTE.md`](../docs/CONTA-CLIENTE.md)). Para enviar a simulação o cliente cria uma conta (email + palavra-passe) e confirma o email com um código de 6 dígitos; na conta (`https://HOST/conta.html`) acompanha o pedido, envia fotos e aceita a proposta; depois da instalação, a mesma conta abre a área de cliente ("Entrar com email"). As rotas `https://HOST/api/conta/*` são do painel (o Caddy encaminha-as antes do `/api/*` dos pagamentos). Os códigos vão por email com `SMTP_*` (ex. **Brevo**, gratuito até 300 emails/dia: crie a conta, valide o remetente e copie o login e a "SMTP key" em SMTP & API); **sem SMTP ficam só no registo**: `sudo docker compose logs painel | grep -F "[email]"`. Com o site no Vercel e o servidor noutro subdomínio do mesmo domínio: `SITE_ORIGENS` aqui e `apiBase` no `web/config.js` (o deploy do Vercel não está feito).
 
 **Fotos do simulador e leitura automática do quadro.** As fotos que o cliente tira no simulador chegam por `POST https://HOST/api/orcamento/fotos` (o Caddy encaminha-o para o painel) e ficam em `dados/painel/fotos/<pedido>/` — fora da pasta pública, servidas só a CEO/comercial com sessão. Com **`ANTHROPIC_API_KEY`** no `.env` (chave criada em https://console.anthropic.com → API keys), o painel envia **só a foto do quadro** (sem nome, contactos nem morada) ao modelo Claude Haiku 4.5, em segundo plano, e mostra a leitura (disjuntores, diferenciais, geral, módulos livres, marcas, estado) no Relatório técnico como "confirmar na visita"; custa perto de US$ 0,005 por foto (o custo de cada leitura fica no registo: `docker compose logs painel | grep "leitura do quadro"`). Sem a chave não se chama nada e o relatório diz "leitura automática desligada". Depois de pôr ou mudar a chave: `sudo docker compose up -d painel`. As fotos de pedidos perdidos ou sem seguimento há mais de 12 meses são apagadas sozinhas (ver `painel/README.md`).
 

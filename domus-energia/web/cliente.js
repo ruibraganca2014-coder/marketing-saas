@@ -9,6 +9,7 @@ import { criarCenas } from "./cenas.js";
 import { desenharSaude, desenharRelatorio, copiarRelatorio, criarDefinicoes } from "./paineis.js";
 import * as PL from "./planos.js";
 import { criarSubscricao, criarBloqueio, iconeCadeado } from "./subscricao.js";
+import { pedirConta, contaAtual } from "./conta-comum.js";
 
 const cfg = window.DOMUS;
 const $ = (id) => document.getElementById(id);
@@ -89,8 +90,52 @@ $("form-login").addEventListener("submit", (e) => {
   entrar(cod, dados.password, { lembrar: !!dados.lembrar });
 });
 
+// ---------- Entrar com email (conta de cliente, docs/CONTA-CLIENTE.md) ----------
+// A conta (sessão por cookie no painel) devolve o código e a palavra-passe MQTT da casa; daí em diante é igual
+// a "Entrar com código". "Entrar com o código de cliente" continua para quem não tem conta.
+function modoLogin(comEmail) {
+  $("form-login-email").hidden = !comEmail;
+  $("form-login").hidden = comEmail;
+  $("login-modo").textContent = comEmail ? "Entrar com o código de cliente" : "Entrar com email";
+  $("login-texto").textContent = comEmail
+    ? "Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento)."
+    : "Entre com o código de cliente e a palavra-passe que recebeu da Domus Energia.";
+  erroLogin(null);
+}
+$("login-modo").addEventListener("click", () => {
+  modoLogin($("form-login-email").hidden);
+  ($("form-login-email").hidden ? $("form-login") : $("form-login-email")).querySelector("input").focus();
+});
+$("form-login-email").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const email = f.elements.email.value.trim();
+  const password = f.elements.password.value;
+  if (!email || !password) { erroLogin("Escreva o email e a palavra-passe."); return; }
+  const b = f.querySelector("button[type=submit]");
+  b.disabled = true;
+  b.textContent = "A entrar…";
+  erroLogin(null);
+  try {
+    await pedirConta("entrar", { corpo: { email, password } });
+    f.elements.password.value = "";
+    await entrarComConta();
+  } catch (err) {
+    erroLogin(err.message);
+  } finally {
+    b.disabled = false;
+    b.textContent = "Entrar";
+  }
+});
+/** Credenciais da casa da conta com sessão (404 sem casa ligada; 403 com o email por confirmar) → entrar. */
+async function entrarComConta(automatico = false) {
+  const casa = await pedirConta("casa");
+  entrar(casa.codigo, casa.password, { lembrar: false, automatico });
+}
+
 $("sair").addEventListener("click", () => {
   apagarLembrar();
+  pedirConta("sair", { corpo: {} }).catch(() => {});   // também a sessão da conta (senão voltava a entrar sozinho)
   credenciais = null;
   terminar();
   $("form-login").reset();
@@ -1221,6 +1266,13 @@ $("ntfy-copiar").addEventListener("click", async () => {
 
 // ---------- Arranque (no fim, depois de tudo estar definido) ----------
 mostrarVista(false);
-lerLembrar().then((guardado) => {
-  if (guardado && !cliente) entrar(guardado.codigo, guardado.password, { lembrar: true, automatico: true });
+lerLembrar().then(async (guardado) => {
+  if (guardado && !cliente) {
+    modoLogin(false);   // quem guardou o código neste aparelho entra com o código
+    entrar(guardado.codigo, guardado.password, { lembrar: true, automatico: true });
+    return;
+  }
+  // Sessão da conta de cliente já aberta (ex.: veio de "A minha conta") com a casa ligada: entra sozinho.
+  const eu = await contaAtual();
+  if (eu?.conta?.confirmado && eu.tem_casa && !cliente) entrarComConta(true).catch(() => {});
 });

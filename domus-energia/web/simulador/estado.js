@@ -17,7 +17,7 @@ export const CHAVE = "domus.simulador";
 export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: código do cliente vindo da área de cliente
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
-export const PASSOS = ["A casa", "O que quer", "Planta", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
+export const PASSOS = ["A casa", "Equipamentos", "Planta", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
 /**
  * Ordem dos passos gravada no estado (`ordem`: 3 = a de PASSOS, com o quadro depois das divisões).
  * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo:
@@ -39,9 +39,13 @@ const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/g;
 const RE_ID_PLANTA = /^[A-Za-z0-9_-]{1,40}$/;
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
+/** Potência contratada por omissão (kVA): a mais comum (não há "Não sei"). */
+export const POTENCIA_OMISSAO_KVA = 6.9;
+
 /**
- * Casa por omissão: no site já com T2 (e a ligação sugerida, monofásica); na área de cliente tipo
- * e tipologia por escolher. `area_m2` e `espacos` só contam em serviços e industrial.
+ * Casa por omissão: no site já com T2; 6,9 kVA e a ligação sugerida (monofásica). Na área de cliente tipo
+ * e tipologia por escolher. `area_m2` e `espacos` só contam em serviços e industrial. `localidade` já não
+ * se pede no passo 1 (fica sempre ""): o local da obra é a localidade do contacto (passo 7).
  */
 export function casaNova(cliente = false) {
   return {
@@ -49,7 +53,7 @@ export function casaNova(cliente = false) {
     extras: { jardim: false, garagem: false, varanda: false, kitnet: false, entrada: false, corredor: !cliente, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
     porPiso: null,             // casas com 2 ou mais pisos: [{quartos, casas_banho, salas, extras}] por piso (casa.js acertarPisos)
-    divisoes: null, localidade: "", potencia_contratada_kva: null, fases: cliente ? null : "mono",
+    divisoes: null, localidade: "", potencia_contratada_kva: POTENCIA_OMISSAO_KVA, fases: "mono",
   };
 }
 
@@ -81,7 +85,7 @@ export function estadoNovo({ cliente = false } = {}) {
     fotosId: null,             // liga as fotos guardadas no IndexedDB (fotos.js) a esta simulação
     extras: { central: false, termostatos: 0 },
     termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
-    contacto: { nome: "", telefone: "", email: "", localidade: "", mensagem: "" },
+    contacto: { nome: "", telefone: "", email: "", localidade: "", morada: "", mensagem: "" },
   };
 }
 
@@ -278,8 +282,9 @@ export function normalizarEstado(v) {
     area_m2: perfil === "habitacao" ? null : int(c.area_m2, ...LIMITES_CASA.area_m2, AREA_OMISSAO[perfil]),
     espacos: perfil === "habitacao" ? null : int(c.espacos, ...LIMITES_CASA.espacos, ESPACOS_OMISSAO[perfil]),
     divisoes: c.divisoes == null || c.divisoes === "" ? null : int(c.divisoes, 1, 40, 1),
-    localidade: txt(c.localidade, 80),
-    potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
+    localidade: "",   // estado antigo com localidade no passo 1: passa para o contacto (em baixo)
+    // Estado antigo com "Não sei" (null): 6,9 kVA; a ligação fica a sugerida (em baixo).
+    potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva) ?? POTENCIA_OMISSAO_KVA,
     fases: FASES[c.fases] ? c.fases : null,
     porPiso: Array.isArray(c.porPiso) ? c.porPiso : null,
   };
@@ -294,6 +299,7 @@ export function normalizarEstado(v) {
   const vq = v.quer && typeof v.quer === "object" ? v.quer : {};
   const antigas = [...lista(vq.maquinas, 60), ...lista(vq.pequenas, 60)].filter((k) => typeof k === "string");
   e.quer = normalizarQuer(vq, tipo, { pisos: pisosDaCasa(e.casa), pisoTipico: (k) => pisoTipicoMaquina(e.casa, k, antigas) });
+  if (e.casa.fases === null) { e.casa.fases = fasesSugeridas(e); e.fasesEditadas = false; }
   e.planta = normalizarPlanta(v.planta, { pisosAntigos });
   e.plantaSaltada = bool(v.plantaSaltada);
   e.plantaAuto = bool(v.plantaAuto);
@@ -338,7 +344,8 @@ export function normalizarEstado(v) {
   // Estado antigo: termóstatos já escolhidos contam como mexidos (o objetivo "aquecimento" não os apaga).
   e.termostatosEditados = v.termostatosEditados === undefined ? e.extras.termostatos > 0 : bool(v.termostatosEditados);
   const k = v.contacto && typeof v.contacto === "object" ? v.contacto : {};
-  e.contacto = { nome: txt(k.nome, 120), telefone: txt(k.telefone, 30), email: txt(k.email, 254), localidade: txt(k.localidade, 80), mensagem: txt(k.mensagem, 2000) };
+  e.contacto = { nome: txt(k.nome, 120), telefone: txt(k.telefone, 30), email: txt(k.email, 254), localidade: txt(k.localidade, 80), morada: txt(k.morada, 200), mensagem: txt(k.mensagem, 2000) };
+  if (!e.contacto.localidade.trim()) e.contacto.localidade = txt(c.localidade, 80);   // a antiga localidade do passo 1
   return e;
 }
 
@@ -418,7 +425,7 @@ export function maquinasParaPlanta(estado) {
 /** Ligação sugerida pelo tipo e pelas máquinas (regras.js sugerirFases). */
 export const fasesSugeridas = (estado) => sugerirFases(estado.casa?.tipo ?? null, maquinasEscolhidas(estado.quer));
 
-/** Potência contratada (kVA) de um dos escalões, ou null ("Não sei"). */
+/** Potência contratada (kVA) de um dos escalões, ou null (valor inválido; quem chama usa POTENCIA_OMISSAO_KVA). */
 export function potenciaContratada(v) {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
@@ -465,7 +472,7 @@ export function quadroParaEnvio(estado, circuitos) {
 
 /** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
-  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== null || e.casa.fases !== null || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.casa.localidade);
+  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -564,7 +571,7 @@ export function casaParaEnvio(estado) {
   return {
     tipo: TIPOS_CASA[c.tipo] ? c.tipo : null,
     divisoes: tipologia || negocio ? divisoesDaCasa(c, maquinasEscolhidas(estado.quer)).length : c.divisoes ?? (estado.divisoes.length || null),
-    localidade: textoSeguro(c.localidade || estado.contacto.localidade, 80) || null,
+    localidade: textoSeguro(estado.contacto.localidade, 80) || null,   // o local da obra: a localidade do contacto (passo 7)
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
     tipologia,
@@ -672,6 +679,7 @@ export function problemaContacto(k) {
   if (t(k.telefone) && !RE_TELEFONE.test(t(k.telefone))) return { campo: "telefone", texto: "O telefone não parece certo: escreva o número completo (ex.: 912 345 678)." };
   if (t(k.email) && (t(k.email).length > 254 || !RE_EMAIL.test(t(k.email)))) return { campo: "email", texto: "O email não parece certo (ex.: nome@exemplo.pt)." };
   if (t(k.localidade).length > 80) return { campo: "localidade", texto: "A localidade é demasiado longa (máx. 80 caracteres)." };
+  if (t(k.morada).length > 200) return { campo: "morada", texto: "A morada é demasiado longa (máx. 200 caracteres)." };
   if (t(k.mensagem).length > 2000) return { campo: "mensagem", texto: "A mensagem é demasiado longa (máx. 2000 caracteres)." };
   return null;
 }
@@ -690,6 +698,8 @@ export function montarPedido(estado, simulacao, { codigo = null, website = "" } 
   if (tel) corpo.telefone = tel;
   if (email) corpo.email = email;
   if (loc) corpo.localidade = loc;
+  const morada = textoSeguro(k.morada, 200);
+  if (morada) corpo.morada = morada;
   if (msg) corpo.mensagem = msg;
   if (String(website ?? "").trim()) corpo.website = String(website).trim();
   if (codigo && RE_ID.test(codigo)) corpo.codigo_cliente = codigo;

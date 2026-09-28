@@ -338,3 +338,26 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 .sim-passo-tempo { display: block; font-size: .7rem; font-weight: 600; color: var(--texto-suave); line-height: 1.1; }
 .sim-falta { margin: 6px 0 0; text-align: right; font-size: .85rem; font-weight: 700; color: var(--texto-suave); }
 @media (max-width: 479px) { .sim-passo-tempo { display: none; } }
+
+/* "Imprimir" da planta (imprimir.js): só as folhas da planta, uma por piso, em A4 (ao baixo se a planta é mais
+   larga do que alta). As folhas só existem enquanto se imprime; no ecrã nunca aparecem. */
+.impressao-planta { display: none; }
+@page planta-paisagem { size: A4 landscape; margin: 10mm; }
+@page planta-retrato { size: A4 portrait; margin: 10mm; }
+@media print {
+  html.a-imprimir body > :not(.impressao-planta) { display: none !important; }
+  html.a-imprimir, html.a-imprimir body { background: #fff !important; }
+  html.a-imprimir .impressao-planta { display: block; color: var(--texto); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .impressao-folha { break-after: page; display: flex; flex-direction: column; gap: 4mm; }
+  .impressao-folha:last-child { break-after: auto; }
+  .impressao-folha.paisagem { page: planta-paisagem; }
+  .impressao-folha.retrato { page: planta-retrato; }
+  .impressao-folha h1 { margin: 0; font-size: 16pt; }
+  /* A folha tem a altura útil da página; a planta fica com o que sobra do título e da legenda. */
+  .impressao-folha.paisagem { height: 186mm; }
+  .impressao-folha.retrato { height: 273mm; }
+  .impressao-svg { display: block; width: 100%; flex: 1 1 0; min-height: 0; }
+  .impressao-legenda { display: flex; flex-wrap: wrap; gap: 2mm 6mm; margin: 0; padding: 0; list-style: none; font-size: 9pt; break-inside: avoid; }
+  .impressao-legenda li { display: flex; align-items: center; gap: 2mm; }
+  .impressao-legenda svg { width: 7mm; height: 7mm; flex: none; }
+}

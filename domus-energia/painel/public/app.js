@@ -1,6 +1,6 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio, #/clientes, #/clientes/<codigo>, #/alertas, #/orcamentos, #/orcamentos/<id>,
-// #/obras, #/obras/<id>, #/catalogo, #/pagamentos, #/equipa, #/auditoria.
+// #/obras, #/obras/<id>, #/catalogo, #/pagamentos, #/equipa, #/contas, #/auditoria.
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
@@ -12,6 +12,7 @@ import pagamentos from "./ecras/pagamentos.js";
 import equipa from "./ecras/equipa.js";
 import auditoria from "./ecras/auditoria.js";
 import catalogo from "./ecras/catalogo.js";
+import contas from "./ecras/contas.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
@@ -23,6 +24,7 @@ const ECRAS = [
   { id: "catalogo", nome: "Catálogo", papeis: ["ceo"], m: catalogo },
   { id: "pagamentos", nome: "Pagamentos", papeis: ["ceo"], m: pagamentos },
   { id: "equipa", nome: "Equipa", papeis: ["ceo"], m: equipa },
+  { id: "contas", nome: "Contas de clientes", papeis: ["ceo"], m: contas },
   { id: "auditoria", nome: "Auditoria", papeis: ["ceo"], m: auditoria },
 ];
 

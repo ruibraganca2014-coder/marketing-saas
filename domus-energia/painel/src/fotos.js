@@ -57,11 +57,15 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
   }
 
   // ------------------------------------------------------------ receber (público)
-  /** POST /api/orcamento/fotos: a origem e o limite por IP já foram verificados em api.js. */
-  async function receber(req) {
+  /**
+   * POST /api/orcamento/fotos (token nos cabeçalhos) e POST /api/conta/pedidos/:id/fotos (`orcamentoConta`: o
+   * pedido da conta com sessão, já verificado em conta.js — sem token). A origem e o limite por IP já foram
+   * verificados antes; as validações da foto são as mesmas nos dois caminhos.
+   */
+  async function receber(req, orcamentoConta = null) {
     const tipo = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
     if (!EXTENSAO[tipo]) throw new ErroApi(415, 'A foto tem de ser JPEG ou PNG (Content-Type: image/jpeg ou image/png).');
-    const orcamentoId = orcamentoDoToken(req.headers['x-fotos-token']);
+    const orcamentoId = orcamentoConta ?? orcamentoDoToken(req.headers['x-fotos-token']);
     if (!orcamentoId) throw new ErroApi(401, 'Autorização das fotos inválida ou expirada. Envie o pedido de novo.');
     const chave = String(req.headers['x-foto-chave'] ?? '');
     if (!RE_CHAVE_FOTO.test(chave)) throw new ErroApi(400, 'Identificação da foto inválida (X-Foto-Chave).');
@@ -142,7 +146,7 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
 
   // ------------------------------------------------------------ painel
   /** Fotos de um pedido com os metadados da simulação (`simulacao.fotos`, pela chave). */
-  function listar(o, sim) {
+  function listar(o, sim, base = `/painel/api/orcamentos/${o.id}/fotos/`) {
     const meta = new Map();
     for (const m of Array.isArray(sim?.fotos) ? sim.fotos : []) {
       if (m && typeof m === 'object' && typeof m.chave === 'string' && !meta.has(m.chave)) meta.set(m.chave, m);
@@ -159,7 +163,7 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
         piso: Number.isInteger(m.piso) ? m.piso : (typeof m.piso === 'string' && /^-?\d{1,2}$/.test(m.piso) ? Number(m.piso) : null),
         legenda: f.legenda ?? txt(m.legenda),
         tipo_mime: f.tipo_mime, bytes: f.bytes, criado: f.criado,
-        url: `/painel/api/orcamentos/${o.id}/fotos/${f.id}`,
+        url: `${base}${f.id}`,
       };
     });
   }

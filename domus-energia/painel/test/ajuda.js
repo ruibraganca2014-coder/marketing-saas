@@ -30,6 +30,9 @@ export const DO_SITE = { Origin: ORIGEM, 'Sec-Fetch-Site': 'same-origin' };
  * Anthropic (leitura da foto do quadro). Devolve {url, app, dados, relogio, pedir, entrar, criarUtilizador, fechar}.
  */
 export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch } = {}) {
+  // Emails das contas de cliente: ficam aqui (o último código enviado a cada email em `codigo(email)`).
+  const emails = [];
+  const correio = { enviar: async (m) => { emails.push(m); return true; }, ligado: false };
   const dir = await mkdtemp(join(tmpdir(), 'domus-painel-'));
   const dados = dadosDir ?? join(dir, 'dados');
   for (const p of ['painel', 'planos', 'pagamentos', 'clientes', 'pedidos-admin']) await mkdir(join(dados, p), { recursive: true });
@@ -39,10 +42,11 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     PUBLIC_DIR: join(dir, 'public'),
     CONFIAR_PROXY: '1',
     PEDIDOS_POLL_MS: '200',
+    CONTA_CHAVE: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };
-  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, ...(fetch ? { fetch } : {}) });
+  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, correio, ...(fetch ? { fetch } : {}) });
   await new Promise((r) => app.servidor.listen(0, '127.0.0.1', r));
   const porta = app.servidor.address().port;
   let ipSeq = 0;
@@ -96,8 +100,26 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     return r.cabecalhos['set-cookie'][0].split(';')[0];
   }
 
+  /** Último código de 6 dígitos enviado por email a `email` (ou null). */
+  const codigo = (email) => {
+    for (let i = emails.length - 1; i >= 0; i--) {
+      if (emails[i].para === email) return /\b(\d{6})\b/.exec(emails[i].texto)?.[1] ?? null;
+    }
+    return null;
+  };
+
+  /** Conta de cliente criada e confirmada pela API; devolve {cookie, email}. */
+  async function contaConfirmada(email = `cliente${++ipSeq}@exemplo.pt`, senha = SENHA) {
+    const r = await pedir('POST', '/api/conta/criar', { corpo: { email, password: senha } });
+    if (r.estado !== 201) throw new Error(`criar conta: ${r.estado} ${r.texto}`);
+    const cookie = r.cabecalhos['set-cookie'][0].split(';')[0];
+    const c = await pedir('POST', '/api/conta/confirmar', { corpo: { codigo: codigo(email) }, cookie });
+    if (c.estado !== 200) throw new Error(`confirmar conta: ${c.estado} ${c.texto}`);
+    return { cookie, email };
+  }
+
   return {
-    dir, dados, config, app, relogio, porta, pedir, criarUtilizador, entrar,
+    dir, dados, config, app, relogio, porta, pedir, criarUtilizador, entrar, emails, codigo, contaConfirmada,
     async fechar() {
       await app.fechar();
       if (!dadosDir) await rm(dir, { recursive: true, force: true });

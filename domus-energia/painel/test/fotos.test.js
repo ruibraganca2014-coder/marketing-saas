@@ -19,7 +19,8 @@ const JPEG = (n = 2000, x = 1) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 
 const PNG = (n = 2000) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(n, 2)]);
 
 async function novoPedido(p, extra = {}) {
-  const r = await p.pedir('POST', '/api/orcamento', { corpo: { ...BASE, ...extra } });
+  const cookie = extra.simulacao ? (await p.contaConfirmada()).cookie : undefined;
+  const r = await p.pedir('POST', '/api/orcamento', { corpo: { ...BASE, ...extra }, cookie });
   assert.equal(r.estado, 201, r.texto);
   const id = p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id;
   return { id, token: r.json.fotos_token };

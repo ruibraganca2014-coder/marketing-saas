@@ -53,12 +53,15 @@ const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
   frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)",
+  esquentador: "Esquentador elétrico instantâneo", radiador: "Aquecedor / radiador elétrico", hidromassagem: "Hidromassagem / jacuzzi",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha_video: "Campainha com vídeo",
+  carregador_bicicleta: "Carregador de bicicleta / trotinete", toalheiro: "Aquecedor de toalhas",
   arca_frigorifica: "Arca / vitrine frigorífica", maquina_cafe: "Máquina de café profissional", servidor: "Servidor / bastidor", compressor: "Compressor",
   soldadura: "Máquina de soldar", maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador de carro elétrico 22 kW",
   arca_congeladora: "Arca congeladora", micro_ondas: "Micro-ondas", exaustor: "Exaustor", cafeteira: "Cafeteira / chaleira", computador: "Computador",
   consola: "Consola de jogos", desumidificador: "Desumidificador", aquecedor_portatil: "Aquecedor portátil", box_router: "Box / router do operador",
   repetidor_wifi: "Repetidor Wi-Fi", nas: "NAS (discos em rede)", camara: "Câmara de vigilância", portao: "Portão automático", rega: "Rega automática",
-  iluminacao_jardim: "Iluminação de jardim / exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora", terminal_pagamento: "Caixa / terminal de pagamento",
+  iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora", terminal_pagamento: "Caixa / terminal de pagamento",
   reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas portáteis", aspirador_industrial: "Aspirador industrial", carregador_baterias: "Carregador de baterias",
   outro: "Outra máquina",
 };
@@ -119,6 +122,15 @@ const ICONES = {
   maquina_reclamo: [["rect", { x: 8, y: 12, width: 32, height: 16, rx: 3 }, "t"], ["path", { d: "M14 28v10M34 28v10M14 18h20M17 22.5h14" }, "t"]],
   maquina_ferramentas: [["rect", { x: 10, y: 15, width: 19, height: 10, rx: 2 }, "t"], ["path", { d: "M29 20h9M16 25l-3 12h7.5l2-12" }, "t"]],
   maquina_aspirador_industrial: [["rect", { x: 11, y: 16, width: 20, height: 20, rx: 4 }, "t"], ["path", { d: "M11 21.5h20M31 23c6 0 7.5-6 5.5-12" }, "t"], ["circle", { cx: 15.5, cy: 38, r: 1.8 }, "c"], ["circle", { cx: 26.5, cy: 38, r: 1.8 }, "c"]],
+  maquina_esquentador: [["rect", { x: 15, y: 8, width: 18, height: 27, rx: 4 }, "t"], ["path", { d: "M24 14c3 3.6 4 5.7 4 7.7a4 4 0 0 1-8 0c0-2 1-4.1 4-7.7z" }, "a"], ["path", { d: "M20 35v4.5M28 35v4.5" }, "t"]],
+  maquina_radiador: [["path", { d: "M12 13v21M18 13v21M24 13v21M30 13v21M36 13v21M10 17h28M10 30h28M13 34v4M35 34v4" }, "t"]],
+  maquina_hidromassagem: [["path", { d: "M8 25h32v3a8 8 0 0 1-8 8H16a8 8 0 0 1-8-8z" }, "t"], ["circle", { cx: 17, cy: 18, r: 2.2 }, "t"], ["circle", { cx: 24.5, cy: 13, r: 2.6 }, "t"], ["circle", { cx: 31.5, cy: 18.5, r: 2 }, "t"], ["path", { d: "M15 36l-1.5 3M33 36l1.5 3" }, "t"]],
+  maquina_air_fryer: [["rect", { x: 12, y: 9, width: 24, height: 30, rx: 8 }, "t"], ["path", { d: "M12 25h24M20 31h8" }, "t"], ["circle", { cx: 24, cy: 17, r: 3 }, "t"]],
+  maquina_torradeira: [["rect", { x: 9, y: 19, width: 30, height: 18, rx: 6 }, "t"], ["path", { d: "M15 19v-6.5h7V19M26 19v-6.5h7V19" }, "t"], ["circle", { cx: 33, cy: 29, r: 1.6 }, "c"]],
+  maquina_cafe_expresso: [["path", { d: "M14 23h17v6a7 7 0 0 1-7 7h-3a7 7 0 0 1-7-7z" }, "t"], ["path", { d: "M31 25.5c4.5 0 4.5 6 0 6M10 39.5h25M19 11c-1.6 2.2 1.6 4.3 0 6.5M26 11c-1.6 2.2 1.6 4.3 0 6.5" }, "t"]],
+  maquina_campainha_video: [["rect", { x: 16, y: 7, width: 16, height: 34, rx: 5 }, "t"], ["circle", { cx: 24, cy: 15, r: 3 }, "t"], ["circle", { cx: 24, cy: 30, r: 4.5 }, "t"], ["circle", { cx: 24, cy: 30, r: 1.6 }, "c"]],
+  maquina_carregador_bicicleta: [["circle", { cx: 13, cy: 31, r: 6 }, "t"], ["circle", { cx: 35, cy: 31, r: 6 }, "t"], ["path", { d: "M13 31l6-10h11l5 10M19 21l5 10h-11M28 17h4.5" }, "t"], ["path", { d: "M24 6l-4 6.5h3.5l-1.5 5 5.5-7h-3.5z" }, "c"]],
+  maquina_toalheiro: [["path", { d: "M13 8v32M35 8v32M13 13h22M13 20h22M13 27h22M13 34h22" }, "t"], ["rect", { x: 19, y: 13, width: 10, height: 12, rx: 1.5 }, "c"]],
   maquina_carregador_baterias: [["rect", { x: 9, y: 15, width: 25, height: 18, rx: 2 }, "t"], ["path", { d: "M34 20.5v7M14 24h6M17 21v6M25 24h5" }, "t"]],
   // Divisões (botões do editor, desenharIcone(svg, "divisao", {tipo})): um desenho por tipo de divisão
   // (web/simulador/casa.js tipoDivisao); sem desenho próprio, o quadrado tracejado de "Outra".
@@ -333,7 +345,11 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
   // tapam), com contorno da cor do papel, e encolhem para caber na largura da divisão (não invadem a vizinha).
   const gd = no("g", { "data-camada": "divisoes" });
   const gn = no("g", { "data-camada": "nomes", "aria-hidden": "true" }, { "pointer-events": "none" });
-  for (const d of divisoes) {
+  // Divisões sobrepostas: a de cima é a desenhada depois; a selecionada vai sempre por cima (e é a que o toque
+  // apanha). Os contornos de todas vão numa camada à parte, por cima dos fundos: a de baixo continua a ver-se.
+  const ordem = selDiv ? [...divisoes.filter((d) => d !== selDiv), selDiv] : divisoes;
+  const gc = no("g", { "data-camada": "contornos", "aria-hidden": "true" }, { "pointer-events": "none" });
+  for (const d of ordem) {
     const pts = cantos(d);
     const ret = retangular(pts);
     const m2 = fmtM2(Math.abs(area(pts)));
@@ -347,6 +363,10 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     g.append(no("polygon", { points: pts.map((p) => `${p[0]},${p[1]}`).join(" ") }, {
       fill: sel ? COR.musgoClaro : `color-mix(in srgb, ${COR.musgoClaro} 55%, transparent)`,
       stroke: COR.musgo, "stroke-width": "2px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke",
+    }));
+    gc.append(no("polygon", { points: pts.map((p) => `${p[0]},${p[1]}`).join(" ") }, {
+      fill: "none", stroke: COR.musgo, "stroke-width": "1.5px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke",
+      ...(haSel && !sel ? { opacity: ESBATIDO } : {}),
     }));
     const [ix, iy] = ret ? [x + letra * 0.4, y] : interior(pts);
     // Largura para o texto: a da divisão menos uma margem (retângulo); numa forma livre, 80 % da caixa.
@@ -363,7 +383,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     }
     gd.append(g);
   }
-  svg.append(gd);
+  svg.append(gd, gc);
   // Divisão selecionada: halo largo que pulsa e, por cima, o anel grosso cheio (por cima das outras divisões,
   // por baixo dos aparelhos).
   if (selDiv) {

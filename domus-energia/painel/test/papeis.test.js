@@ -45,6 +45,9 @@ const MATRIZ = [
   ['POST', 'catalogo/999', [C], {}],
   ['GET', 'config-orcamento', [C]],
   ['POST', 'config-orcamento', [C], {}],
+  ['GET', 'contas', [C]],
+  ['POST', 'contas/999', [C], {}],
+  ['POST', 'contas/999/apagar', [C], {}],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 

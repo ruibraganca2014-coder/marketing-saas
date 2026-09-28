@@ -12,7 +12,12 @@ before(async () => { p = await painelComEquipa(); });
 after(() => p.fechar());
 
 const BASE = { nome: 'Ana Silva', telefone: '912 345 678', servico: 'Casa inteligente', localidade: 'Oeiras', mensagem: 'Olá\nQueria um orçamento.' };
-const enviar = (corpo, opcoes = {}) => p.pedir('POST', '/api/orcamento', { corpo, ...opcoes });
+// Com simulação é preciso a sessão de uma conta de cliente com o email confirmado (conta.test.js testa isso).
+let conta = null;
+const enviar = async (corpo, opcoes = {}) => {
+  if (corpo?.simulacao !== undefined && !opcoes.cookie) conta ??= await p.contaConfirmada('orcamento@exemplo.pt');
+  return p.pedir('POST', '/api/orcamento', { corpo, ...(corpo?.simulacao !== undefined && conta ? { cookie: conta.cookie } : {}), ...opcoes });
+};
 const contar = () => p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n;
 
 test('pedido válido → 201 {ok:true, fotos_token, fotos_max}, estado "novo", visível ao comercial', async () => {

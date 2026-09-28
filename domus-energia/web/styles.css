@@ -751,3 +751,32 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .menu-movel a { display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; color: var(--texto); font-weight: 700; text-decoration: none; }
 .menu-movel a:hover { background: var(--musgo-claro); }
 @media (min-width: 1000px) { .menu-botao, .menu-movel { display: none !important; } }
+
+/* =================== Conta de cliente (conta-comum.js, conta.html) =================== */
+.conta-bloco { display: grid; gap: 14px; }
+.conta-bloco p { margin: 0; }
+.conta-entrou { overflow-wrap: anywhere; }
+.link-botao { font: inherit; font-weight: 700; background: none; border: 0; padding: 10px 4px; min-height: 44px; color: var(--musgo-texto); text-decoration: underline; cursor: pointer; }
+.link-botao:disabled { opacity: .55; cursor: default; }
+.conta-passos { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.conta-passos li { color: var(--texto-suave); }
+.conta-passos li.feito { color: var(--texto); font-weight: 700; }
+.conta-passos li.feito::before { content: "✓ "; color: var(--musgo-texto); }
+.conta-fotos { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; list-style: none; margin: 0; padding: 0; }
+.conta-fotos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--borda); display: block; }
+.conta-fotos figcaption { font-size: .82rem; color: var(--texto-suave); overflow-wrap: anywhere; }
+.conta-pedido { display: grid; gap: 12px; margin-bottom: 18px; }
+.conta-pedido h3 { margin: 0; }
+.conta-proposta { border-left: 4px solid var(--musgo); padding-left: 12px; display: grid; gap: 8px; }
+.conta-proposta .valor { font-size: 1.4rem; font-weight: 800; }
+.conta-proposta p { white-space: pre-line; }
+.pagina-conta main > section { padding: 32px 0 48px; }
+.pagina-conta .wrap.estreito { max-width: 760px; }
+.pagina-conta h1 { margin-top: 0; }
+.conta-atalhos { margin: 18px 0; }
+.conta-fotos figure { margin: 0 0 6px; }
+.conta-resumo summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
+.conta-resumo dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
+.conta-resumo dd { margin: 0; }
+.pagina-conta .saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
+.pagina-conta .saltar:focus { top: 10px; }

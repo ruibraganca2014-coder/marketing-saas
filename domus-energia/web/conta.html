@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A minha conta — Domus Energia</title>
+  <meta name="description" content="Acompanhe o seu pedido de orçamento: estado, proposta e fotos.">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <meta name="robots" content="noindex">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="pagina-conta">
+  <a class="saltar" href="#conteudo">Saltar para a conta</a>
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno" href="index.html"><span class="so-largo">Voltar ao site</span><span class="so-curto">Site</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <section>
+      <div class="wrap estreito">
+        <h1>A minha conta</h1>
+        <div class="cartao" id="conta-cartao">
+          <div id="conta-bloco"></div>
+        </div>
+
+        <div id="conta-dentro" hidden>
+          <div class="form-botoes conta-atalhos">
+            <a class="btn sec" id="conta-simular" href="simulador.html">Simular orçamento</a>
+            <a class="btn sec" id="conta-casa" href="cliente.html" hidden>Área da minha casa</a>
+          </div>
+          <div class="msg info" id="conta-retomar" hidden></div>
+          <h2>Os meus pedidos</h2>
+          <div class="msg" id="conta-msg" role="status" hidden></div>
+          <div id="conta-pedidos" aria-live="polite"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <a href="index.html">Site</a>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script type="module" src="conta.js"></script>
+</body>
+</html>

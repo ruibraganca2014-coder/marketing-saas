@@ -20,7 +20,7 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, potenciaContratada,
-  normalizarQuer, fasesSugeridas,
+  normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
 } from "./estado.js";
 import {
@@ -32,6 +32,7 @@ import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
 import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
+import { criarBlocoConta, pedirConta, urlPainelApi, credenciais } from "../conta-comum.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -41,7 +42,8 @@ const el = (tag, cls, texto) => {
   if (texto != null) e.textContent = texto;
   return e;
 };
-const urlApi = String(cfg.apiUrl ?? "/api").replace(/\/+$/, "");
+// Rotas do painel (/api/orcamento*, /api/catalogo, /api/conta/*): no mesmo site, ou em DOMUS.apiBase (conta-comum.js).
+const urlApi = urlPainelApi;
 const reduzido = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // Armazenamento do navegador (pode não existir ou lançar exceções: modo privado, bloqueado).
@@ -171,6 +173,7 @@ function irPara(i, { foco = true } = {}) {
   estado.visitado = visitado;
   mostrarPasso(foco);
   agendarGravacao();
+  guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
 }
 
 function mostrarPasso(foco = true) {
@@ -404,9 +407,8 @@ function desenharCasa() {
   }
   for (const i of g.querySelectorAll("input")) i.checked = i.value === estado.casa.tipo;
   sincronizarCasa();
-  $("casa-localidade").value = estado.casa.localidade;
   $("casa-area").value = estado.casa.area_m2 == null ? "" : String(estado.casa.area_m2);
-  $("casa-potencia").value = estado.casa.potencia_contratada_kva === null ? "" : String(estado.casa.potencia_contratada_kva);
+  $("casa-potencia").value = String(estado.casa.potencia_contratada_kva ?? POTENCIA_OMISSAO_KVA);
 }
 
 /** Tipologia (ou área e espaços), contadores, extras e ligação no ecrã a partir do estado. */
@@ -449,11 +451,8 @@ function sincronizarCasa() {
     ? "Na casa toda (T3 = 3 quartos ao todo): repartimos pelos pisos e pode acertar cada piso nos separadores."
     : "T2 = 2 quartos; T0 = estúdio (sala e quarto na mesma divisão).";
   desenharPisosCasa();
-  $("casa-fases").value = c.fases ?? "";
-  const s = fasesSugeridas(estado);
-  $("casa-fases-sugestao").textContent = s === "tri"
-    ? `Sugerimos: Trifásica (${c.tipo === "industrial" ? "é a das indústrias" : "tem máquinas que gastam muito"}). Se não souber, escolha "Não sei".`
-    : s === "mono" ? "Sugerimos: Monofásica (a mais comum). Se não souber, escolha \"Não sei\"." : "Se não souber, escolha \"Não sei\": vemos na visita.";
+  $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
+  desenharObjetivos();
 }
 /**
  * Separadores por piso do passo 1 (casas com 2 ou mais pisos; o mesmo estilo dos de "O que quer"): cada um
@@ -499,7 +498,7 @@ function mudarPisoCasa(p) {
   sincronizarCasa();
 }
 
-$("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value); agendarGravacao(); });
+$("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value) ?? POTENCIA_OMISSAO_KVA; agendarGravacao(); });
 $("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; estado.fasesEditadas = true; agendarGravacao(); });
 $("casa-area").addEventListener("input", () => {
   const v = Math.round(Number($("casa-area").value));
@@ -510,7 +509,6 @@ $("casa-area").addEventListener("change", () => {
   // Fora dos limites (ou vazio): volta ao último valor válido.
   $("casa-area").value = String(estado.casa.area_m2 ?? AREA_OMISSAO[perfilCasa(estado.casa.tipo)] ?? "");
 });
-$("casa-localidade").addEventListener("input", () => { estado.casa.localidade = $("casa-localidade").value.slice(0, 80); agendarGravacao(); });
 
 /**
  * Sugestões dos 308 concelhos enquanto escreve (combobox ARIA com lista; sem acentos: "evora" → Évora).
@@ -583,9 +581,8 @@ function ligarLocalidade(input) {
     }
   });
 }
-ligarLocalidade($("casa-localidade"));
 
-// ------------------------------------------------------------ 2. O que quer
+// ------------------------------------------------------------ 2. Equipamentos (e "O que quer fazer", no fim do passo 1)
 const OBJETIVOS_AJUDA = {
   poupar: "Ver quanto gasta cada parte da casa",
   alarme: "Sensores de porta e de movimento",
@@ -615,18 +612,12 @@ function acertarQuer() {
  * Os objetivos são da casa toda.
  */
 function desenharQuer() {
-  const gm = $("quer-maquinas"), gp = $("quer-pequenas"), go = $("quer-objetivos");
+  const gm = $("quer-maquinas"), gp = $("quer-pequenas");
   const perfil = perfilCasa(estado.casa.tipo);
   const n = pisosDaCasa(estado.casa);
   if (pisoQuer >= n) pisoQuer = 0;
   if (gm.dataset.perfil !== perfil) {
     gm.dataset.perfil = perfil;
-    const alternarObjetivo = (chaves, k) => (sim) => {
-      const s = new Set(estado.quer.objetivos);
-      if (sim) s.add(k); else s.delete(k);
-      estado.quer.objetivos = chaves.filter((x) => s.has(x));   // sempre pela ordem da lista
-      agendarGravacao();
-    };
     // Marcada no piso à vista: 1 (o cliente muda no contador); desmarcada: sai desse piso.
     const alternarMaquina = (k) => (sim) => {
       const m = { ...(estado.quer.porPiso[k] ?? {}) };
@@ -657,13 +648,28 @@ function desenharQuer() {
       f.append(grelha);
       return f;
     }));
-    const objs = objetivosDe(estado.casa.tipo);
-    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternarObjetivo(objs, k))));
   }
   for (const i of [...gm.querySelectorAll("input[type=checkbox]"), ...gp.querySelectorAll("input[type=checkbox]")]) i.checked = quantidadeNoPiso(estado.quer, i.value, pisoQuer) > 0;
-  for (const i of go.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.objetivos.includes(i.value);
   for (const c of document.querySelectorAll("#passo-1 .quer-item")) desenharExtraQuer(c.dataset.maquina);
   desenharPisosQuer();
+}
+
+/** "O que quer fazer" (no fim do passo 1): os objetivos do perfil do imóvel, da casa toda; refeitos quando o perfil muda. */
+function desenharObjetivos() {
+  const go = $("quer-objetivos");
+  const perfil = perfilCasa(estado.casa.tipo);
+  if (go.dataset.perfil !== perfil) {
+    go.dataset.perfil = perfil;
+    const objs = objetivosDe(estado.casa.tipo);
+    const alternarObjetivo = (k) => (sim) => {
+      const s = new Set(estado.quer.objetivos);
+      if (sim) s.add(k); else s.delete(k);
+      estado.quer.objetivos = objs.filter((x) => s.has(x));   // sempre pela ordem da lista
+      agendarGravacao();
+    };
+    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternarObjetivo(k))));
+  }
+  for (const i of go.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.objetivos.includes(i.value);
 }
 
 /** "r/c", "piso 1"… (resumo de "O que quer"). */
@@ -1589,7 +1595,7 @@ $("extra-termostatos").addEventListener("input", () => { estado.extras.termostat
 async function carregarCatalogo() {
   catalogo = undefined;
   try {
-    const r = await fetch(`${urlApi}/catalogo`, { headers: { Accept: "application/json" }, credentials: "same-origin" });
+    const r = await fetch(`${urlApi}/catalogo`, { headers: { Accept: "application/json" }, credentials: credenciais });
     if (!r.ok) throw new Error(String(r.status));
     const j = await r.json();
     if (!j || !Array.isArray(j.itens)) throw new Error("formato");
@@ -1600,15 +1606,18 @@ async function carregarCatalogo() {
     configOrc = null;
   }
   if (estado.passo === P.preco && !$(`passo-${P.preco}`).hidden) desenharPreco();
+  if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharDeslocacao();
 }
 
 function calcular() {
   const pedidos = pedidosDaSelecao(estado);
-  // Local da obra: a localidade do passo 1 (ou, na área de cliente, a do contacto) — como em casaParaEnvio.
-  const deslocacao = calcularDeslocacao(estado.casa.localidade.trim() || estado.contacto.localidade.trim(), configOrc);
+  // Local da obra: a localidade do contacto (passo 7) — como em casaParaEnvio. `preco` (o que se envia) já leva a
+  // deslocação; `semDesloc` é o do Resumo (passo 6), sem deslocação ("+ deslocação").
+  const deslocacao = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
   const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao);
+  const semDesloc = calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 });
   // "Desligar tudo ao fechar" (serviços/industrial) também é controlar à distância.
-  return { pedidos, preco, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
+  return { pedidos, preco, semDesloc, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
 }
 
 /** Área de cliente: os dados da casa (passo 1 saltado) com "Editar" para voltar a esse passo. */
@@ -1643,9 +1652,8 @@ function desenharCasaResumo() {
   } else {
     linha("Divisões", k.divisoes ? String(k.divisoes) : "Não indicado");
   }
-  linha("Localidade", k.localidade.trim() || "Não indicada");
-  linha("Potência contratada", k.potencia_contratada_kva === null ? "Não sei" : `${String(k.potencia_contratada_kva).replace(".", ",")} kVA`);
-  linha("Ligação", FASES[k.fases] ?? "Não sei");
+  linha("Potência contratada", `${String(k.potencia_contratada_kva ?? POTENCIA_OMISSAO_KVA).replace(".", ",")} kVA`);
+  linha("Ligação", FASES[k.fases] ?? FASES[fasesSugeridas(estado)]);
   c.append(topo, dl);
 }
 
@@ -1653,7 +1661,7 @@ function desenharCasaResumo() {
  * "O que inclui": lista curta em linguagem simples a partir dos mesmos pedidos do preço (sem artigos, códigos,
  * horas nem cabos; esses vão no pedido para o relatório técnico).
  */
-function listaInclui(pedidos, preco) {
+function listaInclui(pedidos) {
   const q = (k) => pedidos.filter((p) => p.chave === k || p.chave.startsWith(`${k}_`)).reduce((s, p) => s + p.qtd, 0);
   const itens = [];
   const add = (n, um, varios) => { if (n > 0) itens.push(n === 1 ? um : `${n} ${varios}`); };
@@ -1669,15 +1677,14 @@ function listaInclui(pedidos, preco) {
   const pac = PROTECAO_SIMPLES[pacoteDoQuadro(estado.quadro)]?.[0];
   itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}`);
   if (q("central")) itens.push("Central em casa, com bateria e sirene (funciona sem internet)");
-  const d = preco.deslocacao;
-  itens.push(`Instalação por técnico habilitado${d?.estado === "estimada" ? `, com deslocação (cerca de ${d.distancia_km} km)` : d?.estado === "fora_area" ? " (a deslocação fica por combinar)" : ", deslocação confirmada na visita"}`);
+  itens.push("Instalação por técnico habilitado");
   return itens;
 }
 
 function desenharPreco() {
   desenharCasaResumo();
   const est = $("preco-estado");
-  const { pedidos, preco, plano } = calcular();
+  const { pedidos, preco, semDesloc, plano } = calcular();
   ultimoPreco = { preco, plano };
   est.hidden = true;
   if (catalogo === undefined) { est.textContent = "A obter os preços…"; est.hidden = false; }
@@ -1687,21 +1694,19 @@ function desenharPreco() {
   total.replaceChildren();
   if (!pedidos.length) {
     total.append(el("p", "sim-intervalo", "Ainda não escolheu nada para instalar."), el("p", "ajuda", "Volte aos passos anteriores, ou envie o pedido na mesma: falamos consigo na visita."));
-  } else if (preco.min !== null) {
+  } else if (semDesloc.min !== null) {
+    // Sem deslocação: essa vem da localidade do contacto e mostra-se no passo 7.
     total.append(el("p", "sim-rotulo", "Estimativa com instalação"));
-    total.append(el("p", "sim-intervalo num", `${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
-    if (!preco.completo) total.append(el("p", "ajuda", "Algumas coisas ainda não têm preço: confirmamos na visita."));
-    if (preco.deslocacao.estado === "fora_area") {
-      const km = preco.deslocacao.distancia_km;
-      total.append(el("p", "msg info", `${preco.deslocacao.concelho}${km !== null ? ` (cerca de ${km} km)` : ""} fica fora da área servida — contacte-nos. A deslocação não está incluída.`));
-    }
+    total.append(el("p", "sim-intervalo num", `${formatarEuroRedondo(semDesloc.min)} – ${formatarEuroRedondo(semDesloc.max)}`));
+    total.append(el("p", "ajuda", "+ deslocação"));
+    if (!semDesloc.completo) total.append(el("p", "ajuda", "Algumas coisas ainda não têm preço: confirmamos na visita."));
   } else {
     total.append(el("p", "sim-intervalo", "Vamos enviar-lhe o preço"));
   }
   total.append(el("p", "sim-nota forte", TEXTO_ESTIMATIVA));
 
   const ul = $("preco-inclui");
-  ul.replaceChildren(...(pedidos.length ? listaInclui(pedidos, preco) : ["Ainda nada."]).map((t) => el("li", null, t)));
+  ul.replaceChildren(...(pedidos.length ? listaInclui(pedidos) : ["Ainda nada."]).map((t) => el("li", null, t)));
   $("preco-nota").textContent = "Preços com IVA incluído.";
 
   const pl = $("preco-planos");
@@ -1723,11 +1728,103 @@ function desenharPreco() {
 }
 
 // ------------------------------------------------------------ 7. Enviar
-const CAMPOS = ["nome", "telefone", "email", "localidade", "mensagem"];
+const CAMPOS = ["nome", "telefone", "email", "localidade", "morada", "mensagem"];
 function desenharEnviar() {
-  if (!estado.contacto.localidade && estado.casa.localidade) estado.contacto.localidade = estado.casa.localidade;
+  if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;   // o email do contacto é o da conta
   for (const k of CAMPOS) $(`contacto-${k}`).value = estado.contacto[k];
-  if (!ultimoPreco) desenharPreco();
+  desenharDeslocacao();
+}
+
+// ---- Conta de cliente (obrigatória para enviar; docs/CONTA-CLIENTE.md). Com sessão, a simulação fica também
+// guardada na conta (ao mudar de passo) para a retomar noutro aparelho; as fotos por enviar ficam só neste navegador.
+let contaEu = null;
+let contaVista = false;   // já se viu a sessão desta página (a 1.ª vez pode oferecer a simulação da conta)
+const blocoConta = criarBlocoConta($("enviar-conta-bloco"), {
+  prefixo: "conta",
+  texto: { fora: "Crie uma conta para enviar o pedido e depois acompanhá-lo (estado, proposta e fotos). Se já tem, entre." },
+  aoMudar: aoMudarConta,
+});
+function aoMudarConta(eu) {
+  const antes = contaEu;
+  contaEu = eu;
+  const c = eu?.conta;
+  if (c) {
+    // O perfil da conta preenche o que ainda está vazio no contacto; o email é sempre o da conta.
+    for (const k of ["nome", "telefone", "morada", "localidade"]) if (!estado.contacto[k]?.trim() && c[k]) estado.contacto[k] = c[k];
+    estado.contacto.email = c.email;
+  }
+  $("contacto-email").readOnly = true;
+  $("contacto-email-ajuda").textContent = c ? "O da sua conta." : "Fica o da sua conta.";
+  if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharEnviar();
+  const primeira = !contaVista;
+  contaVista = true;
+  if (!c) return;
+  if (primeira) oferecerSimulacaoDaConta(eu);
+  else if (!antes) guardarNaConta(0);   // entrou agora (no passo Enviar): a simulação desta página vai para a conta
+}
+
+let temporizadorConta = null;
+/** Guarda o estado do simulador na conta (1,5 s depois; sem imagem de fundo se for grande demais). */
+function guardarNaConta(atraso = 1500) {
+  if (!contaEu || enviado) return;
+  clearTimeout(temporizadorConta);
+  temporizadorConta = setTimeout(async () => {
+    if (!contaEu || enviado) return;
+    let e = { ...estado, guardado: new Date().toISOString() };
+    if (JSON.stringify(e).length > 1_400_000 && e.planta?.fundo) e = { ...e, planta: { ...e.planta, fundo: null } };
+    try {
+      await pedirConta("simulacao", { corpo: { estado: e } });
+      $("sim-guardado").textContent = "Guardado neste navegador e na sua conta";
+    } catch { /* fica no navegador; volta a tentar no passo seguinte */ }
+  }, atraso);
+}
+
+/**
+ * Ao abrir a página com sessão: se a conta tem uma simulação mais recente do que a deste navegador (feita noutro
+ * aparelho), pergunta se quer continuar essa. As fotos ficam no aparelho onde foram tiradas (aviso).
+ */
+async function oferecerSimulacaoDaConta(eu) {
+  if (!eu.simulacao_atualizada) { guardarNaConta(0); return; }
+  let r;
+  try { r = await pedirConta("simulacao"); } catch { return; }
+  const daConta = r?.estado ? normalizarEstado(r.estado) : null;
+  if (!daConta || enviado) return;
+  const local = carregarEstado(armazem ?? semArmazem);
+  const t = (x) => Date.parse(x?.guardado ?? "") || 0;
+  if (local && t(local) >= t(daConta) - 1000) { guardarNaConta(0); return; }   // a deste navegador é a mais recente
+  if (!temProgresso(daConta, PASSO_INICIAL)) return;
+  document.getElementById("sim-retomar-conta")?.remove();
+  const quando = new Date(t(daConta) || r.atualizado);
+  const data = Number.isNaN(quando.getTime()) ? "" : ` (${quando.toLocaleString("pt-PT", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })})`;
+  const caixa = el("div", "cartao sim-retomar");
+  caixa.id = "sim-retomar-conta";
+  caixa.setAttribute("role", "region");
+  caixa.setAttribute("aria-label", "Simulação guardada na sua conta");
+  const b1 = el("button", "btn", "Continuar a da conta");
+  b1.type = "button";
+  b1.id = "sim-continuar-conta";
+  const b2 = el("button", "btn sec", "Ficar com esta");
+  b2.type = "button";
+  const bs = el("div", "form-botoes");
+  bs.append(b1, b2);
+  caixa.append(el("h2", null, "Continuar a simulação da sua conta?"),
+    el("p", null, `Tem uma simulação guardada na sua conta${data}, no passo ${daConta.passo + 1}: ${PASSOS[daConta.passo]}. As fotos tiradas noutro aparelho ficam lá: tire-as de novo, ou envie-as depois na sua conta.`),
+    bs);
+  $("sim-retomar").before(caixa);
+  b1.addEventListener("click", () => {
+    caixa.remove();
+    estado = daConta;
+    visitado = Math.max(estado.passo, estado.visitado ?? 0);
+    $("sim-retomar").hidden = true;
+    document.querySelector(".sim-progresso").hidden = false;
+    $("sim-form").hidden = false;
+    if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;
+    mostrarPasso();
+    agendarGravacao();
+    carregarFotosDoEstado();
+  });
+  b2.addEventListener("click", () => { caixa.remove(); guardarNaConta(0); });
+  b1.focus();
 }
 for (const k of CAMPOS) {
   $(`contacto-${k}`).addEventListener("input", () => {
@@ -1738,6 +1835,23 @@ for (const k of CAMPOS) {
   });
 }
 ligarLocalidade($("contacto-localidade"));
+$("contacto-localidade").addEventListener("input", () => desenharDeslocacao());
+
+/** Passo 7: com a localidade do contacto, a deslocação (§5.1) e o total com ela (o Resumo mostra-o sem). */
+function desenharDeslocacao() {
+  const { pedidos, preco, plano } = calcular();
+  ultimoPreco = { preco, plano };
+  const caixa = $("enviar-deslocacao");
+  const d = preco.deslocacao;
+  caixa.replaceChildren();
+  if (d.estado === "sem_localidade") { caixa.hidden = true; return; }
+  const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
+  if (d.estado === "fora_area") caixa.append(el("p", null, `${d.concelho}${km} fica fora da área servida — contacte-nos. A deslocação não está incluída.`));
+  else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita."));
+  else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
+  if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
+  caixa.hidden = false;
+}
 
 // Contactos configurados de verdade (não os valores de exemplo): os mesmos botões de mostrarEnvio.
 const temWhatsapp = () => numeroReal(cfg.whatsapp);
@@ -1791,6 +1905,14 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 
 async function enviar() {
   if (aEnviar) return;
+  // Conta obrigatória, com o email confirmado (o painel recusa sem ela: 401/403).
+  if (!contaEu?.conta?.confirmado) {
+    mostrarEnvio(contaEu ? "Confirme primeiro o seu email: escreva o código que lhe enviámos, em \"A sua conta\"." : "Para enviar, crie uma conta ou entre na sua conta (em \"A sua conta\", em cima).", "erro");
+    blocoConta.focar();
+    $("enviar-conta").scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+    return;
+  }
+  estado.contacto.email = contaEu.conta.email;
   const prob = problemaContacto(estado.contacto);
   if (prob) {
     mostrarEnvio(prob.texto, "erro");
@@ -1827,7 +1949,7 @@ async function enviar() {
   try {
     const r = await fetch(`${urlApi}/orcamento`, {
       method: "POST",
-      credentials: "same-origin",
+      credentials: credenciais,
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(corpo),
     });
@@ -1853,6 +1975,13 @@ async function enviar() {
   queueMicrotask(() => $("enviar-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" }));
   // Só os meios de contacto que aparecem por baixo da mensagem (mostrarEnvio).
   const fale = meiosContacto();
+  if (estadoHttp === 401 || estadoHttp === 403) {
+    // A sessão terminou (ou o email ainda não está confirmado): o bloco da conta mostra o que falta.
+    await blocoConta.atualizar();
+    mostrarEnvio(estadoHttp === 401 ? "A sua sessão terminou. Entre de novo na sua conta e carregue em \"Enviar pedido\". A simulação fica guardada." : "Confirme primeiro o seu email com o código que lhe enviámos, em \"A sua conta\".", "erro");
+    blocoConta.focar();
+    return;
+  }
   if (estadoHttp === 429) mostrarEnvio(`Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora${fale ? `, ou fale connosco ${fale}` : ""}. A sua simulação fica guardada neste navegador.`, "erro", true);
   else if (estadoHttp === 400) {
     const e = typeof erro === "string" ? erro.trim().slice(0, 200) : "";
@@ -1882,7 +2011,7 @@ async function enviarFotos(lista, resposta, botao) {
     try {
       const r = await fetch(`${urlApi}/orcamento/fotos`, {
         method: "POST",
-        credentials: "same-origin",
+        credentials: credenciais,
         headers: {
           "Content-Type": blob.type === "image/png" ? "image/png" : "image/jpeg",
           Accept: "application/json",
@@ -1904,6 +2033,7 @@ async function enviarFotos(lista, resposta, botao) {
 function concluido(preco, semFundo, resultadoFotos = null) {
   enviado = true;
   clearTimeout(temporizador);
+  clearTimeout(temporizadorConta);   // o painel já apagou a simulação guardada na conta (foi enviada)
   apagarEstado(armazem ?? semArmazem);
   for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = true;
   $("sim-navegacao").hidden = true;
@@ -1939,6 +2069,9 @@ function recomecar() {
   clearTimeout(temporizador);
   temporizador = null;   // nada pendente: sair ou recarregar não volta a gravar a simulação antiga
   apagarEstado(armazem ?? semArmazem);
+  clearTimeout(temporizadorConta);
+  if (contaEu) pedirConta("simulacao", { corpo: { estado: null } }).catch(() => {});   // também a da conta
+  document.getElementById("sim-retomar-conta")?.remove();
   enviado = false;
   aEnviar = false;
   estado = estadoInicial();
@@ -1957,7 +2090,8 @@ function recomecar() {
   for (const c of document.querySelectorAll(".confirmar")) c.remove();
   $("contacto-website").value = "";
   $("sim-guardado").textContent = "";
-  $("quer-maquinas").dataset.perfil = "";   // "O que quer" refeito do zero
+  $("quer-maquinas").dataset.perfil = "";   // "Equipamentos" refeito do zero
+  $("quer-objetivos").dataset.perfil = "";
 }
 
 $("fim-nova").addEventListener("click", () => {
@@ -2032,6 +2166,7 @@ function iniciar() {
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
   carregarCatalogo();
+  blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta
 }
 function fecharRetomar() {
   $("sim-retomar").hidden = true;

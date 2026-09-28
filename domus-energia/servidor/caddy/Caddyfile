@@ -7,6 +7,7 @@
 #   https://HOST/api/orcamento  -> painel (formulário público; ANTES da regra /api/*)
 #   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, ≤ 1 MB cada; idem)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
+#   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem)
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)
@@ -34,7 +35,8 @@
 	# regra /api/* dos pagamentos. O pedido de orçamento pode trazer a simulação
 	# (planta com imagem, até 1 MB): limite de 2 MB aqui, 1,25 MB no serviço.
 	# As fotos do simulador vão a seguir, uma a uma, para /api/orcamento/fotos (≤ 1 MB cada).
-	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo
+	# A conta de cliente (/api/conta/*: criar/entrar, simulação guardada até 1,5 MB, fotos ≤ 1 MB) também é do painel.
+	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/*
 	handle @orcamento {
 		request_body {
 			max_size 2MB

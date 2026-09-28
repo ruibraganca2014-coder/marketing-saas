@@ -52,7 +52,10 @@ document.querySelectorAll(".js-plano").forEach((a) => {
 // Formulário de orçamento → POST /api/orcamento (servidor do painel da empresa, docs/PAINEL-EMPRESA.md §3).
 const form = document.getElementById("form-orcamento");
 const msg = document.getElementById("form-msg");
-const urlOrcamento = `${String(cfg.apiUrl ?? "/api").replace(/\/+$/, "")}/orcamento`;
+// Pedido de contacto SEM simulação: não precisa de conta de cliente (só o simulador a exige). Com DOMUS.apiBase
+// (site no Vercel) vai para o painel noutro endereço (CORS em SITE_ORIGENS, docs/CONTA-CLIENTE.md).
+const apiBase = String(cfg.apiBase ?? "").trim().replace(/\/+$/, "");
+const urlOrcamento = `${apiBase ? `${apiBase}/api` : String(cfg.apiUrl ?? "/api").replace(/\/+$/, "")}/orcamento`;
 // Iguais a RE_TELEFONE (painel/src/validar.js) e RE_EMAIL (painel/src/pedidos.js).
 const RE_TELEFONE = /^\+?[0-9 ()-]{6,30}$/;
 const RE_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,24}$/;

@@ -26,6 +26,7 @@ const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa", forno: "Forno", maquina_lavar: "Máquina de lavar",
   maquina_secar: "Máquina de secar", maquina_loica: "Máquina da loiça", frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador VE",
   bomba: "Bomba (piscina/rega)",
+  esquentador: "Esquentador elétrico instantâneo", radiador: "Aquecedor/radiador elétrico", hidromassagem: "Hidromassagem/jacuzzi",
   // Serviços e industrial (web/simulador/regras.js MODELOS).
   arca_frigorifica: "Arca/vitrine frigorífica", maquina_cafe: "Máquina de café", servidor: "Servidor/bastidor", compressor: "Compressor", soldadura: "Máquina de soldar",
   maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador VE 22 kW",
@@ -35,9 +36,11 @@ const MODELOS = {
   camara: "Câmara", portao: "Portão automático", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
   terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
   carregador_baterias: "Carregador de baterias",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha_video: "Campainha com vídeo",
+  carregador_bicicleta: "Carregador de bicicleta/trotinete", toalheiro: "Aquecedor de toalhas",
   outro: "Outra máquina",
 };
-// Passo "A casa" e "O que quer" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
+// Passo "A casa" e "Equipamentos" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
 const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
 const OBJETIVOS = {
   poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
@@ -859,7 +862,7 @@ function maquinasPorPiso(sim, planta) {
   const variosPisos = pisos.length > 1 || pisos[0] > 0;
   return h("div", { class: "sim-bloco" },
     dados(pisos.map((p) => [variosPisos ? nomePiso(p) : "Casa", porPiso.get(p).join(", ")])),
-    naPlanta.length ? null : h("p", { class: "ajuda", text: "Do passo \"O que quer\" (a planta não tem máquinas desenhadas)." }));
+    naPlanta.length ? null : h("p", { class: "ajuda", text: "Do passo \"Equipamentos\" (a planta não tem máquinas desenhadas)." }));
 }
 
 /** Planta no relatório: no ecrã a vista com zoom e separadores; na impressão, um desenho por piso. */

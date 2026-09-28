@@ -127,7 +127,8 @@ export default function orcamentos(el, ctx) {
         ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
     const partes = [
       h("div", { class: "linha-selos" }, selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`)),
-      dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
+      dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
+        ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
       contactos,
     ];
     if (campo(o, "mensagem")) partes.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
@@ -141,6 +142,7 @@ export default function orcamentos(el, ctx) {
         h("p", { class: "ajuda", text: "Tiradas pelo cliente no simulador. Toque numa foto para a ver inteira." }),
         galeriaFotos(id, fotos, { aoApagar: (f, b) => apagarFoto(j, id, f, b) })));
     }
+    if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.`));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
@@ -153,6 +155,8 @@ export default function orcamentos(el, ctx) {
         campoForm("Estado", sEstado),
         campoForm("Data da visita", h("input", { name: "data_visita", type: "datetime-local", value: paraInput(campo(o, "data_visita")) }))),
       campoForm("Valor da proposta (€, sem IVA)", h("input", { name: "valor_proposta", type: "number", min: "0", step: "0.01", inputmode: "decimal", value: campo(o, "valor_proposta") ?? "" })),
+      campoForm("Texto da proposta (o cliente vê-o na conta)", h("textarea", { name: "proposta_texto", maxlength: "4000", rows: "3" }, campo(o, "proposta_texto") ?? ""),
+        campo(o, "conta") ? "Com o estado \"Proposta enviada\" e o valor, o cliente vê a proposta na conta e pode carregar em \"Aceito a proposta\" (valor + IVA)." : "Este pedido não tem conta de cliente: a proposta vai por email ou em mão."),
       motivo,
       campoForm("Notas", h("textarea", { name: "notas", maxlength: "4000", rows: "4" }, campo(o, "notas") ?? "")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar" })),
@@ -172,6 +176,7 @@ export default function orcamentos(el, ctx) {
         notas: el.notas.value.trim(),
         data_visita: el.data_visita.value || null,
         valor_proposta: valor,
+        proposta_texto: el.proposta_texto.value.trim() || null,
         motivo_perda: el.estado.value === "perdido" ? el.motivo_perda.value.trim() : null,
       };
       const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
@@ -340,7 +345,13 @@ export default function orcamentos(el, ctx) {
 const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
+  proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
 };
+/** Conta de cliente do pedido ({email, confirmado, ativo} ou null) em texto. */
+function textoConta(c) {
+  if (!c || typeof c !== "object") return "Sem conta (pedido de contacto ou antigo)";
+  return `${c.email} · email ${c.confirmado ? "confirmado" : "por confirmar"}${c.ativo === false ? " · conta desativada" : ""}`;
+}
 /** Nome legível de uma foto pela chave ("quadro" ou "divisao:tipo"), com os dados da simulação se os houver. */
 function nomeFotoChave(chave, sim) {
   if (chave === "quadro") return "Quadro elétrico";

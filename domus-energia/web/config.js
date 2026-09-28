@@ -9,6 +9,12 @@ window.DOMUS = {
   // Deixe "/api" quando o site e o /api estão no mesmo servidor (a CSP só deixa ligar ao próprio site).
   apiUrl: "/api",
 
+  // Painel da empresa (pedido de orçamento, catálogo e conta de cliente: /api/orcamento*, /api/catalogo,
+  // /api/conta/*) noutro endereço, ex.: site no Vercel (https://domusenergia.pt) e servidor em
+  // "https://api.domusenergia.pt". Vazio = o mesmo site (servidor com o Caddy). Com endereço, o painel tem
+  // de ter SITE_ORIGENS com a origem do site e a CSP do site tem de deixar ligar a ele (docs/CONTA-CLIENTE.md).
+  apiBase: "",
+
   // Contactos (formato internacional, sem espaços nem "+")
   whatsapp: "351900000000",
   telefone: "+351900000000",

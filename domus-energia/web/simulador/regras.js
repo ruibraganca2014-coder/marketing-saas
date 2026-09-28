@@ -23,6 +23,7 @@ export const AMPERES_MAQUINA = [16, 20, 25, 32, 40];
 /** Máquinas que têm sempre circuito próprio, seja qual for a potência (as outras: ≥ 2000 W). A bomba fica no exterior: circuito próprio. */
 export const MODELOS_DEDICADOS = [
   "maquina_lavar", "maquina_secar", "maquina_loica", "forno", "placa", "termoacumulador", "ar_condicionado", "bomba_calor", "carregador_ve", "bomba",
+  "esquentador", "hidromassagem",   // esquentador instantâneo (monofásico, ~5,5 kW) e hidromassagem: sempre o seu circuito
   // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
   "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
 ];
@@ -95,15 +96,15 @@ export const EXTRAS_CASA = {
  * `MAQUINAS_QUER`, `PEQUENAS_QUER` e `OBJETIVOS` (todas as chaves) servem para validar.
  */
 export const MAQUINAS_GRANDES = {
-  habitacao: ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "ar_condicionado", "carregador_ve", "carregador_ve_22", "bomba"],
+  habitacao: ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "esquentador", "radiador", "hidromassagem", "ar_condicionado", "carregador_ve", "carregador_ve_22"],
   servicos: ["ar_condicionado", "arca_frigorifica", "maquina_cafe", "forno", "placa", "maquina_loica", "termoacumulador", "servidor", "carregador_ve", "carregador_ve_22"],
   industrial: ["compressor", "soldadura", "maquina_trifasica", "portao_industrial", "ar_condicionado", "termoacumulador", "carregador_ve", "carregador_ve_22"],
 };
 export const MAQUINAS_PEQUENAS = {
   habitacao: [
-    ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira"]],
-    ["Sala e quartos", ["televisao", "computador", "consola", "desumidificador", "aquecedor_portatil"]],
-    ["Exterior e outros", ["portao", "rega", "iluminacao_jardim", "aspirador_robo", "box_router", "repetidor_wifi", "nas", "camara"]],
+    ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira", "air_fryer", "torradeira", "cafe_expresso"]],
+    ["Sala e quartos", ["televisao", "computador", "consola", "aquecedor_portatil"]],
+    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro"]],
   ],
   servicos: [
     ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
@@ -145,11 +146,11 @@ export const objetivosDe = (tipo) => OBJETIVOS_PERFIL[perfilCasa(tipo)];
 
 /**
  * Ligação sugerida (o cliente pode mudar): industrial, carregador de 22 kW ou máquina trifásica →
- * trifásica; o resto monofásica; sem tipo (área de cliente) e sem essas máquinas → null (não sugere).
+ * trifásica; o resto (também sem tipo, na área de cliente) monofásica.
  */
 export function sugerirFases(tipo, maquinas = []) {
   if (tipo === "industrial" || maquinas.includes("carregador_ve_22") || maquinas.includes("maquina_trifasica")) return "tri";
-  return tipo ? "mono" : null;
+  return "mono";
 }
 
 /** Elementos da planta (§2): nome, se roda, propriedades por omissão. */
@@ -177,7 +178,7 @@ export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "in
  */
 export const PE_DIREITO_CM = 260;
 export const ALTURA_MAX_CM = 500;
-const ALTURA_MAQUINA = { ar_condicionado: 220, termoacumulador: 180, exaustor: 170, camara: 250, televisao: 110, micro_ondas: 90, box_router: 30, repetidor_wifi: 30, iluminacao_jardim: 30 };
+const ALTURA_MAQUINA = { ar_condicionado: 220, termoacumulador: 180, exaustor: 170, camara: 250, televisao: 110, micro_ondas: 90, box_router: 30, repetidor_wifi: 30, iluminacao_jardim: 30, esquentador: 180, campainha_video: 150, toalheiro: 100 };
 export function alturaTipica(tipo, props = {}, tipoDiv = null) {
   switch (tipo) {
     case "interruptor": return 110;
@@ -208,7 +209,10 @@ export const MODELOS = {
   televisao: { nome: "Televisão", w: 150 },
   bomba_calor: { nome: "Bomba de calor", w: 3000 },
   carregador_ve: { nome: "Carregador de carro elétrico", w: 7400 },
-  bomba: { nome: "Bomba (piscina/rega)", w: 1100 },
+  bomba: { nome: "Bomba (piscina/rega)", w: 1100 },   // legado: já não está na escolha (estados antigos continuam a funcionar)
+  esquentador: { nome: "Esquentador elétrico instantâneo", w: 5500 },
+  radiador: { nome: "Aquecedor / radiador elétrico", w: 2000 },
+  hidromassagem: { nome: "Hidromassagem / jacuzzi", w: 3000 },
   // Máquinas grandes de serviços e industrial (circuito próprio).
   arca_frigorifica: { nome: "Arca / vitrine frigorífica", w: 800 },
   maquina_cafe: { nome: "Máquina de café profissional", w: 2800 },
@@ -223,6 +227,9 @@ export const MODELOS = {
   micro_ondas: { nome: "Micro-ondas", w: 1200 },
   exaustor: { nome: "Exaustor", w: 200 },
   cafeteira: { nome: "Cafeteira / chaleira", w: 1500 },
+  air_fryer: { nome: "Air fryer", w: 1500 },
+  torradeira: { nome: "Torradeira", w: 900 },
+  cafe_expresso: { nome: "Máquina de café expresso", w: 1300 },
   computador: { nome: "Computador", w: 300 },
   consola: { nome: "Consola de jogos", w: 200 },
   desumidificador: { nome: "Desumidificador", w: 300 },
@@ -231,9 +238,12 @@ export const MODELOS = {
   repetidor_wifi: { nome: "Repetidor Wi-Fi", w: 10 },
   nas: { nome: "NAS (discos em rede)", w: 40 },
   camara: { nome: "Câmara de vigilância", w: 10 },
-  portao: { nome: "Portão automático", w: 300 },
+  portao: { nome: "Portão automático", w: 300 },              // legado (portão, rega, repetidor e NAS já não estão na escolha das casas)
   rega: { nome: "Rega automática (programador)", w: 20 },
-  iluminacao_jardim: { nome: "Iluminação de jardim / exterior", w: 150 },
+  iluminacao_jardim: { nome: "Iluminação exterior", w: 150 },
+  campainha_video: { nome: "Campainha com vídeo", w: 10 },
+  carregador_bicicleta: { nome: "Carregador de bicicleta / trotinete", w: 100 },
+  toalheiro: { nome: "Aquecedor de toalhas", w: 500 },
   aspirador_robo: { nome: "Aspirador robô", w: 40 },
   impressora: { nome: "Impressora", w: 500 },
   terminal_pagamento: { nome: "Caixa / terminal de pagamento", w: 50 },

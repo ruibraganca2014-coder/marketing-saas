@@ -16,8 +16,9 @@ import { criarLeitor } from './leitura-quadro.js';
 /**
  * @param {{config: object, registo: object, relogio?: () => number, mqtt?: boolean, fetch?: typeof fetch}} opcoes
  * `fetch`: só para os testes (API da Anthropic simulada na leitura da foto do quadro).
+ * `correio`: só para os testes (emails das contas de cliente apanhados em memória).
  */
-export async function criarApp({ config, registo, relogio = () => Date.now(), mqtt = true, fetch = globalThis.fetch }) {
+export async function criarApp({ config, registo, relogio = () => Date.now(), mqtt = true, fetch = globalThis.fetch, correio }) {
   for (const a of config.avisos || []) registo.aviso(a);
   const db = abrirDb(config.db);
   const auth = new Autenticacao({ db, config, registo, relogio });
@@ -26,7 +27,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   const pedidos = new Pedidos({ config, db, registo, auditar: () => {}, relogio });
   // Leitura automática da foto do quadro: null sem ANTHROPIC_API_KEY (desligada, não chama nada).
   const leitor = criarLeitor({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.leituraTimeoutMs });
-  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor });
+  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, correio });
   const estatico = criarEstatico(config.publicDir);
 
   if (config.ceoEmail || config.ceoPass) {
@@ -46,7 +47,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       return responder(res, 400, { erro: 'Endereço inválido.' });
     }
     const c = url.pathname;
-    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
+    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
     if (c === '/painel') {
       res.writeHead(301, { ...CABECALHOS_SEGURANCA, Location: '/painel/', 'Content-Length': 0 });
       return res.end();
@@ -65,12 +66,14 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   if (mqtt) alertas.iniciar();
   pedidos.iniciar();
   api.fotos.iniciar();
+  api.contas.iniciar();
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
     async fechar() {
       await pedidos.parar();
       await api.fotos.parar();
+      api.contas.parar();
       auth.fechar();
       await alertas.fechar();
       await new Promise((r) => { servidor.close(() => r()); servidor.closeAllConnections?.(); });

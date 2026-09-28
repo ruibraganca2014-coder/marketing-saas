@@ -4,7 +4,7 @@
 // handlers verificam ainda o que depende do registo (ex.: obras do técnico).
 
 import {
-  ErroApi, responder, lerJson, verificarOrigem, tipoJson, ipDe,
+  ErroApi, responder, lerJson, verificarOrigem, verificarOrigemPublica, cors, tipoJson, ipDe,
 } from './http.js';
 import {
   texto, numero, booleano, opcao, dia, diaHora, hora, idNum, simulacao as validarSimulacao,
@@ -18,6 +18,8 @@ import { LimiteTaxa } from './limite.js';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
+import { criarContas } from './conta.js';
+import { criarCorreio } from './email.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -82,6 +84,9 @@ export const ROTAS = [
   ['POST', 'catalogo/:id', ['ceo'], 'atualizarArtigo'],
   ['GET', 'config-orcamento', ['ceo'], 'configOrcamento'],
   ['POST', 'config-orcamento', ['ceo'], 'atualizarConfigOrcamento'],
+  ['GET', 'contas', ['ceo'], 'contas'],
+  ['POST', 'contas/:id', ['ceo'], 'atualizarConta'],
+  ['POST', 'contas/:id/apagar', ['ceo'], 'apagarConta'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -153,6 +158,11 @@ export function criarApi(ctx) {
   const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
   const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
 
+  // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
+  const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
+  const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio });
+  if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+
   // ------------------------------------------------------------ utilidades
   const fichas = () => new Map(db.prepare('SELECT * FROM fichas_cliente').all().map((f) => [f.codigo, f]));
   const pedidoPendente = (tipo, cliente) => db.prepare('SELECT id FROM pedidos_admin WHERE tipo = ? AND cliente = ? AND estado = \'pendente\'').get(tipo, cliente);
@@ -167,11 +177,14 @@ export function criarApi(ctx) {
   function formatarOrcamento(o, completo = false) {
     const r = {
       id: o.id, criado: o.criado, atualizado: o.atualizado, origem: o.origem, nome: o.nome, telefone: o.telefone,
-      email: o.email, localidade: o.localidade, servico: o.servico, mensagem: o.mensagem, codigo_cliente: o.codigo_cliente,
+      email: o.email, localidade: o.localidade, morada: o.morada, servico: o.servico, mensagem: o.mensagem, codigo_cliente: o.codigo_cliente,
       estado: o.estado, notas: o.notas, data_visita: o.data_visita, valor_proposta: deCent(o.valor_proposta_cent),
       motivo_perda: o.motivo_perda, cliente: o.cliente, obra_id: o.obra_id, pedido_id: o.pedido_id,
       tem_simulacao: o.simulacao !== null, simulacao_bytes: o.simulacao ? Buffer.byteLength(o.simulacao) : 0,
       n_fotos: fotos.contar(o.id),
+      // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
+      conta: contas.resumoParaPainel(o.conta_id),
+      proposta_texto: o.proposta_texto, proposta_aceite: o.proposta_aceite,
     };
     if (completo) {
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
@@ -347,6 +360,11 @@ export function criarApi(ctx) {
     responder(res, 200, { ok: true });
   };
 
+  // Propostas aceites pelo cliente na conta e ainda por converter (aviso no início do painel).
+  const propostasAceitesOnline = () => db.prepare(`SELECT id, nome, proposta_aceite, valor_proposta_cent FROM orcamentos
+    WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND obra_id IS NULL ORDER BY proposta_aceite DESC LIMIT 50`).all()
+    .map((o) => ({ id: o.id, nome: o.nome, quando: o.proposta_aceite, valor_proposta: deCent(o.valor_proposta_cent) }));
+
   h.resumo = async ({ res, u }) => {
     const hoje = diaLisboa(new Date(relogio()));
     const { inicio, fim } = semanaLisboa(new Date(relogio()));
@@ -379,6 +397,7 @@ export function criarApi(ctx) {
       r.pedidos_novos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE estado = \'novo\'').get().n;
       r.obras_semana = obrasSemana(null).map((o) => formatarObra(o, mapa));
       r.alertas = { ligado: al.ligado, contagem: al.contagem, criticos: al.alertas.filter((a) => a.gravidade === 'critica').slice(0, 20) };
+      r.propostas_aceites_online = propostasAceitesOnline();
       r.pedidos_admin_pendentes = db.prepare('SELECT COUNT(*) AS n FROM pedidos_admin WHERE estado = \'pendente\'').get().n;
     } else if (u.papel === 'tecnico') {
       const semana = obrasSemana(u.id).map((o) => formatarObra(o, mapa));
@@ -391,6 +410,7 @@ export function criarApi(ctx) {
       for (const x of db.prepare('SELECT estado, COUNT(*) AS n FROM orcamentos GROUP BY estado').all()) porEstado[x.estado] = x.n;
       r.orcamentos_por_estado = porEstado;
       r.pedidos_novos = porEstado.novo;
+      r.propostas_aceites_online = propostasAceitesOnline();
       r.visitas_semana = db.prepare(`SELECT * FROM orcamentos WHERE substr(data_visita, 1, 10) BETWEEN ? AND ?
         AND estado NOT IN ('perdido') ORDER BY data_visita`).all(inicio, fim).map((o) => formatarOrcamento(o));
     }
@@ -601,6 +621,7 @@ export function criarApi(ctx) {
     if (v.telefone !== undefined) r.telefone = texto(v.telefone, 'o telefone', { max: 30, re: RE_TELEFONE, reMsg: 'Telefone inválido.' });
     if (v.email !== undefined) r.email = texto(v.email, 'o email', { max: 254, re: RE_EMAIL, reMsg: 'Email inválido.' });
     if (v.localidade !== undefined) r.localidade = texto(v.localidade, 'a localidade', { max: 80 });
+    if (v.morada !== undefined) r.morada = texto(v.morada, 'a morada', { max: 200 });
     if (obrigatorio || v.servico !== undefined) r.servico = texto(v.servico, 'o serviço', { max: 80, obrigatorio: true });
     if (v.mensagem !== undefined) r.mensagem = texto(v.mensagem, 'a mensagem', { max: 2000, multilinha: true });
     return r;
@@ -621,13 +642,15 @@ export function criarApi(ctx) {
 
   h.atualizarOrcamento = async ({ req, res, u, params, ip }) => {
     const o = obterOrcamento(params.id);
-    const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'motivo_perda',
-      'nome', 'telefone', 'email', 'localidade', 'servico', 'mensagem']);
+    const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'proposta_texto', 'motivo_perda',
+      'nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem']);
     const mud = camposContacto(v, false);
     if (v.estado !== undefined) mud.estado = opcao(v.estado, 'estado', ESTADOS_ORCAMENTO);
     if (v.notas !== undefined) mud.notas = texto(v.notas, 'as notas', { max: 4000, multilinha: true });
     if (v.data_visita !== undefined) mud.data_visita = diaHora(v.data_visita, 'a data da visita');
     if (v.valor_proposta !== undefined) mud.valor_proposta_cent = v.valor_proposta === null ? null : paraCent(numero(v.valor_proposta, 'o valor da proposta', { max: 1_000_000 }));
+    // Texto da proposta que o cliente vê na conta (com o valor), a partir do estado "proposta_enviada".
+    if (v.proposta_texto !== undefined) mud.proposta_texto = texto(v.proposta_texto, 'o texto da proposta', { max: 4000, multilinha: true });
     if (v.motivo_perda !== undefined) mud.motivo_perda = texto(v.motivo_perda, 'o motivo da perda', { max: 500, multilinha: true });
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     const final = { ...o, ...mud };
@@ -1055,9 +1078,27 @@ export function criarApi(ctx) {
     responder(res, 200, lerConfigOrcamento());
   };
 
+  // ---- contas de cliente (só CEO): ver, desativar/reativar, apagar com os dados pessoais (RGPD)
+  h.contas = ({ res }) => responder(res, 200, { contas: contas.listar() });
+
+  h.atualizarConta = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['ativo']);
+    const ativo = booleano(v.ativo, 'ativo');
+    const c = contas.definirAtivo(params.id, ativo);
+    auditar(u, ativo ? 'conta_reativada' : 'conta_desativada', `conta:${c.id}`, null, ip);
+    responder(res, 200, { contas: contas.listar() });
+  };
+
+  h.apagarConta = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const r = await contas.apagar(params.id);
+    auditar(u, 'conta_apagada', `conta:${r.conta}`, { pedidos_apagados: r.pedidos_apagados, pedidos_mantidos: r.pedidos_mantidos }, ip);
+    responder(res, 200, { ...r, contas: contas.listar() });
+  };
+
   // ------------------------------------------------------------ públicos
   async function orcamentoPublico(req, res, ip) {
-    if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
+    if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     const espera = Math.max(porIpOrcamento.espera(ip), global.espera('*'));
     if (espera) {
@@ -1066,22 +1107,32 @@ export function criarApi(ctx) {
     }
     porIpOrcamento.registar(ip);
     global.registar('*');
-    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao'], LIMITE_ORCAMENTO);
+    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
       // Mesma resposta que um pedido verdadeiro (não denuncia a armadilha); o token não existe na base.
       return responder(res, 201, { ok: true, fotos_token: fotos.tokenFalso(), fotos_max: FOTOS_MAX });
     }
+    // Com a simulação é preciso a conta de cliente com o email confirmado (docs/CONTA-CLIENTE.md); o pedido fica
+    // ligado à conta e o email do pedido é o da conta. Sem simulação (formulário de contacto do site) não.
+    let conta = null;
+    if (v.simulacao !== undefined && v.simulacao !== null) {
+      conta = contas.sessao(req, res);
+      if (!conta) throw new ErroApi(401, 'Para enviar a simulação, crie uma conta ou entre na sua conta.');
+      if (!conta.confirmado) throw new ErroApi(403, 'Confirme primeiro o seu email com o código que lhe enviámos.');
+      v.email = conta.email;
+    }
     const c = camposContacto(v, true);
     if (!c.telefone && !c.email) falha('Indique um telefone ou um email para o podermos contactar.');
     const codigoCli = texto(v.codigo_cliente, 'o código de cliente', { max: 32, re: RE_ID, reMsg: 'Código de cliente inválido.' });
     const sim = validarSimulacao(v.simulacao);
     const agora = agoraIso();
-    const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, servico, mensagem, codigo_cliente, simulacao)
-      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
-      c.servico, c.mensagem ?? null, codigoCli, sim).lastInsertRowid);
-    auditar(null, 'orcamento_recebido', `orcamento:${id}`, { origem: 'site', simulacao: Boolean(sim) }, ip);
+    const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id)
+      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
+      c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli, sim, conta?.id ?? null).lastInsertRowid);
+    if (conta) contas.aposOrcamento(conta.id, c);
+    auditar(conta ? { id: null, email: `conta:${conta.id}` } : null, 'orcamento_recebido', `orcamento:${id}`, { origem: 'site', simulacao: Boolean(sim), conta: Boolean(conta) }, ip);
     registo.info(`orçamento ${id} recebido`);
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
     responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
@@ -1089,7 +1140,7 @@ export function criarApi(ctx) {
 
   /** POST /api/orcamento/fotos: uma foto (bytes) por pedido; token, chave e legenda nos cabeçalhos. */
   async function fotoPublica(req, res, ip) {
-    if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
+    if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     const espera = porIpFotos.espera(ip);
     if (espera) {
       registo.aviso(`fotos: limite atingido (ip ${ip})`);
@@ -1117,6 +1168,9 @@ export function criarApi(ctx) {
     const caminho = url.pathname;
     const ip = ipDe(req, config.confiarProxy);
     try {
+      // Rotas públicas: CORS com credenciais só para o site público noutra origem (SITE_ORIGENS).
+      if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
+      if (caminho.startsWith('/api/conta/')) return await contas.tratar(req, res, url, ip);
       if (caminho === '/api/orcamento') {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await orcamentoPublico(req, res, ip);
@@ -1155,6 +1209,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos };
+  return { tratar, auditar, fotos, contas, correio };
 }
 
