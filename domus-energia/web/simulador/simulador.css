@@ -35,6 +35,9 @@ button.sim-passo-botao:hover { background: var(--musgo-claro); }
   .sim-passo-nome { display: none; }
   .sim-progresso .atual .sim-passo-nome { display: block; position: absolute; left: -10000px; }
 }
+/* Só para leitores de ecrã (ex.: o nome dos passos sem botão, que no telemóvel não se vê). */
+.so-leitor { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.sim-passo-botao { position: relative; }
 
 /* ---------- Passos ---------- */
 .sim-passo { display: grid; gap: 16px; padding: 0; }
@@ -43,9 +46,6 @@ button.sim-passo-botao:hover { background: var(--musgo-claro); }
 .sim-passo > h3 { margin: 8px 0 0; font-size: 1.25rem; }
 .sub-passo { margin: 0; color: var(--texto-suave); max-width: 760px; }
 .sim-passo .form-botoes:empty { display: none; }
-.tres { display: grid; gap: 12px; grid-template-columns: 1fr; }
-@media (min-width: 560px) { .tres { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (min-width: 860px) { .tres { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .campo { display: grid; gap: 6px; font-weight: 600; font-size: .95rem; min-width: 0; }
 input, select { min-height: 44px; }
 .armadilha { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
@@ -138,13 +138,6 @@ input, select { min-height: 44px; }
 .editor-lado .cartao { padding: 16px; }
 .editor-lado h3 { margin: 0 0 8px; font-size: 1.15rem; }
 .editor-lado h3:focus { outline: none; }
-.editor-props-campos { display: grid; gap: 6px; }
-/* Setas de mover na janela de edição. */
-.editor-mover { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.editor-mover legend { padding: 0; font-weight: 800; font-size: .95rem; }
-.editor-mover .ajuda { margin: 0; }
-.editor-mover .ajuda:empty { display: none; }
-.editor-mover .quadrado { width: 44px; min-width: 44px; padding: 0; font-size: 1.1rem; }
 .perigo-sec { border-color: var(--alarme) !important; color: var(--alarme-texto) !important; }
 .perigo-sec:hover { background: var(--alarme-suave) !important; }
 .editor-lado details > summary { cursor: pointer; font-weight: 800; font-family: var(--letra-titulos); font-size: 1.1rem; min-height: 44px; display: flex; align-items: center; }
@@ -163,40 +156,22 @@ input, select { min-height: 44px; }
 .editor-dialogo .form-botoes .btn[hidden] { display: none; }
 /* Guardar/Rodar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
 .editor-dialogo-form > .form-botoes { position: sticky; bottom: 0; margin: 0 -16px -18px; padding: 10px 16px 18px; background: var(--superficie); border-top: 1px solid var(--borda); }
-.editor-cantos { gap: 8px; }
-.editor-cantos legend { font-size: .95rem; font-family: var(--letra); }
-.editor-canto { display: grid; gap: 6px 8px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; }
-.editor-canto-nome { grid-column: 1 / -1; font-weight: 800; font-size: .9rem; }
-.editor-canto .campo span { font-size: .85rem; }
-.lista-planta, .lista-planta ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.lista-planta ul { padding-left: 18px; margin-top: 4px; }
-.item-planta { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 6px 10px; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--texto); font: 600 .92rem/1.25 var(--letra); text-align: left; cursor: pointer; }
-.item-planta.divisao { font-weight: 800; }
-.item-planta svg { width: 24px; height: 24px; flex: none; }
-.item-planta[aria-current="true"] { border-color: var(--argila); background: var(--areia-suave); }
-.item-grupo { display: block; font-weight: 800; padding: 6px 0 0; }
 .sim-contagem h3 { margin: 0 0 6px; font-size: 1.15rem; }
 .lista-contagem { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 
 /* ---------- Quadro e divisões ---------- */
-#circuitos, #divisoes { display: grid; gap: 14px; }
-.circuito, .divisao-cartao { display: grid; gap: 12px; padding: 16px; }
-.circuito > legend, .divisao-cartao > legend { font-size: 1.15rem; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chips legend { width: 100%; }
-.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 12px; border: 1px solid var(--borda); border-radius: 999px; font-weight: 600; cursor: pointer; }
-.chip input { width: 20px; height: 20px; min-height: 0; padding: 0; accent-color: var(--musgo); }
-.chip:has(input:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
-.maquinas, .interruptores { display: grid; gap: 10px; }
-.maquinas-lista { display: grid; gap: 10px; }
-.maquina-linha { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); align-items: end; padding: 10px; border-radius: 12px; background: color-mix(in srgb, var(--musgo-claro) 55%, transparent); }
-@media (min-width: 560px) { .maquina-linha { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; } .interruptores .maquina-linha { grid-template-columns: minmax(0, 1fr) auto; } }
-.maquinas > .btn, .interruptores > .btn { justify-self: start; }
-.opcoes-circuito { display: flex; flex-wrap: wrap; gap: 4px 18px; }
-.avisos-circuito { margin: 0; padding: 10px 14px 10px 32px; border-radius: 12px; background: var(--areia-suave); color: var(--texto); display: grid; gap: 6px; font-weight: 600; font-size: .93rem; }
-.avisos-circuito[hidden] { display: none; }
-.sim-avisos { display: grid; gap: 10px; }
-.sim-avisos > p { margin: 0; }
+/* Divisões: um cartão por divisão com o resumo e Sim/Não em cada coisa (app.js cartaoDivisao). */
+#divisoes { display: grid; gap: 14px; }
+.divisao-cartao { display: grid; gap: 12px; padding: 16px; }
+.divisao-cartao > legend { font-size: 1.15rem; }
+.divisao-resumo { margin: 0; font-weight: 600; color: var(--texto-suave); }
+.divisao-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.divisao-itens li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 4px 0; border-top: 1px solid var(--borda); }
+.divisao-itens li:first-child { border-top: 0; }
+.divisao-item-nome { font-weight: 700; min-width: 0; }
+.sim-nao { display: flex; gap: 6px; flex: none; }
+.sim-nao .btn { min-width: 64px; }
+.sim-nao .btn[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
 .confirmar { margin-top: 10px; }
 
 /* ---------- Preço ---------- */
@@ -212,23 +187,8 @@ input, select { min-height: 44px; }
 .sim-intervalo { font-family: var(--letra-titulos); font-weight: 800; font-size: clamp(1.8rem, 7vw, 2.6rem); color: var(--texto); }
 .sim-nota { margin: 0; color: var(--texto-suave); }
 .sim-nota.forte { color: var(--texto); font-weight: 700; }
-.tabela-rolar { overflow-x: auto; border-radius: var(--raio); border: 1px solid var(--borda); background: var(--superficie); }
-.tabela-rolar:focus-visible { outline: 3px solid var(--areia); }
-.sim-tabela { width: 100%; border-collapse: collapse; font-size: .95rem; }
-.sim-tabela caption { text-align: left; padding: 12px 14px 4px; font-weight: 800; font-family: var(--letra-titulos); font-size: 1.1rem; }
-.sim-tabela th, .sim-tabela td { padding: 10px 12px; border-bottom: 1px solid var(--borda); text-align: left; vertical-align: top; }
-.sim-tabela thead th { font-size: .85rem; color: var(--texto-suave); }
-.sim-tabela tbody th { font-weight: 600; }
-.sim-tabela .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.sim-tabela .sku { display: block; color: var(--texto-suave); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
-.sim-tabela tfoot th { text-align: right; font-weight: 700; }
-.sim-tabela tfoot .total th, .sim-tabela tfoot .total td { font-weight: 800; font-size: 1.05rem; }
-.sim-tabela tr:last-child > * { border-bottom: 0; }
-@media (max-width: 479px) {
-  .sim-tabela th, .sim-tabela td { padding: 8px 8px; } .sim-tabela { font-size: .88rem; }
-  /* Telemóvel: sem a coluna do preço unitário (fica Qtd. e Total), para os nomes não partirem em 6 linhas. */
-  .sim-tabela thead th:nth-child(3), .sim-tabela tbody tr > :nth-child(3):not(:last-child) { display: none; }
-}
+/* "O que inclui": lista curta em linguagem simples (sem artigos, códigos nem horas). */
+.sim-inclui { margin: 0; padding: 14px 16px 14px 36px; display: grid; gap: 6px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); font-weight: 600; }
 .sim-planos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
 .sim-plano { position: relative; padding: 18px; }
 .sim-plano h4 { margin: 0 0 4px; font-family: var(--letra-titulos); font-size: 1.2rem; }
@@ -271,19 +231,11 @@ input, select { min-height: 44px; }
 @keyframes selecao-halo { 0%, 100% { opacity: .18; } 50% { opacity: .6; } }
 @media (prefers-reduced-motion: reduce) { .editor-svg .selecao-halo { animation: none; } }
 
-/* ---------- Quadro: proteções, tamanho e potência (quadro.js) ---------- */
-#quadro-protecoes { display: grid; gap: 18px; }
+/* ---------- Quadro: 3 perguntas simples ---------- */
 .escolhas-grelha.tres-pacotes { grid-template-columns: 1fr; }
 @media (min-width: 560px) { .escolhas-grelha.tres-pacotes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .escolhas-grelha.tres-curtas { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-#quadro-protecoes .caixa-linha small { display: block; font-weight: 400; color: var(--texto-suave); }
-.circuito-rtiebt { margin: 0 0 8px; font-weight: 700; }
-.sim-quadro-resumo { display: grid; gap: 6px; }
-.sim-quadro-resumo p, .sim-quadro-resumo ul, .sim-quadro-resumo h4 { margin: 0; }
-.sim-quadro-resumo ul { padding-left: 1.2em; }
-.sim-quadro-tamanho { font-family: var(--letra-titulos); font-size: 1.15rem; font-weight: 800; }
-.sim-quadro-potencia { font-weight: 700; }
-.sim-quadro-potencia.curta { color: var(--alarme-texto); }
+#quadro-nota { margin: 0; }
 
 /* Localidade: sugestões dos concelhos (combobox ARIA, app.js ligarLocalidade). */
 .sugestoes-caixa { position: relative; min-width: 0; }
@@ -323,15 +275,6 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Em ecrã inteiro o "Sair" fica à frente no seu grupo e o grupo à frente na barra (no telemóvel não há Esc). */
 #editor-ecra-inteiro[aria-pressed="true"] { order: -1; border-color: var(--musgo); }
 .editor-acoes-grupo:has(#editor-ecra-inteiro[aria-pressed="true"]) { order: -1; }
-/* Janela de edição: o que é o elemento, distância às paredes, altura ao chão, cantos. */
-.editor-info { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--musgo-claro) 55%, transparent); font-size: .92rem; }
-.editor-info dt { font-weight: 700; color: var(--texto-suave); }
-.editor-info dd { margin: 0; overflow-wrap: anywhere; }
-.editor-posicao { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
-.editor-posicao legend { padding: 0; font-weight: 800; font-size: .95rem; }
-.editor-cantos-sec > summary { cursor: pointer; font-weight: 800; min-height: 44px; display: flex; align-items: center; }
-.editor-cantos-sec[open] > summary { margin-bottom: 6px; }
-.editor-cantos-sec > .form-botoes { margin-top: 8px; }
 /* "O que quer": máquina marcada com quantas (− n +); nas casas com pisos, um separador por piso. */
 .quer-item { display: grid; gap: 6px; align-content: start; min-width: 0; }
 .escolha .escolha-icone { width: 34px; height: 34px; justify-self: center; color: var(--texto); }
@@ -345,21 +288,6 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Divisões agrupadas por piso. */
 .divisoes-piso { display: grid; gap: 14px; }
 .divisoes-piso > h3 { margin: 8px 0 0; font-size: 1.2rem; }
-/* Lista da planta, por baixo da planta (editor.js desenharLista): uma linha por divisão, o que tem por tipo. */
-.editor-lista { padding: 14px 16px; }
-.editor-lista h3 { margin: 0 0 4px; font-size: 1.15rem; }
-.editor-lista > .ajuda { margin: 0 0 8px; }
-.lista-planta > .lista-divisao { display: grid; gap: 6px; padding: 8px 0; border-top: 1px solid var(--borda); }
-.lista-planta > .lista-divisao:first-child { border-top: 0; }
-.lista-planta .item-planta.divisao { width: auto; justify-self: start; }
-.lista-tipos { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip-tipo { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 12px 4px 8px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); color: var(--texto); font: 600 .9rem/1.2 var(--letra); cursor: pointer; }
-.chip-tipo svg { width: 22px; height: 22px; flex: none; }
-.chip-tipo:hover { border-color: var(--musgo); }
-.chip-tipo[aria-current="true"] { border-color: var(--argila); background: var(--areia-suave); }
-.chip-tipo:focus-visible, .lista-planta .item-planta:focus-visible { outline: 3px solid var(--areia); outline-offset: 2px; }
-.lista-fora .item-grupo { padding: 0; color: var(--alarme-texto); }
-.editor-principal:fullscreen .editor-lista, .editor-principal.ecra-inteiro .editor-lista { display: none; }
 
 /* Tempo típico por passo e o que falta no total. */
 .sim-passo-tempo { display: block; font-size: .7rem; font-weight: 600; color: var(--texto-suave); line-height: 1.1; }

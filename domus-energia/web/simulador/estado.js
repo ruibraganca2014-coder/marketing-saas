@@ -6,10 +6,10 @@ import {
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, NOME_FORA,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
-  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe,
+  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
-import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos } from "./casa.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 
 export const VERSAO = 1;
@@ -171,16 +171,18 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   for (const e of lista(p.elementos, MAX_ELEMENTOS)) {
     if (!e || typeof e !== "object" || !idOk(e.id, "e") || !ELEMENTOS[e.tipo]) continue;
     ids.add(e.id);
-    const n = { id: e.id, tipo: e.tipo, x_cm: int(e.x_cm, 0, MAX_LADO_CM), y_cm: int(e.y_cm, 0, MAX_LADO_CM), rot: [0, 90, 180, 270].includes(e.rot) ? e.rot : 0, piso: pisoDe(e), divisao: null, props: normalizarProps(e.tipo, e.props) };
+    const n = { id: e.id, tipo: e.tipo, x_cm: int(e.x_cm, 0, MAX_LADO_CM), y_cm: int(e.y_cm, 0, MAX_LADO_CM), rot: [0, 90, 180, 270].includes(e.rot) ? e.rot : 0, piso: pisoDe(e), divisao: typeof e.divisao === "string" ? e.divisao.slice(0, 10) : null, props: normalizarProps(e.tipo, e.props) };
     // Opcionais (janela de edição): nome dado pelo cliente e altura ao chão (cm).
     const nome = txt(e.nome, 60).trim();
     if (nome) n.nome = nome;
     if (e.altura_cm !== undefined && e.altura_cm !== null && Number.isFinite(Number(e.altura_cm))) n.altura_cm = int(e.altura_cm, 0, ALTURA_MAX_CM);
     r.elementos.push(n);
   }
-  atualizarDivisoes(r);
+  // A divisão gravada fica enquanto o elemento ainda lá estiver (numa planta antiga com divisões sobrepostas a de
+  // cima não lhe tira os aparelhos); senão, a que o contém (regras.js atualizarDivisoes).
+  atualizarDivisoes(r, { manter: true });
   if (pisosAntigos) migrarPisos(r);
-  return atualizarDivisoes(r);
+  return atualizarDivisoes(r, { manter: true });
 }
 
 /** Só as propriedades da tabela do §2 para cada tipo, com tipos certos. */
@@ -220,6 +222,8 @@ export function normalizarCircuito(c, i) {
     inteligente: bool(c.inteligente),
     medir: bool(c.medir),
     zona_humida: bool(c.zona_humida),   // tomadas de cozinha/casa de banho (RTIEBT C5)
+    // Com quadros parciais: o piso do quadro onde fica o circuito (0 = r/c; quadro.js resumoQuadro).
+    ...(c.piso !== undefined && c.piso !== null && Number.isFinite(Number(c.piso)) ? { piso: int(c.piso, 0, MAX_PISO) } : {}),
   };
 }
 
@@ -442,9 +446,11 @@ export function quadroParaEnvio(estado, circuitos) {
     protecoes: { ...r.protecoes },
     para_raios: r.para_raios,
     quadro_novo: r.quadro_novo,
+    // "O quadro elétrico é antigo?" (passo do quadro): Sim → true (quadro novo), Não → false (o atual serve), Não sei → null.
+    quadro_antigo: r.quadro_novo === "novo" ? true : r.quadro_novo === "atual" ? false : null,
     quadro_novo_no_preco: levaQuadroNovo(q),
-    diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi })),
-    modulos: { tamanho: r.tamanho, quadros: r.quadros, parciais: r.parciais, tamanho_parcial: r.parciais ? TAMANHO_PARCIAL : null, ocupados: r.ocupados, livres: r.livres, cabe: r.cabe, novos: r.novos, linhas: r.linhas.map((l) => ({ nome: l.nome, qtd: l.qtd, modulos: l.modulos })) },
+    diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi, quadro: g.quadro })),
+    modulos: { tamanho: r.tamanho, quadros: r.quadros, parciais: r.parciais, tamanho_parcial: r.parciais ? TAMANHO_PARCIAL : null, pisos_quadros: [...r.pisos_quadros], ocupados: r.ocupados, livres: r.livres, cabe: r.cabe, novos: r.novos, linhas: r.linhas.map((l) => ({ nome: l.nome, qtd: l.qtd, modulos: l.modulos })) },
     potencia_sugerida_kva: r.potencia.kva,
     potencia_carga_w: r.potencia.carga_w,
   };
@@ -526,10 +532,15 @@ export function plantaParaEnvio(planta) {
       id: d.id, nome: textoSeguro(d.nome, 60) || "Divisão", piso: d.piso, x_cm: d.x_cm, y_cm: d.y_cm, largura_cm: d.largura_cm, altura_cm: d.altura_cm,
       ...(d.pontos ? { pontos: d.pontos.map((q) => [q[0], q[1]]) } : {}),
     })),
-    elementos: p.elementos.map((e) => ({
-      id: e.id, tipo: e.tipo, x_cm: e.x_cm, y_cm: e.y_cm, rot: e.rot, piso: e.piso, divisao: e.divisao, props: { ...e.props },
-      ...(e.nome ? { nome: textoSeguro(e.nome, 60) } : {}), ...(e.altura_cm !== undefined ? { altura_cm: e.altura_cm } : {}),
-    })),
+    elementos: p.elementos.map((e) => {
+      // Altura ao chão típica (para o relatório técnico: o cliente já não a vê nem a escreve).
+      const div = e.divisao ? p.divisoes.find((d) => d.id === e.divisao) : null;
+      return {
+        id: e.id, tipo: e.tipo, x_cm: e.x_cm, y_cm: e.y_cm, rot: e.rot, piso: e.piso, divisao: e.divisao, props: { ...e.props },
+        ...(e.nome ? { nome: textoSeguro(e.nome, 60) } : {}), ...(e.altura_cm !== undefined ? { altura_cm: e.altura_cm } : {}),
+        altura_tipica_cm: alturaTipica(e.tipo, e.props, div ? tipoDivisao(div.nome) : null),
+      };
+    }),
   };
 }
 

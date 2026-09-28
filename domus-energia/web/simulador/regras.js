@@ -155,7 +155,7 @@ export const ELEMENTOS = {
   porta: { nome: "Porta", roda: true, props: { entrada: false } },
   janela: { nome: "Janela", roda: true, props: { estore: false, motorizado: false } },
   quadro: { nome: "Quadro elétrico", roda: false, props: {} },
-  tomada: { nome: "Tomada", roda: true, props: { dupla: false } },
+  tomada: { nome: "Tomada", roda: true, props: { dupla: false, inteligente: false } },
   luz: { nome: "Ponto de luz", roda: false, props: { brilho: false } },
   interruptor: { nome: "Interruptor", roda: true, props: { botoes: 1 } },
   maquina: { nome: "Máquina", roda: false, props: { modelo: "termoacumulador", potencia_w: 2000 } },
@@ -165,7 +165,7 @@ export const ELEMENTOS = {
 // As telecomunicações (telecom_*, "brevemente") saíram do simulador: os estados e as plantas antigas que as
 // tinham perdem-nas ao carregar (normalizarPlanta só aceita os tipos de ELEMENTOS).
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
-export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "brilho", "botoes", "modelo", "potencia_w"];
+export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "brilho", "botoes", "modelo", "potencia_w"];
 
 /**
  * Altura ao chão típica (cm) de um elemento, para a janela de edição (o cliente pode mudar: `altura_cm`):
@@ -490,10 +490,53 @@ export function divisaoDoElemento(planta, e) {
   return r;
 }
 
-/** Recalcula `divisao` de todos os elementos (pelo centro; portas/janelas até 30 cm fora). Muda a planta. */
-export function atualizarDivisoes(planta) {
-  for (const e of planta.elementos) e.divisao = divisaoDoElemento(planta, e);
+/**
+ * Recalcula `divisao` de todos os elementos (pelo centro; portas/janelas até 30 cm fora). Muda a planta.
+ * `manter` (editor): um elemento que ainda está dentro (ou, porta/janela, junto à parede) da divisão onde já
+ * estava fica nela — uma divisão vizinha nunca lhe "rouba" os aparelhos (ex.: numa parede partilhada).
+ */
+export function atualizarDivisoes(planta, { manter = false } = {}) {
+  for (const e of planta.elementos) {
+    const antes = manter && e.divisao ? planta.divisoes.find((d) => d.id === e.divisao) : null;
+    if (antes && pisoDe(antes) === pisoDe(e)) {
+      const dist = distanciaPoligono(Number(e.x_cm) || 0, Number(e.y_cm) || 0, pontosDivisao(antes));
+      if (dist === 0 || (TIPOS_PAREDE.includes(e.tipo) && dist <= TOLERANCIA_PORTA_CM)) continue;
+    }
+    e.divisao = divisaoDoElemento(planta, e);
+  }
   return planta;
+}
+
+/** Distância do ponto à parede mais próxima do polígono (dentro ou fora). */
+const distanciaParede = (x, y, pts) => Math.min(...pts.map((a, i) => distanciaSegmento(x, y, a, pts[(i + 1) % pts.length]).dist));
+/** Ponto dentro do polígono e a mais de 1 cm das paredes (as paredes partilhadas não contam como sobreposição). */
+const bemDentro = (x, y, pts) => pontoEmPoligono(x, y, pts) && distanciaParede(x, y, pts) > 1;
+
+/**
+ * Duas divisões (cantos `a` e `b`) sobrepõem-se? Encostar (paredes partilhadas, cantos a tocar) não conta.
+ * Retângulos: pelas caixas; formas livres: paredes que se cruzam, ou pontos de uma (cantos, pontos ao longo
+ * das paredes, o ponto de dentro) bem dentro da outra.
+ */
+export function divisoesSobrepostas(a, b) {
+  const ca = caixaPontos(a), cb = caixaPontos(b);
+  const sx = Math.min(ca.x_cm + ca.largura_cm, cb.x_cm + cb.largura_cm) - Math.max(ca.x_cm, cb.x_cm);
+  const sy = Math.min(ca.y_cm + ca.altura_cm, cb.y_cm + cb.altura_cm) - Math.max(ca.y_cm, cb.y_cm);
+  if (sx <= 1 || sy <= 1) return false;
+  if (ehRetangulo(a) && ehRetangulo(b)) return true;
+  const lado = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+  for (let i = 0; i < a.length; i++) {
+    const p1 = a[i], p2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const p3 = b[j], p4 = b[(j + 1) % b.length];
+      const d1 = lado(p3, p4, p1), d2 = lado(p3, p4, p2), d3 = lado(p1, p2, p3), d4 = lado(p1, p2, p4);
+      if (d1 && d2 && d3 && d4 && d1 !== d2 && d3 !== d4) return true;   // cruzam-se (sem ser num canto)
+    }
+  }
+  const amostras = (pts) => [pontoInterior(pts), ...pts.flatMap((p, i) => {
+    const q = pts[(i + 1) % pts.length];
+    return [0, 0.25, 0.5, 0.75].map((t) => [p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+  })];
+  return amostras(a).some(([x, y]) => bemDentro(x, y, b)) || amostras(b).some(([x, y]) => bemDentro(x, y, a));
 }
 
 export function plantaVazia() {
@@ -515,7 +558,7 @@ export const NOME_FORA = "Fora das divisões";
 export function contarPlanta(planta) {
   const linhas = new Map();
   const nova = (id, nome, piso = 0) => ({
-    id, nome, piso, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, interruptores: [],
+    id, nome, piso, luzes: 0, luzes_regulaveis: 0, tomadas: 0, tomadas_duplas: 0, tomadas_inteligentes: 0, interruptores: [],
     janelas: 0, estores: 0, estores_sem_motor: 0, portas: 0, portas_entrada: 0,
     sensores_porta: 0, sensores_movimento: 0, quadros: 0, maquinas: [], portas_entrada_sem_sensor: 0,
     ...(id === null ? { fora: true } : {}),
@@ -529,7 +572,7 @@ export function contarPlanta(planta) {
     const p = e.props || {};
     switch (e.tipo) {
       case "luz": l.luzes++; if (p.brilho) l.luzes_regulaveis++; break;
-      case "tomada": l.tomadas++; if (p.dupla) l.tomadas_duplas++; break;
+      case "tomada": l.tomadas++; if (p.dupla) l.tomadas_duplas++; if (p.inteligente) l.tomadas_inteligentes++; break;
       case "interruptor": l.interruptores.push(limitar(Math.round(Number(p.botoes) || 1), 1, 4)); break;
       case "janela":
         l.janelas++;
@@ -581,7 +624,7 @@ export function divisoesDaContagem(contagem) {
     sensores_porta: c.sensores_porta + c.portas_entrada_sem_sensor,
     sensores_movimento: c.sensores_movimento,
     luzes_regulaveis: c.luzes_regulaveis,
-    tomadas_inteligentes: 0,
+    tomadas_inteligentes: c.tomadas_inteligentes ?? 0,   // "Tomada inteligente?" na janela da tomada
   }));
 }
 

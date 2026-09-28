@@ -164,6 +164,18 @@ export function gruposDiferenciais(circuitos) {
   return grupos.map((g, i) => ({ n: i + 1, ...g }));
 }
 
+/**
+ * Diferenciais de um quadro parcial: os circuitos desse piso juntos, um diferencial por cada 8 (os 2 da
+ * RTIEBT já estão no geral), e o carregador do carro com o seu.
+ */
+function gruposParcial(circuitos) {
+  const resto = circuitos.filter((c) => !temCarregador(c));
+  const grupos = [];
+  for (let i = 0; i < resto.length; i += MAX_CIRCUITOS_DIFERENCIAL) grupos.push({ circuitos: resto.slice(i, i + MAX_CIRCUITOS_DIFERENCIAL).map((c) => c.n).sort((a, b) => a - b), carregador: false });
+  for (const c of circuitos.filter(temCarregador)) grupos.push({ circuitos: [c.n], carregador: true });
+  return grupos;
+}
+
 // ------------------------------------------------------------ módulos e tamanho do quadro
 
 export const TAMANHOS_QUADRO = [12, 18, 24, 36, 48];
@@ -178,17 +190,26 @@ export const MODULOS = { geral: 2, diferencial: 2, descarregador: 2, rele_tensao
  */
 export const TAMANHO_PARCIAL = 12;
 /**
- * N.º de quadros: com planta, um por piso que tem um "Quadro elétrico" desenhado (a planta desenhada pela
- * casa põe um em cada piso: casa.js divisoesQuadro); sem planta, um por piso da casa. Pelo menos 1.
+ * Pisos com quadro, por ordem: com planta, os pisos que têm um "Quadro elétrico" desenhado (a planta desenhada
+ * pela casa põe um em cada piso: casa.js divisoesQuadro); sem planta, os pisos da casa. Pelo menos [0].
+ * O 1.º é o quadro geral (normalmente o r/c); os outros são parciais.
  */
-export function numeroQuadros(estado) {
+export function pisosDosQuadros(estado) {
   const p = estado?.planta;
   const usaPlanta = !!p && !estado.plantaSaltada && ((p.divisoes?.length ?? 0) > 0 || (p.elementos?.length ?? 0) > 0);
-  if (usaPlanta) return Math.max(1, new Set((p.elementos ?? []).filter((e) => e.tipo === "quadro").map(pisoDe)).size);
+  if (usaPlanta) {
+    const s = [...new Set((p.elementos ?? []).filter((e) => e.tipo === "quadro").map(pisoDe))].sort((a, b) => a - b);
+    return s.length ? s : [0];
+  }
   const c = estado?.casa ?? {};
   const [, max] = LIMITES_CASA.pisos;
-  return TIPOS_COM_PISOS.includes(c.tipo) ? Math.min(max, Math.max(1, Math.round(Number(c.pisos)) || 1)) : 1;
+  const n = TIPOS_COM_PISOS.includes(c.tipo) ? Math.min(max, Math.max(1, Math.round(Number(c.pisos)) || 1)) : 1;
+  return Array.from({ length: n }, (_, i) => i);
 }
+/** N.º de quadros (o geral e os parciais): pisosDosQuadros. */
+export const numeroQuadros = (estado) => pisosDosQuadros(estado).length;
+/** Piso do quadro de onde saem os circuitos do piso `p`: o do próprio piso, se tiver quadro; senão o geral. */
+export const quadroDoPiso = (pisos, p) => (pisos.includes(p) ? p : pisos[0]);
 
 /** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
 export function tamanhoQuadro(ocupados) {
@@ -208,28 +229,43 @@ export function resumoQuadro(estado) {
   const tri = casa.fases === "tri";
   const P = tri ? 2 : 1;
   const prot = protecoesEfetivas(q);
-  const grupos = gruposDiferenciais(circuitos);
+  // Com quadros parciais (casas com pisos) cada circuito fica no quadro do seu piso (`piso` do circuito: o piso
+  // do quadro; sem ele, no geral): o geral só conta os módulos dos seus circuitos, mais o geral de cada parcial
+  // (a saída do piso). Com um só quadro fica tudo no geral, como sempre.
+  const pisosQ = pisosDosQuadros(estado);
+  const geral = pisosQ[0];
+  const parciais = pisosQ.length - 1;
+  const quadroDe = (c) => (parciais ? quadroDoPiso(pisosQ, Number.isInteger(c.piso) ? c.piso : geral) : geral);
+  const gruposGeral = gruposDiferenciais(circuitos.filter((c) => quadroDe(c) === geral));
+  const grupos = [
+    ...gruposGeral.map((g) => ({ ...g, quadro: geral })),
+    ...pisosQ.slice(1).flatMap((p) => gruposParcial(circuitos.filter((c) => quadroDe(c) === p)).map((g) => ({ ...g, quadro: p }))),
+  ].map((g, i) => ({ ...g, n: i + 1 }));
   const afdd = prot.afdd ? circuitos.filter((c) => circuitoComAfdd(c, casa.tipo)).map((c) => c.n) : [];
   const linhas = [];
   let novos = 0;   // módulos a mais num quadro que fica (o geral, o 1.º diferencial e os disjuntores já lá estão)
   const linha = (chave, nome, qtd, modulos) => { if (qtd > 0) linhas.push({ chave, nome, qtd, modulos }); };
   linha("geral", prot.geral_wifi ? "Disjuntor geral Wi-Fi (com medição)" : "Disjuntor geral", 1, MODULOS.geral * P);
-  linha("diferencial", `Diferencial 40 A / 30 mA${prot.idr_wifi ? " Wi-Fi" : ""}`, grupos.length, grupos.length * MODULOS.diferencial * P);
-  novos += Math.max(0, grupos.length - 1) * MODULOS.diferencial * P;
-  let disj = 0, mDisj = 0, nAfdd = 0, mAfdd = 0, sy2 = 0, sy1 = 0, mSy = 0, tetra = 0;
+  linha("diferencial", `Diferencial 40 A / 30 mA${prot.idr_wifi ? " Wi-Fi" : ""}`, gruposGeral.length, gruposGeral.length * MODULOS.diferencial * P);
+  novos += Math.max(0, gruposGeral.length - 1) * MODULOS.diferencial * P;
+  // Artigos (disjuntores, AFDD, inteligentes): todos os circuitos; módulos e linhas: só os do quadro geral.
+  let disj = 0, nAfdd = 0, sy2 = 0, sy1 = 0;
+  let disjG = 0, mDisj = 0, nAfddG = 0, mAfdd = 0, sy2G = 0, sy1G = 0, mSy = 0, tetra = 0;
   for (const c of circuitos) {
+    const g = quadroDe(c) === geral;
     const i = inteligenteDe(c, q.disjuntor);
     const comAfdd = afdd.includes(c.n);
-    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { tetra++; continue; }
-    if (comAfdd) { nAfdd++; mAfdd += MODULOS.afdd; novos += i === "sy2" ? MODULOS.afdd : MODULOS.afdd - MODULOS.disjuntor; }
-    if (i === "sy2") { sy2++; mSy += MODULOS.sy; }
-    else if (!comAfdd) { disj++; mDisj += MODULOS.disjuntor; }
-    if (i === "sy1") { sy1++; mSy += MODULOS.sy; novos += MODULOS.sy; }
+    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { if (g) tetra++; continue; }
+    if (comAfdd) { nAfdd++; if (g) { nAfddG++; mAfdd += MODULOS.afdd; novos += i === "sy2" ? MODULOS.afdd : MODULOS.afdd - MODULOS.disjuntor; } }
+    if (i === "sy2") { sy2++; if (g) { sy2G++; mSy += MODULOS.sy; } }
+    else if (!comAfdd) { disj++; if (g) { disjG++; mDisj += MODULOS.disjuntor; } }
+    if (i === "sy1") { sy1++; if (g) { sy1G++; mSy += MODULOS.sy; novos += MODULOS.sy; } }
   }
-  linha("disjuntor", "Disjuntores dos circuitos", disj, mDisj);
-  linha("afdd", "AFDD com disjuntor", nAfdd, mAfdd);
-  linha("inteligente", `Disjuntores inteligentes (${[sy2 ? `${sy2} SY2` : "", sy1 ? `${sy1} SY1` : ""].filter(Boolean).join(", ")})`, sy2 + sy1, mSy);
+  linha("disjuntor", "Disjuntores dos circuitos", disjG, mDisj);
+  linha("afdd", "AFDD com disjuntor", nAfddG, mAfdd);
+  linha("inteligente", `Disjuntores inteligentes (${[sy2G ? `${sy2G} SY2` : "", sy1G ? `${sy1G} SY1` : ""].filter(Boolean).join(", ")})`, sy2G + sy1G, mSy);
   linha("tetrapolar", "Disjuntor trifásico (máquina trifásica)", tetra, tetra * MODULOS.tetrapolar);
+  linha("saida_parcial", "Geral de cada quadro parcial (saída do piso)", parciais, parciais * MODULOS.geral * P);
   for (const k of ["descarregador", "rele_tensao", "medidor_geral"]) {
     if (!prot[k]) continue;
     linha(k, PROTECOES[k].nome, 1, MODULOS[k] * P);
@@ -244,7 +280,7 @@ export function resumoQuadro(estado) {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
     disjuntores: disj, sy2, sy1,
-    parciais: numeroQuadros(estado) - 1,
+    parciais, pisos_quadros: pisosQ,
     potencia: potenciaSugerida(circuitos),
   };
 }
@@ -270,7 +306,8 @@ export function pedidosQuadro(estado) {
   add("medidor_geral", p.medidor_geral ? 1 : 0);
   add("geral_wifi", p.geral_wifi ? 1 : 0);
   if (levaQuadroNovo(estado.quadro)) {
-    add("disjuntor_geral", p.geral_wifi ? 0 : 1);
+    // O geral (salvo com o geral Wi-Fi) e o de cada quadro parcial (a saída do piso, no geral).
+    add("disjuntor_geral", (p.geral_wifi ? 0 : 1) + r.parciais);
     add("disjuntor_circuito", r.disjuntores);
     // Caixas: a(s) do geral e as dos parciais (as de 12 módulos juntam-se numa linha).
     if (r.tamanho === TAMANHO_PARCIAL) add(`caixa_${r.tamanho}`, r.quadros + r.parciais);
@@ -335,10 +372,12 @@ export function avisosProtecoes(estado) {
   else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver pára-raios ou for alimentada por linha aérea, o descarregador de sobretensões é obrigatório.");
   if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio (tipo A ou B; muitos carregadores já o trazem).");
   if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos deixa 25 % livres — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);
+  // Quadro novo: um de N módulos, ou vários de 48 quando nem esse deixa 25 % livres (r.cabe, r.quadros).
+  const novo = r.cabe ? `um quadro novo de ${r.tamanho} módulos` : `${r.quadros} quadros novos de ${r.tamanho} módulos`;
   if (!levaQuadroNovo(q) && r.novos > 0) {
-    a(`O quadro atual tem de ter espaço para ${r.novos} módulos novos${r.novos > MAX_MODULOS ? " (acrescentámos a ampliação do quadro)" : ""}; se não tiver, é preciso um quadro novo de ${r.tamanho} módulos.`);
+    a(`O quadro atual tem de ter espaço para ${r.novos} módulos novos${r.novos > MAX_MODULOS ? " (acrescentámos a ampliação do quadro)" : ""}; se não tiver, é preciso ${novo}.`);
   }
-  if (q.quadro_novo !== "atual" && q.quadro_novo !== "novo") a(`Incluímos um quadro novo de ${r.tamanho} módulos por precaução: se o seu quadro servir, sai do preço.`);
+  if (q.quadro_novo !== "atual" && q.quadro_novo !== "novo") a(`Incluímos ${novo} por precaução: se o seu quadro servir, sai do preço.`);
   if (casa.fases === "tri") a("Na ligação trifásica o geral, os diferenciais e as proteções são tetrapolares (ocupam o dobro dos módulos e custam mais): o preço destes é confirmado na visita.");
   const pot = r.potencia;
   const contratada = Number(casa.potencia_contratada_kva) || null;

@@ -78,24 +78,24 @@
           </div>
           <label>Localidade<input id="casa-localidade" maxlength="80" autocomplete="address-level2"></label>
           <div class="duas">
-            <label>Potência contratada <small class="ajuda">Está na fatura da eletricidade.</small><select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9">6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option><option value="">Não sei</option></select></label>
-            <label>Ligação <small class="ajuda" id="casa-fases-sugestao">Monofásica é a mais comum nas casas.</small><select id="casa-fases"><option value="mono">Monofásica</option><option value="tri">Trifásica</option><option value="">Não sei</option></select></label>
+            <label>Potência contratada <small class="ajuda">Está na fatura da eletricidade. Se não souber, deixe "Não sei": vemos na visita.</small><select id="casa-potencia"><option value="">Não sei</option><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9">6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option></select></label>
+            <label>Ligação <small class="ajuda" id="casa-fases-sugestao">Monofásica é a mais comum nas casas.</small><select id="casa-fases"><option value="">Não sei</option><option value="mono">Monofásica (a mais comum)</option><option value="tri">Trifásica</option></select></label>
           </div>
         </section>
 
         <!-- 2. O que quer -->
         <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
           <h2 id="titulo-1" tabindex="-1">2. O que quer</h2>
-          <p class="sub-passo">Diga-nos que máquinas tem (ou vai ter) e o que quer fazer. Com isto já desenhamos a planta e preenchemos as divisões e o quadro — pode mudar tudo depois.</p>
+          <p class="sub-passo">Diga-nos que máquinas tem (ou vai ter) e o que quer fazer. Com isto já desenhamos a planta e preenchemos os passos seguintes — pode mudar tudo depois.</p>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
           <div class="quer-painel" id="quer-painel">
             <fieldset class="escolhas">
-              <legend>Máquinas grandes <small class="ajuda">Cada uma costuma ter um circuito próprio no quadro.</small></legend>
+              <legend>Máquinas grandes <small class="ajuda">As que gastam mais energia.</small></legend>
               <div class="escolhas-grelha" id="quer-maquinas"></div>
             </fieldset>
             <fieldset class="escolhas">
-              <legend>Máquinas pequenas <small class="ajuda">Ligam-se às tomadas (sem circuito próprio): pomo-las na divisão certa e contamos a potência.</small></legend>
+              <legend>Máquinas pequenas <small class="ajuda">Ligam-se a uma tomada normal: pomo-las na divisão certa.</small></legend>
               <div class="quer-grupos" id="quer-pequenas"></div>
             </fieldset>
           </div>
@@ -122,10 +122,10 @@
         <!-- 4. Divisões (a partir da planta) -->
         <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
           <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
-          <p class="sub-passo">Em cada divisão: interruptores inteligentes (1 a 4 botões), estores, sensores e luzes com brilho regulável. Vem da planta (ou da casa, se a saltou) e do que quer fazer.</p>
+          <p class="sub-passo">O que quer em cada divisão: toque em Sim ou Não. Já vem preenchido a partir da planta (ou da casa, se a saltou) e do que quer fazer.</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <div class="form-botoes">
-            <button class="btn sec pequeno" id="divisoes-recalcular" type="button">Recalcular a partir da casa</button>
+            <button class="btn sec pequeno" id="divisoes-recalcular" type="button">Voltar à nossa sugestão</button>
           </div>
           <div id="divisoes"></div>
           <div class="form-botoes">
@@ -133,32 +133,28 @@
           </div>
           <fieldset class="cartao escolhas" id="extras">
             <legend>Extras</legend>
-            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa (Raspberry Pi)</b> com bateria e sirene: a casa funciona sem internet (plano Premium).</span></label>
-            <label>Termóstatos Wi-Fi (aquecimento/ar condicionado)<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
+            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa</b> com bateria e sirene: a casa funciona mesmo sem internet (plano Premium).</span></label>
+            <label>Termóstatos (aquecimento ou ar condicionado)<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
           </fieldset>
         </section>
 
         <!-- 5. Quadro elétrico -->
         <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
           <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
-          <p class="sub-passo">Cada circuito tem um disjuntor no quadro. Diga-nos os amperes (está escrito no disjuntor, ex.: "C16"), o que liga e quais quer tornar inteligentes (ligar/desligar e ver o consumo no telemóvel).</p>
-          <p class="msg info" id="quadro-origem" hidden></p>
-          <div class="form-botoes">
-            <button class="btn sec pequeno" id="quadro-recalcular" type="button">Recalcular a partir da planta</button>
-          </div>
-          <fieldset class="escolhas cartao" id="quadro-disjuntor">
-            <legend>Disjuntor inteligente</legend>
-            <label class="caixa-linha"><input type="radio" name="disjuntor" value="TONGOU-SY2-JWT"><span><b>Com medição e proteções</b> (TONGOU-SY2-JWT) — recomendado: protege contra sobrecorrente, tensão e temperatura.</span></label>
-            <label class="caixa-linha"><input type="radio" name="disjuntor" value="TONGOU-SY1-JWT"><span><b>Só com medição</b> (TONGOU-SY1-JWT) — mais barato, sem proteções.</span></label>
+          <p class="sub-passo">Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita.</p>
+          <fieldset class="escolhas">
+            <legend>Que proteção quer?</legend>
+            <div class="escolhas-grelha tres-pacotes" id="quadro-pacotes"></div>
           </fieldset>
-          <div id="circuitos"></div>
-          <div class="form-botoes">
-            <button class="btn sec" id="circuito-adicionar" type="button">Adicionar circuito</button>
-          </div>
-          <h3>Proteções e tamanho do quadro</h3>
-          <p class="sub-passo">Diferenciais, proteção contra picos e contra tensão fora do normal, e o tamanho do quadro. Escolha um pacote e depois ligue ou desligue cada item: os módulos e o preço acompanham.</p>
-          <div class="cartao" id="quadro-protecoes"></div>
-          <div class="sim-avisos" id="quadro-avisos" aria-live="polite"></div>
+          <fieldset class="escolhas">
+            <legend>A casa tem pára-raios? <small class="ajuda">Responda "Sim" também se a eletricidade chegar à casa por fios em postes.</small></legend>
+            <div class="escolhas-grelha tres-curtas" id="quadro-para-raios"></div>
+          </fieldset>
+          <fieldset class="escolhas">
+            <legend>O quadro elétrico é antigo? <small class="ajuda">O quadro é a caixa onde se liga e desliga a eletricidade da casa.</small></legend>
+            <div class="escolhas-grelha tres-curtas" id="quadro-antigo"></div>
+          </fieldset>
+          <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
         <!-- 6. Resumo e preço -->
@@ -167,19 +163,11 @@
           <div class="msg info" id="preco-estado" role="status" hidden></div>
           <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
-          <div class="tabela-rolar" role="region" aria-labelledby="tabela-legenda" tabindex="0">
-            <table class="sim-tabela" id="preco-tabela">
-              <caption id="tabela-legenda">Artigos e mão de obra (preços com IVA)</caption>
-              <thead><tr><th scope="col">Artigo</th><th scope="col" class="n">Qtd.</th><th scope="col" class="n">Preço</th><th scope="col" class="n">Total</th></tr></thead>
-              <tbody id="preco-linhas"></tbody>
-              <tfoot id="preco-rodape"></tfoot>
-            </table>
-          </div>
+          <h3>O que inclui</h3>
+          <ul class="sim-inclui" id="preco-inclui"></ul>
           <p class="sim-nota" id="preco-nota"></p>
           <h3>Plano mensal sugerido</h3>
           <div class="sim-planos" id="preco-planos"></div>
-          <h3>Avisos sobre a instalação</h3>
-          <div class="sim-avisos" id="preco-avisos"></div>
         </section>
 
         <!-- 7. Enviar -->
