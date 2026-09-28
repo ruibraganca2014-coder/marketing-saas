@@ -6,7 +6,7 @@ import {
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, NOME_FORA,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
-  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica,
+  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2 } from "./preco.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
@@ -50,7 +50,8 @@ export const POTENCIA_OMISSAO_KVA = 6.9;
 export function casaNova(cliente = false) {
   return {
     tipo: cliente ? null : "moradia", tipologia: cliente ? null : "T2", quartos: cliente ? null : 2, casas_banho: 1, salas: 1, pisos: 1,
-    extras: { jardim: false, garagem: false, varanda: false, kitnet: false, entrada: false, corredor: !cliente, escritorio: false, lavandaria: false, despensa: false },
+    // Nada marcado em "A casa tem…" (decisão do dono: nem o corredor; só o que o cliente escolher).
+    extras: { jardim: false, exterior: false, garagem: false, arrecadacao: false, varanda: false, kitnet: false, entrada: false, corredor: false, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
     porPiso: null,             // casas com 2 ou mais pisos: [{quartos, casas_banho, salas, extras}] por piso (casa.js acertarPisos)
     divisoes: null, localidade: "", potencia_contratada_kva: POTENCIA_OMISSAO_KVA, fases: "mono",
@@ -164,6 +165,8 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   if (f && typeof f === "object" && typeof f.imagem === "string" && RE_IMAGEM.test(f.imagem) && f.imagem.length <= MAX_IMAGEM) {
     r.fundo = { imagem: f.imagem, x_cm: int(f.x_cm, -MAX_LADO_CM, MAX_LADO_CM), y_cm: int(f.y_cm, -MAX_LADO_CM, MAX_LADO_CM), largura_cm: int(f.largura_cm, 10, 2 * MAX_LADO_CM, r.largura_cm), opacidade: Math.round(num(f.opacidade, 0.1, 1, 0.5) * 100) / 100 };
   }
+  // Detalhes do passo 4: sem `respostas` (estado antigo) conta como respondido o que o cliente já mudou.
+  const antigo = p.respostas !== true;
   const ids = new Set();
   const idOk = (id, pre) => typeof id === "string" && new RegExp(`^${pre}\\d{1,6}$`).test(id) && !ids.has(id);
   for (const d of lista(p.divisoes, MAX_DIVISOES)) {
@@ -183,6 +186,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
     const nome = txt(e.nome, 60).trim();
     if (nome) n.nome = nome;
     if (e.altura_cm !== undefined && e.altura_cm !== null && Number.isFinite(Number(e.altura_cm))) n.altura_cm = int(e.altura_cm, 0, ALTURA_MAX_CM);
+    if (temPergunta(n.tipo, n.props) && (antigo ? porResponderAntigo(n.tipo, n.props) : e.por_responder === true)) n.por_responder = true;
     r.elementos.push(n);
   }
   // A divisão gravada fica enquanto o elemento ainda lá estiver (numa planta antiga com divisões sobrepostas a de

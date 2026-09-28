@@ -78,9 +78,13 @@ export const LIMITES_CASA = {
 };
 /** Tipologia que corresponde a um n.º de quartos (0 → T0 … 5 ou mais → T5+). */
 export const tipologiaDeQuartos = (n) => (n >= 5 ? "T5+" : `T${Math.max(0, Math.round(n) || 0)}`);
+// "Jardim" e "Garagem" eram "Jardim / exterior" e "Garagem / arrecadação" (decisão do dono: separados); os estados
+// antigos com a opção junta ficam com "Jardim" e "Garagem" (as mesmas chaves).
 export const EXTRAS_CASA = {
-  jardim: "Jardim / exterior",
-  garagem: "Garagem / arrecadação",
+  jardim: "Jardim",
+  exterior: "Exterior",
+  garagem: "Garagem",
+  arrecadacao: "Arrecadação",
   varanda: "Varanda / terraço",
   kitnet: "Kitnet",
   entrada: "Entrada / hall",
@@ -153,22 +157,47 @@ export function sugerirFases(tipo, maquinas = []) {
   return "mono";
 }
 
-/** Elementos da planta (§2): nome, se roda, propriedades por omissão. */
+/**
+ * Elementos da planta (§2): nome e propriedades por omissão. Sem rotação à escolha (decisão do dono): cada
+ * elemento fica com o `rot` com que nasceu (0; as tomadas das paredes laterais da planta desenhada, 90) ou com o
+ * que um estado antigo gravou.
+ */
 export const ELEMENTOS = {
-  porta: { nome: "Porta", roda: true, props: { entrada: false } },
-  janela: { nome: "Janela", roda: true, props: { estore: false, motorizado: false } },
-  quadro: { nome: "Quadro elétrico", roda: false, props: {} },
-  tomada: { nome: "Tomada", roda: true, props: { dupla: false, inteligente: false } },
-  luz: { nome: "Ponto de luz", roda: false, props: { brilho: false } },
-  interruptor: { nome: "Interruptor", roda: true, props: { botoes: 1 } },
-  maquina: { nome: "Máquina", roda: false, props: { modelo: "termoacumulador", potencia_w: 2000 } },
-  sensor_porta: { nome: "Sensor de porta/janela", roda: false, props: {} },
-  sensor_movimento: { nome: "Sensor de movimento", roda: false, props: {} },
+  porta: { nome: "Porta", props: { entrada: false } },
+  janela: { nome: "Janela", props: { estore: false, motorizado: false } },
+  quadro: { nome: "Quadro elétrico", props: {} },
+  tomada: { nome: "Tomada", props: { dupla: false, inteligente: false } },
+  luz: { nome: "Ponto de luz", props: { brilho: false } },
+  interruptor: { nome: "Interruptor", props: { botoes: 1 } },
+  maquina: { nome: "Máquina", props: { modelo: "termoacumulador", potencia_w: 2000 } },
+  sensor_porta: { nome: "Sensor de porta/janela", props: {} },
+  sensor_movimento: { nome: "Sensor de movimento", props: {} },
 };
 // As telecomunicações (telecom_*, "brevemente") saíram do simulador: os estados e as plantas antigas que as
 // tinham perdem-nas ao carregar (normalizarPlanta só aceita os tipos de ELEMENTOS).
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
 export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "brilho", "botoes", "modelo", "potencia_w"];
+
+/**
+ * Detalhes obrigatórios do passo 4: o elemento tem uma pergunta que o cliente tem de responder? Interruptor (n.º de
+ * botões), tomada (inteligente?), janela (estore / motorizado), luz (regulação) e a máquina "Outra" ("Qual é?").
+ * Um elemento assim nasce com `por_responder: true` até o cliente guardar a janela dele (o preço usa o valor por
+ * omissão enquanto não responde).
+ */
+export const temPergunta = (tipo, props = {}) => ["interruptor", "tomada", "janela", "luz"].includes(tipo) || (tipo === "maquina" && props?.modelo === "outro");
+/**
+ * Estados antigos (planta sem `respostas`): conta como respondido o que o cliente já mudou (valor diferente do
+ * de omissão); o resto fica por responder.
+ */
+export function porResponderAntigo(tipo, props = {}) {
+  if (!temPergunta(tipo, props)) return false;
+  const p = props ?? {};
+  if (tipo === "interruptor") return (Number(p.botoes) || 1) === 1;
+  if (tipo === "tomada") return !p.inteligente && !p.dupla;
+  if (tipo === "janela") return !p.estore;
+  if (tipo === "luz") return !p.brilho;
+  return true;   // máquina "Outra"
+}
 
 /**
  * Altura ao chão típica (cm) de um elemento, para a janela de edição (o cliente pode mudar: `altura_cm`):
@@ -256,11 +285,11 @@ export const MODELOS = {
 
 /**
  * Botões "Desenhar divisão" do passo 2: nome e tamanho quando se toca sem arrastar (cm).
- * `numerar`: o primeiro já leva número (Quarto 1, Quarto 2…); os outros só a partir do segundo (Sala, Sala 2).
+ * Nomes: o primeiro sem número, os seguintes a partir do 2 (Quarto, Quarto 2, Quarto 3; Sala, Sala 2).
  */
 export const TIPOS_DIVISAO = [
   { nome: "Sala", w: 500, h: 400 },
-  { nome: "Quarto", w: 350, h: 300, numerar: true },
+  { nome: "Quarto", w: 350, h: 300 },
   { nome: "Cozinha", w: 350, h: 300 },
   { nome: "Casa de banho", w: 250, h: 200 },
   { nome: "Corredor", w: 400, h: 150 },
@@ -297,7 +326,7 @@ export const TIPOS_DIVISAO_INDUSTRIAL = [
 export const tiposDivisaoPara = (tipo) => ({ servicos: TIPOS_DIVISAO_SERVICOS, industrial: TIPOS_DIVISAO_INDUSTRIAL }[perfilCasa(tipo)] ?? TIPOS_DIVISAO);
 
 export const NOMES_DIVISAO = [
-  "Sala", "Cozinha", "Quarto 1", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Varanda", "Jardim", "Exterior",
+  "Sala", "Cozinha", "Quarto", "Quarto 2", "Quarto 3", "WC", "Casa de banho", "Corredor", "Entrada", "Escritório", "Lavandaria", "Despensa", "Garagem", "Arrecadação", "Varanda", "Jardim", "Exterior",
   "Loja / sala aberta", "Receção", "Copa", "Instalações sanitárias", "Arrumos", "Montra", "Nave / oficina", "Armazém", "Vestiários", "Cais / exterior",
 ];
 
@@ -552,7 +581,8 @@ export function divisoesSobrepostas(a, b) {
 }
 
 export function plantaVazia() {
-  return { escala_cm: ESCALA_CM, largura_cm: 2000, altura_cm: 1500, fundo: null, divisoes: [], elementos: [] };
+  // `respostas`: os elementos já trazem `por_responder` (passo 4); sem isto, um estado antigo (porResponderAntigo).
+  return { escala_cm: ESCALA_CM, largura_cm: 2000, altura_cm: 1500, fundo: null, divisoes: [], elementos: [], respostas: true };
 }
 
 export const plantaTemConteudo = (p) => !!p && (p.divisoes.length > 0 || p.elementos.length > 0 || !!p.fundo);

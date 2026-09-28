@@ -31,8 +31,11 @@
   <main class="simulador" id="conteudo">
     <div class="wrap">
       <div class="sim-cabecalho">
-        <h1>Simular orçamento</h1>
-        <p class="sub" id="sim-intro">Diga-nos como é a sua casa e o que quer automatizar. No fim vê uma estimativa com intervalo de preço — o valor final é confirmado na visita técnica gratuita.</p>
+        <!-- Título e "Faltam cerca de N min." (app.js desenharProgresso) na mesma linha; sem frase de introdução. -->
+        <div class="sim-titulo-linha">
+          <h1>Simular orçamento</h1>
+          <p class="sim-falta" id="sim-falta" aria-live="polite"></p>
+        </div>
         <p class="msg info" id="sim-cliente" hidden></p>
       </div>
 
@@ -61,19 +64,18 @@
             <div class="escolhas-grelha seis" id="casa-tipos"></div>
           </fieldset>
           <fieldset class="escolhas" id="casa-tipologia-caixa">
-            <legend>Tipologia <small class="ajuda" id="casa-tipologia-ajuda">T2 = 2 quartos; T0 = estúdio (sala e quarto na mesma divisão).</small></legend>
+            <legend>Tipologia</legend>
             <div class="escolhas-grelha seis" id="casa-tipologias"></div>
           </fieldset>
           <div class="duas" id="casa-negocio" hidden>
             <label>Área (m²) <small class="ajuda">Aproximada, de todo o espaço.</small><input id="casa-area" type="number" inputmode="numeric" min="10" max="5000" step="1"></label>
           </div>
-          <!-- Pisos (moradia, alojamento local, outro); com 2 ou mais, um separador por piso com os valores desse piso. -->
-          <div class="contadores" id="casa-contadores-pisos"></div>
+          <!-- Pisos (moradia, alojamento local, outro): na linha dos contadores, à direita; com 2 ou mais, um separador por piso com os valores desse piso. -->
           <div class="quer-pisos" id="casa-pisos" role="tablist" aria-label="Divisões por piso" hidden></div>
           <div class="casa-painel" id="casa-painel">
             <div class="contadores" id="casa-contadores"></div>
             <fieldset class="escolhas" id="casa-extras-caixa">
-              <legend>A casa tem… <small class="ajuda" id="casa-extras-ajuda">Toque para marcar ou desmarcar.</small></legend>
+              <legend>A casa tem…</legend>
               <div class="escolhas-grelha" id="casa-extras"></div>
             </fieldset>
           </div>

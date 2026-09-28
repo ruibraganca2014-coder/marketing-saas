@@ -41,7 +41,7 @@ const MODELOS = {
   outro: "Outra máquina",
 };
 // Passo "A casa" e "Equipamentos" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
-const EXTRAS_CASA = { jardim: "jardim/exterior", garagem: "garagem/arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
+const EXTRAS_CASA = { jardim: "jardim", exterior: "exterior", garagem: "garagem", arrecadacao: "arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
 const OBJETIVOS = {
   poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
   distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",

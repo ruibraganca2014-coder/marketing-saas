@@ -7,20 +7,33 @@
 .simulador { padding: 24px 0 40px; }
 /* Sem "duplo toque para aproximar" na página: os toques seguidos (ferramenta → planta) não se perdem. */
 .pagina-simulador { touch-action: manipulation; }
-.sim-cabecalho h1 { font-size: clamp(1.9rem, 5vw, 2.6rem); margin: 0 0 8px; }
-.sim-cabecalho .sub { margin-bottom: 16px; }
+/* Cabeçalho compacto: o título e "Faltam cerca de N min." na mesma linha (o tempo à direita). */
+.sim-titulo-linha { display: flex; align-items: baseline; justify-content: space-between; gap: 2px 16px; margin: 0 0 12px; }
+.sim-cabecalho h1 { flex: 0 1 auto; font-size: clamp(1.5rem, 6vw, 2.4rem); margin: 0; }
+@media (min-width: 360px) { .sim-cabecalho h1 { flex: none; } }
 .sim-cabecalho .msg { margin: 0 0 16px; }
+/* Sem a barra dos passos (continuar/enviado) o tempo também não aparece. */
+.simulador:has(.sim-progresso[hidden]) .sim-falta { display: none; }
 .sim-retomar { margin-bottom: 20px; display: grid; gap: 10px; }
 .sim-retomar h2 { font-size: 1.4rem; margin: 0; }
 .sim-retomar p { margin: 0; }
 
 /* ---------- Progresso ---------- */
-.sim-progresso { display: block; margin: 0 0 20px; }
+.sim-progresso { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 20px; }
+.sim-progresso[hidden] { display: none; }
 .sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
 .sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
 .sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-/* "Começar de novo" sempre à mão, por baixo dos passos (com confirmação na página). */
+/* "Começar de novo" sempre à mão (com confirmação na página): no ecrã largo à direita do passo 7, na mesma
+   linha; no telemóvel por baixo da barra, à direita. A confirmação ocupa a largura toda. */
 .sim-recomecar { display: grid; justify-items: end; gap: 6px; margin-top: 6px; }
+@media (min-width: 720px) {
+  .sim-progresso { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+  .sim-barra { grid-column: 1; }
+  .sim-progresso ol { grid-column: 1; }
+  .sim-recomecar { grid-column: 2; grid-row: 2; align-self: center; margin-top: 0; }
+  .sim-recomecar:has(.confirmar) { grid-column: 1 / -1; grid-row: 3; margin-top: 6px; }
+}
 .sim-recomecar .confirmar { justify-self: stretch; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--areia-suave); }
 .sim-recomecar .confirmar p { margin: 0 0 8px; font-weight: 600; }
 .sim-recomecar .botoes { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -68,6 +81,8 @@ input, select { min-height: 44px; }
 .contadores:not(:has(.contador:not([hidden]))) { display: none; }
 .contador { display: grid; gap: 6px; min-width: 0; }
 @media (min-width: 720px) { .contadores { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* Pisos (moradia, AL, outro) na mesma linha dos contadores, encostado à direita (por baixo do T5+); no telemóvel na última coluna da linha seguinte. */
+#contador-pisos { grid-column: -2 / -1; }
 /* Passo 1 com 2 ou mais pisos: os contadores e "A casa tem…" do piso escolhido nos separadores (#casa-pisos). */
 .casa-painel { display: grid; gap: 16px; min-width: 0; }
 .contador-rotulo { font-weight: 700; }
@@ -88,15 +103,16 @@ input, select { min-height: 44px; }
 @media (min-width: 980px) { .editor { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
 .editor-principal { display: grid; gap: 10px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
 /* Ferramentas em 3 grupos (divisões, elementos, máquinas), sem rótulos e separados só por um pequeno espaço;
-   todos os botões iguais (quadrados, desenho em cima, nome em baixo), por isso alinham em grelha. No telemóvel
+   todos os botões iguais (desenho à esquerda, nome à direita), por isso alinham em grelha. No telemóvel
    cada grupo é uma fila que desliza para o lado e encaixa num botão (a página não rola na horizontal). */
 .editor-ferramentas { display: grid; gap: 12px; min-width: 0; }
 .editor-barra { display: flex; gap: 6px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 2px 2px 6px; scrollbar-width: thin; }
 .editor-barra[hidden] { display: none; }
 @media (min-width: 720px) { .editor-barra { flex-wrap: wrap; overflow-x: visible; padding-bottom: 0; } }
-.ferramenta { flex: none; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; width: 80px; min-height: 80px; padding: 8px 4px 6px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .74rem/1.15 var(--letra); text-align: center; cursor: pointer; scroll-snap-align: start; }
-.ferramenta svg { width: 30px; height: 30px; flex: none; color: var(--texto); }
-.ferramenta-nome { display: block; max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
+/* Na horizontal (decisão do dono): desenho à esquerda e o nome à direita; todos do mesmo tamanho. */
+.ferramenta { flex: none; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; width: 136px; height: 56px; padding: 4px 8px; border: 2px solid var(--borda); border-radius: 14px; background: var(--superficie); color: var(--texto); font: 700 .76rem/1.15 var(--letra); text-align: left; cursor: pointer; scroll-snap-align: start; overflow: hidden; }
+.ferramenta svg { width: 32px; height: 32px; flex: none; color: var(--texto); }
+.ferramenta-nome { display: block; min-width: 0; max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
 .ferramenta:hover { border-color: var(--musgo); }
 .ferramenta[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
@@ -154,7 +170,7 @@ input, select { min-height: 44px; }
 .editor-dialogo-corpo > * { margin: 0; }
 .editor-dialogo .form-botoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-dialogo .form-botoes .btn[hidden] { display: none; }
-/* Guardar/Rodar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
+/* Guardar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
 .editor-dialogo-form > .form-botoes { position: sticky; bottom: 0; margin: 0 -16px -18px; padding: 10px 16px 18px; background: var(--superficie); border-top: 1px solid var(--borda); }
 .sim-contagem h3 { margin: 0 0 6px; font-size: 1.15rem; }
 .lista-contagem { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
@@ -171,10 +187,18 @@ input, select { min-height: 44px; }
 .divisao-topo :is(h3, h4):focus-visible { outline: 3px solid var(--foco); outline-offset: 3px; border-radius: 4px; }
 .divisao-feita { padding: 2px 10px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-size: .82rem; font-weight: 800; }
 .divisao-resumo { margin: 0; font-weight: 600; color: var(--texto-suave); }
+/* Detalhes obrigatórios (passo 4): o que falta responder e as dicas dos objetivos. */
+.divisao-falta { margin: 0; padding: 6px 10px; border-radius: 10px; background: var(--alarme-suave); color: var(--alarme-texto); font-weight: 700; }
+.divisao-dica { margin: 0; }
+.aparelho-texto small.falta-responder { color: var(--alarme-texto); font-weight: 800; }
+.aparelho-quais .por-responder { border-color: var(--alarme-texto); color: var(--alarme-texto); }
 .aparelhos { list-style: none; margin: 0; padding: 0; display: grid; }
 .aparelho { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--borda); }
 .aparelho:first-child { border-top: 0; padding-top: 0; }
-.aparelho-linha { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+/* Colunas fixas, iguais em todas as linhas e cartões: desenho · nome/detalhe · − n + · Foto (vazia com foto). */
+.aparelho-linha { display: grid; grid-template-columns: 36px minmax(0, 1fr) 124px 92px; align-items: center; gap: 8px; }
+.aparelho-linha > .contador-caixa { grid-column: 3; justify-self: center; }
+.aparelho-linha > .aparelho-foto { grid-column: 4; justify-self: stretch; justify-content: center; }
 .aparelho-icone { width: 36px; height: 36px; color: var(--texto); }
 .aparelho-texto { display: grid; gap: 0; min-width: 0; }
 .aparelho-texto small { color: var(--texto-suave); font-size: .82rem; overflow-wrap: anywhere; }
@@ -191,9 +215,9 @@ input, select { min-height: 44px; }
 .aparelho-quais .btn { min-width: 44px; }
 .divisao-botoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
 .divisao-verificar[aria-pressed="false"] { background: var(--superficie); color: var(--musgo-texto); border-color: var(--musgo); }
-/* No telemóvel estreito: a foto passa para baixo do nome (o − n + fica ao lado). */
-@media (max-width: 400px) {
-  .aparelho-linha { grid-template-columns: 36px minmax(0, 1fr) auto; }
+/* No telemóvel: a foto passa para baixo do nome (o − n + fica ao lado, na mesma coluna em todas as linhas). */
+@media (max-width: 479px) {
+  .aparelho-linha { grid-template-columns: 36px minmax(0, 1fr) 124px; }
   .aparelho-linha > .aparelho-foto { grid-column: 2 / -1; justify-self: start; }
 }
 .divisoes-fotos-aviso { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--texto-suave); font-weight: 600; }
@@ -313,15 +337,37 @@ input, select { min-height: 44px; }
    também no telemóvel). Os botões ficam baixos, o desenho ao lado do nome. */
 .editor-principal:fullscreen .editor-ferramentas, .editor-principal.ecra-inteiro .editor-ferramentas { display: flex; flex: none; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; scrollbar-width: thin; }
 .editor-principal:fullscreen .editor-barra, .editor-principal.ecra-inteiro .editor-barra { flex: none; flex-wrap: nowrap; overflow: visible; padding: 0; gap: 6px; align-items: center; }
-.editor-principal:fullscreen .ferramenta, .editor-principal.ecra-inteiro .ferramenta { flex-direction: row; width: auto; min-height: 44px; padding: 4px 10px; gap: 6px; font-size: .78rem; white-space: nowrap; }
+.editor-principal:fullscreen .ferramenta, .editor-principal.ecra-inteiro .ferramenta { flex-direction: row; width: auto; height: auto; min-height: 44px; padding: 4px 10px; gap: 6px; font-size: .78rem; white-space: nowrap; }
 .editor-principal:fullscreen .ferramenta svg, .editor-principal.ecra-inteiro .ferramenta svg { width: 22px; height: 22px; }
 .editor-principal:fullscreen::backdrop { background: var(--fundo); }
 html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Em ecrã inteiro o "Sair" fica à frente no seu grupo e o grupo à frente na barra (no telemóvel não há Esc). */
 #editor-ecra-inteiro[aria-pressed="true"] { order: -1; border-color: var(--musgo); }
 .editor-acoes-grupo:has(#editor-ecra-inteiro[aria-pressed="true"]) { order: -1; }
-/* "O que quer": máquina marcada com quantas (− n +); nas casas com pisos, um separador por piso. */
-.quer-item { display: grid; gap: 6px; align-content: start; min-width: 0; }
+/* Cartões com desenho (máquinas grandes e pequenas, "O que quer fazer"): na horizontal — o desenho grande à
+   esquerda, à direita o nome e por baixo a potência (ou a frase curta). 3 por linha no ecrã largo, 2 no tablet,
+   1–2 no telemóvel (conforme cabem); as filas têm a mesma altura. */
+:is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); grid-auto-rows: 1fr; }
+@media (min-width: 600px) { :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) { :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.escolha.com-icone { justify-content: flex-start; align-items: flex-start; height: 100%; padding: 12px; text-align: left; }
+.escolha.com-icone > span { grid-template-columns: 44px minmax(0, 1fr); column-gap: 12px; align-items: center; align-content: start; width: 100%; overflow-wrap: break-word; hyphens: auto; }
+.escolha.com-icone .escolha-icone { grid-row: 1 / span 2; width: 44px; height: 44px; color: var(--texto); }
+.escolha.com-icone > span > small { grid-column: 2; font-size: .82rem; }
+/* "Equipamentos": marcada, quantas (− n +) DENTRO do cartão, em baixo à direita; o espaço do contador está
+   sempre reservado (cartões todos iguais). O − e o + não mexem no cartão. Nas casas com pisos, um separador por piso. */
+.quer-item { position: relative; display: grid; min-width: 0; }
+.quer-item > .escolha { min-height: 104px; padding-bottom: 50px; }
+.quer-item > .quer-extra { position: absolute; right: 8px; bottom: 8px; z-index: 1; }
+/* Uma coluna (telemóvel): cartões mais baixos — o espaço do contador fica em baixo, à direita da potência. */
+@media (max-width: 599px) {
+  :is(#quer-maquinas, #quer-pequenas .escolhas-grelha) { grid-auto-rows: auto; }
+  .quer-item > .escolha { min-height: 0; padding: 10px 12px 12px; }
+  .quer-item > .escolha > span { grid-template-rows: auto minmax(40px, auto); }
+  .quer-item > .escolha > span > small { align-self: center; margin-right: 122px; white-space: nowrap; }
+}
+.quer-extra .contador-caixa { gap: 4px; }
+.quer-extra .contador-caixa .btn { width: 40px; min-width: 40px; min-height: 40px; }
 .escolha .escolha-icone { width: 34px; height: 34px; justify-self: center; color: var(--texto); }
 .quer-painel { display: grid; gap: 16px; min-width: 0; }
 .quer-pisos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 0; border-bottom: 2px solid var(--musgo); scrollbar-width: thin; }
@@ -336,7 +382,8 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 
 /* Tempo típico por passo e o que falta no total. */
 .sim-passo-tempo { display: block; font-size: .7rem; font-weight: 600; color: var(--texto-suave); line-height: 1.1; }
-.sim-falta { margin: 6px 0 0; text-align: right; font-size: .85rem; font-weight: 700; color: var(--texto-suave); }
+.sim-falta { flex: 0 1 auto; min-width: 0; margin: 0; text-align: right; font-size: .9rem; font-weight: 700; color: var(--texto-suave); }
+@media (max-width: 479px) { .sim-falta { font-size: .78rem; } }
 @media (max-width: 479px) { .sim-passo-tempo { display: none; } }
 
 /* "Imprimir" da planta (imprimir.js): só as folhas da planta, uma por piso, em A4 (ao baixo se a planta é mais
