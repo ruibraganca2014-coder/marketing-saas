@@ -1,4 +1,4 @@
-// Simulador de orçamento (docs/SIMULADOR-ORCAMENTO.md): 7 passos, progresso guardado
+// Simulador de orçamento (docs/SIMULADOR-ORCAMENTO.md): 6 passos com a planta no topo de todos, progresso guardado
 // no navegador, preço a partir do catálogo público e envio para POST /api/orcamento.
 // Todos os textos do cliente e do servidor entram só com textContent.
 
@@ -6,13 +6,13 @@ import {
   TIPOS_CASA, MODELOS,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
-  plantaTemConteudo, nomeModelo, formatarW, FASES,
+  plantaTemConteudo, formatarW, FASES,
   perfilCasa, maquinasGrandesDe, modelosDoPerfil, objetivosDe, tiposDivisaoPara,
   TIPOS_COM_PISOS, nomePiso, pisoDe,
 } from "./regras.js";
 import {
   plantaDaCasa, assinaturaCasa, dicasObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
-  acertarPisos, temPorPiso, resumoPiso,
+  acertarPisos, temPorPiso, resumoPiso, divisoesDaCasa, tipoDivisao,
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
@@ -59,7 +59,8 @@ const params = new URLSearchParams(location.search);
 const modoCliente = params.get("cliente") === "1";
 const codigoCliente = modoCliente ? lerCodigoCliente(sessao ?? semArmazem) : null;
 // Índices dos passos (PASSOS em estado.js): o quadro vem depois das divisões (dimensiona-se com tudo conhecido).
-const P = { casa: 0, quer: 1, planta: 2, divisoes: 3, quadro: 4, preco: 5, enviar: 6 };
+// Já não há passo "Planta" (decisão do dono): a planta está no topo de todos os passos (#sim-planta).
+const P = { casa: 0, quer: 1, divisoes: 2, quadro: 3, preco: 4, enviar: 5 };
 // Área de cliente com código ("Ampliar a instalação"): a casa já é conhecida, começa em "O que quer".
 const PASSO_INICIAL = codigoCliente ? P.quer : P.casa;
 const estadoInicial = () => estadoNovo({ cliente: !!codigoCliente });
@@ -77,24 +78,25 @@ const editor = criarEditor($("editor"), {
     estado.planta = p;
     estado.plantaSaltada = false;
     estado.plantaAuto = false;   // já não é só a planta que desenhámos: não a refazemos sozinhos
-    desenharContagem();
-    textoSeguinte();
-    // Mexeu a partir do passo "Divisões" ("−" ou a janela de um aparelho): o pedido e os cartões seguem a planta.
-    if (estado.passo === P.divisoes) {
-      refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
-      desenharDivisoes();
-    }
-    if (voltarDivisoes && estado.passo === P.planta) $("planta-voltar-texto").textContent = "Feito. Pode acrescentar mais, ou tocar em \"Voltar às divisões\".";
+    desenharPlantaOrigem();
+    // Mexeu na planta (em qualquer passo depois de "Equipamentos"): o pedido e os cartões seguem-na.
+    if (estado.passo > P.quer) refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
+    if (estado.passo === P.divisoes) desenharDivisoes();
+    if (estado.passo === P.preco) desenharPreco();
     agendarGravacao();
   },
+  // Passo "Divisões": a divisão selecionada na planta fica destacada no seu cartão (e vice-versa: cartaoDivisao).
+  aoSelecionar: (id) => destacarCartao(id, { rolar: !doCartao }),
 });
 
 // ------------------------------------------------------------ gravação
 let temporizador = null;
-function agendarGravacao() {
+/** Grava 0,3 s depois da última mudança; `planta` (por omissão) também põe a planta do topo a seguir as escolhas. */
+function agendarGravacao(planta = true) {
   if (enviado) return;
   clearTimeout(temporizador);
   temporizador = setTimeout(gravar, 300);
+  if (planta) agendarPlanta();
 }
 function gravar() {
   clearTimeout(temporizador);
@@ -109,10 +111,11 @@ addEventListener("pagehide", () => { if (temporizador) gravar(); });
 
 // ------------------------------------------------------------ passos
 /** Minutos típicos de cada passo (pela ordem de PASSOS): só para o cliente saber quanto falta. */
-const MINUTOS_PASSO = [1, 2, 4, 2, 2, 1, 1];
-const minutosDe = (i) => (i === P.planta && estado.plantaSaltada ? 0 : MINUTOS_PASSO[i] ?? 1);
-/** Por baixo do nome: "feito" nos passos para trás, "saltado" na planta saltada, o tempo típico nos que faltam. */
-const tempoDe = (i) => (i === P.planta && estado.plantaSaltada && i !== estado.passo ? "saltado" : i < estado.passo ? "feito" : `~${minutosDe(i)} min`);
+// O tempo do antigo passo "Planta" (4 min) repartiu-se: +1 min na casa e nas divisões (a planta mexe-se nelas).
+const MINUTOS_PASSO = [2, 2, 3, 2, 1, 1];
+const minutosDe = (i) => MINUTOS_PASSO[i] ?? 1;
+/** Por baixo do nome: "feito" nos passos para trás, o tempo típico nos que faltam. */
+const tempoDe = (i) => (i < estado.passo ? "feito" : `~${minutosDe(i)} min`);
 
 function desenharProgresso() {
   const ol = $("sim-passos");
@@ -127,7 +130,7 @@ function desenharProgresso() {
     const tempoTxt = tempoDe(i);
     const tempo = el("span", "sim-passo-tempo", tempoTxt);
     tempo.setAttribute("aria-hidden", "true");
-    const extra = tempoTxt === "feito" || tempoTxt === "saltado" ? ` (${tempoTxt})` : "";
+    const extra = tempoTxt === "feito" ? ` (${tempoTxt})` : "";
     if (i <= visitado && !atual && !aEnviar) {
       const b = el("button", "sim-passo-botao");
       b.type = "button";
@@ -158,11 +161,9 @@ function desenharProgresso() {
 
 function irPara(i, { foco = true } = {}) {
   const de = estado.passo;
-  if (i !== P.planta) voltarDivisoes = null;   // "+" do passo "Divisões": só enquanto está na planta
-  // Ao passar da planta para a frente (também a saltar da casa ou de "O que quer" pela barra): planta
-  // (se ainda é a nossa), divisões, quadro e termóstatos pré-preenchidos (só o que o cliente ainda não
-  // mudou à mão).
-  if (i > P.planta && de <= P.planta) prepararPassosSeguintes();
+  // Ao passar de "Equipamentos" para a frente (também a saltar pela barra): planta (se ainda é a nossa), divisões,
+  // quadro e termóstatos pré-preenchidos (só o que o cliente ainda não mudou à mão).
+  if (i > P.quer && de <= P.quer) prepararPassosSeguintes();
   estado.passo = Math.max(0, Math.min(PASSOS.length - 1, i));
   visitado = Math.max(visitado, estado.passo);
   estado.visitado = visitado;
@@ -174,22 +175,13 @@ function irPara(i, { foco = true } = {}) {
 function mostrarPasso(foco = true) {
   for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = i !== estado.passo;
   $("passo-fim").hidden = true;
+  $("sim-planta").hidden = false;
   const p = estado.passo;
   $("sim-anterior").hidden = p === 0;
   textoSeguinte();
+  atualizarPlanta();
   if (p === P.casa) desenharCasa();
   if (p === P.quer) desenharQuer();
-  if (p === P.planta) {
-    if (preencherPlanta()) agendarGravacao();
-    editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
-    editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
-    editor.definirPisos(pisosDaCasa(estado.casa));
-    editor.abrir(estado.planta, { reiniciarVista: true });
-    desenharContagem();
-    desenharPlantaOrigem();
-    textoSeguinte();
-  }
-  $("planta-voltar").hidden = !(p === P.planta && voltarDivisoes);
   if (p === P.divisoes) desenharDivisoes();
   if (p === P.quadro) desenharQuadro();
   if (p === P.preco) desenharPreco();
@@ -204,20 +196,15 @@ function mostrarPasso(foco = true) {
 
 function textoSeguinte() {
   const p = estado.passo;
-  $("sim-seguinte").textContent = p === PASSOS.length - 1 ? "Enviar pedido"
-    : p === P.planta && voltarDivisoes ? "Voltar às divisões"
-      : p === P.planta && !plantaTemConteudo(estado.planta) ? "Saltar a planta" : "Seguinte";
+  $("sim-seguinte").textContent = p === PASSOS.length - 1 ? "Enviar pedido" : "Seguinte";
 }
 
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(estado.passo - 1));
 $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === PASSOS.length - 1) { if (!bloquearDivisoes()) enviar(); return; }
-  if (estado.passo === P.planta && voltarDivisoes) { voltarAsDivisoes(); return; }
-  // Do passo 4 só se avança com todas as divisões verificadas (e tudo respondido).
+  // Das Divisões só se avança com todas as divisões verificadas (e tudo respondido).
   if (estado.passo === P.divisoes && bloquearDivisoes()) return;
-  // "Seguinte" com a planta desenhada usa-a (mesmo que antes a tenha saltado); vazia = saltar.
-  if (estado.passo === P.planta) estado.plantaSaltada = !plantaTemConteudo(estado.planta);
   irPara(estado.passo + 1);
 });
 
@@ -667,7 +654,7 @@ function desenharQuer() {
   desenharPisosQuer();
 }
 
-/** "O que quer fazer" (no fim do passo 1): os objetivos do perfil do imóvel, da casa toda; refeitos quando o perfil muda. */
+/** "O que quer fazer" (no passo Resumo, decisão do dono; antes no fim do passo 1): os objetivos do perfil do imóvel, da casa toda; refeitos quando o perfil muda. */
 function desenharObjetivos() {
   const go = $("quer-objetivos");
   const perfil = perfilCasa(estado.casa.tipo);
@@ -679,6 +666,7 @@ function desenharObjetivos() {
       if (sim) s.add(k); else s.delete(k);
       estado.quer.objetivos = objs.filter((x) => s.has(x));   // sempre pela ordem da lista
       agendarGravacao();
+      if (estado.passo === P.preco) desenharPreco();   // o plano sugerido segue os objetivos
     };
     go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternarObjetivo(k), iconeObjetivo(k))));
   }
@@ -785,10 +773,31 @@ function desenharExtraQuer(k) {
  */
 const maquinasEditor = () => [
   ...(perfilCasa(estado.casa.tipo) === "habitacao" ? ["televisao", "frigorifico"] : []),
-  ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), "outro",
+  ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), ...modelosDoPerfil(estado.casa.tipo),
 ];
 
-// ------------------------------------------------------------ 3. Planta (pré-desenhada) — docs §1.1
+/**
+ * Linha das ferramentas do editor (decisão do dono): os botões de divisão dos tipos que a casa tem (as divisões do
+ * passo 1 e as da planta; a kitnet conta como sala e cozinha), as máquinas escolhidas no passo 2. O resto fica em
+ * "Mais…". Sem nenhuma divisão (área de cliente sem tipologia), os 4 primeiros (Sala, Quarto, Cozinha, Casa de banho).
+ */
+function divisoesDaBarra() {
+  const tipos = new Set();
+  const nomes = [...(casaDaDivisoes() ? divisoesDaCasa(estado.casa, maquinasParaPlanta(estado)).map((d) => d.nome) : []), ...(estado.planta?.divisoes ?? []).map((d) => d.nome)];
+  for (const n of nomes) {
+    const t = tipoDivisao(n);
+    if (t === "sala_cozinha") { tipos.add("sala"); tipos.add("cozinha"); } else tipos.add(t);
+  }
+  const todos = tiposDivisaoPara(estado.casa.tipo);
+  const l = todos.filter((t) => t.nome !== "Outra" && tipos.has(tipoDivisao(t.nome))).map((t) => t.nome);
+  return l.length ? l : todos.slice(0, 4).map((t) => t.nome);   // sem divisões (área de cliente): as 4 primeiras
+}
+function ferramentasEditor() {
+  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo), divisoesDaBarra());
+  editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo), maquinasEscolhidas(estado.quer));
+}
+
+// ------------------------------------------------------------ Planta no topo (pré-desenhada) — docs §1.1, §2
 const assinaturaBase = () => assinaturaCasa(estado.casa, maquinasParaPlanta(estado));
 /** A casa dá divisões? (tipologia, ou serviços/industrial; na área de cliente sem tipologia não.) */
 const casaDaDivisoes = () => !!estado.casa.tipologia || negocio();
@@ -811,6 +820,35 @@ function desenharDaCasa() {
   estado.plantaBase = assinaturaBase();
 }
 
+/**
+ * A planta do topo segue as escolhas de cada passo (decisão do dono): chamada por agendarGravacao (0,15 s depois da
+ * última mudança, não a cada tecla) e ao mostrar um passo. Redesenha-a só se ainda é a nossa (preencherPlanta); acerta
+ * as ferramentas (divisões da casa, máquinas escolhidas), os pisos e o aviso "Mudou a casa…". Depois de
+ * "Equipamentos", uma planta redesenhada refaz também o pedido (acertarPedido).
+ */
+let temporizadorPlanta = null;
+let pisosEditor = null;   // n.º de pisos já dado ao editor (definirPisos refaz os separadores)
+function agendarPlanta() {
+  clearTimeout(temporizadorPlanta);
+  temporizadorPlanta = setTimeout(atualizarPlanta, 150);
+}
+function atualizarPlanta() {
+  clearTimeout(temporizadorPlanta);
+  temporizadorPlanta = null;
+  if (enviado) return;
+  const redesenhada = preencherPlanta();
+  if (redesenhada && estado.passo > P.quer) acertarPedido();
+  ferramentasEditor();
+  const n = pisosDaCasa(estado.casa);
+  if (n !== pisosEditor) { pisosEditor = n; editor.definirPisos(n); }
+  if (editor.planta !== estado.planta) editor.abrir(estado.planta, { reiniciarVista: true });
+  desenharPlantaOrigem();
+  if (redesenhada) {
+    agendarGravacao(false);
+    if (estado.passo === P.divisoes) desenharDivisoes();
+  }
+}
+
 /** A casa ou as máquinas mudaram depois de o cliente mexer na planta que desenhámos? */
 const plantaDesatualizada = () => !estado.plantaAuto && !!estado.plantaBase && casaDaDivisoes()
   && plantaTemConteudo(estado.planta) && estado.plantaBase !== assinaturaBase();
@@ -818,47 +856,27 @@ const plantaDesatualizada = () => !estado.plantaAuto && !!estado.plantaBase && c
 function desenharPlantaOrigem() {
   const o = $("planta-origem");
   const mudou = plantaDesatualizada();
-  o.hidden = !(estado.plantaAuto || mudou);
-  o.textContent = mudou
-    ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua planta. Se quiser, desenhamo-la de novo a partir dos passos 1 e 2 (perde o que mudou nela)."
-    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos base (porta, interruptor, luz e tomadas), e as máquinas que escolheu. Arraste, ajuste, acrescente divisões (escritório, lavandaria, despensa…) com os botões e tire ou acrescente o que for preciso — ou salte este passo.";
+  o.hidden = !mudou;
+  o.textContent = mudou ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua." : "";
   $("planta-refazer").hidden = !mudou;
-  $("planta-saltar").hidden = !plantaTemConteudo(estado.planta);
-  $("planta-botoes").hidden = $("planta-refazer").hidden && $("planta-saltar").hidden;
 }
-$("planta-saltar").addEventListener("click", () => { estado.plantaSaltada = true; irPara(P.planta + 1); });
 
-// ------------------------------------------------------------ 3. Planta (contagem)
-function desenharContagem() {
-  const c = $("planta-contagem");
-  c.replaceChildren();
-  const p = estado.planta;
-  if (!p.divisoes.length && !p.elementos.length) {
-    c.append(el("p", "ajuda", "Quando desenhar, mostramos aqui o que contámos em cada divisão."));
-    return;
-  }
-  c.append(el("h3", null, "O que contámos"));
-  const ul = el("ul", "lista-contagem");
-  for (const l of contarPlanta(p)) {
-    const partes = [];
-    const add = (n, um, varios) => { if (n) partes.push(`${n} ${n === 1 ? um : varios}`); };
-    add(l.luzes, "luz", "luzes");
-    add(l.tomadas, "tomada", "tomadas");
-    add(l.interruptores.length, "interruptor", "interruptores");
-    add(l.janelas, "janela", "janelas");
-    add(l.estores + l.estores_sem_motor, "estore", "estores");
-    // Porta da rua: sugere um sensor só quando ainda não há um desenhado ao lado.
-    add(l.portas_entrada_sem_sensor, "porta da rua (sensor sugerido)", "portas da rua (sensores sugeridos)");
-    add(l.portas_entrada - l.portas_entrada_sem_sensor, "porta da rua (já com sensor)", "portas da rua (já com sensor)");
-    add(l.sensores_porta, "sensor de porta", "sensores de porta");
-    add(l.sensores_movimento, "sensor de movimento", "sensores de movimento");
-    add(l.quadros, "quadro elétrico", "quadros elétricos");
-    for (const m of l.maquinas) partes.push(`${nomeModelo(m.modelo).toLowerCase()} (${formatarW(m.potencia_w)})`);
-    const li = el("li");
-    li.append(el("b", null, `${l.nome}: `), document.createTextNode(partes.length ? partes.join(", ") : "nada ainda"));
-    ul.append(li);
-  }
-  c.append(ul);
+// Telemóvel: a planta do topo esconde-se e mostra-se com um botão (no computador está sempre à vista).
+function recolherPlanta(sim) {
+  $("sim-planta").classList.toggle("recolhida", sim);
+  const b = $("planta-recolher");
+  b.textContent = sim ? "Mostrar" : "Esconder";
+  b.setAttribute("aria-expanded", String(!sim));
+  b.setAttribute("aria-label", sim ? "Mostrar a planta" : "Esconder a planta");
+}
+recolherPlanta(false);
+$("planta-recolher").addEventListener("click", () => recolherPlanta(!$("sim-planta").classList.contains("recolhida")));
+// A planta presa no topo não pode tapar o que tem o foco: a altura dela entra no scroll-padding da página (CSS).
+if (typeof ResizeObserver === "function") {
+  new ResizeObserver(() => {
+    const t = $("sim-planta");
+    document.documentElement.style.setProperty("--planta-altura", `${t.hidden ? 0 : Math.round(t.getBoundingClientRect().height)}px`);
+  }).observe($("sim-planta"));
 }
 
 const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length > 0 || estado.planta.elementos.length > 0);
@@ -1063,12 +1081,11 @@ function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "I
 ligarRecalcular("planta-refazer", () => true, () => {
   desenharDaCasa();
   estado.plantaSaltada = false;
+  if (estado.passo > P.quer) acertarPedido();
 }, () => {
-  editor.definirPisos(pisosDaCasa(estado.casa));
-  editor.abrir(estado.planta, { reiniciarVista: true });
-  desenharContagem();
-  desenharPlantaOrigem();
-  textoSeguinte();
+  atualizarPlanta();
+  if (estado.passo === P.divisoes) desenharDivisoes();
+  if (estado.passo === P.preco) desenharPreco();
 }, { pergunta: "Isto apaga a planta atual (e o que desenhou nela) e desenha-a de novo a partir dos passos 1 e 2. Continuar?", sim: "Sim, refazer" });
 
 // ------------------------------------------------------------ fotos (lote 5)
@@ -1158,7 +1175,6 @@ function fotosParaEnvio() {
 // no preço (estado.divisoes) continua a sair da planta e dos objetivos (divisoesSugeridas): o resumo do cartão.
 const ITENS_DIVISAO = [
   ["interruptores", "Luzes pelo telemóvel"],
-  ["luzes_regulaveis", "Luz com intensidade regulável"],
   ["estores", "Estores automáticos"],
   ["sensores_movimento", "Sensor de movimento"],
   ["sensores_porta", "Aviso de porta ou janela aberta"],
@@ -1181,7 +1197,6 @@ const listaPt = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", "
 const focar = (id) => { const x = id && $(id); if (!x || x.disabled) return false; x.focus({ preventScroll: true }); return true; };
 
 let divisaoTocada = null;       // divisão mexida a partir deste passo (o pedido dela segue a planta)
-let voltarDivisoes = null;      // {divisao, k}: "+" levou à planta; "Voltar às divisões" regressa a este cartão
 const abertas = new Set();      // linhas com vários aparelhos com a lista "Qual?" aberta
 
 /** Planta deste passo: a desenhada ou, com a planta saltada, a que a casa daria (a mesma da contagem). */
@@ -1227,7 +1242,6 @@ function detalheLinha(l) {
     return `${listaPt(b.map(String))} ${b.length === 1 && b[0] === 1 ? "botão" : "botões"}`;
   }
   if (l.tipo === "tomada") return conta(ps.filter((p) => p.inteligente).length, "inteligente", "inteligentes");
-  if (l.tipo === "luz") return conta(ps.filter((p) => p.brilho).length, "regulável", "reguláveis");
   if (l.tipo === "porta") return conta(ps.filter((p) => p.entrada).length, "porta da rua", "da rua");
   if (l.tipo === "janela") {
     const partes = [conta(ps.filter((p) => p.estore && p.motorizado).length, "com estore motorizado", "com estore motorizado"),
@@ -1247,7 +1261,7 @@ const entradaDe = (d) => estado.divisoes.find((x) => x.planta_id === d.id)
 
 /**
  * Detalhes obrigatórios (passo 4): aparelhos com pergunta por responder (`por_responder`: interruptor, tomada, janela,
- * luz, máquina "Outra"). A divisão só conta como verificada com tudo respondido; o "Seguinte" só avança com todas.
+ * máquina "Outra"; o ponto de luz não tem pergunta). A divisão só conta como verificada com tudo respondido; o "Seguinte" só avança com todas.
  */
 const porResponder = (l) => l.els.filter((e) => e.por_responder).length;
 function faltaResponder(planta, d) {
@@ -1321,9 +1335,9 @@ function garantirPlanta() {
 /** O editor tem de estar com a planta do estado para apagar, pôr ou abrir a janela (um passo de anular cada). */
 function garantirEditor() {
   if (editor.planta === estado.planta) return;
-  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
-  editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
-  editor.definirPisos(pisosDaCasa(estado.casa));
+  ferramentasEditor();
+  pisosEditor = pisosDaCasa(estado.casa);
+  editor.definirPisos(pisosEditor);
   editor.abrir(estado.planta, { reiniciarVista: true });
 }
 
@@ -1349,38 +1363,50 @@ function tirarUm(d, l) {
 }
 
 /**
- * "+" (e "Acrescentar outro aparelho", "Acrescentar uma divisão"): vai à planta, no piso da divisão, com ela
- * selecionada e a ferramenta desse aparelho escolhida. Pelo teclado o aparelho fica logo no meio da divisão (como
- * as ferramentas do editor); o cliente arrasta-o para o sítio certo.
+ * "+" (e "Acrescentar outro aparelho", "Acrescentar uma divisão"): na planta do topo (sem mudar de passo), no piso da
+ * divisão, com ela selecionada e a ferramenta desse aparelho escolhida (na linha das ferramentas, mesmo que lá não
+ * estivesse). Pelo teclado o aparelho fica logo no meio da divisão (como as ferramentas do editor); o cliente
+ * arrasta-o para o sítio certo. O cartão atualiza-se sozinho (aoMudar).
  */
 function acrescentar(d, l, ev = null) {
   if (d && !garantirPlanta()) return;
   const teclado = ev?.detail === 0;
-  voltarDivisoes = { divisao: d?.id ?? null, k: l?.k ?? null };
-  irPara(P.planta, { foco: false });
+  garantirEditor();
+  divisaoTocada = d?.id ?? null;
+  recolherPlanta(false);
   const oque = l ? (l.modelo ? `a nova máquina (${MODELOS[l.modelo].nome.toLowerCase()})` : NOMES_TIPO[l.tipo][2]) : null;
-  const texto = !d ? "Use os botões das divisões (Sala, Quarto…) para acrescentar a divisão; depois toque em \"Voltar às divisões\"."
+  const texto = !d ? "Use os botões das divisões (Sala, Quarto… ou \"Mais…\") na planta, em cima."
     : oque && teclado ? `Pusemos ${oque} no meio de "${d.nome}": ${oque.startsWith("a ") ? "mova-a com as setas (ou arraste-a)" : "mova-o com as setas (ou arraste-o)"} para o sítio certo.`
-      : oque ? `Toque na planta, dentro de "${d.nome}", onde fica ${oque}.`
-        : `Escolha o aparelho nas ferramentas e toque na planta, dentro de "${d.nome}".`;
+      : oque ? `Toque na planta, em cima, dentro de "${d.nome}", onde fica ${oque}.`
+        : `Escolha o aparelho nas ferramentas da planta (em cima) e toque dentro de "${d.nome}".`;
+  doCartao = true;
   editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: teclado && !!l });
-  $("planta-voltar-texto").textContent = texto;
-  if (!(teclado && l)) $("planta-voltar-texto").focus({ preventScroll: true });
+  doCartao = false;
+  mensagemDivisoes(texto);
+  // Sem ferramenta escolhida (ou sem divisão): o foco vai para a linha das ferramentas.
+  if (!l || !d) document.querySelector(".editor-ferramentas button[tabindex='0']")?.focus({ preventScroll: true });
 }
 
-/** "Voltar às divisões": o passo 4, com o foco e a vista no cartão de onde saiu. */
-function voltarAsDivisoes() {
-  const v = voltarDivisoes;
-  voltarDivisoes = null;
-  estado.plantaSaltada = !plantaTemConteudo(estado.planta);
-  if (v?.divisao) refazerDivisoes([v.divisao]);
-  irPara(P.divisoes, { foco: false });
-  const base = v?.divisao ? `div-${v.divisao}` : null;
-  const alvo = (base && ($(`${base}-${v.k}-mais`) ?? $(`${base}-titulo`))) || $("titulo-3");
-  alvo.focus({ preventScroll: true });
-  alvo.scrollIntoView({ block: base ? "center" : "start", behavior: reduzido() ? "auto" : "smooth" });
+/**
+ * Cartão da divisão selecionada na planta: destacado (`na-planta`); vindo da planta, rola até ele (sem o foco).
+ * Tocar num cartão (fora dos botões) seleciona a divisão na planta (`doCartao`: aí não rola).
+ */
+let doCartao = false;
+function destacarCartao(id, { rolar = false } = {}) {
+  if (estado.passo !== P.divisoes) return;
+  for (const c of document.querySelectorAll(".divisao-cartao.na-planta")) c.classList.remove("na-planta");
+  const c = id ? $(`div-${id}`) : null;
+  if (!c) return;
+  c.classList.add("na-planta");
+  if (rolar) c.scrollIntoView({ block: "nearest", behavior: reduzido() ? "auto" : "smooth" });
 }
-$("planta-voltar-botao").addEventListener("click", voltarAsDivisoes);
+function mostrarNaPlanta(id) {
+  if (editor.planta !== estado.planta) return;   // planta saltada num estado antigo: ainda não é a do editor
+  doCartao = true;
+  editor.selecionar(id);
+  doCartao = false;
+  destacarCartao(id);
+}
 
 /** Janela simples de um aparelho (a do editor), aberta por cima deste passo; ao fechar o foco volta a `focoId`. */
 function abrirJanela(d, e, focoId) {
@@ -1414,7 +1440,7 @@ function desenharDivisoes() {
   const origem = $("divisoes-origem");
   origem.hidden = usaPlanta() && !estado.divisoesEditadas;
   origem.textContent = !usaPlanta()
-    ? "Saltou a planta: mostramos a que desenhámos a partir da casa. Se mudar alguma coisa aqui, passa a ser a sua planta."
+    ? "Ainda sem planta: mostramos a que a casa daria. Se mudar alguma coisa aqui, passa a ser a sua planta (em cima)."
     : "Numa versão anterior mudou divisões à mão: ficam como estavam até mexer nelas aqui (ou voltar à nossa sugestão).";
   $("divisoes-recalcular").hidden = !estado.divisoesEditadas;
   // Progresso: divisões verificadas desta planta.
@@ -1491,6 +1517,9 @@ function cartaoDivisao(planta, d, nivel) {
   const ver = divisaoVerificada(planta, d);   // só com tudo respondido
   const c = el("section", `cartao divisao-cartao${ver ? " verificada" : ""}`);
   c.id = id;
+  // Tocar no cartão (ou entrar nele com o teclado) mostra a divisão na planta do topo.
+  c.addEventListener("click", (ev) => { if (!ev.target.closest("button, a, input, label")) mostrarNaPlanta(d.id); });
+  c.addEventListener("focusin", () => { if (!c.classList.contains("na-planta")) mostrarNaPlanta(d.id); });
   c.setAttribute("aria-labelledby", `${id}-titulo`);
   const topo = el("div", "divisao-topo");
   const t = el(nivel, null, d.nome || "Divisão");
@@ -1745,7 +1774,6 @@ function listaInclui(pedidos) {
   const itens = [];
   const add = (n, um, varios) => { if (n > 0) itens.push(n === 1 ? um : `${n} ${varios}`); };
   add(q("interruptor"), "1 interruptor inteligente (luzes pelo telemóvel)", "interruptores inteligentes (luzes pelo telemóvel)");
-  add(q("regulador"), "1 luz com intensidade regulável", "luzes com intensidade regulável");
   add(q("estore"), "1 estore automático", "estores automáticos");
   add(q("sensor_movimento"), "1 sensor de movimento", "sensores de movimento");
   add(q("sensor_porta"), "1 aviso de porta ou janela aberta", "avisos de porta ou janela aberta");
@@ -1761,6 +1789,7 @@ function listaInclui(pedidos) {
 }
 
 function desenharPreco() {
+  desenharObjetivos();   // "O que quer fazer" (neste passo; refeito se o tipo de imóvel mudou)
   desenharCasaResumo();
   const est = $("preco-estado");
   const { pedidos, preco, semDesloc, plano } = calcular();
@@ -1894,7 +1923,7 @@ async function oferecerSimulacaoDaConta(eu) {
     caixa.remove();
     estado = daConta;
     visitado = Math.max(estado.passo, estado.visitado ?? 0);
-    if (estado.passo > P.planta) acertarPedido();
+    if (estado.passo > P.quer) acertarPedido();
     $("sim-retomar").hidden = true;
     document.querySelector(".sim-progresso").hidden = false;
     $("sim-form").hidden = false;
@@ -2116,6 +2145,7 @@ function concluido(preco, semFundo, resultadoFotos = null) {
   clearTimeout(temporizadorConta);   // o painel já apagou a simulação guardada na conta (foi enviada)
   apagarEstado(armazem ?? semArmazem);
   for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = true;
+  $("sim-planta").hidden = true;
   $("sim-navegacao").hidden = true;
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
@@ -2159,8 +2189,9 @@ function recomecar() {
   ultimoPreco = null;
   pisoQuer = 0;
   pisoCasa = 0;
-  voltarDivisoes = null;
   divisaoTocada = null;
+  clearTimeout(temporizadorPlanta);
+  pisosEditor = null;
   abertas.clear();
   fotos.clear();
   limparFotos(null);   // as fotos são da simulação: saem com ela
@@ -2232,7 +2263,7 @@ function iniciar() {
     $("sim-continuar").addEventListener("click", () => {
       estado = guardado;
       visitado = Math.max(estado.passo, estado.visitado ?? 0);
-      if (estado.passo > P.planta) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+      if (estado.passo > P.quer) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
       fecharRetomar();
       carregarFotosDoEstado();
     });

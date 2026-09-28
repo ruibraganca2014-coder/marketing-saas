@@ -56,6 +56,18 @@
       </nav>
 
       <form id="sim-form" novalidate>
+        <!-- A planta, no topo de todos os passos (decisão do dono): presa ao descer a página; muda com as escolhas de
+             cada passo e edita-se em qualquer passo (app.js atualizarPlanta; editor.js). No telemóvel pode esconder-se. -->
+        <section class="sim-planta" id="sim-planta" aria-labelledby="sim-planta-titulo">
+          <div class="sim-planta-cabeca">
+            <h2 id="sim-planta-titulo">A sua planta</h2>
+            <p class="sim-planta-origem" id="planta-origem" hidden></p>
+            <button class="btn sec pequeno" id="planta-refazer" type="button" hidden>Refazer a partir dos passos 1 e 2</button>
+            <button class="btn sec pequeno sim-planta-recolher" id="planta-recolher" type="button" aria-expanded="true" aria-controls="editor">Esconder</button>
+          </div>
+          <div id="editor"></div>
+        </section>
+
         <!-- 1. A casa -->
         <section class="sim-passo" id="passo-0" aria-labelledby="titulo-0" data-passo="0">
           <h2 id="titulo-0" tabindex="-1">1. A casa</h2>
@@ -83,16 +95,12 @@
             <label>Potência contratada<select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9" selected>6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option></select></label>
             <label>Ligação<select id="casa-fases"><option value="mono">Monofásica</option><option value="tri">Trifásica</option></select></label>
           </div>
-          <fieldset class="escolhas">
-            <legend>O que quer fazer</legend>
-            <div class="escolhas-grelha" id="quer-objetivos"></div>
-          </fieldset>
         </section>
 
         <!-- 2. Equipamentos -->
         <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
           <h2 id="titulo-1" tabindex="-1">2. Equipamentos</h2>
-          <p class="sub-passo">Diga-nos que equipamentos tem (ou vai ter). Com isto já desenhamos a planta e preenchemos os passos seguintes — pode mudar tudo depois.</p>
+          <p class="sub-passo">Diga-nos que equipamentos tem (ou vai ter). Com isto pomos as máquinas na planta (em cima) e preenchemos os passos seguintes — pode mudar tudo depois.</p>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
           <div class="quer-painel" id="quer-painel">
@@ -108,27 +116,10 @@
           <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 3. Planta -->
+        <!-- 3. Divisões: um cartão por divisão com os aparelhos da planta (− n +), foto e "Divisão verificada" -->
         <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
-          <h2 id="titulo-2" tabindex="-1">3. Planta</h2>
-          <p class="sub-passo">Já vem desenhada a partir da casa: ajuste as divisões (e acrescente escritório, lavandaria, despensa… com os botões) e o que existe (ou quer) em cada uma: portas, janelas, tomadas, luzes, interruptores e máquinas. Pode desenhar por cima de uma foto ou PDF da planta. Contamos tudo sozinhos para os passos seguintes. <b>Este passo é opcional.</b></p>
-          <p class="msg info" id="planta-origem" hidden></p>
-          <div class="form-botoes" id="planta-botoes">
-            <button class="btn sec pequeno" id="planta-refazer" type="button" hidden>Refazer a partir dos passos 1 e 2</button>
-            <button class="btn sec pequeno" id="planta-saltar" type="button" hidden>Saltar a planta</button>
-          </div>
-          <div class="msg info planta-voltar" id="planta-voltar" hidden>
-            <p id="planta-voltar-texto" tabindex="-1"></p>
-            <button class="btn pequeno" id="planta-voltar-botao" type="button">Voltar às divisões</button>
-          </div>
-          <div id="editor"></div>
-          <div class="sim-contagem cartao" id="planta-contagem" aria-live="polite"></div>
-        </section>
-
-        <!-- 4. Divisões: um cartão por divisão com os aparelhos da planta (− n +), foto e "Divisão verificada" -->
-        <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
-          <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
-          <p class="sub-passo">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> e toque no nome para mudar os dados. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
+          <h2 id="titulo-2" tabindex="-1">3. Divisões</h2>
+          <p class="sub-passo">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> (na planta, em cima) e toque no nome para mudar os dados. Tocar num cartão mostra a divisão na planta. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Fotos opcionais: as fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</span></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
@@ -150,9 +141,9 @@
           </fieldset>
         </section>
 
-        <!-- 5. Quadro elétrico -->
-        <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
-          <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
+        <!-- 4. Quadro elétrico -->
+        <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
+          <h2 id="titulo-3" tabindex="-1">4. Quadro elétrico</h2>
           <p class="sub-passo">Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita.</p>
           <fieldset class="escolhas">
             <legend>Que proteção quer?</legend>
@@ -176,22 +167,27 @@
           <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 6. Resumo e preço -->
-        <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
-          <h2 id="titulo-5" tabindex="-1">6. Resumo e preço</h2>
+        <!-- 5. Resumo e preço -->
+        <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
+          <h2 id="titulo-4" tabindex="-1">5. Resumo e preço</h2>
           <div class="msg info" id="preco-estado" role="status" hidden></div>
           <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
           <h3>O que inclui</h3>
           <ul class="sim-inclui" id="preco-inclui"></ul>
           <p class="sim-nota" id="preco-nota"></p>
+          <!-- "O que quer fazer" (decisão do dono: saiu do passo 1): só dicas no passo Divisões e o plano sugerido. -->
+          <fieldset class="escolhas">
+            <legend>O que quer fazer? <small class="ajuda">Ajuda-nos a sugerir o plano mensal.</small></legend>
+            <div class="escolhas-grelha" id="quer-objetivos"></div>
+          </fieldset>
           <h3>Plano mensal sugerido</h3>
           <div class="sim-planos" id="preco-planos"></div>
         </section>
 
-        <!-- 7. Enviar -->
-        <section class="sim-passo" id="passo-6" aria-labelledby="titulo-6" data-passo="6" hidden>
-          <h2 id="titulo-6" tabindex="-1">7. Enviar</h2>
+        <!-- 6. Enviar -->
+        <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
+          <h2 id="titulo-5" tabindex="-1">6. Enviar</h2>
           <p class="sub-passo">Enviamos a simulação à nossa equipa e contactamos para marcar a visita técnica gratuita. Primeiro a conta (para acompanhar o pedido), depois o contacto. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->
           <div class="cartao" id="enviar-conta" role="group" aria-labelledby="enviar-conta-titulo">

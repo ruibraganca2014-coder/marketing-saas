@@ -17,16 +17,19 @@ export const CHAVE = "domus.simulador";
 export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: código do cliente vindo da área de cliente
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
-export const PASSOS = ["A casa", "Equipamentos", "Planta", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
+/** Os 6 passos (decisão do dono: o passo "Planta" saiu — a planta está no topo de todos os passos). */
+export const PASSOS = ["A casa", "Equipamentos", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
 /**
- * Ordem dos passos gravada no estado (`ordem`: 3 = a de PASSOS, com o quadro depois das divisões).
- * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo:
+ * Ordem dos passos gravada no estado (`ordem`: 4 = a de PASSOS, 6 passos sem o passo "Planta").
+ * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo (quem estava no
+ * passo "Planta" passa às Divisões — a planta está por cima delas):
  * - sem `passos` (6 passos, antes de "O que quer"): casa, planta, quadro, divisões, preço, enviar;
  * - `passos: 7` sem `ordem`: casa, o que quer, planta, quadro, divisões, preço, enviar;
- * - `ordem: 2` (versão de testes, nunca publicada): casa, o que quer, divisões, planta, quadro, preço, enviar.
+ * - `ordem: 2` (versão de testes, nunca publicada): casa, o que quer, divisões, planta, quadro, preço, enviar;
+ * - `ordem: 3` (7 passos): casa, equipamentos, planta, divisões, quadro, preço, enviar.
  */
-export const ORDEM = 3;
-const MIGRAR = { 6: [0, 2, 4, 3, 5, 6], 7: [0, 1, 2, 4, 3, 5, 6], ordem2: [0, 1, 3, 2, 4, 5, 6] };
+export const ORDEM = 4;
+const MIGRAR = { 6: [0, 2, 3, 2, 4, 5], 7: [0, 1, 2, 3, 2, 4, 5], ordem2: [0, 1, 2, 2, 3, 4, 5], ordem3: [0, 1, 2, 2, 3, 4, 5] };
 export const SERVICO = "Simulador de orçamento";
 export const SERVICO_CLIENTE = "Ampliar a instalação (simulador)";
 
@@ -45,7 +48,7 @@ export const POTENCIA_OMISSAO_KVA = 6.9;
 /**
  * Casa por omissão: no site já com T2; 6,9 kVA e a ligação sugerida (monofásica). Na área de cliente tipo
  * e tipologia por escolher. `area_m2` e `espacos` só contam em serviços e industrial. `localidade` já não
- * se pede no passo 1 (fica sempre ""): o local da obra é a localidade do contacto (passo 7).
+ * se pede no passo 1 (fica sempre ""): o local da obra é a localidade do contacto (passo "Enviar").
  */
 export function casaNova(cliente = false) {
   return {
@@ -165,7 +168,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   if (f && typeof f === "object" && typeof f.imagem === "string" && RE_IMAGEM.test(f.imagem) && f.imagem.length <= MAX_IMAGEM) {
     r.fundo = { imagem: f.imagem, x_cm: int(f.x_cm, -MAX_LADO_CM, MAX_LADO_CM), y_cm: int(f.y_cm, -MAX_LADO_CM, MAX_LADO_CM), largura_cm: int(f.largura_cm, 10, 2 * MAX_LADO_CM, r.largura_cm), opacidade: Math.round(num(f.opacidade, 0.1, 1, 0.5) * 100) / 100 };
   }
-  // Detalhes do passo 4: sem `respostas` (estado antigo) conta como respondido o que o cliente já mudou.
+  // Detalhes do passo "Divisões": sem `respostas` (estado antigo) conta como respondido o que o cliente já mudou.
   const antigo = p.respostas !== true;
   const ids = new Set();
   const idOk = (id, pre) => typeof id === "string" && new RegExp(`^${pre}\\d{1,6}$`).test(id) && !ids.has(id);
@@ -250,7 +253,7 @@ export function normalizarDivisao(d) {
     estores_sem_motor: int(d.estores_sem_motor, 0, 99),
     sensores_porta: int(d.sensores_porta, 0, 99),
     sensores_movimento: int(d.sensores_movimento, 0, 99),
-    luzes_regulaveis: int(d.luzes_regulaveis, 0, 99),
+    luzes_regulaveis: 0,   // luzes sempre não reguláveis (decisão do dono); o campo fica no pedido (painel)
     tomadas_inteligentes: int(d.tomadas_inteligentes, 0, 99),
   };
 }
@@ -261,10 +264,13 @@ export function normalizarEstado(v) {
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
   // Estados antigos (6 passos; 7 passos com outra ordem): o passo antigo passa ao novo (MIGRAR);
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
-  const migrar = v.passos !== PASSOS.length ? MIGRAR[6] : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem !== ORDEM ? MIGRAR[7] : null;
+  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.passos !== 7 ? MIGRAR[6]
+    : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   const passo = int(v.passo, 0, (migrar ? migrar.length : PASSOS.length) - 2);   // nunca volta direto ao "Enviar"
   e.passo = migrar ? migrar[passo] : passo;
-  e.visitado = migrar ? Math.max(...migrar.slice(0, passo + 1)) : Math.max(e.passo, int(v.visitado, 0, PASSOS.length - 2));
+  // Os 7 passos de antes (ordem 3) já guardavam o mais adiantado; os outros contam o que estava antes do passo.
+  e.visitado = migrar === MIGRAR.ordem3 ? Math.max(e.passo, migrar[int(v.visitado, 0, 5)])
+    : migrar ? Math.max(...migrar.slice(0, passo + 1)) : Math.max(e.passo, int(v.visitado, 0, PASSOS.length - 2));
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   // Antes dos pisos a partir do r/c (0): a planta, as escadas e as divisões são migradas (migrarPisos).
   const pisosAntigos = v.pisosDesde0 !== true;
@@ -305,10 +311,13 @@ export function normalizarEstado(v) {
   e.quer = normalizarQuer(vq, tipo, { pisos: pisosDaCasa(e.casa), pisoTipico: (k) => pisoTipicoMaquina(e.casa, k, antigas) });
   if (e.casa.fases === null) { e.casa.fases = fasesSugeridas(e); e.fasesEditadas = false; }
   e.planta = normalizarPlanta(v.planta, { pisosAntigos });
-  e.plantaSaltada = bool(v.plantaSaltada);
+  // Já não se salta a planta (está no topo de todos os passos): uma planta saltada num estado antigo volta a contar
+  // (vazia, é desenhada a partir da casa).
+  e.plantaSaltada = false;
   e.plantaAuto = bool(v.plantaAuto);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
-  e.plantaBase = !migrar && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
+  // (Os 7 passos de antes, ordem 3, têm a assinatura de agora: só mudou a ordem dos passos.)
+  e.plantaBase = (!migrar || migrar === MIGRAR.ordem3) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
   // "O que quer" ainda sem pisos, ou a casa ainda sem valores por piso: a assinatura guardada foi feita à maneira
   // antiga; se era a da casa e das máquinas de então, passa a ser a de agora (a planta não fica "desatualizada"
   // só pela migração).
@@ -476,7 +485,7 @@ export function quadroParaEnvio(estado, circuitos) {
 
 /** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
-  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || plantaTemConteudo(e.planta) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -575,7 +584,7 @@ export function casaParaEnvio(estado) {
   return {
     tipo: TIPOS_CASA[c.tipo] ? c.tipo : null,
     divisoes: tipologia || negocio ? divisoesDaCasa(c, maquinasEscolhidas(estado.quer)).length : c.divisoes ?? (estado.divisoes.length || null),
-    localidade: textoSeguro(estado.contacto.localidade, 80) || null,   // o local da obra: a localidade do contacto (passo 7)
+    localidade: textoSeguro(estado.contacto.localidade, 80) || null,   // o local da obra: a localidade do contacto (passo "Enviar")
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
     tipologia,

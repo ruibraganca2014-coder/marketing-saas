@@ -167,7 +167,8 @@ export const ELEMENTOS = {
   janela: { nome: "Janela", props: { estore: false, motorizado: false } },
   quadro: { nome: "Quadro elétrico", props: {} },
   tomada: { nome: "Tomada", props: { dupla: false, inteligente: false } },
-  luz: { nome: "Ponto de luz", props: { brilho: false } },
+  // Luz sem pergunta (decisão do dono): sempre não regulável; o `brilho` de um estado antigo sai ao carregar.
+  luz: { nome: "Ponto de luz", props: {} },
   interruptor: { nome: "Interruptor", props: { botoes: 1 } },
   maquina: { nome: "Máquina", props: { modelo: "termoacumulador", potencia_w: 2000 } },
   sensor_porta: { nome: "Sensor de porta/janela", props: {} },
@@ -180,11 +181,12 @@ export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "in
 
 /**
  * Detalhes obrigatórios do passo 4: o elemento tem uma pergunta que o cliente tem de responder? Interruptor (n.º de
- * botões), tomada (inteligente?), janela (estore / motorizado), luz (regulação) e a máquina "Outra" ("Qual é?").
+ * botões), tomada (inteligente?), janela (estore / motorizado) e a máquina "Outra" ("Qual é?"). O ponto de luz não
+ * tem pergunta (decisão do dono: sempre não regulável).
  * Um elemento assim nasce com `por_responder: true` até o cliente guardar a janela dele (o preço usa o valor por
  * omissão enquanto não responde).
  */
-export const temPergunta = (tipo, props = {}) => ["interruptor", "tomada", "janela", "luz"].includes(tipo) || (tipo === "maquina" && props?.modelo === "outro");
+export const temPergunta = (tipo, props = {}) => ["interruptor", "tomada", "janela"].includes(tipo) || (tipo === "maquina" && props?.modelo === "outro");
 /**
  * Estados antigos (planta sem `respostas`): conta como respondido o que o cliente já mudou (valor diferente do
  * de omissão); o resto fica por responder.
@@ -195,7 +197,6 @@ export function porResponderAntigo(tipo, props = {}) {
   if (tipo === "interruptor") return (Number(p.botoes) || 1) === 1;
   if (tipo === "tomada") return !p.inteligente && !p.dupla;
   if (tipo === "janela") return !p.estore;
-  if (tipo === "luz") return !p.brilho;
   return true;   // máquina "Outra"
 }
 
@@ -613,7 +614,7 @@ export function contarPlanta(planta) {
     const l = linhas.get(id);
     const p = e.props || {};
     switch (e.tipo) {
-      case "luz": l.luzes++; if (p.brilho) l.luzes_regulaveis++; break;
+      case "luz": l.luzes++; break;   // sempre não regulável (decisão do dono): luzes_regulaveis fica 0
       case "tomada": l.tomadas++; if (p.dupla) l.tomadas_duplas++; if (p.inteligente) l.tomadas_inteligentes++; break;
       case "interruptor": l.interruptores.push(limitar(Math.round(Number(p.botoes) || 1), 1, 4)); break;
       case "janela":

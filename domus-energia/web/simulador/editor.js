@@ -110,9 +110,10 @@ function numeroInput(valor, { min, max, step = 1, id }) {
 
 /**
  * @param {HTMLElement} raiz
- * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void}} opcoes
+ * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void, aoSelecionar?: (divisao: string|null) => void}} opcoes
+ *   `aoSelecionar`: a divisão selecionada mudou (a do elemento selecionado; null sem seleção) — o passo Divisões destaca o cartão.
  */
-export function criarEditor(raiz, { aoMudar, anunciar = null }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -135,41 +136,66 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   let ultimoToque = null;     // {t, x, y}: o toque anterior, para o duplo clique (DUPLO_MS)
   let duploEm = 0;            // quando o nosso duplo clique abriu algo (o "dblclick" do navegador não repete)
   let ecraCss = false;        // ecrã inteiro sem a Fullscreen API (recurso CSS)
+  let rovingFerramentas = null;   // acerta o "roving tabindex" da linha das ferramentas (barraComSetas)
 
   // ---------------------------------------------------------------- DOM
   raiz.replaceChildren();
   raiz.classList.add("editor");
 
-  // As ferramentas em 3 grupos (divisões, elementos, máquinas), todos com botões iguais: quadrados, o desenho
-  // em cima e o nome em baixo; separados só por um pequeno espaço (sem rótulos), alinhados em grelha.
-  // 1. Um botão por tipo de divisão, com o seu desenho (planta-svg.js divisao_<tipo>): cria-a logo, com o nome
-  // certo (Quarto 1, Quarto 2, Sala…); o que traz (casa.js resumoAparelhos) fica no nome acessível do botão.
-  const barraDiv = el("div", "editor-barra editor-divisoes");
-  barraDiv.setAttribute("role", "toolbar");
-  barraDiv.setAttribute("aria-label", "Acrescentar divisão");
+  // Ferramentas numa só linha compacta por cima da planta (decisão do dono), que desliza para o lado: só as
+  // divisões da casa (as do passo 1: definirTiposDivisao), os 4 elementos base e as máquinas escolhidas no passo 2
+  // (definirMaquinas), em 3 grupos separados por um traço discreto, e no fim "Mais…" — a janela com a lista
+  // completa (divisões, elementos, máquinas). Uma ferramenta escolhida na janela (ou pelo "+" do passo Divisões)
+  // passa a aparecer na linha enquanto o editor estiver aberto (`naBarraExtra`; "Começar de novo" esquece-as).
+  // Os botões de tudo existem na linha; os que não são para lá estão escondidos (`hidden`).
+  const fila = el("div", "editor-ferramentas");
+  fila.setAttribute("role", "toolbar");
+  fila.setAttribute("aria-label", "Ferramentas da planta");
   const ferramentas = {};
+  const naBarraExtra = new Set();   // chaves ("divisao:Garagem", "janela", "maquina:forno") que o cliente trouxe
+  let divisoesNaBarra = null;       // nomes dos botões de divisão da linha (null = todos)
+  let maquinasNaBarra = [];         // modelos das máquinas da linha
+  /** Elementos da linha; os outros (janela, quadro, sensores) estão em "Mais…". */
+  const ELEMENTOS_BASE = ["porta", "interruptor", "luz", "tomada"];
+  const grupoBarra = (cls, rotulo) => { const g = el("div", `editor-barra ${cls}`); g.setAttribute("role", "group"); g.setAttribute("aria-label", rotulo); return g; };
+  // 1. Um botão por tipo de divisão, com o seu desenho (planta-svg.js divisao_<tipo>): cria-a logo, com o nome
+  // certo (Quarto, Quarto 2, Sala…); o que traz (casa.js resumoAparelhos) fica no nome acessível do botão.
+  const barraDiv = grupoBarra("editor-divisoes", "Acrescentar divisão");
+  const divisoesMais = el("div", "editor-mais-grelha");
+  function botaoDivisao(t) {
+    const traz = resumoAparelhos(t.nome, t.w, t.h);
+    const b = botao("", "ferramenta tipo-divisao");
+    b.dataset.divisao = t.nome;
+    b.setAttribute("aria-label", `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome} (com ${traz})`);
+    b.append(desenharIcone(svgEl("svg"), "divisao", { tipo: ICONE_DIVISAO[t.nome] ?? tipoDoNome(t.nome) }), el("span", "ferramenta-nome", t.nome));
+    return b;
+  }
   function desenharBotoesDivisao() {
     barraDiv.replaceChildren();
+    divisoesMais.replaceChildren();
     for (const t of tiposDivisao) {
-      const traz = resumoAparelhos(t.nome, t.w, t.h);
-      const b = botao("", "ferramenta tipo-divisao");
-      b.dataset.divisao = t.nome;
-      b.setAttribute("aria-label", `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome} (com ${traz})`);
-      b.append(desenharIcone(svgEl("svg"), "divisao", { tipo: ICONE_DIVISAO[t.nome] ?? tipoDoNome(t.nome) }), el("span", "ferramenta-nome", t.nome));
+      const b = botaoDivisao(t);
       // O botão cria-a logo (rato, toque ou teclado), num sítio livre.
       b.addEventListener("click", () => {
         definirModo(null);
         if (criarDivisao(t.nome)) mostrarPlanta();
       });
       barraDiv.append(b);
+      const m = botaoDivisao(t);
+      m.addEventListener("click", () => {
+        fecharMais();
+        mostrarNaBarra(`divisao:${t.nome}`);
+        definirModo(null);
+        if (criarDivisao(t.nome)) mostrarPlanta();
+      });
+      divisoesMais.append(m);
     }
-    rovingDiv();
+    acertarBarra();
   }
 
   // 2. Elementos da instalação elétrica (as máquinas têm o seu grupo, um botão por modelo).
-  const barra = el("div", "editor-barra editor-elementos");
-  barra.setAttribute("role", "toolbar");
-  barra.setAttribute("aria-label", "Pôr na planta");
+  const barra = grupoBarra("editor-elementos", "Pôr na planta");
+  const elementosMais = el("div", "editor-mais-grelha");
   for (const t of TIPOS_ELEMENTO.filter((x) => x !== "maquina")) {
     const b = botao("", "ferramenta");
     b.dataset.ferramenta = t;
@@ -177,15 +203,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     b.append(desenharIcone(svgEl("svg"), t, ELEMENTOS[t].props), el("span", "ferramenta-nome", ELEMENTOS[t].nome));
     ligarFerramenta(b, t, t, null);
     barra.append(b);
+    elementosMais.append(botaoMais(t, t, null, ELEMENTOS[t].nome));
   }
-  // 3. Máquinas: um botão com o desenho de cada modelo (definirMaquinas: as do tipo de imóvel e as escolhidas).
-  const barraMaq = el("div", "editor-barra editor-maquinas");
-  barraMaq.setAttribute("role", "toolbar");
-  barraMaq.setAttribute("aria-label", "Pôr uma máquina na planta");
+  // 3. Máquinas: um botão com o desenho de cada modelo (definirMaquinas: na linha as escolhidas; em "Mais…" todas).
+  const barraMaq = grupoBarra("editor-maquinas", "Pôr uma máquina na planta");
+  const maquinasMais = el("div", "editor-mais-grelha");
   let modelosMaq = [];
   function desenharBotoesMaquina() {
     for (const k of Object.keys(ferramentas)) if (k.startsWith("maquina:")) delete ferramentas[k];
     barraMaq.replaceChildren();
+    maquinasMais.replaceChildren();
     for (const m of modelosMaq) {
       const b = botao("", "ferramenta maquina-ferramenta");
       b.dataset.maquina = m;
@@ -194,9 +221,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       b.append(desenharIcone(svgEl("svg"), "maquina", { modelo: m }), el("span", "ferramenta-nome", NOMES_CURTOS[m] ?? MODELOS[m].nome));
       ligarFerramenta(b, `maquina:${m}`, "maquina", m);
       barraMaq.append(b);
+      maquinasMais.append(botaoMais(`maquina:${m}`, "maquina", m, MODELOS[m].nome));
     }
-    barraMaq.hidden = !modelosMaq.length;
-    rovingMaq();
+    acertarBarra();
   }
   /** Ferramenta (elemento ou máquina de um modelo): tocar escolhe-a (e depois toca-se na planta); teclado põe logo. */
   function ligarFerramenta(b, chave, tipo, modelo) {
@@ -204,17 +231,77 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     b.addEventListener("click", (ev) => {
       const ativo = b.getAttribute("aria-pressed") === "true";
       if (ativo) { definirModo(null); return; }
-      // Teclado (Enter/Espaço, detail 0): põe logo no centro da vista (ou da divisão selecionada).
-      if (ev.detail === 0) {
-        const c = centroColocacao();
-        definirModo(null);
-        adicionarElemento(tipo, c.x, c.y, modelo);
-        svg.focus({ preventScroll: true });
-        return;
-      }
-      definirModo({ tipo: "elemento", el: tipo, modelo });
+      usarFerramenta(tipo, modelo, ev.detail === 0);
     });
   }
+  /** Rato/toque: a ferramenta fica escolhida (depois toca-se na planta); teclado (Enter/Espaço): põe logo no centro. */
+  function usarFerramenta(tipo, modelo, teclado) {
+    if (teclado) {
+      const c = centroColocacao();
+      definirModo(null);
+      adicionarElemento(tipo, c.x, c.y, modelo);
+      svg.focus({ preventScroll: true });
+      return;
+    }
+    definirModo({ tipo: "elemento", el: tipo, modelo });
+  }
+  /** Botão da janela "Mais…" (elemento ou máquina): escolhe a ferramenta, fecha a janela e fica na linha. */
+  function botaoMais(chave, tipo, modelo, nome) {
+    const b = botao("", "ferramenta");
+    b.dataset.mais = chave;
+    b.append(desenharIcone(svgEl("svg"), tipo, modelo ? { modelo } : ELEMENTOS[tipo].props), el("span", "ferramenta-nome", nome));
+    b.addEventListener("click", (ev) => {
+      const teclado = ev.detail === 0;
+      fecharMais();
+      mostrarNaBarra(chave);
+      usarFerramenta(tipo, modelo, teclado);
+      if (!teclado) ferramentas[chave]?.focus({ preventScroll: true });
+    });
+    return b;
+  }
+  /** A ferramenta `chave` passa a aparecer na linha (se ainda lá não estava). */
+  function mostrarNaBarra(chave) {
+    if (!chave || naBarraExtra.has(chave)) return;
+    naBarraExtra.add(chave);
+    acertarBarra();
+  }
+  /** Mostra na linha só o que é para lá (e as ferramentas trazidas); esconde os grupos vazios. */
+  function acertarBarra() {
+    for (const b of barraDiv.children) b.hidden = !(divisoesNaBarra === null || divisoesNaBarra.includes(b.dataset.divisao) || naBarraExtra.has(`divisao:${b.dataset.divisao}`));
+    for (const b of barra.children) b.hidden = !(ELEMENTOS_BASE.includes(b.dataset.ferramenta) || naBarraExtra.has(b.dataset.ferramenta));
+    for (const b of barraMaq.children) b.hidden = !(maquinasNaBarra.includes(b.dataset.maquina) || naBarraExtra.has(`maquina:${b.dataset.maquina}`));
+    for (const g of [barraDiv, barra, barraMaq]) g.hidden = ![...g.children].some((b) => !b.hidden);
+    rovingFerramentas?.();
+  }
+  // "Mais…": a lista completa, agrupada, numa janela (<dialog> modal, Esc fecha).
+  const bMaisFerr = botao("", "ferramenta ferramentas-mais");
+  bMaisFerr.id = "editor-mais";
+  bMaisFerr.setAttribute("aria-haspopup", "dialog");
+  bMaisFerr.setAttribute("aria-label", "Mais: todas as divisões, elementos e máquinas");
+  bMaisFerr.append(el("span", "ferramentas-mais-icone", "⋯"), el("span", "ferramenta-nome", "Mais…"));
+  fila.append(barraDiv, barra, barraMaq, bMaisFerr);
+  const dlgMais = el("dialog", "editor-dialogo editor-mais");
+  dlgMais.setAttribute("aria-labelledby", "mais-titulo");
+  const maisTitulo = el("h2", null, "Todas as ferramentas");
+  maisTitulo.id = "mais-titulo";
+  const maisSeccao = (titulo, grelha) => { const s = el("section", "editor-mais-seccao"); s.append(el("h3", null, titulo), grelha); return s; };
+  const seccaoMaq = maisSeccao("Máquinas", maquinasMais);
+  const maisFechar = botao("Fechar");
+  maisFechar.id = "mais-fechar";
+  const maisBotoes = el("div", "form-botoes");
+  maisBotoes.append(maisFechar);
+  const maisCorpo = el("div", "editor-mais-corpo");
+  maisCorpo.append(maisSeccao("Divisões", divisoesMais), maisSeccao("Elementos", elementosMais), seccaoMaq);
+  dlgMais.append(maisTitulo, maisCorpo, maisBotoes);
+  function fecharMais() { if (dlgMais.open) dlgMais.close(); }
+  bMaisFerr.addEventListener("click", () => {
+    definirModo(null);
+    seccaoMaq.hidden = !modelosMaq.length;
+    dlgMais.showModal();
+    maisCorpo.scrollTop = 0;
+    maisCorpo.querySelector("button")?.focus();
+  });
+  maisFechar.addEventListener("click", () => { fecharMais(); bMaisFerr.focus({ preventScroll: true }); });
 
   const bDesfazer = botao("Anular");
   bDesfazer.setAttribute("aria-keyshortcuts", "Control+Z");
@@ -225,7 +312,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const bMais = botao("+");
   bMais.setAttribute("aria-label", "Aproximar");
   const bTudo = botao("Ver tudo");
-  const bEcra = botao("Ecrã inteiro");
+  // "Ampliar": a planta e as ferramentas em ecrã inteiro (decisão do dono: a planta está no topo de todos os passos).
+  const bEcra = botao("Ampliar");
   bEcra.id = "editor-ecra-inteiro";
   bEcra.setAttribute("aria-pressed", "false");
   // Só a planta, uma folha A4 por piso (imprimir.js).
@@ -235,10 +323,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const bPdf = botao("Guardar PDF");
   bPdf.id = "editor-pdf";
   bPdf.setAttribute("aria-label", "Guardar a planta em PDF (uma página por piso)");
-  // As barras de ferramentas juntas, por baixo umas das outras; em ecrã inteiro numa só fila que desliza para o
-  // lado (a planta fica com a maior parte da altura).
-  const fila = el("div", "editor-ferramentas");
-  fila.append(barraDiv, barra, barraMaq);
 
   // Separadores por piso (só com mais de um piso): cada um mostra as divisões e os elementos desse piso.
   const separadores = el("div", "editor-pisos");
@@ -277,7 +361,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   acoes.setAttribute("aria-label", "Ações da planta");
   const grupo = (cls, ...xs) => { const g = el("div", `editor-acoes-grupo ${cls}`); g.append(...xs); return g; };
   const linhaGeral = el("div", "editor-acoes-linha");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra, bImprimir, bPdf), grupo("g-fundo", bFundo), separadores);
+  // "⋯": as ações menos usadas (Imprimir, Guardar PDF, Planta de fundo) e os cartões do fundo e do tamanho da planta,
+  // num painel por baixo das barras (`lado`), fechado por omissão: a planta do topo fica compacta.
+  const bOutras = botao("⋯");
+  bOutras.id = "editor-outras";
+  bOutras.setAttribute("aria-label", "Mais ações da planta: imprimir, PDF, planta de fundo e tamanho");
+  bOutras.setAttribute("aria-expanded", "false");
+  bOutras.setAttribute("aria-controls", "editor-lado");
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra), grupo("g-fundo", bOutras), separadores);
   const linhaSelecao = el("div", "editor-acoes-linha");
   linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sApagar));
   acoes.append(linhaGeral, linhaSelecao);
@@ -300,6 +391,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   // Ao lado (por baixo, no telemóvel): só o fundo e o tamanho da planta. O que se muda numa divisão ou num
   // elemento está todo na janela de edição (duplo clique, toque longo, Enter ou "Opções").
   const lado = el("div", "editor-lado");
+  lado.id = "editor-lado";
+  lado.hidden = true;
+  const ladoAcoes = el("div", "form-botoes editor-lado-acoes");
+  ladoAcoes.append(bImprimir, bPdf, bFundo);
+  /** Abre ou fecha o painel "⋯" (ações menos usadas, fundo e tamanho). */
+  function mostrarLado(sim) {
+    lado.hidden = !sim;
+    bOutras.setAttribute("aria-expanded", String(sim));
+  }
+  bOutras.addEventListener("click", () => mostrarLado(lado.hidden));
 
   // Fundo
   const fundoSec = el("details", "editor-fundo cartao");
@@ -321,7 +422,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const tamCorpo = el("div", "duas");
   tamSec.append(tamCorpo);
 
-  lado.append(fundoSec, tamSec);
+  lado.append(ladoAcoes, fundoSec, tamSec);
   const principal = el("div", "editor-principal");
   principal.append(fila, acoes, estadoLinha, area, ajudaTeclado);
 
@@ -349,7 +450,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   dlgBotoes.append(dGuardar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
-  raiz.append(principal, lado, dialogo);
+  raiz.append(principal, lado, dialogo, dlgMais);
 
   // ---------------------------------------------------------------- barras (role=toolbar): setas
   /**
@@ -379,13 +480,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       marcar(atual ?? ativos()[0] ?? l[0]);
     };
   }
-  const rovingDiv = barraComSetas(barraDiv, () => [...barraDiv.querySelectorAll("button")]);
-  const rovingEl = barraComSetas(barra, () => [...barra.querySelectorAll("button")]);
-  const rovingMaq = barraComSetas(barraMaq, () => [...barraMaq.querySelectorAll("button")]);
+  // A linha das ferramentas: uma só paragem do Tab; as setas passam pelos botões à vista dos 3 grupos e "Mais…".
+  rovingFerramentas = barraComSetas(fila, () => [...fila.querySelectorAll("button")]);
   // Pela ordem em que se veem (os grupos têm `order` no CSS: no computador a seleção vem antes do fundo).
   const ordemVista = (b) => Number(getComputedStyle(b.closest(".editor-acoes-grupo")).order) || 0;
   const rovingAcoes = barraComSetas(acoes, () => [...acoes.querySelectorAll(".editor-acoes-grupo button")].map((b, i) => [b, ordemVista(b), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map(([b]) => b));
-  rovingEl();
+  acertarBarra();
 
   // ---------------------------------------------------------------- vista
   const rectSvg = () => svg.getBoundingClientRect();
@@ -885,10 +985,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     return { x: limitar(vista.cx, 0, planta.largura_cm), y: limitar(vista.cy, 0, planta.altura_cm) };
   }
 
+  /** Desliza a linha das ferramentas até ao botão `b` (sem mexer na página). */
+  function verNaLinha(b) {
+    const f = fila.getBoundingClientRect(), r = b.getBoundingClientRect();
+    if (!f.width || !r.width) return;
+    if (r.left < f.left) fila.scrollLeft -= f.left - r.left + 8;
+    else if (r.right > f.right) fila.scrollLeft += r.right - f.right + 8;
+  }
+
   function definirModo(m) {
     modo = m;
     const chave = m?.tipo === "elemento" ? (m.el === "maquina" ? `maquina:${m.modelo}` : m.el) : null;
     for (const [k, b] of Object.entries(ferramentas)) b.setAttribute("aria-pressed", String(k === chave));
+    // A ferramenta ativa está sempre na linha (a do "+" do passo Divisões ou de "Mais…") e à vista nela.
+    if (chave && ferramentas[chave]) { mostrarNaBarra(chave); verNaLinha(ferramentas[chave]); }
     svg.classList.toggle("a-colocar", !!m);
     if (!m) dica.textContent = `Os botões das divisões acrescentam-nas logo${nPisos() > 1 ? ` (no ${nomePiso(pisoAtual)})` : ""}; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; − / +, dois dedos ou Ctrl + roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.`;
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${nomeFerramenta(m.el, m.modelo)}. Esc cancela.`;
@@ -925,7 +1035,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   const emEcraInteiro = () => document.fullscreenElement === principal || ecraCss;
   function depoisEcra() {
     const sim = emEcraInteiro();
-    bEcra.textContent = sim ? "Sair do ecrã inteiro" : "Ecrã inteiro";
+    bEcra.textContent = sim ? "Reduzir" : "Ampliar";
     bEcra.setAttribute("aria-pressed", String(sim));
     principal.classList.toggle("em-ecra-inteiro", sim);
     // O tamanho já mudou (a classe acabou de mudar; o "fullscreenchange" chega depois do redimensionamento).
@@ -954,7 +1064,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   }
   bEcra.addEventListener("click", () => { if (emEcraInteiro()) sairEcra(); else entrarEcra(); });
   document.addEventListener("fullscreenchange", depoisEcra);
-  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && ecraCss && !dialogo.open) sairEcra(); });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && ecraCss && !dialogo.open && !dlgMais.open) sairEcra(); });
 
   // ---------------------------------------------------------------- ponteiro
   const pararToqueLongo = () => { clearTimeout(toqueLongo); toqueLongo = null; };
@@ -1179,7 +1289,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     }
   });
   raiz.addEventListener("keydown", (ev) => {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.target.matches?.("input, textarea, select") || dialogo.open) return;
+    if (!(ev.ctrlKey || ev.metaKey) || ev.target.matches?.("input, textarea, select") || dialogo.open || dlgMais.open) return;
     const k = ev.key.toLowerCase();
     if (k === "z" && !ev.shiftKey) { ev.preventDefault(); anular(); } else if (k === "y" || (k === "z" && ev.shiftKey)) { ev.preventDefault(); refazerAcao(); }
   });
@@ -1274,6 +1384,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       verTudo();
       // Pode ter vindo do botão "Planta de fundo": o cartão abre-se para calibrar, ajustar ou tirar o fundo.
       fundoSec.open = true;
+      mostrarLado(true);
       confirmar("Fundo carregado. Para acertar a escala, use \"Calibrar\" no cartão do fundo.");
       mostrarFundoMsg(`Fundo carregado (${Math.round((r.imagem.length * 3) / 4 / 1024)} KB). Agora calibre: marque uma parede que conheça e diga quanto mede.`, "ok");
     } catch (e) {
@@ -1443,8 +1554,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
   // ---------------------------------------------------------------- propriedades (janela de edição)
   /**
    * A escolha de cada tipo de elemento na janela de edição — só uma, em linguagem simples: porta, se é a da rua;
-   * janela, se tem estore e se é motorizado; luz, se tem regulação; tomada, se é inteligente; interruptor, quantos
-   * botões; máquina, qual é (com a potência típica). Sensores e quadro: nada a escolher.
+   * janela, se tem estore e se é motorizado; tomada, se é inteligente; interruptor, quantos botões; máquina, qual é
+   * (com a potência típica). Ponto de luz (sempre não regulável, decisão do dono), sensores e quadro: nada a escolher.
    * `mudar(f)` devolve o que fazer quando o campo muda (f altera `p`); `pre` = prefixo dos ids.
    */
   function camposElemento(tipo, p, mudar, pre) {
@@ -1454,7 +1565,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       r.push(caixa("Tem estore?", !!p.estore, mudar((v) => { p.estore = v; if (!v) p.motorizado = false; }), false, `${pre}-estore`));
       r.push(caixa("É motorizado?", !!p.motorizado, mudar((v) => { p.motorizado = v; }), !p.estore, `${pre}-motorizado`));
     }
-    if (tipo === "luz") r.push(caixa("Com regulação de intensidade?", !!p.brilho, mudar((v) => { p.brilho = v; }), false, `${pre}-brilho`));
     if (tipo === "tomada") r.push(caixa("Tomada inteligente? (ligar, desligar e ver o consumo no telemóvel)", !!p.inteligente, mudar((v) => { p.inteligente = v; }), false, `${pre}-inteligente`));
     if (tipo === "interruptor") {
       const s = document.createElement("select");
@@ -1491,9 +1601,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     area.scrollIntoView({ block: "end", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
 
+  let divisaoAvisada;   // a última divisão dita a `aoSelecionar`
   function desenharSelecao() {
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
+    const div = d?.id ?? e?.divisao ?? null;
+    if (aoSelecionar && div !== divisaoAvisada) { divisaoAvisada = div; aoSelecionar(div); }
     const nome = d ? `Divisão ${d.nome || "sem nome"}` : e ? descreverElemento(e) : "";
     estadoLinha.classList.toggle("vazia", !d && !e);
     selecaoNome.textContent = nome ? `Selecionado: ${nome}` : "Nada selecionado";
@@ -1567,7 +1680,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     if (e.tipo === "porta") return p.entrada ? "Porta da rua" : "Porta";
     if (e.tipo === "janela") return p.estore ? (p.motorizado ? "Janela com estore motorizado" : "Janela com estore") : "Janela";
     if (e.tipo === "tomada") return p.inteligente ? "Tomada inteligente" : "Tomada";
-    if (e.tipo === "luz") return p.brilho ? "Ponto de luz com regulação" : "Ponto de luz";
     if (e.tipo === "interruptor") return `Interruptor de ${p.botoes} ${p.botoes === 1 ? "botão" : "botões"}`;
     if (e.tipo === "maquina") return MODELOS[p.modelo]?.nome ?? "Máquina";
     return ELEMENTOS[e.tipo].nome;
@@ -1596,9 +1708,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     dApagar.textContent = d ? "Apagar divisão" : "Apagar";
     dlgErro.hidden = true;
     dlgCorpo.replaceChildren();
+    dGuardar.hidden = false;
     if (d) corpoDivisao(d); else corpoElemento(e);
     dialogo.showModal();
-    (dlgCorpo.querySelector("input, select") ?? dGuardar).focus();
+    (dlgCorpo.querySelector("input, select") ?? (dGuardar.hidden ? dCancelar : dGuardar)).focus();
   }
 
   function erroDialogo(texto, foco) {
@@ -1666,6 +1779,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     }, "dlg");
     if (campos.length) dlgCorpo.append(...campos);
     else dlgCorpo.append(el("p", "ajuda", "Nada a escolher: pode apagá-lo."));
+    // Sem nada a escolher (ponto de luz, sensores, quadro) a janela fica só com Apagar e Cancelar.
+    dGuardar.hidden = !campos.length;
   }
 
   function guardarDialogo() {
@@ -1819,20 +1934,26 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     /** Piso visível (0 = r/c). */
     get piso() { return pisoAtual; },
     mudarPiso: (p) => mudarPiso(p),
-    /** Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara). */
-    definirTiposDivisao(lista) {
-      if (lista === tiposDivisao) return;
+    /**
+     * Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara; todos em "Mais…"). `naBarra`: os nomes dos
+     * botões que ficam na linha (as divisões da casa do passo 1); sem ele, todos.
+     */
+    definirTiposDivisao(lista, naBarra = null) {
+      divisoesNaBarra = Array.isArray(naBarra) ? naBarra : null;
+      if (lista === tiposDivisao) { acertarBarra(); return; }
       tiposDivisao = lista;
       desenharBotoesDivisao();
     },
     /**
-     * Fila "Máquinas:": um botão por modelo (chaves de regras.js MODELOS), pela ordem dada. `janela`: os modelos
-     * da lista "Qual é?" da janela da máquina (os do perfil do imóvel; sem ela, todos).
+     * Máquinas: um botão por modelo (chaves de regras.js MODELOS), pela ordem dada, todos em "Mais…"; `naBarra`: os
+     * modelos que ficam na linha (as escolhidas no passo 2). `janela`: os modelos da lista "Qual é?" da janela da
+     * máquina (os do perfil do imóvel; sem ela, todos).
      */
-    definirMaquinas(lista, janela = null) {
+    definirMaquinas(lista, janela = null, naBarra = []) {
       modelosJanela = Array.isArray(janela) ? janela : null;
+      maquinasNaBarra = Array.isArray(naBarra) ? naBarra : [];
       const l = [...new Set(lista)].filter((m) => MODELOS[m]);
-      if (l.join() === modelosMaq.join()) return;
+      if (l.join() === modelosMaq.join()) { acertarBarra(); return; }
       modelosMaq = l;
       if (modo?.el === "maquina" && !l.includes(modo.modelo)) definirModo(null);
       desenharBotoesMaquina();
@@ -1844,6 +1965,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     limpar() {
       fechoExterno = null;
       if (dialogo.open) dialogo.close();
+      fecharMais();
+      naBarraExtra.clear();
+      acertarBarra();
       if (dialogo.parentElement !== raiz) raiz.append(dialogo);
       if (emEcraInteiro()) sairEcra();
       pararToqueLongo();
@@ -1858,6 +1982,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       ficheiro.value = "";
       fundoSec.open = false;
       tamSec.open = false;
+      mostrarLado(false);
       separadores.hidden = true;
       separadores.replaceChildren();
       svg.replaceChildren();
@@ -1900,6 +2025,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
         // Teclado: como Enter numa ferramenta, põe-no logo no meio da divisão (fica selecionado: as setas movem-no).
         const c = centroColocacao();
         definirModo(null);
+        mostrarNaBarra(m.el === "maquina" ? `maquina:${m.modelo}` : m.el);
         adicionarElemento(m.el, c.x, c.y, m.modelo);
       } else {
         definirModo(m);
@@ -1908,6 +2034,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       if (texto) avisar(texto);
       mostrarPlanta();
       if (m && porJa) svg.focus({ preventScroll: true });
+    },
+    /**
+     * Passo "Divisões" (tocar num cartão): seleciona a divisão `id` na planta (no piso dela), sem mexer no foco.
+     * Sem `id` (ou uma divisão que não existe) tira a seleção.
+     */
+    selecionar(id) {
+      if (!planta) return;
+      const d = obterDivisao(id);
+      if (d && pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
+      selecionado = d ? d.id : null;
+      desenhar();
+      desenharSelecao();
     },
     /** Só para testes/depuração: estado da vista. */
     get vista() { return { ...vista }; },
