@@ -160,18 +160,53 @@ input, select { min-height: 44px; }
 .lista-contagem { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 
 /* ---------- Quadro e divisões ---------- */
-/* Divisões: um cartão por divisão com o resumo e Sim/Não em cada coisa (app.js cartaoDivisao). */
+/* Divisões (lote 5): um cartão por divisão com os aparelhos da planta — desenho, nome, − n + e foto — e
+   "Divisão verificada ✓" (app.js cartaoDivisao, linhaAparelho). Telemóvel primeiro. */
 #divisoes { display: grid; gap: 14px; }
-.divisao-cartao { display: grid; gap: 12px; padding: 16px; }
-.divisao-cartao > legend { font-size: 1.15rem; }
+.divisao-cartao { display: grid; gap: 10px; padding: 16px; scroll-margin: 90px 0 96px; }
+.divisao-cartao.verificada { border-color: var(--musgo); box-shadow: inset 4px 0 0 var(--musgo), var(--sombra); }
+.divisao-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.divisao-topo :is(h3, h4) { margin: 0; font-size: 1.2rem; overflow-wrap: anywhere; }
+.divisao-topo :is(h3, h4):focus { outline: none; }
+.divisao-topo :is(h3, h4):focus-visible { outline: 3px solid var(--foco); outline-offset: 3px; border-radius: 4px; }
+.divisao-feita { padding: 2px 10px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-size: .82rem; font-weight: 800; }
 .divisao-resumo { margin: 0; font-weight: 600; color: var(--texto-suave); }
-.divisao-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.divisao-itens li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 4px 0; border-top: 1px solid var(--borda); }
-.divisao-itens li:first-child { border-top: 0; }
-.divisao-item-nome { font-weight: 700; min-width: 0; }
-.sim-nao { display: flex; gap: 6px; flex: none; }
-.sim-nao .btn { min-width: 64px; }
-.sim-nao .btn[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
+.aparelhos { list-style: none; margin: 0; padding: 0; display: grid; }
+.aparelho { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--borda); }
+.aparelho:first-child { border-top: 0; padding-top: 0; }
+.aparelho-linha { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; }
+.aparelho-icone { width: 36px; height: 36px; color: var(--texto); }
+.aparelho-texto { display: grid; gap: 0; min-width: 0; }
+.aparelho-texto small { color: var(--texto-suave); font-size: .82rem; overflow-wrap: anywhere; }
+.aparelho-nome { justify-self: start; min-height: 44px; padding: 0; border: 0; background: none; color: var(--texto); font: 800 1rem/1.2 var(--letra); text-align: left; text-decoration: underline; text-decoration-color: var(--borda); text-underline-offset: 3px; cursor: pointer; overflow-wrap: anywhere; }
+.aparelho-nome:hover { text-decoration-color: var(--musgo); }
+.aparelho-nome:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; border-radius: 4px; }
+.aparelho .contador-caixa { gap: 4px; }
+.aparelho-foto { display: inline-flex; align-items: center; gap: 4px; padding: 6px 10px; }
+.icone-camara { width: 22px; height: 22px; flex: none; }
+.foto-miniatura { width: 44px; height: 44px; object-fit: cover; border-radius: 10px; border: 2px solid var(--musgo); }
+.aparelho-foto-acoes, .aparelho-quais { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-left: 44px; }
+.aparelho-foto-acoes .foto-miniatura { margin-right: 4px; }
+.aparelho-quais span { font-weight: 700; margin-right: auto; }
+.aparelho-quais .btn { min-width: 44px; }
+.divisao-botoes { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.divisao-verificar[aria-pressed="false"] { background: var(--superficie); color: var(--musgo-texto); border-color: var(--musgo); }
+/* No telemóvel estreito: a foto passa para baixo do nome (o − n + fica ao lado). */
+@media (max-width: 400px) {
+  .aparelho-linha { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .aparelho-linha > .aparelho-foto { grid-column: 2 / -1; justify-self: start; }
+}
+.divisoes-fotos-aviso { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: var(--texto-suave); font-weight: 600; }
+.divisoes-fotos-aviso svg { width: 24px; height: 24px; flex: none; }
+.divisoes-progresso { margin: 0 0 12px; }
+.divisoes-progresso[hidden] { display: none; }
+.divisoes-progresso p { margin: 0 0 6px; font-weight: 800; }
+#divisoes-msg { margin: 0 0 12px; }
+/* "+" do passo "Divisões": na planta, o que fazer e "Voltar às divisões". */
+.planta-voltar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 10px; }
+.planta-voltar[hidden] { display: none; }
+.planta-voltar p { margin: 0; flex: 1 1 220px; }
+.planta-voltar p:focus { outline: none; }
 .confirmar { margin-top: 10px; }
 
 /* ---------- Preço ---------- */
@@ -235,7 +270,17 @@ input, select { min-height: 44px; }
 .escolhas-grelha.tres-pacotes { grid-template-columns: 1fr; }
 @media (min-width: 560px) { .escolhas-grelha.tres-pacotes { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .escolhas-grelha.tres-curtas { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.escolhas-grelha.tres-quadro { grid-template-columns: 1fr; }
+@media (min-width: 560px) { .escolhas-grelha.tres-quadro { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 #quadro-nota { margin: 0; }
+/* Foto do quadro (lote 5): botão grande; depois, a miniatura com Trocar e Apagar. */
+.quadro-foto { display: grid; gap: 10px; margin-top: 16px; padding: 16px; }
+.quadro-foto[hidden] { display: none; }
+.quadro-foto h3 { margin: 0; font-size: 1.15rem; }
+.quadro-foto p { margin: 0; }
+.foto-grande { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 64px; font-size: 1.05rem; }
+.foto-grande .icone-camara { width: 28px; height: 28px; }
+.foto-quadro { display: block; width: min(240px, 100%); height: auto; border-radius: 12px; border: 2px solid var(--musgo); }
 
 /* Localidade: sugestões dos concelhos (combobox ARIA, app.js ligarLocalidade). */
 .sugestoes-caixa { position: relative; min-width: 0; }

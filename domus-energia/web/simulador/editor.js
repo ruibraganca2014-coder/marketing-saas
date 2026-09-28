@@ -1723,8 +1723,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
     dialogo.close();
     if (id && existe(id)) { selecionado = id; apagarSelecionado(); }
   });
-  // Fechar (Guardar, Cancelar, Apagar ou Esc): o foco volta à planta.
-  dialogo.addEventListener("close", () => { rascunho = null; svg.focus({ preventScroll: true }); });
+  // Fechar (Guardar, Cancelar, Apagar ou Esc): o foco volta à planta — ou, aberta de fora (passo "Divisões",
+  // abrirOpcoes), a janela volta para o editor e quem a abriu decide para onde vai o foco.
+  let fechoExterno = null;
+  dialogo.addEventListener("close", () => {
+    rascunho = null;
+    if (fechoExterno) {
+      const f = fechoExterno;
+      fechoExterno = null;
+      if (dialogo.parentElement !== raiz) raiz.append(dialogo);
+      f();
+      return;
+    }
+    svg.focus({ preventScroll: true });
+  });
 
   // ---------------------------------------------------------------- desenho
   function desenhar() {
@@ -1829,7 +1841,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
      * calibração, seleção, separador de piso, vista, ecrã inteiro, ferramenta escolhida).
      */
     limpar() {
+      fechoExterno = null;
       if (dialogo.open) dialogo.close();
+      if (dialogo.parentElement !== raiz) raiz.append(dialogo);
       if (emEcraInteiro()) sairEcra();
       pararToqueLongo();
       planta = null;
@@ -1848,6 +1862,52 @@ export function criarEditor(raiz, { aoMudar, anunciar = null }) {
       svg.replaceChildren();
     },
     get planta() { return planta; },
+    /**
+     * Passo "Divisões" (lote 5): abre a janela simples de um elemento (ou divisão) com a planta fora do ecrã. A
+     * janela vai para dentro de `anfitriao` (o passo à vista: dentro de um passo escondido não aparece) e volta
+     * para o editor ao fechar; `aoFechar` põe o foco onde deve ficar.
+     */
+    abrirOpcoes(id, { anfitriao = null, aoFechar = null } = {}) {
+      if (!planta || !existe(id) || dialogo.open) return false;
+      const x = obterElemento(id) ?? obterDivisao(id);
+      if (pisoDe(x) !== pisoAtual && pisoDe(x) < nPisos()) pisoAtual = pisoDe(x);
+      selecionado = id;
+      desenharTudo();
+      if (anfitriao) anfitriao.append(dialogo);
+      fechoExterno = aoFechar ?? (() => {});
+      abrirDialogo();
+      return true;
+    },
+    /** Passo "Divisões" ("−"): apaga um elemento (um passo de anular, como o botão Apagar). */
+    apagar(id) {
+      if (!planta || !existe(id)) return false;
+      selecionado = id;
+      apagarSelecionado();
+      return true;
+    },
+    /**
+     * Passo "Divisões" ("+"): mostra o piso da divisão, seleciona-a e escolhe a ferramenta do aparelho (`tipo`,
+     * `modelo` nas máquinas; sem `tipo` nenhuma), com `texto` na dica ("Toque na planta onde fica a nova tomada").
+     */
+    prepararColocar({ divisao = null, tipo = null, modelo = null, texto = null, porJa = false } = {}) {
+      if (!planta) return;
+      const d = obterDivisao(divisao);
+      if (d && pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
+      selecionado = d ? d.id : null;
+      const m = tipo && ELEMENTOS[tipo] ? { tipo: "elemento", el: tipo, modelo: tipo === "maquina" ? modelo : null } : null;
+      if (m && porJa) {
+        // Teclado: como Enter numa ferramenta, põe-no logo no meio da divisão (fica selecionado: as setas movem-no).
+        const c = centroColocacao();
+        definirModo(null);
+        adicionarElemento(m.el, c.x, c.y, m.modelo);
+      } else {
+        definirModo(m);
+        desenharTudo();
+      }
+      if (texto) avisar(texto);
+      mostrarPlanta();
+      if (m && porJa) svg.focus({ preventScroll: true });
+    },
     /** Só para testes/depuração: estado da vista. */
     get vista() { return { ...vista }; },
   };

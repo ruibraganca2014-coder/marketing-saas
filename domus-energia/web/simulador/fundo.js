@@ -27,7 +27,7 @@ export async function lerFundo(ficheiro) {
   throw new ErroFundo("Use uma fotografia (JPG ou PNG) ou um PDF.");
 }
 
-async function abrirImagem(ficheiro) {
+export async function abrirImagem(ficheiro) {
   try {
     if (typeof createImageBitmap === "function") return await createImageBitmap(ficheiro);
   } catch { /* tenta como data: URL */ }

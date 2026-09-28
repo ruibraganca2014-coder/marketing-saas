@@ -3,10 +3,10 @@
 // Todos os textos do cliente e do servidor entram só com textContent.
 
 import {
-  TIPOS_CASA, MODELOS, MAX_DIVISOES,
+  TIPOS_CASA, MODELOS,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
-  contarPlanta, divisoesDaContagem, divisaoVazia, sugerirCircuitos, circuitoVazio, numerar,
-  plantaTemConteudo, nomeModelo, NOMES_DIVISAO, formatarW, FASES,
+  contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
+  plantaTemConteudo, nomeModelo, formatarW, FASES,
   perfilCasa, maquinasGrandesDe, objetivosDe, tiposDivisaoPara,
   TIPOS_COM_PISOS, nomePiso, pisoDe,
 } from "./regras.js";
@@ -29,6 +29,9 @@ import {
 import { criarEditor } from "./editor.js";
 import { desenharIcone } from "./planta-svg.js";
 import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
+import {
+  MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
+} from "./fotos.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -74,6 +77,12 @@ const editor = criarEditor($("editor"), {
     estado.plantaAuto = false;   // já não é só a planta que desenhámos: não a refazemos sozinhos
     desenharContagem();
     textoSeguinte();
+    // Mexeu a partir do passo "Divisões" ("−" ou a janela de um aparelho): o pedido e os cartões seguem a planta.
+    if (estado.passo === P.divisoes) {
+      refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
+      desenharDivisoes();
+    }
+    if (voltarDivisoes && estado.passo === P.planta) $("planta-voltar-texto").textContent = "Feito. Pode acrescentar mais, ou tocar em \"Voltar às divisões\".";
     agendarGravacao();
   },
 });
@@ -152,6 +161,7 @@ function desenharProgresso() {
 
 function irPara(i, { foco = true } = {}) {
   const de = estado.passo;
+  if (i !== P.planta) voltarDivisoes = null;   // "+" do passo "Divisões": só enquanto está na planta
   // Ao passar da planta para a frente (também a saltar da casa ou de "O que quer" pela barra): planta
   // (se ainda é a nossa), divisões, quadro e termóstatos pré-preenchidos (só o que o cliente ainda não
   // mudou à mão).
@@ -181,6 +191,7 @@ function mostrarPasso(foco = true) {
     desenharPlantaOrigem();
     textoSeguinte();
   }
+  $("planta-voltar").hidden = !(p === P.planta && voltarDivisoes);
   if (p === P.divisoes) desenharDivisoes();
   if (p === P.quadro) desenharQuadro();
   if (p === P.preco) desenharPreco();
@@ -195,13 +206,16 @@ function mostrarPasso(foco = true) {
 
 function textoSeguinte() {
   const p = estado.passo;
-  $("sim-seguinte").textContent = p === PASSOS.length - 1 ? "Enviar pedido" : p === P.planta && !plantaTemConteudo(estado.planta) ? "Saltar a planta" : "Seguinte";
+  $("sim-seguinte").textContent = p === PASSOS.length - 1 ? "Enviar pedido"
+    : p === P.planta && voltarDivisoes ? "Voltar às divisões"
+      : p === P.planta && !plantaTemConteudo(estado.planta) ? "Saltar a planta" : "Seguinte";
 }
 
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(estado.passo - 1));
 $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === PASSOS.length - 1) { enviar(); return; }
+  if (estado.passo === P.planta && voltarDivisoes) { voltarAsDivisoes(); return; }
   // "Seguinte" com a planta desenhada usa-a (mesmo que antes a tenha saltado); vazia = saltar.
   if (estado.passo === P.planta) estado.plantaSaltada = !plantaTemConteudo(estado.planta);
   irPara(estado.passo + 1);
@@ -884,31 +898,21 @@ function prepararPassosSeguintes() {
 }
 
 // ------------------------------------------------------------ 5. Quadro
-// Para o cliente, só 3 perguntas simples (docs §4.1): que proteção quer, se a casa tem pára-raios e se o quadro é
-// antigo. Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados
+// Para o cliente, só 3 perguntas simples (docs §4.1): que proteção quer, se a casa tem pára-raios e o seu quadro
+// elétrico (já tem / quer um novo / não sei; com "Já tenho", a foto do quadro — lote 5). Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados
 // sozinhos (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
-function selectCom(opcoes, valor, id) {
-  const s = document.createElement("select");
-  if (id) s.id = id;
-  for (const [v, t] of opcoes) { const o = document.createElement("option"); o.value = String(v); o.textContent = t; s.append(o); }
-  s.value = String(valor);
-  return s;
-}
 const lerNum = (i, min, max) => Math.min(max, Math.max(min, Math.round(Number(i.value) || 0)));
-function rotulo(texto, controlo, cls = "campo") {
-  const l = el("label", cls);
-  l.append(el("span", null, texto), controlo);
-  return l;
-}
-
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
 const PROTECAO_SIMPLES = {
   essencial: ["Básica", "O mínimo obrigatório: protege as pessoas de choques elétricos."],
   recomendado: ["Recomendada", "Também protege os aparelhos de picos de corrente (trovoada) e de falhas da rede."],
   completo: ["Completa", "Também avisa de faíscas nos fios dos quartos e da sala, e mostra e desliga a casa toda no telemóvel."],
 };
-/** "O quadro elétrico é antigo?" → quadro_novo: Sim = novo; Não = o atual serve; Não sei = null (novo por precaução). */
-const QUADRO_ANTIGO = [["novo", "Sim"], ["atual", "Não"], ["", "Não sei"]];
+/**
+ * "O seu quadro elétrico" (lote 5) → quadro_novo: Já tenho quadro = o atual serve; Quero um quadro novo = novo;
+ * Não sei = null (novo por precaução). O preço é o mesmo do lote 4 ("É antigo?": Não / Sim / Não sei).
+ */
+const QUADRO_RESPOSTAS = [["atual", "Já tenho quadro"], ["novo", "Quero um quadro novo"], ["", "Não sei"]];
 const PARA_RAIOS_SIMPLES = [["sim", "Sim"], ["nao", "Não"], ["", "Não sei"]];
 
 /** Monta uma vez as 3 perguntas. */
@@ -926,7 +930,7 @@ function montarQuadro() {
     for (const [v, t] of opcoes) $(id).append(escolha("radio", nome, v, t, null, (sim) => { if (sim) { estado.quadro[campo] = v || null; quadroMudou(); } }));
   };
   pergunta("quadro-para-raios", "quadro-para-raios", PARA_RAIOS_SIMPLES, "para_raios");
-  pergunta("quadro-antigo", "quadro-novo", QUADRO_ANTIGO, "quadro_novo");
+  pergunta("quadro-antigo", "quadro-novo", QUADRO_RESPOSTAS, "quadro_novo");
 }
 
 function quadroMudou() {
@@ -952,8 +956,55 @@ function desenharQuadro() {
     : q.quadro_novo === "novo" ? "Incluímos um quadro novo no preço." : "Por precaução incluímos um quadro novo no preço: se o seu servir, sai do preço na visita.");
   nota.textContent = partes.join(" ");
   nota.hidden = false;
+  desenharFotoQuadro();
 }
 montarQuadro();
+
+/**
+ * Foto do quadro (lote 5): pedida com "Já tenho quadro" (opcional, mas recomendada); se já a tirou, fica à vista
+ * com as outras respostas. Botão grande; depois, a miniatura com "Trocar" e "Apagar".
+ */
+function desenharFotoQuadro() {
+  const foto = fotos.get("quadro");
+  const caixa = $("quadro-foto");
+  caixa.hidden = !(estado.quadro.quadro_novo === "atual" || foto);
+  const corpo = $("quadro-foto-corpo");
+  corpo.replaceChildren();
+  const depois = (ok, texto) => {
+    const m = $("quadro-foto-msg");
+    m.textContent = texto ?? "";
+    m.className = `msg ${ok === false ? "erro" : "info"}`;
+    m.hidden = !texto;
+    if (ok === null) return;
+    desenharFotoQuadro();
+    focar("quadro-foto-botao");
+  };
+  if (!foto) {
+    const b = el("button", "btn foto-grande");
+    b.type = "button";
+    b.id = "quadro-foto-botao";
+    b.append(iconeCamara(), el("span", null, "Tirar foto do quadro"));
+    b.addEventListener("click", () => pedirFoto("quadro", depois));
+    corpo.append(b);
+    return;
+  }
+  const img = el("img", "foto-quadro");
+  img.src = foto.miniatura;
+  img.alt = "Foto do quadro elétrico";
+  const bs = el("div", "form-botoes");
+  const trocar = el("button", "btn sec pequeno", "Trocar");
+  trocar.type = "button";
+  trocar.id = "quadro-foto-botao";
+  trocar.setAttribute("aria-label", "Trocar a foto do quadro");
+  trocar.addEventListener("click", () => pedirFoto("quadro", depois));
+  const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
+  apagar.type = "button";
+  apagar.id = "quadro-foto-apagar";
+  apagar.setAttribute("aria-label", "Apagar a foto do quadro");
+  apagar.addEventListener("click", async () => { await tirarFoto("quadro"); depois(true, "Foto apagada."); });
+  bs.append(trocar, apagar);
+  corpo.append(img, bs);
+}
 
 // "Recalcular"/"Refazer": se o cliente já mexeu, pede confirmação na página (sem diálogos nativos).
 function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "Isto substitui o que mudou à mão pela nossa sugestão. Continuar?", sim: textoSim = "Sim, voltar à sugestão" } = {}) {
@@ -980,10 +1031,6 @@ function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "I
     sim.focus();
   });
 }
-ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
-  estado.divisoes = divisoesSugeridas(contagemAtual());
-  estado.divisoesEditadas = false;
-}, desenharDivisoes);
 // Planta em que o cliente mexeu e a casa ou as máquinas mudaram depois: só a refazemos se ele pedir (e confirmar).
 ligarRecalcular("planta-refazer", () => true, () => {
   desenharDaCasa();
@@ -996,171 +1043,531 @@ ligarRecalcular("planta-refazer", () => true, () => {
   textoSeguinte();
 }, { pergunta: "Isto apaga a planta atual (e o que desenhou nela) e desenha-a de novo a partir dos passos 1 e 2. Continuar?", sim: "Sim, refazer" });
 
-// ------------------------------------------------------------ 4. Divisões
-// Um cartão por divisão (agrupados por piso) com o que vai ter, em linguagem simples, e Sim/Não em cada coisa.
-// As quantidades vêm da planta (ou da casa) e dos objetivos: "Não" tira, "Sim" volta a pôr o que lá estava (ou o
-// que sugerimos). O que o cliente não mexe não muda (o preço também não).
+// ------------------------------------------------------------ fotos (lote 5)
+// Opcionais: uma por tipo de aparelho e divisão (passo 4) e uma do quadro elétrico (passo 5). Reduzidas no
+// navegador e guardadas no IndexedDB (fotos.js) ligadas a esta simulação (estado.fotosId); "Começar de novo" e
+// o envio bem-sucedido apagam-nas. Aqui ficam em memória para as miniaturas: chave → {chave, blob, miniatura…}.
+const fotos = new Map();
+const entradaFoto = document.createElement("input");
+entradaFoto.type = "file";
+entradaFoto.accept = "image/*";
+entradaFoto.setAttribute("capture", "environment");   // no telemóvel abre logo a câmara de trás
+entradaFoto.id = "sim-foto-ficheiro";
+entradaFoto.hidden = true;
+entradaFoto.tabIndex = -1;
+entradaFoto.setAttribute("aria-hidden", "true");
+document.body.append(entradaFoto);
+let fotoAlvo = null;   // {chave, aoFim(ok, texto)}: ok null = ainda a preparar
+
+/** Tirar (ou trocar) a foto `chave`; `aoFim(ok, texto)` diz como correu (ok null: ainda a preparar). */
+function pedirFoto(chave, aoFim) {
+  if (!fotos.has(chave) && fotos.size >= MAX_FOTOS) { aoFim(false, `Já tem ${MAX_FOTOS} fotos, o máximo. Apague uma para tirar outra.`); return; }
+  fotoAlvo = { chave, aoFim };
+  entradaFoto.value = "";
+  entradaFoto.click();
+}
+entradaFoto.addEventListener("change", async () => {
+  const alvo = fotoAlvo;
+  const f = entradaFoto.files?.[0];
+  fotoAlvo = null;
+  if (!alvo || !f) return;
+  alvo.aoFim(null, "A preparar a foto…");
+  try {
+    const r = await reduzirFoto(f);
+    if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); }
+    const guardada = await guardarFoto(estado.fotosId, alvo.chave, r);
+    fotos.set(alvo.chave, { chave: alvo.chave, ...r });
+    alvo.aoFim(true, guardada ? "Foto guardada neste navegador até enviar o pedido." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se.");
+  } catch (e) {
+    alvo.aoFim(false, e instanceof ErroFoto ? e.message : "Não foi possível usar esta foto. Experimente outra.");
+  } finally {
+    entradaFoto.value = "";
+  }
+});
+async function tirarFoto(chave) {
+  fotos.delete(chave);
+  if (estado.fotosId) await apagarFoto(estado.fotosId, chave);
+}
+/** As fotos da simulação guardada (ao continuar); as de outras simulações saem do navegador. */
+async function carregarFotosDoEstado() {
+  fotos.clear();
+  const sim = estado.fotosId;
+  limparFotos(sim);
+  if (!sim) return;
+  const lidas = await lerFotos(sim);
+  if (sim !== estado.fotosId) return;
+  for (const r of lidas) fotos.set(r.chave, r);
+  if (estado.passo === P.divisoes) desenharDivisoes();
+  if (estado.passo === P.quadro) desenharQuadro();
+}
+
+/**
+ * `simulacao.fotos` (§6): as fotos das linhas que ainda existem (e a do quadro), sem as imagens, pela ordem do
+ * passo 4; `legenda` = "Sala — Tomadas" (com pisos, "(Piso 1)").
+ */
+function fotosParaEnvio() {
+  const r = [];
+  if (fotos.has("quadro")) r.push({ chave: "quadro", tipo: "quadro", divisao: null, divisao_nome: null, piso: null, legenda: "Quadro elétrico" });
+  const planta = plantaDivisoes();
+  const comPisos = Math.max(pisosDaCasa(estado.casa), ...planta.divisoes.map((d) => pisoDe(d) + 1)) > 1;
+  for (const d of planta.divisoes) {
+    for (const l of linhasDivisao(planta, d)) {
+      const chave = `${d.id}:${l.k}`;
+      if (!fotos.has(chave)) continue;
+      const nome = d.nome || "Divisão";
+      r.push({ chave, tipo: l.tipo, divisao: d.id, divisao_nome: nome, piso: pisoDe(d), legenda: `${nome} — ${nomeLinha(l)}${comPisos ? ` (${nomePiso(pisoDe(d))})` : ""}` });
+    }
+  }
+  return r.slice(0, MAX_FOTOS);
+}
+
+// ------------------------------------------------------------ 4. Divisões (lote 5)
+// O cliente vai a cada divisão confirmar o que lá está: um cartão por divisão (agrupados por piso) com todos os
+// aparelhos da planta, uma linha por tipo (as máquinas, uma por modelo) com o desenho, o nome, − n + e uma foto
+// opcional; "Divisão verificada ✓" e o progresso por cima. "−" tira o último desse tipo da divisão (na planta);
+// "+" leva à planta, no piso certo, com a divisão selecionada e a ferramenta desse aparelho escolhida ("Voltar às
+// divisões" regressa ao mesmo cartão); tocar no nome abre a janela simples do aparelho (a do editor). O que entra
+// no preço (estado.divisoes) continua a sair da planta e dos objetivos (divisoesSugeridas): o resumo do cartão.
 const ITENS_DIVISAO = [
-  ["interruptores", "Luzes pelo telemóvel", "interruptor inteligente", "interruptores inteligentes"],
-  ["luzes_regulaveis", "Luz com intensidade regulável", "luz regulável", "luzes reguláveis"],
-  ["estores", "Estores automáticos", "estore automático", "estores automáticos"],
-  ["sensores_movimento", "Sensor de movimento", "sensor de movimento", "sensores de movimento"],
-  ["sensores_porta", "Aviso de porta ou janela aberta", "sensor de porta ou janela", "sensores de porta ou janela"],
-  ["tomadas_inteligentes", "Tomada inteligente", "tomada inteligente", "tomadas inteligentes"],
+  ["interruptores", "Luzes pelo telemóvel"],
+  ["luzes_regulaveis", "Luz com intensidade regulável"],
+  ["estores", "Estores automáticos"],
+  ["sensores_movimento", "Sensor de movimento"],
+  ["sensores_porta", "Aviso de porta ou janela aberta"],
+  ["tomadas_inteligentes", "Tomada inteligente"],
 ];
 const quantosDe = (d, k) => (k === "interruptores" ? d.interruptores.length : Number(d[k]) || 0);
-/** O que se tirou com "Não" (para "Sim" voltar ao mesmo), enquanto a página está aberta. */
-const tirados = new WeakMap();
-/** Divisões acrescentadas à mão nesta visita ("Adicionar divisão"): têm o nome e o piso no cartão. */
-const novasDivisoes = new WeakSet();
+/** Tipos de aparelho pela ordem dos cartões (depois as máquinas, pela ordem da planta): [singular, plural, "a nova …"]. */
+const NOMES_TIPO = {
+  luz: ["Ponto de luz", "Pontos de luz", "o novo ponto de luz"],
+  interruptor: ["Interruptor", "Interruptores", "o novo interruptor"],
+  tomada: ["Tomada", "Tomadas", "a nova tomada"],
+  janela: ["Janela", "Janelas", "a nova janela"],
+  porta: ["Porta", "Portas", "a nova porta"],
+  sensor_movimento: ["Sensor de movimento", "Sensores de movimento", "o novo sensor de movimento"],
+  sensor_porta: ["Sensor de porta ou janela", "Sensores de porta ou janela", "o novo sensor de porta ou janela"],
+  quadro: ["Quadro elétrico", "Quadros elétricos", "o novo quadro elétrico"],
+};
+const ORDEM_TIPOS = Object.keys(NOMES_TIPO);
+const listaPt = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} e ${a[a.length - 1]}`);
+const focar = (id) => { const x = id && $(id); if (!x || x.disabled) return false; x.focus({ preventScroll: true }); return true; };
 
-function divisoesMudou() {
-  estado.divisoesEditadas = true;
-  agendarGravacao();
-}
+let divisaoTocada = null;       // divisão mexida a partir deste passo (o pedido dela segue a planta)
+let voltarDivisoes = null;      // {divisao, k}: "+" levou à planta; "Voltar às divisões" regressa a este cartão
+const abertas = new Set();      // linhas com vários aparelhos com a lista "Qual?" aberta
 
-/** Quantidade sugerida (planta ou casa, com os objetivos) de `k` numa divisão; 1 se não houver sugestão. */
-function sugeridoPara(d, k) {
-  const s = divisoesSugeridas(contagemAtual()).find((x) => (d.planta_id && x.planta_id === d.planta_id) || x.nome === d.nome);
-  return s && quantosDe(s, k) > 0 ? (k === "interruptores" ? [...s.interruptores] : s[k]) : k === "interruptores" ? [1] : 1;
-}
+/** Planta deste passo: a desenhada ou, com a planta saltada, a que a casa daria (a mesma da contagem). */
+const plantaDivisoes = () => (usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
 
-function porNaDivisao(d, k, sim) {
-  const t = tirados.get(d) ?? {};
-  if (!sim) {
-    if (quantosDe(d, k) > 0) t[k] = k === "interruptores" ? [...d.interruptores] : d[k];
-    tirados.set(d, t);
-    if (k === "interruptores") d.interruptores = []; else d[k] = 0;
-  } else if (quantosDe(d, k) === 0) {
-    const v = t[k] ?? sugeridoPara(d, k);
-    if (k === "interruptores") d.interruptores = [...v]; else d[k] = v;
+/** Linhas de uma divisão: {k, tipo, modelo, els} — uma por tipo de aparelho (máquinas: uma por modelo). */
+function linhasDivisao(planta, d) {
+  const m = new Map();
+  for (const e of planta.elementos) {
+    if (e.divisao !== d.id || (!NOMES_TIPO[e.tipo] && e.tipo !== "maquina")) continue;
+    const modelo = e.tipo === "maquina" ? (MODELOS[e.props?.modelo] ? e.props.modelo : "outro") : null;
+    const k = modelo ?? e.tipo;
+    if (!m.has(k)) m.set(k, { k, tipo: e.tipo, modelo, els: [] });
+    m.get(k).els.push(e);
   }
-  divisoesMudou();
+  const ordem = (l) => (l.modelo ? ORDEM_TIPOS.length : ORDEM_TIPOS.indexOf(l.tipo));
+  return [...m.values()].sort((a, b) => ordem(a) - ordem(b));
+}
+const nomeLinha = (l, n = l.els.length) => (l.modelo ? MODELOS[l.modelo].nome : NOMES_TIPO[l.tipo][n === 1 ? 0 : 1]);
+const nomeUm = (l) => (l.modelo ? MODELOS[l.modelo].nome : NOMES_TIPO[l.tipo][0]);
+
+/** O pormenor de uma linha em palavras simples ("2 inteligentes", "1 e 2 botões", "porta da rua"). */
+function detalheLinha(l) {
+  const ps = l.els.map((e) => e.props ?? {});
+  const um = l.els.length === 1;
+  const conta = (k, s, p) => (!k ? null : um ? s : `${k} ${k === 1 ? s : p}`);
+  if (l.tipo === "interruptor") {
+    const b = [...new Set(ps.map((p) => Math.min(4, Math.max(1, Math.round(Number(p.botoes) || 1)))))].sort((x, y) => x - y);
+    return `${listaPt(b.map(String))} ${b.length === 1 && b[0] === 1 ? "botão" : "botões"}`;
+  }
+  if (l.tipo === "tomada") return conta(ps.filter((p) => p.inteligente).length, "inteligente", "inteligentes");
+  if (l.tipo === "luz") return conta(ps.filter((p) => p.brilho).length, "regulável", "reguláveis");
+  if (l.tipo === "porta") return conta(ps.filter((p) => p.entrada).length, "porta da rua", "da rua");
+  if (l.tipo === "janela") {
+    const partes = [conta(ps.filter((p) => p.estore && p.motorizado).length, "com estore motorizado", "com estore motorizado"),
+      conta(ps.filter((p) => p.estore && !p.motorizado).length, "com estore sem motor", "com estore sem motor")].filter(Boolean);
+    return partes.length ? partes.join(", ") : null;
+  }
+  return null;
 }
 
-/** "Sala: luzes pelo telemóvel, 2 estores automáticos, sensor de movimento." */
-function resumoDivisao(d, i) {
-  const partes = ITENS_DIVISAO.filter(([k]) => quantosDe(d, k) > 0).map(([k, t]) => {
-    const n = quantosDe(d, k);
+/** A linha do pedido (estado.divisoes) de uma divisão da planta: pelo id ou, sem planta, pelo nome e piso. */
+const entradaDe = (d) => estado.divisoes.find((x) => x.planta_id === d.id)
+  ?? estado.divisoes.find((x) => !x.planta_id && x.nome === d.nome && pisoDe(x) === pisoDe(d));
+
+/** "luzes pelo telemóvel, 2 estores automáticos" (o que entra no preço para esta divisão). */
+function resumoItens(x) {
+  const partes = ITENS_DIVISAO.filter(([k]) => quantosDe(x, k) > 0).map(([k, t]) => {
+    const n = quantosDe(x, k);
     return n > 1 && k !== "interruptores" ? `${n} ${t.toLowerCase()}` : t.toLowerCase();
   });
-  return `${d.nome || `Divisão ${i + 1}`}: ${partes.length ? partes.join(", ") : "nada de inteligente, por agora"}.`;
+  return partes.length ? partes.join(", ") : "nada de inteligente, por agora";
+}
+
+/**
+ * O pedido (estado.divisoes e o quadro) volta a seguir a planta depois de o cliente a mudar neste passo. Estados
+ * antigos com as divisões mexidas à mão (lote 4, Sim/Não): só as divisões em `ids` seguem a planta.
+ */
+function refazerDivisoes(ids = []) {
+  const cont = contagemAtual();
+  const sug = divisoesSugeridas(cont);
+  if (!estado.divisoesEditadas) estado.divisoes = sug;
+  else {
+    for (const id of ids) {
+      const s = sug.find((x) => x.planta_id === id);
+      const i = estado.divisoes.findIndex((x) => x.planta_id === id);
+      if (s && i >= 0) estado.divisoes[i] = s; else if (s) estado.divisoes.push(s); else if (i >= 0) estado.divisoes.splice(i, 1);
+    }
+  }
+  if (!estado.quadroEditado) estado.quadro.circuitos = circuitosSugeridos(cont);
+}
+
+/**
+ * Antes de mexer na planta a partir deste passo. Com a planta saltada, a que o passo mostra (a da casa) passa a
+ * ser a planta (os mesmos ids). Se o cliente tinha desenhado uma planta dele e a saltou, ela volta a contar e os
+ * cartões passam a ser os dela: devolve false (o cliente toca outra vez).
+ */
+function garantirPlanta() {
+  if (usaPlanta()) return true;
+  estado.plantaSaltada = false;
+  if (estado.plantaAuto || !plantaTemConteudo(estado.planta)) { desenharDaCasa(); return true; }
+  refazerDivisoes();
+  agendarGravacao();
+  desenharDivisoes();
+  mensagemDivisoes("Voltámos a usar a planta que desenhou: confira as divisões e toque outra vez.", "info");
+  return false;
+}
+
+/** O editor tem de estar com a planta do estado para apagar, pôr ou abrir a janela (um passo de anular cada). */
+function garantirEditor() {
+  if (editor.planta === estado.planta) return;
+  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
+  editor.definirMaquinas(maquinasEditor());
+  editor.definirPisos(pisosDaCasa(estado.casa));
+  editor.abrir(estado.planta, { reiniciarVista: true });
+}
+
+function mensagemDivisoes(texto, tipo = "info") {
+  const m = $("divisoes-msg");
+  m.textContent = texto ?? "";
+  m.className = `msg ${tipo}`;
+  m.hidden = !texto;
+}
+
+/** "−": tira o último aparelho desse tipo da divisão (também da planta). */
+function tirarUm(d, l) {
+  if (!garantirPlanta()) return;
+  const alvo = linhasDivisao(estado.planta, d).find((x) => x.k === l.k)?.els.at(-1);
+  if (!alvo) return;
+  divisaoTocada = d.id;
+  garantirEditor();
+  editor.apagar(alvo.id);   // → aoMudar: o pedido e os cartões seguem a planta
+  const n = linhasDivisao(estado.planta, d).find((x) => x.k === l.k)?.els.length ?? 0;
+  mensagemDivisoes(`${d.nome || "Divisão"}: ${n ? `${n} × ${nomeUm(l).toLowerCase()}` : `sem ${nomeLinha(l, 2).toLowerCase()}`} (também na planta).`);
+  const base = `div-${d.id}-${l.k}`;
+  focar(`${base}-menos`) || focar(`${base}-mais`) || focar(`div-${d.id}-titulo`);
+}
+
+/**
+ * "+" (e "Acrescentar outro aparelho", "Acrescentar uma divisão"): vai à planta, no piso da divisão, com ela
+ * selecionada e a ferramenta desse aparelho escolhida. Pelo teclado o aparelho fica logo no meio da divisão (como
+ * as ferramentas do editor); o cliente arrasta-o para o sítio certo.
+ */
+function acrescentar(d, l, ev = null) {
+  if (d && !garantirPlanta()) return;
+  const teclado = ev?.detail === 0;
+  voltarDivisoes = { divisao: d?.id ?? null, k: l?.k ?? null };
+  irPara(P.planta, { foco: false });
+  const oque = l ? (l.modelo ? `a nova máquina (${MODELOS[l.modelo].nome.toLowerCase()})` : NOMES_TIPO[l.tipo][2]) : null;
+  const texto = !d ? "Use os botões das divisões (Sala, Quarto…) para acrescentar a divisão; depois toque em \"Voltar às divisões\"."
+    : oque && teclado ? `Pusemos ${oque} no meio de "${d.nome}": mova-a com as setas (ou arraste-a) para o sítio certo.`
+      : oque ? `Toque na planta, dentro de "${d.nome}", onde fica ${oque}.`
+        : `Escolha o aparelho nas ferramentas e toque na planta, dentro de "${d.nome}".`;
+  editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: teclado && !!l });
+  $("planta-voltar-texto").textContent = texto;
+  if (!(teclado && l)) $("planta-voltar-texto").focus({ preventScroll: true });
+}
+
+/** "Voltar às divisões": o passo 4, com o foco e a vista no cartão de onde saiu. */
+function voltarAsDivisoes() {
+  const v = voltarDivisoes;
+  voltarDivisoes = null;
+  estado.plantaSaltada = !plantaTemConteudo(estado.planta);
+  if (v?.divisao) refazerDivisoes([v.divisao]);
+  irPara(P.divisoes, { foco: false });
+  const base = v?.divisao ? `div-${v.divisao}` : null;
+  const alvo = (base && ($(`${base}-${v.k}-mais`) ?? $(`${base}-titulo`))) || $("titulo-3");
+  alvo.focus({ preventScroll: true });
+  alvo.scrollIntoView({ block: base ? "center" : "start", behavior: reduzido() ? "auto" : "smooth" });
+}
+$("planta-voltar-botao").addEventListener("click", voltarAsDivisoes);
+
+/** Janela simples de um aparelho (a do editor), aberta por cima deste passo; ao fechar o foco volta a `focoId`. */
+function abrirJanela(d, e, focoId) {
+  if (!garantirPlanta()) return;
+  garantirEditor();
+  divisaoTocada = d.id;
+  editor.abrirOpcoes(e.id, {
+    anfitriao: $(`passo-${P.divisoes}`),
+    aoFechar: () => { desenharDivisoes(); focar(focoId) || focar(`div-${d.id}-titulo`); },
+  });
+}
+
+/** "Divisão verificada ✓": liga/desliga; ao marcar, o foco passa ao cartão seguinte por verificar. */
+function marcarVerificada(id, sim) {
+  const s = new Set(estado.verificadas);
+  if (sim) s.add(id); else s.delete(id);
+  estado.verificadas = [...s];
+  agendarGravacao();
+  desenharDivisoes();
+  const ids = plantaDivisoes().divisoes.map((d) => d.id);
+  const seguinte = sim ? [...ids.slice(ids.indexOf(id) + 1), ...ids.slice(0, ids.indexOf(id))].find((x) => !s.has(x)) : null;
+  if (seguinte) {
+    const t = $(`div-${seguinte}-titulo`);
+    t.focus({ preventScroll: true });
+    $(`div-${seguinte}`).scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+  } else focar(`div-${id}-verificada`);
 }
 
 function desenharDivisoes() {
-  const temPlanta = usaPlanta();
-  const daCasa = !temPlanta && (casaDaDivisoes() || estado.quer.objetivos.length > 0);
-  const botao = $("divisoes-recalcular");
-  botao.textContent = "Voltar à nossa sugestão";
-  botao.hidden = !temPlanta && !daCasa;
+  const planta = plantaDivisoes();
   const origem = $("divisoes-origem");
-  origem.hidden = !temPlanta && !daCasa;
-  origem.textContent = estado.divisoesEditadas ? "Mudou as divisões à mão: não as mudamos sozinhos."
-    : `Já preenchemos a partir ${temPlanta ? "da sua planta" : negocio() ? "do seu espaço" : "da sua casa"} e do que quer fazer. Toque em Sim ou Não para mudar.`;
+  origem.hidden = usaPlanta() && !estado.divisoesEditadas;
+  origem.textContent = !usaPlanta()
+    ? "Saltou a planta: mostramos a que desenhámos a partir da casa. Se mudar alguma coisa aqui, passa a ser a sua planta."
+    : "Numa versão anterior mudou divisões à mão: ficam como estavam até mexer nelas aqui (ou voltar à nossa sugestão).";
+  $("divisoes-recalcular").hidden = !estado.divisoesEditadas;
+  // Progresso: divisões verificadas desta planta.
+  const ids = planta.divisoes.map((d) => d.id);
+  const feitas = ids.filter((id) => estado.verificadas.includes(id)).length;
+  $("divisoes-progresso-caixa").hidden = !ids.length;
+  $("divisoes-progresso").textContent = ids.length && feitas === ids.length
+    ? `Todas as divisões verificadas (${feitas} de ${ids.length}) ✓`
+    : `${feitas} de ${ids.length} ${ids.length === 1 ? "divisão verificada" : "divisões verificadas"}`;
+  $("divisoes-progresso-barra").style.width = `${ids.length ? (feitas / ids.length) * 100 : 0}%`;
   const c = $("divisoes");
   c.replaceChildren();
-  if (!estado.divisoes.length) c.append(el("p", "ajuda", "Sem divisões. Use \"Adicionar divisão\"."));
-  // Com pisos: agrupadas por piso, cada grupo com o título do piso (as divisões guardam o índice na lista).
-  const n = nPisosDivisoes();
-  if (n <= 1) estado.divisoes.forEach((d, i) => c.append(cartaoDivisao(d, i)));
+  if (!planta.divisoes.length) c.append(el("p", "ajuda", "Ainda sem divisões: acrescente-as na planta."));
+  // Com pisos: agrupadas por piso, cada grupo com o título do piso.
+  const n = Math.max(pisosDaCasa(estado.casa), ...planta.divisoes.map((d) => pisoDe(d) + 1), 1);
+  if (n <= 1) for (const d of planta.divisoes) c.append(cartaoDivisao(planta, d, "h3"));
   else {
     for (let p = 0; p < n; p++) {
-      const doPiso = estado.divisoes.map((d, i) => [d, i]).filter(([d]) => pisoDe(d) === p);
+      const doPiso = planta.divisoes.filter((d) => pisoDe(d) === p);
       const g = el("section", "divisoes-piso");
       g.setAttribute("aria-labelledby", `divisoes-piso-${p}`);
       const t = el("h3", null, `${nomePiso(p)} (${doPiso.length} ${doPiso.length === 1 ? "divisão" : "divisões"})`);
       t.id = `divisoes-piso-${p}`;
       g.append(t);
       if (!doPiso.length) g.append(el("p", "ajuda", "Nenhuma divisão neste piso."));
-      for (const [d, i] of doPiso) g.append(cartaoDivisao(d, i, n));
+      for (const d of doPiso) g.append(cartaoDivisao(planta, d, "h4"));
       c.append(g);
     }
+  }
+  // Estados antigos: divisões acrescentadas à mão no passo (sem divisão na planta) continuam no pedido.
+  const usadas = new Set(planta.divisoes.map(entradaDe).filter(Boolean));
+  const soltas = estado.divisoes.filter((x) => !usadas.has(x));
+  if (soltas.length) {
+    const g = el("section", "divisoes-piso");
+    g.setAttribute("aria-labelledby", "divisoes-soltas");
+    const t = el("h3", null, "Divisões acrescentadas à mão");
+    t.id = "divisoes-soltas";
+    g.append(t);
+    soltas.forEach((x, i) => {
+      const f = el("div", "cartao divisao-cartao");
+      f.append(el("h4", null, x.nome || "Divisão"), el("p", "divisao-resumo", `No orçamento: ${resumoItens(x)}.`));
+      const rem = el("button", "btn sec pequeno perigo-sec", "Tirar esta divisão");
+      rem.type = "button";
+      rem.id = `divisoes-solta-${i}-tirar`;
+      rem.addEventListener("click", () => {
+        estado.divisoes = estado.divisoes.filter((y) => y !== x);
+        estado.divisoesEditadas = true;
+        agendarGravacao();
+        desenharDivisoes();
+        $("divisao-adicionar").focus();
+      });
+      f.append(rem);
+      g.append(f);
+    });
+    c.append(g);
   }
   $("extra-central").checked = estado.extras.central;
   $("extra-termostatos").value = String(estado.extras.termostatos);
 }
 
-/** Pisos do passo "Divisões": os da casa e os que as divisões já têm (1 = sem grupos). */
-const nPisosDivisoes = () => Math.max(pisosDaCasa(estado.casa), ...estado.divisoes.map((d) => pisoDe(d) + 1), 1);
+/** Cartão de uma divisão: o nome, o que entra no preço, uma linha por aparelho e "Divisão verificada ✓". */
+function cartaoDivisao(planta, d, nivel) {
+  const id = `div-${d.id}`;
+  const ver = estado.verificadas.includes(d.id);
+  const c = el("section", `cartao divisao-cartao${ver ? " verificada" : ""}`);
+  c.id = id;
+  c.setAttribute("aria-labelledby", `${id}-titulo`);
+  const topo = el("div", "divisao-topo");
+  const t = el(nivel, null, d.nome || "Divisão");
+  t.id = `${id}-titulo`;
+  t.tabIndex = -1;
+  topo.append(t);
+  if (ver) topo.append(el("span", "divisao-feita", "Verificada ✓"));
+  c.append(topo);
+  const ent = entradaDe(d);
+  if (ent) c.append(el("p", "divisao-resumo", `No orçamento: ${resumoItens(ent)}.`));
+  const linhas = linhasDivisao(planta, d);
+  const ul = el("ul", "aparelhos");
+  ul.setAttribute("aria-label", `Aparelhos: ${d.nome || "divisão"}`);
+  for (const l of linhas) ul.append(linhaAparelho(d, l, planta));
+  if (linhas.length) c.append(ul);
+  else c.append(el("p", "ajuda", "Sem aparelhos na planta."));
+  if (ent?.estores_sem_motor) c.append(el("p", "ajuda", "Há estores sem motor: precisam primeiro de um motor, vemos isso na visita."));
+  const bs = el("div", "divisao-botoes");
+  const outro = el("button", "btn sec pequeno", "Acrescentar outro aparelho");
+  outro.type = "button";
+  outro.id = `${id}-acrescentar`;
+  outro.setAttribute("aria-label", `Acrescentar outro aparelho: ${d.nome || "divisão"} (na planta)`);
+  outro.addEventListener("click", (ev) => acrescentar(d, null, ev));
+  const v = el("button", "btn pequeno divisao-verificar", "Divisão verificada ✓");
+  v.type = "button";
+  v.id = `${id}-verificada`;
+  v.setAttribute("aria-pressed", String(ver));
+  v.setAttribute("aria-label", `Divisão verificada: ${d.nome || "divisão"}`);
+  v.addEventListener("click", () => marcarVerificada(d.id, !ver));
+  bs.append(outro, v);
+  c.append(bs);
+  return c;
+}
 
-/**
- * Cartão de uma divisão: o resumo simples e Sim/Não em cada coisa. As divisões acrescentadas à mão (ou ainda sem
- * nome) têm também o nome e, com pisos (`nPisos` > 1), o piso.
- */
-function cartaoDivisao(d, i, nPisos = 1) {
-  const id = `d${i}`;
-  const f = el("fieldset", "cartao divisao-cartao");
-  const leg = el("legend", null, d.nome || `Divisão ${i + 1}`);
-  const resumo = el("p", "divisao-resumo", resumoDivisao(d, i));
-  resumo.id = `${id}-resumo`;
-  f.append(leg, resumo);
-  if (!d.nome || novasDivisoes.has(d)) {
-    const nome = document.createElement("input");
-    nome.id = `${id}-nome`;
-    nome.maxLength = 60;
-    nome.value = d.nome;
-    nome.setAttribute("list", "sim-nomes-divisao");
-    nome.addEventListener("input", () => { d.nome = nome.value.slice(0, 60); leg.textContent = d.nome || `Divisão ${i + 1}`; resumo.textContent = resumoDivisao(d, i); divisoesMudou(); });
-    const linha = el("div", "duas");
-    linha.append(rotulo("Nome", nome));
-    if (nPisos > 1) {
-      const s = selectCom(Array.from({ length: nPisos }, (_, p) => [p, nomePiso(p)]), pisoDe(d), `${id}-piso`);
-      s.addEventListener("change", () => { d.piso = Number(s.value); divisoesMudou(); desenharDivisoes(); $(`${id}-piso`)?.focus(); });
-      linha.append(rotulo("Piso", s));
-    }
-    f.append(linha);
+/** Desenho de uma câmara (botões das fotos). */
+function iconeCamara() {
+  const s = svgNovo();
+  s.setAttribute("viewBox", "0 0 24 24");
+  s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
+  s.classList.add("icone-camara");
+  const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  p.setAttribute("d", "M4 8h3l2-3h6l2 3h3v11H4z");
+  const o = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+  o.setAttribute("cx", "12");
+  o.setAttribute("cy", "13");
+  o.setAttribute("r", "3.5");
+  for (const x of [p, o]) { x.setAttribute("fill", "none"); x.setAttribute("stroke", "currentColor"); x.setAttribute("stroke-width", "2"); x.setAttribute("stroke-linejoin", "round"); }
+  s.append(p, o);
+  return s;
+}
+
+/** Uma linha: desenho, nome (abre a janela), pormenor, − n +, e a foto (Foto / miniatura com Trocar e Apagar). */
+function linhaAparelho(d, l, planta) {
+  const base = `div-${d.id}-${l.k}`;
+  const n = l.els.length;
+  const nome = nomeLinha(l);
+  const onde = d.nome || "divisão";
+  const li = el("li", "aparelho");
+  const linha = el("div", "aparelho-linha");
+  const ic = desenharIcone(svgNovo(), l.tipo, l.modelo ? { modelo: l.modelo } : l.els[0].props ?? {});
+  ic.classList.add("aparelho-icone");
+  const txt = el("div", "aparelho-texto");
+  const bn = el("button", "aparelho-nome", nome);
+  bn.type = "button";
+  bn.id = `${base}-nome`;
+  if (n === 1) {
+    bn.setAttribute("aria-label", `${nome} (${onde}): mudar os dados`);
+    bn.addEventListener("click", () => abrirJanela(d, l.els[0], bn.id));
+  } else {
+    // Vários: "Qual?" com um botão por aparelho.
+    bn.setAttribute("aria-label", `${n} ${nome.toLowerCase()} (${onde}): escolher qual mudar`);
+    bn.setAttribute("aria-expanded", String(abertas.has(base)));
+    bn.setAttribute("aria-controls", `${base}-quais`);
+    bn.addEventListener("click", () => {
+      if (abertas.has(base)) abertas.delete(base); else abertas.add(base);
+      desenharDivisoes();
+      focar(bn.id);
+    });
   }
-  const ul = el("ul", "divisao-itens");
-  for (const [k, texto] of ITENS_DIVISAO) {
-    const li = el("li");
-    const n = quantosDe(d, k);
-    const t = el("span", "divisao-item-nome", n > 1 && k !== "interruptores" ? `${texto} (${n})` : texto);
-    t.id = `${id}-${k}-nome`;
-    const g = el("div", "sim-nao");
-    g.setAttribute("role", "group");
-    g.setAttribute("aria-labelledby", t.id);
-    for (const [valor, rot] of [[true, "Sim"], [false, "Não"]]) {
-      const b = el("button", "btn sec pequeno", rot);
+  txt.append(bn);
+  const det = detalheLinha(l);
+  if (det) txt.append(el("small", null, det));
+  const cont = el("div", "contador-caixa");
+  cont.setAttribute("role", "group");
+  cont.setAttribute("aria-label", `Quantos: ${nome.toLowerCase()} (${onde})`);
+  const menos = el("button", "btn sec", "−");
+  menos.type = "button";
+  menos.id = `${base}-menos`;
+  menos.setAttribute("aria-label", `Tirar 1: ${nomeUm(l).toLowerCase()} (${onde})`);
+  menos.addEventListener("click", () => tirarUm(d, l));
+  const valor = el("output", "contador-valor", String(n));
+  valor.id = `${base}-valor`;
+  const mais = el("button", "btn sec", "+");
+  mais.type = "button";
+  mais.id = `${base}-mais`;
+  mais.setAttribute("aria-label", `Acrescentar 1: ${nomeUm(l).toLowerCase()} (${onde}), na planta`);
+  mais.addEventListener("click", (ev) => acrescentar(d, l, ev));
+  cont.append(menos, valor, mais);
+  linha.append(ic, txt, cont);
+  // Foto (opcional): uma por tipo de aparelho e divisão.
+  const chave = `${d.id}:${l.k}`;
+  const foto = fotos.get(chave);
+  const rotuloFoto = `${nome} (${onde})`;
+  const depois = (ok, texto) => {
+    mensagemDivisoes(texto, ok === false ? "erro" : "info");
+    if (ok === null) return;
+    desenharDivisoes();
+    focar(`${base}-foto`) || focar(`${base}-mais`);
+  };
+  if (!foto) {
+    const bf = el("button", "btn sec pequeno aparelho-foto");
+    bf.type = "button";
+    bf.id = `${base}-foto`;
+    bf.setAttribute("aria-label", `Tirar foto: ${rotuloFoto}`);
+    bf.append(iconeCamara(), el("span", null, "Foto"));
+    bf.addEventListener("click", () => pedirFoto(chave, depois));
+    linha.append(bf);
+  }
+  li.append(linha);
+  if (foto) {
+    // A miniatura com "Trocar" e "Apagar", por baixo do nome.
+    const acoes = el("div", "aparelho-foto-acoes");
+    const img = el("img", "foto-miniatura");
+    img.src = foto.miniatura;
+    img.alt = `Foto: ${rotuloFoto}`;
+    acoes.append(img);
+    const trocar = el("button", "btn sec pequeno", "Trocar");
+    trocar.type = "button";
+    trocar.id = `${base}-foto`;
+    trocar.setAttribute("aria-label", `Trocar a foto: ${rotuloFoto}`);
+    trocar.addEventListener("click", () => pedirFoto(chave, depois));
+    const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
+    apagar.type = "button";
+    apagar.id = `${base}-foto-apagar`;
+    apagar.setAttribute("aria-label", `Apagar a foto: ${rotuloFoto}`);
+    apagar.addEventListener("click", async () => { await tirarFoto(chave); depois(true, "Foto apagada."); });
+    acoes.append(trocar, apagar);
+    li.append(acoes);
+  }
+  if (n > 1 && abertas.has(base)) {
+    const q = el("div", "aparelho-quais");
+    q.id = `${base}-quais`;
+    q.append(el("span", null, "Qual?"));
+    l.els.forEach((e, i) => {
+      const b = el("button", "btn sec pequeno", String(i + 1));
       b.type = "button";
-      b.id = `${id}-${k}-${valor ? "sim" : "nao"}`;
-      b.setAttribute("aria-pressed", String(valor === n > 0));
-      b.addEventListener("click", () => {
-        if (valor === quantosDe(d, k) > 0) return;
-        porNaDivisao(d, k, valor);
-        desenharDivisoes();
-        $(b.id)?.focus();
-      });
-      g.append(b);
-    }
-    li.append(t, g);
-    ul.append(li);
+      b.id = `${base}-qual-${i}`;
+      b.setAttribute("aria-label", `${nomeUm(l)} ${i + 1} de ${n} (${onde}): mudar os dados`);
+      b.addEventListener("click", () => abrirJanela(d, e, b.id));
+      q.append(b);
+    });
+    li.append(q);
   }
-  f.append(ul);
-  if (d.estores_sem_motor) f.append(el("p", "ajuda", "Há estores sem motor: precisam primeiro de um motor, vemos isso na visita."));
-  const rem = el("button", "btn sec pequeno perigo-sec", "Tirar esta divisão");
-  rem.type = "button";
-  rem.setAttribute("aria-label", `Tirar a divisão ${d.nome || i + 1}`);
-  rem.addEventListener("click", () => { estado.divisoes.splice(i, 1); divisoesMudou(); desenharDivisoes(); $("divisao-adicionar").focus(); });
-  const bs = el("div", "form-botoes");
-  bs.append(rem);
-  f.append(bs);
-  return f;
+  return li;
 }
-{
-  const dl = document.createElement("datalist");
-  dl.id = "sim-nomes-divisao";
-  for (const n of NOMES_DIVISAO) { const o = document.createElement("option"); o.value = n; dl.append(o); }
-  document.body.append(dl);
-}
-$("divisao-adicionar").addEventListener("click", () => {
-  if (estado.divisoes.length > MAX_DIVISOES) return;
-  const nova = divisaoVazia("");
-  novasDivisoes.add(nova);
-  estado.divisoes.push(nova);
-  divisoesMudou();
-  desenharDivisoes();
-  $(`d${estado.divisoes.length - 1}-nome`)?.focus();
-});
+
+// "Voltar à nossa sugestão": só em estados antigos com as divisões mexidas à mão (lote 4).
+ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
+  estado.divisoes = divisoesSugeridas(contagemAtual());
+  estado.divisoesEditadas = false;
+}, desenharDivisoes);
+$("divisao-adicionar").addEventListener("click", (ev) => acrescentar(null, null, ev));
 $("extra-central").addEventListener("change", () => { estado.extras.central = $("extra-central").checked; agendarGravacao(); });
 $("extra-termostatos").addEventListener("input", () => { estado.extras.termostatos = lerNum($("extra-termostatos"), 0, 20); estado.termostatosEditados = true; agendarGravacao(); });
 
@@ -1373,7 +1780,8 @@ async function enviar() {
   }
   desenharPreco();
   const { preco, plano } = ultimoPreco;
-  let sim = montarSimulacao(estado, preco, plano);
+  const listaFotos = fotosParaEnvio();
+  let sim = montarSimulacao(estado, preco, plano, listaFotos);
   let semFundo = false;
   if (tamanhoSimulacao(sim) > MAX_SIMULACAO && sim.planta?.fundo) {
     sim = { ...sim, planta: { ...sim.planta, fundo: null } };
@@ -1391,6 +1799,7 @@ async function enviar() {
   mostrarEnvio(semFundo ? "A imagem de fundo era grande demais: enviamos a planta sem ela." : null, "info");
   let estadoHttp = 0;
   let erro = null;
+  let resposta = null;
   try {
     const r = await fetch(`${urlApi}/orcamento`, {
       method: "POST",
@@ -1399,14 +1808,23 @@ async function enviar() {
       body: JSON.stringify(corpo),
     });
     estadoHttp = r.status;
-    try { erro = (await r.json())?.erro ?? null; } catch { erro = null; }
+    try { resposta = await r.json(); } catch { resposta = null; }
+    erro = resposta?.erro ?? null;
   } catch {
     estadoHttp = 0;
+  }
+  if (estadoHttp >= 200 && estadoHttp < 300) {
+    // O pedido foi aceite; as fotos vão a seguir, uma a uma, com o token de uso único (§6).
+    const resultadoFotos = listaFotos.length ? await enviarFotos(listaFotos, resposta, botao) : null;
+    aEnviar = false;
+    botao.disabled = false;
+    botao.textContent = "Enviar pedido";
+    concluido(preco, semFundo, resultadoFotos);
+    return;
   }
   aEnviar = false;
   botao.disabled = false;
   botao.textContent = "Enviar pedido";
-  if (estadoHttp >= 200 && estadoHttp < 300) { concluido(preco, semFundo); return; }
   // Erros do servidor: a mensagem (com as alternativas) aparece no ecrã, não escondida por cima.
   queueMicrotask(() => $("enviar-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" }));
   if (estadoHttp === 429) mostrarEnvio("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone. A sua simulação fica guardada neste navegador.", "erro", true);
@@ -1418,7 +1836,46 @@ async function enviar() {
   else mostrarEnvio("Não foi possível enviar agora. A sua simulação fica guardada neste navegador: tente mais tarde, ou fale connosco pelo WhatsApp ou telefone.", "erro", true);
 }
 
-function concluido(preco, semFundo) {
+/**
+ * Envia as fotos depois do pedido aceite: POST /api/orcamento/fotos, em série, com o token da resposta
+ * (`fotos_token`, válido 30 min; no máximo `fotos_max`). Devolve {total, falhas, semToken}.
+ */
+async function enviarFotos(lista, resposta, botao) {
+  const token = typeof resposta?.fotos_token === "string" ? resposta.fotos_token : "";
+  if (!token) return { total: lista.length, falhas: lista.length, semToken: true };
+  const max = Number.isInteger(resposta.fotos_max) && resposta.fotos_max >= 0 ? Math.min(resposta.fotos_max, MAX_FOTOS) : MAX_FOTOS;
+  const envio = lista.slice(0, max);
+  let falhas = lista.length - envio.length;
+  for (let i = 0; i < envio.length; i++) {
+    const texto = `A enviar fotos (${i + 1} de ${envio.length})…`;
+    botao.textContent = texto;
+    mostrarEnvio(`O pedido foi recebido. ${texto}`, "info");
+    const f = envio[i];
+    const blob = fotos.get(f.chave)?.blob;
+    if (!blob || blob.size > MAX_BYTES_FOTO) { falhas++; continue; }
+    try {
+      const r = await fetch(`${urlApi}/orcamento/fotos`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": blob.type === "image/png" ? "image/png" : "image/jpeg",
+          Accept: "application/json",
+          "X-Fotos-Token": token,
+          "X-Foto-Chave": f.chave,
+          "X-Foto-Legenda": legendaCabecalho(f.legenda),
+        },
+        body: blob,
+      });
+      if (!r.ok) falhas++;
+    } catch {
+      falhas++;
+    }
+  }
+  mostrarEnvio(null);
+  return { total: lista.length, falhas, semToken: false };
+}
+
+function concluido(preco, semFundo, resultadoFotos = null) {
   enviado = true;
   clearTimeout(temporizador);
   apagarEstado(armazem ?? semArmazem);
@@ -1430,6 +1887,19 @@ function concluido(preco, semFundo) {
     ? `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}. ${TEXTO_ESTIMATIVA.replace(/^Estimativa\. /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`
     : "Vamos enviar-lhe o preço depois de analisarmos a simulação.";
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
+  // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).
+  const ff = $("fim-fotos");
+  const r = resultadoFotos;
+  ff.hidden = !r;
+  if (r) {
+    ff.className = `msg ${r.falhas ? "erro" : "ok"}`;
+    ff.textContent = r.semToken ? "Não foi possível enviar as fotos. O pedido foi recebido: pode mostrá-las ao eletricista na visita."
+      : r.falhas ? `Não foi possível enviar ${r.falhas} de ${r.total} ${r.total === 1 ? "foto" : "fotos"}. O pedido foi recebido: pode mostrá-las ao eletricista na visita.`
+        : r.total === 1 ? "Recebemos também a foto." : `Recebemos também as ${r.total} fotos.`;
+  }
+  // O pedido foi aceite: as fotos saem do navegador (com a simulação).
+  fotos.clear();
+  limparFotos(null);
   $("titulo-fim").focus();
 }
 
@@ -1450,6 +1920,12 @@ function recomecar() {
   ultimoPreco = null;
   pisoQuer = 0;
   pisoCasa = 0;
+  voltarDivisoes = null;
+  divisaoTocada = null;
+  abertas.clear();
+  fotos.clear();
+  limparFotos(null);   // as fotos são da simulação: saem com ela
+  $("fim-fotos").hidden = true;
   editor.limpar();
   mostrarEnvio(null);
   for (const c of document.querySelectorAll(".confirmar")) c.remove();
@@ -1518,6 +1994,7 @@ function iniciar() {
       estado = guardado;
       visitado = Math.max(estado.passo, estado.visitado ?? 0);
       fecharRetomar();
+      carregarFotosDoEstado();
     });
     $("sim-recomecar").addEventListener("click", () => {
       recomecar();
@@ -1526,6 +2003,7 @@ function iniciar() {
     $("sim-continuar").focus();
   } else {
     mostrarPasso(false);
+    limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
   carregarCatalogo();
 }
@@ -1537,6 +2015,6 @@ function fecharRetomar() {
 }
 
 // Exposto só para os testes automáticos (não é usado pela página).
-window.__simulador = { get estado() { return estado; }, get editor() { return editor; }, normalizarEstado };
+window.__simulador = { get estado() { return estado; }, get editor() { return editor; }, normalizarEstado, entradaFoto, fotos };
 
 iniciar();

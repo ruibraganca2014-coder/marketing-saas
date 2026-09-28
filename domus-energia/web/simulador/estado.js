@@ -36,6 +36,7 @@ export const RE_EMAIL = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9
 export const RE_ID = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 export const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/g;
+const RE_ID_PLANTA = /^[A-Za-z0-9_-]{1,40}$/;
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
 /**
@@ -76,6 +77,8 @@ export function estadoNovo({ cliente = false } = {}) {
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
     divisoesEditadas: false,  // o cliente mexeu na lista de divisões: não a refazemos sozinhos
+    verificadas: [],           // ids das divisões (da planta) que o cliente marcou "Divisão verificada" (lote 5)
+    fotosId: null,             // liga as fotos guardadas no IndexedDB (fotos.js) a esta simulação
     extras: { central: false, termostatos: 0 },
     termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
     contacto: { nome: "", telefone: "", email: "", localidade: "", mensagem: "" },
@@ -327,6 +330,9 @@ export function normalizarEstado(v) {
     }
   }
   e.divisoesEditadas = bool(v.divisoesEditadas);
+  // Lote 5 (estados antigos: sem nenhuma verificada e sem fotos).
+  e.verificadas = [...new Set(lista(v.verificadas, MAX_DIVISOES + 1).filter((x) => typeof x === "string" && RE_ID_PLANTA.test(x)))];
+  e.fotosId = typeof v.fotosId === "string" && /^[a-f0-9]{8,40}$/.test(v.fotosId) ? v.fotosId : null;
   const ex = v.extras && typeof v.extras === "object" ? v.extras : {};
   e.extras = { central: bool(ex.central), termostatos: int(ex.termostatos, 0, 20) };
   // Estado antigo: termóstatos já escolhidos contam como mexidos (o objetivo "aquecimento" não os apaga).
@@ -446,7 +452,8 @@ export function quadroParaEnvio(estado, circuitos) {
     protecoes: { ...r.protecoes },
     para_raios: r.para_raios,
     quadro_novo: r.quadro_novo,
-    // "O quadro elétrico é antigo?" (passo do quadro): Sim → true (quadro novo), Não → false (o atual serve), Não sei → null.
+    // Lote 5, "O seu quadro elétrico": Quero um quadro novo → true, Já tenho quadro (o atual serve) → false, Não sei →
+    // null (o mesmo valor que dava "O quadro elétrico é antigo?" do lote 4: Sim / Não / Não sei).
     quadro_antigo: r.quadro_novo === "novo" ? true : r.quadro_novo === "atual" ? false : null,
     quadro_novo_no_preco: levaQuadroNovo(q),
     diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi, quadro: g.quadro })),
@@ -604,7 +611,11 @@ export function deslocacaoParaEnvio(d) {
  * @param {ReturnType<import("./preco.js").calcularPreco>} preco
  * @param {string} plano  base | conforto | premium
  */
-export function montarSimulacao(estado, preco, plano) {
+/**
+ * `simulacao` do POST /api/orcamento (§6). `fotos` (lote 5): as fotos tiradas, sem as imagens —
+ * [{chave, tipo, divisao, divisao_nome, piso, legenda}] (as imagens vão depois, uma a uma, com o token).
+ */
+export function montarSimulacao(estado, preco, plano, fotos = []) {
   const circuitos = estado.quadro.circuitos.map((c, i) => {
     const n = normalizarCircuito(c, i);
     return { ...n, nome: textoSeguro(n.nome, 60), divisoes: n.divisoes.map((d) => textoSeguro(d, 60)).filter(Boolean) };
@@ -614,7 +625,7 @@ export function montarSimulacao(estado, preco, plano) {
     casa: casaParaEnvio(estado),
     quer: querParaEnvio(estado),
     planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
-    quadro: quadroParaEnvio(estado, circuitos),
+    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null },
     divisoes: estado.divisoes.filter((d) => !ehFora(d)).map((d) => {
       const n = normalizarDivisao(d);
       return {
@@ -628,6 +639,11 @@ export function montarSimulacao(estado, preco, plano) {
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
     avisos: avisosEstado(estado, circuitos),
+    fotos: fotos.slice(0, 40).map((f) => ({
+      chave: String(f.chave).slice(0, 80), tipo: f.tipo, divisao: f.divisao ?? null,
+      divisao_nome: f.divisao_nome == null ? null : textoSeguro(f.divisao_nome, 60) || "Divisão",
+      piso: f.piso ?? null, legenda: textoSeguro(f.legenda, 120),
+    })),
   };
 }
 

@@ -115,21 +115,31 @@
             <button class="btn sec pequeno" id="planta-refazer" type="button" hidden>Refazer a partir dos passos 1 e 2</button>
             <button class="btn sec pequeno" id="planta-saltar" type="button" hidden>Saltar a planta</button>
           </div>
+          <div class="msg info planta-voltar" id="planta-voltar" hidden>
+            <p id="planta-voltar-texto" tabindex="-1"></p>
+            <button class="btn pequeno" id="planta-voltar-botao" type="button">Voltar às divisões</button>
+          </div>
           <div id="editor"></div>
           <div class="sim-contagem cartao" id="planta-contagem" aria-live="polite"></div>
         </section>
 
-        <!-- 4. Divisões (a partir da planta) -->
+        <!-- 4. Divisões: um cartão por divisão com os aparelhos da planta (− n +), foto e "Divisão verificada" -->
         <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
           <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
-          <p class="sub-passo">O que quer em cada divisão: toque em Sim ou Não. Já vem preenchido a partir da planta (ou da casa, se a saltou) e do que quer fazer.</p>
+          <p class="sub-passo">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> e toque no nome para mudar os dados. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
+          <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Fotos opcionais: as fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</span></p>
+          <div class="divisoes-progresso" id="divisoes-progresso-caixa">
+            <p id="divisoes-progresso" aria-live="polite"></p>
+            <div class="sim-barra" aria-hidden="true"><span id="divisoes-progresso-barra"></span></div>
+          </div>
+          <p class="msg" id="divisoes-msg" role="status" hidden></p>
           <div class="form-botoes">
-            <button class="btn sec pequeno" id="divisoes-recalcular" type="button">Voltar à nossa sugestão</button>
+            <button class="btn sec pequeno" id="divisoes-recalcular" type="button" hidden>Voltar à nossa sugestão</button>
           </div>
           <div id="divisoes"></div>
           <div class="form-botoes">
-            <button class="btn sec" id="divisao-adicionar" type="button">Adicionar divisão</button>
+            <button class="btn sec" id="divisao-adicionar" type="button">Acrescentar uma divisão (na planta)</button>
           </div>
           <fieldset class="cartao escolhas" id="extras">
             <legend>Extras</legend>
@@ -151,9 +161,16 @@
             <div class="escolhas-grelha tres-curtas" id="quadro-para-raios"></div>
           </fieldset>
           <fieldset class="escolhas">
-            <legend>O quadro elétrico é antigo? <small class="ajuda">O quadro é a caixa onde se liga e desliga a eletricidade da casa.</small></legend>
-            <div class="escolhas-grelha tres-curtas" id="quadro-antigo"></div>
+            <legend>O seu quadro elétrico <small class="ajuda">O quadro é a caixa onde se liga e desliga a eletricidade da casa.</small></legend>
+            <div class="escolhas-grelha tres-quadro" id="quadro-antigo"></div>
           </fieldset>
+          <div class="cartao quadro-foto" id="quadro-foto" hidden>
+            <h3 id="quadro-foto-titulo">Foto do quadro</h3>
+            <p>Abra a porta do quadro e tire uma foto de frente, com boa luz. Não é obrigatória, mas ajuda muito o eletricista.</p>
+            <div id="quadro-foto-corpo"></div>
+            <p class="ajuda">As fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</p>
+            <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
+          </div>
           <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
@@ -196,6 +213,7 @@
             <h2 id="titulo-fim" tabindex="-1">Pedido enviado!</h2>
             <p id="fim-texto">Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica gratuita.</p>
             <p class="sim-nota" id="fim-resumo"></p>
+            <p class="msg" id="fim-fotos" hidden></p>
             <div class="form-botoes">
               <a class="btn" id="fim-voltar" href="index.html">Voltar ao site</a>
               <button class="btn sec" id="fim-nova" type="button">Fazer outra simulação</button>
