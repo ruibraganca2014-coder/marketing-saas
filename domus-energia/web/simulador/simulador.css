@@ -154,7 +154,7 @@ input, select { min-height: 44px; }
 .editor-dialogo-corpo > * { margin: 0; }
 .editor-dialogo .form-botoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-dialogo .form-botoes .btn[hidden] { display: none; }
-/* Guardar/Rodar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
+/* Guardar/Apagar/Cancelar sempre à vista no fundo da janela (no telemóvel a janela rola). */
 .editor-dialogo-form > .form-botoes { position: sticky; bottom: 0; margin: 0 -16px -18px; padding: 10px 16px 18px; background: var(--superficie); border-top: 1px solid var(--borda); }
 .sim-contagem h3 { margin: 0 0 6px; font-size: 1.15rem; }
 .lista-contagem { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
@@ -171,6 +171,11 @@ input, select { min-height: 44px; }
 .divisao-topo :is(h3, h4):focus-visible { outline: 3px solid var(--foco); outline-offset: 3px; border-radius: 4px; }
 .divisao-feita { padding: 2px 10px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-size: .82rem; font-weight: 800; }
 .divisao-resumo { margin: 0; font-weight: 600; color: var(--texto-suave); }
+/* Detalhes obrigatórios (passo 4): o que falta responder e as dicas dos objetivos. */
+.divisao-falta { margin: 0; padding: 6px 10px; border-radius: 10px; background: var(--alarme-suave); color: var(--alarme-texto); font-weight: 700; }
+.divisao-dica { margin: 0; }
+.aparelho-texto small.falta-responder { color: var(--alarme-texto); font-weight: 800; }
+.aparelho-quais .por-responder { border-color: var(--alarme-texto); color: var(--alarme-texto); }
 .aparelhos { list-style: none; margin: 0; padding: 0; display: grid; }
 .aparelho { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--borda); }
 .aparelho:first-child { border-top: 0; padding-top: 0; }
@@ -320,8 +325,16 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Em ecrã inteiro o "Sair" fica à frente no seu grupo e o grupo à frente na barra (no telemóvel não há Esc). */
 #editor-ecra-inteiro[aria-pressed="true"] { order: -1; border-color: var(--musgo); }
 .editor-acoes-grupo:has(#editor-ecra-inteiro[aria-pressed="true"]) { order: -1; }
-/* "O que quer": máquina marcada com quantas (− n +); nas casas com pisos, um separador por piso. */
-.quer-item { display: grid; gap: 6px; align-content: start; min-width: 0; }
+/* "Equipamentos": máquina marcada com quantas (− n +) DENTRO do cartão, no topo, por cima do desenho; o espaço do
+   contador está sempre reservado e as filas têm a mesma altura (cartões todos iguais). Nas casas com pisos, um
+   separador por piso. */
+.quer-item { position: relative; display: grid; min-width: 0; }
+.quer-item > .escolha { height: 100%; min-height: 176px; padding-top: 54px; }
+@media (max-width: 719px) { .quer-item > .escolha { min-height: 200px; } }   /* 2 colunas: nomes em 3 linhas */
+#quer-maquinas, #quer-pequenas .escolhas-grelha { grid-auto-rows: 1fr; }
+.quer-item > .quer-extra { position: absolute; top: 6px; left: 4px; right: 4px; z-index: 1; }
+.quer-extra .contador-caixa { gap: 4px; }
+.quer-extra .contador-caixa .btn { width: 40px; min-width: 40px; min-height: 40px; }
 .escolha .escolha-icone { width: 34px; height: 34px; justify-self: center; color: var(--texto); }
 .quer-painel { display: grid; gap: 16px; min-width: 0; }
 .quer-pisos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 0; border-bottom: 2px solid var(--musgo); scrollbar-width: thin; }
@@ -361,3 +374,22 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
   .impressao-legenda li { display: flex; align-items: center; gap: 2mm; }
   .impressao-legenda svg { width: 7mm; height: 7mm; flex: none; }
 }
+
+/* "Continue no telemóvel" (passo 4, ligacao.js): no computador, no espaço à direita do título e do texto (o passo é
+   uma grelha: o cartão fica por cima, no canto, e os blocos do topo deixam-lhe a coluna); nos ecrãs estreitos não aparece.
+   O QR é sempre escuro sobre branco (também no tema escuro: as câmaras leem mal o QR invertido). */
+.ligacao-cartao { display: none; }
+@media (min-width: 900px) {
+  #passo-3:has(> .ligacao-cartao:not([hidden])) { position: relative; }
+  .ligacao-cartao:not([hidden]) {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "qr titulo" "qr texto" "qr nota";
+    align-content: center; column-gap: 14px; position: absolute; top: 0; right: 0; width: 400px; padding: 14px;
+  }
+  #passo-3:has(> .ligacao-cartao:not([hidden])) > :is(h2, .sub-passo, .msg, .divisoes-fotos-aviso, .divisoes-progresso, .form-botoes:not(:last-of-type)) { margin-right: 424px; }
+  .ligacao-cartao h3 { grid-area: titulo; margin: 0; font-size: 1.1rem; }
+  .ligacao-cartao p { grid-area: texto; margin: 6px 0 0; font-size: .9rem; line-height: 1.35; }
+  .ligacao-cartao .ligacao-nota { grid-area: nota; color: var(--texto-suave); font-size: .82rem; font-weight: 400; }
+  .ligacao-qr { grid-area: qr; align-self: center; padding: 6px; background: #fff; border-radius: 10px; line-height: 0; }
+  .ligacao-qr svg { display: block; width: 156px; height: 156px; }
+}
+#sim-ligacao-msg { margin: 0 0 12px; }

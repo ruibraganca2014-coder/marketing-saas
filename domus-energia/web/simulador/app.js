@@ -11,7 +11,7 @@ import {
   TIPOS_COM_PISOS, nomePiso, pisoDe,
 } from "./regras.js";
 import {
-  plantaDaCasa, assinaturaCasa, aplicarObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
+  plantaDaCasa, assinaturaCasa, dicasObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
   acertarPisos, temPorPiso, resumoPiso,
 } from "./casa.js";
 import {
@@ -33,6 +33,7 @@ import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
 import { criarBlocoConta, pedirConta, urlPainelApi, credenciais } from "../conta-comum.js";
+import { criarLigacao, lerTokenLigacao } from "./ligacao.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -91,10 +92,12 @@ const editor = criarEditor($("editor"), {
 
 // ------------------------------------------------------------ gravação
 let temporizador = null;
+let ligacao = null;   // ligação ao telemóvel (ligacao.js; criada em "ligação ao telemóvel", mais abaixo)
 function agendarGravacao() {
   if (enviado) return;
   clearTimeout(temporizador);
   temporizador = setTimeout(gravar, 300);
+  ligacao?.mudou();   // ligação ao telemóvel (passo 4): o outro aparelho recebe a mudança
 }
 function gravar() {
   clearTimeout(temporizador);
@@ -133,7 +136,8 @@ function desenharProgresso() {
       b.type = "button";
       b.append(num, el("span", "sim-passo-nome", nome), tempo);
       b.setAttribute("aria-label", `Passo ${i + 1}: ${nome}${extra}`);
-      b.addEventListener("click", () => irPara(i));
+      // Para lá do passo 4 só com todas as divisões verificadas (bloquearDivisoes).
+      b.addEventListener("click", () => { if (!(i > P.divisoes && bloquearDivisoes())) irPara(i); });
       li.append(b);
     } else {
       // Sem botão (o atual e os que faltam): o nome acessível vai num texto só para leitores de ecrã (no telemóvel
@@ -217,8 +221,10 @@ function textoSeguinte() {
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(estado.passo - 1));
 $("sim-seguinte").addEventListener("click", () => {
-  if (estado.passo === PASSOS.length - 1) { enviar(); return; }
+  if (estado.passo === PASSOS.length - 1) { if (!bloquearDivisoes()) enviar(); return; }
   if (estado.passo === P.planta && voltarDivisoes) { voltarAsDivisoes(); return; }
+  // Do passo 4 só se avança com todas as divisões verificadas (e tudo respondido).
+  if (estado.passo === P.divisoes && bloquearDivisoes()) return;
   // "Seguinte" com a planta desenhada usa-a (mesmo que antes a tenha saltado); vazia = saltar.
   if (estado.passo === P.planta) estado.plantaSaltada = !plantaTemConteudo(estado.planta);
   irPara(estado.passo + 1);
@@ -635,6 +641,7 @@ function desenharQuer() {
       const extra = el("div", "quer-extra");
       extra.id = `quer-extra-${k}`;
       extra.hidden = true;
+      // O contador fica dentro do cartão, no topo (CSS .quer-item > .quer-extra); vem depois na ordem do Tab.
       caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
       return caixaM;
     };
@@ -751,7 +758,8 @@ function desenharExtraQuer(k) {
     b.id = `quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`;
     b.setAttribute("aria-label", `${rot}${noPiso}: ${nome}`);
     b.disabled = d > 0 ? qtd >= MAX_QUANTIDADE : qtd <= 1;
-    b.addEventListener("click", () => {
+    b.addEventListener("click", (ev) => {
+      ev.stopPropagation();   // o − e o + não escolhem nem retiram a máquina (o cartão é o <label> ao lado)
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: { ...estado.quer.porPiso[k], [pisoQuer]: Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d)) } };
       acertarQuer();
       agendarGravacao();
@@ -807,7 +815,7 @@ function desenharPlantaOrigem() {
   o.hidden = !(estado.plantaAuto || mudou);
   o.textContent = mudou
     ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua planta. Se quiser, desenhamo-la de novo a partir dos passos 1 e 2 (perde o que mudou nela)."
-    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos habituais (porta, interruptor, luz, sensor de movimento, janelas e tomadas), e as máquinas que escolheu. Arraste, ajuste, acrescente divisões (escritório, lavandaria, despensa…) com os botões e tire ou acrescente o que for preciso — ou salte este passo.";
+    : "Já desenhámos as divisões (com tamanhos típicos), cada uma com os aparelhos base (porta, interruptor, luz e tomadas), e as máquinas que escolheu. Arraste, ajuste, acrescente divisões (escritório, lavandaria, despensa…) com os botões e tire ou acrescente o que for preciso — ou salte este passo.";
   $("planta-refazer").hidden = !mudou;
   $("planta-saltar").hidden = !plantaTemConteudo(estado.planta);
   $("planta-botoes").hidden = $("planta-refazer").hidden && $("planta-saltar").hidden;
@@ -885,22 +893,30 @@ function circuitosSugeridos(cont) {
   return r;
 }
 
-/** Linhas do passo "Divisões" (a partir da contagem) com os aparelhos dos objetivos (casa.js). */
+/**
+ * Linhas do passo "Divisões" (a partir da contagem). Os objetivos ("O que quer fazer") já não acrescentam aparelhos
+ * (decisão do dono): o passo 4 mostra dicas (casa.js dicasObjetivos).
+ */
 function divisoesSugeridas(cont) {
-  const planta = usaPlanta();
   const d = divisoesDaContagem(cont);
-  if (!planta) for (const x of d) x.planta_id = null;
-  return aplicarObjetivos(d, estado.quer.objetivos, planta ? cont : null);
+  if (!usaPlanta()) for (const x of d) x.planta_id = null;
+  return d;
 }
 
 /** Pré-preenche a planta (se ainda é a nossa), as divisões, o quadro e os termóstatos (só o que o cliente não mudou). */
 function prepararPassosSeguintes() {
   preencherPlanta();
+  acertarPedido();
+}
+/**
+ * As divisões, o quadro e os termóstatos a partir da planta (só o que o cliente não mudou). "Aquecimento / ar
+ * condicionado" já não põe termóstatos sozinho: o passo 4 tem a dica ao lado do campo.
+ */
+function acertarPedido() {
   const cont = contagemAtual();
   if (!estado.divisoesEditadas) estado.divisoes = divisoesSugeridas(cont);
   if (!estado.quadroEditado) estado.quadro.circuitos = circuitosSugeridos(cont);
-  // "Aquecimento / ar condicionado": um termóstato por piso.
-  if (!estado.termostatosEditados) estado.extras.termostatos = quer("clima") ? Math.max(1, estado.casa.pisos ?? 1) : 0;
+  if (!estado.termostatosEditados) estado.extras.termostatos = 0;
 }
 
 // ------------------------------------------------------------ 5. Quadro
@@ -1083,6 +1099,7 @@ entradaFoto.addEventListener("change", async () => {
     if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); }
     const guardada = await guardarFoto(estado.fotosId, alvo.chave, r);
     fotos.set(alvo.chave, { chave: alvo.chave, ...r });
+    ligacao.fotoTirada(alvo.chave);   // com o telemóvel ligado, passa também para o outro aparelho
     alvo.aoFim(true, guardada ? "Foto guardada neste navegador até enviar o pedido." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se.");
   } catch (e) {
     alvo.aoFim(false, e instanceof ErroFoto ? e.message : "Não foi possível usar esta foto. Experimente outra.");
@@ -1092,6 +1109,7 @@ entradaFoto.addEventListener("change", async () => {
 });
 async function tirarFoto(chave) {
   fotos.delete(chave);
+  ligacao.fotoApagada(chave);
   if (estado.fotosId) await apagarFoto(estado.fotosId, chave);
 }
 /** As fotos da simulação guardada (ao continuar); as de outras simulações saem do navegador. */
@@ -1215,9 +1233,43 @@ function detalheLinha(l) {
   return null;
 }
 
-/** A linha do pedido (estado.divisoes) de uma divisão da planta: pelo id ou, sem planta, pelo nome e piso. */
+/**
+ * A linha do pedido (estado.divisoes) de uma divisão da planta: pelo id ou, sem planta, pelo nome e piso ("Quarto 1"
+ * de um estado antigo = "Quarto" de agora: o primeiro já não leva número).
+ */
+const semUm = (s) => String(s ?? "").replace(/ 1$/, "");
 const entradaDe = (d) => estado.divisoes.find((x) => x.planta_id === d.id)
-  ?? estado.divisoes.find((x) => !x.planta_id && x.nome === d.nome && pisoDe(x) === pisoDe(d));
+  ?? estado.divisoes.find((x) => !x.planta_id && semUm(x.nome) === semUm(d.nome) && pisoDe(x) === pisoDe(d));
+
+/**
+ * Detalhes obrigatórios (passo 4): aparelhos com pergunta por responder (`por_responder`: interruptor, tomada, janela,
+ * luz, máquina "Outra"). A divisão só conta como verificada com tudo respondido; o "Seguinte" só avança com todas.
+ */
+const porResponder = (l) => l.els.filter((e) => e.por_responder).length;
+function faltaResponder(planta, d) {
+  return linhasDivisao(planta, d).filter(porResponder).map((l) => {
+    const n = porResponder(l);
+    return n === 1 ? nomeUm(l).toLowerCase() : `${n} ${nomeLinha(l, n).toLowerCase()}`;
+  });
+}
+const divisaoVerificada = (planta, d) => estado.verificadas.includes(d.id) && !faltaResponder(planta, d).length;
+/**
+ * "Seguinte" (ou a barra dos passos) para lá do passo 4 com divisões por verificar: fica (ou volta) no passo 4, com a
+ * mensagem e o foco no 1.º cartão por verificar. Devolve true se bloqueou.
+ */
+function bloquearDivisoes() {
+  const planta = plantaDivisoes();
+  const falta = divisoesPorOrdem(planta).filter((d) => !divisaoVerificada(planta, d));
+  if (!falta.length) return false;
+  if (estado.passo !== P.divisoes) irPara(P.divisoes, { foco: false });
+  const nomes = falta.slice(0, 3).map((d) => d.nome || "Divisão");
+  if (falta.length > 3) nomes.push(`mais ${falta.length - 3}`);
+  mensagemDivisoes(`Falta verificar ${falta.length === 1 ? "1 divisão" : `${falta.length} divisões`}: ${listaPt(nomes)}. Responda ao que falta e toque em "Divisão verificada ✓".`, "erro");
+  const t = $(`div-${falta[0].id}-titulo`);
+  t?.focus({ preventScroll: true });
+  $(`div-${falta[0].id}`)?.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+  return true;
+}
 
 /** "luzes pelo telemóvel, 2 estores automáticos" (o que entra no preço para esta divisão). */
 function resumoItens(x) {
@@ -1354,6 +1406,7 @@ function marcarVerificada(id, sim) {
 }
 
 function desenharDivisoes() {
+  ligacao?.mostrarCartao();   // computador: o QR "Continue no telemóvel" (ligacao.js)
   const planta = plantaDivisoes();
   const origem = $("divisoes-origem");
   origem.hidden = usaPlanta() && !estado.divisoesEditadas;
@@ -1363,7 +1416,7 @@ function desenharDivisoes() {
   $("divisoes-recalcular").hidden = !estado.divisoesEditadas;
   // Progresso: divisões verificadas desta planta.
   const ids = planta.divisoes.map((d) => d.id);
-  const feitas = ids.filter((id) => estado.verificadas.includes(id)).length;
+  const feitas = planta.divisoes.filter((d) => divisaoVerificada(planta, d)).length;
   $("divisoes-progresso-caixa").hidden = !ids.length;
   $("divisoes-progresso").textContent = ids.length && feitas === ids.length
     ? `Todas as divisões verificadas (${feitas} de ${ids.length}) ✓`
@@ -1417,12 +1470,22 @@ function desenharDivisoes() {
   }
   $("extra-central").checked = estado.extras.central;
   $("extra-termostatos").value = String(estado.extras.termostatos);
+  // "Aquecimento / ar condicionado" já não põe termóstatos sozinho: uma dica ao lado do campo.
+  let dicaT = $("extra-termostatos-dica");
+  if (!dicaT) {
+    dicaT = el("p", "ajuda divisao-dica");
+    dicaT.id = "extra-termostatos-dica";
+    $("extra-termostatos").closest("label").after(dicaT);
+  }
+  dicaT.textContent = "Para o aquecimento ou o ar condicionado, indique quantos termóstatos quer.";
+  dicaT.hidden = !(quer("clima") && !estado.extras.termostatos);
 }
 
 /** Cartão de uma divisão: o nome, o que entra no preço, uma linha por aparelho e "Divisão verificada ✓". */
 function cartaoDivisao(planta, d, nivel) {
   const id = `div-${d.id}`;
-  const ver = estado.verificadas.includes(d.id);
+  const falta = faltaResponder(planta, d);
+  const ver = divisaoVerificada(planta, d);   // só com tudo respondido
   const c = el("section", `cartao divisao-cartao${ver ? " verificada" : ""}`);
   c.id = id;
   c.setAttribute("aria-labelledby", `${id}-titulo`);
@@ -1442,6 +1505,13 @@ function cartaoDivisao(planta, d, nivel) {
   if (linhas.length) c.append(ul);
   else c.append(el("p", "ajuda", "Sem aparelhos na planta."));
   if (ent?.estores_sem_motor) c.append(el("p", "ajuda", "Há estores sem motor: precisam primeiro de um motor, vemos isso na visita."));
+  // Objetivos ("O que quer fazer"): não acrescentam nada sozinhos, só dicas curtas (casa.js dicasObjetivos).
+  for (const t of dicasObjetivos(d.nome, estado.quer.objetivos, { temTomadas: linhas.some((l) => l.tipo === "tomada") })) c.append(el("p", "ajuda divisao-dica", t));
+  if (falta.length) {
+    const f = el("p", "divisao-falta", `Falta responder: ${listaPt(falta)}. Toque no nome de cada um.`);
+    f.id = `${id}-falta`;
+    c.append(f);
+  }
   const bs = el("div", "divisao-botoes");
   const outro = el("button", "btn sec pequeno", "Acrescentar outro aparelho");
   outro.type = "button";
@@ -1453,6 +1523,7 @@ function cartaoDivisao(planta, d, nivel) {
   v.id = `${id}-verificada`;
   v.setAttribute("aria-pressed", String(ver));
   v.setAttribute("aria-label", `Divisão verificada: ${d.nome || "divisão"}`);
+  if (falta.length) { v.disabled = true; v.setAttribute("aria-describedby", `${id}-falta`); }
   v.addEventListener("click", () => marcarVerificada(d.id, !ver));
   bs.append(outro, v);
   c.append(bs);
@@ -1507,7 +1578,12 @@ function linhaAparelho(d, l, planta) {
   }
   txt.append(bn);
   const det = detalheLinha(l);
-  if (det) txt.append(el("small", null, det));
+  const pend = porResponder(l);
+  // Detalhe obrigatório por responder: "Falta responder" em vez do valor por omissão (ex.: "1 botão").
+  if (pend) {
+    txt.append(el("small", "falta-responder", n > 1 ? `Falta responder (${pend} de ${n})` : "Falta responder"));
+    bn.setAttribute("aria-label", `${bn.getAttribute("aria-label")} — falta responder`);
+  } else if (det) txt.append(el("small", null, det));
   const cont = el("div", "contador-caixa");
   cont.setAttribute("role", "group");
   cont.setAttribute("aria-label", `Quantos: ${nome.toLowerCase()} (${onde})`);
@@ -1570,10 +1646,10 @@ function linhaAparelho(d, l, planta) {
     q.id = `${base}-quais`;
     q.append(el("span", null, "Qual?"));
     l.els.forEach((e, i) => {
-      const b = el("button", "btn sec pequeno", String(i + 1));
+      const b = el("button", `btn sec pequeno${e.por_responder ? " por-responder" : ""}`, e.por_responder ? `${i + 1} · falta` : String(i + 1));
       b.type = "button";
       b.id = `${base}-qual-${i}`;
-      b.setAttribute("aria-label", `${nomeUm(l)} ${i + 1} de ${n} (${onde}): mudar os dados`);
+      b.setAttribute("aria-label", `${nomeUm(l)} ${i + 1} de ${n} (${onde}): ${e.por_responder ? "falta responder" : "mudar os dados"}`);
       b.addEventListener("click", () => abrirJanela(d, e, b.id));
       q.append(b);
     });
@@ -1589,7 +1665,7 @@ ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
 }, desenharDivisoes);
 $("divisao-adicionar").addEventListener("click", (ev) => acrescentar(null, null, ev));
 $("extra-central").addEventListener("change", () => { estado.extras.central = $("extra-central").checked; agendarGravacao(); });
-$("extra-termostatos").addEventListener("input", () => { estado.extras.termostatos = lerNum($("extra-termostatos"), 0, 20); estado.termostatosEditados = true; agendarGravacao(); });
+$("extra-termostatos").addEventListener("input", () => { estado.extras.termostatos = lerNum($("extra-termostatos"), 0, 20); estado.termostatosEditados = true; if ($("extra-termostatos-dica")) $("extra-termostatos-dica").hidden = !(quer("clima") && !estado.extras.termostatos); agendarGravacao(); });
 
 // ------------------------------------------------------------ 6. Preço
 async function carregarCatalogo() {
@@ -1815,6 +1891,7 @@ async function oferecerSimulacaoDaConta(eu) {
     caixa.remove();
     estado = daConta;
     visitado = Math.max(estado.passo, estado.visitado ?? 0);
+    if (estado.passo > P.planta) acertarPedido();
     $("sim-retomar").hidden = true;
     document.querySelector(".sim-progresso").hidden = false;
     $("sim-form").hidden = false;
@@ -1938,6 +2015,8 @@ async function enviar() {
     return;
   }
   const corpo = montarPedido(estado, sim, { codigo: codigoCliente, website: $("contacto-website").value });
+  // Telemóvel ligado: as fotos que já estão no servidor passam para o pedido sem voltar a ser enviadas.
+  if (ligacao.token) corpo.ligacao = ligacao.token;
   const botao = $("sim-seguinte");
   aEnviar = true;
   botao.disabled = true;
@@ -1961,7 +2040,12 @@ async function enviar() {
   }
   if (estadoHttp >= 200 && estadoHttp < 300) {
     // O pedido foi aceite; as fotos vão a seguir, uma a uma, com o token de uso único (§6).
-    const resultadoFotos = listaFotos.length ? await enviarFotos(listaFotos, resposta, botao) : null;
+    ligacao.encerrar();   // o painel terminou a ligação ao telemóvel
+    const noServidor = new Set(Array.isArray(resposta?.fotos_servidor) ? resposta.fotos_servidor : []);
+    const faltam = listaFotos.filter((f) => !noServidor.has(f.chave));
+    const resultadoFotos = !listaFotos.length ? null
+      : faltam.length ? { ...(await enviarFotos(faltam, resposta, botao)), total: listaFotos.length }
+        : { total: listaFotos.length, falhas: 0, semToken: false };
     aEnviar = false;
     botao.disabled = false;
     botao.textContent = "Enviar pedido";
@@ -2084,6 +2168,7 @@ function recomecar() {
   abertas.clear();
   fotos.clear();
   limparFotos(null);   // as fotos são da simulação: saem com ela
+  ligacao.terminar();  // e a ligação ao telemóvel (com as fotos no servidor)
   $("fim-fotos").hidden = true;
   editor.limpar();
   mostrarEnvio(null);
@@ -2123,6 +2208,81 @@ $("sim-recomecar-topo").addEventListener("click", () => {
   sim.focus();
 });
 
+// ------------------------------------------------------------ ligação ao telemóvel (passo 4)
+// No computador, o passo 4 mostra um QR; o telemóvel abre-o (#ligar=<token>) e os dois aparelhos sincronizam o
+// estado e as fotos até ao envio (ligacao.js; docs/SIMULADOR-ORCAMENTO.md, passo 4).
+function avisoLigacao(texto, tipo = "info") {
+  let m = $("sim-ligacao-msg");
+  if (!m) {
+    m = el("p", "msg");
+    m.id = "sim-ligacao-msg";
+    m.setAttribute("role", "status");
+    $("sim-form").before(m);
+  }
+  m.textContent = texto ?? "";
+  m.className = `msg ${tipo}`;
+  m.hidden = !texto;
+}
+/** Redesenha sem perder o foco (os botões têm ids estáveis). */
+function comFoco(fn) {
+  const id = document.activeElement?.id;
+  fn();
+  if (id && document.activeElement?.id !== id) focar(id);
+}
+/** O que veio do outro aparelho (já junto com o deste, se os dois mudaram): os campos locais ficam. */
+function aplicarDaLigacao(sinc, { fundido = false } = {}) {
+  const novo = normalizarEstado({ ...sinc, passo: estado.passo, visitado: estado.visitado, guardado: estado.guardado, fotosId: estado.fotosId, contacto: estado.contacto });
+  if (!novo) return;
+  estado = novo;
+  if (fundido && estado.passo > P.planta) refazerDivisoes();
+  agendarGravacao();
+  comFoco(() => mostrarPasso(false));
+}
+ligacao = criarLigacao({
+  urlApi, credenciais, armazem,
+  caixa: $("ligacao-cartao"),
+  obterEstado: () => estado,
+  aplicar: aplicarDaLigacao,
+  podeSincronizar: () => !aEnviar && !enviado && estado.passo !== P.planta && !document.querySelector("dialog[open]") && $("sim-retomar").hidden,
+  fotos,
+  idFotos: () => { if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); } return estado.fotosId; },
+  aoFotos: () => comFoco(() => { if (estado.passo === P.divisoes) desenharDivisoes(); if (estado.passo === P.quadro) desenharQuadro(); }),
+  avisar: (t) => avisoLigacao(t, "info"),
+});
+/** Telemóvel: abriu o QR. Devolve false se não deu (segue o arranque normal, sem a ligação). */
+async function entrarPeloQR(token) {
+  $("sim-retomar").hidden = true;
+  document.querySelector(".sim-progresso").hidden = true;
+  $("sim-form").hidden = true;
+  avisoLigacao("A abrir a simulação do outro aparelho…");
+  let remoto;
+  try {
+    remoto = await ligacao.entrar(token);
+  } catch (e) {
+    avisoLigacao(e?.estado === 404
+      ? "Este código já não é válido (passaram 24 horas, o pedido foi enviado ou a simulação recomeçou). Pode continuar aqui."
+      : "Não foi possível abrir a simulação do outro aparelho (sem ligação ao servidor). Leia o código outra vez daqui a pouco.", "erro");
+    document.querySelector(".sim-progresso").hidden = false;
+    $("sim-form").hidden = false;
+    return false;
+  }
+  const novo = normalizarEstado({ ...remoto, passo: P.divisoes, visitado: P.divisoes, guardado: null, fotosId: null, contacto: estadoInicial().contacto });
+  // A simulação do outro aparelho substitui a que houvesse neste (e as fotos dela).
+  // (sem esperar: o IndexedDB faz as operações pela ordem; o 1.º poll já encontra o estado novo)
+  fotos.clear();
+  limparFotos(null);
+  estado = novo;
+  visitado = P.divisoes;
+  document.querySelector(".sim-progresso").hidden = false;
+  $("sim-form").hidden = false;
+  mostrarPasso();
+  agendarGravacao();
+  avisoLigacao("Ligado ao computador: o que mudar aqui aparece lá, e o contrário. As fotos também.", "ok");
+  carregarCatalogo();
+  blocoConta.atualizar();
+  return true;
+}
+
 // ------------------------------------------------------------ arranque
 function iniciar() {
   $("ano").textContent = String(new Date().getFullYear());
@@ -2140,6 +2300,13 @@ function iniciar() {
     v.querySelector(".so-largo").textContent = "Área de cliente";
     v.querySelector(".so-curto").textContent = "Cliente";
   }
+  // Telemóvel que leu o QR do passo 4: o token sai já do endereço (não fica no histórico nem é partilhado).
+  const tokenQR = lerTokenLigacao(location.hash);
+  if (tokenQR) {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    entrarPeloQR(tokenQR).then((ok) => { if (!ok) iniciar(); });
+    return;
+  }
   const guardado = carregarEstado(armazem ?? semArmazem);
   if (guardado && temProgresso(guardado, PASSO_INICIAL)) {
     const quando = guardado.guardado ? new Date(guardado.guardado) : null;
@@ -2153,8 +2320,11 @@ function iniciar() {
     $("sim-continuar").addEventListener("click", () => {
       estado = guardado;
       visitado = Math.max(estado.passo, estado.visitado ?? 0);
+      if (estado.passo > P.planta) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+      // A ligação ao telemóvel deste aparelho, se ainda for válida (antes de mostrar o passo: o QR é o mesmo;
+      // sincroniza depois de ler as fotos).
+      ligacao.retomar(carregarFotosDoEstado());
       fecharRetomar();
-      carregarFotosDoEstado();
     });
     $("sim-recomecar").addEventListener("click", () => {
       recomecar();
@@ -2164,6 +2334,7 @@ function iniciar() {
   } else {
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
+    ligacao.terminar();  // idem uma ligação ao telemóvel que tenha ficado guardada
   }
   carregarCatalogo();
   blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta

@@ -47,7 +47,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       return responder(res, 400, { erro: 'Endereço inválido.' });
     }
     const c = url.pathname;
-    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
+    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c === '/api/ligacao' || c.startsWith('/api/ligacao/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
     if (c === '/painel') {
       res.writeHead(301, { ...CABECALHOS_SEGURANCA, Location: '/painel/', 'Content-Length': 0 });
       return res.end();
@@ -67,6 +67,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   pedidos.iniciar();
   api.fotos.iniciar();
   api.contas.iniciar();
+  api.ligacoes.iniciar();
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
@@ -74,6 +75,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       await pedidos.parar();
       await api.fotos.parar();
       api.contas.parar();
+      api.ligacoes.parar();
       auth.fechar();
       await alertas.fechar();
       await new Promise((r) => { servidor.close(() => r()); servidor.closeAllConnections?.(); });

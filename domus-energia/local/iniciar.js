@@ -5,8 +5,8 @@
 //   ws://localhost:8080/mqtt       -> broker MQTT (aedes, em vez do Mosquitto)
 //   mqtt://localhost:1883          -> o mesmo broker, para aparelhos e ferramentas
 //   http://localhost:8080/painel/  -> painel da empresa (porta interna 8081)
-//   http://localhost:8080/api/...  -> pagamentos (porta interna 8082); /api/orcamento(/fotos), /api/catalogo e
-//                                     /api/conta/* (conta de cliente) -> painel
+//   http://localhost:8080/api/...  -> pagamentos (porta interna 8082); /api/orcamento(/fotos), /api/catalogo,
+//                                     /api/conta/* (conta de cliente) e /api/ligacao* (telemóvel, passo 4) -> painel
 //
 // Diferenças para o servidor a sério (é só para desenvolver e testar):
 //   - o broker aceita qualquer utilizador e palavra-passe e não tem ACL;
@@ -139,7 +139,8 @@ const TIPOS = {
 };
 
 function destino(caminho) {
-  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo' || caminho.startsWith('/api/conta/')) return PORTA_PAINEL;
+  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo' || caminho.startsWith('/api/conta/')
+    || caminho === '/api/ligacao' || caminho.startsWith('/api/ligacao/')) return PORTA_PAINEL;
   if (caminho === '/painel' || caminho.startsWith('/painel/')) return PORTA_PAINEL;
   if (caminho.startsWith('/api/') || caminho === '/stripe/webhook') return PORTA_PAGAMENTOS;
   return null;

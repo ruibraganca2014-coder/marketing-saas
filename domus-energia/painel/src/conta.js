@@ -49,8 +49,8 @@ function hostLocal(req) {
   return h === 'localhost' || h.endsWith('.localhost') || h === '127.0.0.1' || h === '[::1]';
 }
 
-/** Estado do simulador (objeto JSON): tamanho, níveis e imagens só JPEG/PNG (como a simulação). */
-function validarEstado(v) {
+/** Estado do simulador (objeto JSON): tamanho, níveis e imagens só JPEG/PNG (como a simulação). Também na ligação ao telemóvel. */
+export function validarEstado(v) {
   if (v === null) return null;
   if (!v || typeof v !== 'object' || Array.isArray(v)) falha('O estado da simulação tem de ser um objeto.');
   const pilha = [[v, 0]];

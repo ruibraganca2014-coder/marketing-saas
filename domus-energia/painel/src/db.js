@@ -252,6 +252,34 @@ export const MIGRACOES = [
       if (seq) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
     }
   }),
+  // 9 — ligação temporária ao telemóvel (passo 4 do simulador, "Continue no telemóvel"; ligacao.js): sem conta,
+  // válida 24 h. O token só vai para o browser (no QR, no fragmento do endereço); aqui só o SHA-256. O estado da
+  // simulação (sem o contacto) com uma versão para a sincronização, e as fotos tiradas nos dois aparelhos
+  // (ficheiros em DADOS/painel/ligacoes/<id>/), que passam para o pedido ao enviar. Só tabelas novas.
+  (db) => db.exec(`
+    CREATE TABLE ligacoes (
+      id TEXT PRIMARY KEY,                      -- 16 hex aleatórios (também o nome da pasta das fotos)
+      hash TEXT NOT NULL UNIQUE,                -- SHA-256 do token
+      criada INTEGER NOT NULL,                  -- ms desde 1970
+      expira INTEGER NOT NULL,
+      atualizada INTEGER NOT NULL,
+      versao INTEGER NOT NULL DEFAULT 1,        -- muda a cada alteração (estado ou fotos): ETag das leituras
+      versao_estado INTEGER NOT NULL DEFAULT 1, -- muda só com o estado: base das escritas (conflito → 409)
+      estado TEXT NOT NULL,                     -- JSON do estado do simulador, sem o contacto
+      envios_fotos INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX ligacoes_expira ON ligacoes(expira);
+    CREATE TABLE ligacoes_fotos (
+      id TEXT PRIMARY KEY,                      -- 24 hex aleatórios (também o nome do ficheiro)
+      ligacao_id TEXT NOT NULL REFERENCES ligacoes(id) ON DELETE CASCADE,
+      chave TEXT NOT NULL,                      -- "quadro" ou "<id da divisão>:<tipo>" (como nas fotos do pedido)
+      tipo_mime TEXT NOT NULL CHECK (tipo_mime IN ('image/jpeg', 'image/png')),
+      bytes INTEGER NOT NULL,
+      legenda TEXT,
+      criado TEXT NOT NULL,
+      UNIQUE (ligacao_id, chave)
+    );
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

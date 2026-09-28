@@ -6,7 +6,7 @@
 // Retenção: apagarRetidas() apaga as fotos dos pedidos sem seguimento há mais de 12 meses.
 
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, rm, unlink } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErroApi, lerCorpo } from './http.js';
 import { escreverAtomico, iso } from './util.js';
@@ -28,6 +28,43 @@ export function bytesDeImagem(buf, tipo) {
   if (tipo === 'image/png') return buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   return false;
 }
+
+// Validações de uma foto recebida, as mesmas nos três caminhos (pedido com token, conta, ligação ao telemóvel):
+// Content-Type JPEG/PNG, X-Foto-Chave, X-Foto-Legenda (encodeURIComponent, ≤ 120), ≤ 1 MB, não vazia, bytes mágicos.
+export function tipoFoto(req) {
+  const tipo = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  if (!EXTENSAO[tipo]) throw new ErroApi(415, 'A foto tem de ser JPEG ou PNG (Content-Type: image/jpeg ou image/png).');
+  return tipo;
+}
+
+export function chaveLegendaFoto(req) {
+  const chave = String(req.headers['x-foto-chave'] ?? '');
+  if (!RE_CHAVE_FOTO.test(chave)) throw new ErroApi(400, 'Identificação da foto inválida (X-Foto-Chave).');
+  let legenda = null;
+  if (req.headers['x-foto-legenda'] !== undefined) {
+    try {
+      legenda = decodeURIComponent(String(req.headers['x-foto-legenda']));
+    } catch {
+      throw new ErroApi(400, 'Legenda da foto inválida (X-Foto-Legenda).');
+    }
+    legenda = legenda.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+    if (legenda.length > 120) throw new ErroApi(400, 'A legenda da foto tem no máximo 120 caracteres.');
+    legenda ||= null;
+  }
+  return { chave, legenda };
+}
+
+export async function corpoFoto(req, tipo) {
+  const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
+    if (e instanceof ErroApi && e.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
+    throw e;
+  });
+  if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
+  if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+  return corpo;
+}
+
+export const extensaoFoto = (tipo) => EXTENSAO[tipo];
 
 /**
  * @param {{db, config, registo, relogio: () => number, leitor: object|null, auditar: Function}} ctx
@@ -63,29 +100,11 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
    * verificados antes; as validações da foto são as mesmas nos dois caminhos.
    */
   async function receber(req, orcamentoConta = null) {
-    const tipo = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-    if (!EXTENSAO[tipo]) throw new ErroApi(415, 'A foto tem de ser JPEG ou PNG (Content-Type: image/jpeg ou image/png).');
+    const tipo = tipoFoto(req);
     const orcamentoId = orcamentoConta ?? orcamentoDoToken(req.headers['x-fotos-token']);
     if (!orcamentoId) throw new ErroApi(401, 'Autorização das fotos inválida ou expirada. Envie o pedido de novo.');
-    const chave = String(req.headers['x-foto-chave'] ?? '');
-    if (!RE_CHAVE_FOTO.test(chave)) throw new ErroApi(400, 'Identificação da foto inválida (X-Foto-Chave).');
-    let legenda = null;
-    if (req.headers['x-foto-legenda'] !== undefined) {
-      try {
-        legenda = decodeURIComponent(String(req.headers['x-foto-legenda']));
-      } catch {
-        throw new ErroApi(400, 'Legenda da foto inválida (X-Foto-Legenda).');
-      }
-      legenda = legenda.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
-      if (legenda.length > 120) throw new ErroApi(400, 'A legenda da foto tem no máximo 120 caracteres.');
-      legenda ||= null;
-    }
-    const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
-      if (e instanceof ErroApi && e.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
-      throw e;
-    });
-    if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
-    if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+    const { chave, legenda } = chaveLegendaFoto(req);
+    const corpo = await corpoFoto(req, tipo);
 
     const anterior = db.prepare('SELECT * FROM fotos WHERE orcamento_id = ? AND chave = ?').get(orcamentoId, chave);
     if (!anterior) {
@@ -106,6 +125,37 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
     }
     if (anterior) await unlink(ficheiro(anterior)).catch(() => {});
     registo.info(`orçamento ${orcamentoId}: foto ${chave} recebida (${corpo.length} bytes)`);
+    if (chave === 'quadro') agendarLeitura(orcamentoId, foto);
+    return foto;
+  }
+
+  /**
+   * Foto que já está no servidor (ligação ao telemóvel, ligacao.js) passa para o pedido: o ficheiro `origem` é
+   * movido (sem voltar a ser enviado) e fica registado como as outras. Respeita o máximo por pedido; devolve a foto
+   * ou null se não coube.
+   */
+  async function adotar(orcamentoId, { chave, tipo_mime: tipo, bytes, legenda }, origem) {
+    if (!EXTENSAO[tipo] || !RE_CHAVE_FOTO.test(chave)) return null;
+    const anterior = db.prepare('SELECT * FROM fotos WHERE orcamento_id = ? AND chave = ?').get(orcamentoId, chave);
+    if (!anterior && contar(orcamentoId) >= FOTOS_MAX) return null;
+    const foto = { id: randomBytes(12).toString('hex'), orcamento_id: orcamentoId, chave, tipo_mime: tipo, bytes, legenda: legenda ?? null, criado: iso(relogio()) };
+    await mkdir(pasta(orcamentoId), { recursive: true, mode: 0o700 });
+    try {
+      await rename(origem, ficheiro(foto));
+    } catch (e) {
+      if (e?.code !== 'EXDEV') throw e;
+      await copyFile(origem, ficheiro(foto));
+      await unlink(origem).catch(() => {});
+    }
+    try {
+      db.prepare('DELETE FROM fotos WHERE orcamento_id = ? AND chave = ?').run(orcamentoId, chave);
+      db.prepare('INSERT INTO fotos (id, orcamento_id, chave, tipo_mime, bytes, legenda, criado) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(foto.id, orcamentoId, chave, tipo, bytes, foto.legenda, foto.criado);
+    } catch (e) {
+      await unlink(ficheiro(foto)).catch(() => {});
+      throw e;
+    }
+    if (anterior) await unlink(ficheiro(anterior)).catch(() => {});
     if (chave === 'quadro') agendarLeitura(orcamentoId, foto);
     return foto;
   }
@@ -230,7 +280,7 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
   const leiturasEmCurso = () => Promise.allSettled([...emCurso]);
 
   return {
-    emitirToken, tokenFalso, receber, listar, contar, obter, ler, apagar, apagarTodas, apagarRetidas,
+    emitirToken, tokenFalso, receber, adotar, listar, contar, obter, ler, apagar, apagarTodas, apagarRetidas,
     leituraQuadro, iniciar, parar, leiturasEmCurso, ligada: Boolean(leitor),
   };
 }

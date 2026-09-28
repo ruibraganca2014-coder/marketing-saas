@@ -21,6 +21,8 @@ Com a sessão aberta, o simulador guarda o estado na conta sempre que se muda de
 
 Ao abrir o simulador com sessão, se a conta tiver uma simulação mais recente do que a deste navegador, aparece "Continuar a simulação da sua conta?". **As fotos ainda por enviar ficam só no navegador onde foram tiradas** (IndexedDB), e o aviso diz isso.
 
+Para passar do computador para o telemóvel **a meio do passo 4** não é preciso conta: o QR "Continue no telemóvel" abre uma ligação temporária (24 h, sem dados pessoais) em que os dois aparelhos se sincronizam, fotos incluídas (docs/SIMULADOR-ORCAMENTO.md, passo 4). A conta continua a ser pedida só no passo Enviar.
+
 A cópia da conta é apagada quando o pedido é enviado, em "Começar de novo" e ao fim de 12 meses.
 
 ## Área de cliente com o email (credenciais MQTT)

@@ -123,7 +123,7 @@ export function verificarOrigemPublica(req, origens, siteOrigens = []) {
   return sfs === 'same-site' && origem !== undefined && siteOrigens.includes(origem);
 }
 
-const CORS_CABECALHOS = 'Content-Type, X-Fotos-Token, X-Foto-Chave, X-Foto-Legenda';
+const CORS_CABECALHOS = 'Content-Type, X-Fotos-Token, X-Foto-Chave, X-Foto-Legenda, X-Ligacao-Token, If-None-Match';
 
 /**
  * CORS com credenciais para o site público noutra origem (SITE_ORIGENS). Só acrescenta cabeçalhos quando a
@@ -136,7 +136,7 @@ export function cors(req, res, siteOrigens) {
   if (permitida) {
     res.setHeader('Access-Control-Allow-Origin', origem);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Expose-Headers', 'Retry-After');
+    res.setHeader('Access-Control-Expose-Headers', 'Retry-After, ETag');
   }
   if (req.method !== 'OPTIONS') return false;
   if (!permitida) {

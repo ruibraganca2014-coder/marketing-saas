@@ -88,6 +88,11 @@ export function lerConfig(env = process.env) {
     // Fotos do simulador (POST /api/orcamento/fotos): fora da pasta pública, uma pasta por pedido.
     fotosDir: env.FOTOS_DIR || join(dados, 'painel', 'fotos'),
     limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
+    // Ligação temporária ao telemóvel (passo 4 do simulador, ligacao.js): fotos dos dois aparelhos até ao envio.
+    ligacoesDir: env.LIGACOES_DIR || join(dados, 'painel', 'ligacoes'),
+    limiteLigacoesHora: Number(env.LIMITE_LIGACOES_HORA || 20),          // ligações novas por hora, por IP
+    limiteLigacaoLeiturasHora: Number(env.LIMITE_LIGACAO_LEITURAS_HORA || 3600), // leituras (poll ~4 s) por hora, por IP
+    limiteLigacaoEscritasHora: Number(env.LIMITE_LIGACAO_ESCRITAS_HORA || 1200), // escritas do estado por hora, por IP
     // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
     anthropicKey,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)

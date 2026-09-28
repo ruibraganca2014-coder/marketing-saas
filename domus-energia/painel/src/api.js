@@ -19,6 +19,7 @@ import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 import { criarContas } from './conta.js';
+import { criarLigacoes } from './ligacao.js';
 import { criarCorreio } from './email.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
@@ -162,6 +163,8 @@ export function criarApi(ctx) {
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+  // Ligação temporária ao telemóvel (passo 4 do simulador, /api/ligacao/*, ligacao.js).
+  const ligacoes = criarLigacoes({ db, config, registo, relogio, fotos });
 
   // ------------------------------------------------------------ utilidades
   const fichas = () => new Map(db.prepare('SELECT * FROM fichas_cliente').all().map((f) => [f.codigo, f]));
@@ -1107,12 +1110,12 @@ export function criarApi(ctx) {
     }
     porIpOrcamento.registar(ip);
     global.registar('*');
-    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao'], LIMITE_ORCAMENTO);
+    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao', 'ligacao'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
       // Mesma resposta que um pedido verdadeiro (não denuncia a armadilha); o token não existe na base.
-      return responder(res, 201, { ok: true, fotos_token: fotos.tokenFalso(), fotos_max: FOTOS_MAX });
+      return responder(res, 201, { ok: true, fotos_token: fotos.tokenFalso(), fotos_max: FOTOS_MAX, ...(v.ligacao !== undefined ? { fotos_servidor: [] } : {}) });
     }
     // Com a simulação é preciso a conta de cliente com o email confirmado (docs/CONTA-CLIENTE.md); o pedido fica
     // ligado à conta e o email do pedido é o da conta. Sem simulação (formulário de contacto do site) não.
@@ -1134,8 +1137,16 @@ export function criarApi(ctx) {
     if (conta) contas.aposOrcamento(conta.id, c);
     auditar(conta ? { id: null, email: `conta:${conta.id}` } : null, 'orcamento_recebido', `orcamento:${id}`, { origem: 'site', simulacao: Boolean(sim), conta: Boolean(conta) }, ip);
     registo.info(`orçamento ${id} recebido`);
+    // Ligação ao telemóvel (passo 4): as fotos que já estão no servidor e que o pedido indica (simulacao.fotos) passam
+    // para ele sem voltar a ser enviadas; a ligação termina. O browser só envia as que não estão em `fotos_servidor`.
+    let fotosServidor = [];
+    if (sim && typeof v.ligacao === 'string') {
+      const chaves = (Array.isArray(v.simulacao?.fotos) ? v.simulacao.fotos : []).map((f) => f?.chave).filter((k) => typeof k === 'string');
+      fotosServidor = await ligacoes.passarParaPedido(v.ligacao, id, chaves);
+      if (fotosServidor.length) auditar(null, 'fotos_da_ligacao', `orcamento:${id}`, { fotos: fotosServidor.length }, ip);
+    }
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
-    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
+    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX, ...(v.ligacao !== undefined ? { fotos_servidor: fotosServidor } : {}) });
   }
 
   /** POST /api/orcamento/fotos: uma foto (bytes) por pedido; token, chave e legenda nos cabeçalhos. */
@@ -1179,6 +1190,7 @@ export function criarApi(ctx) {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await fotoPublica(req, res, ip);
       }
+      if (caminho === '/api/ligacao' || caminho.startsWith('/api/ligacao/')) return await ligacoes.tratar(req, res, url, ip);
       if (caminho === '/api/catalogo') {
         if (req.method !== 'GET' && req.method !== 'HEAD') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET' });
         return catalogoPublico(req, res);
@@ -1209,6 +1221,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, contas, correio };
+  return { tratar, auditar, fotos, contas, correio, ligacoes };
 }
 

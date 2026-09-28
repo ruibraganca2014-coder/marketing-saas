@@ -8,6 +8,7 @@
 #   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, ≤ 1 MB cada; idem)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
 #   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem)
+#   https://HOST/api/ligacao*   -> painel (ligação temporária ao telemóvel, passo 4 do simulador; idem)
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)
@@ -36,7 +37,8 @@
 	# (planta com imagem, até 1 MB): limite de 2 MB aqui, 1,25 MB no serviço.
 	# As fotos do simulador vão a seguir, uma a uma, para /api/orcamento/fotos (≤ 1 MB cada).
 	# A conta de cliente (/api/conta/*: criar/entrar, simulação guardada até 1,5 MB, fotos ≤ 1 MB) também é do painel.
-	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/*
+	# E a ligação temporária ao telemóvel (/api/ligacao, /api/ligacao/*: estado da simulação até 1,5 MB, fotos ≤ 1 MB).
+	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/* /api/ligacao /api/ligacao/*
 	handle @orcamento {
 		request_body {
 			max_size 2MB

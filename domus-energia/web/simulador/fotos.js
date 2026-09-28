@@ -131,7 +131,8 @@ const chaveDe = (sim, chave) => `${sim}|${chave}`;
  * navegador (IndexedDB), false se só ficou em memória.
  */
 export async function guardarFoto(sim, chave, foto) {
-  const r = { k: chaveDe(sim, chave), sim, chave, blob: foto.blob, miniatura: foto.miniatura, largura: foto.largura, altura: foto.altura, quando: new Date().toISOString() };
+  // `servidor`: id da foto no servidor quando há ligação ao telemóvel (ligacao.js); null = só neste navegador.
+  const r = { k: chaveDe(sim, chave), sim, chave, blob: foto.blob, miniatura: foto.miniatura, largura: foto.largura, altura: foto.altura, servidor: foto.servidor ?? null, quando: new Date().toISOString() };
   memoria.set(r.k, r);
   try {
     return (await naLoja("readwrite", (s) => s.put(r))) !== null;

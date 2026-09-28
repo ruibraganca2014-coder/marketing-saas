@@ -190,8 +190,9 @@ export const MODULOS = { geral: 2, diferencial: 2, descarregador: 2, rele_tensao
  */
 export const TAMANHO_PARCIAL = 12;
 /**
- * Pisos com quadro, por ordem: com planta, os pisos que têm um "Quadro elétrico" desenhado (a planta desenhada
- * pela casa põe um em cada piso: casa.js divisoesQuadro); sem planta, os pisos da casa. Pelo menos [0].
+ * Pisos com quadro, por ordem: com planta, os pisos que têm um "Quadro elétrico" desenhado (o cliente pô-lo);
+ * sem planta, ou numa planta sem nenhum quadro desenhado (a planta desenhada pela casa já não o põe), os pisos da
+ * casa — o quadro é sempre orçamentado, com ou sem ícone. Pelo menos [0].
  * O 1.º é o quadro geral (normalmente o r/c); os outros são parciais.
  */
 export function pisosDosQuadros(estado) {
@@ -199,7 +200,7 @@ export function pisosDosQuadros(estado) {
   const usaPlanta = !!p && !estado.plantaSaltada && ((p.divisoes?.length ?? 0) > 0 || (p.elementos?.length ?? 0) > 0);
   if (usaPlanta) {
     const s = [...new Set((p.elementos ?? []).filter((e) => e.tipo === "quadro").map(pisoDe))].sort((a, b) => a - b);
-    return s.length ? s : [0];
+    if (s.length) return s;
   }
   const c = estado?.casa ?? {};
   const [, max] = LIMITES_CASA.pisos;
