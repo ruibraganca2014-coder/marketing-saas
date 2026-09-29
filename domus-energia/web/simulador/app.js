@@ -2394,6 +2394,7 @@ async function oferecerSimulacaoDaConta(eu) {
     visitado = Math.max(estado.passo, estado.visitado ?? 0);
     if (estado.passo > P.quer) acertarPedido();
     $("sim-retomar").hidden = true;
+    $("sim-antes").hidden = true;
     document.querySelector(".sim-progresso").hidden = false;
     $("sim-form").hidden = false;
     if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;
@@ -2767,12 +2768,31 @@ function recomecar() {
   $("quer-objetivos").dataset.perfil = "";
 }
 
+/**
+ * "Antes de começar" (decisão do dono): sempre antes do passo 1 — ao abrir (sem simulação para continuar) e depois
+ * de "Começar de novo". Sem a barra dos passos (nem o tempo) e sem a planta; "Começar" leva ao passo 1.
+ */
+function mostrarAntes({ rolar = true } = {}) {
+  fecharPlanta({ foco: false });
+  $("sim-antes").hidden = false;
+  document.querySelector(".sim-progresso").hidden = true;
+  $("sim-form").hidden = true;
+  const t = $("sim-antes-titulo");
+  t.focus({ preventScroll: true });
+  if (rolar) t.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+}
+$("sim-comecar").addEventListener("click", () => {
+  $("sim-antes").hidden = true;
+  document.querySelector(".sim-progresso").hidden = false;
+  $("sim-form").hidden = false;
+  mostrarPasso();
+});
+
 $("fim-nova").addEventListener("click", () => {
   recomecar();
   $("passo-fim").hidden = true;
   $("sim-navegacao").hidden = false;
-  document.querySelector(".sim-progresso").hidden = false;
-  mostrarPasso();
+  mostrarAntes();
 });
 
 // "Começar de novo" sempre à mão (por baixo dos passos), com confirmação na página.
@@ -2788,7 +2808,7 @@ $("sim-recomecar-topo").addEventListener("click", () => {
   sim.id = "sim-recomecar-sim";
   const nao = el("button", "btn sec pequeno", "Cancelar");
   nao.type = "button";
-  sim.addEventListener("click", () => { recomecar(); mostrarPasso(); });
+  sim.addEventListener("click", () => { recomecar(); mostrarAntes(); });
   nao.addEventListener("click", () => { c.remove(); b.focus(); });
   bs.append(sim, nao);
   c.append(bs);
@@ -2835,11 +2855,13 @@ function iniciar() {
     });
     $("sim-recomecar").addEventListener("click", () => {
       recomecar();
-      fecharRetomar();
+      $("sim-retomar").hidden = true;
+      mostrarAntes();
+      decidido();
     });
     $("sim-continuar").focus();
   } else {
-    mostrarPasso(false);
+    mostrarAntes({ rolar: false });
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
   blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta

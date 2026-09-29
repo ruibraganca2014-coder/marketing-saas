@@ -49,6 +49,49 @@
         </div>
       </div>
 
+      <!-- "Antes de começar" (decisão do dono): sempre antes do passo 1 — ao abrir e depois de "Começar de novo" (app.js mostrarAntes).
+           O mesmo conteúdo, mais curto, está no site (index.html #como-simular). 12 min = soma de MINUTOS_PASSO. -->
+      <section class="cartao sim-antes" id="sim-antes" aria-labelledby="sim-antes-titulo" hidden>
+        <h2 id="sim-antes-titulo" tabindex="-1">Antes de começar</h2>
+        <p>São 7 passos, cerca de 12 minutos. Fica tudo guardado neste navegador: pode parar e continuar depois.</p>
+        <div class="como-simular">
+          <div class="como-bloco">
+            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg></span>Os passos</h3>
+            <ol class="como-passos">
+              <li><b>Serviço:</b> o que precisa (instalação nova, automatizar ou reparar).</li>
+              <li><b>A casa:</b> tipo de casa, tipologia e divisões.</li>
+              <li><b>Equipamentos:</b> as máquinas que tem.</li>
+              <li><b>Divisões:</b> confirme o que há em cada divisão. Pode tirar fotos.</li>
+              <li><b>Quadro elétrico:</b> três perguntas e uma foto.</li>
+              <li><b>Resumo e preço:</b> veja a estimativa.</li>
+              <li><b>Enviar:</b> crie a conta e deixe o contacto.</li>
+            </ol>
+          </div>
+          <div class="como-bloco">
+            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/></svg></span>Tenha à mão</h3>
+            <ul>
+              <li>A tipologia (T1, T2…) e o número de divisões.</li>
+              <li>A potência contratada. Vem na fatura da luz. Se não souber, fica 6,9 kVA.</li>
+              <li>As máquinas que tem ou vai ter: placa, forno, ar condicionado, carregador do carro…</li>
+              <li>A localidade da obra.</li>
+              <li>Um email, para criar a conta.</li>
+            </ul>
+          </div>
+          <div class="como-bloco">
+            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>Fotos a tirar <small>(opcionais)</small></h3>
+            <p>Ajudam o eletricista a preparar a visita.</p>
+            <ul>
+              <li>O quadro elétrico: porta aberta, de frente e com boa luz.</li>
+              <li>Os aparelhos avariados ou a trocar.</li>
+              <li>Pode tirá-las com o telemóvel, no passo Divisões.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="form-botoes">
+          <button class="btn" id="sim-comecar" type="button">Começar</button>
+        </div>
+      </section>
+
       <nav class="sim-progresso" aria-label="Passos do simulador">
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
         <ol id="sim-passos"></ol>

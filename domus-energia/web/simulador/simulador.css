@@ -17,6 +17,11 @@
 .sim-retomar { margin-bottom: 20px; display: grid; gap: 10px; }
 .sim-retomar h2 { font-size: 1.4rem; margin: 0; }
 .sim-retomar p { margin: 0; }
+/* "Antes de começar" (app.js mostrarAntes): sempre antes do passo 1. */
+.sim-antes { margin-bottom: 20px; display: grid; gap: 16px; }
+.sim-antes h2 { font-size: 1.4rem; margin: 0; }
+.sim-antes h2:focus { outline: none; }
+.sim-antes > p { margin: 0; }
 
 /* ---------- Progresso ---------- */
 .sim-progresso { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 20px; }

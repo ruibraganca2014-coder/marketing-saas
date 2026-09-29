@@ -162,6 +162,16 @@ h2 { font-size: clamp(1.7rem, 3.8vw, 2.4rem); margin: 0 0 10px; }
 .cartao p { margin: 0; color: var(--texto-suave); }
 
 .passos { counter-reset: passo; }
+/* Como funciona a simulação (site #como-simular e simulador #sim-antes). */
+.como-simular { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.como-bloco h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; font-size: 1.2rem; }
+.como-bloco h3 small { font-size: .85rem; font-weight: 600; color: var(--texto-suave); }
+.como-bloco .ic { width: 36px; height: 36px; border-radius: 12px; background: var(--musgo-claro); color: var(--musgo-texto); display: grid; place-items: center; flex: none; }
+.como-bloco .ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.como-bloco p { margin: 0 0 8px; color: var(--texto-suave); }
+.como-bloco :is(ul, ol) { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; color: var(--texto-suave); }
+.como-bloco li b { color: var(--texto); }
+.como-simular-acao { margin-top: 22px; }
 .passos .cartao::before { counter-increment: passo; content: counter(passo); display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--musgo); color: var(--sobre-musgo); font-weight: 800; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
 
 /* ---------- Contactos e formulários ---------- */
