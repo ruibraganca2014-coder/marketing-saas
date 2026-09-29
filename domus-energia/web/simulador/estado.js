@@ -6,9 +6,10 @@ import {
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, NOME_FORA,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
-  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo,
+  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO,
 } from "./regras.js";
-import { SKU_SY1, SKU_SY2 } from "./preco.js";
+import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
+import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 
@@ -17,19 +18,24 @@ export const CHAVE = "domus.simulador";
 export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: código do cliente vindo da área de cliente
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
-/** Os 6 passos (decisão do dono: o passo "Planta" saiu — a planta está no topo de todos os passos). */
-export const PASSOS = ["A casa", "Equipamentos", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
 /**
- * Ordem dos passos gravada no estado (`ordem`: 4 = a de PASSOS, 6 passos sem o passo "Planta").
+ * Os 7 passos (decisão do dono: o passo "Planta" saiu — a planta está no topo de todos os passos; lote 7: o passo
+ * "Serviço" entra antes de "A casa").
+ */
+export const PASSOS = ["Serviço", "A casa", "Equipamentos", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
+/**
+ * Ordem dos passos gravada no estado (`ordem`: 5 = a de PASSOS, 7 passos com "Serviço" à frente).
  * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo (quem estava no
  * passo "Planta" passa às Divisões — a planta está por cima delas):
  * - sem `passos` (6 passos, antes de "O que quer"): casa, planta, quadro, divisões, preço, enviar;
  * - `passos: 7` sem `ordem`: casa, o que quer, planta, quadro, divisões, preço, enviar;
  * - `ordem: 2` (versão de testes, nunca publicada): casa, o que quer, divisões, planta, quadro, preço, enviar;
- * - `ordem: 3` (7 passos): casa, equipamentos, planta, divisões, quadro, preço, enviar.
+ * - `ordem: 3` (7 passos): casa, equipamentos, planta, divisões, quadro, preço, enviar;
+ * - `ordem: 4` (6 passos, antes do "Serviço"): casa, equipamentos, divisões, quadro, preço, enviar — tudo +1.
+ * Os estados sem `servico` ficam com "Instalação nova" (tudo Novo: o preço é o mesmo de antes).
  */
-export const ORDEM = 4;
-const MIGRAR = { 6: [0, 2, 3, 2, 4, 5], 7: [0, 1, 2, 3, 2, 4, 5], ordem2: [0, 1, 2, 2, 3, 4, 5], ordem3: [0, 1, 2, 2, 3, 4, 5] };
+export const ORDEM = 5;
+const MIGRAR = { 6: [1, 3, 4, 3, 5, 6], 7: [1, 2, 3, 4, 3, 5, 6], ordem2: [1, 2, 3, 3, 4, 5, 6], ordem3: [1, 2, 3, 3, 4, 5, 6], ordem4: [1, 2, 3, 4, 5, 6] };
 export const SERVICO = "Simulador de orçamento";
 export const SERVICO_CLIENTE = "Ampliar a instalação (simulador)";
 
@@ -70,8 +76,10 @@ export function estadoNovo({ cliente = false } = {}) {
     versao: VERSAO,
     passos: PASSOS.length,
     ordem: ORDEM,
-    passo: cliente ? 1 : 0,
-    visitado: cliente ? 1 : 0, // passo mais adiantado a que o cliente já chegou
+    passo: 0,
+    visitado: 0,               // passo mais adiantado a que o cliente já chegou
+    servico: [],               // passo 1 (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
+    mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
     guardado: null,
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
     casa: casaNova(cliente),
@@ -190,6 +198,13 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
     if (nome) n.nome = nome;
     if (e.altura_cm !== undefined && e.altura_cm !== null && Number.isFinite(Number(e.altura_cm))) n.altura_cm = int(e.altura_cm, 0, ALTURA_MAX_CM);
     if (temPergunta(n.tipo, n.props) && (antigo ? porResponderAntigo(n.tipo, n.props) : e.por_responder === true)) n.por_responder = true;
+    // Ação por aparelho (lote 7, acoes.js): a escolhida, a descrição da avaria e "por um inteligente?".
+    if (temAcao(n.tipo, n.props)) {
+      if (ACOES[e.acao]) n.acao = e.acao;
+      const av = txt(e.avaria, MAX_AVARIA).replace(CONTROLO_LINHA, " ");
+      if (av.trim()) n.avaria = av;
+      if (typeof e.inteligente === "boolean" && perguntaInteligente(n.tipo)) n.inteligente = e.inteligente;
+    }
     r.elementos.push(n);
   }
   // A divisão gravada fica enquanto o elemento ainda lá estiver (numa planta antiga com divisões sobrepostas a de
@@ -264,13 +279,16 @@ export function normalizarEstado(v) {
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
   // Estados antigos (6 passos; 7 passos com outra ordem): o passo antigo passa ao novo (MIGRAR);
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
-  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.passos !== 7 ? MIGRAR[6]
+  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   const passo = int(v.passo, 0, (migrar ? migrar.length : PASSOS.length) - 2);   // nunca volta direto ao "Enviar"
   e.passo = migrar ? migrar[passo] : passo;
-  // Os 7 passos de antes (ordem 3) já guardavam o mais adiantado; os outros contam o que estava antes do passo.
-  e.visitado = migrar === MIGRAR.ordem3 ? Math.max(e.passo, migrar[int(v.visitado, 0, 5)])
+  // Os 7 passos de antes (ordem 3) e os 6 (ordem 4) já guardavam o mais adiantado; os outros contam o que estava antes do passo.
+  e.visitado = migrar === MIGRAR.ordem3 || migrar === MIGRAR.ordem4 ? Math.max(e.passo, migrar[int(v.visitado, 0, migrar.length - 2)])
     : migrar ? Math.max(...migrar.slice(0, passo + 1)) : Math.max(e.passo, int(v.visitado, 0, PASSOS.length - 2));
+  // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
+  e.servico = normalizarServico(v.servico) ?? ["nova"];
+  e.mexerQuadro = bool(v.mexerQuadro);
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   // Antes dos pisos a partir do r/c (0): a planta, as escadas e as divisões são migradas (migrarPisos).
   const pisosAntigos = v.pisosDesde0 !== true;
@@ -316,8 +334,8 @@ export function normalizarEstado(v) {
   e.plantaSaltada = false;
   e.plantaAuto = bool(v.plantaAuto);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
-  // (Os 7 passos de antes, ordem 3, têm a assinatura de agora: só mudou a ordem dos passos.)
-  e.plantaBase = (!migrar || migrar === MIGRAR.ordem3) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
+  // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
+  e.plantaBase = (!migrar || migrar === MIGRAR.ordem3 || migrar === MIGRAR.ordem4) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
   // "O que quer" ainda sem pisos, ou a casa ainda sem valores por piso: a assinatura guardada foi feita à maneira
   // antiga; se era a da casa e das máquinas de então, passa a ser a de agora (a planta não fica "desatualizada"
   // só pela migração).
@@ -453,9 +471,21 @@ export const opcoesAvisos = (estado) => ({
   quadro_novo: estado.quadro?.quadro_novo ?? null,
 });
 
-/** Todos os avisos do quadro: os dos circuitos (regras.js) e os das proteções, tamanho e potência (quadro.js). */
-export const avisosEstado = (estado, circuitos = estado.quadro.circuitos) =>
-  [...avisosQuadro(circuitos, opcoesAvisos(estado)), ...avisosProtecoes({ casa: estado.casa, quadro: { ...estado.quadro, circuitos } })];
+/**
+ * Todos os avisos do quadro: os dos circuitos (regras.js) e os das proteções, tamanho e potência (quadro.js) — estes só
+ * com o quadro no pedido (lote 7: sem "Instalação nova" o cliente pode não querer mexer no quadro). Com aparelhos a
+ * manter, reparar ou substituir, o aviso de que ficam nos circuitos que já existem (só os Novos têm circuitos novos).
+ */
+export const avisosEstado = (estado, circuitos = estado.quadro.circuitos) => {
+  const servico = Array.isArray(estado.servico) && estado.servico.length ? estado.servico : ["nova"];
+  const n = contarAcoes(estado.plantaSaltada ? null : estado.planta, servico);
+  const existentes = n.manter + n.reparar + n.substituir;
+  return [
+    ...avisosQuadro(circuitos, opcoesAvisos(estado)),
+    ...(quadroNoPedido({ ...estado, servico }) ? avisosProtecoes({ casa: estado.casa, quadro: { ...estado.quadro, circuitos } }) : []),
+    ...(existentes ? [`${existentes} ${existentes === 1 ? "aparelho fica" : "aparelhos ficam"} nos circuitos que já existem (manter, reparar ou substituir): só os novos têm circuitos novos. Confirmar o estado desses circuitos e a proteção diferencial${FIM_AVISO}`] : []),
+  ];
+};
 
 /**
  * `simulacao.quadro` (§6): circuitos (com o código RTIEBT, a secção do cabo, o grupo diferencial e o AFDD),
@@ -485,7 +515,7 @@ export function quadroParaEnvio(estado, circuitos) {
 
 /** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
-  return !!e && (e.passo > passoInicial || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+  return !!e && (e.passo > passoInicial || e.servico.length > 0 || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -546,8 +576,11 @@ export function textoSeguro(v, max = 120, multilinha = false) {
   return s;
 }
 
-/** Planta no formato exato do §2.1 (ou null quando não há nada desenhado). */
-export function plantaParaEnvio(planta) {
+/**
+ * Planta no formato exato do §2.1 (ou null quando não há nada desenhado). Com `servicos` (lote 7), cada aparelho com
+ * ação leva `acao` (a que vale: a escolhida ou a do serviço) e, quando se aplica, `avaria` e `inteligente`.
+ */
+export function plantaParaEnvio(planta, servicos = null) {
   if (!plantaTemConteudo(planta)) return null;
   const p = normalizarPlanta(planta);
   return {
@@ -566,9 +599,87 @@ export function plantaParaEnvio(planta) {
         id: e.id, tipo: e.tipo, x_cm: e.x_cm, y_cm: e.y_cm, rot: e.rot, piso: e.piso, divisao: e.divisao, props: { ...e.props },
         ...(e.nome ? { nome: textoSeguro(e.nome, 60) } : {}), ...(e.altura_cm !== undefined ? { altura_cm: e.altura_cm } : {}),
         altura_tipica_cm: alturaTipica(e.tipo, e.props, div ? tipoDivisao(div.nome) : null),
+        ...(servicos && temAcao(e.tipo, e.props) ? acaoParaEnvio(e, servicos) : {}),
       };
     }),
   };
+}
+
+/** `acao` do aparelho (a que vale) e, se for o caso, `avaria` (Reparar) e `inteligente` (Substituir tomada/interruptor). */
+function acaoParaEnvio(e, servicos) {
+  const acao = acaoDe(e, servicos);
+  const r = { acao };
+  if (acao === "reparar") r.avaria = textoSeguro(e.avaria, MAX_AVARIA);
+  if (acao === "substituir" && perguntaInteligente(e.tipo)) r.inteligente = e.inteligente === true;
+  return r;
+}
+
+const ORDEM_ACOES = Object.keys(ACOES);
+/**
+ * Lista de trabalho (lote 7, `simulacao.trabalho`; relatório técnico): por divisão, os aparelhos agrupados por ação e
+ * tipo (máquinas por modelo), com o material (SKU) e as horas de cada grupo. `linhaArtigo(chave, acao)` →
+ * {sku, horas} por unidade (app.js, a partir do catálogo); `fotos`: chaves das fotos tiradas ("d1:tomada").
+ */
+export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = []) {
+  if (!planta || !plantaTemConteudo(planta)) return [];
+  const p = normalizarPlanta(planta);
+  const tem = new Set(fotos);
+  const out = [];
+  const porDiv = new Map();
+  for (const e of p.elementos) {
+    if (!temAcao(e.tipo, e.props)) continue;
+    const acao = acaoDe(e, servicos);
+    const div = e.divisao ? p.divisoes.find((d) => d.id === e.divisao) : null;
+    const id = div?.id ?? null;
+    if (!porDiv.has(id)) {
+      const x = { divisao: id, nome: div ? textoSeguro(div.nome, 60) || "Divisão" : NOME_FORA, piso: div ? div.piso : pisoDe(e), acoes: [] };
+      porDiv.set(id, x);
+      out.push(x);
+    }
+    const g = porDiv.get(id);
+    const modelo = e.tipo === "maquina" ? e.props.modelo : null;
+    const k = modelo ?? e.tipo;
+    let item = g.acoes.find((a) => a.acao === acao && a.k === k);
+    if (!item) {
+      item = { acao, k, tipo: e.tipo, modelo, qtd: 0, material: [], horas: 0, foto: id && tem.has(`${id}:${k}`) ? `${id}:${k}` : null };
+      if (acao === "reparar") item.avarias = [];
+      if (acao === "substituir" && perguntaInteligente(e.tipo)) item.inteligentes = 0;
+      g.acoes.push(item);
+    }
+    item.qtd++;
+    if (acao === "reparar") item.avarias.push(textoSeguro(e.avaria, MAX_AVARIA));
+    if (acao === "substituir" && perguntaInteligente(e.tipo) && e.inteligente === true) item.inteligentes++;
+    const chave = pedidoDoElemento(e, acao);
+    if (chave) {
+      const a = linhaArtigo(chave, acao);
+      const m = item.material.find((x) => x.sku === a.sku);
+      if (m) m.qtd++; else item.material.push({ sku: a.sku, qtd: 1 });
+      item.horas = Math.round((item.horas + (Number(a.horas) || 0)) * 100) / 100;
+    }
+  }
+  for (const g of out) {
+    g.acoes.sort((a, b) => ORDEM_ACOES.indexOf(a.acao) - ORDEM_ACOES.indexOf(b.acao));
+    for (const a of g.acoes) delete a.k;
+  }
+  return out.slice(0, MAX_DIVISOES + 1);
+}
+
+/**
+ * Totais por ação (lote 7, `simulacao.totais_acao`): aparelhos de cada ação e, das linhas do preço, os artigos (€) e as
+ * horas de Reparar, Substituir, Novo (aparelhos e circuitos) e do quadro.
+ */
+export function totaisAcao(planta, servicos, preco) {
+  const n = contarAcoes(planta, servicos);
+  const r = {};
+  for (const k of ["manter", "reparar", "substituir", "novo", "quadro"]) {
+    const ls = preco.linhas.filter((l) => (l.grupo ?? "novo") === k);
+    r[k] = k === "manter" ? { aparelhos: n.manter } : {
+      ...(k !== "quadro" ? { aparelhos: n[k] } : {}),
+      artigos_iva: ls.some((l) => l.total === null) ? null : Math.round(ls.reduce((s, l) => s + l.total, 0) * 100) / 100,
+      horas: ls.some((l) => l.horas === null) ? null : Math.round(ls.reduce((s, l) => s + l.horas, 0) * 100) / 100,
+    };
+  }
+  return r;
 }
 
 /**
@@ -635,17 +746,25 @@ export function deslocacaoParaEnvio(d) {
  * `simulacao` do POST /api/orcamento (§6). `fotos` (lote 5): as fotos tiradas, sem as imagens —
  * [{chave, tipo, divisao, divisao_nome, piso, legenda}] (as imagens vão depois, uma a uma, com o token).
  */
-export function montarSimulacao(estado, preco, plano, fotos = []) {
+export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = null) {
   const circuitos = estado.quadro.circuitos.map((c, i) => {
     const n = normalizarCircuito(c, i);
     return { ...n, nome: textoSeguro(n.nome, 60), divisoes: n.divisoes.map((d) => textoSeguro(d, 60)).filter(Boolean) };
   });
+  const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
+  const semArtigo = () => ({ sku: null, horas: null });
+  const planta = estado.plantaSaltada ? null : estado.planta;
   return {
     versao: VERSAO,
+    // Lote 7: o serviço pedido (passo 1) e, por aparelho, a ação (planta.elementos[].acao); a lista de trabalho por
+    // divisão e os totais por ação são para o relatório técnico.
+    servico,
     casa: casaParaEnvio(estado),
     quer: querParaEnvio(estado),
-    planta: estado.plantaSaltada ? null : plantaParaEnvio(estado.planta),
-    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null },
+    planta: planta ? plantaParaEnvio(planta, servico) : null,
+    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }) },
+    trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave)),
+    totais_acao: totaisAcao(planta, servico, preco),
     divisoes: estado.divisoes.filter((d) => !ehFora(d)).map((d) => {
       const n = normalizarDivisao(d);
       return {
@@ -653,7 +772,8 @@ export function montarSimulacao(estado, preco, plano, fotos = []) {
         sensores_porta: n.sensores_porta, sensores_movimento: n.sensores_movimento, luzes_regulaveis: n.luzes_regulaveis, tomadas_inteligentes: n.tomadas_inteligentes,
       };
     }),
-    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva })),
+    // `grupo` (lote 7): reparar, substituir, novo ou quadro; `horas` = as desta linha (as de troca ao substituir).
+    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "novo", horas: l.horas ?? null })),
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },

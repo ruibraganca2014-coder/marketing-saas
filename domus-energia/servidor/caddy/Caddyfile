@@ -7,7 +7,9 @@
 #   https://HOST/api/orcamento  -> painel (formulário público; ANTES da regra /api/*)
 #   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, ≤ 1 MB cada; idem)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
-#   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem)
+#   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem), incluindo os
+#                                  pagamentos do pedido /api/conta/pagamentos/* e o webhook do Stripe deles
+#                                  /api/conta/pagamentos/stripe-webhook (docs/PAGAMENTOS-PEDIDO.md)
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)

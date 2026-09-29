@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { painelComEquipa } from './ajuda.js';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, versaoEsquema, migrar, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 import { diaLisboa, somarDiasCivil } from '../src/util.js';
 
 let p;
@@ -93,7 +93,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
   const n = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
-  assert.equal(n, antes + SEMENTES_QUADRO.length - 1, 'todos os novos menos o que já existia');
+  assert.equal(n, antes + SEMENTES_QUADRO.length - 1 + SEMENTES_ACOES.length, 'todos os novos menos o que já existia (e os das ações, migração 10)');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM (SELECT sku FROM catalogo GROUP BY sku HAVING COUNT(*) > 1)').get().n, 0, 'sem duplicados');
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TONGOU-SY2-JWT'").get().c, 4444, 'preço editado mantém-se');
   const idr = db.prepare("SELECT nome, preco_venda_iva_cent AS c, horas_instalacao AS h FROM catalogo WHERE sku = 'IDR-2P-40A-30MA'").get();
@@ -110,7 +110,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   db.close();
   // Base nova: sementes e artigos do quadro, cada SKU uma vez.
   const nova = abrirDb(':memory:');
-  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length);
+  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length);
   nova.close();
 });
 

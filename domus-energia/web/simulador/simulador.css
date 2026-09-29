@@ -488,3 +488,42 @@ html { scroll-padding-top: 72px; }
 @media (min-width: 1024px) { .sim-planta-fechar { display: none; } }
 /* Recurso CSS do "Ampliar" (sem Fullscreen API): por cima do topo fixo. */
 #sim-form > .sim-planta:has(.ecra-inteiro) { z-index: 60; }
+
+/* ---------- Lote 7: passo "Serviço" e ação por aparelho ---------- */
+/* Serviço: cartões na horizontal (como os dos equipamentos), 1 por linha no telemóvel, 3 no ecrã largo. */
+#servicos { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { #servicos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+#servicos .escolha.com-icone { min-height: 92px; }
+/* Barra dos passos: "não precisa" (fluxo curto, só reparações). */
+.sim-progresso .nao-precisa .sim-num { border-style: dashed; color: var(--texto-suave); }
+.sim-progresso .nao-precisa .sim-passo-nome { text-decoration: line-through; }
+/* Divisões: Manter · Reparar · Substituir · Novo (botões curtos, juntos). */
+.divisoes-acoes-ajuda { margin: 0; color: var(--texto-suave); font-size: .92rem; }
+.aparelho-acao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-left: 44px; }
+.acao-botoes { display: inline-flex; flex-wrap: nowrap; border: 1px solid var(--borda); border-radius: 12px; overflow: hidden; background: var(--superficie); max-width: 100%; }
+.acao-botao { min-height: 40px; min-width: 0; padding: 4px 10px; border: 0; border-left: 1px solid var(--borda); background: transparent; color: var(--texto); font: 700 .85rem/1.1 var(--letra); cursor: pointer; }
+.acao-botao:first-child { border-left: 0; }
+.acao-botao:hover { background: var(--musgo-claro); }
+.acao-botao:focus-visible { outline: 3px solid var(--argila); outline-offset: -3px; }
+.acao-botao[aria-pressed="true"] { background: var(--musgo); color: var(--sobre-musgo); }
+.acao-botao.acao-reparar[aria-pressed="true"] { background: var(--argila); color: var(--superficie); }
+.aparelho-acao-detalhes { display: grid; gap: 8px; padding-left: 44px; }
+.acao-um { display: grid; gap: 6px; }
+.acao-um-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.acao-um-num { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 50%; background: var(--musgo-claro); font-weight: 800; font-variant-numeric: tabular-nums; }
+.acao-avaria { display: grid; gap: 4px; font-weight: 700; font-size: .92rem; }
+.acao-avaria input { width: 100%; }
+.acao-avaria input[aria-invalid="true"] { border-color: var(--alarme-texto); }
+.acao-inteligente { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 700; font-size: .92rem; }
+.acao-inteligente .btn[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.acao-foto-dica { margin: 0; }
+/* Telemóvel: os 4 botões ocupam a largura toda (sem o recuo do desenho). */
+@media (max-width: 479px) {
+  .aparelho-acao, .aparelho-acao-detalhes { padding-left: 0; }
+  .aparelho-acao .acao-botoes { flex: 1 1 100%; }
+  .acao-botoes .acao-botao { flex: 1 1 0; padding: 4px 4px; font-size: .8rem; }
+  .acao-um-cabeca .acao-botoes { flex: 1 1 0; }
+  .acao-inteligente > span { flex: 1 1 100%; }
+  .acao-inteligente .btn { flex: 1 1 0; }
+}
+.editor-legenda-acoes { margin: 0; }

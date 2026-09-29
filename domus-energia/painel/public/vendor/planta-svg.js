@@ -25,6 +25,9 @@
 //   grelha      false → sem quadriculado
 //   piso        n.º do piso (0 = r/c) → só as divisões e os elementos desse piso (`piso` em falta = 0);
 //               todos os pisos partilham a mesma folha e a mesma escala
+//   acoes       {omissao} (lote 7) → cada aparelho com ação (`acao`: manter, reparar, substituir, novo) diferente da
+//               omissão do serviço leva um selo pequeno com a letra (M, R, S, N) no canto de cima à direita;
+//               sem `acoes`, nenhum selo (LEGENDA_ACOES: o texto da legenda)
 //
 // Cada máquina tem o seu ícone (`maquina_<modelo>`; sem ícone próprio, o genérico); os botões de divisão do
 // editor têm um desenho por tipo (`desenharIcone(svg, "divisao", {tipo})`: sofá, cama, fogão, banheira…). Os nomes das divisões
@@ -158,6 +161,16 @@ const ICONES = {
 };
 const ICONE_RAIO = [["path", { d: "M26 13 18 26h6l-2 9 8-13h-6z" }, "c"]];
 
+// Ação por aparelho (lote 7; web/simulador/acoes.js): a letra do selo e o nome. Porta e quadro não têm ação; a janela
+// só com estore.
+const ACOES = { manter: ["M", "Manter"], reparar: ["R", "Reparar"], substituir: ["S", "Substituir"], novo: ["N", "Novo"] };
+const comAcao = (e) => ["luz", "interruptor", "tomada", "sensor_movimento", "sensor_porta", "maquina"].includes(e.tipo) || (e.tipo === "janela" && !!e.props?.estore);
+/** Legenda dos selos (menu "⋯", impressão e relatório): "Marcas: R Reparar · S Substituir · N Novo · M Manter; sem marca: Novo". */
+export function legendaAcoes(omissao) {
+  const outras = Object.entries(ACOES).filter(([k]) => k !== omissao).map(([, [l, n]]) => `${l} ${n}`);
+  return `Marcas: ${outras.join(" · ")}; sem marca: ${ACOES[omissao]?.[1] ?? "Novo"}.`;
+}
+
 let contador = 0;
 
 function no(tag, atrs, estilo) {
@@ -277,6 +290,7 @@ function icone(e) {
  */
 export function desenharPlanta(svg, planta, opcoes = {}) {
   const { soLeitura = false, selecionado = null, grelha = true } = opcoes;
+  const omissaoAcao = opcoes.acoes && ACOES[opcoes.acoes.omissao] ? opcoes.acoes.omissao : null;
   const L = Math.max(1, numero(planta?.largura_cm, 2000));
   const A = Math.max(1, numero(planta?.altura_cm, 1500));
   const esc = Math.max(1, numero(planta?.escala_cm, 50));
@@ -403,7 +417,8 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     const nitido = !haSel || sel || (selDiv && e.divisao === selDiv.id);
     const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` }, nitido ? null : { opacity: ESBATIDO });
     const t = no("title");
-    t.textContent = descrever(e, nomesDivisao);
+    const acao = omissaoAcao && comAcao(e) ? (ACOES[e.acao] ? e.acao : omissaoAcao) : null;
+    t.textContent = `${descrever(e, nomesDivisao)}${acao ? ` — ${ACOES[acao][1]}` : ""}`;
     g.append(t);
     if (!soLeitura && raioToque > raio) g.append(no("circle", { r: raioToque, cx: 0, cy: 0 }, { fill: "transparent" }));
     if (sel) {
@@ -430,6 +445,17 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
       }));
     }
     g.append(gi);
+    // Selo da ação (só as que não são a do serviço): disco pequeno com a letra, por cima à direita.
+    if (acao && acao !== omissaoAcao) {
+      const r = raio * 0.52, cx = raio * 0.78, cy = -raio * 0.78;
+      const cor = acao === "reparar" ? COR.argila : acao === "manter" ? COR.suave : COR.musgo;
+      const gs = no("g", { "data-acao": acao, "aria-hidden": "true" }, { "pointer-events": "none" });
+      gs.append(no("circle", { r, cx, cy }, { fill: cor, stroke: COR.fundo, "stroke-width": "1.5px", "vector-effect": "non-scaling-stroke" }));
+      const l = no("text", { x: cx, y: cy, "text-anchor": "middle", "dominant-baseline": "central", "font-size": r * 1.25 }, { fill: COR.fundo, "font-weight": "800", "font-family": "system-ui, sans-serif" });
+      l.textContent = ACOES[acao][0];
+      gs.append(l);
+      g.append(gs);
+    }
     ge.append(g);
   }
   svg.append(ge, gn);

@@ -780,3 +780,31 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-resumo dd { margin: 0; }
 .pagina-conta .saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
 .pagina-conta .saltar:focus { top: 10px; }
+/* Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): página simulada, pagamentos e relatório na conta */
+.pag-simulacao { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; border: 2px dashed var(--argila-texto); background: var(--areia-suave); color: var(--texto); font-weight: 600; }
+.pag-simulacao strong { color: var(--argila-texto); letter-spacing: .04em; }
+.pag-valor { font-size: 2rem; font-weight: 800; margin: 0 0 6px; }
+.pag-botoes { margin-top: 16px; }
+.conta-pagamentos { display: grid; gap: 8px; }
+.conta-pagamentos h4, .conta-relatorio h4 { margin: 0; }
+.conta-pagamentos ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.conta-pagamentos li { border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; }
+.conta-pagamentos .estado-pago { color: var(--musgo-texto); font-weight: 700; }
+.conta-pagamentos .estado-outro { color: var(--argila-texto); font-weight: 700; }
+.conta-recibo { font-size: .9rem; color: var(--texto-suave); overflow-wrap: anywhere; }
+.conta-planos { border: 0; margin: 0; padding: 0; display: grid; gap: 6px; }
+.conta-planos legend { font-weight: 700; margin-bottom: 4px; }
+.conta-planos label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.conta-relatorio { display: grid; gap: 8px; }
+.relatorio-cliente table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.relatorio-cliente th, .relatorio-cliente td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--borda); vertical-align: top; }
+.relatorio-cliente td.num, .relatorio-cliente th.num { text-align: right; white-space: nowrap; }
+.relatorio-cliente h5 { margin: 12px 0 4px; font-size: 1rem; }
+@media print {
+  body.imprimir-relatorio > *:not(main), body.imprimir-relatorio #conta-cartao, body.imprimir-relatorio .conta-atalhos, body.imprimir-relatorio .conta-pedido:not(.a-imprimir), body.imprimir-relatorio .nao-imprimir { display: none !important; }
+}
+.sim-aviso-area { font-weight: 700; color: var(--argila-texto); }
+.conta-pagamentos, .conta-relatorio, .conta-proposta { padding-top: 0; padding-bottom: 0; }
+.conta-planos label { display: flex; flex-direction: row; justify-content: flex-start; text-align: left; font-weight: 600; }
+.conta-planos input[type=radio] { width: 22px; height: 22px; min-height: 0; margin: 0; flex: none; }
+.conta-relatorio .btn { justify-self: start; }

@@ -12,7 +12,8 @@
 //   - o broker aceita qualquer utilizador e palavra-passe e não tem ACL;
 //   - não há ntfy (as notificações do motor falham e ficam no registo);
 //   - o ./domus.sh não corre: os pedidos do painel (criar clientes, aparelhos) ficam pendentes;
-//   - os emails das contas de cliente (códigos) não saem: aparecem neste terminal, "[painel] [email] para x: código 123456".
+//   - os emails das contas de cliente (códigos) não saem: aparecem neste terminal, "[painel] [email] para x: código 123456";
+//   - os pagamentos do pedido são simulados (docs/PAGAMENTOS-PEDIDO.md): nenhum dinheiro real, nenhuma chave Stripe.
 //
 // Outras origens para testar no browser (ex.: http://qc1.localhost:8080): ORIGENS_EXTRA="http://qc1.localhost:8080,..." npm start.
 //
@@ -104,6 +105,8 @@ arrancar('painel', {
   // Conta de cliente: os emails (códigos) vão sempre para o terminal; chave local para as credenciais da casa.
   EMAIL_LOCAL: '1',
   CONTA_CHAVE: segredos.contaChave,
+  // Pagamentos do pedido (19 €, sinal, restante): sempre SIMULADOS no local (página pagamento-simulado.html).
+  PAGAMENTOS_MODO: 'simulado',
   PAINEL_MQTT_PASS: 'local',
   PAINEL_CEO_EMAIL: segredos.ceoEmail,
   PAINEL_CEO_PASS: segredos.ceoPass,

@@ -20,6 +20,7 @@ import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
+import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -66,6 +67,8 @@ export const ROTAS = [
   ['GET', 'orcamentos/:id', ['ceo', 'comercial'], 'orcamento'],
   ['POST', 'orcamentos/:id', ['ceo', 'comercial'], 'atualizarOrcamento'],
   ['POST', 'orcamentos/:id/converter', ['ceo', 'comercial'], 'converter'],
+  ['POST', 'orcamentos/:id/libertar-relatorio', ['ceo'], 'libertarRelatorio'],
+  ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -160,7 +163,13 @@ export function criarApi(ctx) {
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
-  const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio });
+  // Pagamentos do pedido (19 €, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
+  let pagPed = null;
+  const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed });
+  pagPed = criarPagamentosPedido({
+    db, config, registo, relogio, auditar, correio, fotos, sessao: (req, res) => contas.sessao(req, res),
+    criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
+  });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
 
   // ------------------------------------------------------------ utilidades
@@ -185,6 +194,10 @@ export function criarApi(ctx) {
       // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
       conta: contas.resumoParaPainel(o.conta_id),
       proposta_texto: o.proposta_texto, proposta_aceite: o.proposta_aceite,
+      // Pagamentos do pedido: aceite pelo cliente mas o sinal ainda por pagar = "Aceite — a aguardar sinal".
+      aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
+      relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
+      pagamentos: pagPed.listarParaPainel(o.id),
     };
     if (completo) {
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
@@ -238,7 +251,7 @@ export function criarApi(ctx) {
     return {
       id: a.id, sku: a.sku, nome: a.nome, categoria: a.categoria, fornecedor: a.fornecedor, link: a.link,
       preco_compra: deCent(a.preco_compra_cent), preco_venda_iva: deCent(a.preco_venda_iva_cent),
-      horas_instalacao: a.horas_instalacao, especificacoes: JSON.parse(a.especificacoes || '{}'),
+      horas_instalacao: a.horas_instalacao, horas_troca: a.horas_troca ?? null, especificacoes: JSON.parse(a.especificacoes || '{}'),
       ativo: Boolean(a.ativo), visivel_cliente: Boolean(a.visivel_cliente), atualizado: a.atualizado,
     };
   }
@@ -663,6 +676,11 @@ export function criarApi(ctx) {
       .run(...cols.map((k) => mud[k]), agoraIso(), o.id);
     const det = {};
     for (const k of cols) if (o[k] !== mud[k]) det[k === 'valor_proposta_cent' ? 'valor_proposta' : k] = k === 'valor_proposta_cent' ? deCent(mud[k]) : mud[k];
+    // Aceite pelo cliente e a aguardar o sinal: se a proposta (valor ou estado) mudou, o sinal por pagar sai e o
+    // cliente volta a aceitar (docs/PAGAMENTOS-PEDIDO.md).
+    if (o.proposta_aceite && o.estado === 'proposta_enviada' && ('valor_proposta' in det || (mud.estado && mud.estado !== 'proposta_enviada'))) {
+      pagPed.aoMudarProposta(o.id);
+    }
     auditar(u, 'orcamento_atualizado', `orcamento:${o.id}`, det, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
@@ -770,10 +788,59 @@ export function criarApi(ctx) {
     auditar(u, 'orcamento_convertido', `orcamento:${o.id}`, { cliente: codigo, obra: obraId, pedido: pedido?.id ?? null, aparelhos: pedidosAparelhos.length }, ip);
     for (const [i, a] of aparelhos.entries()) auditar(u, 'pedido_aparelho', `cliente:${codigo}`, { pedido: pedidosAparelhos[i].id, aparelho: a.id, tipo: a.tipo, orcamento: o.id }, ip);
     auditar(u, 'obra_criada', `obra:${obraId}`, { cliente: codigo, data, kit, orcamento: o.id }, ip);
+    // Plano mensal escolhido ao aceitar: no modo simulado a subscrição começa com a casa ligada (pedido-admin
+    // "plano", a seguir ao do cliente); no modo stripe o cliente ativa-a na área de cliente (serviço pagamentos/).
+    let pedidoPlano = null;
+    if (o.plano_escolhido && PLANOS_MENSAIS.includes(o.plano_escolhido) && pagPed.modo === 'simulado' && !pedidoPendente('plano', codigo)) {
+      pedidoPlano = await pedidos.criar({ tipo: 'plano', cliente: codigo, utilizador: u, orcamentoId: o.id, dados: { cliente: codigo, plano: o.plano_escolhido, estado: 'ativo' } });
+      auditar(u, 'pedido_plano', `cliente:${codigo}`, { pedido: pedidoPlano.id, plano: o.plano_escolhido, estado: 'ativo', origem: 'plano escolhido ao aceitar (subscrição simulada)' }, ip);
+    }
     responder(res, 201, {
+      pedido_plano: pedidoPlano,
       cliente: codigo, cliente_existia: existe, pedido, aparelhos: pedidosAparelhos,
       obra: formatarObra(db.prepare('SELECT * FROM obras WHERE id = ?').get(obraId), fichas()),
     });
+  };
+
+  // ---- relatório técnico e fim da obra (pagamentos do pedido, docs/PAGAMENTOS-PEDIDO.md)
+  const emailDaConta = (contaId) => (contaId ? db.prepare('SELECT email FROM contas WHERE id = ?').get(contaId)?.email ?? null : null);
+  const ligacaoConta = () => (config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []);
+
+  // O relatório (versão do cliente) só aparece na conta depois de o CEO o rever e libertar.
+  h.libertarRelatorio = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const o = obterOrcamento(params.id);
+    if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há relatório para libertar.');
+    if (o.relatorio_libertado) throw new ErroApi(409, 'O relatório já foi libertado ao cliente.');
+    const agora = agoraIso();
+    db.prepare('UPDATE orcamentos SET relatorio_libertado = ?, atualizado = ? WHERE id = ? AND relatorio_libertado IS NULL').run(agora, agora, o.id);
+    auditar(u, 'relatorio_libertado', `orcamento:${o.id}`, null, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: o seu relatório técnico está pronto', resumo: `relatório do pedido ${o.id} libertado`,
+        texto: ['Olá,', '', `O relatório técnico do seu pedido n.º ${o.id} já foi revisto pela nossa equipa e está na sua conta.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // Obra concluída: o cliente passa a ver "Pagar o restante" na conta.
+  h.obraConcluida = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const o = obterOrcamento(params.id);
+    if (o.estado !== 'aceite') throw new ErroApi(409, 'Só um pedido aceite (com o sinal pago) pode ter a obra concluída.');
+    if (o.obra_concluida) throw new ErroApi(409, 'A obra já está marcada como concluída.');
+    const agora = agoraIso();
+    db.prepare('UPDATE orcamentos SET obra_concluida = ?, atualizado = ? WHERE id = ?').run(agora, agora, o.id);
+    if (o.obra_id) db.prepare("UPDATE obras SET estado = 'concluida', atualizado = ? WHERE id = ? AND estado != 'cancelada'").run(agora, o.obra_id);
+    const v = pagPed.valores({ ...o, obra_concluida: agora });
+    auditar(u, 'obra_concluida', `orcamento:${o.id}`, { restante: deCent(v.restante) }, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email && v.restante > 0) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: obra concluída', resumo: `obra do pedido ${o.id} concluída; restante ${deCent(v.restante)} €`,
+        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} está concluída. Pode pagar o restante (${deCent(v.restante).toFixed(2).replace('.', ',')} €) na sua conta.`,
+          ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
   // ---- obras
@@ -1020,6 +1087,8 @@ export function criarApi(ctx) {
     if (v.preco_compra !== undefined) r.preco_compra_cent = v.preco_compra === null ? null : paraCent(numero(v.preco_compra, 'o preço de compra', { max: 100_000 }));
     if (!parcial || v.preco_venda_iva !== undefined) r.preco_venda_iva_cent = paraCent(numero(v.preco_venda_iva, 'o preço de venda', { max: 100_000, nulo: false }));
     if (v.horas_instalacao !== undefined) r.horas_instalacao = numero(v.horas_instalacao, 'as horas de instalação', { max: 100, nulo: false });
+    // Horas ao substituir (lote 7); null = 50 % das de instalação.
+    if (v.horas_troca !== undefined) r.horas_troca = v.horas_troca === null ? null : numero(v.horas_troca, 'as horas de troca', { max: 100 });
     if (v.especificacoes !== undefined) {
       const e = v.especificacoes;
       if (!e || typeof e !== 'object' || Array.isArray(e)) falha('As especificações têm de ser um objeto JSON.');
@@ -1031,7 +1100,7 @@ export function criarApi(ctx) {
     if (v.visivel_cliente !== undefined) r.visivel_cliente = booleano(v.visivel_cliente, 'visivel_cliente') ? 1 : 0;
     return r;
   }
-  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'especificacoes', 'ativo', 'visivel_cliente'];
+  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'horas_troca', 'especificacoes', 'ativo', 'visivel_cliente'];
 
   h.criarArtigo = async ({ req, res, u, ip }) => {
     const r = camposArtigo(await lerJson(req, CAMPOS_ARTIGO, 32 * 1024), false);
@@ -1127,15 +1196,31 @@ export function criarApi(ctx) {
     if (!c.telefone && !c.email) falha('Indique um telefone ou um email para o podermos contactar.');
     const codigoCli = texto(v.codigo_cliente, 'o código de cliente', { max: 32, re: RE_ID, reMsg: 'Código de cliente inválido.' });
     const sim = validarSimulacao(v.simulacao);
+    // Pedido com simulação = pagar 19 € (docs/PAGAMENTOS-PEDIDO.md): fica "a aguardar pagamento" (não aparece no
+    // painel) e só passa a orçamento quando o pagamento for confirmado. O valor é sempre o do servidor.
+    if (conta && sim && pagPed.ativo) {
+      let local = c.localidade ?? null;
+      if (!local) { try { local = JSON.parse(sim)?.casa?.localidade ?? null; } catch { local = null; } }
+      const pagamento = await pagPed.iniciarRelatorio({ conta, pedido: { c, codigoCli, sim, ip }, localidade: local });
+      registo.info(`orçamento a aguardar pagamento (${pagamento.ref})`);
+      return responder(res, 202, { ok: true, pagamento });
+    }
+    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip });
+    // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
+    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
+  }
+
+  /** Grava um pedido do site (formulário ou simulador); também quando o pagamento dos 19 € é confirmado. */
+  function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null }) {
     const agora = agoraIso();
     const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id)
       VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
-      c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli, sim, conta?.id ?? null).lastInsertRowid);
-    if (conta) contas.aposOrcamento(conta.id, c);
-    auditar(conta ? { id: null, email: `conta:${conta.id}` } : null, 'orcamento_recebido', `orcamento:${id}`, { origem: 'site', simulacao: Boolean(sim), conta: Boolean(conta) }, ip);
+      c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli ?? null, sim ?? null, contaId).lastInsertRowid);
+    if (contaId) contas.aposOrcamento(contaId, c);
+    auditar(contaId ? { id: null, email: `conta:${contaId}` } : null, 'orcamento_recebido', `orcamento:${id}`,
+      { origem: 'site', simulacao: Boolean(sim), conta: Boolean(contaId), ...(pagamento ? { pagamento, visita: comVisita } : {}) }, ip);
     registo.info(`orçamento ${id} recebido`);
-    // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
-    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
+    return id;
   }
 
   /** POST /api/orcamento/fotos: uma foto (bytes) por pedido; token, chave e legenda nos cabeçalhos. */
@@ -1152,11 +1237,11 @@ export function criarApi(ctx) {
   }
 
   function catalogoPublico(req, res) {
-    const itens = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes FROM catalogo WHERE ativo = 1 AND visivel_cliente = 1 ORDER BY categoria, nome').all()
+    const itens = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, horas_troca, especificacoes FROM catalogo WHERE ativo = 1 AND visivel_cliente = 1 ORDER BY categoria, nome').all()
       .map((a) => {
         // A "nota" é interna (ex.: "preço provisório — confirmar"): só o CEO a vê no painel.
         const { nota, ...especificacoes } = JSON.parse(a.especificacoes || '{}');
-        return { sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, especificacoes };
+        return { sku: a.sku, nome: a.nome, categoria: a.categoria, preco_venda_iva: deCent(a.preco_venda_iva_cent), horas_instalacao: a.horas_instalacao, horas_troca: a.horas_troca ?? null, especificacoes };
       });
     const cfg = lerConfigOrcamento();
     const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
@@ -1170,7 +1255,10 @@ export function criarApi(ctx) {
     try {
       // Rotas públicas: CORS com credenciais só para o site público noutra origem (SITE_ORIGENS).
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
-      if (caminho.startsWith('/api/conta/')) return await contas.tratar(req, res, url, ip);
+      if (caminho.startsWith('/api/conta/')) {
+        if (await pagPed.tratar(req, res, url, ip)) return undefined;
+        return await contas.tratar(req, res, url, ip);
+      }
       if (caminho === '/api/orcamento') {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await orcamentoPublico(req, res, ip);
@@ -1209,6 +1297,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, contas, correio };
+  return { tratar, auditar, fotos, contas, correio, pagamentosPedido: pagPed };
 }
 

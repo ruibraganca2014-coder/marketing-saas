@@ -17,8 +17,9 @@ import { criarLeitor } from './leitura-quadro.js';
  * @param {{config: object, registo: object, relogio?: () => number, mqtt?: boolean, fetch?: typeof fetch}} opcoes
  * `fetch`: só para os testes (API da Anthropic simulada na leitura da foto do quadro).
  * `correio`: só para os testes (emails das contas de cliente apanhados em memória).
+ * `fetchStripe`: só para os testes (API do Stripe simulada nos pagamentos do pedido).
  */
-export async function criarApp({ config, registo, relogio = () => Date.now(), mqtt = true, fetch = globalThis.fetch, correio }) {
+export async function criarApp({ config, registo, relogio = () => Date.now(), mqtt = true, fetch = globalThis.fetch, correio, fetchStripe }) {
   for (const a of config.avisos || []) registo.aviso(a);
   const db = abrirDb(config.db);
   const auth = new Autenticacao({ db, config, registo, relogio });
@@ -27,7 +28,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   const pedidos = new Pedidos({ config, db, registo, auditar: () => {}, relogio });
   // Leitura automática da foto do quadro: null sem ANTHROPIC_API_KEY (desligada, não chama nada).
   const leitor = criarLeitor({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.leituraTimeoutMs });
-  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, correio });
+  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, correio, fetchStripe });
   const estatico = criarEstatico(config.publicDir);
 
   if (config.ceoEmail || config.ceoPass) {
@@ -67,6 +68,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   pedidos.iniciar();
   api.fotos.iniciar();
   api.contas.iniciar();
+  api.pagamentosPedido.iniciar();
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
@@ -74,6 +76,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       await pedidos.parar();
       await api.fotos.parar();
       api.contas.parar();
+      api.pagamentosPedido.parar();
       auth.fechar();
       await alertas.fechar();
       await new Promise((r) => { servidor.close(() => r()); servidor.closeAllConnections?.(); });

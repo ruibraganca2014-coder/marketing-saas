@@ -29,7 +29,7 @@ export const DO_SITE = { Origin: ORIGEM, 'Sec-Fetch-Site': 'same-origin' };
  * Painel de teste. `env` acrescenta/substitui variáveis de ambiente; `fetch` simula a API da
  * Anthropic (leitura da foto do quadro). Devolve {url, app, dados, relogio, pedir, entrar, criarUtilizador, fechar}.
  */
-export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch } = {}) {
+export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch, fetchStripe } = {}) {
   // Emails das contas de cliente: ficam aqui (o último código enviado a cada email em `codigo(email)`).
   const emails = [];
   const correio = { enviar: async (m) => { emails.push(m); return true; }, ligado: false };
@@ -43,10 +43,12 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     CONFIAR_PROXY: '1',
     PEDIDOS_POLL_MS: '200',
     CONTA_CHAVE: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    // Os testes antigos enviam o pedido sem pagar; os dos pagamentos (pagamentos-pedido.test.js) ligam-nos.
+    PAGAMENTO_PEDIDO: '0',
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };
-  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, correio, ...(fetch ? { fetch } : {}) });
+  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, correio, ...(fetch ? { fetch } : {}), ...(fetchStripe ? { fetchStripe } : {}) });
   await new Promise((r) => app.servidor.listen(0, '127.0.0.1', r));
   const porta = app.servidor.address().port;
   let ipSeq = 0;

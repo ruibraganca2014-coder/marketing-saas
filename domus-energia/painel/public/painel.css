@@ -463,3 +463,6 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
   .relatorio-tecnico .foto-cliente img { max-height: 38mm; border-radius: 4px; }
   .relatorio-tecnico .leitura-quadro { grid-template-columns: 45mm minmax(0, 1fr); }
 }
+/* Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md) */
+.pagamentos-pedido .linhas-simples { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.pagamentos-pedido .linhas-simples li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

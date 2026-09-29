@@ -59,6 +59,15 @@ export function lerConfig(env = process.env) {
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
   const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
   if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro fica desligada');
+  // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "simulado" (por omissão sem STRIPE_SECRET_KEY) ou "stripe".
+  const stripeChave = String(env.STRIPE_SECRET_KEY || '').trim();
+  const modoPedido = String(env.PAGAMENTOS_MODO || '').trim().toLowerCase();
+  if (modoPedido && !['simulado', 'stripe'].includes(modoPedido)) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): usa-se ${stripeChave ? 'stripe' : 'simulado'}`);
+  const pagamentosModo = ['simulado', 'stripe'].includes(modoPedido) ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
+  const pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0';
+  if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar")');
+  if (pagamentoPedido && pagamentosModo === 'stripe' && !stripeChave) avisos.push('PAGAMENTOS_MODO=stripe sem STRIPE_SECRET_KEY: o envio de pedidos com simulação responde 503');
+  if (pagamentoPedido && pagamentosModo === 'stripe' && !env.STRIPE_PEDIDO_WEBHOOK_SECRET) avisos.push('sem STRIPE_PEDIDO_WEBHOOK_SECRET: o webhook dos pagamentos do pedido está desligado (a confirmação fica só no regresso do cliente)');
   return {
     porta: Number(env.PORTA || 8080),
     anfitriao: env.ANFITRIAO || undefined,   // sem ele: todas as interfaces (como antes); o lançador local usa 127.0.0.1
@@ -108,6 +117,13 @@ export function lerConfig(env = process.env) {
     } : null,
     emailRemetente: String(env.EMAIL_REMETENTE || '').trim(),
     emailLocal: env.EMAIL_LOCAL === '1',     // modo local: os emails vão sempre para o registo (nunca SMTP)
+    // Pagamentos do pedido (19 €, sinal, restante): docs/PAGAMENTOS-PEDIDO.md
+    pagamentoPedido,                         // PAGAMENTO_PEDIDO=0: o pedido com simulação é enviado sem pagar (como antes)
+    pagamentosModo,
+    stripeChave: stripeChave || null,
+    stripeWebhookSegredo: String(env.STRIPE_PEDIDO_WEBHOOK_SECRET || '').trim() || null,
+    stripeApi: String(env.STRIPE_API_URL || 'https://api.stripe.com').replace(/\/+$/, ''),
+    stripeMetodos: String(env.STRIPE_PEDIDO_METODOS || 'card,mb_way,multibanco').split(',').map((x) => x.trim()).filter((x) => /^[a-z_]{2,40}$/.test(x)),
     // Endereço do site nos emails (ligação para a conta).
     siteUrl: String(env.SITE_URL || siteOrigens[0] || env.PUBLIC_URL || (env.DOMUS_HOST ? `https://${env.DOMUS_HOST}` : '')).replace(/\/+$/, ''),
     avisos,

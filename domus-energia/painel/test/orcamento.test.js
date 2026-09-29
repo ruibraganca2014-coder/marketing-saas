@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 
 let p;
 before(async () => { p = await painelComEquipa(); });
@@ -199,7 +199,7 @@ test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10
 test('catálogo público: só ativos e visíveis, sem preço de compra, fornecedor nem link; cache 300 s', async () => {
   const cab = { cookie: p.cookies.ceo };
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
-  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro)');
+  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro e as das ações)');
   const sy1 = lista.find((a) => a.sku === 'TONGOU-SY1-JWT');
   assert.equal(sy1.preco_compra, 11.04);
   assert.equal(sy1.preco_venda_iva, 39.9);
@@ -222,12 +222,12 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   assert.ok(skus.includes('TONGOU-SY1-JWT') && skus.includes('NOVO-1'));
   assert.ok(!skus.includes('SENS-PIR-WIFI'), 'não visível ao cliente');
   assert.ok(!skus.includes('TESTE-INATIVO'), 'inativo');
-  for (const a of pub.json.itens) assert.deepEqual(Object.keys(a).sort(), ['categoria', 'especificacoes', 'horas_instalacao', 'nome', 'preco_venda_iva', 'sku']);
+  for (const a of pub.json.itens) assert.deepEqual(Object.keys(a).sort(), ['categoria', 'especificacoes', 'horas_instalacao', 'horas_troca', 'nome', 'preco_venda_iva', 'sku']);
   for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '11.04', '14.3', '6.82', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
     assert.ok(!pub.texto.includes(segredo), `o público não vê "${segredo}"`);
   }
   assert.deepEqual(pub.json.config, { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
-  assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, especificacoes: { rede: 'zigbee' } });
+  assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, horas_troca: null, especificacoes: { rede: 'zigbee' } });
 });
 
 test('nota "preço provisório — confirmar": só o CEO a vê; sai quando o CEO muda o preço de venda', async () => {

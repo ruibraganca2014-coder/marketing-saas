@@ -6,7 +6,8 @@
 //   como SHA-256 na tabela contas_sessoes — separada das sessões do painel: uma conta de cliente não abre
 //   nenhuma rota /painel/api/;
 // - o cliente só vê os SEUS pedidos (conta_id); acrescenta/troca fotos enquanto o pedido não está aceite nem
-//   convertido; aceita a proposta (fica aceite no painel, com data/hora/IP na auditoria);
+//   convertido; aceita a proposta e escolhe o plano mensal (fica "aceite" no painel depois de pagar o sinal:
+//   docs/PAGAMENTOS-PEDIDO.md; data/hora/IP na auditoria);
 // - guarda o estado do simulador em curso (retomar noutro aparelho);
 // - depois da conversão em cliente, guarda cifradas (AES-256-GCM, CONTA_CHAVE) as credenciais MQTT da casa, que
 //   o domus.sh devolve no resultado do pedido-admin "cliente", e entrega-as à própria conta (área de cliente).
@@ -35,7 +36,7 @@ const RE_CODIGO = /^\d{6}$/;
 
 // Estados reais do painel → texto simples para o cliente.
 const TEXTO_ESTADO = {
-  novo: 'Pedido recebido. Vamos contactá-lo para marcar a visita técnica gratuita.',
+  novo: 'Pedido recebido. Vamos contactá-lo para marcar a visita técnica (incluída nos 19 €, descontados na obra).',
   contactado: 'Pedido em análise. Já falámos consigo.',
   visita_marcada: 'Visita técnica marcada.',
   proposta_enviada: 'A sua proposta está pronta.',
@@ -117,7 +118,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -451,16 +452,19 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   function pedidoParaCliente(o) {
     const obra = o.obra_id ? obraDe.get(o.obra_id) : null;
     const valor = deCent(o.valor_proposta_cent);
+    const pag = pagamentos()?.paraCliente(o) ?? null;
     const temProposta = valor !== null && ['proposta_enviada', 'aceite'].includes(o.estado);
     const depoisVisita = ['proposta_enviada', 'aceite'].includes(o.estado) || Boolean(obra);
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
       { chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita },
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
-      { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.proposta_aceite },
+      { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
       { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : 'Instalação', feito: Boolean(obra), data: obra?.data ?? null },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
+    if (pag?.aguarda_sinal) estadoTexto = 'Proposta aceite — falta pagar o sinal para confirmarmos a instalação.';
+    if (o.estado === 'aceite' && o.obra_concluida && !obra) estadoTexto = 'Obra concluída.';
     if (obra) estadoTexto = obra.estado === 'concluida' ? 'Instalação concluída.' : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : 'Instalação marcada.';
     const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.obra_id;
     let sim = null;
@@ -469,7 +473,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
       data_visita: o.data_visita, servico: o.servico,
       proposta: temProposta ? { valor, texto: o.proposta_texto ?? null, aceite: o.proposta_aceite ?? null } : null,
-      pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.obra_id,
+      pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.obra_id && !o.proposta_aceite,
+      plano_sugerido: ['base', 'conforto', 'premium'].includes(sim?.plano_sugerido) ? sim.plano_sugerido : null,
+      ...(pag ?? {}),
       pode_fotos: podeFotos,
       obra: obra ? { data: obra.data, hora: obra.hora, estado: obra.estado } : null,
       resumo: resumoSimulacao(o.simulacao),
@@ -515,23 +521,46 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 201, { ok: true, id: f.id });
   };
 
-  // "Aceito a proposta": sem pagamento. Fica aceite no painel como se fosse o comercial, com data/hora/IP na
-  // auditoria ("Proposta aceite pelo cliente (online)") e o aviso no início do painel.
+  // "Aceito a proposta" com o plano mensal escolhido (docs/PAGAMENTOS-PEDIDO.md): fica "Aceite — a aguardar sinal" e
+  // devolve o pagamento do sinal (30 % menos os 19 € já pagos); só depois de pago passa a "aceite" no painel
+  // ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria). Sem pagamentos (PAGAMENTO_PEDIDO=0) ou
+  // com sinal 0 fica logo aceite. Aceitar outra vez enquanto o sinal está por pagar devolve o mesmo pagamento.
   h.aceitar = async ({ req, res, c, params, ip }) => {
     const o = pedidoDaConta(c, params.id);
-    const v = await lerJson(req, ['valor']);
+    const v = await lerJson(req, ['valor', 'plano']);
     if (o.estado === 'aceite' || o.obra_id) throw new ErroApi(409, 'Esta proposta já foi aceite.');
     if (o.estado !== 'proposta_enviada' || o.valor_proposta_cent === null) throw new ErroApi(409, 'Ainda não há uma proposta para aceitar.');
     if (v.valor !== undefined && (typeof v.valor !== 'number' || Math.round(v.valor * 100) !== o.valor_proposta_cent)) {
       throw new ErroApi(409, 'A proposta mudou entretanto. Veja o valor atualizado antes de aceitar.');
     }
+    const pag = pagamentos();
+    const comPagamento = Boolean(pag?.ativo);
+    let plano = null;
+    if (v.plano !== undefined && v.plano !== null) {
+      if (!['base', 'conforto', 'premium'].includes(v.plano)) falha('Escolha o plano mensal: Base, Conforto ou Premium.');
+      plano = v.plano;
+    } else if (comPagamento) falha('Escolha o plano mensal: Base, Conforto ou Premium.');
     const agora = agoraIso();
-    const r = db.prepare(`UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, atualizado = ?
-      WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND obra_id IS NULL`).run(agora, agora, o.id, c.id);
-    if (!r.changes) throw new ErroApi(409, 'Esta proposta já foi aceite.');
-    auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online' }, ip);
-    registo.info(`orçamento ${o.id}: proposta aceite pelo cliente (online)`);
-    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+    if (!comPagamento) {
+      const r = db.prepare(`UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, plano_escolhido = COALESCE(?, plano_escolhido), atualizado = ?
+        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND obra_id IS NULL`).run(agora, plano, agora, o.id, c.id);
+      if (!r.changes) throw new ErroApi(409, 'Esta proposta já foi aceite.');
+      auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online', plano }, ip);
+      registo.info(`orçamento ${o.id}: proposta aceite pelo cliente (online)`);
+      return responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)), pagamento: null });
+    }
+    if (!o.proposta_aceite || o.plano_escolhido !== plano) {
+      db.prepare(`UPDATE orcamentos SET proposta_aceite = COALESCE(proposta_aceite, ?), plano_escolhido = ?, atualizado = ?
+        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND obra_id IS NULL`).run(agora, plano, agora, o.id, c.id);
+      if (!o.proposta_aceite) {
+        auditar(quem(c), 'proposta_aceite_aguarda_sinal', `orcamento:${o.id}`, { valor_proposta: deCent(o.valor_proposta_cent), plano }, ip);
+        registo.info(`orçamento ${o.id}: proposta aceite pelo cliente (online), a aguardar o sinal`);
+      }
+    }
+    const atual = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id);
+    const pagamento = await pag.aoAceitar(c, atual);
+    if (!pagamento) auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online', plano, sinal: 0 }, ip);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)), pagamento });
   };
 
   // Credenciais MQTT da casa (área de cliente "Entrar com email"): só para a própria conta, com o email confirmado.
@@ -653,7 +682,11 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       // Auditoria: o histórico dos pedidos apagados e da conta sai (com os IPs e os detalhes); de cada pedido fica só
       // uma linha "apagado (RGPD)" sem dados pessoais (a da conta é a "conta_apagada" que o chamador escreve).
       // Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
+      // Pagamentos: os por pagar saem (com o pedido guardado); os pagos ficam (contabilidade) sem a conta nem o pedido.
+      db.prepare('DELETE FROM pagamentos_pedido WHERE conta_id = ? AND estado != \'pago\'').run(c.id);
+      db.prepare('UPDATE pagamentos_pedido SET pedido = NULL WHERE conta_id = ?').run(c.id);
       for (const id of alvos) {
+        db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado != \'pago\'').run(id);
         db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_apagado_rgpd', `orcamento:${id}`);

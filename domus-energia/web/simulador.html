@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Simular orçamento — Domus Energia</title>
-  <meta name="description" content="Desenhe a sua casa, diga o que quer automatizar e veja uma estimativa do preço da instalação. Valor final após visita técnica gratuita.">
+  <meta name="description" content="Desenhe a sua casa, diga o que quer automatizar e veja uma estimativa do preço da instalação. Valor final após a visita técnica (incluída nos 19 € do relatório, descontados na obra).">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
   <script src="tema.js"></script>
@@ -56,9 +56,19 @@
       </nav>
 
       <form id="sim-form" novalidate>
-        <!-- 1. A casa -->
+        <!-- 1. Serviço (lote 7): escolha múltipla; dá a ação por omissão de cada aparelho (acoes.js SERVICOS) -->
         <section class="sim-passo" id="passo-0" aria-labelledby="titulo-0" data-passo="0">
-          <h2 id="titulo-0" tabindex="-1">1. A casa</h2>
+          <h2 id="titulo-0" tabindex="-1">1. Serviço</h2>
+          <fieldset class="escolhas">
+            <legend>O que precisa? <small class="ajuda">Pode escolher mais do que um.</small></legend>
+            <div class="escolhas-grelha servicos" id="servicos"></div>
+          </fieldset>
+          <p class="msg" id="servico-msg" role="status" hidden></p>
+        </section>
+
+        <!-- 2. A casa -->
+        <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
+          <h2 id="titulo-1" tabindex="-1">2. A casa</h2>
           <fieldset class="escolhas">
             <legend>Que tipo de imóvel é?</legend>
             <div class="escolhas-grelha seis" id="casa-tipos"></div>
@@ -85,9 +95,9 @@
           </div>
         </section>
 
-        <!-- 2. Equipamentos -->
-        <section class="sim-passo" id="passo-1" aria-labelledby="titulo-1" data-passo="1" hidden>
-          <h2 id="titulo-1" tabindex="-1">2. Equipamentos</h2>
+        <!-- 3. Equipamentos (saltado com só "Reparações / avarias") -->
+        <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
+          <h2 id="titulo-2" tabindex="-1">3. Equipamentos</h2>
           <p class="sub-passo">Diga-nos que equipamentos tem (ou vai ter). Com isto pomos as máquinas na planta e preenchemos os passos seguintes — pode mudar tudo depois.</p>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
@@ -104,10 +114,12 @@
           <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 3. Divisões: um cartão por divisão com os aparelhos da planta (− n +), foto e "Divisão verificada" -->
-        <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
-          <h2 id="titulo-2" tabindex="-1">3. Divisões</h2>
-          <p class="sub-passo">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> (na planta) e toque no nome para mudar os dados. Tocar num cartão mostra a divisão na planta. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
+        <!-- 4. Divisões: um cartão por divisão com os aparelhos da planta (− n +, o que fazer a cada um), foto e "Divisão verificada" -->
+        <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
+          <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
+          <p class="sub-passo" id="divisoes-texto">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> (na planta) e toque no nome para mudar os dados. Tocar num cartão mostra a divisão na planta. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
+          <p class="sub-passo" id="divisoes-texto-reparar" hidden>Só precisa de marcar o que está avariado: no aparelho, toque em <b>Reparar</b> e diga o que se passa (uma foto ajuda). O resto fica como está. Falta algum aparelho? Acrescente-o com <b>+</b> (na planta).</p>
+          <p class="divisoes-acoes-ajuda" id="divisoes-acoes-ajuda">Em cada aparelho: <b>Manter</b> (fica como está), <b>Reparar</b> (está avariado), <b>Substituir</b> (trocar por outro) ou <b>Novo</b>.</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Fotos opcionais: as fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</span></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
@@ -129,22 +141,29 @@
           </fieldset>
         </section>
 
-        <!-- 4. Quadro elétrico -->
-        <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
-          <h2 id="titulo-3" tabindex="-1">4. Quadro elétrico</h2>
-          <p class="sub-passo">Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita.</p>
-          <fieldset class="escolhas">
-            <legend>Que proteção quer?</legend>
-            <div class="escolhas-grelha tres-pacotes" id="quadro-pacotes"></div>
+        <!-- 5. Quadro elétrico -->
+        <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
+          <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
+          <p class="sub-passo" id="quadro-texto">Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita.</p>
+          <!-- Sem "Instalação nova" (lote 7): o quadro só entra no preço se o cliente o quiser melhorar. -->
+          <fieldset class="escolhas" id="quadro-mexer-caixa" hidden>
+            <legend>Quer melhorar o quadro elétrico? <small class="ajuda">Proteções novas ou um quadro novo.</small></legend>
+            <div class="escolhas-grelha tres-curtas" id="quadro-mexer"></div>
           </fieldset>
-          <fieldset class="escolhas">
-            <legend>A casa tem pára-raios? <small class="ajuda">Responda "Sim" também se a eletricidade chegar à casa por fios em postes.</small></legend>
-            <div class="escolhas-grelha tres-curtas" id="quadro-para-raios"></div>
-          </fieldset>
-          <fieldset class="escolhas">
-            <legend>O seu quadro elétrico <small class="ajuda">O quadro é a caixa onde se liga e desliga a eletricidade da casa.</small></legend>
-            <div class="escolhas-grelha tres-quadro" id="quadro-antigo"></div>
-          </fieldset>
+          <div id="quadro-perguntas">
+            <fieldset class="escolhas">
+              <legend>Que proteção quer?</legend>
+              <div class="escolhas-grelha tres-pacotes" id="quadro-pacotes"></div>
+            </fieldset>
+            <fieldset class="escolhas">
+              <legend>A casa tem pára-raios? <small class="ajuda">Responda "Sim" também se a eletricidade chegar à casa por fios em postes.</small></legend>
+              <div class="escolhas-grelha tres-curtas" id="quadro-para-raios"></div>
+            </fieldset>
+            <fieldset class="escolhas">
+              <legend>O seu quadro elétrico <small class="ajuda">O quadro é a caixa onde se liga e desliga a eletricidade da casa.</small></legend>
+              <div class="escolhas-grelha tres-quadro" id="quadro-antigo"></div>
+            </fieldset>
+          </div>
           <div class="cartao quadro-foto" id="quadro-foto" hidden>
             <h3 id="quadro-foto-titulo">Foto do quadro</h3>
             <p>Abra a porta do quadro e tire uma foto de frente, com boa luz. Não é obrigatória, mas ajuda muito o eletricista.</p>
@@ -155,9 +174,9 @@
           <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 5. Resumo e preço -->
-        <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
-          <h2 id="titulo-4" tabindex="-1">5. Resumo e preço</h2>
+        <!-- 6. Resumo e preço -->
+        <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
+          <h2 id="titulo-5" tabindex="-1">6. Resumo e preço</h2>
           <div class="msg info" id="preco-estado" role="status" hidden></div>
           <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
@@ -173,10 +192,10 @@
           <div class="sim-planos" id="preco-planos"></div>
         </section>
 
-        <!-- 6. Enviar -->
-        <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
-          <h2 id="titulo-5" tabindex="-1">6. Enviar</h2>
-          <p class="sub-passo">Enviamos a simulação à nossa equipa e contactamos para marcar a visita técnica gratuita. Primeiro a conta (para acompanhar o pedido), depois o contacto. * obrigatório</p>
+        <!-- 7. Enviar -->
+        <section class="sim-passo" id="passo-6" aria-labelledby="titulo-6" data-passo="6" hidden>
+          <h2 id="titulo-6" tabindex="-1">7. Enviar</h2>
+          <p class="sub-passo">Enviar o pedido custa 19 €: o relatório técnico da instalação e a visita técnica, descontados na obra (a estimativa do Resumo continua grátis). Primeiro a conta (para acompanhar o pedido), depois o contacto; a seguir paga e o pedido é enviado. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->
           <div class="cartao" id="enviar-conta" role="group" aria-labelledby="enviar-conta-titulo">
             <h3 id="enviar-conta-titulo">A sua conta</h3>
@@ -205,7 +224,7 @@
         <section class="sim-passo sim-sucesso" id="passo-fim" aria-labelledby="titulo-fim" hidden>
           <div class="cartao">
             <h2 id="titulo-fim" tabindex="-1">Pedido enviado!</h2>
-            <p id="fim-texto">Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica gratuita. Pode acompanhar o pedido na sua conta.</p>
+            <p id="fim-texto">Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica (incluída nos 19 €, descontados na obra). Pode acompanhar o pedido na sua conta.</p>
             <p class="sim-nota" id="fim-resumo"></p>
             <p class="msg" id="fim-fotos" hidden></p>
             <div class="form-botoes">
@@ -228,7 +247,7 @@
           <div class="sim-planta-cabeca">
             <h2 id="sim-planta-titulo">A sua planta</h2>
             <p class="sim-planta-origem" id="planta-origem" hidden></p>
-            <button class="btn sec pequeno" id="planta-refazer" type="button" aria-label="Refazer a planta a partir dos passos 1 e 2" title="Refazer a planta a partir dos passos 1 e 2" hidden>Refazer planta</button>
+            <button class="btn sec pequeno" id="planta-refazer" type="button" aria-label="Refazer a planta a partir dos passos 2 e 3" title="Refazer a planta a partir dos passos 2 e 3" hidden>Refazer planta</button>
             <button class="btn sec pequeno sim-planta-fechar" id="planta-fechar" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Fechar</button>
           </div>
           <div id="editor"></div>

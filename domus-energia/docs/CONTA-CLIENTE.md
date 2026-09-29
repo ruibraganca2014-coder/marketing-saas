@@ -11,7 +11,9 @@ A conta do cliente serve para enviar o pedido do simulador, acompanhá-lo e, dep
    - a simulação enviada, num resumo simples (sem a parte técnica);
    - as fotos. Pode acrescentar ou trocar fotos enquanto o pedido não estiver aceite nem convertido; usa as mesmas validações de `fotos.js`.
    - a **simulação por acabar**, que se retoma noutro aparelho (ver abaixo);
-   - a **proposta** (valor + IVA e o texto do painel), com o botão "Aceito a proposta". Não há pagamento. A data, a hora e o IP ficam na auditoria e o estado passa a `aceite`. No histórico do painel aparece "Proposta aceite pelo cliente (online)" e o início do painel mostra a lista "Propostas aceites online". Se a proposta já estiver aceite ou convertida, o pedido dá 409.
+   - a **proposta** (valor + IVA e o texto do painel), com a escolha do **plano mensal** e o botão "Aceito a proposta e pago o sinal (X €)". O sinal é 30 % da proposta menos os 19 € já pagos ([PAGAMENTOS-PEDIDO.md](PAGAMENTOS-PEDIDO.md)). Até o sinal estar pago, o painel mostra "Aceite — a aguardar sinal" e a conta mostra "Pagar o sinal". Com o sinal pago, o estado passa a `aceite` (data, hora e IP na auditoria): no histórico do painel aparece "Proposta aceite pelo cliente (online)" e o Início mostra a lista "Propostas aceites online". Se a proposta já estiver aceite ou convertida, o pedido dá 409;
+   - os **pagamentos** de cada fase (19 €, sinal, restante), com o estado e um recibo simples (data, valor, descrição e referência). Com a obra concluída no painel aparece "Pagar o restante";
+   - o **relatório técnico**: "Relatório em revisão (até 24 h)" até o CEO o libertar no painel; depois "Ver o relatório técnico" e "Descarregar (imprimir / PDF)", com o trabalho, as divisões, o material e o preço por divisão, sem dados internos.
 4. **A mesma conta abre a área da casa.** Depois de o painel converter o pedido, o `cliente.html` entra por omissão com "Entrar com email"; "Entrar com o código de cliente" continua disponível.
 5. **Vercel.** As páginas públicas podem estar no Vercel e o painel no VPS (ver "Site noutro endereço").
 
@@ -49,7 +51,7 @@ Riscos e limites:
 - **Nenhuma resposta diz se um email tem conta**: criar, entrar, confirmar sem sessão, esqueci e repor respondem igual. No repor, o código deixa de valer ao fim de 5 tentativas erradas, mas a resposta continua a ser "código errado ou expirado"; há limite por email (10/hora, exista ou não a conta) e por IP (20/hora). No confirmar sem sessão, as tentativas só contam com a palavra-passe certa (um terceiro não gasta o código).
 - Os códigos só vão no corpo do email (nunca no assunto). Com SMTP, o registo do painel não guarda o assunto nem o corpo; sem SMTP / no modo local o email vai todo para o registo (é assim que se lê o código).
 - Também há limites de tamanho (JSON com 16 KB, simulação com 1,5 MB, fotos com 1 MB).
-- `POST /api/orcamento` **com simulação** exige a sessão com o email confirmado. O pedido fica com o `conta_id` e o email do pedido passa a ser o da conta. As fotos continuam a ir com o token devolvido no 201.
+- `POST /api/orcamento` **com simulação** exige a sessão com o email confirmado. O pedido fica com o `conta_id` e o email do pedido passa a ser o da conta. **Com os pagamentos ligados** (por omissão), a resposta é `202 {pagamento}`: o pedido só passa a orçamento depois de pagos os 19 €, e as fotos vão com o token dado no regresso do pagamento ([PAGAMENTOS-PEDIDO.md](PAGAMENTOS-PEDIDO.md)). Com `PAGAMENTO_PEDIDO=0` continua como antes: 201 e o token das fotos na resposta.
 - **O formulário simples do site (`index.html`) não precisa de conta.** Envia `POST /api/orcamento` sem simulação e fica um "pedido de contacto" (`conta_id` nulo). Os pedidos antigos, feitos antes da conta, também ficam sem conta e iguais no painel.
 - **RGPD**: o CEO vê as contas em "Contas de clientes" e pode desativá-las ou apagá-las. Apagar remove a conta, as sessões, os códigos, a simulação guardada, as credenciais da casa e os pedidos que não chegaram a obra, com as fotos e os detalhes do histórico. Os pedidos convertidos ficam, sem a ligação à conta. Na auditoria a conta aparece como `conta:<id>`, sem o email. Ao apagar, sai a auditoria da conta e dos pedidos apagados (com os IPs e os detalhes); de cada pedido fica só uma linha `orcamento_apagado_rgpd` sem dados pessoais, e da conta a linha `conta_apagada` do CEO. Nas linhas que ficam (pedidos convertidos) sai o IP da conta. **Os ids de pedidos e de contas nunca são reutilizados** (`AUTOINCREMENT`, migração 8), por isso um pedido novo nunca herda o histórico de um apagado.
 - **Retenção**: contas por confirmar há 30 dias são apagadas; contas sem acesso nem seguimento há 12 meses (o mesmo critério das fotos), também.
@@ -94,7 +96,11 @@ Exemplo: o site em `https://domusenergia.pt` (Vercel) e o painel, a API, o MQTT 
 | GET | `pedidos` | confirmada | pedidos da conta, com passos, resumo, fotos e proposta |
 | GET | `pedidos/:id/fotos/:foto` | confirmada | a foto (só do próprio pedido) |
 | POST | `pedidos/:id/fotos` | confirmada | foto (bytes, `X-Foto-Chave`, `X-Foto-Legenda`); 409 depois de aceite |
-| POST | `pedidos/:id/aceitar` | confirmada | `{valor?}` → aceite; 409 se já aceite, convertida ou se o valor mudou |
+| POST | `pedidos/:id/aceitar` | confirmada | `{valor?, plano}` → `{pedido, pagamento}` (sinal por pagar; "aceite" depois de pago); 409 se já aceite, convertida ou se o valor mudou |
+| POST | `pedidos/:id/pagar` | confirmada | `{fase: sinal\|restante}` → `{pagamento}` (PAGAMENTOS-PEDIDO.md) |
+| GET | `pedidos/:id/relatorio` | confirmada | relatório técnico do cliente; 409 em revisão |
+| GET / POST | `pagamentos/:ref`, `pagamentos/:ref/simular` | confirmada (conta dona) | estado e recibo de um pagamento; pagamento simulado (só no modo simulado) |
+| POST | `pagamentos/stripe-webhook` | — (assinatura do Stripe) | só no modo stripe |
 | GET | `casa` | confirmada | `{codigo, password}` MQTT da casa desta conta (404 sem casa) |
 
 Painel (só CEO): `GET contas`, `POST contas/:id {ativo}`, `POST contas/:id/apagar`. No pedido: `conta` (email e se está confirmado), `morada`, `proposta_texto` e `proposta_aceite`.

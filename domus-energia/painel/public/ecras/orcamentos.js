@@ -2,6 +2,8 @@
 // visita, valor da proposta, motivo de perda, histórico e "Converter em cliente e obra" (orçamento aceite).
 // Com simulação: "Relatório técnico" (#/orcamentos/<id>/relatorio), vista para imprimir / guardar PDF.
 // Fotos do cliente (simulador): galeria na ficha (CEO/comercial podem apagar) e no relatório.
+// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): 19 €, sinal e restante com o estado; "Libertar relatório ao
+// cliente" (CEO); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída" (restante na conta).
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
@@ -78,6 +80,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-principal" }, h("strong", { text: txt(o, "nome") }), h("span", { class: "ajuda", text: `${txt(o, "servico")} · ${txt(o, "localidade")}` })),
       h("span", { class: "linha-selos" },
         comEstado ? selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`) : null,
+        campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
         simulacaoDe(o) || campo(o, "tem_simulacao") === true ? selo("Com simulação", "info") : null,
@@ -126,7 +129,8 @@ export default function orcamentos(el, ctx) {
       simulacaoDe(o) || campo(o, "tem_simulacao") === true
         ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
     const partes = [
-      h("div", { class: "linha-selos" }, selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`)),
+      h("div", { class: "linha-selos" }, selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`),
+        campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
       contactos,
@@ -142,7 +146,10 @@ export default function orcamentos(el, ctx) {
         h("p", { class: "ajuda", text: "Enviadas pelo cliente (no simulador ou na conta). Toque numa foto para a ver inteira." }),
         galeriaFotos(id, fotos, { aoApagar: (f, b) => apagarFoto(j, id, f, b) })));
     }
-    if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.`));
+    const plano = campo(o, "plano_escolhido") ? ` Plano mensal escolhido: ${PLANOS_NOME[campo(o, "plano_escolhido")] ?? campo(o, "plano_escolhido")}.` : "";
+    if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
+    else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
+    partes.push(...blocoPagamentos(j, o));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
@@ -216,6 +223,45 @@ export default function orcamentos(el, ctx) {
       b.disabled = false; b.textContent = "Apagar";
       avisar(erro.message, "erro");
     }
+  }
+
+  /** Pagamentos do pedido, relatório para o cliente (CEO liberta) e fim da obra. */
+  function blocoPagamentos(j, o) {
+    const id = String(campo(o, "id"));
+    const pags = lista(campo(o, "pagamentos") ?? [], "pagamentos");
+    const out = [];
+    const acoes = [];
+    const sim = simulacaoDe(o) || campo(o, "tem_simulacao") === true;
+    const acao = async (b, caminho, aviso) => {
+      b.disabled = true;
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/${caminho}`, { corpo: {} });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo);
+        avisar(aviso);
+        if (ficha?.j === j) desenharFicha(j, novo);
+      } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+    };
+    if (sim) {
+      if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório técnico libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
+      else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
+        onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
+      else out.push(h("p", { class: "ajuda", text: "Relatório técnico em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
+    }
+    if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
+      acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
+        onclick: (e) => acao(e.currentTarget, "obra-concluida", "Obra concluída: o cliente pode pagar o restante na conta.") }));
+    } else if (campo(o, "obra_concluida")) out.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));
+    if (!pags.length && !out.length && !acoes.length) return [];
+    const linhas = pags.map((x) => h("li", { dataset: { fase: campo(x, "fase"), estado: campo(x, "estado") } },
+      h("strong", { text: `${txt(x, "fase_texto")}: ${euros(campo(x, "valor"))}` }), " ",
+      selo(txt(x, "estado_texto"), campo(x, "estado") === "pago" ? "orc-aceite" : campo(x, "estado") === "pendente" ? "info" : "aviso"),
+      campo(x, "modo") === "simulado" ? selo("Simulado", "aviso") : null,
+      h("span", { class: "ajuda", text: ` ${campo(x, "pago") ? `pago ${data(campo(x, "pago"))}` : `criado ${data(campo(x, "criado"))}`} · ${txt(x, "ref")}` })));
+    return [h("section", { class: "pagamentos-pedido", id: "pagamentos-pedido" },
+      h("h3", { text: "Pagamentos" }),
+      pags.length ? h("ul", { class: "linhas-simples" }, ...linhas) : h("p", { class: "ajuda", text: "Sem pagamentos online (pedido antigo, de contacto ou registado no painel)." }),
+      ...out, acoes.length ? h("div", { class: "form-botoes" }, ...acoes) : null)];
   }
 
   function formConverter(j, o) {
@@ -342,10 +388,15 @@ export default function orcamentos(el, ctx) {
   return api;
 }
 
+const PLANOS_NOME = { base: "Base", conforto: "Conforto", premium: "Premium" };
 const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
   proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
+  proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",
+  pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",
+  pagamento_expirado: "Pagamento expirado", pagamento_simulado: "Pagamento simulado (página de teste)",
+  relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída",
 };
 /** Conta de cliente do pedido ({email, confirmado, ativo} ou null) em texto. */
 function textoConta(c) {
@@ -374,6 +425,10 @@ function textoHistorico(x, sim) {
     if (d.data_visita) partes.push(`visita: ${data(d.data_visita)}`);
     if (d.valor_proposta != null) partes.push(`proposta: ${euros(d.valor_proposta)}`);
     if (d.cliente) partes.push(`cliente: ${d.cliente}`);
+    if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante" }[d.fase] ?? d.fase);
+    if (d.valor != null) partes.push(euros(d.valor));
+    if (d.sinal != null) partes.push(`sinal: ${euros(d.sinal)}`);
+    if (d.modo === "simulado" || d.resultado) partes.push(d.resultado ? `simulado: ${d.resultado}` : "simulado");
   }
   return partes.join(" · ");
 }

@@ -183,6 +183,12 @@ services:
       EMAIL_REMETENTE: ${EMAIL_REMETENTE:-}
       SMTP_SEGURANCA: ${SMTP_SEGURANCA:-}           # vazio = pela porta (465 TLS direto, outras STARTTLS)
       SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
+      # Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): simulado (sem dinheiro real) ou stripe (Checkout).
+      PAGAMENTOS_MODO: ${PAGAMENTOS_MODO:-}
+      PAGAMENTO_PEDIDO: ${PAGAMENTO_PEDIDO:-1}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PEDIDO_WEBHOOK_SECRET: ${STRIPE_PEDIDO_WEBHOOK_SECRET:-}
+      STRIPE_PEDIDO_METODOS: ${STRIPE_PEDIDO_METODOS:-card,mb_way,multibanco}
     expose:
       - "8080"           # só na rede interna (o Caddy faz o HTTPS)
     # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):

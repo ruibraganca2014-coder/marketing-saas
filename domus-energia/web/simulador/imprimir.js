@@ -4,8 +4,9 @@
 // (cada piso desenhado num canvas a ~150 dpi → JPEG → pdf.js), sem nada de fora: a CSP do site só deixa 'self'
 // (e imagens data:, por isso o SVG entra no canvas como data: URL).
 
-import { desenharPlanta, desenharIcone, nomePiso } from "./planta-svg.js";
+import { desenharPlanta, desenharIcone, nomePiso, legendaAcoes } from "./planta-svg.js";
 import { ELEMENTOS, MODELOS, pisoDe } from "./regras.js";
+import { ACOES, temAcao } from "./acoes.js";
 import { pdfDeImagens, A4_PT } from "./pdf.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -37,10 +38,14 @@ function legenda(planta, piso) {
   return [...vistos.values()];
 }
 
-function svgPlanta(planta, piso) {
+/** Lote 7: há marcas de ação (M, R, S, N) neste piso? (aparelhos com uma ação diferente da do serviço) */
+const temMarcas = (planta, piso, omissao) => !!omissao
+  && (planta.elementos ?? []).some((e) => pisoDe(e) === piso && temAcao(e.tipo, e.props) && ACOES[e.acao] && e.acao !== omissao);
+
+function svgPlanta(planta, piso, omissao = null) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("xmlns", SVG_NS);
-  desenharPlanta(svg, planta, { soLeitura: true, piso });
+  desenharPlanta(svg, planta, { soLeitura: true, piso, acoes: omissao ? { omissao } : null });
   svg.style.fontFamily = "system-ui, -apple-system, 'Segoe UI', sans-serif";
   return svg;
 }
@@ -53,8 +58,8 @@ function svgIcone(item) {
 }
 
 // ------------------------------------------------------------------ imprimir
-/** Monta as folhas (uma por piso), imprime e volta a tirá-las. */
-export function imprimirPlanta(planta, nPisos) {
+/** Monta as folhas (uma por piso), imprime e volta a tirá-las. `omissao`: a ação por omissão do serviço (marcas). */
+export function imprimirPlanta(planta, nPisos, omissao = null) {
   const raiz = document.createElement("div");
   raiz.className = "impressao-planta";
   for (const [k, v] of Object.entries(CLARAS)) raiz.style.setProperty(k, v);
@@ -64,13 +69,18 @@ export function imprimirPlanta(planta, nPisos) {
     folha.className = `impressao-folha ${deitada ? "paisagem" : "retrato"}`;
     const h = document.createElement("h1");
     h.textContent = nomePiso(piso);
-    const svg = svgPlanta(planta, piso);
+    const svg = svgPlanta(planta, piso, omissao);
     svg.setAttribute("class", "impressao-svg");
     const ul = document.createElement("ul");
     ul.className = "impressao-legenda";
     for (const item of legenda(planta, piso)) {
       const li = document.createElement("li");
       li.append(svgIcone(item), document.createTextNode(item.nome));
+      ul.append(li);
+    }
+    if (temMarcas(planta, piso, omissao)) {
+      const li = document.createElement("li");
+      li.textContent = legendaAcoes(omissao);
       ul.append(li);
     }
     folha.append(h, svg);
@@ -94,7 +104,7 @@ function imagemDeSvg(svg, w, h) {
 }
 
 /** Uma página (canvas) por piso: título, planta a caber e legenda por baixo. */
-async function paginaPiso(planta, piso, deitada) {
+async function paginaPiso(planta, piso, deitada, omissao = null) {
   const [W, H] = deitada ? [PX_A4[1], PX_A4[0]] : PX_A4;
   const c = document.createElement("canvas");
   c.width = W;
@@ -111,6 +121,7 @@ async function paginaPiso(planta, piso, deitada) {
 
   // Legenda: ícone de 36 px e nome, em linhas.
   const itens = legenda(planta, piso);
+  const marcas = temMarcas(planta, piso, omissao) ? legendaAcoes(omissao) : null;
   g.font = `24px ${fonte}`;
   const linhas = [[]];
   let x = M;
@@ -120,14 +131,14 @@ async function paginaPiso(planta, piso, deitada) {
     linhas[linhas.length - 1].push({ ...it, x });
     x += larg;
   }
-  const altLegenda = itens.length ? linhas.length * 48 + 20 : 0;
+  const altLegenda = (itens.length ? linhas.length * 48 + 20 : 0) + (marcas ? 44 : 0);
 
   // Planta: o maior que couber entre o título e a legenda, sem deformar.
   const L = Math.max(1, Number(planta.largura_cm) || 1), A = Math.max(1, Number(planta.altura_cm) || 1);
   const caixaW = W - 2 * M, caixaH = H - topo - M - altLegenda;
   const k = Math.min(caixaW / L, caixaH / A);
   const pw = L * k, ph = A * k;
-  g.drawImage(await imagemDeSvg(svgPlanta(planta, piso), pw, ph), M + (caixaW - pw) / 2, topo, pw, ph);
+  g.drawImage(await imagemDeSvg(svgPlanta(planta, piso, omissao), pw, ph), M + (caixaW - pw) / 2, topo, pw, ph);
 
   let y = topo + ph + 30;
   for (const linha of itens.length ? linhas : []) {
@@ -139,6 +150,11 @@ async function paginaPiso(planta, piso, deitada) {
     }
     y += 48;
   }
+  if (marcas) {
+    g.fillStyle = CLARAS["--texto"];
+    g.textBaseline = "middle";
+    g.fillText(marcas, M, y + 18);
+  }
   return c;
 }
 
@@ -146,13 +162,13 @@ const jpeg = (canvas) => new Promise((ok, erro) => {
   canvas.toBlob((b) => (b ? b.arrayBuffer().then((a) => ok(new Uint8Array(a)), erro) : erro(new Error("sem JPEG"))), "image/jpeg", 0.9);
 });
 
-/** Faz o PDF (uma página por piso) e descarrega-o. */
-export async function guardarPdf(planta, nPisos) {
+/** Faz o PDF (uma página por piso) e descarrega-o. `omissao`: a ação por omissão do serviço (marcas). */
+export async function guardarPdf(planta, nPisos, omissao = null) {
   const deitada = paisagem(planta);
   const [wpt, hpt] = deitada ? [A4_PT[1], A4_PT[0]] : A4_PT;
   const paginas = [];
   for (const piso of listaPisos(nPisos)) {
-    const c = await paginaPiso(planta, piso, deitada);
+    const c = await paginaPiso(planta, piso, deitada, omissao);
     paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: wpt, altura_pt: hpt });
   }
   const bytes = pdfDeImagens(paginas);

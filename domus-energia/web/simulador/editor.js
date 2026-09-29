@@ -8,7 +8,7 @@
 // com setas), fundo (foto/PDF) com opacidade, escala e calibração; a vista ajusta-se ao conteúdo.
 // Todos os textos entram com textContent.
 
-import { desenharPlanta, desenharIcone } from "./planta-svg.js";
+import { desenharPlanta, desenharIcone, legendaAcoes } from "./planta-svg.js";
 import {
   ELEMENTOS, TIPOS_ELEMENTO, TIPOS_DIVISAO, MODELOS, NOMES_DIVISAO, ESCALA_CM, MAX_DIVISOES, MAX_ELEMENTOS, MAX_LADO_CM,
   MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2, MAX_PISO,
@@ -441,7 +441,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const tamCorpo = el("div", "duas");
   tamSec.append(tamCorpo);
 
-  lado.append(ladoAcoes, fundoSec, tamSec);
+  // Lote 7: legenda das marcas das ações (M, R, S, N) na planta.
+  const legendaAcao = el("p", "ajuda editor-legenda-acoes");
+  legendaAcao.hidden = true;
+  let acoesOmissao = null;   // ação por omissão do serviço (definirAcoes); null = sem marcas
+  lado.append(ladoAcoes, legendaAcao, fundoSec, tamSec);
   const principal = el("div", "editor-principal");
   // Os separadores dos pisos ficam junto à planta, por baixo das duas linhas (ferramentas e ações).
   principal.append(fila, acoes, separadores, area, ajudaTeclado);
@@ -1035,13 +1039,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bMais.addEventListener("click", () => zoom(1 / 1.4));
   bMenos.addEventListener("click", () => zoom(1.4));
   bTudo.addEventListener("click", () => { verTudo(); desenhar(); });
-  bImprimir.addEventListener("click", () => { if (planta) imprimirPlanta(planta, nPisos()); });
+  bImprimir.addEventListener("click", () => { if (planta) imprimirPlanta(planta, nPisos(), acoesOmissao); });
   bPdf.addEventListener("click", async () => {
     if (!planta || bPdf.disabled) return;
     bPdf.disabled = true;
     avisar("A preparar o PDF…");
     try {
-      await guardarPdf(planta, nPisos());
+      await guardarPdf(planta, nPisos(), acoesOmissao);
       avisar(`PDF guardado: planta-domus.pdf (${nPisos() > 1 ? `${nPisos()} páginas, uma por piso` : "1 página"}).`);
     } catch {
       avisar("Não foi possível fazer o PDF neste navegador. Experimente \"Imprimir\" e escolha \"Guardar como PDF\".");
@@ -1880,7 +1884,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function desenhar() {
     if (!planta) return;
     const { ppc, raio, raioToque, letra, pega } = tamanhos();
-    desenharPlanta(svg, planta, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual });
+    desenharPlanta(svg, planta, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, acoes: acoesOmissao ? { omissao: acoesOmissao } : null });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -1952,6 +1956,17 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
+    /**
+     * Lote 7: ação por omissão do serviço ("novo" ou "manter"): os aparelhos com outra ação levam a marca (M, R, S, N)
+     * na planta, com a legenda no "⋯" e na impressão. null = sem marcas.
+     */
+    definirAcoes(omissao) {
+      if (omissao === acoesOmissao) return;
+      acoesOmissao = omissao ?? null;
+      legendaAcao.hidden = !acoesOmissao;
+      legendaAcao.textContent = acoesOmissao ? legendaAcoes(acoesOmissao) : "";
+      if (planta) desenhar();
+    },
     /** N.º de pisos da casa (1 = sem separadores, salvo se a planta já tiver coisas noutros pisos). */
     definirPisos(n) {
       pisosPedidos = Math.min(MAX_PISO + 1, Math.max(1, Math.round(Number(n)) || 1));

@@ -111,11 +111,30 @@ const NOMES_ELEMENTOS = {
 };
 const RE_IMAGEM = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 export const CARGA_PERIGOSA_W = 2000;
+// Lote 7 (web/simulador/acoes.js): serviço pedido e ação por aparelho. Pedidos antigos (sem `servico` nem `acao`):
+// "Instalação nova" e tudo Novo.
+const SERVICOS_SIM = { nova: "Instalação nova / remodelação total", automatizar: "Automatizar o que já tenho", reparar: "Reparações / avarias" };
+const ACOES_SIM = { manter: "Manter", reparar: "Reparar", substituir: "Substituir", novo: "Novo" };
+const ORDEM_ACOES = Object.keys(ACOES_SIM);
+const NOMES_UM = {
+  luz: ["ponto de luz", "pontos de luz"], interruptor: ["interruptor", "interruptores"], tomada: ["tomada", "tomadas"], janela: ["estore", "estores"],
+  sensor_movimento: ["sensor de movimento", "sensores de movimento"], sensor_porta: ["sensor de porta/janela", "sensores de porta/janela"],
+};
 
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 const arr = (v) => (Array.isArray(v) ? v : []);
 const n0 = (v) => numero(v) ?? 0;
 const plural = (n, um, varios) => `${num(n)} ${n === 1 ? um : varios}`;
+/** Serviços pedidos (lista; pedidos antigos: "nova"). */
+export const servicosDe = (sim) => { const l = arr(obj(sim).servico).filter((k) => SERVICOS_SIM[k]); return l.length ? l : ["nova"]; };
+/** Marcas das ações na planta: só nos pedidos com serviço (os antigos não têm ações). */
+const acoesDe = (sim) => (Array.isArray(obj(sim).servico) ? { omissao: servicosDe(sim).includes("nova") ? "novo" : "manter" } : null);
+/** O aparelho tem ação? (porta e quadro não; a janela só com estore) */
+const temAcaoEl = (e) => ["luz", "interruptor", "tomada", "sensor_movimento", "sensor_porta", "maquina"].includes(e?.tipo) || (e?.tipo === "janela" && !!obj(e.props).estore);
+/** Ação que vale para um elemento: a do pedido; sem ela, a do serviço (pedidos antigos: Novo). */
+const acaoEl = (e, sim) => (ACOES_SIM[e.acao] ? e.acao : servicosDe(sim).includes("nova") ? "novo" : "manter");
+/** "2 tomadas", "1 placa" (máquinas pelo modelo). */
+const nomeGrupo = (tipo, modelo, n) => (tipo === "maquina" ? `${num(n)} × ${(MODELOS[modelo] ?? "máquina").toLowerCase()}` : plural(n, ...(NOMES_UM[tipo] ?? [String(tipo), String(tipo)])));
 // Pisos (0 = r/c; sem `piso` = 0): as mesmas regras do simulador (vendor/planta-svg.js pisoDe, nomePiso).
 const pisoDe = (x) => (typeof desenho.pisoDe === "function" ? desenho.pisoDe(x) : 0);
 const nomePiso = (p) => (p > 0 ? `Piso ${p}` : "Piso 0 (r/c)");
@@ -248,7 +267,8 @@ export function vistaSimulacao(sim, catalogo = {}) {
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ["Casa", casaTxt || "—"],
-      ...(deslTxt ? [["Deslocação", deslTxt]] : []),
+      ...(Array.isArray(sim.servico) ? [["Serviço", servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · ")]] : []),
+    ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...pisosDetalhe(casa),
       ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
@@ -274,7 +294,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
   // "Fora das divisões" (elementos fora de todas, nas simulações antigas) não é uma divisão: não aparece.
   const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object" && d.nome !== FORA);
   if (divs.length) partes.push(tabelaDivisoes(divs));
-  if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta));
+  if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta, acoesDe(sim)));
   partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é confirmado na visita técnica." }));
   return h("section", { class: "simulacao", id: "simulacao-cliente" }, ...partes);
 }
@@ -291,11 +311,13 @@ function tabelaItens(itens, mo, catalogo, desl = null, { horas = false } = {}) {
     const sub = preco === null ? null : Math.round(preco * qtd * 100) / 100;
     soma += sub ?? 0;
     const marca = !art ? selo("Já não está no catálogo", "grav-critica") : art.ativo === false ? selo("Inativo no catálogo", "aviso") : null;
+    // Lote 7: a linha traz as suas horas (ao substituir, as de troca); nos pedidos antigos, as do catálogo × qtd.
     const hArt = numero(art?.horas_instalacao);
-    const hLinha = hArt === null ? null : Math.round(hArt * qtd * 100) / 100;
+    const hLinha = numero(i.horas) ?? (hArt === null ? null : Math.round(hArt * qtd * 100) / 100);
     somaHoras += hLinha ?? 0;
+    const grupo = i.grupo === "reparar" || i.grupo === "substituir" ? selo(ACOES_SIM[i.grupo], "aviso") : null;
     return h("tr", { dataset: { sku }, class: art ? "" : "fora-catalogo" },
-      h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), marca)),
+      h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), grupo, marca)),
       h("td", { class: "num", "data-rotulo": "Qtd.", text: num(qtd) }),
       horas ? h("td", { class: "num", "data-rotulo": "Horas", text: hLinha === null ? "—" : `${num2(hLinha)} h` }) : null,
       h("td", { class: "num", "data-rotulo": "Preço", text: euros(preco) }),
@@ -418,7 +440,7 @@ function tabelaDivisoes(divs) {
  * Planta só de leitura. Com vários pisos (divisões/elementos com `piso`): separadores "Piso 0 (r/c)",
  * "Piso 1"… por cima; cada um mostra só esse piso, na mesma folha e escala (o zoom mantém-se).
  */
-function vistaPlanta(planta) {
+function vistaPlanta(planta, acoes = null) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("id", "sim-planta");
   svg.setAttribute("role", "img");
@@ -429,7 +451,7 @@ function vistaPlanta(planta) {
     const doPiso = (l) => (variosPisos ? l.filter((x) => pisoDe(x) === pisoAtual) : l);
     svg.setAttribute("aria-label", `Planta da casa${variosPisos ? `, ${nomePiso(pisoAtual)}` : ""}: ${plural(doPiso(planta.divisoes).length, "divisão", "divisões")}, ${plural(doPiso(planta.elementos).length, "elemento", "elementos")}`);
   };
-  const desenhar = () => desenho.desenharPlanta(svg, planta, { soLeitura: true, ...(variosPisos ? { piso: pisoAtual } : {}) });
+  const desenhar = () => desenho.desenharPlanta(svg, planta, { soLeitura: true, acoes, ...(variosPisos ? { piso: pisoAtual } : {}) });
   let base;
   try { base = desenhar(); } catch { return h("p", { class: "msg erro", text: "Não foi possível desenhar a planta." }); }
   rotular();
@@ -642,6 +664,19 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
     const fora = planta.elementos.filter((e) => e.tipo !== "quadro" && divDe(e) == null);
     if (fora.length) por("Planta", `${plural(fora.length, "elemento fora das divisões", "elementos fora das divisões")} (${[...new Set(fora.map((e) => NOMES_ELEMENTOS[e.tipo] ?? String(e.tipo)))].join(", ")}): confirmar onde ficam.`);
   } else if (!planta && divisoesSim.length) por("Planta", "O cliente não desenhou a planta: a posição dos aparelhos define-se na visita.");
+
+  // Reparações (lote 7): cada aparelho a reparar, com o que o cliente disse; a peça orça-se na visita.
+  if (planta) {
+    const fotos = new Set(arr(s.trabalho).flatMap((g) => arr(obj(g).acoes).map((a) => obj(a).foto)).filter(Boolean));
+    for (const e of planta.elementos.filter((x) => temAcaoEl(x) && acaoEl(x, s) === "reparar")) {
+      const div = e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e);
+      const nomeDiv = nomeDivisao(planta, div) || "Fora das divisões";
+      const k = e.tipo === "maquina" ? obj(e.props).modelo : e.tipo;
+      const nome = e.tipo === "maquina" ? (MODELOS[obj(e.props).modelo] ?? "Máquina") : (NOMES_UM[e.tipo]?.[0] ?? String(e.tipo));
+      const avaria = typeof e.avaria === "string" && e.avaria.trim() ? `«${e.avaria.trim()}»` : "sem descrição";
+      por("Reparação", `${nomeDiv}: ${nome} — ${avaria}${fotos.has(`${div}:${k}`) ? " (ver foto)" : ""}. Diagnosticar e orçar a peça na visita.`);
+    }
+  }
 
   // Material que já não está no catálogo.
   const cat = obj(catalogo);
@@ -867,15 +902,105 @@ function maquinasPorPiso(sim, planta) {
 }
 
 /** Planta no relatório: no ecrã a vista com zoom e separadores; na impressão, um desenho por piso. */
-function plantaRelatorio(planta) {
+function plantaRelatorio(planta, acoes = null) {
   const pisos = typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [0];
   const impressao = pisos.map((p) => {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    try { desenho.desenharPlanta(svg, planta, { soLeitura: true, ...(pisos.length > 1 ? { piso: p } : {}) }); } catch { return null; }
+    try { desenho.desenharPlanta(svg, planta, { soLeitura: true, acoes, ...(pisos.length > 1 ? { piso: p } : {}) }); } catch { return null; }
     svg.setAttribute("aria-label", `Planta${pisos.length > 1 ? `, ${nomePiso(p)}` : ""}`);
     return h("figure", { class: "rel-planta-piso" }, pisos.length > 1 ? h("figcaption", { text: nomePiso(p) }) : null, svg);
   });
-  return [h("div", { class: "planta-interativa" }, vistaPlanta(planta)), h("div", { class: "so-impressao" }, ...impressao)];
+  const legenda = acoes && typeof desenho.legendaAcoes === "function" ? h("p", { class: "ajuda", text: desenho.legendaAcoes(acoes.omissao) }) : null;
+  return [h("div", { class: "planta-interativa" }, vistaPlanta(planta, acoes)), h("div", { class: "so-impressao" }, ...impressao), legenda];
+}
+
+/**
+ * "LISTA DE TRABALHO" (lote 7; topo do relatório técnico): por divisão, o que fazer agrupado por ação — ex. "Cozinha:
+ * Reparar 1 tomada («queimada» — ver foto) · Substituir 2 interruptores por inteligentes · Novo circuito para a placa" —
+ * com o material e as horas de cada ação (de `simulacao.trabalho`, quando vem). Os aparelhos a manter só se contam.
+ * Pedidos antigos (sem ações): tudo Novo. [{divisao, nome, piso, linhas: [{acao, texto, material, horas}]}]
+ */
+export function listaTrabalho(sim, catalogo = {}, fotos = []) {
+  const s = obj(sim);
+  const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
+  if (!planta) return { divisoes: [], manter: 0 };
+  const cat = obj(catalogo);
+  const temFoto = new Set([...arr(fotos).map((f) => obj(f).chave), ...arr(s.trabalho).flatMap((g) => arr(obj(g).acoes).map((a) => obj(a).foto))].filter(Boolean));
+  const trabalho = arr(s.trabalho).filter((g) => g && typeof g === "object");
+  const circuitos = arr(obj(s.quadro).circuitos).filter((c) => c && typeof c === "object" && c.tipo === "maquina");
+  const divs = new Map();
+  let manter = 0;
+  for (const e of planta.elementos) {
+    if (!temAcaoEl(e)) continue;
+    const acao = acaoEl(e, s);
+    if (acao === "manter") { manter++; continue; }
+    const div = e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e);
+    if (!divs.has(div ?? null)) divs.set(div ?? null, { divisao: div ?? null, nome: nomeDivisao(planta, div) || "Fora das divisões", piso: pisoDe(e), grupos: new Map() });
+    const g = divs.get(div ?? null);
+    const k = e.tipo === "maquina" ? obj(e.props).modelo : e.tipo;
+    const chave = `${acao}:${k}`;
+    if (!g.grupos.has(chave)) g.grupos.set(chave, { acao, tipo: e.tipo, modelo: e.tipo === "maquina" ? obj(e.props).modelo : null, k, els: [] });
+    g.grupos.get(chave).els.push(e);
+  }
+  const ordemDiv = [...planta.divisoes.map((d) => d.id), null];
+  const out = [...divs.values()].sort((a, b) => ordemDiv.indexOf(a.divisao) - ordemDiv.indexOf(b.divisao)).map((g) => {
+    const doTrab = trabalho.find((t) => (t.divisao ?? null) === g.divisao);
+    const porAcao = new Map();
+    for (const gr of g.grupos.values()) {
+      if (!porAcao.has(gr.acao)) porAcao.set(gr.acao, { partes: [], material: new Map(), horas: 0, temHoras: false });
+      const a = porAcao.get(gr.acao);
+      const n = gr.els.length;
+      let t = nomeGrupo(gr.tipo, gr.modelo, n);
+      if (gr.acao === "reparar") {
+        const av = gr.els.map((e) => (typeof e.avaria === "string" && e.avaria.trim() ? e.avaria.trim() : null)).filter(Boolean);
+        const foto = temFoto.has(`${g.divisao}:${gr.k}`);
+        if (av.length || foto) t += ` (${[av.map((x) => `«${x}»`).join("; "), foto ? "ver foto" : null].filter(Boolean).join(" — ")})`;
+      }
+      if (gr.acao === "substituir" && (gr.tipo === "tomada" || gr.tipo === "interruptor")) {
+        const i = gr.els.filter((e) => e.inteligente === true).length;
+        t += i === n ? ` por ${n === 1 ? "um inteligente" : "inteligentes"}` : i === 0 ? ` por ${n === 1 ? "um normal" : "normais"}` : ` (${num(i)} por inteligentes, ${num(n - i)} por normais)`;
+      }
+      a.partes.push(t);
+      const it = arr(obj(doTrab).acoes).find((x) => obj(x).acao === gr.acao && (gr.tipo === "maquina" ? obj(x).modelo === gr.modelo : obj(x).tipo === gr.tipo));
+      for (const m of arr(obj(it).material)) if (m && typeof m.sku === "string") a.material.set(m.sku, (a.material.get(m.sku) ?? 0) + (numero(m.qtd) ?? 1));
+      if (numero(obj(it).horas) !== null) { a.horas += numero(it.horas); a.temHoras = true; }
+    }
+    // Circuitos novos das máquinas desta divisão (só os aparelhos Novos têm circuitos novos).
+    const nomeDiv = g.nome;
+    const circ = circuitos.filter((c) => arr(c.divisoes).includes(nomeDiv)).flatMap((c) => arr(obj(c.itens).maquinas).map((m) => (MODELOS[obj(m).modelo] ?? "máquina").toLowerCase()));
+    if (circ.length && porAcao.has("novo")) porAcao.get("novo").partes.push(`${circ.length === 1 ? "circuito novo para" : "circuitos novos para"} ${circ.join(", ")}`);
+    const linhas = [...porAcao.entries()].sort((a, b) => ORDEM_ACOES.indexOf(a[0]) - ORDEM_ACOES.indexOf(b[0])).map(([acao, a]) => ({
+      acao, texto: a.partes.join(", "),
+      material: [...a.material.entries()].map(([sku, q]) => `${cat[sku]?.nome ?? sku} ×${num(q)}`).join(", "),
+      horas: a.temHoras ? Math.round(a.horas * 100) / 100 : null,
+    }));
+    return { divisao: g.divisao, nome: g.nome, piso: g.piso, linhas };
+  });
+  return { divisoes: out, manter };
+}
+
+/** Secção "Lista de trabalho" do relatório (ver listaTrabalho). */
+function blocoTrabalho(s, catalogo, fotos) {
+  const { divisoes, manter } = listaTrabalho(s, catalogo, fotos);
+  const variosPisos = divisoes.some((d) => d.piso > 0);
+  const t = obj(s.totais_acao);
+  const resumo = ["reparar", "substituir", "novo", "quadro"].map((k) => {
+    const x = obj(t[k]);
+    if (!Object.keys(x).length || (k !== "quadro" && !numero(x.aparelhos)) || (k === "quadro" && !numero(x.artigos_iva))) return null;
+    const partes = [k !== "quadro" ? plural(numero(x.aparelhos), "aparelho", "aparelhos") : null, numero(x.artigos_iva) !== null ? `${euros(x.artigos_iva)} em material` : null, numero(x.horas) !== null ? `${num2(x.horas)} h` : null].filter(Boolean);
+    return [k === "quadro" ? "Quadro" : ACOES_SIM[k], partes.join(" · ")];
+  }).filter(Boolean);
+  if (numero(obj(t.manter).aparelhos) || manter) resumo.push(["Manter", `${plural(numero(obj(t.manter).aparelhos) ?? manter, "aparelho fica como está", "aparelhos ficam como estão")} (circuitos que já existem)`]);
+  return h("section", { class: "rel-seccao rel-trabalho", id: "rel-trabalho", "aria-labelledby": "rel-trabalho-titulo" },
+    h("h3", { id: "rel-trabalho-titulo", text: "LISTA DE TRABALHO" }),
+    resumo.length ? dados(resumo) : null,
+    divisoes.length
+      ? h("ul", { class: "rel-trabalho-lista" }, ...divisoes.map((d) => h("li", {},
+        h("strong", { text: `${d.nome}${variosPisos ? ` (${nomePiso(d.piso)})` : ""}: ` }),
+        h("ul", {}, ...d.linhas.map((l) => h("li", {},
+          h("strong", { text: `${ACOES_SIM[l.acao]} ` }), l.texto,
+          l.material || l.horas !== null ? h("span", { class: "ajuda bloco-ajuda", text: [l.material ? `Material: ${l.material}` : null, l.horas !== null ? `${num2(l.horas)} h` : null].filter(Boolean).join(" · ") }) : null))))))
+      : h("p", { text: "Nada a fazer nos aparelhos (tudo fica como está)." }));
 }
 
 /**
@@ -907,6 +1032,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   if (s.total && typeof s.total === "object") estimativa = `${euros(s.total.min)} – ${euros(s.total.max)}`;
   else if (numero(s.total) !== null) estimativa = euros(s.total);
   const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
+  const servicoTxt = servicosDe(s).map((k) => SERVICOS_SIM[k]).join(" · ");
 
   const partes = [
     h("header", { class: "rel-cabecalho" },
@@ -914,12 +1040,14 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
       h("h2", { id: "rel-titulo", text: `${t(o.nome)} — pedido n.º ${t(o.id)}` }),
       dados([
         ["Cliente", t(o.nome)],
+        ["Serviço", servicoTxt],
         ["Contacto", [o.telefone, o.email].filter(Boolean).join(" · ") || "—"],
         ["Localidade", t(o.localidade ?? casa.localidade)],
         ["Pedido recebido", data(o.criado)],
         ...(o.data_visita ? [["Visita", data(o.data_visita)]] : []),
         ["Relatório de", data(new Date().toISOString())],
       ])),
+    ...(temPlanta ? [blocoTrabalho(s, catalogo, listaFotos)] : []),
     blocoVerificar,
     seccao("Casa e pisos", dados([
       ["Imóvel", [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null].filter(Boolean).join(" · ") || "—"],
@@ -937,7 +1065,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   if (maqs) partes.push(seccao("Máquinas por piso", maqs));
   const divs = temPlanta && planta.divisoes.length ? divisoesPorPiso(planta, divisoesSim) : divisoesSim.length ? [tabelaDivisoes(divisoesSim)] : [];
   if (divs.length) partes.push(seccao("Divisões e aparelhos por piso", ...divs));
-  if (temPlanta) partes.push(seccao("Planta", ...plantaRelatorio(planta)));
+  if (temPlanta) partes.push(seccao("Planta", ...plantaRelatorio(planta, acoesDe(s))));
   const quadro = [];
   if (circuitos.length) quadro.push(tabelaCircuitos(circuitos, planta, divisoesSim));
   const blocoQ = blocoQuadro(q, kva);

@@ -38,7 +38,9 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 | `POST clientes/:c/plano` | ceo | pede plano manual |
 | `GET alertas` | ceo, tecnico | lista viva de todas as casas: alarme disparado, aparelho offline, bateria fraca/`bateria_dias` < 21, sinal < −80, reinícios > 5/24 h, sem notícias; ordenada por gravidade; `?cliente=` |
 | `GET orcamentos` / `POST orcamentos/:id` | ceo, comercial | lista e atualização: estado `novo`/`contactado`/`visita_marcada`/`proposta_enviada`/`aceite`/`perdido`, notas, data da visita, valor da proposta, motivo de perda |
-| `POST orcamentos/:id/converter` | ceo, comercial | cria pedido de cliente + obra a partir do orçamento aceite |
+| `POST orcamentos/:id/converter` | ceo, comercial | cria pedido de cliente + obra a partir do orçamento aceite (no modo de pagamentos simulado, com o plano escolhido pelo cliente, também o pedido-admin `plano`) |
+| `POST orcamentos/:id/libertar-relatorio` | ceo | liberta ao cliente o relatório técnico revisto (a conta deixa de mostrar "em revisão"; email ao cliente) |
+| `POST orcamentos/:id/obra-concluida` | ceo, comercial | obra concluída (só pedidos `aceite`): o cliente passa a ver "Pagar o restante" na conta |
 | `GET orcamentos/:id/fotos/:foto` / `POST orcamentos/:id/fotos/:foto/apagar` | ceo, comercial | fotos do cliente (simulador): ver e apagar (retenção automática: 12 meses sem seguimento; `painel/README.md`) |
 | `GET obras` / `POST obras` / `POST obras/:id` | ceo (tudo), comercial (ler), tecnico (as suas) | obra: cliente, data, técnico(s), kit, estado `agendada`/`em_curso`/`concluida`/`cancelada`, material (lista), horas estimadas (do kit: 3/7/10) e reais, notas |
 | `GET pagamentos` | ceo | linhas do CSV, totais por mês, exportar CSV |
@@ -47,7 +49,12 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 | `GET contas` / `POST contas/:id` / `POST contas/:id/apagar` | ceo | contas de cliente (docs/CONTA-CLIENTE.md): ver, desativar/reativar, apagar com os dados pessoais (RGPD) |
 
 ### Endpoint público do formulário
-`POST /api/orcamento` `{nome, telefone?, email?, localidade?, morada?, servico, mensagem?, website?, simulacao?}` → 201 `{ok:true}`. **Com `simulacao` (simulador) exige a sessão da conta de cliente com o email confirmado** (docs/CONTA-CLIENTE.md); o formulário simples do site (sem simulação) não. No pedido o painel mostra a conta (email, confirmado sim/não), o texto da proposta que o cliente vê (`proposta_texto`, com o valor, no estado "proposta enviada") e a aceitação online ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria; lista no Início). Validação (nome 1–120, pelo menos telefone ou email, textos com limites), `website` é campo-armadilha (se preenchido → 201 mas descartado), limite 5 pedidos/hora por IP. Fica na SQLite com estado `novo`; o painel mostra um alerta de pedido novo.
+`POST /api/orcamento` `{nome, telefone?, email?, localidade?, morada?, servico, mensagem?, website?, simulacao?}` → 201 `{ok:true}`. **Com `simulacao` (simulador) exige a sessão da conta de cliente com o email confirmado** (docs/CONTA-CLIENTE.md); o formulário simples do site (sem simulação) não. No pedido o painel mostra a conta (email, confirmado sim/não), o texto da proposta que o cliente vê (`proposta_texto`, com o valor, no estado "proposta enviada") e a aceitação online ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria; lista no Início). Validação (nome 1–120, pelo menos telefone ou email, textos com limites), `website` é campo-armadilha (se preenchido → 201 mas descartado), limite 5 pedidos/hora por IP. Fica na SQLite com estado `novo`; o painel mostra um alerta de pedido novo. **Com simulação há pagamentos** ([PAGAMENTOS-PEDIDO.md](PAGAMENTOS-PEDIDO.md)):
+- o pedido só entra (como `novo`) depois de pagos os 19 €;
+- a ficha mostra os pagamentos do pedido (19 €, sinal, restante) com o estado e "Simulado" no modo de teste;
+- o CEO tem "Libertar relatório ao cliente";
+- a aceitação online só conta como "Aceite" depois do sinal pago (antes aparece "Aceite — a aguardar sinal");
+- "Marcar obra concluída" abre o pagamento do restante na conta.
 
 ## 4. Ecrãs (`painel/public/`, tema Terra, pt-PT, telemóvel e computador)
 Início (resumo por papel) · Clientes (lista com filtros por plano/estado, ficha) · Alertas (lista viva, atualiza sozinha) · Orçamentos (quadro por estado ou lista, ficha com histórico) · Obras (agenda semanal + lista, ficha com checklist de material e horas) · Pagamentos (CEO) · Equipa (CEO: utilizadores e papéis) · Contas de clientes (CEO: contas do simulador, desativar, apagar — RGPD) · Auditoria (CEO). Mesmas regras do site: sem HTML com dados de clientes (só `textContent`), alvos de 44 px, contraste AA, modo escuro, sem scripts inline (CSP).

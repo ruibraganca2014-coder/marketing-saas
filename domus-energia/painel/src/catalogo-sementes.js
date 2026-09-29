@@ -140,3 +140,19 @@ export const SEMENTES_QUADRO = [
   caixa(36, 3, 94.9, 5),
   caixa(48, 4, 129, 6),
 ];
+
+// Ações por aparelho (lote 7, docs/SIMULADOR-ORCAMENTO.md §0 e §3; web/simulador/acoes.js): Reparar = diagnóstico por
+// avaria (a peça confirma-se na visita); Substituir uma tomada/interruptor/ponto de luz por um normal; trocar a ligação
+// de uma máquina (a máquina é do cliente). Entram pela migração 10 (INSERT OR IGNORE). PREÇOS PROVISÓRIOS — o CEO
+// confirma no painel. `horas_troca` (coluna nova, migração 10): as horas ao substituir; sem ela, 50 % das de instalação.
+export const SEMENTES_ACOES = [
+  { sku: 'DIAG-AVARIA', nome: 'Diagnóstico de avaria (por aparelho; a peça confirma-se na visita)', categoria: 'outro',
+    fornecedor: null, preco_compra: null, preco_venda_iva: 25, horas_instalacao: 0.5, horas_troca: 0.5,
+    especificacoes: { funcao: 'diagnostico', nota: PROVISORIO } },
+  { sku: 'APARELHO-NORMAL', nome: 'Tomada, interruptor ou ponto de luz normal (troca)', categoria: 'outro',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 9.9, horas_instalacao: 0.5, horas_troca: 0.25,
+    especificacoes: { funcao: 'aparelho_normal', nota: PROVISORIO } },
+  { sku: 'TROCA-MAQUINA', nome: 'Ligar uma máquina no lugar da antiga (troca; a máquina é do cliente)', categoria: 'outro',
+    fornecedor: null, preco_compra: null, preco_venda_iva: 0, horas_instalacao: 1, horas_troca: 0.5,
+    especificacoes: { funcao: 'troca_maquina', nota: PROVISORIO } },
+];

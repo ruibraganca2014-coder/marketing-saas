@@ -4,11 +4,14 @@
 
 import { disjuntoresInteligentes } from "./regras.js";
 import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
+import { pedidosAcoes } from "./acoes.js";
 
 export const CONFIG_OMISSAO = { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 };
-export const TEXTO_ESTIMATIVA = "Estimativa. O valor final é confirmado na visita técnica gratuita.";
+export const TEXTO_ESTIMATIVA = "Estimativa. O valor final é confirmado na visita técnica (incluída nos 19 €, descontados na obra).";
 export const SKU_SY2 = "TONGOU-SY2-JWT";
 export const SKU_SY1 = "TONGOU-SY1-JWT";
+/** Horas de troca (Substituir) de um artigo sem `horas_troca` no catálogo: esta fração das horas de instalação. */
+export const FRACAO_TROCA = 0.5;
 
 export const PLANOS = {
   base: { nome: "Base", preco: 4.99 },
@@ -62,7 +65,26 @@ export const PEDIDOS = {
   tomada: { sku: "TOMADA-WIFI", nome: "Tomada inteligente Wi-Fi com medição", procura: (a) => a.categoria === "tomada" },
   termostato: { sku: "BAB-HC-T010", nome: "Termóstato Wi-Fi ecrã tátil", procura: (a) => a.categoria === "termostato" },
   central: { sku: "RPI-CENTRAL", nome: "Central local Raspberry Pi (UPS, sirene)", procura: (a) => a.categoria === "central" },
+  // Ações por aparelho (lote 7, acoes.js): Reparar = diagnóstico por avaria (a peça confirma-se na visita); Substituir
+  // uma tomada/interruptor/ponto de luz normal; trocar a ligação de uma máquina (a máquina é do cliente).
+  diagnostico: { sku: "DIAG-AVARIA", nome: "Diagnóstico de avaria (por aparelho; a peça confirma-se na visita)", procura: comFuncao("diagnostico") },
+  aparelho_normal: { sku: "APARELHO-NORMAL", nome: "Tomada, interruptor ou ponto de luz normal (troca)", procura: comFuncao("aparelho_normal") },
+  troca_maquina: { sku: "TROCA-MAQUINA", nome: "Ligar uma máquina no lugar da antiga (troca)", procura: comFuncao("troca_maquina") },
 };
+
+/** Horas de troca de um artigo: `horas_troca` do catálogo ou, sem ela, FRACAO_TROCA das horas de instalação. */
+export function horasTroca(a) {
+  const t = a?.horas_troca;
+  if (t !== null && t !== undefined && t !== "" && Number.isFinite(Number(t)) && Number(t) >= 0) return Number(t);
+  const h = Number(a?.horas_instalacao);
+  return Number.isFinite(h) ? h * FRACAO_TROCA : null;
+}
+
+/**
+ * O quadro (proteções, caixa, ampliação) entra no pedido? Sempre com "Instalação nova" (e nos estados sem serviço);
+ * sem ela, só se o cliente disser que quer melhorar o quadro (`mexerQuadro`).
+ */
+export const quadroNoPedido = (s) => !Array.isArray(s?.servico) || s.servico.includes("nova") || s.mexerQuadro === true;
 
 /** Artigo do catálogo para um pedido (por SKU; senão por categoria/especificações); null se não houver. */
 export function encontrarArtigo(chave, catalogo) {
@@ -74,9 +96,11 @@ export function encontrarArtigo(chave, catalogo) {
 const soma = (l, f) => l.reduce((s, x) => s + (Number(f(x)) || 0), 0);
 
 /**
- * Quantidades a partir das escolhas do cliente.
- * @param {{casa?:object, quadro:{circuitos:any[], disjuntor?:string, protecoes?:object, para_raios?:string|null, quadro_novo?:string|null}, divisoes:any[], extras?:{central?:boolean, termostatos?:number}}} s
- * @returns {{chave:string, qtd:number}[]}
+ * Quantidades a partir das escolhas do cliente. As linhas das divisões (`divisoes`) e os circuitos são só dos
+ * aparelhos Novos (app.js conta a planta dos novos); Reparar e Substituir vêm da planta (`acao` no pedido; lote 7);
+ * o quadro tem `grupo: "quadro"`.
+ * @param {{casa?:object, servico?:string[], mexerQuadro?:boolean, planta?:object, quadro:{circuitos:any[], disjuntor?:string, protecoes?:object, para_raios?:string|null, quadro_novo?:string|null}, divisoes:any[], extras?:{central?:boolean, termostatos?:number}}} s
+ * @returns {{chave:string, qtd:number, acao?:string, grupo?:string}[]}
  */
 export function pedidosDaSelecao(s) {
   const r = [];
@@ -88,7 +112,7 @@ export function pedidosDaSelecao(s) {
   add("disjuntor_simples", d.sy1);
   // Quadro (§4.1): diferenciais, proteções escolhidas, caixa e disjuntores de um quadro novo, ou a
   // ampliação do quadro atual (> 12 módulos novos; o SY2 substitui o disjuntor, o SY1 fica ao lado).
-  if (s.casa) for (const p of pedidosQuadro(s)) add(p.chave, p.qtd);
+  if (s.casa && quadroNoPedido(s)) for (const p of pedidosQuadro(s)) if (p.qtd > 0) r.push({ chave: p.chave, qtd: p.qtd, grupo: "quadro" });
   const divs = s.divisoes ?? [];
   for (const b of [1, 2, 3, 4]) add(`interruptor_${b}`, soma(divs, (d) => (d.interruptores ?? []).filter((x) => x === b).length));
   add("estore", soma(divs, (d) => d.estores));
@@ -98,6 +122,7 @@ export function pedidosDaSelecao(s) {
   add("tomada", soma(divs, (d) => d.tomadas_inteligentes));
   add("termostato", Number(s.extras?.termostatos) || 0);
   add("central", s.extras?.central ? 1 : 0);
+  if (s.planta) for (const p of pedidosAcoes(s.planta, s.servico)) r.push(p);
   return r;
 }
 
@@ -118,13 +143,15 @@ export function calcularPreco(pedidos, catalogo, config, deslocacao = null) {
     const v = Number(config?.[k]);
     if (config && config[k] !== undefined && config[k] !== null && Number.isFinite(v) && v >= 0) cfg[k] = v;
   }
-  const linhas = pedidos.map(({ chave, qtd }) => {
+  const linhas = pedidos.map(({ chave, qtd, acao = null, grupo = null }) => {
     const a = encontrarArtigo(chave, catalogo);
     const preco = a && Number.isFinite(Number(a.preco_venda_iva)) ? Number(a.preco_venda_iva) : null;
-    const horas = a && Number.isFinite(Number(a.horas_instalacao)) ? Number(a.horas_instalacao) : null;
+    // Substituir: as horas de troca (menos do que instalar de novo); o resto, as de instalação.
+    const horas = !a ? null : acao === "substituir" ? horasTroca(a) : Number.isFinite(Number(a.horas_instalacao)) ? Number(a.horas_instalacao) : null;
     return {
       chave, sku: a?.sku ?? PEDIDOS[chave].sku, nome: a?.nome ?? PEDIDOS[chave].nome, qtd,
       preco_iva: preco, total: preco === null ? null : cent(preco * qtd), horas: horas === null ? null : horas * qtd,
+      acao, grupo: acao ?? grupo ?? "novo",
     };
   });
   if (!catalogo) {

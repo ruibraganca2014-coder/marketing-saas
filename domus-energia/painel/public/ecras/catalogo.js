@@ -187,6 +187,8 @@ export default function catalogo(el) {
         campoForm("Preço de compra (€)", inp("preco_compra", { type: "number", min: "0", step: "0.01", inputmode: "decimal" }), "Vazio = desconhecido"),
         campoForm("Preço de venda (€, c/ IVA)", inp("preco_venda_iva", { type: "number", min: "0", step: "0.01", inputmode: "decimal", required: true })),
         campoForm("Horas de instalação", h("input", { name: "horas_instalacao", type: "number", min: "0", max: "100", step: "0.05", inputmode: "decimal", value: campo(a, "horas_instalacao") ?? 0 }))),
+      // Lote 7 (simulador, ação "Substituir"): as horas de trocar um aparelho que já existe.
+      campoForm("Horas de troca (substituir)", h("input", { name: "horas_troca", type: "number", min: "0", max: "100", step: "0.05", inputmode: "decimal", value: campo(a, "horas_troca") ?? "" }), "Vazio = 50 % das horas de instalação."),
       zonaMargem,
       h("fieldset", { class: "grupo" }, h("legend", { text: "Especificações" }), zonaEsp,
         h("details", { class: "esp-json" }, h("summary", { text: "JSON (avançado)" }),
@@ -275,11 +277,14 @@ export default function catalogo(el) {
       if (compraTxt !== "" && (compra === null || compra < 0)) return erro("O preço de compra tem de ser um número (ou vazio).", el2.preco_compra);
       const horas = numero(el2.horas_instalacao.value);
       if (horas === null || horas < 0 || horas > 100) return erro("Horas de instalação: número entre 0 e 100.", el2.horas_instalacao);
+      const trocaTxt = el2.horas_troca.value.trim();
+      const horasTroca = trocaTxt === "" ? null : numero(trocaTxt);
+      if (trocaTxt !== "" && (horasTroca === null || horasTroca < 0 || horasTroca > 100)) return erro("Horas de troca: número entre 0 e 100 (ou vazio).", el2.horas_troca);
       const especificacoes = lerJson();
       if (especificacoes === null) { f.querySelector("details.esp-json").open = true; return erro("As especificações têm de ser um objeto JSON válido.", json); }
       const tudo = {
         sku, nome, categoria: categoria.value, fornecedor: el2.fornecedor.value.trim() || null, link: link || null,
-        preco_compra: compra, preco_venda_iva: venda, horas_instalacao: horas, especificacoes,
+        preco_compra: compra, preco_venda_iva: venda, horas_instalacao: horas, horas_troca: horasTroca, especificacoes,
         ativo: el2.ativo.checked, visivel_cliente: el2.visivel_cliente.checked,
       };
       // Editar: só o que mudou.

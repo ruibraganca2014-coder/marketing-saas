@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6 } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -252,6 +252,52 @@ export const MIGRACOES = [
       if (seq) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
     }
   }),
+  // 9 — pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): 19 € ao enviar (relatório técnico + visita), sinal de 30 %
+  // ao aceitar a proposta e o restante no fim da obra; eventos tratados (idempotência); nos orçamentos, quando o
+  // relatório foi libertado ao cliente, o plano mensal escolhido ao aceitar e quando a obra foi dada por concluída.
+  // O pedido por pagar fica em `pedido` (JSON) e só passa a orçamento depois de pago; sai ao fim de 24 h.
+  (db) => db.exec(`
+    CREATE TABLE pagamentos_pedido (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ref TEXT NOT NULL UNIQUE,                 -- referência aleatória (pp_…): URLs, recibo, Stripe client_reference_id
+      conta_id INTEGER REFERENCES contas(id) ON DELETE SET NULL,
+      orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+      fase TEXT NOT NULL CHECK (fase IN ('relatorio', 'sinal', 'restante')),
+      valor_cent INTEGER NOT NULL CHECK (valor_cent > 0),
+      descricao TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'pago', 'falhado', 'cancelado', 'expirado')),
+      modo TEXT NOT NULL CHECK (modo IN ('simulado', 'stripe')),
+      retorno TEXT NOT NULL CHECK (retorno IN ('simulador', 'conta')),
+      com_visita INTEGER,                       -- 19 €: 1 com visita técnica, 0 fora da área (só o relatório)
+      plano TEXT,                               -- sinal: plano mensal escolhido
+      pedido TEXT,                              -- 19 € por pagar: o pedido (JSON) que passa a orçamento ao ser pago
+      stripe_sessao TEXT,
+      stripe_url TEXT,
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL,
+      pago TEXT,
+      expira INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX pagamentos_pedido_fase_paga ON pagamentos_pedido(orcamento_id, fase) WHERE estado = 'pago' AND orcamento_id IS NOT NULL;
+    CREATE INDEX pagamentos_pedido_conta ON pagamentos_pedido(conta_id);
+    CREATE INDEX pagamentos_pedido_orcamento ON pagamentos_pedido(orcamento_id);
+    CREATE TABLE pagamentos_eventos (
+      id TEXT PRIMARY KEY,                      -- id do evento (Stripe evt_…, simulado evt_sim_…, regresso ret_…)
+      recebido TEXT NOT NULL
+    );
+    ALTER TABLE orcamentos ADD COLUMN relatorio_libertado TEXT;   -- quando o CEO libertou o relatório ao cliente
+    ALTER TABLE orcamentos ADD COLUMN plano_escolhido TEXT;       -- base | conforto | premium (ao aceitar a proposta)
+    ALTER TABLE orcamentos ADD COLUMN obra_concluida TEXT;        -- quando o painel deu a obra por concluída
+  `),
+  // 10 — ações por aparelho no simulador (lote 7, docs/SIMULADOR-ORCAMENTO.md §0 e §3): `horas_troca` por artigo (as
+  // horas ao substituir; NULL = 50 % das de instalação) e os artigos das ações (diagnóstico de avaria, aparelho normal,
+  // troca da ligação de uma máquina). INSERT OR IGNORE: nunca mexe num artigo que o CEO já tenha.
+  (db) => {
+    db.exec('ALTER TABLE catalogo ADD COLUMN horas_troca REAL');
+    semear(db, SEMENTES_ACOES, true);
+    const troca = db.prepare('UPDATE catalogo SET horas_troca = ? WHERE sku = ? AND horas_troca IS NULL');
+    for (const s of SEMENTES_ACOES) if (s.horas_troca != null) troca.run(s.horas_troca, s.sku);
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
