@@ -80,7 +80,8 @@ input, select { min-height: 44px; }
 .contadores { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr)); align-items: end; }
 .contadores:not(:has(.contador:not([hidden]))) { display: none; }
 .contador { display: grid; gap: 6px; min-width: 0; }
-@media (min-width: 720px) { .contadores { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* A partir de 720 px, colunas de 140 px (um contador precisa de ~134 px): quantas couberem, sem sobreposição. */
+@media (min-width: 720px) { .contadores { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
 /* Pisos (moradia, AL, outro) na mesma linha dos contadores, encostado à direita (por baixo do T5+); no telemóvel na última coluna da linha seguinte. */
 #contador-pisos { grid-column: -2 / -1; }
 /* Passo 1 com 2 ou mais pisos: os contadores e "A casa tem…" do piso escolhido nos separadores (#casa-pisos). */
@@ -463,9 +464,11 @@ html { scroll-padding-top: 72px; }
   #sim-form:has(> .sim-planta[hidden]) { grid-template-columns: minmax(0, 1fr); }
   #sim-form > .sim-passo { grid-column: 1; grid-row: 1; }
   #sim-form > .sim-navegacao { grid-column: 1; grid-row: 2; }
-  #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 4; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 12px); min-height: 420px; }
+  /* Presa por baixo do topo fixo (73 px) até ao fim da página: o sticky acaba no fundo do formulário, e depois dele
+     só vêm os 40 px do fundo do <main> (a planta pode descer por eles: margem −28 px, 12 px antes do rodapé) e o
+     rodapé (~80 px). Por isso a altura desconta o rodapé: o topo da planta nunca sobe acima do topo fixo. */
+  #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 4; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 92px); min-height: 420px; margin-bottom: -28px; }
   /* A coluna das perguntas é mais estreita do que o ecrã: as grelhas contam com a largura dela. */
-  .contadores { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
   #divisoes .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }

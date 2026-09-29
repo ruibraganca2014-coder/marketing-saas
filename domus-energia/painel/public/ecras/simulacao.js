@@ -690,7 +690,7 @@ function verificarLeitura(leitura, novos = null) {
   return out;
 }
 
-export const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
+export const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : t === "outra" ? "Foto" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
 /** Endereço da foto no painel (reconstruído a partir dos ids, nunca copiado da resposta). */
 export const urlFoto = (orcamentoId, fotoId) => `/painel/api/orcamentos/${encodeURIComponent(String(orcamentoId))}/fotos/${encodeURIComponent(String(fotoId))}`;
 
@@ -716,7 +716,8 @@ export function galeriaFotos(orcamentoId, fotos, { aoApagar } = {}) {
   const grupos = new Map();
   for (const f of outras) {
     const piso = Number.isInteger(f.piso) ? f.piso : null;
-    const div = String(f.divisao_nome ?? f.divisao ?? "Sem divisão");
+    const daConta = /^conta[a-z0-9]*:/.test(String(f.chave ?? ""));
+    const div = daConta ? "Acrescentadas na conta" : String(f.divisao_nome ?? f.divisao ?? "Sem divisão");
     const k = `${piso ?? ""}|${div}`;
     if (!grupos.has(k)) grupos.set(k, { piso, div, fotos: [] });
     grupos.get(k).fotos.push(f);

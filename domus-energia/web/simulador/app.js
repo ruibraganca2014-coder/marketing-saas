@@ -807,11 +807,10 @@ const casaDaDivisoes = () => !!estado.casa.tipologia || negocio();
 /**
  * Planta já desenhada a partir da casa e das máquinas (casa.js plantaDaCasa): quando está vazia, ou
  * quando ainda é a que desenhámos (o cliente não lhe mexeu) e a casa ou as máquinas mudaram. Nunca
- * toca numa planta em que o cliente mexeu. Sem tipologia (área de cliente com o passo 1 saltado) não
- * desenha nada.
+ * toca numa planta em que o cliente mexeu. Sem tipologia (área de cliente com o passo 1 saltado) desenha a que
+ * a casa dá (a mesma que o passo Divisões mostra), logo ao entrar.
  */
 function preencherPlanta() {
-  if (!casaDaDivisoes()) return false;
   if (plantaTemConteudo(estado.planta) && !(estado.plantaAuto && estado.plantaBase !== assinaturaBase())) return false;
   desenharDaCasa();
   return true;
@@ -1920,9 +1919,15 @@ function preencherDoPerfil() {
 
 let temporizadorConta = null;
 // Enquanto "Continuar onde ficou?" espera resposta, o `estado` é o inicial (em branco): não pode ir para a conta por
-// cima da simulação que lá está. Fica pendente e grava-se depois da escolha (fecharRetomar).
-const aDecidirRetomar = () => !$("sim-retomar").hidden;
+// cima da simulação que lá está. O mesmo enquanto se vê se a conta tem uma mais recente e enquanto "Continuar a
+// simulação da sua conta?" espera resposta. Fica pendente e grava-se depois da escolha (decidido).
+let aVerConta = false;
+const aDecidirRetomar = () => aVerConta || !$("sim-retomar").hidden || !!document.getElementById("sim-retomar-conta");
 let contaPendente = false;
+/** Já não há escolha por fazer: o que ficou por gravar na conta vai agora, com o estado escolhido. */
+function decidido() {
+  if (contaPendente && !aDecidirRetomar()) { contaPendente = false; guardarNaConta(0); }
+}
 /** Guarda o estado do simulador na conta (1,5 s depois; sem imagem de fundo se for grande demais). */
 function guardarNaConta(atraso = 1500) {
   if (!contaEu || enviado) return;
@@ -1947,13 +1952,15 @@ function guardarNaConta(atraso = 1500) {
 async function oferecerSimulacaoDaConta(eu) {
   if (!eu.simulacao_atualizada) { guardarNaConta(0); return; }
   let r;
-  try { r = await pedirConta("simulacao"); } catch { return; }
+  aVerConta = true;
+  try { r = await pedirConta("simulacao"); } catch { aVerConta = false; contaPendente = false; return; }
+  aVerConta = false;
   const daConta = r?.estado ? normalizarEstado(r.estado) : null;
-  if (!daConta || enviado) return;
+  if (!daConta || enviado) { decidido(); return; }
   const local = carregarEstado(armazem ?? semArmazem);
   const t = (x) => Date.parse(x?.guardado ?? "") || 0;
   if (local && t(local) >= t(daConta) - 1000) { guardarNaConta(0); return; }   // a deste navegador é a mais recente
-  if (!temProgresso(daConta, PASSO_INICIAL)) return;
+  if (!temProgresso(daConta, PASSO_INICIAL)) { decidido(); return; }
   document.getElementById("sim-retomar-conta")?.remove();
   const quando = new Date(t(daConta) || r.atualizado);
   const data = Number.isNaN(quando.getTime()) ? "" : ` (${quando.toLocaleString("pt-PT", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })})`;
@@ -1984,8 +1991,9 @@ async function oferecerSimulacaoDaConta(eu) {
     mostrarPasso();
     agendarGravacao();
     carregarFotosDoEstado();
+    decidido();
   });
-  b2.addEventListener("click", () => { caixa.remove(); guardarNaConta(0); });
+  b2.addEventListener("click", () => { caixa.remove(); contaPendente = true; decidido(); });
   b1.focus();
 }
 for (const k of CAMPOS) {
@@ -2340,7 +2348,7 @@ function fecharRetomar() {
   $("sim-form").hidden = false;
   mostrarPasso();
   // Já escolheu (continuar ou começar de novo): o que ficou por gravar na conta vai agora, com o estado escolhido.
-  if (contaPendente) { contaPendente = false; guardarNaConta(0); }
+  decidido();
 }
 
 // Exposto só para os testes automáticos (não é usado pela página).

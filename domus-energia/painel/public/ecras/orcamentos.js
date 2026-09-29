@@ -139,7 +139,7 @@ export default function orcamentos(el, ctx) {
     if (fotos.length) {
       partes.push(h("section", { class: "fotos-pedido", id: "fotos-pedido" },
         h("h3", { text: `Fotos do cliente (${fotos.length})` }),
-        h("p", { class: "ajuda", text: "Tiradas pelo cliente no simulador. Toque numa foto para a ver inteira." }),
+        h("p", { class: "ajuda", text: "Enviadas pelo cliente (no simulador ou na conta). Toque numa foto para a ver inteira." }),
         galeriaFotos(id, fotos, { aoApagar: (f, b) => apagarFoto(j, id, f, b) })));
     }
     if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.`));
@@ -356,6 +356,7 @@ function textoConta(c) {
 function nomeFotoChave(chave, sim) {
   if (chave === "quadro") return "Quadro elétrico";
   const m = (Array.isArray(sim?.fotos) ? sim.fotos : []).find((f) => f && f.chave === chave) ?? {};
+  if (/^conta[a-z0-9]*:/.test(chave)) return ["Foto acrescentada na conta", m.legenda].filter(Boolean).join(" · ");
   const [divisao, tipo] = chave.split(":");
   const s = (v) => (typeof v === "string" && v.trim() ? v.trim() : null);
   return [nomeTipoFoto(s(m.tipo) ?? tipo), s(m.divisao_nome) ?? divisao, s(m.legenda)].filter(Boolean).join(" · ");

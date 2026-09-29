@@ -19,6 +19,7 @@ const dataTxt = (v, hora = false) => {
 };
 
 let ctrl = null;
+const resumosAbertos = new Set(); // pedidos com "A simulação que enviou" aberto (sobrevive ao carregar())
 
 const bloco = criarBlocoConta($("conta-bloco"), {
   prefixo: "conta",
@@ -90,7 +91,7 @@ function cartaoPedido(p) {
   if (p.data_visita && !p.obra) c.append(el("p", null, `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
   if (p.proposta) c.append(blocoProposta(p));
-  if (p.resumo) c.append(blocoResumo(p.resumo));
+  if (p.resumo) c.append(blocoResumo(p.resumo, p.id));
   c.append(blocoFotos(p));
   return c;
 }
@@ -147,8 +148,10 @@ function confirmarAceitar(p, b, botao, msg) {
   });
 }
 
-function blocoResumo(r) {
+function blocoResumo(r, id) {
   const b = el("details", "conta-resumo");
+  b.open = resumosAbertos.has(id);
+  b.addEventListener("toggle", () => { if (b.open) resumosAbertos.add(id); else resumosAbertos.delete(id); });
   b.append(el("summary", null, "A simulação que enviou"));
   const dl = el("dl", "dados-simples");
   const linha = (k, v) => { if (v) { dl.append(el("dt", null, k), el("dd", null, v)); } };
@@ -184,7 +187,7 @@ function blocoFotos(p) {
       img.loading = "lazy";
       fig.append(img, el("figcaption", null, f.legenda || (f.chave === "quadro" ? "Quadro elétrico" : "Foto")));
       li.append(fig);
-      if (p.pode_fotos) li.append(botaoFoto("Trocar", `trocar-${f.id}`, (ficheiro) => enviarFoto(p, f.chave, f.legenda, ficheiro, aviso)));
+      if (p.pode_fotos) li.append(botaoFoto("Trocar", `trocar-${f.id}`, `Trocar a foto: ${f.legenda || (f.chave === "quadro" ? "Quadro elétrico" : "Foto")}`, (ficheiro) => enviarFoto(p, f.chave, f.legenda, ficheiro, aviso)));
       ul.append(li);
     }
     b.append(ul);
@@ -193,23 +196,27 @@ function blocoFotos(p) {
   }
   if (p.pode_fotos && p.fotos.length < (p.fotos_max ?? 40)) {
     b.append(el("p", "ajuda", "Pode acrescentar fotos (do quadro elétrico, das divisões, de onde quer os aparelhos) até o pedido ser aceite."),
-      botaoFoto("Acrescentar foto", `acrescentar-${p.id}`, (ficheiro) => enviarFoto(p, `conta${Date.now().toString(36)}:outra`, "Foto acrescentada na conta", ficheiro, aviso)));
+      botaoFoto("Acrescentar foto", `acrescentar-${p.id}`, null, (ficheiro) => enviarFoto(p, `conta${Date.now().toString(36)}:outra`, "Foto acrescentada na conta", ficheiro, aviso)));
   }
   b.append(msg);
   return b;
 }
 
-/** Botão que abre a câmara/galeria (input file escondido no label). */
-function botaoFoto(texto, id, aoEscolher) {
-  const l = el("label", "btn sec pequeno");
+/** Botão (com teclado) que abre a câmara/galeria por um input file escondido. `rotulo`: nome acessível mais claro. */
+function botaoFoto(texto, id, rotulo, aoEscolher) {
+  const b = el("button", "btn sec pequeno", texto);
+  b.type = "button";
+  if (rotulo) b.setAttribute("aria-label", rotulo);
   const i = document.createElement("input");
   i.type = "file";
   i.accept = "image/*";
   i.id = id;
   i.hidden = true;
   i.addEventListener("change", () => { const f = i.files?.[0]; i.value = ""; if (f) aoEscolher(f); });
-  l.append(texto, i);
-  return l;
+  b.addEventListener("click", () => i.click());
+  const s = el("span");
+  s.append(b, i);
+  return s;
 }
 
 async function enviarFoto(p, chave, legenda, ficheiro, aviso) {

@@ -1948,6 +1948,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (reiniciarVista || nova) verTudo();
       nDivisoesVista = divisoesPiso().length;
       definirModo(null);
+      if (nova) fila.scrollLeft = 0;   // planta nova (ex. "Refazer planta"): a linha das ferramentas volta ao início
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
