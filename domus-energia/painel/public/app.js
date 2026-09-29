@@ -324,13 +324,13 @@ document.addEventListener("visibilitychange", () => {
   agendar(300);
 });
 
-/** Uma só faixa: "N pedidos à espera do servidor" (abre a lista); parada → "Verificar agora". */
+/** Uma só faixa: "N pedidos seus à espera do servidor" (só os desta pessoa: retomarPedidos; o Início conta os da equipa toda) (abre a lista); parada → "Verificar agora". */
 function desenharFaixa() {
   const zona = $("pedidos-pendentes");
   const n = pendentes.size;
   if (!n) { zona.replaceChildren(); ciclo.aberta = false; return; }
   const [um] = pendentes.values();
-  const texto = n === 1 ? `${um.descricao}: à espera do servidor…` : `${n} pedidos à espera do servidor…`;
+  const texto = n === 1 ? `${um.descricao}: à espera do servidor…` : `${n} pedidos seus à espera do servidor…`;
   const partes = [ciclo.parado ? h("span", { class: "pedidos-parado", "aria-hidden": "true", text: "⏸" }) : h("span", { class: "rodar", "aria-hidden": "true" }),
     h("span", { class: "pedidos-texto", text: ciclo.parado ? `${n === 1 ? um.descricao : `${n} pedidos`}: parei de verificar.` : texto })];
   if (ciclo.parado) {

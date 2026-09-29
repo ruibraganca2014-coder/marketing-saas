@@ -11,7 +11,7 @@ import {
   RE_TELEFONE, falha,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
-import { ESTADOS_ORCAMENTO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
+import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
@@ -432,12 +432,12 @@ export function criarApi(ctx) {
       r.alertas = { ligado: al.ligado, contagem: al.contagem, principais: al.alertas.slice(0, 20) };
     } else {
       const porEstado = Object.fromEntries(ESTADOS_ORCAMENTO.map((e) => [e, 0]));
-      for (const x of db.prepare('SELECT estado, COUNT(*) AS n FROM orcamentos GROUP BY estado').all()) porEstado[x.estado] = x.n;
+      for (const x of db.prepare('SELECT estado, COUNT(*) AS n FROM orcamentos WHERE estado != ? GROUP BY estado').all(ESTADO_ARQUIVADO)) porEstado[x.estado] = x.n;
       r.orcamentos_por_estado = porEstado;
       r.pedidos_novos = porEstado.novo;
       r.propostas_aceites_online = propostasAceitesOnline();
       r.visitas_semana = db.prepare(`SELECT * FROM orcamentos WHERE substr(data_visita, 1, 10) BETWEEN ? AND ?
-        AND estado NOT IN ('perdido') ORDER BY data_visita`).all(inicio, fim).map((o) => formatarOrcamento(o));
+        AND estado NOT IN ('perdido', '${ESTADO_ARQUIVADO}') ORDER BY data_visita`).all(inicio, fim).map((o) => formatarOrcamento(o));
     }
     responder(res, 200, r);
   };
@@ -585,12 +585,14 @@ export function criarApi(ctx) {
   };
 
   // ---- orçamentos
-  h.orcamentos = ({ res, url }) => {
-    const estado = url.searchParams.get('estado');
-    if (estado !== null) opcao(estado, 'estado', ESTADOS_ORCAMENTO);
+  // Os arquivados (RGPD) não vêm por omissão: só com ?estado=arquivado, e só para o CEO.
+  h.orcamentos = ({ res, u, url }) => {
+    const estado = url.searchParams.get('estado') || null;
+    if (estado === ESTADO_ARQUIVADO) { if (u.papel !== 'ceo') throw new ErroApi(403, 'Só o CEO vê os pedidos arquivados.'); }
+    else if (estado !== null) opcao(estado, 'estado', ESTADOS_ORCAMENTO);
     const linhas = estado
       ? db.prepare('SELECT * FROM orcamentos WHERE estado = ? ORDER BY id DESC LIMIT 1000').all(estado)
-      : db.prepare('SELECT * FROM orcamentos ORDER BY id DESC LIMIT 1000').all();
+      : db.prepare('SELECT * FROM orcamentos WHERE estado != ? ORDER BY id DESC LIMIT 1000').all(ESTADO_ARQUIVADO);
     responder(res, 200, { orcamentos: linhas.map((o) => formatarOrcamento(o)) });
   };
 
@@ -600,7 +602,17 @@ export function criarApi(ctx) {
     return o;
   };
 
-  h.orcamento = ({ res, params }) => responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  /** Um pedido arquivado (RGPD) não muda: nem o estado, nem os dados, nem as ações (relatório, obra, fotos). */
+  const naoArquivado = (o) => {
+    if (o.estado === ESTADO_ARQUIVADO) throw new ErroApi(409, 'Pedido arquivado (RGPD): não se pode alterar.');
+    return o;
+  };
+
+  h.orcamento = ({ res, u, params }) => {
+    const o = obterOrcamento(params.id);
+    if (o.estado === ESTADO_ARQUIVADO && u.papel !== 'ceo') throw new ErroApi(404, 'Pedido de orçamento não encontrado.');
+    responder(res, 200, formatarOrcamento(o, true));
+  };
 
   // Foto de um pedido: só para quem vê o orçamento (rota), com o tipo certo e sem que o browser a
   // possa interpretar como outra coisa (nosniff, CSP sandbox). Não há listagem de pastas.
@@ -635,6 +647,7 @@ export function criarApi(ctx) {
   h.apagarFoto = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
     const { o, f } = obterFoto(params);
+    naoArquivado(o);
     await fotos.apagar(f);
     auditar(u, 'foto_apagada', `orcamento:${o.id}`, { chave: f.chave }, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
@@ -666,7 +679,7 @@ export function criarApi(ctx) {
   };
 
   h.atualizarOrcamento = async ({ req, res, u, params, ip }) => {
-    const o = obterOrcamento(params.id);
+    const o = naoArquivado(obterOrcamento(params.id));
     const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'proposta_texto', 'motivo_perda',
       'nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem']);
     const mud = camposContacto(v, false);
@@ -714,6 +727,7 @@ export function criarApi(ctx) {
   async function converterOrcamento({ req, res, u, params, ip }) {
     const o = obterOrcamento(params.id);
     const v = await lerJson(req, ['codigo', 'data', 'hora', 'kit', 'tecnicos', 'notas', 'horas_estimadas', 'aparelhos'], 64 * 1024);
+    naoArquivado(o);
     if (o.estado !== 'aceite') throw new ErroApi(409, 'Só se converte um pedido com o estado "aceite".');
     if (o.obra_id) throw new ErroApi(409, 'Este pedido já foi convertido.');
     const codigo = texto(v.codigo, 'o código do cliente', { max: 32, obrigatorio: true, re: RE_ID,
@@ -821,7 +835,7 @@ export function criarApi(ctx) {
   // O relatório (versão do cliente) só aparece na conta depois de o CEO o rever e libertar.
   h.libertarRelatorio = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
-    const o = obterOrcamento(params.id);
+    const o = naoArquivado(obterOrcamento(params.id));
     if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há relatório para libertar.');
     if (o.relatorio_libertado) throw new ErroApi(409, 'O relatório já foi libertado ao cliente.');
     const agora = agoraIso();
@@ -845,7 +859,7 @@ export function criarApi(ctx) {
   // Obra concluída: o cliente passa a ver "Pagar o restante" na conta.
   h.obraConcluida = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
-    const o = obterOrcamento(params.id);
+    const o = naoArquivado(obterOrcamento(params.id));
     if (o.estado !== 'aceite') throw new ErroApi(409, 'Só um pedido aceite (com o sinal pago) pode ter a obra concluída.');
     if (o.obra_concluida) throw new ErroApi(409, 'A obra já está marcada como concluída.');
     const agora = agoraIso();

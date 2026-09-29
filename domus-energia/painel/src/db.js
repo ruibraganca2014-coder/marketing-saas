@@ -9,6 +9,11 @@ import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES } f
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
+/**
+ * Pedido anonimizado pelo RGPD (conta apagada, com pagamentos pagos): sai do quadro, das listas e das contagens; só o
+ * CEO o vê (filtro "Arquivados"), e continua nos pagamentos e no CSV. Não se escolhe no painel nem se sai dele.
+ */
+export const ESTADO_ARQUIVADO = 'arquivado';
 export const ESTADOS_OBRA = ['agendada', 'em_curso', 'concluida', 'cancelada'];
 export const PAPEIS = ['ceo', 'tecnico', 'comercial'];
 export const CATEGORIAS = ['disjuntor', 'interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
@@ -305,6 +310,26 @@ export const MIGRACOES = [
     ALTER TABLE pagamentos_pedido ADD COLUMN iva_pct REAL;
     ALTER TABLE orcamentos ADD COLUMN anonimizado TEXT;       -- quando os dados pessoais saíram (RGPD); o resto fica
   `),
+  // 12 — estado "arquivado" dos pedidos anonimizados pelo RGPD (ESTADO_ARQUIVADO): recria `orcamentos` com o CHECK
+  // novo (procedimento da migração 8: mesmas colunas, dados, índices e sequência) e arquiva os já anonimizados.
+  semChaves((db) => {
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'orcamentos'").get().sql;
+    const estados = `estado TEXT NOT NULL DEFAULT 'novo' CHECK (estado IN (${lista([...ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO])}))`;
+    const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, 'CREATE TABLE orcamentos_novo')
+      .replace(/estado TEXT NOT NULL DEFAULT 'novo' CHECK \(estado IN \([^)]*\)\)/i, estados);
+    if (!novo.includes(estados)) throw new Error('migração 12: não foi possível ler o esquema de orcamentos');
+    const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'orcamentos' AND sql IS NOT NULL").all().map((x) => x.sql);
+    const seq = Math.max(db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'orcamentos'").get()?.seq ?? 0,
+      db.prepare('SELECT MAX(id) AS m FROM orcamentos').get().m ?? 0);
+    db.exec(novo);
+    db.exec('INSERT INTO orcamentos_novo SELECT * FROM orcamentos');
+    db.exec('DROP TABLE orcamentos');
+    db.exec('ALTER TABLE orcamentos_novo RENAME TO orcamentos');
+    for (const i of indices) db.exec(i);
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('orcamentos', 'orcamentos_novo')").run();
+    if (seq) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('orcamentos', ?)").run(seq);
+    db.prepare(`UPDATE orcamentos SET estado = ? WHERE anonimizado IS NOT NULL OR nome = 'Anonimizado (RGPD)'`).run(ESTADO_ARQUIVADO);
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

@@ -368,7 +368,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const sim = p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nada)' : '';
     const texto = tipo === 'pago' ? [
       'Olá,', '', `Recebemos o seu pagamento${sim}.`, '',
-      `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", dateStyle: "short", timeStyle: "short" })}`, `  Referência: ${p.ref}`, '',
+      `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`, `  Referência: ${p.ref}`, '',
       p.fase === 'relatorio' ? (p.com_visita ? 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.' : 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h).')
         : p.fase === 'sinal' ? 'A proposta está aceite. Vamos contactá-lo para marcar a instalação.' : 'A obra está paga. Obrigado!',
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',

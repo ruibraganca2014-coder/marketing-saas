@@ -107,7 +107,7 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
   - pagamento recebido (com a descrição, o valor, a data e a referência) e pagamento não concluído;
   - relatório pronto;
   - obra concluída (com o restante).
-- **RGPD.** Apagar uma conta (o CEO escreve o email da conta para confirmar) tira os pagamentos por pagar e o pedido guardado. Um pedido com pagamentos pagos **não se apaga: é anonimizado** (docs/CONTA-CLIENTE.md) e os pagamentos continuam ligados a ele, sem a conta — retenção contabilística de 10 anos.
+- **RGPD.** Apagar uma conta (o CEO escreve o email da conta para confirmar) tira os pagamentos por pagar e o pedido guardado. Um pedido com pagamentos pagos **não se apaga: é anonimizado** (docs/CONTA-CLIENTE.md) e os pagamentos continuam ligados a ele, sem a conta — retenção contabilística de 10 anos. O pedido anonimizado passa ao estado **"arquivado"** ("Arquivado (RGPD)", migração 12, que arquiva também os já anonimizados): sai do quadro, das listas e das contagens ("Pedidos de orçamento novos", por estado, visitas); só o CEO o vê, com o filtro "Arquivados" (`GET orcamentos?estado=arquivado`); continua em Pagamentos e no CSV; não muda de estado nem de dados (409), e nenhum pedido passa a arquivado à mão.
 - **Retentativas.** Tentar pagar outra vez os 19 € (falhou, cancelou, ou ainda está por pagar) não gasta o limite de 5 pedidos/h por IP de `/api/orcamento`: a conta tem uma tentativa nas últimas 24 h (limite próprio de 20/h por conta). Um pagamento por pagar da mesma conta é reaproveitado; um que falhou ou foi cancelado perde logo o pedido guardado.
 
 ## Rotas
@@ -184,7 +184,7 @@ Ainda não feito:
 - IVA: 1000 € + 23 % → sinal 350 € e restante 861 € (base e IVA no recibo, no email e no painel), a proposta mudada com o sinal por pagar, e a taxa mudada no painel (6 % → 299 €);
 - relatório em revisão, pré-visualizado pelo CEO e libertado, sem dados internos, com os preços do catálogo (não os do browser) e a lista de trabalho por ação;
 - expiração em 24 h e fora da área; retentativas sem gastar o limite por IP;
-- RGPD: pedido pago anonimizado, pagamentos ligados, lista global e CSV;
+- RGPD: pedido pago anonimizado, pagamentos ligados, lista global e CSV; pedido anonimizado = "arquivado" (fora das listas e dos novos, só o CEO, não muda) e a migração 12 (`crud.test.js`);
 - modo: sem modo nem chave → desligados; `simulado` só explícito (faixa); só a chave → stripe;
 - modo stripe: Checkout com os três métodos, `…/simular` 404 e webhook assinado (válido, inválido, repetido, sessão errada);
 - webhook 404 no modo simulado.

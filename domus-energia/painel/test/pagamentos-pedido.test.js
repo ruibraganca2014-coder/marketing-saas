@@ -110,6 +110,7 @@ describe('modo simulado', () => {
     assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes + 1);
     assert.match(p.emails.at(-1).texto, /Recebemos o seu pagamento \(SIMULAÇÃO/);
     assert.match(p.emails.at(-1).texto, new RegExp(pg2.ref));
+    assert.match(p.emails.at(-1).texto, /Data: \d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}/, 'data com o ano em 4 algarismos (hora de Lisboa)');
     // Fotos: o token vem no regresso (só para o pedido acabado de pagar) e funciona.
     const v = await ver(c, pg2.ref, '?fotos=1');
     assert.equal(v.json.pagamento.estado, 'pago');
@@ -377,6 +378,43 @@ describe('modo simulado', () => {
     assert.ok(fic.anonimizado);
     assert.equal(fic.conta, null);
     assert.equal(fic.pagamentos.filter((x) => x.estado === 'pago').length, 3);
+  });
+
+  test('RGPD: o pedido anonimizado passa a "arquivado": fora do quadro, das listas e dos novos; só o CEO o vê; não muda', async () => {
+    const c = await p.contaConfirmada();
+    const { id, ref } = await pedidoPago(c);
+    const novosAntes = (await painel('GET', 'resumo')).json.pedidos_novos;
+    const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(c.email).id;
+    const r = await painel('POST', `contas/${contaId}/apagar`, 'ceo', { email: c.email });
+    assert.equal(r.json.pedidos_anonimizados, 1, r.texto);
+    assert.equal(p.app.db.prepare('SELECT estado FROM orcamentos WHERE id = ?').get(id).estado, 'arquivado');
+    // Fora da lista normal (quadro e listas), dos novos e das contagens por estado.
+    assert.ok(!(await painel('GET', 'orcamentos')).json.orcamentos.some((o) => o.id === id));
+    assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes - 1);
+    const rc = (await painel('GET', 'resumo', 'comercial')).json;
+    assert.equal(rc.orcamentos_por_estado.arquivado, undefined);
+    assert.ok(!(await painel('GET', 'orcamentos', 'comercial')).json.orcamentos.some((o) => o.id === id));
+    // Filtro "Arquivados": só o CEO.
+    const arq = await painel('GET', 'orcamentos?estado=arquivado');
+    assert.equal(arq.estado, 200, arq.texto);
+    assert.ok(arq.json.orcamentos.some((o) => o.id === id && o.estado === 'arquivado'));
+    assert.equal((await painel('GET', 'orcamentos?estado=arquivado', 'comercial')).estado, 403);
+    assert.equal((await painel('GET', `orcamentos/${id}`)).json.estado, 'arquivado');
+    assert.equal((await painel('GET', `orcamentos/${id}`, 'comercial')).estado, 404);
+    // Não muda: nem o estado, nem os dados, nem as ações.
+    for (const corpo of [{ estado: 'novo' }, { notas: 'x' }, { nome: 'Outro' }]) {
+      const m = await painel('POST', `orcamentos/${id}`, 'ceo', corpo);
+      assert.equal(m.estado, 409, JSON.stringify(corpo));
+    }
+    assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 409);
+    assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {})).estado, 409);
+    assert.equal(p.app.db.prepare('SELECT estado FROM orcamentos WHERE id = ?').get(id).estado, 'arquivado');
+    // Nenhum pedido passa a "arquivado" à mão.
+    const outro = (await pedidoPago(await p.contaConfirmada())).id;
+    assert.equal((await painel('POST', `orcamentos/${outro}`, 'ceo', { estado: 'arquivado' })).estado, 400);
+    // Continua nos pagamentos e no CSV.
+    assert.ok((await painel('GET', 'pagamentos-pedido')).json.pagamentos.some((x) => x.orcamento_id === id && x.ref === ref));
+    assert.ok((await painel('GET', 'pagamentos-pedido?formato=csv')).texto.split('\r\n').some((x) => x.includes(ref) && x.endsWith(`;pago;${id}`)));
   });
 
   test('retentativas: pagar outra vez depois de falhar/cancelar não gasta o limite de pedidos por IP', async () => {

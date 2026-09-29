@@ -20,7 +20,7 @@ import {
 } from "./preco.js";
 import {
   SERVICOS, CHAVES_SERVICO, ACOES, CHAVES_ACAO, MAX_AVARIA, acaoOmissao, soReparacoes, precisaEscolher, temAcao,
-  perguntaInteligente, acaoDe, faltaAcao, plantaNovos,
+  perguntaInteligente, acaoDe, faltaAcao, plantaNovos, pedidoDoElemento,
 } from "./acoes.js";
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
@@ -94,6 +94,9 @@ const editor = criarEditor($("editor"), {
   },
   // Passo "Divisões": a divisão selecionada na planta fica destacada no seu cartão (e vice-versa: cartaoDivisao).
   aoSelecionar: (id) => destacarCartao(id, { rolar: !doCartao }),
+  // Anular/refazer: a mensagem da última ação ("Pusemos a nova tomada no meio de…") deixa de valer; o "Falta
+  // verificar…" e o "Marque pelo menos um aparelho avariado…" seguem a planta sozinhos (desenharDivisoes).
+  aoHistorico: () => { if (estado.passo === P.divisoes && !avisoVerificar && !avisoReparar) mensagemDivisoes(""); },
 });
 
 // ------------------------------------------------------------ gravação
@@ -1470,6 +1473,7 @@ function bloquearReparacoes() {
   if (estado.passo !== P.divisoes) irPara(P.divisoes, { foco: false });
   if (!n) {
     mensagemDivisoes("Marque pelo menos um aparelho avariado: toque em \"Reparar\" nele e diga o que se passa.", "erro");
+    avisoReparar = true;
     const alvo = document.querySelector(".acao-botoes .acao-reparar");
     alvo?.focus({ preventScroll: true });
     alvo?.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
@@ -1483,12 +1487,28 @@ function bloquearReparacoes() {
   return true;
 }
 
-/** "luzes pelo telemóvel, 2 estores automáticos" (o que entra no preço para esta divisão). */
-function resumoItens(x) {
-  const partes = ITENS_DIVISAO.filter(([k]) => quantosDe(x, k) > 0).map(([k, t]) => {
+/** Pedidos de Substituir que são aparelhos inteligentes (acoes.js pedidoDoElemento). */
+const SUBSTITUIR_INTELIGENTE = /^(interruptor_\d|tomada|estore|sensor_movimento|sensor_porta)$/;
+/**
+ * "luzes pelo telemóvel, 2 estores automáticos" (o que entra no preço para esta divisão): os Novos (`x`, a linha do
+ * pedido) e, com a divisão da planta, os que se substituem por inteligentes e as reparações (lote 7).
+ */
+function resumoItens(x, planta = null, d = null) {
+  const partes = x ? ITENS_DIVISAO.filter(([k]) => quantosDe(x, k) > 0).map(([k, t]) => {
     const n = quantosDe(x, k);
     return n > 1 && k !== "interruptores" ? `${n} ${t.toLowerCase()}` : t.toLowerCase();
-  });
+  }) : [];
+  const reparar = [];
+  if (planta && d) {
+    for (const l of linhasDivisao(planta, d)) {
+      const els = comAcao(l);
+      const s = els.filter((e) => acaoDe(e, servicos()) === "substituir" && SUBSTITUIR_INTELIGENTE.test(pedidoDoElemento(e, "substituir") ?? "")).length;
+      const r = els.filter((e) => acaoDe(e, servicos()) === "reparar").length;
+      if (s) partes.push(`${s} ${nomeLinha(l, s).toLowerCase()} por ${s === 1 ? "um inteligente" : "inteligentes"}`);
+      if (r) reparar.push(`${r} ${nomeLinha(l, r).toLowerCase()}`);
+    }
+  }
+  if (reparar.length) partes.push(`reparar ${listaPt(reparar)}`);
   return partes.length ? partes.join(", ") : "nada de inteligente, por agora";
 }
 
@@ -1543,6 +1563,8 @@ function textoFaltaVerificar(falta) {
 }
 /** A mensagem do passo é o "Falta verificar…" do Seguinte: segue as divisões (atualiza-se ou sai ao verificar). */
 let avisoVerificar = false;
+/** A mensagem é o "Marque pelo menos um aparelho avariado…" do fluxo curto: sai quando passa a haver uma avaria. */
+let avisoReparar = false;
 function atualizarAvisoVerificar() {
   if (!avisoVerificar || fluxoCurto()) return;
   const planta = plantaDivisoes();
@@ -1554,6 +1576,7 @@ function atualizarAvisoVerificar() {
 
 function mensagemDivisoes(texto, tipo = "info") {
   avisoVerificar = false;
+  avisoReparar = false;
   const m = $("divisoes-msg");
   m.textContent = texto ?? "";
   m.className = `msg ${tipo}`;
@@ -1729,6 +1752,7 @@ function desenharProgressoDivisoes(planta = plantaDivisoes()) {
   $("divisoes-progresso-caixa").hidden = !ids.length;
   if (fluxoCurto()) {
     const n = aReparar(planta).length;
+    if (n && avisoReparar) mensagemDivisoes("");
     $("divisoes-progresso").textContent = n ? `${n} ${n === 1 ? "avaria indicada" : "avarias indicadas"}` : "Ainda sem avarias: toque em \"Reparar\" no aparelho avariado.";
     barra.parentElement.hidden = true;
     return;
@@ -1783,7 +1807,9 @@ function cartaoDivisao(planta, d, nivel) {
   if (ver) topo.append(el("span", "divisao-feita", "Verificada ✓"));
   c.append(topo);
   const ent = entradaDe(d);
-  if (ent) c.append(el("p", "divisao-resumo", `No orçamento: ${resumoItens(ent)}.`));
+  if (ent || linhasDivisao(planta, d).some((l) => comAcao(l).some((e) => ["substituir", "reparar"].includes(acaoDe(e, servicos()))))) {
+    c.append(el("p", "divisao-resumo", `No orçamento: ${resumoItens(ent, planta, d)}.`));
+  }
   const linhas = linhasDivisao(planta, d);
   const ul = el("ul", "aparelhos");
   ul.setAttribute("aria-label", `Aparelhos: ${d.nome || "divisão"}`);

@@ -44,7 +44,7 @@ button.sim-passo-botao:hover { background: var(--musgo-claro); }
 .sim-progresso .feito .sim-num { border-color: var(--musgo); color: var(--musgo-texto); }
 .sim-progresso .atual .sim-num { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
 .sim-progresso .atual .sim-passo-nome { color: var(--texto); font-weight: 800; }
-@media (max-width: 719px) {
+@media not all and (min-width: 720px) {
   .sim-passo-nome { display: none; }
   .sim-progresso .atual .sim-passo-nome { display: block; position: absolute; left: -10000px; }
 }
@@ -145,7 +145,7 @@ input, select { min-height: 44px; }
 .editor-acoes .editor-pisos { order: 5; }
 .editor-acoes .btn { flex: none; min-width: 44px; padding-inline: 12px; white-space: nowrap; }
 .editor-acoes .btn:disabled { opacity: .45; cursor: not-allowed; }
-@media (max-width: 719px) {
+@media not all and (min-width: 720px) {
   .editor-acoes { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 6px; padding: 6px; }
   .editor-acoes-linha { display: flex; gap: 10px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; justify-content: safe center; padding-bottom: 2px; scrollbar-width: thin; }
   .editor-acoes :is(.editor-acoes-grupo, .editor-pisos) { flex: none; flex-wrap: nowrap; }
@@ -157,7 +157,7 @@ input, select { min-height: 44px; }
 .editor-selecao-nome { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; font-size: .9rem; color: var(--texto); }
 .editor-estado.vazia .editor-selecao-nome { font-weight: 600; color: var(--texto-suave); }
 .editor-dica { margin: 0; min-height: calc(1.4em * 2); line-height: 1.4; font-size: .88rem; font-weight: 600; color: var(--texto-suave); }
-@media (max-width: 719px) { .editor-dica { min-height: calc(1.4em * 3); } }
+@media not all and (min-width: 720px) { .editor-dica { min-height: calc(1.4em * 3); } }
 /* A planta ocupa a altura que sobra entre o topo fixo (64 px) e a barra fixa de baixo ("Anterior/Seguinte",
    ~70 px): mostrarPlanta (editor.js) encosta-a por cima da barra (scroll-margin). */
 .editor-area { --topo-fixo: 72px; --barra-fixa: 84px; scroll-margin: var(--topo-fixo) 0 var(--barra-fixa); position: relative; height: clamp(320px, calc(100dvh - var(--topo-fixo) - var(--barra-fixa)), 1100px); border: 1px solid var(--borda); border-radius: var(--raio); overflow: hidden; background: color-mix(in srgb, var(--musgo-claro) 40%, var(--fundo)); box-shadow: var(--sombra); }
@@ -368,7 +368,7 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 .quer-item > .escolha { min-height: 104px; padding-bottom: 50px; }
 .quer-item > .quer-extra { position: absolute; right: 8px; bottom: 8px; z-index: 1; }
 /* Uma coluna (telemóvel): cartões mais baixos — o espaço do contador fica em baixo, à direita da potência. */
-@media (max-width: 599px) {
+@media not all and (min-width: 600px) {
   :is(#quer-maquinas, #quer-pequenas .escolhas-grelha) { grid-auto-rows: auto; }
   .quer-item > .escolha { min-height: 0; padding: 10px 12px 12px; }
   .quer-item > .escolha > span { grid-template-rows: auto minmax(40px, auto); }
@@ -472,8 +472,8 @@ html { scroll-padding-top: 72px; }
   :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
   #divisoes .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
-@media (min-width: 1024px) and (max-width: 1199px) { #casa-tipos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 1023px) {
+@media (min-width: 1024px) and (max-width: 1199.98px) { #casa-tipos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media not all and (min-width: 1024px) {
   /* A planta só aparece aberta por cima; "Ampliar" não faz falta (já é ecrã inteiro). */
   .sim-planta:not(.aberta) { display: none; }
   .sim-planta.aberta { position: fixed; inset: 0; z-index: 60; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); overflow: hidden; }

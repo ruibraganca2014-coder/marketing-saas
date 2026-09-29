@@ -79,6 +79,30 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
   db.close();
 });
 
+test('migração 12 (arquivado): os pedidos já anonimizados pelo RGPD passam a "arquivado"; o resto, os ids e a sequência ficam', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA foreign_keys = OFF');
+  for (const m of MIGRACOES.slice(0, 11)) m(db);
+  db.exec('PRAGMA foreign_keys = ON; PRAGMA user_version = 11');
+  const ins = db.prepare(`INSERT INTO orcamentos (criado, atualizado, nome, servico, estado, anonimizado) VALUES ('2026-01-01', '2026-01-01', ?, 'S', ?, ?)`);
+  ins.run('Cliente', 'novo', null);
+  ins.run('Anonimizado (RGPD)', 'aceite', '2026-09-29T14:14:08Z');
+  ins.run('Anonimizado (RGPD)', 'novo', null);
+  ins.run('Apagado', 'novo', null);
+  db.prepare('DELETE FROM orcamentos WHERE id = 4').run();
+  db.prepare(`INSERT INTO pagamentos_pedido (ref, orcamento_id, fase, valor_cent, descricao, estado, modo, retorno, criado, atualizado, expira)
+    VALUES ('pp_x', 2, 'relatorio', 1900, 'R', 'pago', 'simulado', 'simulador', 'x', 'x', 0)`).run();
+  migrar(db);
+  assert.equal(versaoEsquema(db), MIGRACOES.length);
+  assert.deepEqual(db.prepare('SELECT id, estado FROM orcamentos ORDER BY id').all().map((o) => [o.id, o.estado]), [[1, 'novo'], [2, 'arquivado'], [3, 'arquivado']]);
+  assert.equal(db.prepare('SELECT orcamento_id FROM pagamentos_pedido WHERE ref = ?').get('pp_x').orcamento_id, 2, 'os pagamentos continuam ligados');
+  assert.equal(Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, nome, servico) VALUES ('x', 'x', 'Novo', 'S')`).run().lastInsertRowid), 5, 'o id 4 (apagado) não volta');
+  assert.throws(() => db.prepare("UPDATE orcamentos SET estado = 'xyz' WHERE id = 1").run(), /CHECK/);
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
+  assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'orcamentos_conta'").get(), 'índices refeitos');
+  db.close();
+});
+
 test('migração 3 (catálogo do quadro): base existente recebe os artigos novos sem duplicar nem mudar preços editados', () => {
   const db = new DatabaseSync(':memory:');
   // Base "antiga": só as migrações 1 e 2, com o CEO a mudar um preço e a criar à mão um SKU que a migração 3 também traz.

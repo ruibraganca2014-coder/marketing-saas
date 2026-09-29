@@ -20,6 +20,7 @@ import { hashSenha, verificarSenha, problemaSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, deCent } from './util.js';
 import { RE_ID_FOTO } from './fotos.js';
+import { ESTADO_ARQUIVADO } from './db.js';
 
 export const COOKIE_CONTA = 'domus_conta';
 const RE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -706,9 +707,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
-          conta_id = NULL, anonimizado = ?, atualizado = ? WHERE id = ?`).run(agora, agora, id);
+          conta_id = NULL, anonimizado = ?, estado = ?, atualizado = ? WHERE id = ?`).run(agora, ESTADO_ARQUIVADO, agora, id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
-        auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
+        auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { estado: ESTADO_ARQUIVADO, pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
       }
       db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`conta:${c.id}`);
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`conta:${c.id}`);

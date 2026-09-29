@@ -30,6 +30,8 @@ export const PAPEIS = { ceo: "CEO", tecnico: "Técnico", comercial: "Comercial" 
 export const PLANOS = { base: "Base", conforto: "Conforto", premium: "Premium" };
 export const ESTADOS_CLIENTE = { ativo: "Ativo", teste: "Em teste", em_atraso: "Em atraso", suspenso: "Suspenso", cancelado: "Cancelado", sem_plano: "Sem plano", pendente: "A criar" };
 export const ESTADOS_ORC = { novo: "Novo", contactado: "Contactado", visita_marcada: "Visita marcada", proposta_enviada: "Proposta enviada", aceite: "Aceite", perdido: "Perdido" };
+/** Os estados e o dos pedidos anonimizados pelo RGPD (fora do quadro e da escolha do estado: só o filtro do CEO). */
+export const NOMES_ESTADO_ORC = { ...ESTADOS_ORC, arquivado: "Arquivado (RGPD)" };
 export const ESTADOS_OBRA = { agendada: "Agendada", em_curso: "Em curso", concluida: "Concluída", cancelada: "Cancelada" };
 export const KITS = { essencial: { nome: "Essencial", horas: 3 }, conforto: { nome: "Conforto", horas: 7 }, premium: { nome: "Segurança Premium", horas: 10 } };
 export const GRAVIDADES = { critica: "Crítica", alta: "Alta", media: "Média", baixa: "Baixa" };

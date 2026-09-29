@@ -482,7 +482,9 @@ export const avisosEstado = (estado, circuitos = estado.quadro.circuitos) => {
   const existentes = n.manter + n.reparar + n.substituir;
   return [
     ...avisosQuadro(circuitos, opcoesAvisos(estado)),
-    ...(quadroNoPedido({ ...estado, servico }) ? avisosProtecoes({ casa: estado.casa, quadro: { ...estado.quadro, circuitos } }) : []),
+    // O estado todo (serviço, mexerQuadro, planta, divisões): o mesmo resumoQuadro que dá os artigos do preço
+    // (preco.js pedidosQuadro) — os disjuntores dos circuitos que já existem e o tamanho da caixa.
+    ...(quadroNoPedido({ ...estado, servico }) ? avisosProtecoes({ ...estado, servico, quadro: { ...estado.quadro, circuitos } }) : []),
     ...(existentes ? [`${existentes} ${existentes === 1 ? "aparelho fica" : "aparelhos ficam"} nos circuitos que já existem (manter, reparar ou substituir): só os novos têm circuitos novos. Confirmar o estado desses circuitos e a proteção diferencial${FIM_AVISO}`] : []),
   ];
 };
@@ -506,6 +508,8 @@ export function quadroParaEnvio(estado, circuitos) {
     // null (o mesmo valor que dava "O quadro elétrico é antigo?" do lote 4: Sim / Não / Não sei).
     quadro_antigo: r.quadro_novo === "novo" ? true : r.quadro_novo === "atual" ? false : null,
     quadro_novo_no_preco: levaQuadroNovo(q),
+    // Automatizar/reparar com quadro novo: disjuntores dos circuitos que a casa já tem (estimativa; §0 lote 7).
+    circuitos_existentes: r.circuitos_existentes,
     diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi, quadro: g.quadro })),
     modulos: { tamanho: r.tamanho, quadros: r.quadros, parciais: r.parciais, tamanho_parcial: r.parciais ? TAMANHO_PARCIAL : null, pisos_quadros: [...r.pisos_quadros], ocupados: r.ocupados, livres: r.livres, cabe: r.cabe, novos: r.novos, linhas: r.linhas.map((l) => ({ nome: l.nome, qtd: l.qtd, modulos: l.modulos })) },
     potencia_sugerida_kva: r.potencia.kva,

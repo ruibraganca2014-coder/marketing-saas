@@ -130,6 +130,29 @@ test('automatizar + quadro novo: um disjuntor 1P+N por circuito que a casa já t
   assert.equal(existentesNoQuadroNovo(e), 0, 'com Instalação nova os circuitos são todos novos');
 });
 
+test('pedido de automatizar/reparar com quadro: avisos e circuitos_existentes pelo mesmo cálculo dos artigos', () => {
+  const d = (id, nome, piso = 0) => ({ id, nome, piso, x_cm: 0, y_cm: 0, largura_cm: 300, altura_cm: 300 });
+  const pl = { escala_cm: 50, largura_cm: 2000, altura_cm: 1500, fundo: null, respostas: true, elementos: [],
+    divisoes: [d('d1', 'Sala'), d('d2', 'Quarto'), d('d3', 'Quarto 2'), d('d4', 'Corredor'), d('d5', 'Cozinha'), d('d6', 'Casa de banho'), d('d7', 'Quarto 3', 1)] };
+  for (const servico of [['automatizar'], ['reparar']]) {
+    const e = estadoNovo();
+    e.servico = servico;
+    e.planta = pl;
+    e.mexerQuadro = true;
+    e.quadro.quadro_novo = null;   // "Não sei": o aviso diz o tamanho do quadro novo incluído
+    e.quadro.circuitos = [];
+    const pedidos = pedidosDaSelecao(e);
+    const caixa = pedidos.find((x) => x.grupo === 'quadro' && /^caixa_\d+$/.test(x.chave));
+    const sim = montarSimulacao(e, calcularPreco(pedidos, CATALOGO, null), 'base', []);
+    assert.equal(sim.quadro.circuitos_existentes, 7, 'simulacao.quadro leva circuitos_existentes');
+    assert.ok(sim.avisos.some((a) => /Quadro novo com os circuitos que a casa já tem: contámos 7/.test(a)), servico.join());
+    const aviso = sim.avisos.find((a) => /quadro novo de \d+ módulos/.test(a));
+    assert.ok(aviso && caixa, 'aviso e caixa do quadro');
+    assert.equal(Number(aviso.match(/quadro novo de (\d+) módulos/)[1]), Number(caixa.chave.slice(6)), 'o aviso diz a caixa do preço');
+    assert.equal(sim.quadro.modulos.tamanho, Number(caixa.chave.slice(6)));
+  }
+});
+
 test('estados antigos: 6 passos → 7 (tudo +1), sem serviço = Instalação nova; ações da planta guardadas', () => {
   assert.equal(PASSOS.length, 7);
   assert.equal(PASSOS[0], 'Serviço');

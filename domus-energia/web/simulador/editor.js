@@ -134,8 +134,9 @@ function numeroInput(valor, { min, max, step = 1, id }) {
  * @param {HTMLElement} raiz
  * @param {{aoMudar: (planta: object) => void, anunciar?: (texto: string) => void, aoSelecionar?: (divisao: string|null) => void}} opcoes
  *   `aoSelecionar`: a divisão selecionada mudou (a do elemento selecionado; null sem seleção) — o passo Divisões destaca o cartão.
+ *   `aoHistorico`: depois de anular ou refazer (o passo Divisões tira a mensagem da ação que deixou de valer).
  */
-export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null, aoHistorico = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -652,6 +653,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       nDivisoesVista = -1;   // a vista ajusta-se ao piso que voltou (confirmar)
     }
     confirmar(`${texto}${nPisos() > 1 ? ` (${nomePiso(pisoAtual)})` : ""}`);
+    aoHistorico?.();
   }
   const existe = (id) => planta.divisoes.some((d) => d.id === id) || planta.elementos.some((e) => e.id === id);
   const obterDivisao = (id) => planta.divisoes.find((d) => d.id === id);
@@ -1323,6 +1325,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       else if (selecionado) { ev.preventDefault(); selecionado = null; desenharTudo(); }
     }
   });
+  // Esc com o foco na linha das ferramentas ou na barra das ações (logo depois de escolher a ferramenta): cancela-a,
+  // como na planta ("Esc cancela"); sem ferramenta, segue (fecha a planta aberta por cima, app.js).
+  for (const barra of [fila, acoes]) {
+    barra.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && modo) { ev.preventDefault(); definirModo(null); }
+    });
+  }
   raiz.addEventListener("keydown", (ev) => {
     if (!(ev.ctrlKey || ev.metaKey) || ev.target.matches?.("input, textarea, select") || dialogo.open || dlgMais.open) return;
     const k = ev.key.toLowerCase();

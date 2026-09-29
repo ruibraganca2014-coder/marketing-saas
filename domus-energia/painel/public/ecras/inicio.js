@@ -67,7 +67,7 @@ export default function inicio(el, ctx) {
           h("span", { class: "ajuda", text: campo(o, "valor_proposta") != null ? `${euros(campo(o, "valor_proposta"))} + IVA` : "" })))))));
     }
     const pendentes = campo(r, "pedidos_admin_pendentes");
-    if (pendentes !== undefined && numero(pendentes) > 0) kpi("Pedidos ao servidor por aplicar", num(pendentes), { ajuda: "Clientes, aparelhos ou planos à espera do servidor" });
+    if (pendentes !== undefined && numero(pendentes) > 0) kpi("Pedidos ao servidor por aplicar", num(pendentes), { ajuda: "De toda a equipa: clientes, aparelhos ou planos à espera do servidor (a faixa no topo mostra só os seus)" });
 
     // Distribuições (clientes por plano/estado, pedidos por estado)
     const cli = campo(r, "clientes");

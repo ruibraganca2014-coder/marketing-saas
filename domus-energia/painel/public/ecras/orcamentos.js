@@ -5,7 +5,7 @@
 // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): 19 €, sinal e restante com o estado; "Libertar relatório ao
 // cliente" (CEO); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída" (restante na conta).
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
-import { h, ESTADOS_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
+import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
 import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto } from "./simulacao.js";
 
@@ -25,19 +25,20 @@ const paraInput = (v) => {
 export default function orcamentos(el, ctx) {
   const ctrl = new AbortController();
   let todos = [];
+  let arquivados = null;   // pedidos arquivados (RGPD): só com o filtro "Arquivados" (CEO), pedidos à parte
   let ficha = null;
   let vista = ler() ?? (matchMedia("(min-width: 960px)").matches ? "quadro" : "lista");
 
   const bQuadro = h("button", { class: "segmento", type: "button", text: "Quadro", "aria-pressed": "false", onclick: () => mudarVista("quadro") });
   const bLista = h("button", { class: "segmento", type: "button", text: "Lista", "aria-pressed": "false", onclick: () => mudarVista("lista") });
-  const fEstado = escolha("estado", { "": "Todos os estados", ...ESTADOS_ORC }, "", { "aria-label": "Filtrar por estado" });
+  const fEstado = escolha("estado", { "": "Todos os estados", ...ESTADOS_ORC, ...(ctx.pode("ceo") ? { arquivado: "Arquivados (RGPD)" } : {}) }, "", { "aria-label": "Filtrar por estado" });
   const fTexto = h("input", { type: "search", name: "procurar", placeholder: "Procurar nome ou localidade", "aria-label": "Procurar pedido", maxlength: "80" });
   const contagem = h("p", { class: "ajuda", role: "status" });
   const zona = h("div", { class: "zona-orcamentos" }, carregando());
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Orçamentos" }), h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar como" }, bQuadro, bLista)),
     h("div", { class: "filtros" }, fTexto, fEstado), contagem, zona);
-  fEstado.addEventListener("change", desenhar);
+  fEstado.addEventListener("change", () => { if (fEstado.value === "arquivado" && !arquivados) carregarArquivados(); else desenhar(); });
   fTexto.addEventListener("input", desenhar);
 
   function mudarVista(v) { vista = v; gravar(v); desenhar(); }
@@ -48,18 +49,27 @@ export default function orcamentos(el, ctx) {
     desenhar();
   }
 
+  /** Os arquivados (RGPD) não vêm na lista normal: GET orcamentos?estado=arquivado (só CEO). */
+  async function carregarArquivados() {
+    zona.replaceChildren(carregando());
+    try { arquivados = lista(await pedir("orcamentos?estado=arquivado", { sinal: ctrl.signal }), "orcamentos", "pedidos"); }
+    catch (e) { if (e.name !== "AbortError") zona.replaceChildren(erroEcra(e, carregarArquivados)); return; }
+    desenhar();
+  }
+
   function desenhar() {
     bQuadro.setAttribute("aria-pressed", String(vista === "quadro"));
     bLista.setAttribute("aria-pressed", String(vista === "lista"));
     fEstado.hidden = vista === "quadro";
     const t = fTexto.value.trim().toLowerCase();
-    const vis = todos
+    const verArquivados = vista === "lista" && fEstado.value === "arquivado";
+    const vis = (verArquivados ? arquivados ?? [] : todos)
       .filter((o) => !t || [campo(o, "nome"), campo(o, "localidade"), campo(o, "servico")].some((v) => String(v ?? "").toLowerCase().includes(t)))
       .filter((o) => vista === "quadro" || !fEstado.value || campo(o, "estado") === fEstado.value)
       .sort((a, b) => String(campo(b, "criado", "criado_em") ?? "").localeCompare(String(campo(a, "criado", "criado_em") ?? "")));
     const novos = todos.filter((o) => campo(o, "estado") === "novo").length;
     contagem.textContent = `${vis.length} ${vis.length === 1 ? "pedido" : "pedidos"}${novos ? ` · ${novos} ${novos === 1 ? "novo" : "novos"}` : ""}`;
-    if (!todos.length) { zona.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pedidos de orçamento." })); return; }
+    if (!todos.length && !verArquivados) { zona.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pedidos de orçamento." })); return; }
     if (vista === "quadro") {
       zona.replaceChildren(h("div", { class: "quadro", id: "quadro-orcamentos" }, ...Object.entries(ESTADOS_ORC).map(([k, nome]) => {
         const col = vis.filter((o) => (campo(o, "estado") ?? "novo") === k);
@@ -79,7 +89,7 @@ export default function orcamentos(el, ctx) {
     return h("li", {}, h("a", { class: "linha cartao-orc", href: `#/orcamentos/${encodeURIComponent(id)}`, dataset: { id } },
       h("span", { class: "linha-principal" }, h("strong", { text: txt(o, "nome") }), h("span", { class: "ajuda", text: `${txt(o, "servico")} · ${txt(o, "localidade")}` })),
       h("span", { class: "linha-selos" },
-        comEstado ? selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`) : null,
+        comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -121,6 +131,7 @@ export default function orcamentos(el, ctx) {
       return;
     }
     const estado = campo(o, "estado") ?? "novo";
+    const arquivado = estado === "arquivado";
     j.titulo.textContent = txt(o, "nome");
     const tel = campo(o, "telefone"), email = campo(o, "email");
     const contactos = h("div", { class: "form-botoes" },
@@ -129,7 +140,7 @@ export default function orcamentos(el, ctx) {
       simulacaoDe(o) || campo(o, "tem_simulacao") === true
         ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
     const partes = [
-      h("div", { class: "linha-selos" }, selo(ESTADOS_ORC[estado] ?? estado, `orc-${estado}`),
+      h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
@@ -145,12 +156,12 @@ export default function orcamentos(el, ctx) {
       partes.push(h("section", { class: "fotos-pedido", id: "fotos-pedido" },
         h("h3", { text: `Fotos do cliente (${fotos.length})` }),
         h("p", { class: "ajuda", text: "Enviadas pelo cliente (no simulador ou na conta). Toque numa foto para a ver inteira." }),
-        galeriaFotos(id, fotos, { aoApagar: (f, b) => apagarFoto(j, id, f, b) })));
+        galeriaFotos(id, fotos, { aoApagar: arquivado ? null : (f, b) => apagarFoto(j, id, f, b) })));
     }
     const plano = campo(o, "plano_escolhido") ? ` Plano mensal escolhido: ${PLANOS_NOME[campo(o, "plano_escolhido")] ?? campo(o, "plano_escolhido")}.` : "";
     if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
     else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
-    partes.push(...blocoPagamentos(j, o));
+    partes.push(...blocoPagamentos(j, o, arquivado));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
@@ -169,6 +180,15 @@ export default function orcamentos(el, ctx) {
       campoForm("Notas", h("textarea", { name: "notas", maxlength: "4000", rows: "4" }, campo(o, "notas") ?? "")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar" })),
       msg);
+    if (arquivado) {
+      // Arquivado (RGPD): só leitura — nem o estado nem os dados mudam (o servidor recusa).
+      partes.push(h("p", { class: "msg info bloco", id: "pedido-arquivado", text: "Pedido arquivado (RGPD): fica só para a contabilidade (pagamentos e CSV); não se muda o estado nem os dados." }));
+      const hist = lista(campo(o, "historico") ?? [], "historico");
+      if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
+        h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x, sim) })))));
+      j.corpo.replaceChildren(...partes);
+      return;
+    }
     const mostrarMotivo = () => { motivo.hidden = sEstado.value !== "perdido"; };
     sEstado.addEventListener("change", mostrarMotivo); mostrarMotivo();
     f.addEventListener("submit", async (e) => {
@@ -227,7 +247,7 @@ export default function orcamentos(el, ctx) {
   }
 
   /** Pagamentos do pedido, relatório para o cliente (CEO liberta) e fim da obra. */
-  function blocoPagamentos(j, o) {
+  function blocoPagamentos(j, o, arquivado = false) {
     const id = String(campo(o, "id"));
     const pags = lista(campo(o, "pagamentos") ?? [], "pagamentos");
     const out = [];
@@ -243,7 +263,7 @@ export default function orcamentos(el, ctx) {
         if (ficha?.j === j) desenharFicha(j, novo);
       } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
     };
-    if (sim) {
+    if (sim && !arquivado) {
       // O CEO vê primeiro o que o cliente vai ver (lista de trabalho, material e preços do catálogo) e depois liberta.
       if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "previa-relatorio-cliente", text: "Pré-visualizar versão do cliente",
         onclick: (e) => previaRelatorio(id, e.currentTarget) }));
@@ -257,7 +277,8 @@ export default function orcamentos(el, ctx) {
     if (vp && typeof vp === "object") {
       out.unshift(h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (30 % menos ${euros(vp.relatorio)} já pagos) · restante ${euros(vp.restante)}.` }));
     }
-    if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
+    if (arquivado) { /* sem ações: o pedido não muda */ }
+    else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
       acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
         onclick: (e) => acao(e.currentTarget, "obra-concluida", "Obra concluída: o cliente pode pagar o restante na conta.") }));
     } else if (campo(o, "obra_concluida")) out.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));
@@ -374,6 +395,13 @@ export default function orcamentos(el, ctx) {
   }
 
   function substituir(novo, redesenhar = true) {
+    // Um arquivado (RGPD) nunca entra na lista normal (nem no quadro): só na dos arquivados, se já foi carregada.
+    if (campo(novo, "estado") === "arquivado") {
+      const k = arquivados?.findIndex((x) => String(campo(x, "id")) === String(campo(novo, "id"))) ?? -1;
+      if (k >= 0) arquivados[k] = { ...arquivados[k], ...novo };
+      if (redesenhar) desenhar();
+      return;
+    }
     const i = todos.findIndex((x) => String(campo(x, "id")) === String(campo(novo, "id")));
     if (i >= 0) todos[i] = { ...todos[i], ...novo }; else todos.push(novo);
     if (redesenhar) desenhar();
@@ -466,7 +494,7 @@ function textoHistorico(x, sim) {
   const partes = [ACOES[acao] ?? (acao.replace(/_/g, " ") || "—")];
   if (d && typeof d === "object") {
     if (acao === "foto_apagada" && typeof d.chave === "string" && d.chave) partes[0] = `Foto apagada: ${nomeFotoChave(d.chave, sim)}`;
-    if (d.estado) partes.push(`estado: ${ESTADOS_ORC[d.estado] ?? d.estado}`);
+    if (d.estado) partes.push(`estado: ${NOMES_ESTADO_ORC[d.estado] ?? d.estado}`);
     if (d.data_visita) partes.push(`visita: ${data(d.data_visita)}`);
     if (d.valor_proposta != null) partes.push(`proposta: ${euros(d.valor_proposta)}`);
     if (d.cliente) partes.push(`cliente: ${d.cliente}`);
