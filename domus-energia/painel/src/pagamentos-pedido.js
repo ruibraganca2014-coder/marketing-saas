@@ -368,7 +368,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const sim = p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nada)' : '';
     const texto = tipo === 'pago' ? [
       'Olá,', '', `Recebemos o seu pagamento${sim}.`, '',
-      `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${p.pago}`, `  Referência: ${p.ref}`, '',
+      `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", dateStyle: "short", timeStyle: "short" })}`, `  Referência: ${p.ref}`, '',
       p.fase === 'relatorio' ? (p.com_visita ? 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.' : 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h).')
         : p.fase === 'sinal' ? 'A proposta está aceite. Vamos contactá-lo para marcar a instalação.' : 'A obra está paga. Obrigado!',
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
@@ -695,7 +695,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   // Página simulada: só no modo simulado (no modo stripe responde como se não existisse).
   h.simular = async ({ req, res, c, m, ip }) => {
-    if (modo !== 'simulado') throw new ErroApi(404, 'Endereço desconhecido.');
+    if (!config.pagamentoPedido || modo !== 'simulado') throw new ErroApi(404, 'Endereço desconhecido.');
     const v = await lerJson(req, ['resultado']);
     const resultado = opcao(v.resultado, 'resultado', ['sucesso', 'falha', 'cancelar']);
     expirar();
@@ -721,6 +721,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   };
 
   h.pagar = async ({ req, res, c, m }) => {
+    if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
     const v = await lerJson(req, ['fase']);
     const fase = opcao(v.fase, 'fase', ['sinal', 'restante']);
     const o = pedidoDaConta(c, m[1]);

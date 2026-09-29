@@ -48,7 +48,7 @@ export function booleano(v, rotulo) {
 
 export function opcao(v, rotulo, opcoes, { obrigatorio = true } = {}) {
   if ((v === undefined || v === null || v === '') && !obrigatorio) return null;
-  if (!opcoes.includes(v)) falha(`${maiuscula(rotulo)} inválido (use: ${opcoes.join(', ')}).`);
+  if (!opcoes.includes(v)) falha(`Valor inválido em ${rotulo} (use: ${opcoes.join(', ')}).`);
   return v;
 }
 

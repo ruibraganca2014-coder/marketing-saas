@@ -304,7 +304,7 @@ function desenharRelatorio(r) {
     if (d.material.length) out.push(tabelaMaterial(d.material));
   }
   if (r.geral.material.length) out.push(el("h5", null, `${r.geral.titulo} — ${euro(r.geral.total)}`), tabelaMaterial(r.geral.material));
-  if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${r.mao_obra.horas} h)` : ""}: ${euro(r.mao_obra.valor)}`));
+  if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${String(r.mao_obra.horas).replace(".", ",")} h)` : ""}: ${euro(r.mao_obra.valor)}`));
   if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}`));
   out.push(el("p", "valor num", `Total estimado: ${euro(r.total)}`), el("p", "ajuda", r.nota));
   return out;

@@ -302,7 +302,7 @@ export default function orcamentos(el, ctx) {
     const g = campo(rel, "geral");
     if (g && lista(campo(g, "material") ?? [], "material").length) partes.push(h("h3", { text: `${txt(g, "titulo")} — ${euros(campo(g, "total"))}` }), tabela(campo(g, "material")));
     const mo = campo(rel, "mao_obra");
-    if (mo) partes.push(h("p", { text: `Mão de obra${campo(mo, "horas") ? ` (cerca de ${campo(mo, "horas")} h)` : ""}: ${euros(campo(mo, "valor"))}` }));
+    if (mo) partes.push(h("p", { text: `Mão de obra${campo(mo, "horas") ? ` (cerca de ${String(campo(mo, "horas")).replace(".", ",")} h)` : ""}: ${euros(campo(mo, "valor"))}` }));
     if (campo(rel, "deslocacao") != null) partes.push(h("p", { text: `Deslocação: ${euros(campo(rel, "deslocacao"))}` }));
     partes.push(h("p", { class: "valor num", text: `Total estimado: ${euros(campo(rel, "total"))}` }), h("p", { class: "ajuda", text: txt(rel, "nota") }));
     j.corpo.append(...partes);
