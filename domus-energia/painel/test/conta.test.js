@@ -235,6 +235,25 @@ describe('conta de cliente', () => {
     assert.equal((await conta('POST', 'repor', { corpo: { email: 'ip-fim@exemplo.pt', codigo: '123456', password: nova }, ip })).estado, 429);
   });
 
+  test('criar com o email de outra pessoa: só 1 aviso "já tem conta" por hora e não gasta a quota do "Esqueci"', async () => {
+    const { email: e } = await p.contaConfirmada(email());
+    const antes = p.emails.length;
+    // Mais 2 "criar" (o 1.º foi o da própria conta: 3/hora por email) com outra palavra-passe, de IPs diferentes.
+    for (let i = 1; i <= 2; i++) {
+      assert.equal((await conta('POST', 'criar', { corpo: { email: e, password: 'outra-palavra-passe' }, ip: `203.0.113.${i}` })).estado, 201);
+    }
+    assert.equal(p.emails.length, antes + 1, 'só 1 aviso por hora');
+    assert.match(p.emails.at(-1).texto, /já existe uma conta/);
+    // O dono da conta continua a conseguir repor a palavra-passe (3 códigos por hora, quota própria).
+    for (let i = 1; i <= 3; i++) {
+      assert.equal((await conta('POST', 'esqueci', { corpo: { email: e }, ip: `203.0.113.${10 + i}` })).estado, 200);
+      assert.equal(p.emails.length, antes + 1 + i, `código de repor n.º ${i}`);
+      assert.match(p.codigo(e), /^\d{6}$/);
+    }
+    assert.equal((await conta('POST', 'esqueci', { corpo: { email: e }, ip: '203.0.113.20' })).estado, 200);
+    assert.equal(p.emails.length, antes + 4, 'acima de 3/hora, em silêncio');
+  });
+
   test('POST /api/orcamento: com simulação exige sessão com email confirmado; pedido ligado à conta; sem simulação não', async () => {
     const corpo = { nome: 'Sem Conta', telefone: '912 000 222', servico: 'Casa inteligente', simulacao: SIM };
     assert.equal((await p.pedir('POST', '/api/orcamento', { corpo })).estado, 401);

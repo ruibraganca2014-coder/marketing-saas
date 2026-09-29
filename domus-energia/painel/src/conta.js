@@ -125,7 +125,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Entrar: por IP e por par email+IP; por email só um travão alto (um terceiro não consegue bloquear a conta).
     entrarIp: lim(10, 60_000), entrarPar: lim(5, 60_000), entrarEmail: lim(50, 3600_000),
     codigoIp: lim(20, 3600_000), reporEmail: lim(10, 3600_000),
-    emailEnvio: lim(3, 3600_000), emailIp: lim(10, 3600_000),
+    // Emails por email, com quotas separadas: um terceiro que chama "criar" com o email de outra pessoa não gasta a
+    // quota do "Esqueci" (código de repor) e só faz chegar 1 aviso "já tem conta" por hora.
+    emailEnvio: lim(3, 3600_000), reporEnvio: lim(3, 3600_000), avisoConta: lim(1, 3600_000), emailIp: lim(10, 3600_000),
     esqueciIp: lim(5, 3600_000),
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
@@ -280,20 +282,18 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     esperar([[L.criarIp, ip], [L.criarEmail, email]]);
     contar([[L.criarIp, ip], [L.criarEmail, email]]);
     const existe = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
-    const podeEnviar = !L.emailEnvio.espera(email);   // 3 emails por hora por email; acima disso, em silêncio
-    if (podeEnviar) L.emailEnvio.registar(email);
+    // Acima de cada quota, em silêncio (a resposta é a mesma): códigos de confirmar 3/hora por email; avisos 1/hora.
+    const pode = (l) => { if (l.espera(email)) return false; l.registar(email); return true; };
     if (!existe) {
       const agora = agoraIso();
       const id = Number(db.prepare('INSERT INTO contas (email, hash, criado, atualizado) VALUES (?, ?, ?, ?)')
         .run(email, await hashSenha(v.password), agora, agora).lastInsertRowid);
       auditar(quem({ id }), 'conta_criada', `conta:${id}`, null, ip);
-      if (podeEnviar) enviarCodigo(email, 'confirmar', novoCodigo(id, 'confirmar'));
+      if (pode(L.emailEnvio)) enviarCodigo(email, 'confirmar', novoCodigo(id, 'confirmar'));
     } else {
       const mesma = await verificarSenha(v.password, existe.hash);   // scrypt nos dois casos: tempo parecido
-      if (podeEnviar) {
-        if (mesma && existe.ativo && !existe.confirmado) enviarCodigo(email, 'confirmar', novoCodigo(existe.id, 'confirmar'));
-        else enviarAvisoConta(email);
-      }
+      if (mesma && existe.ativo && !existe.confirmado) { if (pode(L.emailEnvio)) enviarCodigo(email, 'confirmar', novoCodigo(existe.id, 'confirmar')); }
+      else if (pode(L.avisoConta)) enviarAvisoConta(email);
     }
     responder(res, 201, { ok: true, email, mensagem: 'Enviámos um código para o email. Veja também o correio não desejado (spam).' });
   };
@@ -396,8 +396,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     esperar([[L.esqueciIp, ip]]);
     contar([[L.esqueciIp, ip]]);
     const c = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
-    if (c && c.ativo && !L.emailEnvio.espera(email)) {
-      L.emailEnvio.registar(email);
+    // Quota própria (3/hora por email): "criar" e "reenviar" não a gastam.
+    if (c && c.ativo && !L.reporEnvio.espera(email)) {
+      L.reporEnvio.registar(email);
       enviarCodigo(c.email, 'repor', novoCodigo(c.id, 'repor'));
       auditar(quem(c), 'conta_repor_pedido', `conta:${c.id}`, null, ip);
     }

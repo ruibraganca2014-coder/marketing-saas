@@ -759,7 +759,9 @@ function desenharExtraQuer(k) {
       agendarGravacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
-      $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`)?.focus();
+      // No mínimo (1) ou no máximo o botão carregado fica desativado: o foco passa para o outro (não cai no body).
+      const mesmo = $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`);
+      (mesmo && !mesmo.disabled ? mesmo : $(`quer-qtd-${k}-${d > 0 ? "menos" : "mais"}`))?.focus();
     });
     return b;
   };
@@ -858,26 +860,66 @@ function desenharPlantaOrigem() {
   const mudou = plantaDesatualizada();
   o.hidden = !mudou;
   o.textContent = mudou ? "Mudou a casa ou as máquinas depois de mexer na planta: mantivemos a sua." : "";
+  o.title = o.textContent;   // numa linha (compacta): o texto todo ao passar o rato
   $("planta-refazer").hidden = !mudou;
 }
 
-// Telemóvel: a planta do topo esconde-se e mostra-se com um botão (no computador está sempre à vista).
-function recolherPlanta(sim) {
-  $("sim-planta").classList.toggle("recolhida", sim);
-  const b = $("planta-recolher");
-  b.textContent = sim ? "Mostrar" : "Esconder";
-  b.setAttribute("aria-expanded", String(!sim));
-  b.setAttribute("aria-label", sim ? "Mostrar a planta" : "Esconder a planta");
+/*
+ * Onde está a planta (decisão do dono): no computador (≥ 1024 px) na coluna da direita, sempre à vista (CSS); no
+ * telemóvel e no tablet abre-se por cima das perguntas, em ecrã inteiro ("Ver planta", ou o "+" das Divisões), como
+ * uma janela: foco preso nela, Esc ou "Fechar" fecham-na, e o foco e o scroll voltam ao sítio de onde se veio.
+ */
+const ecraLargo = matchMedia("(min-width: 1024px)");
+let plantaVolta = null;   // { id, el, y }: para onde volta o foco (e o scroll) ao fechar
+const plantaAberta = () => $("sim-planta").classList.contains("aberta");
+function abrirPlanta(origem = document.activeElement) {
+  if (ecraLargo.matches || plantaAberta() || $("sim-planta").hidden) return false;
+  plantaVolta = { id: origem?.id || null, el: origem, y: scrollY };
+  const s = $("sim-planta");
+  s.classList.add("aberta");
+  s.setAttribute("role", "dialog");
+  s.setAttribute("aria-modal", "true");
+  document.documentElement.classList.add("planta-aberta");
+  $("ver-planta").setAttribute("aria-expanded", "true");
+  s.querySelector(".editor-svg")?.focus({ preventScroll: true });
+  return true;
 }
-recolherPlanta(false);
-$("planta-recolher").addEventListener("click", () => recolherPlanta(!$("sim-planta").classList.contains("recolhida")));
-// A planta presa no topo não pode tapar o que tem o foco: a altura dela entra no scroll-padding da página (CSS).
-if (typeof ResizeObserver === "function") {
-  new ResizeObserver(() => {
-    const t = $("sim-planta");
-    document.documentElement.style.setProperty("--planta-altura", `${t.hidden ? 0 : Math.round(t.getBoundingClientRect().height)}px`);
-  }).observe($("sim-planta"));
+function fecharPlanta({ foco = true } = {}) {
+  if (!plantaAberta()) return;
+  const s = $("sim-planta");
+  s.classList.remove("aberta");
+  s.removeAttribute("role");
+  s.removeAttribute("aria-modal");
+  document.documentElement.classList.remove("planta-aberta");
+  $("ver-planta").setAttribute("aria-expanded", "false");
+  const v = plantaVolta;
+  plantaVolta = null;
+  if (!v) return;
+  scrollTo(scrollX, v.y);
+  if (!foco) return;
+  // O "+" das Divisões pode ter sido redesenhado entretanto: procura-o pela id.
+  const alvo = [v.el?.isConnected ? v.el : null, v.id ? $(v.id) : null, $("ver-planta")].find((x) => x && x.getClientRects().length);
+  alvo?.focus({ preventScroll: true });
 }
+$("ver-planta").addEventListener("click", (ev) => abrirPlanta(ev.currentTarget));
+$("planta-fechar").addEventListener("click", () => fecharPlanta());
+ecraLargo.addEventListener("change", () => { if (ecraLargo.matches) fecharPlanta({ foco: false }); });
+document.addEventListener("keydown", (ev) => {
+  // Com uma janela do editor aberta (Opções, "Mais…") as teclas são dela.
+  if (!plantaAberta() || document.querySelector("dialog[open]")) return;
+  if (ev.key === "Escape" && !ev.defaultPrevented) { ev.preventDefault(); fecharPlanta(); return; }
+  if (ev.key !== "Tab") return;
+  // Foco preso na planta aberta: do último para o primeiro (e ao contrário).
+  const s = $("sim-planta");
+  const l = [...s.querySelectorAll("button, [href], input, select, textarea, [tabindex]")]
+    .filter((x) => x.tabIndex >= 0 && !x.disabled && x.getClientRects().length && !x.closest("dialog"));
+  if (!l.length) return;
+  const i = l.indexOf(document.activeElement);
+  if (i < 0 || (ev.shiftKey && i === 0) || (!ev.shiftKey && i === l.length - 1)) {
+    ev.preventDefault();
+    l[ev.shiftKey ? l.length - 1 : 0].focus();
+  }
+});
 
 const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length > 0 || estado.planta.elementos.length > 0);
 
@@ -1373,12 +1415,13 @@ function acrescentar(d, l, ev = null) {
   const teclado = ev?.detail === 0;
   garantirEditor();
   divisaoTocada = d?.id ?? null;
-  recolherPlanta(false);
+  // Telemóvel e tablet: abre a planta por cima (ao fechar, o foco volta a este botão); no computador está à direita.
+  abrirPlanta(ev?.currentTarget ?? document.activeElement);
   const oque = l ? (l.modelo ? `a nova máquina (${MODELOS[l.modelo].nome.toLowerCase()})` : NOMES_TIPO[l.tipo][2]) : null;
-  const texto = !d ? "Use os botões das divisões (Sala, Quarto… ou \"Mais…\") na planta, em cima."
+  const texto = !d ? "Use os botões das divisões (Sala, Quarto… ou \"Mais…\") na planta."
     : oque && teclado ? `Pusemos ${oque} no meio de "${d.nome}": ${oque.startsWith("a ") ? "mova-a com as setas (ou arraste-a)" : "mova-o com as setas (ou arraste-o)"} para o sítio certo.`
-      : oque ? `Toque na planta, em cima, dentro de "${d.nome}", onde fica ${oque}.`
-        : `Escolha o aparelho nas ferramentas da planta (em cima) e toque dentro de "${d.nome}".`;
+      : oque ? `Toque na planta, dentro de "${d.nome}", onde fica ${oque}.`
+        : `Escolha o aparelho nas ferramentas da planta e toque dentro de "${d.nome}".`;
   doCartao = true;
   editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: teclado && !!l });
   doCartao = false;
@@ -1440,7 +1483,7 @@ function desenharDivisoes() {
   const origem = $("divisoes-origem");
   origem.hidden = usaPlanta() && !estado.divisoesEditadas;
   origem.textContent = !usaPlanta()
-    ? "Ainda sem planta: mostramos a que a casa daria. Se mudar alguma coisa aqui, passa a ser a sua planta (em cima)."
+    ? "Ainda sem planta: mostramos a que a casa daria. Se mudar alguma coisa aqui, passa a ser a sua planta."
     : "Numa versão anterior mudou divisões à mão: ficam como estavam até mexer nelas aqui (ou voltar à nossa sugestão).";
   $("divisoes-recalcular").hidden = !estado.divisoesEditadas;
   // Progresso: divisões verificadas desta planta.
@@ -1838,7 +1881,7 @@ function desenharPreco() {
 // ------------------------------------------------------------ 7. Enviar
 const CAMPOS = ["nome", "telefone", "email", "localidade", "morada", "mensagem"];
 function desenharEnviar() {
-  if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;   // o email do contacto é o da conta
+  preencherDoPerfil();   // com sessão: também depois de "Continuar" (o estado guardado não tinha o perfil)
   for (const k of CAMPOS) $(`contacto-${k}`).value = estado.contacto[k];
   desenharDeslocacao();
 }
@@ -1856,11 +1899,7 @@ function aoMudarConta(eu) {
   const antes = contaEu;
   contaEu = eu;
   const c = eu?.conta;
-  if (c) {
-    // O perfil da conta preenche o que ainda está vazio no contacto; o email é sempre o da conta.
-    for (const k of ["nome", "telefone", "morada", "localidade"]) if (!estado.contacto[k]?.trim() && c[k]) estado.contacto[k] = c[k];
-    estado.contacto.email = c.email;
-  }
+  preencherDoPerfil();
   $("contacto-email").readOnly = true;
   $("contacto-email-ajuda").textContent = c ? "O da sua conta." : "Fica o da sua conta.";
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharEnviar();
@@ -1871,13 +1910,27 @@ function aoMudarConta(eu) {
   else if (!antes) guardarNaConta(0);   // entrou agora (no passo Enviar): a simulação desta página vai para a conta
 }
 
+/** O perfil da conta preenche o que ainda está vazio no contacto (não apaga o que o cliente escreveu); o email é sempre o da conta. */
+function preencherDoPerfil() {
+  const c = contaEu?.conta;
+  if (!c) return;
+  for (const k of ["nome", "telefone", "morada", "localidade"]) if (!estado.contacto[k]?.trim() && c[k]) estado.contacto[k] = c[k];
+  estado.contacto.email = c.email;
+}
+
 let temporizadorConta = null;
+// Enquanto "Continuar onde ficou?" espera resposta, o `estado` é o inicial (em branco): não pode ir para a conta por
+// cima da simulação que lá está. Fica pendente e grava-se depois da escolha (fecharRetomar).
+const aDecidirRetomar = () => !$("sim-retomar").hidden;
+let contaPendente = false;
 /** Guarda o estado do simulador na conta (1,5 s depois; sem imagem de fundo se for grande demais). */
 function guardarNaConta(atraso = 1500) {
   if (!contaEu || enviado) return;
+  if (aDecidirRetomar()) { contaPendente = true; return; }
   clearTimeout(temporizadorConta);
   temporizadorConta = setTimeout(async () => {
     if (!contaEu || enviado) return;
+    if (aDecidirRetomar()) { contaPendente = true; return; }
     let e = { ...estado, guardado: new Date().toISOString() };
     if (JSON.stringify(e).length > 1_400_000 && e.planta?.fundo) e = { ...e, planta: { ...e.planta, fundo: null } };
     try {
@@ -2145,6 +2198,7 @@ function concluido(preco, semFundo, resultadoFotos = null) {
   clearTimeout(temporizadorConta);   // o painel já apagou a simulação guardada na conta (foi enviada)
   apagarEstado(armazem ?? semArmazem);
   for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = true;
+  fecharPlanta({ foco: false });
   $("sim-planta").hidden = true;
   $("sim-navegacao").hidden = true;
   document.querySelector(".sim-progresso").hidden = true;
@@ -2180,6 +2234,7 @@ function recomecar() {
   temporizador = null;   // nada pendente: sair ou recarregar não volta a gravar a simulação antiga
   apagarEstado(armazem ?? semArmazem);
   clearTimeout(temporizadorConta);
+  contaPendente = false;
   if (contaEu) pedirConta("simulacao", { corpo: { estado: null } }).catch(() => {});   // também a da conta
   document.getElementById("sim-retomar-conta")?.remove();
   enviado = false;
@@ -2284,6 +2339,8 @@ function fecharRetomar() {
   document.querySelector(".sim-progresso").hidden = false;
   $("sim-form").hidden = false;
   mostrarPasso();
+  // Já escolheu (continuar ou começar de novo): o que ficou por gravar na conta vai agora, com o estado escolhido.
+  if (contaPendente) { contaPendente = false; guardarNaConta(0); }
 }
 
 // Exposto só para os testes automáticos (não é usado pela página).

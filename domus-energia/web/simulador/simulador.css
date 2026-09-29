@@ -416,39 +416,72 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
   .impressao-legenda svg { width: 7mm; height: 7mm; flex: none; }
 }
 
-/* ---------- A planta no topo de todos os passos (decisão do dono; app.js atualizarPlanta) ----------
-   Presa por baixo do topo fixo ao descer a página; compacta: a linha das ferramentas, as ações numa fila, o estado
-   numa linha e a planta com ~40 % da altura (no telemóvel ~26 %, e o botão "Esconder"). A altura dela entra no
-   scroll-padding da página (--planta-altura, app.js): o foco do teclado nunca fica tapado. */
-html { scroll-padding-top: calc(72px + var(--planta-altura, 0px)); }
-.sim-planta { position: sticky; top: 65px; z-index: 6; display: grid; gap: 6px; min-width: 0; margin: 0 0 16px; padding: 6px 0 8px; background: var(--fundo); border-bottom: 1px solid var(--borda); }
+/* ---------- A planta em todos os passos (decisão do dono; app.js atualizarPlanta, abrirPlanta) ----------
+   Computador (≥ 1024 px): duas colunas — as perguntas à esquerda (~55 %) e "A sua planta" à direita (~45 %), presa
+   ao descer a página, da barra de cima até ao fundo do ecrã. Telemóvel e tablet: as perguntas ocupam o ecrã e o
+   botão fixo "Ver planta" abre-a por cima, em ecrã inteiro (.aberta). Por cima da planta, duas linhas compactas:
+   as ferramentas (desliza para o lado) e as ações só com ícones; os pisos junto à planta. */
+html { scroll-padding-top: 72px; }
+.sim-planta { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; background: var(--fundo); }
 .sim-planta[hidden] { display: none; }
-.sim-planta-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
-.sim-planta-cabeca h2 { margin: 0; font-size: 1rem; }
+.sim-planta-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.sim-planta-cabeca .confirmar { flex-basis: 100%; margin: 0; }
+.sim-planta-cabeca h2 { flex: none; margin: 0; font-size: 1rem; }
 .sim-planta-cabeca .btn[hidden] { display: none; }
-.sim-planta-origem { margin: 0; flex: 1 1 220px; min-width: 0; font-size: .85rem; font-weight: 600; color: var(--texto-suave); }
+/* Aviso "planta mexida" numa linha (o texto todo no title, app.js) e o "Refazer planta" compacto. */
+.sim-planta-origem { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
 .sim-planta-origem[hidden] { display: none; }
-.sim-planta-cabeca .confirmar { flex-basis: 100%; }
-.sim-planta-recolher { margin-left: auto; }
-@media (min-width: 720px) { .sim-planta-recolher { display: none; } }
-@media (max-width: 719px) { .sim-planta.recolhida #editor { display: none; } }
-.sim-planta .editor { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-.sim-planta .editor-principal { gap: 6px; }
-.sim-planta .editor-area { height: clamp(180px, calc(40vh - 110px), 520px); scroll-margin: 0; }
-.sim-planta .editor-acoes { padding: 4px 6px; gap: 6px 12px; }
-.sim-planta .editor-estado { display: flex; gap: 2px 10px; justify-content: center; align-items: baseline; }
-.sim-planta .editor-selecao-nome { flex: 0 1 auto; max-width: 40%; font-size: .82rem; }
-.sim-planta .editor-dica { flex: 0 1 auto; min-width: 0; min-height: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .82rem; }
+#planta-refazer { flex: none; padding: 4px 12px; font-size: .82rem; }
+.sim-planta-fechar { flex: none; margin-left: auto; }
+.sim-planta-origem:not([hidden]) ~ .sim-planta-fechar { margin-left: 0; }
+.sim-planta .editor, .sim-planta .editor-principal { display: flex; flex-direction: column; align-items: stretch; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 6px; }
+.sim-planta .editor-area { flex: 1 1 auto; height: auto; min-height: 200px; scroll-margin: 0; }
+.sim-planta .editor-ferramentas { flex: none; padding-bottom: 4px; }
+/* Linha 2: as ações só com ícones, numa fila que desliza (as duas linhas do DOM desfazem-se). */
+.sim-planta .editor-acoes { flex: none; flex-direction: row; flex-wrap: nowrap; justify-content: safe flex-start; align-items: center; gap: 4px 8px; padding: 0 2px 2px; border: 0; background: transparent; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.sim-planta .editor-acoes-linha { display: contents; }
+.sim-planta .editor-acoes-grupo { flex: none; flex-wrap: nowrap; gap: 4px; }
+.editor-acoes .btn.icone { min-width: 38px; padding: 0 7px; }
+.editor-acoes .btn.icone svg { width: 20px; height: 20px; }
+/* Separadores dos pisos junto à planta, compactos (nome e resumo numa linha). */
+.sim-planta .editor-pisos { flex: none; flex-wrap: nowrap; justify-content: safe flex-start; overflow-x: auto; scrollbar-width: thin; }
+.sim-planta .editor-piso { flex-direction: row; gap: 6px; min-height: 36px; padding: 2px 10px; }
+/* O que está selecionado e a dica: discretos, dentro da planta (em baixo, à esquerda); nada quando não há o que dizer. */
+.editor-area > .editor-estado { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; pointer-events: none; text-align: left; }
+.editor-area > .editor-estado > * { max-width: 100%; min-height: 0; margin: 0; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--superficie) 88%, transparent); box-shadow: 0 1px 3px rgb(0 0 0 / .15); font-size: .8rem; line-height: 1.35; white-space: normal; }
+.editor-area > .editor-estado > :empty { display: none; }
 .sim-planta .editor-ajuda { display: none; }
 /* "⋯": as ações menos usadas e os cartões do fundo e do tamanho, por baixo das barras (fechado por omissão). */
 .editor-lado[hidden] { display: none; }
-.sim-planta .editor-lado { max-height: 45vh; overflow: auto; overscroll-behavior: contain; }
+.sim-planta .editor-lado { flex: none; max-height: 40%; overflow: auto; overscroll-behavior: contain; }
 .editor-lado-acoes { display: flex; flex-wrap: wrap; gap: 6px; }
 .editor-principal:fullscreen #editor-outras, .editor-principal.ecra-inteiro #editor-outras { display: none; }
-@media (max-width: 719px) {
-  .sim-planta .editor-area { height: clamp(140px, calc(30vh - 50px), 280px); }
-  /* As ações numa só fila que desliza (as duas linhas desfazem-se). */
-  .sim-planta .editor-acoes { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; justify-content: safe flex-start; gap: 6px 10px; }
-  .sim-planta .editor-acoes-linha { display: contents; }
-  .sim-planta .editor-selecao-nome { display: none; }
+.sim-ver-planta { display: none; }
+@media (min-width: 1024px) {
+  .simulador > .wrap { max-width: 1440px; }
+  #sim-form { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); grid-template-rows: auto auto 1fr; column-gap: 28px; align-items: start; }
+  #sim-form:has(> .sim-planta[hidden]) { grid-template-columns: minmax(0, 1fr); }
+  #sim-form > .sim-passo { grid-column: 1; grid-row: 1; }
+  #sim-form > .sim-navegacao { grid-column: 1; grid-row: 2; }
+  #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 4; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 12px); min-height: 420px; }
+  /* A coluna das perguntas é mais estreita do que o ecrã: as grelhas contam com a largura dela. */
+  .contadores { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  #divisoes .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
+@media (min-width: 1024px) and (max-width: 1199px) { #casa-tipos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 1023px) {
+  /* A planta só aparece aberta por cima; "Ampliar" não faz falta (já é ecrã inteiro). */
+  .sim-planta:not(.aberta) { display: none; }
+  .sim-planta.aberta { position: fixed; inset: 0; z-index: 60; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); overflow: hidden; }
+  #editor-ecra-inteiro { display: none; }
+  html.planta-aberta, html.planta-aberta body { overflow: hidden; }
+  .sim-ver-planta { display: inline-flex; position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 7; box-shadow: var(--sombra); }
+  .sim-planta[hidden] ~ .sim-ver-planta, #sim-form[hidden] .sim-ver-planta { display: none; }
+  /* O botão fixo e a barra de baixo não tapam o que tem o foco. */
+  html { scroll-padding-bottom: 150px; }
+  .simulador { padding-bottom: 72px; }
+}
+@media (min-width: 1024px) { .sim-planta-fechar { display: none; } }
+/* Recurso CSS do "Ampliar" (sem Fullscreen API): por cima do topo fixo. */
+#sim-form > .sim-planta:has(.ecra-inteiro) { z-index: 60; }

@@ -77,6 +77,28 @@ function botao(texto, cls = "btn sec pequeno", tipo = "button") {
   return b;
 }
 
+// Barra das ações só com ícones (decisão do dono): o nome vai no aria-label e no title (dica ao passar o rato).
+const ICONES_ACAO = {
+  anular: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  refazer: '<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+  afastar: '<circle cx="11" cy="11" r="7"/><path d="M8 11h6M20 20l-4-4"/>',
+  aproximar: '<circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6M20 20l-4-4"/>',
+  tudo: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+  ampliar: '<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',
+  reduzir: '<path d="M4 14h6v6M20 10h-6V4M10 14l-6 6M14 10l6-6"/>',
+  duplicar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  opcoes: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
+  apagar: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  outras: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+};
+function iconeAcao(b, nome, rotulo) {
+  b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONES_ACAO[nome]}</svg>`;
+  b.classList.add("icone");
+  b.setAttribute("aria-label", rotulo);
+  b.title = rotulo;
+  return b;
+}
+
 function campo(rotulo, input, ajuda) {
   const l = el("label", "campo");
   l.append(el("span", null, rotulo), input);
@@ -303,17 +325,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   });
   maisFechar.addEventListener("click", () => { fecharMais(); bMaisFerr.focus({ preventScroll: true }); });
 
-  const bDesfazer = botao("Anular");
+  const bDesfazer = iconeAcao(botao(""), "anular", "Anular (Ctrl+Z)");
   bDesfazer.setAttribute("aria-keyshortcuts", "Control+Z");
-  const bRefazer = botao("Refazer");
+  const bRefazer = iconeAcao(botao(""), "refazer", "Refazer (Ctrl+Y)");
   bRefazer.setAttribute("aria-keyshortcuts", "Control+Y");
-  const bMenos = botao("−");
-  bMenos.setAttribute("aria-label", "Afastar");
-  const bMais = botao("+");
-  bMais.setAttribute("aria-label", "Aproximar");
-  const bTudo = botao("Ver tudo");
-  // "Ampliar": a planta e as ferramentas em ecrã inteiro (decisão do dono: a planta está no topo de todos os passos).
-  const bEcra = botao("Ampliar");
+  const bMenos = iconeAcao(botao(""), "afastar", "Afastar");
+  const bMais = iconeAcao(botao(""), "aproximar", "Aproximar");
+  const bTudo = iconeAcao(botao(""), "tudo", "Ver tudo");
+  // "Ampliar": a planta e as ferramentas em ecrã inteiro (só no computador; no telemóvel a planta já abre por cima).
+  const bEcra = iconeAcao(botao(""), "ampliar", "Ampliar (ecrã inteiro)");
   bEcra.id = "editor-ecra-inteiro";
   bEcra.setAttribute("aria-pressed", "false");
   // Só a planta, uma folha A4 por piso (imprimir.js).
@@ -339,12 +359,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Ações do que está selecionado (Duplicar, "Opções" — a janela de edição com tudo o resto — e Apagar; já não há
   // "Rodar"): sempre no mesmo sítio, desativadas quando não se aplicam (a barra não muda de tamanho).
   const selecaoNome = el("span", "editor-selecao-nome");
-  const sDuplicar = botao("Duplicar");
+  const sDuplicar = iconeAcao(botao(""), "duplicar", "Duplicar");
   sDuplicar.id = "selecao-duplicar";
-  const sOpcoes = botao("Opções");
+  const sOpcoes = iconeAcao(botao(""), "opcoes", "Opções");
   sOpcoes.id = "selecao-opcoes";
   sOpcoes.setAttribute("aria-keyshortcuts", "Enter");
-  const sApagar = botao("Apagar", "btn sec pequeno perigo-sec");
+  const sApagar = iconeAcao(botao("", "btn sec pequeno perigo-sec"), "apagar", "Apagar");
   sApagar.id = "selecao-apagar";
   sApagar.setAttribute("aria-keyshortcuts", "Delete");
   // "Planta de fundo": abre logo a escolha do ficheiro (foto ou PDF); o cartão "Fundo" ao lado fica para
@@ -363,16 +383,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const linhaGeral = el("div", "editor-acoes-linha");
   // "⋯": as ações menos usadas (Imprimir, Guardar PDF, Planta de fundo) e os cartões do fundo e do tamanho da planta,
   // num painel por baixo das barras (`lado`), fechado por omissão: a planta do topo fica compacta.
-  const bOutras = botao("⋯");
+  const bOutras = iconeAcao(botao(""), "outras", "Mais ações da planta: imprimir, PDF, planta de fundo e tamanho");
   bOutras.id = "editor-outras";
-  bOutras.setAttribute("aria-label", "Mais ações da planta: imprimir, PDF, planta de fundo e tamanho");
   bOutras.setAttribute("aria-expanded", "false");
   bOutras.setAttribute("aria-controls", "editor-lado");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra), grupo("g-fundo", bOutras), separadores);
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra), grupo("g-fundo", bOutras));
   const linhaSelecao = el("div", "editor-acoes-linha");
   linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sApagar));
   acoes.append(linhaGeral, linhaSelecao);
-  // Por baixo da barra, discreto: o que está selecionado e o texto de estado.
+  // Dentro da planta, discreto (em baixo, à esquerda): o que está selecionado e o texto de estado (vazio sem nada a dizer).
   const estadoLinha = el("div", "editor-estado");
   estadoLinha.append(selecaoNome, dica);
 
@@ -384,7 +403,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   svg.setAttribute("aria-roledescription", "planta");
   svg.setAttribute("aria-label", "Planta da casa");
   svg.setAttribute("aria-describedby", "editor-ajuda-teclado");
-  area.append(svg);
+  area.append(svg, estadoLinha);
   const ajudaTeclado = el("p", "editor-ajuda", "Com o teclado: nas barras as setas passam de botão em botão; escolha uma ferramenta e carregue em Enter para a pôr no centro; na planta as setas movem o que está selecionado (Shift para mover mais), Enter abre as opções, Delete apaga, Ctrl+Z anula.");
   ajudaTeclado.id = "editor-ajuda-teclado";
 
@@ -424,7 +443,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   lado.append(ladoAcoes, fundoSec, tamSec);
   const principal = el("div", "editor-principal");
-  principal.append(fila, acoes, estadoLinha, area, ajudaTeclado);
+  // Os separadores dos pisos ficam junto à planta, por baixo das duas linhas (ferramentas e ações).
+  principal.append(fila, acoes, separadores, area, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
@@ -459,7 +479,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
    * Devolve a função que acerta os tabindex depois de os botões mudarem (novos, ativados ou desativados).
    */
   function barraComSetas(barraEl, itens) {
-    const ativos = () => itens().filter((b) => !b.disabled && !b.hidden);
+    // Só os que se veem (o "Ampliar" não aparece no telemóvel).
+    const ativos = () => itens().filter((b) => !b.disabled && !b.hidden && b.getClientRects().length > 0);
     const marcar = (b) => { for (const x of itens()) x.tabIndex = x === b ? 0 : -1; };
     barraEl.addEventListener("keydown", (ev) => {
       const l = ativos();
@@ -1000,7 +1021,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     // A ferramenta ativa está sempre na linha (a do "+" do passo Divisões ou de "Mais…") e à vista nela.
     if (chave && ferramentas[chave]) { mostrarNaBarra(chave); verNaLinha(ferramentas[chave]); }
     svg.classList.toggle("a-colocar", !!m);
-    if (!m) dica.textContent = `Os botões das divisões acrescentam-nas logo${nPisos() > 1 ? ` (no ${nomePiso(pisoAtual)})` : ""}; para um elemento, toque na ferramenta e depois na planta. Arraste para deslocar; − / +, dois dedos ou Ctrl + roda do rato para aproximar. Duplo clique (ou toque longo) abre as opções.`;
+    // Sem ferramenta, nada a dizer (decisão do dono: saiu o texto de ajuda longo por cima da planta).
+    if (!m) dica.textContent = "";
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${nomeFerramenta(m.el, m.modelo)}. Esc cancela.`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
@@ -1035,7 +1057,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const emEcraInteiro = () => document.fullscreenElement === principal || ecraCss;
   function depoisEcra() {
     const sim = emEcraInteiro();
-    bEcra.textContent = sim ? "Reduzir" : "Ampliar";
+    iconeAcao(bEcra, sim ? "reduzir" : "ampliar", sim ? "Reduzir (sair do ecrã inteiro)" : "Ampliar (ecrã inteiro)");
     bEcra.setAttribute("aria-pressed", String(sim));
     principal.classList.toggle("em-ecra-inteiro", sim);
     // O tamanho já mudou (a classe acabou de mudar; o "fullscreenchange" chega depois do redimensionamento).
@@ -1284,8 +1306,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (ev.key === "+" || ev.key === "=") { ev.preventDefault(); zoom(1 / 1.25); return; }
     if (ev.key === "-") { ev.preventDefault(); zoom(1.25); return; }
     if (ev.key === "Escape") {
-      if (modo) definirModo(null);
-      else if (selecionado) { selecionado = null; desenharTudo(); }
+      // Esc usado aqui (cancelar a ferramenta, tirar a seleção) não fecha a planta aberta por cima (app.js).
+      if (modo) { ev.preventDefault(); definirModo(null); }
+      else if (selecionado) { ev.preventDefault(); selecionado = null; desenharTudo(); }
     }
   });
   raiz.addEventListener("keydown", (ev) => {
@@ -1596,7 +1619,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function mostrarPlanta() {
     if (emEcraInteiro()) return;
     const r = area.getBoundingClientRect();
-    const baixo = document.querySelector(".sim-navegacao")?.getBoundingClientRect().top ?? innerHeight;
+    // A barra de baixo só conta se estiver por baixo da planta (no computador está na outra coluna).
+    const n = document.querySelector(".sim-navegacao")?.getBoundingClientRect();
+    const baixo = n && n.width && n.left < r.right && n.right > r.left ? n.top : innerHeight;
     if (r.top >= 0 && r.bottom <= Math.min(innerHeight, baixo)) return;
     area.scrollIntoView({ block: "end", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }
@@ -1609,13 +1634,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (aoSelecionar && div !== divisaoAvisada) { divisaoAvisada = div; aoSelecionar(div); }
     const nome = d ? `Divisão ${d.nome || "sem nome"}` : e ? descreverElemento(e) : "";
     estadoLinha.classList.toggle("vazia", !d && !e);
-    selecaoNome.textContent = nome ? `Selecionado: ${nome}` : "Nada selecionado";
+    selecaoNome.textContent = nome ? `Selecionado: ${nome}` : "";
     sDuplicar.disabled = d ? planta.divisoes.length >= MAX_DIVISOES : !e || planta.elementos.length >= MAX_ELEMENTOS;
     sOpcoes.disabled = !d && !e;
     sApagar.disabled = !d && !e;
-    sDuplicar.setAttribute("aria-label", nome ? `Duplicar: ${nome}` : "Duplicar");
-    sOpcoes.setAttribute("aria-label", nome ? `Opções: ${nome}` : "Opções");
-    sApagar.setAttribute("aria-label", nome ? `Apagar: ${nome}` : "Apagar");
+    for (const [b, r] of [[sDuplicar, "Duplicar"], [sOpcoes, "Opções"], [sApagar, "Apagar"]]) {
+      b.setAttribute("aria-label", nome ? `${r}: ${nome}` : r);
+      b.title = b.getAttribute("aria-label");
+    }
   }
   sDuplicar.addEventListener("click", duplicarSelecionado);
   sApagar.addEventListener("click", apagarSelecionado);
