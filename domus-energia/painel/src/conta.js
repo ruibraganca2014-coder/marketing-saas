@@ -101,7 +101,8 @@ function resumoSimulacao(json) {
     p(conta.movimento, 'sensor de movimento', 'sensores de movimento'),
     p(conta.porta, 'aviso de porta ou janela aberta', 'avisos de porta ou janela aberta'),
     p(conta.tomadas, 'tomada inteligente', 'tomadas inteligentes'),
-    PACOTES[s.quadro?.pacote] ?? null,
+    // Só quando o quadro entra no pedido (sem "Quer melhorar o quadro?" = Não); pedidos antigos sem no_preco contam.
+    s.quadro?.no_preco === false ? null : PACOTES[s.quadro?.pacote] ?? null,
   ].filter(Boolean);
   const PLANOS = { base: 'Base', conforto: 'Conforto', premium: 'Premium' };
   const min = Number.isFinite(s.total?.min) ? s.total.min : null;

@@ -983,15 +983,17 @@ export function listaTrabalho(sim, catalogo = {}, fotos = []) {
       const a = porAcao.get(gr.acao);
       const n = gr.els.length;
       let t = nomeGrupo(gr.tipo, gr.modelo, n);
+      // Fotos só do que se troca ou repara (obrigatória na avaria): "ver foto" ou, a faltar, "sem foto".
+      const foto = temFoto.has(`${g.divisao}:${gr.k}`);
       if (gr.acao === "reparar") {
         const av = gr.els.map((e) => (typeof e.avaria === "string" && e.avaria.trim() ? e.avaria.trim() : null)).filter(Boolean);
-        const foto = temFoto.has(`${g.divisao}:${gr.k}`);
-        if (av.length || foto) t += ` (${[av.map((x) => `«${x}»`).join("; "), foto ? "ver foto" : null].filter(Boolean).join(" — ")})`;
+        t += ` (${[av.map((x) => `«${x}»`).join("; "), foto ? "ver foto" : "sem foto"].filter(Boolean).join(" — ")})`;
       }
       if (gr.acao === "substituir" && (gr.tipo === "tomada" || gr.tipo === "interruptor")) {
         const i = gr.els.filter((e) => e.inteligente === true).length;
         t += i === n ? ` por ${n === 1 ? "um inteligente" : "inteligentes"}` : i === 0 ? ` por ${n === 1 ? "um normal" : "normais"}` : ` (${num(i)} por inteligentes, ${num(n - i)} por normais)`;
       }
+      if (gr.acao === "substituir") t += foto ? " (ver foto)" : " (sem foto)";
       a.partes.push(t);
       const it = arr(obj(doTrab).acoes).find((x) => obj(x).acao === gr.acao && (gr.tipo === "maquina" ? obj(x).modelo === gr.modelo : obj(x).tipo === gr.tipo));
       for (const m of arr(obj(it).material)) if (m && typeof m.sku === "string") a.material.set(m.sku, (a.material.get(m.sku) ?? 0) + (numero(m.qtd) ?? 1));

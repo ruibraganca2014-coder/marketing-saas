@@ -5,10 +5,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   acaoOmissao, soReparacoes, precisaEscolher, faltaAcao, plantaNovos, pedidosAcoes, acaoDe, contarAcoes,
+  inteligenteDe, plantaInteligentes,
 } from '../../web/simulador/acoes.js';
+import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa } from '../../web/simulador/casa.js';
 import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido } from '../../web/simulador/preco.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
-import { contarPlanta, divisoesDaContagem } from '../../web/simulador/regras.js';
+import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
@@ -252,7 +254,7 @@ test('pedido (§6): serviço, ação por aparelho, lista de trabalho e totais po
   const lista = listaTrabalho(sim, { 'DIAG-AVARIA': { nome: 'Diagnóstico de avaria' } });
   assert.equal(lista.divisoes.length, 1);
   const txt = lista.divisoes[0].linhas.map((l) => `${l.acao}: ${l.texto}`);
-  assert.deepEqual(txt, ['reparar: 1 tomada («queimada» — ver foto)', 'substituir: 1 interruptor por um inteligente']);
+  assert.deepEqual(txt, ['reparar: 1 tomada («queimada» — ver foto)', 'substituir: 1 interruptor por um inteligente (sem foto)']);
   assert.equal(lista.divisoes[0].linhas[0].material, 'Diagnóstico de avaria ×1');
   assert.equal(lista.manter, 4);
   const v = aVerificarNaVisita(sim).filter((x) => x.tema === 'Reparação');
@@ -269,4 +271,56 @@ test('pedidos antigos (sem serviço nem ações): lista de trabalho com tudo Nov
   assert.equal(l.divisoes[0].linhas.length, 1);
   assert.equal(l.divisoes[0].linhas[0].acao, 'novo');
   assert.match(l.divisoes[0].linhas[0].texto, /2 tomadas.*circuito novo para placa/);
+});
+
+test('tomadas e interruptores normais por omissão; "Luzes pelo telemóvel" → interruptores novos inteligentes; sem pergunta obrigatória', () => {
+  assert.equal(temPergunta('tomada', {}), false);
+  assert.equal(temPergunta('interruptor', { botoes: 1 }), false);
+  assert.equal(temPergunta('janela', {}), true);
+  const int = { id: 'e1', tipo: 'interruptor', props: { botoes: 2 } };
+  const tom = { id: 'e2', tipo: 'tomada', props: { dupla: false, inteligente: false } };
+  assert.equal(inteligenteDe(int, []), false);
+  assert.equal(inteligenteDe(int, ['luzes']), true);
+  assert.equal(inteligenteDe({ ...int, inteligente: false }, ['luzes']), false);   // a resposta do cliente manda
+  assert.equal(inteligenteDe(tom, ['poupar']), false);
+  assert.equal(inteligenteDe({ ...tom, props: { inteligente: true } }, []), true);  // estado antigo já respondido
+  assert.equal(inteligenteDe({ ...tom, inteligente: true }, []), true);             // "Por uma inteligente?" em Trocar e reparar
+  const p = planta();
+  const semObj = divisoesDaContagem(contarPlanta(plantaInteligentes(p, [])));
+  const comLuzes = divisoesDaContagem(contarPlanta(plantaInteligentes(p, ['luzes'])));
+  assert.deepEqual(semObj[0].interruptores, []);
+  assert.equal(comLuzes[0].interruptores.length, 2);
+  // Estados antigos: tomadas/interruptores "por responder" passam a normais sem bloquear.
+  const velho = normalizarEstado({ ...estadoNovo(), planta: { ...p, elementos: p.elementos.map((e) => ({ ...e, por_responder: true })) } });
+  assert.equal(velho.planta.elementos.filter((e) => e.por_responder).length, 0);
+});
+
+test('planta mexida: acrescenta/tira só a máquina ou a divisão que mudou (divisão mais parecida com dica)', () => {
+  const casa = { tipo: 'apartamento', tipologia: 'T1', casas_banho: 1, salas: 1, pisos: 1, extras: { kitnet: true } };
+  const sinc = (c, maquinas) => ({ divisoes: divisoesDaCasa(c, []).map((d) => ({ nome: d.nome, piso: d.piso ?? 0 })), maquinas, fase: 'tudo' });
+  const p = plantaDaCasa(casa, []);
+  p.divisoes.at(-1).x_cm += 50;   // o cliente mexeu (a última, para a direita)
+  const antes = JSON.stringify(p.divisoes);
+  const n = p.elementos.length;
+  const placa = [{ modelo: 'placa', qtd: 1, piso: null }];
+  const dicas = acertarPlantaMexida(p, sinc(casa, []), sinc(casa, placa), { casa });
+  assert.equal(JSON.stringify(p.divisoes), antes);
+  assert.equal(p.elementos.length, n + 1);
+  const m = p.elementos.find((e) => e.tipo === 'maquina');
+  assert.equal(p.divisoes.find((d) => d.id === m.divisao).nome, 'Kitnet');
+  assert.deepEqual(dicas, ['Pusemos a placa de cozinha na Kitnet — arraste se for noutro sítio.']);
+  acertarPlantaMexida(p, sinc(casa, placa), sinc(casa, []), { casa });
+  assert.equal(p.elementos.length, n);
+  // Mais um quarto e a garagem: aparecem ao lado, sem sobrepor; desmarcar tira só essas.
+  const casa2 = { ...casa, tipologia: 'T2', extras: { kitnet: true, garagem: true } };
+  acertarPlantaMexida(p, sinc(casa, []), sinc(casa2, []), { casa: casa2 });
+  assert.deepEqual(p.divisoes.map((d) => d.nome).slice(-3).sort(), ['Corredor', 'Garagem', 'Quarto 2']);   // T2: também o corredor
+  for (const a of p.divisoes) for (const b of p.divisoes) {
+    if (a === b) continue;
+    const livre = a.x_cm >= b.x_cm + b.largura_cm || b.x_cm >= a.x_cm + a.largura_cm || a.y_cm >= b.y_cm + b.altura_cm || b.y_cm >= a.y_cm + a.altura_cm;
+    assert.ok(livre, `${a.nome} sobrepõe ${b.nome}`);
+  }
+  acertarPlantaMexida(p, sinc(casa2, []), sinc(casa, []), { casa });
+  assert.equal(JSON.stringify(p.divisoes), antes);
+  assert.equal(p.elementos.length, n);
 });

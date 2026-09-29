@@ -75,6 +75,33 @@ export function faltaAcao(e, servicos) {
   return f;
 }
 
+/**
+ * Tomada ou interruptor inteligente? (decisão do dono: normais por omissão; a pergunta "Por um inteligente?" só em
+ * "Trocar e reparar", ao Trocar ou Novo). A resposta do cliente (`inteligente`); sem ela, a tomada de um estado antigo
+ * fica como respondida na janela (`props.inteligente`) e o interruptor novo segue o objetivo "Luzes pelo telemóvel".
+ * null nos outros aparelhos.
+ */
+export function inteligenteDe(e, objetivos = []) {
+  if (!e || !perguntaInteligente(e.tipo)) return null;
+  if (typeof e.inteligente === "boolean") return e.inteligente;
+  if (e.tipo === "tomada") return !!e.props?.inteligente;
+  return (objetivos ?? []).includes("luzes");
+}
+
+/**
+ * Planta para a contagem dos Novos (linhas do pedido): as tomadas com `props.inteligente` = inteligenteDe; os
+ * interruptores normais saem (as linhas do pedido só contam os inteligentes: "luzes pelo telemóvel").
+ */
+export function plantaInteligentes(planta, objetivos = []) {
+  if (!planta) return planta;
+  const elementos = [];
+  for (const e of planta.elementos ?? []) {
+    if (e.tipo === "tomada") elementos.push({ ...e, props: { ...e.props, inteligente: inteligenteDe(e, objetivos) } });
+    else if (e.tipo !== "interruptor" || inteligenteDe(e, objetivos)) elementos.push(e);
+  }
+  return { ...planta, elementos };
+}
+
 /** Planta só com os aparelhos novos (preço "como hoje", circuitos novos e linhas do pedido): os outros ficam nos circuitos existentes. */
 export function plantaNovos(planta, servicos) {
   if (!planta) return planta;

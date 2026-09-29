@@ -451,13 +451,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     let t = nomeAparelho(a, n);
     if (a.acao === 'reparar') {
       const av = (Array.isArray(a.avarias) ? a.avarias.slice(0, 50) : []).map((x) => txtCurto(x, 200)).filter(Boolean);
-      const extra = [av.map((x) => `«${x}»`).join('; '), a.foto ? 'ver foto' : null].filter(Boolean).join('; ');
-      if (extra) t += ` (${extra})`;
+      // Fotos só do que se troca ou repara (obrigatória na avaria): "ver foto" ou, a faltar, "sem foto".
+      const extra = [av.map((x) => `«${x}»`).join('; '), a.foto ? 'ver foto' : 'sem foto'].filter(Boolean).join('; ');
+      t += ` (${extra})`;
     }
     if (a.acao === 'substituir' && (a.tipo === 'tomada' || a.tipo === 'interruptor') && Number.isFinite(a.inteligentes)) {
       const i = Math.min(inteiro(a.inteligentes, 500), n);
       t += i === n ? ` por ${n === 1 ? 'um inteligente' : 'inteligentes'}` : i === 0 ? ` por ${n === 1 ? 'um normal' : 'normais'}` : ` (${i} por inteligentes, ${n - i} por normais)`;
     }
+    if (a.acao === 'substituir') t += a.foto ? ' (ver foto)' : ' (sem foto)';
     return `${ACAO_TEXTO[a.acao]}: ${t}`;
   }
 

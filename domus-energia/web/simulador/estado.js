@@ -111,6 +111,7 @@ export function estadoNovo() {
     plantaAuto: false,         // a planta é a que desenhámos a partir das divisões e o cliente ainda não lhe mexeu
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
+    plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
     quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },   // + pacote, proteções, pára-raios, quadro novo (quadro.js)
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
@@ -297,6 +298,19 @@ export function normalizarDivisao(d) {
   };
 }
 
+/**
+ * O que a planta mexida pelo cliente já tem da casa e das máquinas (app.js sincAtual; casa.js acertarPlantaMexida):
+ * {divisoes: [{nome, piso}], maquinas: [{modelo, qtd, piso}], fase}; null se faltar ou vier estragado (estado antigo).
+ */
+function normalizarSinc(v) {
+  if (!v || typeof v !== "object" || !Array.isArray(v.divisoes) || !Array.isArray(v.maquinas) || !FASES_PLANTA.includes(v.fase)) return null;
+  return {
+    divisoes: lista(v.divisoes, MAX_DIVISOES).filter((d) => d && typeof d.nome === "string").map((d) => ({ nome: d.nome.slice(0, 60), piso: int(d.piso, 0, MAX_PISO, 0) })),
+    maquinas: lista(v.maquinas, 200).filter((m) => m && typeof m.modelo === "string").map((m) => ({ modelo: m.modelo.slice(0, 40), qtd: int(m.qtd, 0, 100, 1), piso: m.piso === null || m.piso === undefined ? null : int(m.piso, 0, MAX_PISO, 0) })),
+    fase: v.fase,
+  };
+}
+
 /** Estado lido do navegador (pode vir estragado ou de outra versão): sempre um estado válido. */
 export function normalizarEstado(v) {
   const e = estadoNovo();
@@ -362,6 +376,7 @@ export function normalizarEstado(v) {
   e.plantaAuto = bool(v.plantaAuto);
   // Planta que vai aparecendo (vazia → divisões → aparelhos); um estado de antes disto tinha-a sempre completa.
   e.plantaFase = FASES_PLANTA.includes(v.plantaFase) ? v.plantaFase : "tudo";
+  e.plantaSinc = normalizarSinc(v.plantaSinc);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
   e.plantaBase = (!migrar || guardavaVisitado) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;

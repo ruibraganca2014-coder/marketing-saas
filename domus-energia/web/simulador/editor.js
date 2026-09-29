@@ -328,7 +328,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function fecharMais() { if (dlgMais.open) dlgMais.close(); }
   bMaisFerr.addEventListener("click", () => {
     definirModo(null);
-    seccaoMaq.hidden = !modelosMaq.length;
+    // As permissões do passo valem em todas as secções (ex.: no passo "A casa" não há elementos nem máquinas).
+    acertarBarra();
     dlgMais.showModal();
     maisCorpo.scrollTop = 0;
     maisCorpo.querySelector("button")?.focus();
@@ -775,6 +776,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
 
   function adicionarElemento(tipo, x, y, modelo = null) {
+    if (!podeAparelhos) return null;
     if (planta.elementos.length >= MAX_ELEMENTOS) { avisar(`A planta já tem o máximo de ${MAX_ELEMENTOS} elementos.`); return null; }
     memorizar();
     const e = {
@@ -1055,6 +1057,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
 
   function definirModo(m) {
+    if (m?.tipo === "elemento" && !podeAparelhos) m = null;   // o passo não deixa pôr aparelhos (ex.: "A casa")
     modo = m;
     const chave = m?.tipo === "elemento" ? (m.el === "maquina" ? `maquina:${m.modelo}` : m.el) : null;
     for (const [k, b] of Object.entries(ferramentas)) b.setAttribute("aria-pressed", String(k === chave));
@@ -1632,8 +1635,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // ---------------------------------------------------------------- propriedades (janela de edição)
   /**
    * A escolha de cada tipo de elemento na janela de edição — só uma, em linguagem simples: porta, se é a da rua;
-   * janela, se tem estore e se é motorizado; tomada, se é inteligente; interruptor, quantos botões; máquina, qual é
-   * (com a potência típica). Ponto de luz (sempre não regulável, decisão do dono), sensores e quadro: nada a escolher.
+   * janela, se tem estore e se é motorizado; interruptor, quantos botões (sem ser obrigatório); máquina, qual é
+   * (com a potência típica). Tomada, ponto de luz (sempre não regulável, decisão do dono), sensores e quadro: nada a escolher.
    * `mudar(f)` devolve o que fazer quando o campo muda (f altera `p`); `pre` = prefixo dos ids.
    */
   function camposElemento(tipo, p, mudar, pre) {
@@ -1643,7 +1646,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       r.push(caixa("Tem estore?", !!p.estore, mudar((v) => { p.estore = v; if (!v) p.motorizado = false; }), false, `${pre}-estore`));
       r.push(caixa("É motorizado?", !!p.motorizado, mudar((v) => { p.motorizado = v; }), !p.estore, `${pre}-motorizado`));
     }
-    if (tipo === "tomada") r.push(caixa("Tomada inteligente? (ligar, desligar e ver o consumo no telemóvel)", !!p.inteligente, mudar((v) => { p.inteligente = v; }), false, `${pre}-inteligente`));
+    // Tomada: nada a escolher aqui (decisão do dono: "Por uma inteligente?" só em "Trocar e reparar").
     if (tipo === "interruptor") {
       const s = document.createElement("select");
       s.id = `${pre}-botoes`;
@@ -1788,6 +1791,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const e = obterElemento(selecionado);
     if ((!d && !e) || dialogo.open) return;
     if (d && !podeDivisoes) { divisaoPresa(); return; }
+    aoFecharDialogo();   // a anterior (fechada há instantes, ex. com Esc) arruma-se antes de abrir esta
     pararToqueLongo();
     arrasto = null;
     // A janela fica por cima da planta: o "pointerup" do dedo que a abriu já não chega lá.
@@ -1804,6 +1808,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     dGuardar.hidden = false;
     if (d) corpoDivisao(d); else corpoElemento(e);
     dialogo.showModal();
+    dialogoAtivo = true;
     (dlgCorpo.querySelector("input, select") ?? (dGuardar.hidden ? dCancelar : dGuardar)).focus();
   }
 
@@ -1921,17 +1926,24 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     confirmar(`Guardado: ${descreverElemento(e)}.`);
   }
 
-  dlgForm.addEventListener("submit", (ev) => { ev.preventDefault(); guardarDialogo(); });
-  dCancelar.addEventListener("click", () => dialogo.close());
+  dlgForm.addEventListener("submit", (ev) => { ev.preventDefault(); guardarDialogo(); if (!dialogo.open) aoFecharDialogo(); });
+  dCancelar.addEventListener("click", () => { dialogo.close(); aoFecharDialogo(); });
   dApagar.addEventListener("click", () => {
     const id = rascunho?.id;
     dialogo.close();
     if (id && existe(id)) { selecionado = id; apagarSelecionado(); }
+    aoFecharDialogo();
   });
   // Fechar (Guardar, Cancelar, Apagar ou Esc): o foco volta à planta — ou, aberta de fora (passo "Divisões",
-  // abrirOpcoes), a janela volta para o editor e quem a abriu decide para onde vai o foco.
+  // abrirOpcoes), a janela volta para o editor e quem a abriu decide para onde vai o foco. Feito logo ao fechar
+  // (não à espera do evento "close", que chega depois): um "close" atrasado de uma janela já reaberta (abrir → fechar →
+  // abrir outro aparelho depressa) não pode apagar o rascunho nem tirar a janela do sítio (ignora-se: dialogo.open).
   let fechoExterno = null;
-  dialogo.addEventListener("close", () => {
+  let dialogoAtivo = false;   // aberta e ainda por arrumar (aoFecharDialogo)
+  dialogo.addEventListener("close", () => { if (!dialogo.open) aoFecharDialogo(); });
+  function aoFecharDialogo() {
+    if (!dialogoAtivo) return;
+    dialogoAtivo = false;
     rascunho = null;
     if (fechoExterno) {
       const f = fechoExterno;
@@ -1941,7 +1953,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       return;
     }
     svg.focus({ preventScroll: true });
-  });
+  }
 
   // ---------------------------------------------------------------- desenho
   function desenhar() {
@@ -2108,6 +2120,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     limpar() {
       fechoExterno = null;
       if (dialogo.open) dialogo.close();
+      dialogoAtivo = false;
+      rascunho = null;
       fecharMais();
       naBarraExtra.clear();
       acertarBarra();
@@ -2138,6 +2152,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      */
     abrirOpcoes(id, { anfitriao = null, aoFechar = null } = {}) {
       if (!planta || !existe(id) || dialogo.open) return false;
+      aoFecharDialogo();   // uma janela fechada há instantes (Esc) ainda por arrumar: arruma-se já (o seu fecho, não o novo)
       const x = obterElemento(id) ?? obterDivisao(id);
       if (pisoDe(x) !== pisoAtual && pisoDe(x) < nPisos()) pisoAtual = pisoDe(x);
       selecionado = id;

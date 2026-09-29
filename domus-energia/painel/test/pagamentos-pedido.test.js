@@ -303,7 +303,7 @@ describe('modo simulado', () => {
     assert.equal(rel.divisoes.length, 1);
     const coz = rel.divisoes[0];
     assert.equal(coz.nome, 'Cozinha');
-    assert.deepEqual(coz.trabalho, ['Reparar: 1 tomada («queimada»; ver foto)', 'Substituir: 2 interruptores por inteligentes', 'Novo: 1 tomada']);
+    assert.deepEqual(coz.trabalho, ['Reparar: 1 tomada («queimada»; ver foto)', 'Substituir: 2 interruptores por inteligentes (sem foto)', 'Novo: 1 tomada']);
     assert.deepEqual(coz.material.map((m) => [m.quantidade, m.preco_unitario]), [[1, precoCat('DIAG-AVARIA')], [2, precoCat('INT-VIDRO-1')], [1, precoCat('TOMADA-WIFI')]]);
     assert.deepEqual(rel.geral.material.map((m) => m.quantidade), [1], 'o quadro à parte');
     const horas = cent(horasCat('DIAG-AVARIA') + 2 * horasCat('INT-VIDRO-1', true) + horasCat('TOMADA-WIFI') + horasCat('TONGOU-SY2-JWT'));

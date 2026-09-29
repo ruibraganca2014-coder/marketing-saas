@@ -186,7 +186,9 @@ export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "in
  * Um elemento assim nasce com `por_responder: true` até o cliente guardar a janela dele (o preço usa o valor por
  * omissão enquanto não responde).
  */
-export const temPergunta = (tipo, props = {}) => ["interruptor", "tomada", "janela"].includes(tipo) || (tipo === "maquina" && props?.modelo === "outro");
+// Tomadas e interruptores deixaram de ter pergunta obrigatória (decisão do dono: normais por omissão; "Por um
+// inteligente?" só em "Trocar e reparar"; os botões do interruptor mudam-se na janela, sem ser obrigatório).
+export const temPergunta = (tipo, props = {}) => tipo === "janela" || (tipo === "maquina" && props?.modelo === "outro");
 /**
  * Estados antigos (planta sem `respostas`): conta como respondido o que o cliente já mudou (valor diferente do
  * de omissão); o resto fica por responder.

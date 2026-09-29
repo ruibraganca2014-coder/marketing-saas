@@ -449,9 +449,10 @@ html { scroll-padding-top: 72px; }
 .sim-planta-tamanho .msg[hidden] { display: none; }
 /* Aviso "planta mexida" numa linha (o texto todo no title, app.js) e o "Refazer planta" compacto: se não couber ao lado
    do tamanho, vai para uma 2.ª linha (nunca esconde os campos). */
-.sim-planta-origem { flex: 1 1 14em; margin: 0; min-width: min(14em, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
+.sim-planta-origem { flex: 1 1 14em; margin: 0; min-width: min(14em, 100%); font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
 .sim-planta-origem[hidden] { display: none; }
-#planta-refazer { flex: none; padding: 4px 12px; font-size: .82rem; }
+#planta-refazer { flex: none; }
+.editor-lado-acoes .confirmar { flex-basis: 100%; }
 .sim-planta-fechar { flex: none; margin-left: auto; }
 .sim-planta-origem:not([hidden]) ~ .sim-planta-fechar { margin-left: 0; }
 .sim-planta .editor, .sim-planta .editor-principal { display: flex; flex-direction: column; align-items: stretch; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 6px; }
