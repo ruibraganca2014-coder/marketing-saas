@@ -4,7 +4,7 @@
 // proposta", a simulação por acabar (retomar no simulador) e a ligação à área da casa (depois da instalação).
 // Pagamentos (docs/PAGAMENTOS-PEDIDO.md): estado e recibo de cada fase (19 €, sinal, restante), aceitar a proposta
 // com o plano mensal e pagar o sinal, "Pagar o restante" depois da obra, e o relatório técnico (depois de revisto).
-import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta } from "./conta-comum.js";
+import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 
 const $ = (id) => document.getElementById(id);
@@ -15,6 +15,9 @@ const el = (tag, cls, texto) => {
   return e;
 };
 const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(v);
+/** "19,00 € (15,45 € + IVA 3,55 €)" — um pagamento (ou recibo) com a base e o IVA, quando o servidor os dá. */
+const comIva = (x) => (x?.base != null && x?.iva != null ? `${euro(x.valor)} (${euro(x.base)} + IVA ${euro(x.iva)})` : euro(x?.valor ?? 0));
+const pctTxt = (v) => `${String(v).replace(".", ",")} %`;
 const dataTxt = (v, hora = false) => {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-PT", hora ? { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "long", year: "numeric" });
@@ -32,6 +35,7 @@ const bloco = criarBlocoConta($("conta-bloco"), {
   prefixo: "conta",
   texto: { fora: "Entre para acompanhar o seu pedido de orçamento. A conta cria-se no fim da simulação, ou aqui." },
   aoMudar(eu) {
+    faixaDemonstracao(Boolean(eu?.pagamentos?.demonstracao));
     const dentro = Boolean(eu?.conta?.confirmado);
     $("conta-dentro").hidden = !dentro;
     if (!dentro) { $("conta-pedidos").replaceChildren(); return; }
@@ -67,7 +71,7 @@ async function mostrarRegresso() {
   let r;
   try { r = await pedirConta(`pagamentos/${r0.ref}${r0.cancelado ? "?cancelado=1" : ""}`); } catch (e) { mensagem(e.message); return; }
   const p = r.pagamento;
-  if (p.estado === "pago") mensagem(`Pagamento recebido: ${euro(p.valor)} — ${p.descricao}. Referência ${p.ref}.${p.modo === "simulado" ? " (Simulação: não foi cobrado nada.)" : ""}`, "ok");
+  if (p.estado === "pago") mensagem(`Pagamento recebido: ${comIva(p)} — ${p.descricao}. Referência ${p.ref}.${p.modo === "simulado" ? " (Simulação: não foi cobrado nada.)" : ""}`, "ok");
   else if (p.estado === "pendente") mensagem("O pagamento ainda não está confirmado. Se pagou por Multibanco, pode demorar; o estado atualiza-se aqui.", "info");
   else if (p.estado === "falhado") mensagem("O pagamento não foi concluído. Não foi cobrado nada: pode tentar de novo.");
   else mensagem("Cancelou o pagamento. Não foi cobrado nada: pode tentar de novo quando quiser.", "info");
@@ -132,7 +136,10 @@ function cartaoPedido(p) {
 function blocoProposta(p) {
   const b = el("section", "conta-proposta");
   b.setAttribute("aria-label", "Proposta");
+  // A proposta é sem IVA; o que se paga online inclui-o (decisão do dono).
+  const pi = p.proposta_iva;
   b.append(el("h4", null, "A nossa proposta"), el("p", "valor num", `${euro(p.proposta.valor)} + IVA`));
+  if (pi) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
   if (p.proposta.texto) b.append(el("p", null, p.proposta.texto));
   const msg = el("div", "msg", null);
   msg.hidden = true;
@@ -163,7 +170,7 @@ function blocoProposta(p) {
     botao.id = `aceitar-${p.id}`;
     botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, planos));
     const ajuda = sinal
-      ? `Sinal: ${sinal.pct} % da proposta${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O resto paga-se no fim da obra.`
+      ? `Sinal: ${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O resto paga-se no fim da obra.`
       : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
     b.append(planos, el("p", "ajuda", ajuda), botao, msg);
   }
@@ -199,7 +206,7 @@ function blocoRestante(p) {
   msg.setAttribute("role", "status");
   b.append(el("h4", null, "Fim da obra"));
   if (p.restante?.pago) b.append(el("p", "msg ok", "A obra está paga. Obrigado!"));
-  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)}.`), botaoPagar(p, "restante", `Pagar o restante (${euro(p.restante.valor)})`, msg), msg);
+  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${p.proposta_iva ? `: ${euro(p.proposta_iva.total)} menos o que já pagou` : ""}).`), botaoPagar(p, "restante", `Pagar o restante (${euro(p.restante.valor)})`, msg), msg);
   return b;
 }
 
@@ -211,9 +218,11 @@ function blocoPagamentos(p) {
   for (const x of p.pagamentos) {
     const li = el("li");
     li.dataset.fase = x.fase;
-    li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)}`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
+    li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)} com IVA`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
     if (x.recibo) {
-      li.append(el("span", "conta-recibo", `Recibo — ${dataTxt(x.recibo.data, true)} · ${euro(x.recibo.valor)} · ${x.recibo.descricao} · Ref. ${x.recibo.referencia}${x.recibo.simulado ? " · SIMULAÇÃO (não cobrado)" : ""}`));
+      const r = x.recibo;
+      const iva = r.base != null ? ` (${euro(r.base)} + IVA${r.iva_pct != null ? ` ${pctTxt(r.iva_pct)}` : ""} ${euro(r.iva)})` : "";
+      li.append(el("span", "conta-recibo", `Recibo — ${dataTxt(r.data, true)} · ${euro(r.valor)}${iva} · ${r.descricao} · Ref. ${r.referencia}${r.simulado ? " · SIMULAÇÃO (não cobrado)" : ""}`));
     }
     ul.append(li);
   }
@@ -280,6 +289,11 @@ function tabelaMaterial(linhas) {
 
 function desenharRelatorio(r) {
   const out = [];
+  // Lista de trabalho (Reparar / Substituir / Novo por divisão); os aparelhos a manter só se contam.
+  const a = r.acoes ?? {};
+  const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]
+    .filter(([k]) => a[k] > 0).map(([k, t]) => `${a[k]} ${a[k] === 1 ? "aparelho" : "aparelhos"} ${t}`);
+  if (resumo.length) out.push(el("p", null, `Lista de trabalho: ${resumo.join(" · ")}.`));
   for (const d of r.divisoes) {
     out.push(el("h5", null, `${d.nome} — ${euro(d.total)}`));
     if (d.trabalho.length) {
@@ -302,7 +316,7 @@ function confirmarAceitar(p, b, botao, msg, planos) {
   const caixa = el("div", "confirmar msg info");
   caixa.setAttribute("role", "alert");
   const sinal = p.sinal && p.sinal.valor > 0 ? p.sinal : null;
-  caixa.append(el("p", null, `Confirma que aceita a proposta de ${euro(p.proposta.valor)} + IVA, com o plano ${PLANOS[plano]?.[0] ?? ""}?${sinal ? ` A seguir paga o sinal de ${euro(sinal.valor)}.` : ""}`));
+  caixa.append(el("p", null, `Confirma que aceita a proposta de ${euro(p.proposta.valor)} + IVA${p.proposta_iva ? ` (${euro(p.proposta_iva.total)} com IVA)` : ""}, com o plano ${PLANOS[plano]?.[0] ?? ""}?${sinal ? ` A seguir paga o sinal de ${euro(sinal.valor)} (com IVA).` : ""}`));
   const sim = el("button", "btn pequeno", "Sim, aceito");
   sim.type = "button";
   sim.id = `aceitar-sim-${p.id}`;

@@ -291,7 +291,7 @@ test('catálogo e configuração: validação e só o CEO', async () => {
   }
   let r = await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { tarifa_hora_iva: 40, margem_intervalo_pct: 20 } });
   assert.equal(r.estado, 200);
-  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
+  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 20, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, iva_pct: 23 });
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { margem_intervalo_pct: 101 } })).estado, 400);
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { outra: 1 } })).estado, 400);
   // Mensagens com os nomes em português (não as chaves).

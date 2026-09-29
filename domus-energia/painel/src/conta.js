@@ -340,6 +340,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   h.eu = ({ res, c }) => responder(res, 200, {
     conta: publico(c), simulacao_atualizada: c.simulacao_atualizada ?? null,
     tem_casa: Boolean(c.casa_codigo), sessao_expira: c.sessaoExpira,
+    // Pagamentos do pedido: {ativo, modo, demonstracao…} (a conta mostra a faixa "Modo de demonstração").
+    pagamentos: pagamentos()?.info() ?? null,
   });
 
   // Confirmar o email. Sem sessão (depois de "Criar conta"): {email, password, codigo}, sempre a mesma resposta de
@@ -669,27 +671,44 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   /**
    * Apagar uma conta com os seus dados pessoais (RGPD): a conta, as sessões, os códigos, a simulação guardada e as
    * credenciais da casa; os pedidos dela que NÃO chegaram a cliente/obra (com as fotos e os detalhes no histórico).
+   * Os pedidos com PAGAMENTOS PAGOS não se apagam: são ANONIMIZADOS (saem o nome, os contactos, a morada, a mensagem,
+   * as notas, a simulação e as fotos; ficam o id, as datas, os valores, as referências e a descrição do serviço/proposta)
+   * e os pagamentos continuam ligados a eles — retenção contabilística de 10 anos (docs/CONTA-CLIENTE.md).
    * Os pedidos convertidos em cliente e obra ficam (contrato e faturação), só perdem a ligação à conta.
    */
   async function apagar(idTexto) {
     const c = obterConta(idTexto);
-    const alvos = db.prepare(`SELECT id FROM orcamentos o WHERE conta_id = ? AND obra_id IS NULL
+    const semObra = db.prepare(`SELECT id FROM orcamentos o WHERE conta_id = ? AND obra_id IS NULL
       AND NOT EXISTS (SELECT 1 FROM obras b WHERE b.orcamento_id = o.id)`).all(c.id).map((x) => x.id);
-    const mantidos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE conta_id = ?').get(c.id).n - alvos.length;
-    for (const id of alvos) await fotos.apagarTodas(id);
+    const pago = db.prepare('SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\' LIMIT 1');
+    const anonimizar = semObra.filter((id) => pago.get(id));
+    const alvos = semObra.filter((id) => !anonimizar.includes(id));
+    const mantidos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE conta_id = ?').get(c.id).n - semObra.length;
+    for (const id of semObra) await fotos.apagarTodas(id);
     db.exec('BEGIN IMMEDIATE');
     try {
-      // Auditoria: o histórico dos pedidos apagados e da conta sai (com os IPs e os detalhes); de cada pedido fica só
-      // uma linha "apagado (RGPD)" sem dados pessoais (a da conta é a "conta_apagada" que o chamador escreve).
-      // Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
-      // Pagamentos: os por pagar saem (com o pedido guardado); os pagos ficam (contabilidade) sem a conta nem o pedido.
+      // Auditoria: o histórico dos pedidos apagados/anonimizados e da conta sai (com os IPs e os detalhes); de cada
+      // pedido fica só uma linha "apagado (RGPD)" / "anonimizado (RGPD)" sem dados pessoais (a da conta é a
+      // "conta_apagada" que o chamador escreve). Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
+      // Pagamentos: os por pagar saem (com o pedido guardado); os pagos ficam (contabilidade), ligados ao pedido
+      // (anonimizado ou mantido), sem a conta.
       db.prepare('DELETE FROM pagamentos_pedido WHERE conta_id = ? AND estado != \'pago\'').run(c.id);
-      db.prepare('UPDATE pagamentos_pedido SET pedido = NULL WHERE conta_id = ?').run(c.id);
+      db.prepare('UPDATE pagamentos_pedido SET pedido = NULL, conta_id = NULL WHERE conta_id = ?').run(c.id);
       for (const id of alvos) {
         db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado != \'pago\'').run(id);
         db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_apagado_rgpd', `orcamento:${id}`);
+      }
+      const agora = agoraIso();
+      for (const id of anonimizar) {
+        db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado != \'pago\'').run(id);
+        db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
+        db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
+          mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
+          conta_id = NULL, anonimizado = ?, atualizado = ? WHERE id = ?`).run(agora, agora, id);
+        db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
+        auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
       }
       db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`conta:${c.id}`);
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`conta:${c.id}`);
@@ -699,7 +718,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       db.exec('ROLLBACK');
       throw e;
     }
-    return { conta: c.id, pedidos_apagados: alvos.length, pedidos_mantidos: mantidos };
+    return { conta: c.id, pedidos_apagados: alvos.length, pedidos_anonimizados: anonimizar.length, pedidos_mantidos: mantidos };
   }
 
   // ------------------------------------------------------------ retenção (coerente com a das fotos)
@@ -725,6 +744,15 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       n++;
     }
     db.prepare('UPDATE contas SET simulacao = NULL, simulacao_atualizada = NULL WHERE simulacao_atualizada < ?').run(limite);
+    // Pedidos anonimizados (RGPD): saem com os pagamentos 10 anos depois do último pagamento (retenção contabilística).
+    const dezAnos = iso(agora - 10 * 365.25 * 24 * 3600_000);
+    const velhos = db.prepare(`SELECT id FROM orcamentos o WHERE anonimizado IS NOT NULL AND anonimizado < ?
+      AND NOT EXISTS (SELECT 1 FROM pagamentos_pedido p WHERE p.orcamento_id = o.id AND COALESCE(p.pago, p.criado) >= ?)`).all(dezAnos, dezAnos);
+    for (const { id } of velhos) {
+      db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ?').run(id);
+      db.prepare('DELETE FROM orcamentos WHERE id = ? AND obra_id IS NULL').run(id);
+      auditar(null, 'orcamento_apagado_retencao', `orcamento:${id}`, { criterio: '10 anos depois do último pagamento (anonimizado)' });
+    }
     if (n) registo.info(`retenção: ${n} contas de cliente apagadas`);
     return n;
   }

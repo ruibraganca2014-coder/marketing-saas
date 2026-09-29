@@ -46,6 +46,23 @@ export async function contaAtual() {
   try { return await pedirConta("eu"); } catch { return null; }
 }
 
+/**
+ * Faixa "Modo de demonstração — pagamentos simulados" por baixo do topo (docs/PAGAMENTOS-PEDIDO.md): o servidor diz
+ * `demonstracao: true` quando PAGAMENTOS_MODO=simulado (nenhum dinheiro real). Sem ela, a faixa sai.
+ */
+export function faixaDemonstracao(ligada) {
+  const antes = document.getElementById("faixa-demonstracao");
+  if (!ligada) { antes?.remove(); return; }
+  if (antes) return;
+  const f = document.createElement("div");
+  f.id = "faixa-demonstracao";
+  f.className = "faixa-demonstracao";
+  f.setAttribute("role", "note");
+  f.textContent = "Modo de demonstração — pagamentos simulados: não é cobrado nada.";
+  const topo = document.querySelector("header.topo");
+  if (topo) topo.after(f); else document.body.prepend(f);
+}
+
 const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const el = (tag, props = {}, ...filhos) => {

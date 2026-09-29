@@ -806,11 +806,19 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const e = obterElemento(selecionado);
     if (!d && !e) return;
     memorizar();
-    if (d) planta.divisoes = planta.divisoes.filter((x) => x !== d);
+    // Apagar uma divisão apaga também os aparelhos dela (senão ficavam "Fora das divisões" e contavam no pedido);
+    // "Anular" repõe tudo de uma vez (memorizar guarda a planta inteira).
+    // Os dela: com `divisao` = ela, ou sem divisão e dentro dela (estados antigos).
+    const eDela = (x) => x.divisao === d.id || (!x.divisao && divisaoEm(planta, x.x_cm, x.y_cm, pisoDe(x)) === d.id);
+    const dela = d ? planta.elementos.filter(eDela).length : 0;
+    if (d) {
+      planta.elementos = planta.elementos.filter((x) => !eDela(x));
+      planta.divisoes = planta.divisoes.filter((x) => x !== d);
+    }
     if (e) planta.elementos = planta.elementos.filter((x) => x !== e);
     if (d) ajustarFolha();
     selecionado = null;
-    confirmar(d ? `Divisão "${d.nome}" apagada (os elementos ficaram).` : `Apagado da planta: ${ELEMENTOS[e.tipo].nome}.`);
+    confirmar(d ? `Divisão "${d.nome}" apagada${dela ? ` com ${dela === 1 ? "o seu aparelho" : `os seus ${dela} aparelhos`}` : ""}. "Anular" repõe tudo.` : `Apagado da planta: ${ELEMENTOS[e.tipo].nome}.`);
     svg.focus({ preventScroll: true });
   }
 

@@ -298,6 +298,13 @@ export const MIGRACOES = [
     const troca = db.prepare('UPDATE catalogo SET horas_troca = ? WHERE sku = ? AND horas_troca IS NULL');
     for (const s of SEMENTES_ACOES) if (s.horas_troca != null) troca.run(s.horas_troca, s.sku);
   },
+  // 11 — IVA nos pagamentos online (docs/PAGAMENTOS-PEDIDO.md): a taxa usada em cada pagamento (base e IVA no recibo e
+  // no CSV; os antigos, sem ela, eram os 19 € com IVA a 23 %), e pedidos ANONIMIZADOS pelo RGPD (com pagamentos pagos:
+  // ficam para a contabilidade sem os dados pessoais, docs/CONTA-CLIENTE.md).
+  (db) => db.exec(`
+    ALTER TABLE pagamentos_pedido ADD COLUMN iva_pct REAL;
+    ALTER TABLE orcamentos ADD COLUMN anonimizado TEXT;       -- quando os dados pessoais saíram (RGPD); o resto fica
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

@@ -100,12 +100,16 @@ export default function catalogo(el) {
         h("div", { class: "duas" },
           campoForm("Preço por km (€, c/ IVA)", entrada("deslocacao_preco_km_iva", campo(config, "deslocacao_preco_km_iva"), "100")),
           campoForm("Distância máxima servida (km)", entrada("deslocacao_max_km", campo(config, "deslocacao_max_km"), "2000", "1")))),
+      h("fieldset", { class: "grupo" }, h("legend", { text: "Pagamentos online" }),
+        campoForm("IVA dos pagamentos (%)", entrada("iva_pct", campo(config, "iva_pct") ?? 23, "50", "0.1"),
+          "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). Os 19 € já são com IVA.")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar configuração" })), msg);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const corpo = {};
       for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["margem_intervalo_pct", 100, "A margem do intervalo"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
-        ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"]]) {
+        ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"],
+        ["iva_pct", 50, "A taxa de IVA"]]) {
         const v = numero(f.elements[k].value);
         if (v === null || v < 0 || v > max) { mensagem(msg, `${rot} tem de ser um número entre 0 e ${num(max)}.`); f.elements[k].focus(); return; }
         corpo[k] = v;

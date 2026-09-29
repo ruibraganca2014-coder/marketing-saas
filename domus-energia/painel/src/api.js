@@ -35,11 +35,13 @@ const CONFIG_ORCAMENTO = {
   deslocacao_km_gratis: { min: 0, max: 1000, rotulo: 'os km grátis da deslocação' },
   deslocacao_preco_km_iva: { min: 0, max: 100, rotulo: 'o preço por km da deslocação' },
   deslocacao_max_km: { min: 0, max: 2000, rotulo: 'a distância máxima da deslocação' },
+  // IVA dos pagamentos online (proposta sem IVA → pagamentos com IVA; docs/PAGAMENTOS-PEDIDO.md).
+  iva_pct: { min: 0, max: 50, rotulo: 'a taxa de IVA (%)' },
 };
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct'), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -68,6 +70,7 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id', ['ceo', 'comercial'], 'atualizarOrcamento'],
   ['POST', 'orcamentos/:id/converter', ['ceo', 'comercial'], 'converter'],
   ['POST', 'orcamentos/:id/libertar-relatorio', ['ceo'], 'libertarRelatorio'],
+  ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
@@ -76,6 +79,7 @@ export const ROTAS = [
   ['POST', 'obras', ['ceo'], 'criarObra'],
   ['POST', 'obras/:id', ['ceo', 'tecnico'], 'atualizarObra'],
   ['GET', 'pagamentos', ['ceo'], 'pagamentos'],
+  ['GET', 'pagamentos-pedido', ['ceo'], 'pagamentosPedido'],
   ['GET', 'utilizadores', ['ceo'], 'utilizadores'],
   ['POST', 'utilizadores', ['ceo'], 'criarUtilizador'],
   ['POST', 'utilizadores/:id', ['ceo'], 'atualizarUtilizador'],
@@ -144,6 +148,7 @@ export function criarApi(ctx) {
 
   const porIpOrcamento = new LimiteTaxa(config.limiteOrcamentoHora, 3600_000, relogio);
   const global = new LimiteTaxa(config.limiteOrcamentoGlobal, 3600_000, relogio);
+  const porContaRetentativa = new LimiteTaxa(20, 3600_000, relogio);   // "Pagar 19 € e enviar" outra vez, por conta
 
   // ------------------------------------------------------------ auditoria
   const insAuditoria = db.prepare('INSERT INTO auditoria (quando, utilizador_id, email, acao, alvo, detalhes, ip) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -171,6 +176,8 @@ export function criarApi(ctx) {
     criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+  // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
+  db.prepare('INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES (\'iva_pct\', ?)').run(config.ivaTaxa ?? 23);
 
   // ------------------------------------------------------------ utilidades
   const fichas = () => new Map(db.prepare('SELECT * FROM fichas_cliente').all().map((f) => [f.codigo, f]));
@@ -198,6 +205,9 @@ export function criarApi(ctx) {
       aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
       pagamentos: pagPed.listarParaPainel(o.id),
+      // Proposta (sem IVA) → total com IVA, sinal e restante (o que o cliente paga online).
+      valores_pagamento: pagPed.resumoValores(o),
+      anonimizado: o.anonimizado ?? null,
     };
     if (completo) {
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
@@ -337,7 +347,7 @@ export function criarApi(ctx) {
     if (v.email.length > 254 || v.password.length > 200) throw new ErroApi(401, 'Email ou palavra-passe errados.');
     const { token, utilizador } = await auth.entrar(v.email, v.password, ip);
     auditar(utilizador, 'entrar', `utilizador:${utilizador.id}`, null, ip);
-    responder(res, 200, { utilizador: publicoUtilizador(utilizador) }, { 'Set-Cookie': auth.cookie(token, Math.floor(config.sessaoMs / 1000)) });
+    responder(res, 200, { utilizador: publicoUtilizador(utilizador), pagamentos: pagPed.info() }, { 'Set-Cookie': auth.cookie(token, Math.floor(config.sessaoMs / 1000)) });
   };
 
   h.sair = async ({ req, res, ip }) => {
@@ -350,6 +360,8 @@ export function criarApi(ctx) {
 
   h.eu = ({ res, u }) => responder(res, 200, {
     utilizador: { id: u.id, nome: u.nome, email: u.email, papel: u.papel }, sessao_expira: u.sessaoExpira,
+    // Faixa no painel: "Modo de demonstração — pagamentos simulados" ou "Pagamentos desligados".
+    pagamentos: pagPed.info(),
   });
 
   // A própria pessoa muda a palavra-passe (a que o CEO lhe entregou ao criar a conta).
@@ -823,6 +835,13 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
+  // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
+  h.previaRelatorioCliente = ({ res, params }) => {
+    const o = obterOrcamento(params.id);
+    if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há relatório para o cliente.');
+    responder(res, 200, { relatorio: pagPed.relatorioCliente(o) });
+  };
+
   // Obra concluída: o cliente passa a ver "Pagar o restante" na conta.
   h.obraConcluida = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
@@ -837,7 +856,8 @@ export function criarApi(ctx) {
     const email = emailDaConta(o.conta_id);
     if (email && v.restante > 0) {
       correio.enviar({ para: email, assunto: 'Domus Energia: obra concluída', resumo: `obra do pedido ${o.id} concluída; restante ${deCent(v.restante)} €`,
-        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} está concluída. Pode pagar o restante (${deCent(v.restante).toFixed(2).replace('.', ',')} €) na sua conta.`,
+        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} está concluída. Pode pagar o restante (${deCent(v.restante).toFixed(2).replace('.', ',')} €, com IVA) na sua conta.`,
+          `Proposta: ${deCent(v.proposta).toFixed(2).replace('.', ',')} € + IVA ${String(v.iva_pct).replace('.', ',')} % (${deCent(v.iva).toFixed(2).replace('.', ',')} €) = ${deCent(v.total).toFixed(2).replace('.', ',')} €, menos o que já pagou.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
@@ -975,6 +995,33 @@ export function criarApi(ctx) {
         sem_iva: deCent(linhas.reduce((s, l) => s + paraCent(l.valor_sem_iva), 0)),
       },
     });
+  };
+
+  // ---- pagamentos dos pedidos (19 €, sinal, restante; só CEO): lista e CSV (data, referência, descrição, base,
+  // IVA, total, estado, pedido). Os pedidos anonimizados (RGPD) continuam ligados: a contabilidade fica completa.
+  h.pagamentosPedido = ({ res, url }) => {
+    const mes = url.searchParams.get('mes');
+    if (mes !== null && !/^\d{4}-\d{2}$/.test(mes)) falha('Mês inválido (AAAA-MM).');
+    const estado = url.searchParams.get('estado');
+    if (estado !== null) opcao(estado, 'estado', ['pendente', 'pago', 'falhado', 'cancelado', 'expirado']);
+    const linhas = pagPed.listarTodos({ estado, mes });
+    if (url.searchParams.get('formato') === 'csv') {
+      const seguro = (s) => (/^[=+\-@\t\r]/.test(String(s ?? '')) ? `'${s}` : String(s ?? '')).replace(/[;\r\n"]/g, ' ');
+      const dec = (n) => (n == null ? '' : n.toFixed(2).replace('.', ','));
+      const csv = ['data;referencia;descricao;base;iva;total;estado;pedido']
+        .concat(linhas.map((l) => [l.data, l.ref, seguro(l.descricao), dec(l.base), dec(l.iva), dec(l.valor), l.estado, l.orcamento_id ?? ''].join(';')))
+        .join('\r\n');
+      const corpo = Buffer.from(`﻿${csv}\r\n`);
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="pagamentos-pedidos${mes ? `-${mes}` : ''}.csv"`,
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Length': corpo.length,
+      });
+      return res.end(corpo);
+    }
+    const pagos = linhas.filter((l) => l.estado === 'pago');
+    const soma = (k) => deCent(pagos.reduce((s, l) => s + paraCent(l[k]), 0));
+    responder(res, 200, { pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base'), iva: soma('iva'), total: soma('valor') } });
   };
 
   // ---- utilizadores do painel
@@ -1142,7 +1189,7 @@ export function criarApi(ctx) {
       mud.deslocacao_base = v.deslocacao_base;
     }
     if (!Object.keys(mud).length) falha('Nada para alterar.');
-    for (const [k, val] of Object.entries(mud)) db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(val, k);
+    for (const [k, val] of Object.entries(mud)) db.prepare('INSERT INTO config_orcamento (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor').run(k, val);
     auditar(u, 'config_orcamento_atualizada', 'config-orcamento', mud, ip);
     responder(res, 200, lerConfigOrcamento());
   };
@@ -1158,10 +1205,16 @@ export function criarApi(ctx) {
     responder(res, 200, { contas: contas.listar() });
   };
 
+  // Apagar (RGPD): irreversível, por isso o CEO escreve o email da conta para confirmar.
   h.apagarConta = async ({ req, res, u, params, ip }) => {
-    await lerJson(req, []);
+    const v = await lerJson(req, ['email']);
+    const alvo = db.prepare('SELECT email FROM contas WHERE id = ?').get(idNum(params.id));
+    if (!alvo) throw new ErroApi(404, 'Conta não encontrada.');
+    if (typeof v.email !== 'string' || v.email.trim().toLowerCase() !== String(alvo.email).toLowerCase()) {
+      falha('Para confirmar, escreva o email da conta que quer apagar.');
+    }
     const r = await contas.apagar(params.id);
-    auditar(u, 'conta_apagada', `conta:${r.conta}`, { pedidos_apagados: r.pedidos_apagados, pedidos_mantidos: r.pedidos_mantidos }, ip);
+    auditar(u, 'conta_apagada', `conta:${r.conta}`, { pedidos_apagados: r.pedidos_apagados, pedidos_anonimizados: r.pedidos_anonimizados, pedidos_mantidos: r.pedidos_mantidos }, ip);
     responder(res, 200, { ...r, contas: contas.listar() });
   };
 
@@ -1169,13 +1222,20 @@ export function criarApi(ctx) {
   async function orcamentoPublico(req, res, ip) {
     if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
-    const espera = Math.max(porIpOrcamento.espera(ip), global.espera('*'));
+    // Tentar pagar de novo os 19 € (falhou, cancelou ou ainda está por pagar) não gasta o limite por IP: a conta tem
+    // uma tentativa nas últimas 24 h, que é reaproveitada ou substituída; há um limite próprio por conta.
+    const sessaoConta = pagPed.ativo ? contas.sessao(req, res) : null;
+    const retentativa = Boolean(sessaoConta?.confirmado) && pagPed.temTentativaRecente(sessaoConta.id);
+    const espera = retentativa ? porContaRetentativa.espera(String(sessaoConta.id)) : Math.max(porIpOrcamento.espera(ip), global.espera('*'));
     if (espera) {
-      registo.aviso(`orçamento: limite atingido (ip ${ip})`);
+      registo.aviso(`orçamento: limite atingido (ip ${ip}${retentativa ? `, conta ${sessaoConta.id}, retentativas` : ''})`);
       throw new ErroApi(429, 'Recebemos vários pedidos seguidos deste endereço. Tente mais tarde ou contacte-nos por telefone.', { 'Retry-After': String(espera) });
     }
-    porIpOrcamento.registar(ip);
-    global.registar('*');
+    if (retentativa) porContaRetentativa.registar(String(sessaoConta.id));
+    else {
+      porIpOrcamento.registar(ip);
+      global.registar('*');
+    }
     const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
@@ -1245,7 +1305,9 @@ export function criarApi(ctx) {
       });
     const cfg = lerConfigOrcamento();
     const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
-    responder(res, 200, { itens, config }, { 'Cache-Control': 'public, max-age=60' });
+    // Pagamentos do pedido: o simulador mostra a faixa "Modo de demonstração" e o botão certo ("Pagar 19 €…" ou "Enviar").
+    const { ativo, modo, demonstracao } = pagPed.info();
+    responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao } }, { 'Cache-Control': 'public, max-age=60' });
   }
 
   // ------------------------------------------------------------ despacho

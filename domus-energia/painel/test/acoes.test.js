@@ -9,6 +9,7 @@ import {
 import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido } from '../../web/simulador/preco.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
 import { contarPlanta, divisoesDaContagem } from '../../web/simulador/regras.js';
+import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita } from '../public/ecras/simulacao.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 
@@ -97,6 +98,36 @@ test('quadro no pedido: sempre com Instalação nova; sem ela, só se o cliente 
   assert.ok(!pedidosDaSelecao(e).some((x) => x.grupo === 'quadro'), 'só reparações: sem diferenciais nem caixa');
   e.servico = ['nova'];
   assert.ok(pedidosDaSelecao(e).some((x) => x.grupo === 'quadro'));
+});
+
+test('automatizar + quadro novo: um disjuntor 1P+N por circuito que a casa já tem (estimativa pelas divisões)', () => {
+  // 1 piso: Sala, 2 Quartos, Corredor (4 secas → 2 de tomadas), Cozinha e Casa de banho (1 cada) + 1 iluminação = 5.
+  // 2.º piso: Quarto (1 seca → 1 de tomadas) + 1 iluminação = 2. Total 7.
+  const d = (id, nome, piso = 0) => ({ id, nome, piso, x_cm: 0, y_cm: 0, largura_cm: 300, altura_cm: 300 });
+  const pl = { escala_cm: 50, largura_cm: 2000, altura_cm: 1500, fundo: null, respostas: true, elementos: [],
+    divisoes: [d('d1', 'Sala'), d('d2', 'Quarto'), d('d3', 'Quarto 2'), d('d4', 'Corredor'), d('d5', 'Cozinha'), d('d6', 'Casa de banho'), d('d7', 'Quarto 3', 1)] };
+  assert.equal(circuitosExistentes({ planta: pl }), 7);
+  assert.equal(circuitosExistentes({ planta: null, divisoes: [] }), 2, 'pelo menos iluminação e tomadas');
+  const e = estadoNovo();
+  e.servico = ['automatizar'];
+  e.planta = pl;
+  e.mexerQuadro = true;
+  e.quadro.quadro_novo = 'novo';
+  e.quadro.circuitos = [];
+  const disj = () => pedidosDaSelecao(e).find((x) => x.chave === 'disjuntor_circuito')?.qtd ?? 0;
+  assert.equal(existentesNoQuadroNovo(e), 7);
+  assert.equal(disj(), 7, 'MCB-1PN-C × 7');
+  assert.equal(resumoQuadro(e).circuitos_existentes, 7);
+  assert.ok(avisosProtecoes(e).some((a) => /n\.º de circuitos a confirmar na visita/.test(a)));
+  e.quadro.quadro_novo = 'atual';
+  assert.equal(disj(), 0, 'quadro atual: os disjuntores já lá estão');
+  e.quadro.quadro_novo = null;
+  assert.equal(disj(), 7, '"Não sei" conta como quadro novo (por precaução)');
+  e.mexerQuadro = false;
+  assert.equal(existentesNoQuadroNovo(e), 0, 'sem mexer no quadro');
+  e.mexerQuadro = true;
+  e.servico = ['nova', 'automatizar'];
+  assert.equal(existentesNoQuadroNovo(e), 0, 'com Instalação nova os circuitos são todos novos');
 });
 
 test('estados antigos: 6 passos → 7 (tudo +1), sem serviço = Instalação nova; ações da planta guardadas', () => {

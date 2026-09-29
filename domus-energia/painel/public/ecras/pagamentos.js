@@ -37,12 +37,46 @@ export default function pagamentos(el) {
   const exportar = h("button", { class: "btn sec", type: "button", id: "exportar-csv", text: "Exportar CSV", disabled: true });
   const zonaTotais = h("section", { class: "cartao", "aria-labelledby": "totais-titulo" }, h("h2", { id: "totais-titulo", text: "Totais por mês" }), carregando());
   const zonaTabela = h("div", { class: "tabela-rolar" });
+  // Pagamentos dos pedidos (19 €, sinal, restante; docs/PAGAMENTOS-PEDIDO.md), com base, IVA e total e o pedido
+  // (também os anonimizados pelo RGPD). CSV do servidor: data;referencia;descricao;base;iva;total;estado;pedido.
+  const exportarPed = h("button", { class: "btn sec pequeno", type: "button", id: "exportar-csv-pedidos", text: "Exportar CSV", disabled: true });
+  const zonaPed = h("div", { class: "tabela-rolar" }, carregando());
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Pagamentos" }), exportar),
     zonaTotais,
-    h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Pagamentos" }), fMes), zonaTabela));
+    h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Pagamentos" }), fMes), zonaTabela),
+    h("section", { class: "bloco-lista", id: "pagamentos-pedidos", "aria-labelledby": "pp-titulo" },
+      h("div", { class: "seccao-topo" }, h("h2", { id: "pp-titulo", text: "Pagamentos dos pedidos (19 €, sinal e restante)" }), exportarPed), zonaPed));
   fMes.addEventListener("change", desenharTabela);
   exportar.addEventListener("click", exportarCsv);
+  exportarPed.addEventListener("click", async () => {
+    exportarPed.disabled = true;
+    try {
+      const r = await fetch(`${BASE}pagamentos-pedido?formato=csv`, { credentials: "same-origin", headers: { Accept: "text/csv" } });
+      if (r.status === 401 || r.status === 403) { avisar(r.status === 401 ? "A sessão terminou. Entre de novo." : "Não tem acesso a esta área.", "erro"); return; }
+      if (!r.ok) throw new Error();
+      descarregar(await r.blob(), "pagamentos-pedidos.csv");
+    } catch { avisar("Não foi possível exportar agora. Tente de novo.", "erro"); }
+    finally { exportarPed.disabled = false; }
+  });
+
+  async function carregarPedidos() {
+    let r;
+    try { r = await pedir("pagamentos-pedido", { sinal: ctrl.signal }); }
+    catch (e) { if (e.name !== "AbortError") zonaPed.replaceChildren(erroEcra(e, carregarPedidos)); return; }
+    const ls = lista(r, "pagamentos");
+    exportarPed.disabled = !ls.length;
+    if (!ls.length) { zonaPed.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pagamentos de pedidos." })); return; }
+    const t = campo(r, "total_pago");
+    const col = [["Data", (l) => data(campo(l, "data"))], ["Referência", (l) => txt(l, "ref")], ["Descrição", (l) => txt(l, "descricao")],
+      ["Base", (l) => euros(campo(l, "base")), "num"], ["IVA", (l) => euros(campo(l, "iva")), "num"], ["Total", (l) => euros(campo(l, "valor")), "num"],
+      ["Estado", (l) => `${txt(l, "estado_texto")}${campo(l, "modo") === "simulado" ? " (simulado)" : ""}`]];
+    zonaPed.replaceChildren(h("table", { class: "tabela", id: "tabela-pagamentos-pedidos" },
+      h("thead", {}, h("tr", {}, ...col.map(([n, , c]) => h("th", { scope: "col", class: c ?? "", text: n })), h("th", { scope: "col", text: "Pedido" }))),
+      h("tbody", {}, ...ls.map((l) => h("tr", { dataset: { estado: campo(l, "estado") } }, ...col.map(([n, f, c]) => h("td", { class: c ?? "", "data-rotulo": n, text: f(l) })),
+        h("td", { "data-rotulo": "Pedido" }, campo(l, "orcamento_id") ? h("a", { href: `#/orcamentos/${encodeURIComponent(campo(l, "orcamento_id"))}`, text: `n.º ${campo(l, "orcamento_id")}` }) : "—")))),
+      t ? h("tfoot", {}, h("tr", {}, h("th", { scope: "row", colspan: "3", text: `Pagos (${campo(t, "pagamentos")})` }), h("td", { class: "num", text: euros(campo(t, "base")) }), h("td", { class: "num", text: euros(campo(t, "iva")) }), h("td", { class: "num", text: euros(campo(t, "total")) }), h("td", { colspan: "2" }))) : null));
+  }
 
   async function carregar() {
     let r;
@@ -105,6 +139,7 @@ export default function pagamentos(el) {
   }
 
   carregar();
+  carregarPedidos();
   return { desmontar: () => ctrl.abort() };
 }
 

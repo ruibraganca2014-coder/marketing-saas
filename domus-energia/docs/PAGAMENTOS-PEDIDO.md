@@ -6,23 +6,24 @@ Pagamentos do fluxo simulador → proposta → obra. As subscrições mensais co
 
 - **Enviar o pedido custa 19 €.** Paga o relatório técnico e a visita técnica, e os 19 € são descontados na obra. Fora da área servida paga-se 19 € só pelo relatório, sem visita, e o simulador avisa antes de pagar.
 - **O intervalo de preço do Resumo continua grátis.** O detalhe fica no relatório pago.
-- **O dono revê o relatório técnico antes de o libertar** (até 24 h). No painel há o botão "Libertar relatório ao cliente" (só o CEO). Até lá a conta mostra "Relatório em revisão (até 24 h)". Depois o cliente vê e descarrega (imprimir ou PDF) a versão para o cliente: lista de trabalho, divisões, material e preço por divisão, quadro e geral, mão de obra e deslocação. Nunca leva preço de compra, fornecedor, ligações, notas internas nem circuitos.
-- **Aceitar a proposta = pagar um sinal de 30 % menos os 19 € já pagos.** Ao aceitar escolhe-se o plano mensal (Base 4,99 €, Conforto 9,99 € ou Premium 19,99 €). Antes do sinal pago o painel mostra "Aceite — a aguardar sinal"; só depois o pedido passa a "Aceite".
+- **O dono revê o relatório técnico antes de o libertar** (até 24 h). No painel há o botão "Libertar relatório ao cliente" (só o CEO). Até lá a conta mostra "Relatório em revisão (até 24 h)". Depois o cliente vê e descarrega (imprimir ou PDF) a versão para o cliente: a **lista de trabalho por divisão e ação** ("Reparar: 1 tomada («queimada»; ver foto)", "Substituir: 2 interruptores por inteligentes", "Novo: 3 tomadas"; de `simulacao.trabalho`, lote 7; os aparelhos a manter só se contam; pedidos antigos sem ações: tudo Novo pelas linhas das divisões), o material e o preço por divisão, quadro e geral, mão de obra e deslocação. **Os preços são os do catálogo do servidor** (`preco_venda_iva`), as horas as do catálogo (ao substituir, as de troca) × a tarifa da configuração, e a deslocação a da configuração pela localidade — nunca os `preco_iva`/`valor_iva` que o browser mandou. Antes de libertar, o CEO tem **"Pré-visualizar versão do cliente"** (`GET orcamentos/:id/relatorio-cliente`, o mesmo JSON que a conta recebe). Nunca leva preço de compra, fornecedor, ligações, notas internas nem circuitos.
+- **Os pagamentos online incluem IVA** (decisão do dono). A proposta do painel é **sem IVA**; o sinal e o restante são calculados sobre o total **com IVA** (taxa `iva_pct` da configuração, no painel em Catálogo → Configuração → "IVA dos pagamentos"; o valor inicial vem de `IVA_TAXA`, por omissão 23). Os 19 € já são com IVA. Cada pagamento guarda a taxa usada (`pagamentos_pedido.iva_pct`, migração 11): o recibo, o email, a conta, o painel e o CSV mostram a base, o IVA e o total. Com o sinal pago, o restante usa a taxa do sinal.
+- **Aceitar a proposta = pagar um sinal de 30 % (da proposta com IVA) menos os 19 € já pagos.** Ao aceitar escolhe-se o plano mensal (Base 4,99 €, Conforto 9,99 € ou Premium 19,99 €). Antes do sinal pago o painel mostra "Aceite — a aguardar sinal"; só depois o pedido passa a "Aceite".
 - **O restante paga-se no fim da obra.** O painel marca "Obra concluída" e a conta mostra "Pagar o restante".
 - **A subscrição começa quando a casa fica ligada** (conversão no painel):
   - no modo simulado, a conversão cria o pedido-admin `plano` (`ativo`) com o plano escolhido, a seguir ao do cliente;
   - no modo stripe, o cliente ativa-a na área de cliente, pelo serviço `pagamentos/`, como hoje.
 - **"Visita técnica gratuita" saiu do site.** No simulador, na conta e nos emails passou a "visita técnica incluída nos 19 €, descontados na obra".
 
-Exemplo com uma proposta de 1000 €:
+Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €):
 
-| Fase | Valor |
-|---|---|
-| Relatório e visita | 19 € |
-| Sinal | 30 % × 1000 − 19 = 281 € |
-| Restante | 1000 − 19 − 281 = 700 € |
+| Fase | Valor (com IVA) | Base + IVA |
+|---|---|---|
+| Relatório e visita | 19 € | 15,45 € + 3,55 € |
+| Sinal | 30 % × 1230 − 19 = 350 € | 284,55 € + 65,45 € |
+| Restante | 1230 − 19 − 350 = 861 € | 700 € + 161 € |
 
-**Por decidir:** os valores são calculados sobre o `valor_proposta` tal como o painel o guarda, e o painel chama-lhe "sem IVA" (a conta mostra "1000 € + IVA"). O exemplo do dono dá 700 €, por isso hoje **não se cobra IVA por cima**. Se o total a cobrar deve ser com IVA, basta mudar o cálculo em `valores()` (`painel/src/pagamentos-pedido.js`).
+O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)`; sinal = `calcularSinal(total, 19 €)`; restante = total − tudo o que já foi pago − o sinal por pagar.
 
 ## Onde vive: no painel
 
@@ -80,7 +81,8 @@ Proposta:
 
 | Modo | Quando | O que faz |
 |---|---|---|
-| `simulado` | por omissão sem `STRIPE_SECRET_KEY`; **sempre no local** (`local/iniciar.js`) | página própria `web/pagamento-simulado.html`, marcada "**SIMULAÇÃO — não é cobrado nada**", com o valor, a descrição e a referência vindos do servidor e três botões: "Pagar (simular sucesso)", "Simular falha" e "Cancelar". Cada botão chama `POST /api/conta/pagamentos/:ref/simular {resultado}` |
+| (desligados) | sem `PAGAMENTOS_MODO` e sem `STRIPE_SECRET_KEY` (o `.env.example` já não põe `simulado`) | o pedido com simulação é enviado **sem pagar**, como antes (`PAGAMENTO_PEDIDO` fica desligado); o simulador diz "Enviar pedido"; o painel mostra a faixa "**Pagamentos desligados**" e avisa no arranque |
+| `simulado` | **só com `PAGAMENTOS_MODO=simulado` escrito**; sempre no local (`local/iniciar.js`) | faixa "**Modo de demonstração — pagamentos simulados**" no simulador, na conta e no painel; página própria `web/pagamento-simulado.html`, marcada "**SIMULAÇÃO — não é cobrado nada**", com o valor, a descrição e a referência vindos do servidor e três botões: "Pagar (simular sucesso)", "Simular falha" e "Cancelar". Cada botão chama `POST /api/conta/pagamentos/:ref/simular {resultado}` |
 | `stripe` | por omissão com `STRIPE_SECRET_KEY` | Stripe Checkout (`mode=payment`, EUR, cartão, MB WAY e Multibanco); confirmação pelo webhook e pelo regresso do cliente |
 
 Trocar de modo é só configuração. A página simulada gera um evento **no formato de um webhook do Stripe** (`checkout.session.completed` com `payment_status=paid`, `checkout.session.async_payment_failed` ou `checkout.session.expired`, com `data.object` = uma `checkout.session` com `client_reference_id`, `amount_total` e `currency`). O webhook usa a mesma função `tratarEvento`.
@@ -105,7 +107,8 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
   - pagamento recebido (com a descrição, o valor, a data e a referência) e pagamento não concluído;
   - relatório pronto;
   - obra concluída (com o restante).
-- **RGPD.** Apagar uma conta tira os pagamentos por pagar e o pedido guardado. Os pagos ficam para a contabilidade, sem a conta nem o pedido.
+- **RGPD.** Apagar uma conta (o CEO escreve o email da conta para confirmar) tira os pagamentos por pagar e o pedido guardado. Um pedido com pagamentos pagos **não se apaga: é anonimizado** (docs/CONTA-CLIENTE.md) e os pagamentos continuam ligados a ele, sem a conta — retenção contabilística de 10 anos.
+- **Retentativas.** Tentar pagar outra vez os 19 € (falhou, cancelou, ou ainda está por pagar) não gasta o limite de 5 pedidos/h por IP de `/api/orcamento`: a conta tem uma tentativa nas últimas 24 h (limite próprio de 20/h por conta). Um pagamento por pagar da mesma conta é reaproveitado; um que falhou ou foi cancelado perde logo o pedido guardado.
 
 ## Rotas
 
@@ -118,7 +121,9 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano}` → `{pedido, pagamento}` |
 | POST | `/api/conta/pedidos/:id/pagar` | conta dona | `{fase: sinal\|restante}` → `{pagamento}`; `409` se já estiver pago ou ainda não se puder pagar |
 | GET | `/api/conta/pedidos/:id/relatorio` | conta dona | relatório do cliente; `409` "em revisão" até ser libertado |
+| GET | `/painel/api/orcamentos/:id/relatorio-cliente` | CEO | pré-visualização do relatório do cliente |
 | POST | `/painel/api/orcamentos/:id/libertar-relatorio` | CEO | liberta o relatório e avisa o cliente por email |
+| GET | `/painel/api/pagamentos-pedido[?estado=][&mes=][&formato=csv]` | CEO | todos os pagamentos dos pedidos (também dos anonimizados), com base, IVA e total; CSV `data;referencia;descricao;base;iva;total;estado;pedido` |
 | POST | `/painel/api/orcamentos/:id/obra-concluida` | CEO, comercial | obra concluída: o restante fica disponível |
 
 `GET /api/conta/pedidos` traz, em cada pedido:
@@ -129,13 +134,14 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 - `restante` e `pode_pagar_restante`;
 - `plano_sugerido` e `modo`.
 
-`GET /painel/api/orcamentos/:id` traz `pagamentos`, `aguarda_sinal`, `relatorio_libertado`, `plano_escolhido` e `obra_concluida`.
+`GET /painel/api/orcamentos/:id` traz `pagamentos` (com `base`, `iva`, `iva_pct`), `valores_pagamento` (proposta, IVA, total, sinal, restante), `aguarda_sinal`, `relatorio_libertado`, `plano_escolhido`, `obra_concluida` e `anonimizado`. Cada pagamento para a conta (e o recibo) traz `base`, `iva` e `iva_pct`; cada pedido traz `proposta_iva` (`{base, iva_pct, iva, total}`). `GET /painel/api/eu`, `GET /api/conta/eu` e `GET /api/catalogo` trazem `pagamentos` (`{ativo, modo, demonstracao…}`) para as faixas.
 
 ## Configuração (`servidor/.env`, serviço painel)
 
 | Variável | Por omissão | |
 |---|---|---|
-| `PAGAMENTOS_MODO` | `stripe` com `STRIPE_SECRET_KEY`, senão `simulado` | o `.env.example` põe `simulado` |
+| `PAGAMENTOS_MODO` | `stripe` com `STRIPE_SECRET_KEY`, senão **desligados** | `simulado` só escrito (demonstração); o `.env.example` deixa-o comentado e o `instalar.sh` avisa num `.env` com `simulado` |
+| `IVA_TAXA` | `23` | valor inicial de `iva_pct` (depois muda-se no painel) |
 | `STRIPE_SECRET_KEY` | — | a mesma das subscrições |
 | `STRIPE_PEDIDO_WEBHOOK_SECRET` | — | segredo do **endpoint próprio** (ver abaixo) |
 | `STRIPE_PEDIDO_METODOS` | `card,mb_way,multibanco` | |
@@ -159,12 +165,11 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
    - Multibanco em teste → `completed` com `unpaid` e depois `async_payment_succeeded`.
 
    Confirmar no painel: o pedido aparece depois de pago, os pagamentos têm o estado certo e a auditoria está completa.
-5. Passar a `sk_live_…` e a um webhook live. **Faturação:** falta emitir a fatura-recibo de cada pagamento num programa certificado. Estes pagamentos ainda não vão para o `pagamentos.csv` das subscrições; estão na tabela `pagamentos_pedido` e na ficha de cada pedido.
+5. Passar a `sk_live_…` e a um webhook live. **Faturação:** falta emitir a fatura-recibo de cada pagamento num programa certificado. Estes pagamentos não vão para o `pagamentos.csv` das subscrições; estão na tabela `pagamentos_pedido`, na ficha de cada pedido e em painel → Pagamentos → "Pagamentos dos pedidos" (com "Exportar CSV": data, referência, descrição, base, IVA, total, estado, pedido).
 
 Ainda não feito:
 
 - a devolução (reembolso) de um pagamento: faz-se no painel do Stripe e não é refletida aqui;
-- a exportação CSV destes pagamentos;
 - o teste ponta a ponta contra o Stripe real (só um Stripe falso ao nível do `fetch`, nos testes).
 
 ## Testes
@@ -176,10 +181,11 @@ Ainda não feito:
 - falha, sucesso e cancelar simulados, com as fotos depois de pago;
 - idempotência (evento repetido, sucesso repetido, duplo clique) e evento com o valor errado;
 - acesso cruzado (404), sem sessão (401) e origem estranha (403);
-- sinal 281 € e restante 700 €, e a proposta mudada com o sinal por pagar;
-- relatório em revisão e libertado, sem dados internos;
-- expiração em 24 h e fora da área;
-- RGPD;
+- IVA: 1000 € + 23 % → sinal 350 € e restante 861 € (base e IVA no recibo, no email e no painel), a proposta mudada com o sinal por pagar, e a taxa mudada no painel (6 % → 299 €);
+- relatório em revisão, pré-visualizado pelo CEO e libertado, sem dados internos, com os preços do catálogo (não os do browser) e a lista de trabalho por ação;
+- expiração em 24 h e fora da área; retentativas sem gastar o limite por IP;
+- RGPD: pedido pago anonimizado, pagamentos ligados, lista global e CSV;
+- modo: sem modo nem chave → desligados; `simulado` só explícito (faixa); só a chave → stripe;
 - modo stripe: Checkout com os três métodos, `…/simular` 404 e webhook assinado (válido, inválido, repetido, sessão errada);
 - webhook 404 no modo simulado.
 

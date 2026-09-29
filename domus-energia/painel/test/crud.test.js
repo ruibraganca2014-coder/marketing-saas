@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 7, 'sementes não duplicadas');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 8, 'sementes não duplicadas (7 + iva_pct, semeado no arranque)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);

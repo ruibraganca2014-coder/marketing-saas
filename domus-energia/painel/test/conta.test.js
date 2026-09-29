@@ -449,7 +449,11 @@ describe('conta de cliente', () => {
     assert.equal((await conta('POST', 'entrar', { corpo: { email: a.email, password: SENHA } })).estado, 200);
     const pasta = join(p.config.fotosDir, String(id));
     assert.equal((await readdir(pasta)).length, 1);
-    const r = await painel('POST', `contas/${c.id}/apagar`, 'ceo', {});
+    // Irreversível: o CEO escreve o email da conta para confirmar (sem ele, ou com outro, nada acontece).
+    assert.equal((await painel('POST', `contas/${c.id}/apagar`, 'ceo', {})).estado, 400);
+    assert.equal((await painel('POST', `contas/${c.id}/apagar`, 'ceo', { email: 'outro@exemplo.pt' })).estado, 400);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas WHERE id = ?').get(c.id).n, 1);
+    const r = await painel('POST', `contas/${c.id}/apagar`, 'ceo', { email: a.email.toUpperCase() });
     assert.equal(r.estado, 200, r.texto);
     assert.equal(r.json.pedidos_apagados, 1);
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas WHERE id = ?').get(c.id).n, 0);
@@ -457,7 +461,7 @@ describe('conta de cliente', () => {
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM fotos WHERE orcamento_id = ?').get(id).n, 0);
     await assert.rejects(readdir(pasta));
     assert.ok(!JSON.stringify(p.app.db.prepare('SELECT * FROM auditoria').all()).includes(a.email), 'o email não fica na auditoria');
-    assert.equal((await painel('POST', `contas/${c.id}/apagar`, 'ceo', {})).estado, 404);
+    assert.equal((await painel('POST', `contas/${c.id}/apagar`, 'ceo', { email: a.email })).estado, 404);
   });
 
   test('apagar (RGPD): auditoria sem IPs nem detalhes do pedido e da conta; ids nunca reutilizados (o histórico não passa a outra pessoa)', async () => {
@@ -471,7 +475,7 @@ describe('conta de cliente', () => {
     const aud = (alvo) => p.app.db.prepare('SELECT acao, detalhes, ip, email FROM auditoria WHERE alvo = ? ORDER BY id').all(alvo).map((x) => ({ ...x }));
     assert.ok(aud(`orcamento:${id}`).some((x) => x.ip === IP));
     assert.ok(aud(`conta:${contaId}`).length);
-    assert.equal((await painel('POST', `contas/${contaId}/apagar`, 'ceo', {})).estado, 200);
+    assert.equal((await painel('POST', `contas/${contaId}/apagar`, 'ceo', { email: a.email })).estado, 200);
     assert.deepEqual(aud(`orcamento:${id}`), [{ acao: 'orcamento_apagado_rgpd', detalhes: null, ip: null, email: 'sistema' }]);
     assert.deepEqual(aud(`conta:${contaId}`).map((x) => x.acao), ['conta_apagada'], 'só o rasto do CEO');
     assert.deepEqual(aud('orcamento:999999').map((x) => [x.acao, x.ip]), [['proposta_aceite_cliente', null]]);

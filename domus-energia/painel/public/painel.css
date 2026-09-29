@@ -123,6 +123,9 @@ input[type=checkbox] { width: 22px; height: 22px; min-height: 0; accent-color: v
 .msg.erro { background: var(--alarme-suave); color: var(--alarme-texto); }
 .msg.info { background: var(--areia-suave); color: var(--texto); }
 .msg.bloco { display: grid; gap: 10px; justify-items: start; }
+/* Faixa dos pagamentos do pedido (demonstração ou desligados), por baixo do topo. */
+.faixa-pagamentos { padding: 8px 16px; font-weight: 700; font-size: .92rem; background: var(--alarme-suave); color: var(--alarme-texto); border-bottom: 1px solid var(--borda); overflow-wrap: anywhere; }
+.faixa-pagamentos.demonstracao { background: var(--areia-suave); color: var(--argila-texto); }
 .msg p { margin: 0; }
 
 /* ---------- Marca e cartões ---------- */

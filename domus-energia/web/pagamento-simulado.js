@@ -34,14 +34,38 @@ async function carregar() {
   if (p.modo !== "simulado") { mensagem("Este pagamento não é simulado."); return; }
   $("pag-valor").textContent = euro(p.valor);
   $("pag-descricao").textContent = p.descricao;
-  $("pag-ref").textContent = `Referência: ${p.ref}`;
+  $("pag-ref").textContent = `Referência: ${p.ref}${p.base != null ? ` · ${euro(p.base)} + IVA ${String(p.iva_pct).replace(".", ",")} % (${euro(p.iva)})` : ""}`;
   $("pag-dados").hidden = false;
   if (p.estado !== "pendente") {
     for (const b of botoes) b.disabled = true;
     mensagem(p.estado === "pago" ? "Este pagamento já está pago." : `Este pagamento já não está por pagar (${p.estado_texto.toLowerCase()}). Volte atrás e tente de novo.`, p.estado === "pago" ? "ok" : "erro");
+    ligacoesVoltar(p);
     return;
   }
   $("pag-sucesso").focus();
+}
+
+/**
+ * Já pago, cancelado, falhado ou expirado: "Voltar ao simulador" (19 €: volta ao passo Enviar, que confirma o estado)
+ * e "Voltar à conta" (onde se veem os pedidos e os recibos).
+ */
+function ligacoesVoltar(p) {
+  document.getElementById("pag-voltar")?.remove();
+  const caixa = document.createElement("div");
+  caixa.id = "pag-voltar";
+  caixa.className = "form-botoes";
+  const ligacao = (texto, href, sec) => {
+    const a = document.createElement("a");
+    a.className = sec ? "btn sec" : "btn";
+    a.textContent = texto;
+    a.href = href;
+    return a;
+  };
+  const q = `?pagamento=${encodeURIComponent(p.ref)}`;
+  if (p.fase === "relatorio") caixa.append(ligacao("Voltar ao simulador", `simulador.html${q}`, false), ligacao("Voltar à conta", "conta.html", true));
+  else caixa.append(ligacao("Voltar à conta", `conta.html${q}`, false), ligacao("Voltar ao simulador", "simulador.html", true));
+  $("pag-msg").after(caixa);
+  caixa.firstChild.focus();
 }
 
 async function simular(resultado) {
@@ -51,8 +75,9 @@ async function simular(resultado) {
     const r = await pedirConta(`pagamentos/${ref}/simular`, { corpo: { resultado } });
     location.assign(destinoSeguro(r.voltar));
   } catch (e) {
-    mensagem(e.message);
     for (const b of botoes) b.disabled = false;
+    if (e instanceof ErroConta && e.estado === 409) { await carregar(); mensagem(e.message); return; }   // mudou noutro separador
+    mensagem(e.message);
   }
 }
 

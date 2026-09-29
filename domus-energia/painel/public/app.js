@@ -46,7 +46,20 @@ async function arrancar() {
 }
 function normalizarEu(r) {
   const u = campo(r, "utilizador", "eu") ?? r ?? {};
-  return { id: campo(u, "id"), nome: campo(u, "nome") ?? campo(u, "email") ?? "", email: campo(u, "email") ?? "", papel: campo(u, "papel") ?? "" };
+  return { id: campo(u, "id"), nome: campo(u, "nome") ?? campo(u, "email") ?? "", email: campo(u, "email") ?? "", papel: campo(u, "papel") ?? "", pagamentos: campo(r, "pagamentos") ?? null };
+}
+
+/**
+ * Faixa por baixo do topo (docs/PAGAMENTOS-PEDIDO.md): "Modo de demonstração — pagamentos simulados" (PAGAMENTOS_MODO=
+ * simulado) ou "Pagamentos desligados" (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY: os pedidos chegam sem pagar).
+ */
+function faixaPagamentos() {
+  $("faixa-pagamentos")?.remove();
+  const p = eu?.pagamentos;
+  const texto = p?.demonstracao ? "Modo de demonstração — pagamentos simulados: não é cobrado nada e qualquer pessoa pode \"pagar\". Para pagamentos reais: PAGAMENTOS_MODO=stripe e as chaves do Stripe no .env."
+    : p?.desligados_sem_configuracao ? "Pagamentos desligados: os pedidos com simulação chegam sem os 19 €. Para os ligar: STRIPE_SECRET_KEY (e PAGAMENTOS_MODO=stripe) no .env."
+      : null;
+  if (texto) document.querySelector(".topo-painel").after(h("div", { class: `faixa-pagamentos${p?.demonstracao ? " demonstracao" : ""}`, id: "faixa-pagamentos", role: "note", text: texto }));
 }
 
 function mostrarLogin(texto = "", tipo = "erro") {
@@ -125,6 +138,7 @@ function mostrarPainel() {
   const mudar = h("a", { href: "#", role: "button", "aria-haspopup": "dialog", text: "Mudar palavra-passe" });
   mudar.addEventListener("click", (e) => { e.preventDefault(); abrirMenu(false); mudarPalavraPasse(); });
   lista.append(h("li", { class: "nav-conta" }, mudar));
+  faixaPagamentos();
   encaminhar();
   retomarPedidos();
 }

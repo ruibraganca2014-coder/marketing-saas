@@ -29,7 +29,7 @@ import {
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
 } from "./estado.js";
 import {
-  opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso,
+  opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso, existentesNoQuadroNovo,
 } from "./quadro.js";
 import { criarEditor } from "./editor.js";
 import { desenharIcone } from "./planta-svg.js";
@@ -37,7 +37,7 @@ import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
 import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
-import { criarBlocoConta, pedirConta, urlPainelApi, credenciais } from "../conta-comum.js";
+import { criarBlocoConta, pedirConta, urlPainelApi, credenciais, faixaDemonstracao } from "../conta-comum.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -1448,9 +1448,8 @@ function bloquearDivisoes() {
   const falta = divisoesPorOrdem(planta).filter((d) => !divisaoVerificada(planta, d));
   if (!falta.length) return false;
   if (estado.passo !== P.divisoes) irPara(P.divisoes, { foco: false });
-  const nomes = falta.slice(0, 3).map((d) => d.nome || "Divisão");
-  if (falta.length > 3) nomes.push(`mais ${falta.length - 3}`);
-  mensagemDivisoes(`Falta verificar ${falta.length === 1 ? "1 divisão" : `${falta.length} divisões`}: ${listaPt(nomes)}. Responda ao que falta e toque em "Divisão verificada ✓".`, "erro");
+  mensagemDivisoes(textoFaltaVerificar(falta), "erro");
+  avisoVerificar = true;
   const t = $(`div-${falta[0].id}-titulo`);
   t?.focus({ preventScroll: true });
   $(`div-${falta[0].id}`)?.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
@@ -1536,7 +1535,25 @@ function garantirEditor() {
   editor.abrir(estado.planta, { reiniciarVista: true });
 }
 
+/** "Falta verificar 3 divisões: Sala, Cozinha e mais 1…" */
+function textoFaltaVerificar(falta) {
+  const nomes = falta.slice(0, 3).map((d) => d.nome || "Divisão");
+  if (falta.length > 3) nomes.push(`mais ${falta.length - 3}`);
+  return `Falta verificar ${falta.length === 1 ? "1 divisão" : `${falta.length} divisões`}: ${listaPt(nomes)}. Responda ao que falta e toque em "Divisão verificada ✓".`;
+}
+/** A mensagem do passo é o "Falta verificar…" do Seguinte: segue as divisões (atualiza-se ou sai ao verificar). */
+let avisoVerificar = false;
+function atualizarAvisoVerificar() {
+  if (!avisoVerificar || fluxoCurto()) return;
+  const planta = plantaDivisoes();
+  const falta = divisoesPorOrdem(planta).filter((d) => !divisaoVerificada(planta, d));
+  if (!falta.length) { mensagemDivisoes("Todas as divisões estão verificadas. Pode carregar em \"Seguinte\".", "ok"); return; }
+  mensagemDivisoes(textoFaltaVerificar(falta), "erro");
+  avisoVerificar = true;
+}
+
 function mensagemDivisoes(texto, tipo = "info") {
+  avisoVerificar = false;
   const m = $("divisoes-msg");
   m.textContent = texto ?? "";
   m.className = `msg ${tipo}`;
@@ -1702,6 +1719,7 @@ function desenharDivisoes() {
   }
   dicaT.textContent = "Para o aquecimento ou o ar condicionado, indique quantos termóstatos quer.";
   dicaT.hidden = !(quer("clima") && !estado.extras.termostatos);
+  atualizarAvisoVerificar();
 }
 
 /** Progresso por cima dos cartões: divisões verificadas; no fluxo curto, as avarias indicadas (sem barra). */
@@ -2001,6 +2019,24 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   out.push(linha);
   const detalhes = el("div", "aparelho-acao-detalhes");
   detalhes.id = `${base}-acao-lista`;
+  // Todos a Substituir (sem "um a um"): "Por um inteligente?" pergunta-se uma vez para a linha toda ("todas iguais").
+  const inteligenteTodos = !umAUm && els.length > 1 && perguntaInteligente(els[0].tipo) && els.every((e) => acaoDe(e, sv) === "substituir");
+  if (inteligenteTodos) {
+    const g = el("div", "acao-inteligente");
+    g.setAttribute("role", "group");
+    g.setAttribute("aria-label", `Por um inteligente? ${els.length} ${nomeL} (${onde}), todos`);
+    g.append(el("span", null, `Por um inteligente? (${els.length === 2 ? "os 2" : `os ${els.length}`})`));
+    const comum = els.every((e) => e.inteligente === els[0].inteligente) ? els[0].inteligente : undefined;
+    for (const [v, t] of [[true, "Sim"], [false, "Não"]]) {
+      const b = el("button", "btn sec pequeno", t);
+      b.type = "button";
+      b.id = `${base}-inteligente-todos-${v ? "sim" : "nao"}`;
+      b.setAttribute("aria-pressed", String(comum === v));
+      b.addEventListener("click", () => mudarAparelhos(d, els.map((e) => e.id), (x) => { x.inteligente = v; }, b.id));
+      g.append(b);
+    }
+    detalhes.append(g);
+  }
   els.forEach((e, i) => {
     const bi = `${base}-e${i}`;
     const nomeE = els.length > 1 ? `${nomeUm(l)} ${i + 1}` : nomeUm(l);
@@ -2034,7 +2070,7 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
       });
       lab.append(inp);
       bloco.append(lab);
-    } else if (a === "substituir" && perguntaInteligente(e.tipo)) {
+    } else if (a === "substituir" && perguntaInteligente(e.tipo) && !inteligenteTodos) {
       const g = el("div", "acao-inteligente");
       g.setAttribute("role", "group");
       g.setAttribute("aria-label", `Por um inteligente? ${nomeE} (${onde})`);
@@ -2066,6 +2102,7 @@ $("extra-central").addEventListener("change", () => { estado.extras.central = $(
 $("extra-termostatos").addEventListener("input", () => { estado.extras.termostatos = lerNum($("extra-termostatos"), 0, 20); estado.termostatosEditados = true; if ($("extra-termostatos-dica")) $("extra-termostatos-dica").hidden = !(quer("clima") && !estado.extras.termostatos); agendarGravacao(); });
 
 // ------------------------------------------------------------ 6. Preço
+let promessaCatalogo = null;   // o pedido do catálogo em curso (iniciar); o regresso do pagamento espera por ele
 async function carregarCatalogo() {
   catalogo = undefined;
   try {
@@ -2075,6 +2112,12 @@ async function carregarCatalogo() {
     if (!j || !Array.isArray(j.itens)) throw new Error("formato");
     catalogo = j.itens.filter((a) => a && typeof a.sku === "string");
     configOrc = j.config && typeof j.config === "object" ? j.config : null;
+    // Pagamentos do pedido: faixa "Modo de demonstração" (simulados) e, desligados, "Enviar pedido" sem os 19 €.
+    faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
+    if (j.pagamentos && j.pagamentos.ativo === false) {
+      TEXTO_ENVIAR = "Enviar pedido";
+      if (estado.passo === P.enviar && !aEnviar) $("sim-seguinte").textContent = TEXTO_ENVIAR;
+    }
   } catch {
     catalogo = null;
     configOrc = null;
@@ -2160,7 +2203,11 @@ function listaInclui(pedidos) {
   const partes = q("disjuntor_protecoes") + q("disjuntor_simples");
   if (partes) itens.push(`Ver quanto gasta e ligar ou desligar ${partes === 1 ? "1 parte" : `${partes} partes`} da casa no telemóvel`);
   const pac = PROTECAO_SIMPLES[pacoteDoQuadro(estado.quadro)]?.[0];
-  if (quadroNoPedido({ ...estado, servico: servicos() })) itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}`);
+  if (quadroNoPedido({ ...estado, servico: servicos() })) {
+    // Quadro novo sem "Instalação nova": os circuitos que já existem passam para ele (estimativa pelas divisões).
+    const ex = existentesNoQuadroNovo(estado);
+    itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}${ex ? ` (com os ${ex} circuitos que a casa já tem: n.º de circuitos a confirmar na visita)` : ""}`);
+  }
   if (q("central")) itens.push("Central em casa, com bateria e sirene (funciona sem internet)");
   itens.push("Instalação por técnico habilitado");
   return itens;
@@ -2414,7 +2461,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 
 // ---- Pagamento dos 19 € (docs/PAGAMENTOS-PEDIDO.md): enviar = pagar o relatório técnico e a visita (descontados na
 // obra). O valor é sempre o do servidor. Volta-se de lá (Stripe ou página simulada) para simulador.html?pagamento=<ref>.
-const TEXTO_ENVIAR = "Pagar 19 € e enviar";
+let TEXTO_ENVIAR = "Pagar 19 € e enviar";   // "Enviar pedido" com os pagamentos desligados no servidor (carregarCatalogo)
 const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "")
   ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
 let pagamentoEmCurso = Boolean(regressoPagamento);   // a meio do pagamento a simulação não vai para a conta
@@ -2453,6 +2500,8 @@ async function retomarDoPagamento(guardado) {
   try { r = await pedirConta(`pagamentos/${ref}?fotos=1${cancelado ? "&cancelado=1" : ""}`); } catch (e) { erro = e; }
   const p = r?.pagamento;
   if (p?.estado === "pago") {
+    // A estimativa de "Pedido enviado!" precisa dos preços: espera pelo catálogo (pedido no arranque, em paralelo).
+    await promessaCatalogo;
     desenharPreco();
     const lista = fotosParaEnvio();
     const resultadoFotos = lista.length ? await enviarFotos(lista, r, botao) : null;
@@ -2739,6 +2788,8 @@ function iniciar() {
     v.querySelector(".so-curto").textContent = "Cliente";
   }
   const guardado = carregarEstado(armazem ?? semArmazem);
+  // O catálogo pede-se já (o regresso do pagamento espera por ele para mostrar a estimativa enviada).
+  promessaCatalogo = carregarCatalogo();
   if (regressoPagamento && guardado) retomarDoPagamento(guardado);   // volta do pagamento dos 19 €
   else if (guardado && temProgresso(guardado, PASSO_INICIAL)) {
     const quando = guardado.guardado ? new Date(guardado.guardado) : null;
@@ -2765,7 +2816,6 @@ function iniciar() {
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
-  carregarCatalogo();
   blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta
 }
 function fecharRetomar() {

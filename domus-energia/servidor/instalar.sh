@@ -394,12 +394,17 @@ criar_env() {
     done
     # Conta de cliente (opcional): sem CONTA_CHAVE a área de cliente só entra com o código.
     [[ -n "$(ler_env "$env" CONTA_CHAVE)" ]] || info "sem CONTA_CHAVE no .env: a conta de cliente não abre a área de cliente com o email (gere com: openssl rand -hex 32)"
+    # Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): um .env antigo pode ter ficado em "simulado".
+    if [[ "$(ler_env "$env" PAGAMENTOS_MODO)" == simulado ]]; then
+      aviso "PAGAMENTOS_MODO=simulado no .env: os pagamentos dos pedidos são SIMULADOS (nenhum dinheiro real; o site mostra \"Modo de demonstração\"). Para produção: PAGAMENTOS_MODO=stripe com STRIPE_SECRET_KEY, ou apague a linha."
+    fi
     return 0
   fi
   local chaves="DOMUS_HOST MOTOR_MQTT_PASS NTFY_MOTOR_PASS PAGAMENTOS_MQTT_PASS PAINEL_MQTT_PASS SESSAO_SEGREDO CONTA_CHAVE"
   if (( SIMULAR )); then
     info "[simular] criar a partir de .env.example (modo 600) com: $chaves"
     info "[simular] palavras-passe: openssl rand -hex 16; SESSAO_SEGREDO e CONTA_CHAVE: openssl rand -hex 32"
+    info "[simular] pagamentos dos pedidos: PAGAMENTOS_MODO fica comentado e sem STRIPE_SECRET_KEY ficam DESLIGADOS (os pedidos chegam sem pagar; nada é simulado)"
     return 0
   fi
   local tmp
@@ -646,6 +651,11 @@ EOF
   1. Firewall do fornecedor: abrir TCP 22, 80, 443, 1883 e UDP 443.
   2. Stripe (pagamentos): preencher STRIPE_* no .env (README §16.1) e
      cd $SERV && sudo docker compose up -d pagamentos
+     Pagamentos dos pedidos (19 €, sinal, restante): até haver STRIPE_SECRET_KEY
+     ficam DESLIGADOS (os pedidos chegam sem pagar; o painel avisa). Para os
+     ligar: PAGAMENTOS_MODO=stripe, STRIPE_SECRET_KEY, STRIPE_PEDIDO_WEBHOOK_SECRET
+     e  sudo docker compose up -d painel  (docs/PAGAMENTOS-PEDIDO.md).
+     PAGAMENTOS_MODO=simulado = só demonstração (nenhum dinheiro real).
   3. Clientes e aparelhos: no painel, ou
      cd $SERV && sudo ./domus.sh cliente <codigo>
      sudo ./domus.sh aparelho <cliente> <id> openbeken "<Nome>" ...

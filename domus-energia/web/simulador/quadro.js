@@ -212,6 +212,39 @@ export const numeroQuadros = (estado) => pisosDosQuadros(estado).length;
 /** Piso do quadro de onde saem os circuitos do piso `p`: o do próprio piso, se tiver quadro; senão o geral. */
 export const quadroDoPiso = (pisos, p) => (pisos.includes(p) ? p : pisos[0]);
 
+/**
+ * Circuitos que a casa JÁ TEM (estimativa; docs/SIMULADOR-ORCAMENTO.md §4.1): sem "Instalação nova" os aparelhos a
+ * manter/reparar/substituir ficam nos circuitos que existem, mas um quadro NOVO precisa de um disjuntor para cada um.
+ * Regra, por piso: 1 de iluminação + 1 de tomadas por cada 2 divisões (arredondado para cima; sem a cozinha e as
+ * casas de banho) + 1 por cozinha (ou sala e cozinha) + 1 por casa de banho ou lavandaria. Pelo menos 2 na casa
+ * (iluminação e tomadas). As divisões são as da planta (senão as do pedido). O n.º confirma-se na visita.
+ */
+export function circuitosExistentes(estado) {
+  const p = estado?.planta;
+  const daPlanta = !!p && !estado.plantaSaltada && (p.divisoes?.length ?? 0) > 0;
+  const divs = (daPlanta ? p.divisoes : (estado?.divisoes ?? [])).filter((d) => d && typeof d === "object");
+  const porPiso = new Map();
+  for (const d of divs) {
+    const k = pisoDe(d);
+    const x = porPiso.get(k) ?? { secas: 0, proprios: 0 };
+    if (HUMIDAS.includes(tipoDivisao(d.nome))) x.proprios++; else x.secas++;
+    porPiso.set(k, x);
+  }
+  let n = 0;
+  for (const x of porPiso.values()) n += 1 + Math.ceil(x.secas / 2) + x.proprios;
+  return Math.max(2, n);
+}
+/**
+ * Quantos disjuntores de circuitos existentes entram num quadro novo: só sem "Instalação nova" (automatizar /
+ * reparar), quando o cliente quer melhorar o quadro e o quadro é novo (ou "Não sei"). Com "Instalação nova" os
+ * circuitos são todos novos (já estão na sugestão).
+ */
+export function existentesNoQuadroNovo(estado) {
+  const sv = estado?.servico;
+  const semNova = Array.isArray(sv) && sv.length > 0 && !sv.includes("nova");
+  return semNova && estado.mexerQuadro === true && levaQuadroNovo(estado.quadro) ? circuitosExistentes(estado) : 0;
+}
+
 /** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
 export function tamanhoQuadro(ocupados) {
   return TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? null;
@@ -262,7 +295,11 @@ export function resumoQuadro(estado) {
     else if (!comAfdd) { disj++; if (g) { disjG++; mDisj += MODULOS.disjuntor; } }
     if (i === "sy1") { sy1++; if (g) { sy1G++; mSy += MODULOS.sy; novos += MODULOS.sy; } }
   }
+  // Quadro novo sem "Instalação nova": um disjuntor 1P+N por cada circuito que a casa já tem (estimativa, no geral).
+  const existentes = existentesNoQuadroNovo(estado);
+  disj += existentes;
   linha("disjuntor", "Disjuntores dos circuitos", disjG, mDisj);
+  linha("disjuntor_existente", "Disjuntores dos circuitos que já existem (estimativa, a confirmar na visita)", existentes, existentes * MODULOS.disjuntor);
   linha("afdd", "AFDD com disjuntor", nAfddG, mAfdd);
   linha("inteligente", `Disjuntores inteligentes (${[sy2G ? `${sy2G} SY2` : "", sy1G ? `${sy1G} SY1` : ""].filter(Boolean).join(", ")})`, sy2G + sy1G, mSy);
   linha("tetrapolar", "Disjuntor trifásico (máquina trifásica)", tetra, tetra * MODULOS.tetrapolar);
@@ -280,7 +317,7 @@ export function resumoQuadro(estado) {
   return {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
-    disjuntores: disj, sy2, sy1, tetrapolares: tetraT,
+    disjuntores: disj, sy2, sy1, tetrapolares: tetraT, circuitos_existentes: existentes,
     parciais, pisos_quadros: pisosQ,
     potencia: potenciaSugerida(circuitos),
   };
@@ -375,6 +412,7 @@ export function avisosProtecoes(estado) {
   if (q.para_raios === "sim") a("Com pára-raios ou linha aérea o descarregador de sobretensões é obrigatório: está incluído.");
   else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver pára-raios ou for alimentada por linha aérea, o descarregador de sobretensões é obrigatório.");
   if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio (tipo A ou B; muitos carregadores já o trazem).");
+  if (r.circuitos_existentes) a(`Quadro novo com os circuitos que a casa já tem: contámos ${r.circuitos_existentes} (1 de iluminação por piso, 1 de tomadas por cada 2 divisões, a cozinha e as casas de banho à parte), cada um com um disjuntor 1P+N — o n.º de circuitos a confirmar na visita.`);
   if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos deixa 25 % livres — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);
   // Quadro novo: um de N módulos, ou vários de 48 quando nem esse deixa 25 % livres (r.cabe, r.quadros).
   const novo = r.cabe ? `um quadro novo de ${r.tamanho} módulos` : `${r.quadros} quadros novos de ${r.tamanho} módulos`;

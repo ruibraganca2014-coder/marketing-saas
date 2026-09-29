@@ -135,6 +135,7 @@ export default function orcamentos(el, ctx) {
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
       contactos,
     ];
+    if (campo(o, "anonimizado")) partes.unshift(h("div", { class: "msg info bloco", id: "pedido-anonimizado", text: `Anonimizado (RGPD) em ${data(campo(o, "anonimizado"))}: a conta foi apagada; ficam os valores, as referências e os pagamentos (contabilidade).` }));
     if (campo(o, "mensagem")) partes.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
     const sim = simulacaoDe(o);
     if (sim) partes.push(vistaSimulacao(sim, catalogoDe(o)));
@@ -243,10 +244,18 @@ export default function orcamentos(el, ctx) {
       } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
     };
     if (sim) {
+      // O CEO vê primeiro o que o cliente vai ver (lista de trabalho, material e preços do catálogo) e depois liberta.
+      if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "previa-relatorio-cliente", text: "Pré-visualizar versão do cliente",
+        onclick: (e) => previaRelatorio(id, e.currentTarget) }));
       if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório técnico libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
       else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
         onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
       else out.push(h("p", { class: "ajuda", text: "Relatório técnico em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
+    }
+    // Proposta sem IVA → o que o cliente paga online (com IVA): total, sinal e restante.
+    const vp = campo(o, "valores_pagamento");
+    if (vp && typeof vp === "object") {
+      out.unshift(h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (30 % menos ${euros(vp.relatorio)} já pagos) · restante ${euros(vp.restante)}.` }));
     }
     if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
       acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
@@ -254,7 +263,8 @@ export default function orcamentos(el, ctx) {
     } else if (campo(o, "obra_concluida")) out.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));
     if (!pags.length && !out.length && !acoes.length) return [];
     const linhas = pags.map((x) => h("li", { dataset: { fase: campo(x, "fase"), estado: campo(x, "estado") } },
-      h("strong", { text: `${txt(x, "fase_texto")}: ${euros(campo(x, "valor"))}` }), " ",
+      h("strong", { text: `${txt(x, "fase_texto")}: ${euros(campo(x, "valor"))}` }),
+      campo(x, "base") != null ? h("span", { class: "ajuda", text: ` (${euros(campo(x, "base"))} + IVA ${euros(campo(x, "iva"))})` }) : null, " ",
       selo(txt(x, "estado_texto"), campo(x, "estado") === "pago" ? "orc-aceite" : campo(x, "estado") === "pendente" ? "info" : "aviso"),
       campo(x, "modo") === "simulado" ? selo("Simulado", "aviso") : null,
       h("span", { class: "ajuda", text: ` ${campo(x, "pago") ? `pago ${data(campo(x, "pago"))}` : `criado ${data(campo(x, "criado"))}`} · ${txt(x, "ref")}` })));
@@ -262,6 +272,40 @@ export default function orcamentos(el, ctx) {
       h("h3", { text: "Pagamentos" }),
       pags.length ? h("ul", { class: "linhas-simples" }, ...linhas) : h("p", { class: "ajuda", text: "Sem pagamentos online (pedido antigo, de contacto ou registado no painel)." }),
       ...out, acoes.length ? h("div", { class: "form-botoes" }, ...acoes) : null)];
+  }
+
+  /** "Pré-visualizar versão do cliente": o relatório que a conta vai ver (GET orcamentos/:id/relatorio-cliente). */
+  async function previaRelatorio(id, b) {
+    b.disabled = true;
+    let r;
+    try { r = await pedir(`orcamentos/${encodeURIComponent(id)}/relatorio-cliente`); }
+    catch (erro) { avisar(erro.message, "erro"); return; }
+    finally { b.disabled = false; }
+    const rel = campo(r, "relatorio");
+    const j = janela("Relatório técnico — versão do cliente", { larga: true, aoFechar: () => b.focus() });
+    if (!rel) { j.corpo.append(h("p", { class: "vazio", text: "Sem relatório para o cliente." })); return; }
+    const tabela = (linhas) => h("div", { class: "tabela-rolar" }, h("table", { class: "tabela" },
+      h("thead", {}, h("tr", {}, ...["Material", "Qtd.", "Preço", "Total"].map((t, i) => h("th", { scope: "col", class: i ? "num" : "", text: t })))),
+      h("tbody", {}, ...linhas.map((l) => h("tr", {}, h("td", { text: txt(l, "artigo") }), h("td", { class: "num", text: String(campo(l, "quantidade")) }),
+        h("td", { class: "num", text: campo(l, "preco_unitario") == null ? "—" : euros(campo(l, "preco_unitario")) }), h("td", { class: "num", text: campo(l, "total") == null ? "—" : euros(campo(l, "total")) }))))));
+    const partes = [h("p", { class: "msg info", text: "É isto que o cliente vê na conta depois de \"Libertar relatório ao cliente\" (preços do catálogo, sem dados internos)." })];
+    const a = campo(rel, "acoes") ?? {};
+    const resumo = [["Reparar", a.reparar], ["Substituir", a.substituir], ["Novo", a.novo], ["Manter (fica como está)", a.manter]].filter(([, n]) => Number(n) > 0);
+    if (resumo.length) partes.push(dados(resumo.map(([k, n]) => [k, `${n} ${n === 1 ? "aparelho" : "aparelhos"}`])));
+    for (const d of lista(campo(rel, "divisoes") ?? [], "divisoes")) {
+      partes.push(h("h3", { text: `${txt(d, "nome")} — ${euros(campo(d, "total"))}` }));
+      const t = lista(campo(d, "trabalho") ?? [], "trabalho");
+      if (t.length) partes.push(h("ul", { class: "linhas-simples" }, ...t.map((x) => h("li", { text: String(x) }))));
+      const m = lista(campo(d, "material") ?? [], "material");
+      if (m.length) partes.push(tabela(m));
+    }
+    const g = campo(rel, "geral");
+    if (g && lista(campo(g, "material") ?? [], "material").length) partes.push(h("h3", { text: `${txt(g, "titulo")} — ${euros(campo(g, "total"))}` }), tabela(campo(g, "material")));
+    const mo = campo(rel, "mao_obra");
+    if (mo) partes.push(h("p", { text: `Mão de obra${campo(mo, "horas") ? ` (cerca de ${campo(mo, "horas")} h)` : ""}: ${euros(campo(mo, "valor"))}` }));
+    if (campo(rel, "deslocacao") != null) partes.push(h("p", { text: `Deslocação: ${euros(campo(rel, "deslocacao"))}` }));
+    partes.push(h("p", { class: "valor num", text: `Total estimado: ${euros(campo(rel, "total"))}` }), h("p", { class: "ajuda", text: txt(rel, "nota") }));
+    j.corpo.append(...partes);
   }
 
   function formConverter(j, o) {
@@ -394,6 +438,7 @@ const ACOES = {
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
   proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",
+  orcamento_anonimizado_rgpd: "Anonimizado (RGPD): a conta foi apagada; os pagamentos ficam",
   pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",
   pagamento_expirado: "Pagamento expirado", pagamento_simulado: "Pagamento simulado (página de teste)",
   relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída",

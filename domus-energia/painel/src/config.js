@@ -59,13 +59,24 @@ export function lerConfig(env = process.env) {
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
   const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
   if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro fica desligada');
-  // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "simulado" (por omissão sem STRIPE_SECRET_KEY) ou "stripe".
+  // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "stripe" (por omissão com STRIPE_SECRET_KEY) ou "simulado"
+  // (só com PAGAMENTOS_MODO=simulado explícito: o lançador local põe-no). Sem modo explícito e sem chave, os
+  // pagamentos do pedido ficam DESLIGADOS (o pedido é enviado sem pagar, como antes) e o painel avisa.
   const stripeChave = String(env.STRIPE_SECRET_KEY || '').trim();
   const modoPedido = String(env.PAGAMENTOS_MODO || '').trim().toLowerCase();
-  if (modoPedido && !['simulado', 'stripe'].includes(modoPedido)) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): usa-se ${stripeChave ? 'stripe' : 'simulado'}`);
-  const pagamentosModo = ['simulado', 'stripe'].includes(modoPedido) ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
-  const pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0';
-  if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar")');
+  const modoValido = ['simulado', 'stripe'].includes(modoPedido);
+  if (modoPedido && !modoValido) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): ${stripeChave ? 'usa-se stripe' : 'os pagamentos do pedido ficam desligados'}`);
+  const pagamentosModo = modoValido ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
+  const semModo = !modoValido && !stripeChave;
+  const pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0' && !semModo;
+  if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY): os pedidos com simulação são enviados sem pagar');
+  if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar"); o site e o painel mostram "Modo de demonstração"');
+  // IVA dos pagamentos online (decisão do dono: a proposta é sem IVA e os pagamentos incluem-no). O valor no
+  // painel (Catálogo → Configuração, "iva_pct") manda; IVA_TAXA só é o valor inicial.
+  const ivaTexto = String(env.IVA_TAXA ?? '').trim().replace(',', '.');
+  const ivaEnv = ivaTexto === '' ? 23 : Number(ivaTexto);
+  const ivaTaxa = Number.isFinite(ivaEnv) && ivaEnv >= 0 && ivaEnv <= 50 ? ivaEnv : 23;
+  if (ivaTaxa !== ivaEnv) avisos.push(`IVA_TAXA inválida ("${env.IVA_TAXA}"): usa-se 23`);
   if (pagamentoPedido && pagamentosModo === 'stripe' && !stripeChave) avisos.push('PAGAMENTOS_MODO=stripe sem STRIPE_SECRET_KEY: o envio de pedidos com simulação responde 503');
   if (pagamentoPedido && pagamentosModo === 'stripe' && !env.STRIPE_PEDIDO_WEBHOOK_SECRET) avisos.push('sem STRIPE_PEDIDO_WEBHOOK_SECRET: o webhook dos pagamentos do pedido está desligado (a confirmação fica só no regresso do cliente)');
   return {
@@ -118,8 +129,10 @@ export function lerConfig(env = process.env) {
     emailRemetente: String(env.EMAIL_REMETENTE || '').trim(),
     emailLocal: env.EMAIL_LOCAL === '1',     // modo local: os emails vão sempre para o registo (nunca SMTP)
     // Pagamentos do pedido (19 €, sinal, restante): docs/PAGAMENTOS-PEDIDO.md
-    pagamentoPedido,                         // PAGAMENTO_PEDIDO=0: o pedido com simulação é enviado sem pagar (como antes)
+    pagamentoPedido,                         // PAGAMENTO_PEDIDO=0 (ou sem modo nem chave): o pedido com simulação é enviado sem pagar
     pagamentosModo,
+    pagamentosDesligadosSemModo: semModo,    // desligados porque falta configurar (aviso no painel)
+    ivaTaxa,
     stripeChave: stripeChave || null,
     stripeWebhookSegredo: String(env.STRIPE_PEDIDO_WEBHOOK_SECRET || '').trim() || null,
     stripeApi: String(env.STRIPE_API_URL || 'https://api.stripe.com').replace(/\/+$/, ''),

@@ -99,6 +99,8 @@ img, svg { max-width: 100%; }
 
 /* ---------- Cabeçalho ---------- */
 .topo { position: sticky; top: 0; z-index: 10; background: var(--topo); border-bottom: 1px solid var(--borda); backdrop-filter: blur(8px); }
+/* Pagamentos simulados (PAGAMENTOS_MODO=simulado): faixa por baixo do topo, no simulador e na conta. */
+.faixa-demonstracao { padding: 8px 16px; text-align: center; font-weight: 700; font-size: .92rem; background: var(--areia-suave); color: var(--argila-texto); border-bottom: 1px solid var(--borda); overflow-wrap: anywhere; }
 .topo .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 12px; }
 .marca { display: flex; align-items: center; gap: 10px; font-size: 1.3rem; color: var(--texto); text-decoration: none; white-space: nowrap; }
 .marca .logo { width: 36px; height: 36px; border-radius: 12px; background: var(--musgo); color: var(--sobre-musgo); display: grid; place-items: center; flex: none; }
