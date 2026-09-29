@@ -556,7 +556,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       horas += (x.qtd - x.troca) * hi + x.troca * ht;
     }
     horas = Math.round(horas * 100) / 100;
-    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 35;
+    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
     const maoObra = itens.size ? Math.round(horas * tarifa * 100) / 100 : null;
     const deslocacao = itens.size ? deslocacaoServidor(o.localidade ?? s.casa?.localidade ?? '', cfg) : null;
     const somaGeral = Math.round(geral.reduce((t, l) => t + (l.total ?? 0), 0) * 100) / 100;

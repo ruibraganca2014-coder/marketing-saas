@@ -53,6 +53,9 @@
            O mesmo conteúdo, mais curto, está no site (index.html #como-simular). 12 min = soma de MINUTOS_PASSO. -->
       <section class="cartao sim-antes" id="sim-antes" aria-labelledby="sim-antes-titulo" hidden>
         <h2 id="sim-antes-titulo" tabindex="-1">Antes de começar</h2>
+        <!-- Depois de "Começar de novo" (o do topo): aviso pequeno, não bloqueante, com "Anular" durante 10 s
+             (app.js recomecarComAnular). Logo a seguir ao título (o Tab chega-lhe primeiro); vazio, não se vê. -->
+        <div class="sim-anular" id="sim-anular" role="status"></div>
         <p>São 7 passos, cerca de 12 minutos. Fica tudo guardado neste navegador: pode parar e continuar depois.</p>
         <div class="como-simular">
           <div class="como-bloco">
@@ -120,6 +123,8 @@
             <legend>Tipologia</legend>
             <div class="escolhas-grelha seis" id="casa-tipologias"></div>
           </fieldset>
+          <!-- Tipo e tipologia vêm por escolher: o "Seguinte" pede-os (app.js bloquearCasa). -->
+          <p class="msg" id="casa-msg" role="status" hidden></p>
           <div class="duas" id="casa-negocio" hidden>
             <label>Área (m²) <small class="ajuda">Aproximada, de todo o espaço.</small><input id="casa-area" type="number" inputmode="numeric" min="10" max="5000" step="1"></label>
           </div>
@@ -294,6 +299,8 @@
             <button class="btn sec pequeno sim-planta-fechar" id="planta-fechar" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Fechar</button>
           </div>
           <div id="editor"></div>
+          <!-- A planta vai aparecendo (app.js fasePlanta): enquanto não há nada a desenhar, este texto discreto por cima dela. -->
+          <p class="sim-planta-vazia" id="planta-vazia" hidden>A sua planta aparece aqui à medida que responde.</p>
         </section>
         <!-- Telemóvel e tablet: a planta abre-se por cima das perguntas (app.js abrirPlanta); no computador está à direita. -->
         <button class="btn sim-ver-planta" id="ver-planta" type="button" aria-haspopup="dialog" aria-controls="sim-planta" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 4h18v16H3zM3 12h7M13 4v6M13 14v6M17 12h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Ver planta</button>

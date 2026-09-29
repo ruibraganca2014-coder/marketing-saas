@@ -91,67 +91,67 @@ export const SEMENTES_CATALOGO = [
 
 // Quadro elétrico (docs/SIMULADOR-ORCAMENTO.md §3 e §4.1): proteções, extras e caixas de quadro.
 // Entram pela migração 3 (INSERT OR IGNORE): uma base já existente recebe-os sem duplicar e sem mexer
-// nos artigos que o CEO já editou. PREÇOS PROVISÓRIOS de mercado em Portugal (setembro 2026) — o CEO
-// confirma no painel. `funcao` diz ao simulador e ao painel o que o artigo é (não é um disjuntor
+// nos artigos que o CEO já editou. Preços aprovados pelo dono (setembro 2026; o AFDD ainda provisório) — o CEO
+// muda-os no painel. `funcao` diz ao simulador e ao painel o que o artigo é (não é um disjuntor
 // inteligente de circuito); `modulos` = largura na calha DIN (monofásico).
 const PROVISORIO = 'preço provisório — confirmar';
 const caixa = (m, filas, preco, horas) => ({
   sku: `CAIXA-QUADRO-${m}`, nome: `Caixa de quadro elétrico ${m} módulos (${filas} ${filas === 1 ? 'fila' : 'filas'}, com barramentos)`,
   categoria: 'acessorio', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: horas,
-  especificacoes: { funcao: 'caixa_quadro', modulos_caixa: m, filas, nota: `${PROVISORIO}; as horas incluem passar os circuitos para o quadro novo` },
+  especificacoes: { funcao: 'caixa_quadro', modulos_caixa: m, filas, nota: 'as horas incluem passar os circuitos para o quadro novo' },
 });
 /** SKUs de SEMENTES_QUADRO acrescentados depois da migração 3: entram nas bases já existentes pela migração 6. */
 export const SKUS_MIGRACAO_6 = ['MCB-4P-C'];
 export const SEMENTES_QUADRO = [
   { sku: 'IDR-2P-40A-30MA', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo AC', categoria: 'disjuntor',
-    fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'AC', modulos: 2, nota: PROVISORIO } },
+    fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 49.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'AC', modulos: 2 } },
   { sku: 'RCBO-WIFI-TOSMR1', nome: 'Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1, 30 mA)', categoria: 'disjuntor',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 119, horas_instalacao: 0.75,
-    especificacoes: { funcao: 'diferencial', wifi: true, religacao: true, sensibilidade_ma: 30, amperes_max: 40, medicao: true, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'diferencial', wifi: true, religacao: true, sensibilidade_ma: 30, amperes_max: 40, medicao: true, rede: 'wifi', modulos: 2 } },
   { sku: 'SPD-T2-1PN-40KA', nome: 'Descarregador de sobretensões tipo 2 (1P+N, 40 kA)', categoria: 'acessorio',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 89.9, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'descarregador', tipo: 'T2', imax_ka: 40, modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'descarregador', tipo: 'T2', imax_ka: 40, modulos: 2 } },
   { sku: 'RELE-TENSAO-WIFI', nome: 'Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou)', categoria: 'acessorio',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 59.9, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'rele_tensao', religacao: true, amperes_max: 63, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'rele_tensao', religacao: true, amperes_max: 63, rede: 'wifi', modulos: 2 } },
   { sku: 'AFDD-1PN-16A', nome: 'Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A)', categoria: 'disjuntor',
-    fornecedor: 'armazenista (Hager/Schneider)', preco_compra: null, preco_venda_iva: 169, horas_instalacao: 0.5,
+    fornecedor: 'armazenista (Hager/Schneider)', preco_compra: null, preco_venda_iva: 339.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'afdd', amperes: 16, com_disjuntor: true, modulos: 2, nota: PROVISORIO } },
   { sku: 'MEDIDOR-DIN-WIFI', nome: 'Medidor de energia geral Wi-Fi (calha DIN, até 63 A)', categoria: 'acessorio',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 49.9, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'medidor_geral', medicao: true, amperes_max: 63, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'medidor_geral', medicao: true, amperes_max: 63, rede: 'wifi', modulos: 2 } },
   { sku: 'GERAL-WIFI-2P-63A', nome: 'Disjuntor geral Wi-Fi com medição e corte remoto (2P, 63 A)', categoria: 'disjuntor',
-    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 79.9, horas_instalacao: 0.75,
-    especificacoes: { funcao: 'geral_wifi', amperes_max: 63, medicao: true, rede: 'wifi', modulos: 2, nota: PROVISORIO } },
+    fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 69.9, horas_instalacao: 0.75,
+    especificacoes: { funcao: 'geral_wifi', amperes_max: 63, medicao: true, rede: 'wifi', modulos: 2 } },
   { sku: 'MCB-1PN-C', nome: 'Disjuntor 1P+N curva C (6–40 A) — quadro novo', categoria: 'disjuntor',
-    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 14.9, horas_instalacao: 0.25,
-    especificacoes: { funcao: 'disjuntor_circuito', curva: 'C', amperes: [6, 10, 16, 20, 25, 32, 40], modulos: 1, nota: PROVISORIO } },
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 21.9, horas_instalacao: 0.25,
+    especificacoes: { funcao: 'disjuntor_circuito', curva: 'C', amperes: [6, 10, 16, 20, 25, 32, 40], modulos: 1 } },
   // Migração 6 (bases já existentes): o disjuntor da máquina trifásica numa casa trifásica, com quadro novo.
   { sku: 'MCB-4P-C', nome: 'Disjuntor tetrapolar 4P curva C (10–40 A) — máquina trifásica, quadro novo', categoria: 'disjuntor',
-    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 34.9, horas_instalacao: 0.25,
-    especificacoes: { funcao: 'disjuntor_tetrapolar', curva: 'C', polos: 4, amperes: [10, 16, 20, 25, 32, 40], modulos: 4, nota: PROVISORIO } },
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 79.9, horas_instalacao: 0.25,
+    especificacoes: { funcao: 'disjuntor_tetrapolar', curva: 'C', polos: 4, amperes: [10, 16, 20, 25, 32, 40], modulos: 4 } },
   { sku: 'GERAL-2P-63A', nome: 'Disjuntor geral 2P (40–63 A) — quadro novo', categoria: 'disjuntor',
-    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 29.9, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'geral', amperes: [40, 50, 63], modulos: 2, nota: PROVISORIO } },
-  caixa(12, 1, 34.9, 3),
-  caixa(18, 1, 44.9, 3.5),
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 74.9, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'geral', amperes: [40, 50, 63], modulos: 2 } },
+  caixa(12, 1, 44.9, 3),
+  caixa(18, 1, 52.9, 3.5),
   caixa(24, 2, 64.9, 4),
-  caixa(36, 3, 94.9, 5),
-  caixa(48, 4, 129, 6),
+  caixa(36, 3, 99.9, 5),
+  caixa(48, 4, 139.9, 6),
 ];
 
 // Ações por aparelho (lote 7, docs/SIMULADOR-ORCAMENTO.md §0 e §3; web/simulador/acoes.js): Reparar = diagnóstico por
 // avaria (a peça confirma-se na visita); Substituir uma tomada/interruptor/ponto de luz por um normal; trocar a ligação
-// de uma máquina (a máquina é do cliente). Entram pela migração 10 (INSERT OR IGNORE). PREÇOS PROVISÓRIOS — o CEO
+// de uma máquina (a máquina é do cliente). Entram pela migração 10 (INSERT OR IGNORE). A troca da máquina ainda com preço provisório — o CEO
 // confirma no painel. `horas_troca` (coluna nova, migração 10): as horas ao substituir; sem ela, 50 % das de instalação.
 export const SEMENTES_ACOES = [
   { sku: 'DIAG-AVARIA', nome: 'Diagnóstico de avaria (por aparelho; a peça confirma-se na visita)', categoria: 'outro',
     fornecedor: null, preco_compra: null, preco_venda_iva: 25, horas_instalacao: 0.5, horas_troca: 0.5,
-    especificacoes: { funcao: 'diagnostico', nota: PROVISORIO } },
+    especificacoes: { funcao: 'diagnostico' } },
   { sku: 'APARELHO-NORMAL', nome: 'Tomada, interruptor ou ponto de luz normal (troca)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 9.9, horas_instalacao: 0.5, horas_troca: 0.25,
-    especificacoes: { funcao: 'aparelho_normal', nota: PROVISORIO } },
+    especificacoes: { funcao: 'aparelho_normal' } },
   { sku: 'TROCA-MAQUINA', nome: 'Ligar uma máquina no lugar da antiga (troca; a máquina é do cliente)', categoria: 'outro',
     fornecedor: null, preco_compra: null, preco_venda_iva: 0, horas_instalacao: 1, horas_troca: 0.5,
     especificacoes: { funcao: 'troca_maquina', nota: PROVISORIO } },

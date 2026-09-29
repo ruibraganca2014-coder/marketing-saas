@@ -149,7 +149,7 @@ export const MIGRACOES = [
         valor REAL NOT NULL
       );
       INSERT INTO config_orcamento (chave, valor) VALUES
-        ('tarifa_hora_iva', 35), ('margem_intervalo_pct', 15), ('deslocacao_iva', 0);
+        ('tarifa_hora_iva', 38), ('margem_intervalo_pct', 15), ('deslocacao_iva', 0);
     `);
     semear(db, SEMENTES_CATALOGO);
   },

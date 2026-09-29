@@ -226,7 +226,7 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '11.04', '14.3', '6.82', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
     assert.ok(!pub.texto.includes(segredo), `o público não vê "${segredo}"`);
   }
-  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
+  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 38, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100 });
   assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, horas_troca: null, especificacoes: { rede: 'zigbee' } });
 });
 
@@ -234,8 +234,11 @@ test('nota "preço provisório — confirmar": só o CEO a vê; sai quando o CEO
   const cab = { cookie: p.cookies.ceo };
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
   const dif = lista.find((a) => a.especificacoes?.nota === 'preço provisório — confirmar');
-  const caixa = lista.find((a) => /^preço provisório — confirmar; /.test(a.especificacoes?.nota ?? ''));
-  assert.ok(dif && caixa, 'há artigos com a nota nas sementes');
+  assert.ok(dif, 'há artigos com a nota nas sementes (AFDD-1PN-16A)');
+  // A nota no início com mais texto a seguir: posta à mão numa caixa (as sementes das caixas já não a têm).
+  const semente = lista.find((a) => a.sku === 'CAIXA-QUADRO-12');
+  const caixa = { ...semente, especificacoes: { ...semente.especificacoes, nota: `preço provisório — confirmar; ${semente.especificacoes.nota}` } };
+  assert.equal((await p.pedir('POST', `/painel/api/catalogo/${caixa.id}`, { ...cab, corpo: { especificacoes: caixa.especificacoes } })).estado, 200);
   const pub = await p.pedir('GET', '/api/catalogo');
   assert.ok(!pub.texto.includes('provisório'), 'o público não vê a nota');
   assert.ok(pub.json.itens.every((a) => !('nota' in a.especificacoes)));
@@ -259,6 +262,7 @@ test('nota "preço provisório — confirmar": só o CEO a vê; sai quando o CEO
   r = await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { preco_venda_iva: dif.preco_venda_iva + 2 } });
   assert.equal(r.json.especificacoes.nota, 'Modelo X; stock limitado');
   await p.pedir('POST', `/painel/api/catalogo/${dif.id}`, { ...cab, corpo: { preco_venda_iva: dif.preco_venda_iva, especificacoes: dif.especificacoes } });
+  await p.pedir('POST', `/painel/api/catalogo/${semente.id}`, { ...cab, corpo: { especificacoes: semente.especificacoes } });
 });
 
 test('GET orcamentos/:id: os artigos da simulação não trazem a nota interna (nem ao CEO nem ao comercial)', async () => {

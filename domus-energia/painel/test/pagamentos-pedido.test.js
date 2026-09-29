@@ -276,7 +276,7 @@ describe('modo simulado', () => {
     assert.equal(rel.geral.material.length, 1, 'o que não é de nenhuma divisão (quadro)');
     assert.equal(rel.geral.total, cent(3 * precoCat('TONGOU-SY2-JWT')));
     const horas = cent(horasCat('INT-VIDRO-2') + 2 * horasCat('INT-VIDRO-1') + horasCat('BAB-CURTAIN') + horasCat('SENS-PORTA-WIFI') + 3 * horasCat('TONGOU-SY2-JWT'));
-    assert.deepEqual(rel.mao_obra, { horas, valor: cent(horas * 35) }, 'horas do catálogo × tarifa da configuração');
+    assert.deepEqual(rel.mao_obra, { horas, valor: cent(horas * 38) }, 'horas do catálogo × tarifa da configuração');
     assert.equal(rel.deslocacao, 3.6, 'Sintra: (29 − 20 km) × 0,40 €');
     assert.equal(rel.total, cent(sala.total + rel.divisoes[1].total + rel.geral.total + rel.mao_obra.valor + rel.deslocacao));
     assert.doesNotMatch(r.texto, /fornecedor|preco_compra|link|circuito/i);

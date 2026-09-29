@@ -70,7 +70,7 @@ const P = { servico: 0, casa: 1, quer: 2, divisoes: 3, quadro: 4, preco: 5, envi
 // Começa sempre no "Serviço". Área de cliente com código ("Ampliar a instalação"): a casa já é conhecida — do Serviço
 // passa-se a "Equipamentos" (a casa fica na barra, para editar).
 const PASSO_INICIAL = P.servico;
-const estadoInicial = () => estadoNovo({ cliente: !!codigoCliente });
+const estadoInicial = () => estadoNovo();
 
 let estado = estadoInicial();
 let visitado = PASSO_INICIAL; // passo mais adiantado a que o cliente já chegou
@@ -86,6 +86,7 @@ const editor = criarEditor($("editor"), {
     estado.plantaSaltada = false;
     estado.plantaAuto = false;   // já não é só a planta que desenhámos: não a refazemos sozinhos
     desenharPlantaOrigem();
+    desenharPlantaVazia();
     // Mexeu na planta (em qualquer passo depois de "Equipamentos"): o pedido e os cartões seguem-na.
     if (estado.passo > P.quer) refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
     if (estado.passo === P.divisoes) desenharDivisoes();
@@ -166,7 +167,7 @@ function desenharProgresso() {
       b.append(num, el("span", "sim-passo-nome", nome), tempo);
       b.setAttribute("aria-label", `Passo ${i + 1}: ${nome}${extra}`);
       // Para lá do passo 1 só com um serviço escolhido; para lá do passo 4 só com as divisões verificadas (bloquearDivisoes).
-      b.addEventListener("click", () => { if (!(i > P.servico && bloquearServico()) && !(i > P.divisoes && bloquearDivisoes())) irPara(i); });
+      b.addEventListener("click", () => { if (!(i > P.servico && bloquearServico()) && !(i > P.casa && bloquearCasa()) && !(i > P.divisoes && bloquearDivisoes())) irPara(i); });
       li.append(b);
     } else {
       // Sem botão (o atual, os que faltam e os que não precisa): o nome acessível vai num texto só para leitores de ecrã
@@ -192,10 +193,11 @@ function irPara(i, { foco = true } = {}) {
   const de = estado.passo;
   // Ao passar de "Equipamentos" para a frente (também a saltar pela barra): planta (se ainda é a nossa), divisões,
   // quadro e termóstatos pré-preenchidos (só o que o cliente ainda não mudou à mão).
-  if (i > P.quer && de <= P.quer) prepararPassosSeguintes();
   estado.passo = Math.max(0, Math.min(PASSOS.length - 1, i));
   visitado = Math.max(visitado, estado.passo);
   estado.visitado = visitado;
+  // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
+  if (i > P.quer && de <= P.quer) prepararPassosSeguintes();
   mostrarPasso(foco);
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
@@ -232,9 +234,10 @@ function textoSeguinte() {
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(passoAo(estado.passo, -1)));
 $("sim-seguinte").addEventListener("click", () => {
-  if (estado.passo === PASSOS.length - 1) { if (!bloquearServico() && !bloquearDivisoes()) enviar(); return; }
+  if (estado.passo === PASSOS.length - 1) { if (!bloquearServico() && !bloquearCasa() && !bloquearDivisoes()) enviar(); return; }
   // Do Serviço só com um serviço escolhido; das Divisões só com todas as divisões verificadas (e tudo respondido).
   if (estado.passo === P.servico && bloquearServico()) return;
+  if (estado.passo === P.casa && bloquearCasa()) return;
   if (estado.passo === P.divisoes && bloquearDivisoes()) return;
   irPara(passoAo(estado.passo, 1));
 });
@@ -295,6 +298,26 @@ function bloquearServico() {
 }
 
 // ------------------------------------------------------------ 2. A casa
+/**
+ * Tipo de imóvel e tipologia vêm por escolher (decisão do dono). Falta escolher? (Não na área de cliente com código,
+ * que salta a casa; um estado antigo sem tipologia mas com o n.º de divisões também já serve.)
+ */
+const casaPorEscolher = () => !codigoCliente
+  && (!estado.casa.tipo || (!negocio() && !estado.casa.tipologia && estado.casa.divisoes == null));
+function mensagemCasa(texto) {
+  const m = $("casa-msg");
+  m.textContent = texto ?? "";
+  m.className = `msg ${texto ? "erro" : ""}`;
+  m.hidden = !texto;
+}
+/** Sem tipo ou tipologia: volta (ou fica) no passo "A casa" com a mensagem e o foco no que falta. Devolve true se bloqueou. */
+function bloquearCasa() {
+  if (!casaPorEscolher()) return false;
+  if (estado.passo !== P.casa) irPara(P.casa, { foco: false });
+  mensagemCasa("Escolha o tipo de casa e a tipologia.");
+  (estado.casa.tipo ? $("casa-tipologias") : $("casa-tipos")).querySelector("input")?.focus();
+  return true;
+}
 /** Botão de escolha (rádio ou sim/não) no estilo .escolha, com texto de ajuda e desenho (por cima do nome) opcionais. */
 function escolha(tipo, nome, valor, texto, ajuda, aoMudar, icone = null) {
   const l = el("label", "escolha");
@@ -508,6 +531,7 @@ function sincronizarCasa() {
   }
   for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!vis.extras?.[i.value];
   desenharPisosCasa();
+  if (!casaPorEscolher()) mensagemCasa(null);
   $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
   desenharObjetivos();
 }
@@ -897,14 +921,33 @@ const casaDaDivisoes = () => !!estado.casa.tipologia || negocio();
  * a casa dá (a mesma que o passo Divisões mostra), logo ao entrar.
  */
 function preencherPlanta() {
-  if (plantaTemConteudo(estado.planta) && !(estado.plantaAuto && estado.plantaBase !== assinaturaBase())) return false;
+  const tem = plantaTemConteudo(estado.planta);
+  if (tem && !(estado.plantaAuto && (estado.plantaBase !== assinaturaBase() || estado.plantaFase !== fasePlanta()))) return false;
+  if (!tem && !plantaDaFaseTemAlgo()) return false;   // ainda não há nada a desenhar (planta vazia com o texto)
   desenharDaCasa();
   return true;
 }
+/**
+ * A planta vai aparecendo (decisão do dono): vazia no "Serviço"; no "A casa" só as divisões (paredes e nomes), quando
+ * já há tipologia (ou tipo de serviços/industrial); de "Equipamentos" em diante (o passo mais adiantado a que chegou)
+ * as portas, interruptores, luzes, tomadas e máquinas. Na área de cliente com código (o passo "A casa" é saltado) é
+ * sempre a planta toda, como antes.
+ */
+const fasePlanta = () => (codigoCliente || visitado > P.casa ? "tudo" : visitado === P.casa ? "divisoes" : "vazia");
+const plantaDaFaseTemAlgo = () => { const f = fasePlanta(); return f === "tudo" || (f === "divisoes" && casaDaDivisoes()); };
 function desenharDaCasa() {
-  estado.planta = plantaDaCasa(estado.casa, maquinasParaPlanta(estado));
+  const p = plantaDaCasa(estado.casa, maquinasParaPlanta(estado));
+  const f = fasePlanta();
+  if (f !== "tudo") p.elementos = [];
+  if (f === "vazia" || (f === "divisoes" && !casaDaDivisoes())) p.divisoes = [];
+  estado.planta = p;
   estado.plantaAuto = true;
   estado.plantaBase = assinaturaBase();
+  estado.plantaFase = f;
+}
+/** Planta vazia antes de haver o que desenhar: "A sua planta aparece aqui à medida que responde." */
+function desenharPlantaVazia() {
+  $("planta-vazia").hidden = plantaTemConteudo(estado.planta) || plantaDaFaseTemAlgo();
 }
 
 /**
@@ -931,6 +974,7 @@ function atualizarPlanta() {
   if (n !== pisosEditor) { pisosEditor = n; editor.definirPisos(n); }
   if (editor.planta !== estado.planta) editor.abrir(estado.planta, { reiniciarVista: true });
   desenharPlantaOrigem();
+  desenharPlantaVazia();
   if (redesenhada) {
     agendarGravacao(false);
     if (estado.passo === P.divisoes) desenharDivisoes();
@@ -2735,7 +2779,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
  * contacto e a localidade — e o que estava gravado neste navegador (a única chave é estado.js CHAVE; o
  * código do cliente da área de cliente fica, não é da simulação).
  */
-function recomecar() {
+function recomecar({ manterFotos = false } = {}) {
   clearTimeout(temporizador);
   temporizador = null;   // nada pendente: sair ou recarregar não volta a gravar a simulação antiga
   apagarEstado(armazem ?? semArmazem);
@@ -2756,8 +2800,10 @@ function recomecar() {
   abertas.clear();
   abertasAcao.clear();
   mensagemServico(null);
+  mensagemCasa(null);
   fotos.clear();
-  limparFotos(null);   // as fotos são da simulação: saem com ela
+  // As fotos são da simulação: saem com ela (com "Anular" à vista, só no fim do prazo: acabarAnular).
+  if (!manterFotos) limparFotos(null);
   $("fim-fotos").hidden = true;
   editor.limpar();
   mostrarEnvio(null);
@@ -2782,6 +2828,7 @@ function mostrarAntes({ rolar = true } = {}) {
   if (rolar) t.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
 }
 $("sim-comecar").addEventListener("click", () => {
+  acabarAnular();   // começou outra: a apagada já não se pode repor
   $("sim-antes").hidden = true;
   document.querySelector(".sim-progresso").hidden = false;
   $("sim-form").hidden = false;
@@ -2795,26 +2842,57 @@ $("fim-nova").addEventListener("click", () => {
   mostrarAntes();
 });
 
-// "Começar de novo" sempre à mão (por baixo dos passos), com confirmação na página.
-$("sim-recomecar-topo").addEventListener("click", () => {
-  const b = $("sim-recomecar-topo");
-  if (b.parentElement.querySelector(".confirmar")) return;
-  const c = el("div", "confirmar");
-  c.setAttribute("role", "alert");
-  c.append(el("p", null, "Isto apaga a simulação toda — a casa, o que quer, a planta, as divisões, as fotos, o quadro e o contacto — também deste navegador. Continuar?"));
-  const bs = el("div", "botoes");
-  const sim = el("button", "btn pequeno", "Sim, começar de novo");
-  sim.type = "button";
-  sim.id = "sim-recomecar-sim";
-  const nao = el("button", "btn sec pequeno", "Cancelar");
-  nao.type = "button";
-  sim.addEventListener("click", () => { recomecar(); mostrarAntes(); });
-  nao.addEventListener("click", () => { c.remove(); b.focus(); });
-  bs.append(sim, nao);
-  c.append(bs);
-  b.parentElement.append(c);
-  sim.focus();
-});
+/*
+ * "Começar de novo" sempre à mão (à direita dos passos), sem confirmação (decisão do dono): recomeça logo (o ecrã
+ * "Antes de começar") e mostra "Simulação apagada · Anular" durante 10 s. "Anular" repõe tudo como estava: o estado
+ * (e o que estava gravado no navegador e na conta), as fotos (só saem do IndexedDB no fim do prazo; em memória
+ * guarda-se uma cópia), o passo e a planta. Passado o prazo, ou ao carregar em "Começar", fica apagada de vez.
+ */
+const PRAZO_ANULAR = 10_000;
+let anular = null;   // { estado, visitado, fotos, temporizador } enquanto "Anular" está à vista
+function recomecarComAnular() {
+  acabarAnular();
+  const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos) };
+  recomecar({ manterFotos: true });
+  mostrarAntes();
+  const a = $("sim-anular");
+  const b = el("button", "btn sec pequeno", "Anular");
+  b.type = "button";
+  b.id = "sim-anular-botao";
+  b.addEventListener("click", anularRecomecar);
+  a.replaceChildren(el("span", null, "Simulação apagada"), el("span", "sim-anular-sep", " · "), b);
+  a.querySelector(".sim-anular-sep").setAttribute("aria-hidden", "true");
+  antes.temporizador = setTimeout(acabarAnular, PRAZO_ANULAR);
+  anular = antes;
+}
+/** O prazo acabou (ou recomeçou a simulação): as fotos da simulação apagada saem do navegador; o aviso sai. */
+function acabarAnular() {
+  if (!anular) return;
+  clearTimeout(anular.temporizador);
+  anular = null;
+  const comFoco = $("sim-anular").contains(document.activeElement);
+  $("sim-anular").replaceChildren();
+  if (comFoco) $("sim-antes-titulo").focus({ preventScroll: true });   // o foco não se perde com o botão
+  limparFotos(estado.fotosId ?? null);
+}
+function anularRecomecar() {
+  const a = anular;
+  if (!a) return;
+  clearTimeout(a.temporizador);
+  anular = null;
+  $("sim-anular").replaceChildren();
+  estado = a.estado;
+  visitado = a.visitado;
+  for (const [k, v] of a.fotos) fotos.set(k, v);
+  $("sim-antes").hidden = true;
+  document.querySelector(".sim-progresso").hidden = false;
+  $("sim-form").hidden = false;
+  mostrarPasso();
+  gravar();             // volta a ficar gravada neste navegador…
+  guardarNaConta(0);    // …e na conta (com sessão)
+}
+$("sim-recomecar-topo").addEventListener("click", recomecarComAnular);
+addEventListener("pagehide", acabarAnular);
 
 // ------------------------------------------------------------ arranque
 function iniciar() {

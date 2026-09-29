@@ -6,7 +6,7 @@ import { disjuntoresInteligentes } from "./regras.js";
 import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
 import { pedidosAcoes } from "./acoes.js";
 
-export const CONFIG_OMISSAO = { tarifa_hora_iva: 35, margem_intervalo_pct: 15, deslocacao_iva: 0 };
+export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, margem_intervalo_pct: 15, deslocacao_iva: 0 };
 export const TEXTO_ESTIMATIVA = "Estimativa. O valor final é confirmado na visita técnica (incluída nos 19 €, descontados na obra).";
 export const SKU_SY2 = "TONGOU-SY2-JWT";
 export const SKU_SY1 = "TONGOU-SY1-JWT";

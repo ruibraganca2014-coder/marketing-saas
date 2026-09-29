@@ -52,13 +52,19 @@ const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 export const POTENCIA_OMISSAO_KVA = 6.9;
 
 /**
- * Casa por omissão: no site já com T2; 6,9 kVA e a ligação sugerida (monofásica). Na área de cliente tipo
- * e tipologia por escolher. `area_m2` e `espacos` só contam em serviços e industrial. `localidade` já não
+ * Casa por omissão: tipo de imóvel e tipologia por escolher (decisão do dono: também no site, onde o "Seguinte"
+ * do passo "A casa" pede para os escolher); 6,9 kVA e a ligação sugerida (monofásica). `area_m2` e `espacos` só contam em serviços e industrial. `localidade` já não
  * se pede no passo 1 (fica sempre ""): o local da obra é a localidade do contacto (passo "Enviar").
  */
-export function casaNova(cliente = false) {
+/**
+ * O que a planta que desenhámos a partir da casa mostra (decisão do dono: vai aparecendo): nada (passo "Serviço"),
+ * só as divisões (passo "A casa") ou tudo — portas, interruptores, luzes, tomadas e máquinas (de "Equipamentos" em diante).
+ */
+export const FASES_PLANTA = ["vazia", "divisoes", "tudo"];
+
+export function casaNova() {
   return {
-    tipo: cliente ? null : "moradia", tipologia: cliente ? null : "T2", quartos: cliente ? null : 2, casas_banho: 1, salas: 1, pisos: 1,
+    tipo: null, tipologia: null, quartos: null, casas_banho: 1, salas: 1, pisos: 1,
     // Nada marcado em "A casa tem…" (decisão do dono: nem o corredor; só o que o cliente escolher).
     extras: { jardim: false, exterior: false, garagem: false, arrecadacao: false, varanda: false, kitnet: false, entrada: false, corredor: false, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
@@ -68,10 +74,10 @@ export function casaNova(cliente = false) {
 }
 
 /**
- * Estado inicial. Na área de cliente ("Ampliar a instalação", com código de cliente) a casa já
- * é conhecida: começa em "O que quer" e os dados da casa são opcionais (tipo por escolher).
+ * Estado inicial (o mesmo no site e na área de cliente: a casa por escolher; na área de cliente o passo
+ * "A casa" é saltado e os dados da casa são opcionais).
  */
-export function estadoNovo({ cliente = false } = {}) {
+export function estadoNovo() {
   return {
     versao: VERSAO,
     passos: PASSOS.length,
@@ -82,13 +88,14 @@ export function estadoNovo({ cliente = false } = {}) {
     mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
     guardado: null,
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
-    casa: casaNova(cliente),
+    casa: casaNova(),
     fasesEditadas: false,      // o cliente escolheu a ligação: já não a sugerimos
     quer: { maquinas: [], pequenas: [], objetivos: [], quantidades: {}, porPiso: {} },
     planta: plantaVazia(),
     plantaSaltada: false,
     plantaAuto: false,         // a planta é a que desenhámos a partir das divisões e o cliente ainda não lhe mexeu
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
+    plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },   // + pacote, proteções, pára-raios, quadro novo (quadro.js)
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
@@ -333,6 +340,8 @@ export function normalizarEstado(v) {
   // (vazia, é desenhada a partir da casa).
   e.plantaSaltada = false;
   e.plantaAuto = bool(v.plantaAuto);
+  // Planta que vai aparecendo (vazia → divisões → aparelhos); um estado de antes disto tinha-a sempre completa.
+  e.plantaFase = FASES_PLANTA.includes(v.plantaFase) ? v.plantaFase : "tudo";
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
   e.plantaBase = (!migrar || migrar === MIGRAR.ordem3 || migrar === MIGRAR.ordem4) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;

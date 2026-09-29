@@ -126,7 +126,9 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
     const a = db.prepare('SELECT preco_venda_iva_cent AS c, especificacoes AS e, ativo FROM catalogo WHERE sku = ?').get(s.sku);
     assert.equal(a.c, Math.round(s.preco_venda_iva * 100), s.sku);
     assert.equal(a.ativo, 1);
-    assert.match(JSON.parse(a.e).nota, /provisório — confirmar/, s.sku);
+    // Preços aprovados pelo dono: só o AFDD continua com a nota "preço provisório — confirmar".
+    if (s.sku === 'AFDD-1PN-16A') assert.match(JSON.parse(a.e).nota, /provisório — confirmar/, s.sku);
+    else assert.doesNotMatch(JSON.parse(a.e).nota ?? '', /provisório/, s.sku);
   }
   // Correr outra vez não faz nada (a versão já é a última).
   migrar(db);

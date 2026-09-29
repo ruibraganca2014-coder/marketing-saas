@@ -29,19 +29,23 @@
 .sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
 .sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
 .sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-/* "Começar de novo" sempre à mão (com confirmação na página): no ecrã largo à direita do passo 7, na mesma
-   linha; no telemóvel por baixo da barra, à direita. A confirmação ocupa a largura toda. */
-.sim-recomecar { display: grid; justify-items: end; gap: 6px; margin-top: 6px; }
+/* "Começar de novo" sempre à mão (sem confirmação: "Anular" durante 10 s, app.js recomecarComAnular). Na mesma linha
+   dos passos, à direita do 7, com o topo alinhado com os círculos (o <li> tem 4 px por cima do círculo). Em ecrãs
+   estreitos (< 720 px) fica na linha da barra, à direita (sem uma linha só para ele), e os passos por baixo. */
+.sim-progresso { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
+.sim-barra { grid-column: 1; grid-row: 1; align-self: center; margin-bottom: 0; }
+.sim-progresso ol { grid-column: 1 / -1; grid-row: 2; margin-top: 10px; }
+.sim-recomecar { grid-column: 2; grid-row: 1; display: flex; justify-content: flex-end; }
 @media (min-width: 720px) {
-  .sim-progresso { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; }
-  .sim-barra { grid-column: 1; }
-  .sim-progresso ol { grid-column: 1; }
-  .sim-recomecar { grid-column: 2; grid-row: 2; align-self: center; margin-top: 0; }
-  .sim-recomecar:has(.confirmar) { grid-column: 1 / -1; grid-row: 3; margin-top: 6px; }
+  .sim-barra { align-self: auto; margin-bottom: 10px; }
+  .sim-progresso ol { grid-column: 1; margin-top: 0; }
+  .sim-recomecar { grid-row: 2; align-self: start; margin-top: 4px; }
 }
-.sim-recomecar .confirmar { justify-self: stretch; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--areia-suave); }
-.sim-recomecar .confirmar p { margin: 0 0 8px; font-weight: 600; }
-.sim-recomecar .botoes { display: flex; flex-wrap: wrap; gap: 8px; }
+/* "Simulação apagada · Anular" (app.js recomecarComAnular): pequeno, em baixo ao centro, não bloqueia nada; vazio não se vê. */
+.sim-anular { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 55; transform: translateX(-50%); display: flex; align-items: center; gap: 4px 8px; max-width: calc(100vw - 32px); padding: 6px 6px 6px 16px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); box-shadow: var(--sombra); color: var(--texto); font-weight: 600; font-size: .92rem; }
+.sim-anular:empty { display: none; }
+.sim-anular .sim-anular-sep { color: var(--texto-suave); }
+.sim-anular .btn { flex: none; }
 .sim-passo-botao { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-height: 44px; padding: 4px 2px; border: 0; background: transparent; color: var(--texto-suave); font: 600 .8rem/1.2 var(--letra); text-align: center; border-radius: 12px; }
 button.sim-passo-botao { cursor: pointer; color: var(--texto); }
 button.sim-passo-botao:hover { background: var(--musgo-claro); }
@@ -430,6 +434,10 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 html { scroll-padding-top: 72px; }
 .sim-planta { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; background: var(--fundo); }
 .sim-planta[hidden] { display: none; }
+/* Planta ainda vazia (app.js desenharPlantaVazia): o texto discreto a meio da planta, sem apanhar os toques. */
+.sim-planta { position: relative; }
+.sim-planta-vazia { position: absolute; left: 24px; right: 24px; top: 55%; margin: 0; transform: translateY(-50%); pointer-events: none; text-align: center; font-size: .95rem; font-weight: 600; color: var(--texto-suave); }
+.sim-planta-vazia[hidden] { display: none; }
 .sim-planta-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .sim-planta-cabeca .confirmar { flex-basis: 100%; margin: 0; }
 .sim-planta-cabeca h2 { flex: none; margin: 0; font-size: 1rem; }
