@@ -123,6 +123,11 @@ export function pedidosDaSelecao(s) {
   add("termostato", Number(s.extras?.termostatos) || 0);
   add("central", s.extras?.central ? 1 : 0);
   if (s.planta) for (const p of pedidosAcoes(s.planta, s.servico)) r.push(p);
+  // Lote 8: o quadro com problemas ("Trocar e reparar") é mais um diagnóstico de avaria.
+  if (typeof s.quadroAvaria === "string") {
+    const d = r.find((p) => p.chave === "diagnostico" && p.acao === "reparar");
+    if (d) d.qtd++; else r.push({ chave: "diagnostico", qtd: 1, acao: "reparar" });
+  }
   return r;
 }
 

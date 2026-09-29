@@ -21,7 +21,7 @@ A conta do cliente serve para enviar o pedido do simulador, acompanhá-lo e, dep
 
 Com a sessão aberta, o simulador guarda o estado na conta sempre que se muda de passo e quando o cliente entra no passo 7 (`POST /api/conta/simulacao`, até 1,5 MB; se não couber, vai sem a imagem de fundo).
 
-Ao abrir o simulador com sessão, se a conta tiver uma simulação mais recente do que a deste navegador, aparece "Continuar a simulação da sua conta?". **As fotos ainda por enviar ficam só no navegador onde foram tiradas** (IndexedDB), e o aviso diz isso.
+Ao abrir o simulador com sessão fica, sem perguntar, a simulação mais recente entre a deste navegador e a da conta (lote 8, docs/SIMULADOR-ORCAMENTO.md §0): se a da conta for mais recente, continua-se nela no passo onde ficou; senão a deste navegador vai para a conta. **As fotos ainda por enviar ficam só no navegador onde foram tiradas** (IndexedDB).
 
 A cópia da conta é apagada quando o pedido é enviado, em "Começar de novo" e ao fim de 12 meses.
 

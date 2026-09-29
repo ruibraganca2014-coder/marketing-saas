@@ -37,7 +37,7 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 | `POST clientes/:c/aparelhos` | ceo, tecnico | pede aparelho (mesmas opções do `domus.sh aparelho`) |
 | `POST clientes/:c/plano` | ceo | pede plano manual |
 | `GET alertas` | ceo, tecnico | lista viva de todas as casas: alarme disparado, aparelho offline, bateria fraca/`bateria_dias` < 21, sinal < −80, reinícios > 5/24 h, sem notícias; ordenada por gravidade; `?cliente=` |
-| `GET orcamentos` / `POST orcamentos/:id` | ceo, comercial | lista e atualização: estado `novo`/`contactado`/`visita_marcada`/`proposta_enviada`/`aceite`/`perdido`, notas, data da visita, valor da proposta, motivo de perda |
+| `GET orcamentos` / `POST orcamentos/:id` | ceo, comercial | lista e atualização: estado `novo`/`contactado`/`visita_marcada`/`proposta_enviada`/`aceite`/`perdido`, notas, data da visita, valor da proposta, motivo de perda. A lista traz `urgencia` (`normal`/`semana`/`urgente`, da simulação; `null` sem ela): selo "Urgente" (ou "Esta semana") no quadro de pedidos e na ficha; a ficha e o Relatório técnico mostram a urgência e a disponibilidade para a visita (simulador, lote 8: docs/SIMULADOR-ORCAMENTO.md §0 e §6) |
 | `POST orcamentos/:id/converter` | ceo, comercial | cria pedido de cliente + obra a partir do orçamento aceite (no modo de pagamentos simulado, com o plano escolhido pelo cliente, também o pedido-admin `plano`) |
 | `POST orcamentos/:id/libertar-relatorio` | ceo | liberta ao cliente o relatório técnico revisto (a conta deixa de mostrar "em revisão"; email ao cliente) |
 | `POST orcamentos/:id/obra-concluida` | ceo, comercial | obra concluída (só pedidos `aceite`): o cliente passa a ver "Pagar o restante" na conta |

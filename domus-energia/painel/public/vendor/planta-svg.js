@@ -27,7 +27,11 @@
 //               todos os pisos partilham a mesma folha e a mesma escala
 //   acoes       {omissao} (lote 7) → cada aparelho com ação (`acao`: manter, reparar, substituir, novo) diferente da
 //               omissão do serviço leva um selo pequeno com a letra (M, R, S, N) no canto de cima à direita;
-//               sem `acoes`, nenhum selo (LEGENDA_ACOES: o texto da legenda)
+//               sem `acoes`, nenhum selo (LEGENDA_ACOES: o texto da legenda). Lote 8 (passo "Trocar e reparar"):
+//               `todas: true` → selo em todos os aparelhos com ação (também os da omissão); com `escolher: true`
+//               só nos que têm a ação escolhida (sem "Instalação nova" a omissão não conta como resposta)
+//   pegas       false → sem as pegas dos cantos da divisão selecionada (lote 8: divisões presas fora dos passos
+//               "A casa" e "Planta")
 //
 // Cada máquina tem o seu ícone (`maquina_<modelo>`; sem ícone próprio, o genérico); os botões de divisão do
 // editor têm um desenho por tipo (`desenharIcone(svg, "divisao", {tipo})`: sofá, cama, fogão, banheira…). Os nomes das divisões
@@ -166,7 +170,9 @@ const ICONE_RAIO = [["path", { d: "M26 13 18 26h6l-2 9 8-13h-6z" }, "c"]];
 const ACOES = { manter: ["M", "Manter"], reparar: ["R", "Reparar"], substituir: ["S", "Substituir"], novo: ["N", "Novo"] };
 const comAcao = (e) => ["luz", "interruptor", "tomada", "sensor_movimento", "sensor_porta", "maquina"].includes(e.tipo) || (e.tipo === "janela" && !!e.props?.estore);
 /** Legenda dos selos (menu "⋯", impressão e relatório): "Marcas: R Reparar · S Substituir · N Novo · M Manter; sem marca: Novo". */
-export function legendaAcoes(omissao) {
+export function legendaAcoes(omissao, todas = false, nomes = null) {
+  // Lote 8: `nomes` = os nomes que o cliente vê (simulador: "Trocar", "Avariado (reparar)"…); sem eles, os técnicos.
+  if (todas) return `Marcas: ${Object.entries(ACOES).map(([k, [l, n]]) => `${l} ${nomes?.[k] ?? n}`).join(" · ")}.`;
   const outras = Object.entries(ACOES).filter(([k]) => k !== omissao).map(([, [l, n]]) => `${l} ${n}`);
   return `Marcas: ${outras.join(" · ")}; sem marca: ${ACOES[omissao]?.[1] ?? "Novo"}.`;
 }
@@ -291,6 +297,8 @@ function icone(e) {
 export function desenharPlanta(svg, planta, opcoes = {}) {
   const { soLeitura = false, selecionado = null, grelha = true } = opcoes;
   const omissaoAcao = opcoes.acoes && ACOES[opcoes.acoes.omissao] ? opcoes.acoes.omissao : null;
+  const todasAcoes = !!omissaoAcao && opcoes.acoes.todas === true;
+  const soEscolhidas = todasAcoes && opcoes.acoes.escolher === true;
   const L = Math.max(1, numero(planta?.largura_cm, 2000));
   const A = Math.max(1, numero(planta?.altura_cm, 1500));
   const esc = Math.max(1, numero(planta?.escala_cm, 50));
@@ -417,7 +425,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     const nitido = !haSel || sel || (selDiv && e.divisao === selDiv.id);
     const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` }, nitido ? null : { opacity: ESBATIDO });
     const t = no("title");
-    const acao = omissaoAcao && comAcao(e) ? (ACOES[e.acao] ? e.acao : omissaoAcao) : null;
+    const acao = omissaoAcao && comAcao(e) ? (ACOES[e.acao] ? e.acao : soEscolhidas ? null : omissaoAcao) : null;
     t.textContent = `${descrever(e, nomesDivisao)}${acao ? ` — ${ACOES[acao][1]}` : ""}`;
     g.append(t);
     if (!soLeitura && raioToque > raio) g.append(no("circle", { r: raioToque, cx: 0, cy: 0 }, { fill: "transparent" }));
@@ -446,7 +454,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     }
     g.append(gi);
     // Selo da ação (só as que não são a do serviço): disco pequeno com a letra, por cima à direita.
-    if (acao && acao !== omissaoAcao) {
+    if (acao && (todasAcoes || acao !== omissaoAcao)) {
       const r = raio * 0.52, cx = raio * 0.78, cy = -raio * 0.78;
       const cor = acao === "reparar" ? COR.argila : acao === "manter" ? COR.suave : COR.musgo;
       const gs = no("g", { "data-acao": acao, "aria-hidden": "true" }, { "pointer-events": "none" });
@@ -461,7 +469,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
   svg.append(ge, gn);
 
   // Pegas dos cantos da divisão selecionada (editor): data-pega = n.º do canto (0, 1, …).
-  if (!soLeitura && selecionado) {
+  if (!soLeitura && selecionado && opcoes.pegas !== false) {
     const d = divisoes.find((x) => x.id === selecionado);
     if (d) {
       const gp = no("g", { "data-camada": "pegas" });

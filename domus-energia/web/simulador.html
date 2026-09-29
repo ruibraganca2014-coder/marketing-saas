@@ -39,61 +39,9 @@
         <p class="msg info" id="sim-cliente" hidden></p>
       </div>
 
-      <!-- Continuar uma simulação guardada neste navegador -->
-      <div class="cartao sim-retomar" id="sim-retomar" role="region" aria-labelledby="sim-retomar-titulo" hidden>
-        <h2 id="sim-retomar-titulo">Continuar onde ficou?</h2>
-        <p id="sim-retomar-texto"></p>
-        <div class="form-botoes">
-          <button class="btn" id="sim-continuar" type="button">Continuar</button>
-          <button class="btn sec" id="sim-recomecar" type="button">Começar de novo</button>
-        </div>
-      </div>
-
-      <!-- "Antes de começar" (decisão do dono): sempre antes do passo 1 — ao abrir e depois de "Começar de novo" (app.js mostrarAntes).
-           O mesmo conteúdo, mais curto, está no site (index.html #como-simular). 12 min = soma de MINUTOS_PASSO. -->
-      <section class="cartao sim-antes" id="sim-antes" aria-labelledby="sim-antes-titulo" hidden>
-        <h2 id="sim-antes-titulo" tabindex="-1">Antes de começar</h2>
-        <!-- Depois de "Começar de novo" (o do topo): aviso pequeno, não bloqueante, com "Anular" durante 10 s
-             (app.js recomecarComAnular). Logo a seguir ao título (o Tab chega-lhe primeiro); vazio, não se vê. -->
-        <div class="sim-anular" id="sim-anular" role="status"></div>
-        <p>São 7 passos, cerca de 12 minutos. Fica tudo guardado neste navegador: pode parar e continuar depois.</p>
-        <div class="como-simular">
-          <div class="como-bloco">
-            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg></span>Os passos</h3>
-            <ol class="como-passos">
-              <li><b>Serviço:</b> o que precisa (instalação nova, automatizar ou reparar).</li>
-              <li><b>A casa:</b> tipo de casa, tipologia e divisões.</li>
-              <li><b>Equipamentos:</b> as máquinas que tem.</li>
-              <li><b>Divisões:</b> confirme o que há em cada divisão. Pode tirar fotos.</li>
-              <li><b>Quadro elétrico:</b> três perguntas e uma foto.</li>
-              <li><b>Resumo e preço:</b> veja a estimativa.</li>
-              <li><b>Enviar:</b> crie a conta e deixe o contacto.</li>
-            </ol>
-          </div>
-          <div class="como-bloco">
-            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/></svg></span>Tenha à mão</h3>
-            <ul>
-              <li>A tipologia (T1, T2…) e o número de divisões.</li>
-              <li>A potência contratada. Vem na fatura da luz. Se não souber, fica 6,9 kVA.</li>
-              <li>As máquinas que tem ou vai ter: placa, forno, ar condicionado, carregador do carro…</li>
-              <li>A localidade da obra.</li>
-              <li>Um email, para criar a conta.</li>
-            </ul>
-          </div>
-          <div class="como-bloco">
-            <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>Fotos a tirar <small>(opcionais)</small></h3>
-            <p>Ajudam o eletricista a preparar a visita.</p>
-            <ul>
-              <li>O quadro elétrico: porta aberta, de frente e com boa luz.</li>
-              <li>Os aparelhos avariados ou a trocar.</li>
-              <li>Pode tirá-las com o telemóvel, no passo Divisões.</li>
-            </ul>
-          </div>
-        </div>
-        <div class="form-botoes">
-          <button class="btn" id="sim-comecar" type="button">Começar</button>
-        </div>
-      </section>
+      <!-- Depois de "Começar de novo" (o do topo): aviso pequeno, não bloqueante, com "Anular" durante 10 s
+           (app.js recomecarComAnular); vazio, não se vê. -->
+      <div class="sim-anular" id="sim-anular" role="status"></div>
 
       <nav class="sim-progresso" aria-label="Passos do simulador">
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
@@ -162,31 +110,10 @@
           <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 4. Divisões: um cartão por divisão com os aparelhos da planta (− n +, o que fazer a cada um), foto e "Divisão verificada" -->
+        <!-- 4. Planta (lote 8): a planta à largura toda, para a conferir (app.js mostrarPasso: #sim-form.passo-planta) -->
         <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
-          <h2 id="titulo-3" tabindex="-1">4. Divisões</h2>
-          <p class="sub-passo" id="divisoes-texto">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> (na planta) e toque no nome para mudar os dados. Tocar num cartão mostra a divisão na planta. No fim de cada divisão, toque em <b>Divisão verificada</b>.</p>
-          <p class="sub-passo" id="divisoes-texto-reparar" hidden>Só precisa de marcar o que está avariado: no aparelho, toque em <b>Reparar</b> e diga o que se passa (uma foto ajuda). O resto fica como está. Falta algum aparelho? Acrescente-o com <b>+</b> (na planta).</p>
-          <p class="divisoes-acoes-ajuda" id="divisoes-acoes-ajuda">Em cada aparelho: <b>Manter</b> (fica como está), <b>Reparar</b> (está avariado), <b>Substituir</b> (trocar por outro) ou <b>Novo</b>.</p>
-          <p class="msg info" id="divisoes-origem" hidden></p>
-          <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Fotos opcionais: as fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</span></p>
-          <div class="divisoes-progresso" id="divisoes-progresso-caixa">
-            <p id="divisoes-progresso" aria-live="polite"></p>
-            <div class="sim-barra" aria-hidden="true"><span id="divisoes-progresso-barra"></span></div>
-          </div>
-          <p class="msg" id="divisoes-msg" role="status" hidden></p>
-          <div class="form-botoes">
-            <button class="btn sec pequeno" id="divisoes-recalcular" type="button" hidden>Voltar à nossa sugestão</button>
-          </div>
-          <div id="divisoes"></div>
-          <div class="form-botoes">
-            <button class="btn sec" id="divisao-adicionar" type="button">Acrescentar uma divisão (na planta)</button>
-          </div>
-          <fieldset class="cartao escolhas" id="extras">
-            <legend>Extras</legend>
-            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa</b> com bateria e sirene: a casa funciona mesmo sem internet (plano Premium).</span></label>
-            <label>Termóstatos (aquecimento ou ar condicionado)<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
-          </fieldset>
+          <h2 id="titulo-3" tabindex="-1">4. Planta</h2>
+          <p class="sub-passo">Confira a planta: mexa nas divisões, portas e aparelhos se precisar.</p>
         </section>
 
         <!-- 5. Quadro elétrico -->
@@ -222,9 +149,48 @@
           <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
-        <!-- 6. Resumo e preço -->
+        <!-- 6. Divisões: um cartão por divisão com os aparelhos da planta (− n +), foto e "Divisão verificada" (o que fazer a cada um: passo 7) -->
         <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
-          <h2 id="titulo-5" tabindex="-1">6. Resumo e preço</h2>
+          <h2 id="titulo-5" tabindex="-1">6. Divisões</h2>
+          <p class="sub-passo" id="divisoes-texto">Vá a cada divisão da casa e confirme o que lá está (ou o que quer). Tire com <b>−</b>, acrescente com <b>+</b> (na planta) e toque no nome para mudar os dados. Tocar num cartão mostra a divisão na planta. No fim de cada divisão, toque em <b>Divisão verificada</b>. O que quer trocar ou reparar diz no passo 7.</p>
+          <p class="msg info" id="divisoes-origem" hidden></p>
+          <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Fotos opcionais: as fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.</span></p>
+          <div class="divisoes-progresso" id="divisoes-progresso-caixa">
+            <p id="divisoes-progresso" aria-live="polite"></p>
+            <div class="sim-barra" aria-hidden="true"><span id="divisoes-progresso-barra"></span></div>
+          </div>
+          <p class="msg" id="divisoes-msg" role="status" hidden></p>
+          <div class="form-botoes">
+            <button class="btn sec pequeno" id="divisoes-recalcular" type="button" hidden>Voltar à nossa sugestão</button>
+          </div>
+          <div id="divisoes"></div>
+          <div class="form-botoes">
+            <button class="btn sec" id="divisao-adicionar" type="button">Mudar as divisões (passo Planta)</button>
+          </div>
+          <fieldset class="cartao escolhas" id="extras">
+            <legend>Extras</legend>
+            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa</b> com bateria e sirene: a casa funciona mesmo sem internet (plano Premium).</span></label>
+            <label>Termóstatos (aquecimento ou ar condicionado)<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
+          </fieldset>
+        </section>
+
+        <!-- 7. Trocar e reparar (lote 8): o que fazer com cada coisa da casa — na planta (tocar no aparelho) ou na lista por divisão -->
+        <section class="sim-passo" id="passo-6" aria-labelledby="titulo-6" data-passo="6" hidden>
+          <h2 id="titulo-6" tabindex="-1">7. Trocar e reparar</h2>
+          <p class="sub-passo" id="trocar-texto">Diga o que quer fazer com cada coisa da casa: toque no aparelho na planta, ou escolha aqui, divisão a divisão.</p>
+          <p class="sub-passo" id="trocar-texto-reparar" hidden>Só precisa de marcar o que está avariado: toque no aparelho (na planta ou aqui), escolha <b>Avariado (reparar)</b> e diga o que se passa (uma foto ajuda). O resto fica como está. Falta algum aparelho? Acrescente-o na planta.</p>
+          <p class="divisoes-acoes-ajuda" id="trocar-ajuda"><b>Manter</b>: fica como está · <b>Trocar</b>: por outro · <b>Avariado (reparar)</b>: arranjamos · <b>Novo / acrescentar</b>: pomos um novo.</p>
+          <div class="divisoes-progresso" id="trocar-progresso-caixa">
+            <p id="trocar-progresso" aria-live="polite"></p>
+          </div>
+          <p class="msg" id="trocar-msg" role="status" hidden></p>
+          <section class="cartao divisao-cartao trocar-quadro" id="trocar-quadro" aria-labelledby="trocar-quadro-titulo"></section>
+          <div id="trocar"></div>
+        </section>
+
+        <!-- 8. Resumo e preço -->
+        <section class="sim-passo" id="passo-7" aria-labelledby="titulo-7" data-passo="7" hidden>
+          <h2 id="titulo-7" tabindex="-1">8. Resumo e preço</h2>
           <div class="msg info" id="preco-estado" role="status" hidden></div>
           <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
@@ -240,9 +206,9 @@
           <div class="sim-planos" id="preco-planos"></div>
         </section>
 
-        <!-- 7. Enviar -->
-        <section class="sim-passo" id="passo-6" aria-labelledby="titulo-6" data-passo="6" hidden>
-          <h2 id="titulo-6" tabindex="-1">7. Enviar</h2>
+        <!-- 9. Enviar -->
+        <section class="sim-passo" id="passo-8" aria-labelledby="titulo-8" data-passo="8" hidden>
+          <h2 id="titulo-8" tabindex="-1">9. Enviar</h2>
           <p class="sub-passo">Enviar o pedido custa 19 €: o relatório técnico da instalação e a visita técnica, descontados na obra (a estimativa do Resumo continua grátis). Primeiro a conta (para acompanhar o pedido), depois o contacto; a seguir paga e o pedido é enviado. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->
           <div class="cartao" id="enviar-conta" role="group" aria-labelledby="enviar-conta-titulo">
@@ -266,6 +232,22 @@
             <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
             <div class="armadilha" aria-hidden="true"><label>Website<input id="contacto-website" name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
           </div>
+          <!-- Lote 8: disponibilidade para a visita e urgência (vão no pedido: §6 visita, urgencia). -->
+          <div class="cartao sim-visita" id="enviar-visita">
+            <h3>A visita</h3>
+            <fieldset class="escolhas">
+              <legend>Que dias lhe dão jeito? <small class="ajuda">Pode escolher vários. Sem nenhum, qualquer dia serve.</small></legend>
+              <div class="escolhas-grelha visita-dias" id="visita-dias"></div>
+            </fieldset>
+            <fieldset class="escolhas">
+              <legend>Em que período?</legend>
+              <div class="escolhas-grelha tres-curtas" id="visita-periodo"></div>
+            </fieldset>
+            <fieldset class="escolhas">
+              <legend>É urgente?</legend>
+              <div class="escolhas-grelha tres-curtas" id="visita-urgencia"></div>
+            </fieldset>
+          </div>
         </section>
 
         <!-- Enviado -->
@@ -283,6 +265,47 @@
           </div>
         </section>
 
+        <!-- "Como fazer a simulação" (decisão do dono, lote 8): só no passo 1, por baixo dos cartões e por cima da barra "Anterior/Seguinte" (app.js mostrarPasso).
+             O mesmo conteúdo, mais curto, está no site (index.html #como-simular). 14 min = soma de MINUTOS_PASSO. -->
+        <section class="cartao sim-como" id="sim-como" aria-labelledby="sim-como-titulo">
+          <h2 id="sim-como-titulo">Como fazer a simulação</h2>
+          <p>São 9 passos, cerca de 14 minutos. Fica tudo guardado neste navegador: pode parar e continuar depois.</p>
+          <div class="como-simular">
+            <div class="como-bloco">
+              <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg></span>Os passos</h3>
+              <ol class="como-passos">
+                <li><b>Serviço:</b> o que precisa (instalação nova, automatizar ou reparar).</li>
+                <li><b>A casa:</b> tipo de casa, tipologia e divisões.</li>
+                <li><b>Equipamentos:</b> as máquinas que tem.</li>
+                <li><b>Planta:</b> confira a planta da casa e mexa no que precisar.</li>
+                <li><b>Quadro elétrico:</b> três perguntas e uma foto.</li>
+                <li><b>Divisões:</b> confirme o que há em cada divisão. Pode tirar fotos.</li>
+                <li><b>Trocar e reparar:</b> o que quer manter, trocar, reparar ou acrescentar.</li>
+                <li><b>Resumo e preço:</b> veja a estimativa.</li>
+                <li><b>Enviar:</b> crie a conta, deixe o contacto e diga quando pode receber a visita.</li>
+              </ol>
+            </div>
+            <div class="como-bloco">
+              <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1M9 10h6M9 14h6M9 18h3"/></svg></span>Tenha à mão</h3>
+              <ul>
+                <li>A tipologia (T1, T2…) e o número de divisões.</li>
+                <li>A potência contratada. Vem na fatura da luz. Se não souber, fica 6,9 kVA.</li>
+                <li>As máquinas que tem ou vai ter: placa, forno, ar condicionado, carregador do carro…</li>
+                <li>A localidade da obra.</li>
+                <li>Um email, para criar a conta.</li>
+              </ul>
+            </div>
+            <div class="como-bloco">
+              <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>Fotos a tirar <small>(opcionais)</small></h3>
+              <p>Ajudam o eletricista a preparar a visita.</p>
+              <ul>
+                <li>O quadro elétrico: porta aberta, de frente e com boa luz.</li>
+                <li>Os aparelhos avariados ou a trocar.</li>
+                <li>Pode tirá-las com o telemóvel, nos passos Divisões e Trocar e reparar.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
         <div class="sim-navegacao" id="sim-navegacao">
           <button class="btn sec" id="sim-anterior" type="button">Anterior</button>
           <span class="sim-guardado" id="sim-guardado" aria-live="polite"></span>
@@ -294,11 +317,17 @@
         <section class="sim-planta" id="sim-planta" aria-labelledby="sim-planta-titulo">
           <div class="sim-planta-cabeca">
             <h2 id="sim-planta-titulo">A sua planta</h2>
+            <!-- Lote 8: o tamanho da planta, compacto, na linha do título (editor.js montarTamanho). -->
+            <div class="sim-planta-tamanho" id="planta-tamanho" role="group" aria-label="Tamanho da planta"></div>
             <p class="sim-planta-origem" id="planta-origem" hidden></p>
             <button class="btn sec pequeno" id="planta-refazer" type="button" aria-label="Refazer a planta a partir dos passos 2 e 3" title="Refazer a planta a partir dos passos 2 e 3" hidden>Refazer planta</button>
             <button class="btn sec pequeno sim-planta-fechar" id="planta-fechar" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Fechar</button>
           </div>
           <div id="editor"></div>
+          <!-- Lote 8: fora dos passos "A casa" e "Planta" as divisões estão presas (app.js mostrarDivisaoPresa). -->
+          <p class="sim-planta-presa" id="planta-presa" role="status" hidden>Para mudar as divisões, vá ao passo Planta. <button class="btn sec pequeno" id="planta-presa-ir" type="button">Ir ao passo Planta</button></p>
+          <!-- Passo "Trocar e reparar" (lote 8): o que fazer com o aparelho tocado na planta (app.js desenharAcaoPlanta). -->
+          <div class="sim-planta-acao" id="planta-acao" hidden></div>
           <!-- A planta vai aparecendo (app.js fasePlanta): enquanto não há nada a desenhar, este texto discreto por cima dela. -->
           <p class="sim-planta-vazia" id="planta-vazia" hidden>A sua planta aparece aqui à medida que responde.</p>
         </section>

@@ -7,7 +7,7 @@
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -90,6 +90,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-principal" }, h("strong", { text: txt(o, "nome") }), h("span", { class: "ajuda", text: `${txt(o, "servico")} · ${txt(o, "localidade")}` })),
       h("span", { class: "linha-selos" },
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
+        urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -141,6 +142,7 @@ export default function orcamentos(el, ctx) {
         ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
+        urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
@@ -507,6 +509,9 @@ function textoHistorico(x, sim) {
 }
 
 /** Simulação do cliente (objeto; o servidor pode guardá-la como texto JSON). */
+/** Lote 8: a urgência do pedido — da lista (`urgencia`, calculada no servidor) ou da simulação completa. */
+export const urgenciaPedido = (o) => campo(o, "urgencia") ?? urgenciaDe(simulacaoDe(o));
+
 export function simulacaoDe(o) {
   let s = campo(o, "simulacao");
   if (typeof s === "string") { try { s = JSON.parse(s); } catch { return null; } }

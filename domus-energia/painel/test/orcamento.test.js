@@ -170,6 +170,32 @@ test('simulação: dados da casa (§6) — potência contratada, ligação; tudo
   assert.equal(contar(), depois);
 });
 
+test('simulação (lote 8): disponibilidade para a visita e urgência — validadas; "urgencia" na lista de pedidos', async () => {
+  const antes = contar();
+  const r = await enviar({ ...BASE, nome: 'Visita urgente', simulacao: { versao: 1, visita: { dias: ['seg', 'sab'], periodo: 'manha' }, urgencia: 'urgente' } });
+  assert.equal(r.estado, 201);
+  for (const [nome, sim] of [['Sem visita', { versao: 1 }], ['Visita vazia', { versao: 1, visita: { dias: [], periodo: 'qualquer' }, urgencia: 'normal' }], ['Semana', { versao: 1, visita: null, urgencia: 'semana' }]]) {
+    assert.equal((await enviar({ ...BASE, nome, simulacao: sim })).estado, 201, nome);
+  }
+  const lista = (await p.pedir('GET', '/painel/api/orcamentos', { cookie: p.cookies.comercial })).json.orcamentos;
+  assert.equal(lista.find((x) => x.nome === 'Visita urgente').urgencia, 'urgente');
+  assert.equal(lista.find((x) => x.nome === 'Semana').urgencia, 'semana');
+  assert.equal(lista.find((x) => x.nome === 'Sem visita').urgencia, null);
+  assert.equal(lista.find((x) => x.nome === 'Ana Silva').urgencia, null, 'pedido sem simulação');
+  const depois = contar();
+  assert.equal(depois, antes + 4);
+  for (const [sim, re] of [
+    [{ urgencia: 'ja' }, /Urgência/], [{ urgencia: 1 }, /Urgência/], [{ visita: 'segunda' }, /objeto/], [{ visita: [] }, /objeto/],
+    [{ visita: { dias: ['dom'] } }, /dias/], [{ visita: { dias: 'seg' } }, /dias/], [{ visita: { dias: ['seg', 'seg'] } }, /dias/],
+    [{ visita: { periodo: 'noite' } }, /período/],
+  ]) {
+    const r2 = await enviar({ ...BASE, simulacao: { versao: 1, ...sim } });
+    assert.equal(r2.estado, 400, JSON.stringify(sim));
+    assert.match(r2.json.erro, re);
+  }
+  assert.equal(contar(), depois);
+});
+
 test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10 000 cm, fundo ≤ 700 KB', async () => {
   const antes = contar();
   const planta = (x) => ({ versao: 1, planta: { escala_cm: 50, largura_cm: 2000, altura_cm: 1500, fundo: null, divisoes: [], elementos: [], ...x } });

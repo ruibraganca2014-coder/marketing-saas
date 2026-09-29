@@ -10,7 +10,7 @@ import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido } from '../
 import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
 import { contarPlanta, divisoesDaContagem } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
-import { listaTrabalho, aVerificarNaVisita } from '../public/ecras/simulacao.js';
+import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 
 const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
@@ -153,14 +153,15 @@ test('pedido de automatizar/reparar com quadro: avisos e circuitos_existentes pe
   }
 });
 
-test('estados antigos: 6 passos → 7 (tudo +1), sem serviço = Instalação nova; ações da planta guardadas', () => {
-  assert.equal(PASSOS.length, 7);
-  assert.equal(PASSOS[0], 'Serviço');
+test('estados antigos: 6 passos → 9 (cada passo no seu equivalente), sem serviço = Instalação nova; ações da planta guardadas', () => {
+  assert.deepEqual(PASSOS, ['Serviço', 'A casa', 'Equipamentos', 'Planta', 'Quadro elétrico', 'Divisões', 'Trocar e reparar', 'Resumo e preço', 'Enviar']);
   const velho = { ...estadoNovo(), passos: 6, ordem: 4, passo: 2, visitado: 3 };
   delete velho.servico;
   const e = normalizarEstado(velho);
-  assert.equal(e.passo, 3, 'Divisões (2) → 3');
-  assert.equal(e.visitado, 4);
+  assert.equal(e.passo, 5, 'Divisões (2) → 5');
+  assert.equal(e.visitado, 5, 'o quadro (3 → 4) também já foi visto');
+  const noResumo = normalizarEstado({ ...estadoNovo(), passos: 6, ordem: 4, passo: 4, visitado: 5 });
+  assert.deepEqual([noResumo.passo, noResumo.visitado], [7, 7], 'Resumo (4) → Resumo (7); nunca volta direto ao Enviar');
   assert.deepEqual(e.servico, ['nova']);
   const novo = normalizarEstado({ ...estadoNovo(), servico: ['reparar', 'x'], planta: planta({ e1: { acao: 'reparar', avaria: 'x'.repeat(300) }, e7: { acao: 'reparar' }, e2: { acao: 'voar' } }) });
   assert.deepEqual(novo.servico, ['reparar']);
@@ -171,6 +172,57 @@ test('estados antigos: 6 passos → 7 (tudo +1), sem serviço = Instalação nov
   assert.equal(el('e2').acao, undefined, 'ação desconhecida sai');
   const semServico = normalizarEstado({ ...estadoNovo(), servico: [] });
   assert.deepEqual(semServico.servico, [], 'estado novo sem escolha: continua por escolher');
+});
+
+test('lote 8: 7 passos (ordem 5) e 8 (ordem 6) → 9 com "Planta" e "Trocar e reparar"; ações e avarias mantêm-se; quadro com problemas, visita e urgência', () => {
+  const ac = { e1: { acao: 'reparar', avaria: 'queimada' }, e3: { acao: 'substituir', inteligente: true } };
+  for (const [antes, depois] of [[0, 0], [2, 2], [3, 5], [4, 4], [5, 7], [6, 7]]) {
+    const e = normalizarEstado({ ...estadoNovo(), passos: 7, ordem: 5, passo: antes, visitado: antes, servico: ['automatizar'], planta: planta(ac) });
+    assert.equal(e.passo, depois, `passo ${antes} → ${depois}`);
+    assert.equal(e.planta.elementos.find((x) => x.id === 'e1').avaria, 'queimada');
+    assert.equal(e.planta.elementos.find((x) => x.id === 'e3').acao, 'substituir');
+    assert.deepEqual(e.visita, { dias: [], periodo: 'qualquer' });
+    assert.equal(e.urgencia, 'normal');
+    assert.equal(e.quadroAvaria, null);
+  }
+  assert.equal(normalizarEstado({ ...estadoNovo(), passos: 7, ordem: 5, passo: 5, visitado: 6 }).visitado, 7, 'do Enviar volta ao Resumo, como antes');
+  for (const [antes, depois] of [[3, 5], [4, 4], [5, 6], [6, 7], [7, 7]]) {
+    assert.equal(normalizarEstado({ ...estadoNovo(), passos: 8, ordem: 6, passo: antes, visitado: antes }).passo, depois, `8 passos: ${antes} → ${depois}`);
+  }
+  const n = normalizarEstado({ ...estadoNovo(), visita: { dias: ['sex', 'seg', 'dom', 'seg'], periodo: 'noite' }, urgencia: 'ja', quadroAvaria: 'x'.repeat(300) });
+  assert.deepEqual(n.visita, { dias: ['seg', 'sex'], periodo: 'qualquer' });
+  assert.equal(n.urgencia, 'normal');
+  assert.equal(n.quadroAvaria.length, 200);
+
+  // Quadro com problemas: mais um diagnóstico (25 €), no pedido (`quadro.avaria`) e no relatório.
+  const e = estadoNovo();
+  e.servico = ['reparar'];
+  e.planta = planta(ac);
+  e.quadroAvaria = 'o geral vai abaixo';
+  e.visita = { dias: ['ter', 'qui'], periodo: 'tarde' };
+  e.urgencia = 'urgente';
+  e.divisoes = divisoesDaContagem(contarPlanta(plantaNovos(e.planta, e.servico)));
+  const pedidos = pedidosDaSelecao(e);
+  assert.deepEqual(pedidos.filter((p) => p.chave === 'diagnostico'), [{ chave: 'diagnostico', qtd: 2, acao: 'reparar' }]);
+  const preco = calcularPreco(pedidos, CATALOGO, null);
+  const sim = montarSimulacao(e, preco, 'base', []);
+  assert.equal(sim.quadro.avaria, 'o geral vai abaixo');
+  assert.deepEqual(sim.visita, { dias: ['ter', 'qui'], periodo: 'tarde' });
+  assert.equal(sim.urgencia, 'urgente');
+  assert.equal(sim.totais_acao.reparar.aparelhos, 2, 'o aparelho e o quadro');
+  assert.equal(sim.totais_acao.reparar.artigos_iva, 50);
+  assert.equal(montarSimulacao({ ...e, quadroAvaria: null }, preco, 'base', []).quadro.avaria, null);
+  // Painel: ficha e relatório.
+  assert.equal(visitaTxt(sim), 'Terça e quinta, à tarde');
+  assert.equal(visitaTxt({ visita: { dias: [], periodo: 'qualquer' } }), 'Qualquer dia, a qualquer hora');
+  assert.equal(visitaTxt({}), null, 'pedidos antigos: sem disponibilidade');
+  assert.equal(urgenciaDe(sim), 'urgente');
+  assert.equal(urgenciaDe({ urgencia: 'x' }), null);
+  const v = aVerificarNaVisita(sim);
+  assert.equal(v[0].tema, 'Urgência');
+  assert.match(v[0].texto, /URGENTE.*terça e quinta, à tarde/);
+  assert.ok(v.some((x) => x.tema === 'Reparação' && /Quadro elétrico — «o geral vai abaixo»/.test(x.texto)));
+  assert.ok(aVerificarNaVisita({ ...sim, urgencia: 'normal' }).some((x) => x.tema === 'Visita' && /terça e quinta/.test(x.texto)));
 });
 
 test('pedido (§6): serviço, ação por aparelho, lista de trabalho e totais por ação; relatório técnico', () => {

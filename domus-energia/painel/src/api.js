@@ -189,6 +189,8 @@ export function criarApi(ctx) {
   }
 
   const temFinanceiro = (u) => u.papel === 'ceo';
+  /** `simulacao.urgencia` (validada ao receber: normal | semana | urgente) a partir do JSON guardado; null sem ela. */
+  const urgenciaDaSimulacao = (json) => (typeof json === 'string' ? /"urgencia":"(normal|semana|urgente)"/.exec(json)?.[1] ?? null : null);
 
   function formatarOrcamento(o, completo = false) {
     const r = {
@@ -197,6 +199,8 @@ export function criarApi(ctx) {
       estado: o.estado, notas: o.notas, data_visita: o.data_visita, valor_proposta: deCent(o.valor_proposta_cent),
       motivo_perda: o.motivo_perda, cliente: o.cliente, obra_id: o.obra_id, pedido_id: o.pedido_id,
       tem_simulacao: o.simulacao !== null, simulacao_bytes: o.simulacao ? Buffer.byteLength(o.simulacao) : 0,
+      // Lote 8: a urgência do pedido (selo "Urgente" no quadro de pedidos) sem ler a simulação toda.
+      urgencia: urgenciaDaSimulacao(o.simulacao),
       n_fotos: fotos.contar(o.id),
       // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
       conta: contas.resumoParaPainel(o.conta_id),

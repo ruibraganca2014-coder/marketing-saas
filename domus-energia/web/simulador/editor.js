@@ -136,7 +136,7 @@ function numeroInput(valor, { min, max, step = 1, id }) {
  *   `aoSelecionar`: a divisão selecionada mudou (a do elemento selecionado; null sem seleção) — o passo Divisões destaca o cartão.
  *   `aoHistorico`: depois de anular ou refazer (o passo Divisões tira a mensagem da ação que deixou de valer).
  */
-export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null, aoHistorico = null }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null, aoSelecionarElemento = null, aoHistorico = null, aoDivisaoPresa = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -290,10 +290,17 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   /** Mostra na linha só o que é para lá (e as ferramentas trazidas); esconde os grupos vazios. */
   function acertarBarra() {
+    // Lote 8 (definirPermissoes): só as ferramentas do que o passo deixa mudar (divisões e/ou aparelhos).
+    barraDiv.classList.toggle("sem-permissao", !podeDivisoes);
+    for (const g of [barra, barraMaq]) g.classList.toggle("sem-permissao", !podeAparelhos);
+    seccaoDiv.hidden = !podeDivisoes;
+    seccaoEl.hidden = !podeAparelhos;
+    seccaoMaq.hidden = !podeAparelhos || !modelosMaq.length;
+    bMaisFerr.hidden = !podeDivisoes && !podeAparelhos;
     for (const b of barraDiv.children) b.hidden = !(divisoesNaBarra === null || divisoesNaBarra.includes(b.dataset.divisao) || naBarraExtra.has(`divisao:${b.dataset.divisao}`));
     for (const b of barra.children) b.hidden = !(ELEMENTOS_BASE.includes(b.dataset.ferramenta) || naBarraExtra.has(b.dataset.ferramenta));
     for (const b of barraMaq.children) b.hidden = !(maquinasNaBarra.includes(b.dataset.maquina) || naBarraExtra.has(`maquina:${b.dataset.maquina}`));
-    for (const g of [barraDiv, barra, barraMaq]) g.hidden = ![...g.children].some((b) => !b.hidden);
+    for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || ![...g.children].some((b) => !b.hidden);
     rovingFerramentas?.();
   }
   // "Mais…": a lista completa, agrupada, numa janela (<dialog> modal, Esc fecha).
@@ -309,12 +316,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   maisTitulo.id = "mais-titulo";
   const maisSeccao = (titulo, grelha) => { const s = el("section", "editor-mais-seccao"); s.append(el("h3", null, titulo), grelha); return s; };
   const seccaoMaq = maisSeccao("Máquinas", maquinasMais);
+  const seccaoDiv = maisSeccao("Divisões", divisoesMais);
+  const seccaoEl = maisSeccao("Elementos", elementosMais);
   const maisFechar = botao("Fechar");
   maisFechar.id = "mais-fechar";
   const maisBotoes = el("div", "form-botoes");
   maisBotoes.append(maisFechar);
   const maisCorpo = el("div", "editor-mais-corpo");
-  maisCorpo.append(maisSeccao("Divisões", divisoesMais), maisSeccao("Elementos", elementosMais), seccaoMaq);
+  maisCorpo.append(seccaoDiv, seccaoEl, seccaoMaq);
   dlgMais.append(maisTitulo, maisCorpo, maisBotoes);
   function fecharMais() { if (dlgMais.open) dlgMais.close(); }
   bMaisFerr.addEventListener("click", () => {
@@ -419,11 +428,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function mostrarLado(sim) {
     lado.hidden = !sim;
     bOutras.setAttribute("aria-expanded", String(sim));
+    if (!sim) fundoSec.hidden = true;   // lote 8: o cartão do fundo só aparece com "Planta de fundo"
   }
   bOutras.addEventListener("click", () => mostrarLado(lado.hidden));
 
-  // Fundo
+  // Fundo (lote 8: escondido até se tocar em "Planta de fundo", no "⋯")
   const fundoSec = el("details", "editor-fundo cartao");
+  fundoSec.hidden = true;
   const fundoResumo = el("summary", null, "Fundo: foto ou PDF da sua planta");
   const fundoCorpo = el("div", "editor-fundo-corpo");
   fundoSec.append(fundoResumo, fundoCorpo);
@@ -446,10 +457,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const legendaAcao = el("p", "ajuda editor-legenda-acoes");
   legendaAcao.hidden = true;
   let acoesOmissao = null;   // ação por omissão do serviço (definirAcoes); null = sem marcas
-  lado.append(ladoAcoes, legendaAcao, fundoSec, tamSec);
+  // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
+  let podeDivisoes = true;
+  let podeAparelhos = true;
+  /** Tentou mudar uma divisão presa: a dica (e quem usa o editor mostra onde se mudam, `aoDivisaoPresa`). */
+  function divisaoPresa() {
+    avisar("Para mudar as divisões, vá ao passo Planta.");
+    aoDivisaoPresa?.();
+  }
+  let acoesOpcoes = {};      // lote 8: {todas, escolher} (planta-svg.js opção `acoes`)
+  lado.append(ladoAcoes, fundoSec, tamSec);
   const principal = el("div", "editor-principal");
-  // Os separadores dos pisos ficam junto à planta, por baixo das duas linhas (ferramentas e ações).
-  principal.append(fila, acoes, separadores, area, ajudaTeclado);
+  // Os separadores dos pisos ficam junto à planta, por baixo das duas linhas (ferramentas e ações). Lote 8: a legenda
+  // das marcas fica por baixo da planta, só quando as marcas estão em todos os aparelhos ("Trocar e reparar").
+  principal.append(fila, acoes, separadores, area, legendaAcao, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
@@ -531,7 +552,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // ---------------------------------------------------------------- pisos
   const noPiso = (x) => pisoDe(x) === pisoAtual;
   const divisoesPiso = () => planta.divisoes.filter(noPiso);
-  const elementosPiso = () => planta.elementos.filter(noPiso);
+  // Lote 8 (definirPermissoes): sem aparelhos (passo "A casa") eles ficam escondidos — não se veem nem se tocam.
+  const elementosPiso = () => (podeAparelhos ? planta.elementos.filter(noPiso) : []);
   /** N.º de separadores: os pisos da casa e os que já têm divisões ou elementos (ex.: mudou para apartamento). */
   const nPisos = () => Math.min(MAX_PISO + 1, Math.max(pisosPedidos, ...(planta ? [...planta.divisoes, ...planta.elementos].map((x) => pisoDe(x) + 1) : [1])));
   function desenharSeparadores() {
@@ -730,6 +752,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
 
   function criarDivisao(div) {
+    if (!podeDivisoes) { divisaoPresa(); return null; }
     if (planta.divisoes.length >= MAX_DIVISOES) { avisar(`A planta já tem o máximo de ${MAX_DIVISOES} divisões.`); return null; }
     const t = tipoDivisao(div) ?? { w: 400, h: 300 };
     const [x, y] = sitioLivre(t.w, t.h);
@@ -807,6 +830,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
     if (!d && !e) return;
+    if (d && !podeDivisoes) { divisaoPresa(); return; }
     memorizar();
     // Apagar uma divisão apaga também os aparelhos dela (senão ficavam "Fora das divisões" e contavam no pedido);
     // "Anular" repõe tudo de uma vez (memorizar guarda a planta inteira).
@@ -828,6 +852,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
     if (!d && !e) return false;
+    if (d && !podeDivisoes) { divisaoPresa(); return false; }
     memorizar();
     if (e) {
       e.x_cm = limitar(e.x_cm + dx, 0, planta.largura_cm);
@@ -1005,6 +1030,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     ultimoToque = null;
     const alvo = oQueEsta(p, tipoPonteiro);
     if (!alvo) return;
+    if ((alvo.tipo === "canto" || alvo.tipo === "parede") && !podeDivisoes) { divisaoPresa(); return; }
     if (alvo.tipo === "canto" && longo) { selecionado = alvo.d.id; desenharTudo(); abrirDialogo(); return; }
     if (alvo.tipo === "canto") { apagarCanto(alvo.d, alvo.i); return; }
     if (alvo.tipo === "parede") { acrescentarCanto(alvo.d, alvo.i, alvo.ponto); return; }
@@ -1139,7 +1165,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       }, TOQUE_LONGO_MS);
     }
     const alvo = ev.target.closest?.("[data-pega], [data-elemento], [data-divisao]");
-    if (alvo?.dataset.pega) {
+    if (alvo?.dataset.pega && podeDivisoes) {
       const d = obterDivisao(alvo.dataset.id);
       if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d), c0: caixaDe(d), dentro: elementosDentro(d) }; return; }
     }
@@ -1152,6 +1178,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         if (mudou) desenharTudo();
         return;
       }
+    }
+    // Divisões presas (lote 8): arrastar a selecionada desloca a vista e diz onde se mudam as divisões.
+    if (alvo?.dataset.divisao && selecionado === alvo.dataset.divisao && !podeDivisoes) {
+      arrasto = { ...base, tipo: "deslocar", alvo: alvo.dataset.divisao, presa: true };
+      return;
     }
     if (alvo?.dataset.divisao && selecionado === alvo.dataset.divisao) {
       const d = obterDivisao(alvo.dataset.divisao);
@@ -1182,6 +1213,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const dx = p.x - arrasto.p0.x, dy = p.y - arrasto.p0.y;
     switch (arrasto.tipo) {
       case "deslocar":
+        if (arrasto.presa && !arrasto.avisou) { arrasto.avisou = true; divisaoPresa(); }
         ajusteAuto = false;   // deslocou a vista à mão
         fixarPonto(arrasto.p0, ev.clientX, ev.clientY);
         desenhar();
@@ -1236,6 +1268,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         selecionado = a.alvo;
         desenharTudo();
         if (!a.alvo) definirModo(null);
+        else if (!podeDivisoes) avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada.`);
         else avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada. Arraste para mover; arraste os cantos para mudar a forma (Shift: sem grelha). Duplo clique numa parede acrescenta um canto; num canto, apaga-o.`);
       }
       return;
@@ -1427,8 +1460,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       encaixarFundo(r.imagem, aspetoFundo);
       verTudo();
       // Pode ter vindo do botão "Planta de fundo": o cartão abre-se para calibrar, ajustar ou tirar o fundo.
-      fundoSec.open = true;
       mostrarLado(true);
+      fundoSec.hidden = false;
+      fundoSec.open = true;
       confirmar("Fundo carregado. Para acertar a escala, use \"Calibrar\" no cartão do fundo.");
       mostrarFundoMsg(`Fundo carregado (${Math.round((r.imagem.length * 3) / 4 / 1024)} KB). Agora calibre: marque uma parede que conheça e diga quanto mede.`, "ok");
     } catch (e) {
@@ -1648,17 +1682,22 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
 
   let divisaoAvisada;   // a última divisão dita a `aoSelecionar`
+  let elementoAvisado = null;   // o último aparelho dito a `aoSelecionarElemento`
   function desenharSelecao() {
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
     const div = d?.id ?? e?.divisao ?? null;
     if (aoSelecionar && div !== divisaoAvisada) { divisaoAvisada = div; aoSelecionar(div); }
+    // Lote 8 ("Trocar e reparar"): o aparelho selecionado (null sem nenhum), para mostrar o que fazer com ele.
+    const elId = e?.id ?? null;
+    if (aoSelecionarElemento && elId !== elementoAvisado) { elementoAvisado = elId; aoSelecionarElemento(elId); }
     const nome = d ? `Divisão ${d.nome || "sem nome"}` : e ? descreverElemento(e) : "";
     estadoLinha.classList.toggle("vazia", !d && !e);
     selecaoNome.textContent = nome ? `Selecionado: ${nome}` : "";
-    sDuplicar.disabled = d ? planta.divisoes.length >= MAX_DIVISOES : !e || planta.elementos.length >= MAX_ELEMENTOS;
-    sOpcoes.disabled = !d && !e;
-    sApagar.disabled = !d && !e;
+    // Divisões presas (lote 8): selecionam-se, mas não se duplicam, apagam nem mudam.
+    sDuplicar.disabled = d ? !podeDivisoes || planta.divisoes.length >= MAX_DIVISOES : !e || planta.elementos.length >= MAX_ELEMENTOS;
+    sOpcoes.disabled = d ? !podeDivisoes : !e;
+    sApagar.disabled = d ? !podeDivisoes : !e;
     for (const [b, r] of [[sDuplicar, "Duplicar"], [sOpcoes, "Opções"], [sApagar, "Apagar"]]) {
       b.setAttribute("aria-label", nome ? `${r}: ${nome}` : r);
       b.title = b.getAttribute("aria-label");
@@ -1668,7 +1707,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   sApagar.addEventListener("click", apagarSelecionado);
   // "Opções" abre a janela de edição (a mesma do duplo clique): tudo o que se muda na divisão ou no elemento.
   sOpcoes.addEventListener("click", () => abrirDialogo());
-  bFundo.addEventListener("click", () => ficheiro.click());
+  // Lote 8: "Planta de fundo" mostra o cartão do fundo (no "⋯"); sem fundo, abre logo a escolha do ficheiro.
+  bFundo.addEventListener("click", () => {
+    fundoSec.hidden = false;
+    fundoSec.open = true;
+    if (!planta?.fundo) ficheiro.click();
+  });
 
   /** Nome da cópia de uma divisão: o seguinte do mesmo tipo ("Quarto 3" → "Quarto 4"), senão "Nome 2"… */
   function nomeCopia(nome) {
@@ -1685,6 +1729,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function duplicarSelecionado() {
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
+    if (d && !podeDivisoes) { divisaoPresa(); return; }
     if (d) {
       if (planta.divisoes.length >= MAX_DIVISOES) { avisar(`A planta já tem o máximo de ${MAX_DIVISOES} divisões.`); return; }
       const [x, y] = sitioLivre(d.largura_cm, d.altura_cm, { piso: pisoDe(d) });
@@ -1742,6 +1787,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const d = obterDivisao(selecionado);
     const e = obterElemento(selecionado);
     if ((!d && !e) || dialogo.open) return;
+    if (d && !podeDivisoes) { divisaoPresa(); return; }
     pararToqueLongo();
     arrasto = null;
     // A janela fica por cima da planta: o "pointerup" do dedo que a abriu já não chega lá.
@@ -1901,7 +1947,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function desenhar() {
     if (!planta) return;
     const { ppc, raio, raioToque, letra, pega } = tamanhos();
-    desenharPlanta(svg, planta, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, acoes: acoesOmissao ? { omissao: acoesOmissao } : null });
+    // Lote 8: sem aparelhos (passo "A casa") desenha-se só as divisões; divisões presas sem as pegas dos cantos.
+    desenharPlanta(svg, podeAparelhos ? planta : { ...planta, elementos: [] }, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -1977,12 +2024,49 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * Lote 7: ação por omissão do serviço ("novo" ou "manter"): os aparelhos com outra ação levam a marca (M, R, S, N)
      * na planta, com a legenda no "⋯" e na impressão. null = sem marcas.
      */
-    definirAcoes(omissao) {
-      if (omissao === acoesOmissao) return;
+    definirAcoes(omissao, { todas = false, escolher = false, nomes = null } = {}) {
+      if (omissao === acoesOmissao && todas === !!acoesOpcoes.todas && escolher === !!acoesOpcoes.escolher) return;
       acoesOmissao = omissao ?? null;
-      legendaAcao.hidden = !acoesOmissao;
-      legendaAcao.textContent = acoesOmissao ? legendaAcoes(acoesOmissao) : "";
+      acoesOpcoes = todas ? { todas: true, escolher } : {};
+      legendaAcao.hidden = !acoesOmissao || !todas;   // lote 8: só em "Trocar e reparar" (e na impressão/PDF)
+      legendaAcao.textContent = acoesOmissao ? legendaAcoes(acoesOmissao, todas, nomes) : "";
       if (planta) desenhar();
+    },
+    /**
+     * Lote 8: o que o passo deixa mudar na planta. `divisoes` false: as divisões selecionam-se mas não se movem, não
+     * mudam de forma nem de tamanho, não se apagam nem duplicam, e as ferramentas das divisões escondem-se. `aparelhos`
+     * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
+     * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
+     */
+    definirPermissoes({ divisoes = true, aparelhos = true } = {}) {
+      if (divisoes === podeDivisoes && aparelhos === podeAparelhos) return;
+      podeDivisoes = divisoes;
+      podeAparelhos = aparelhos;
+      desfazer = []; refazer = [];
+      if (!podeAparelhos && planta && obterElemento(selecionado)) selecionado = null;
+      if (modo?.tipo === "elemento" && !podeAparelhos) definirModo(null);
+      if (dlgMais.open) fecharMais();
+      acertarBarra();
+      if (planta) desenharTudo();
+    },
+    /**
+     * Lote 8: o tamanho da planta sai do "⋯" e passa para `caixa` (a linha do título "A sua planta"), compacto:
+     * "Largura [..] × Altura [..] m · Ajustar" — os mesmos campos e a mesma lógica (aplica ao escrever, mínimo ao sair).
+     */
+    montarTamanho(caixa) {
+      tamW.setAttribute("aria-label", "Largura da planta, em metros");
+      tamH.setAttribute("aria-label", "Altura da planta, em metros");
+      const rot = (t, i) => { const l = el("label", "tam-campo"); l.append(el("span", null, t), i); return l; };
+      const x = el("span", "tam-x", "×");
+      x.setAttribute("aria-hidden", "true");
+      tamAjustar.textContent = "Ajustar";
+      tamAjustar.title = "Ajustar ao conteúdo (o tamanho das divisões)";
+      tamAjustar.setAttribute("aria-label", "Ajustar o tamanho da planta ao conteúdo");
+      caixa.replaceChildren(rot("Largura", tamW), x, rot("Altura", tamH), el("span", "tam-unidade", "m"), tamAjustar, tamMsg);
+      tamSec.remove();
+      bOutras.setAttribute("aria-label", "Mais ações da planta: imprimir, PDF e planta de fundo");
+      bOutras.title = bOutras.getAttribute("aria-label");
+      desenharTamanho();
     },
     /** N.º de pisos da casa (1 = sem separadores, salvo se a planta já tiver coisas noutros pisos). */
     definirPisos(n) {

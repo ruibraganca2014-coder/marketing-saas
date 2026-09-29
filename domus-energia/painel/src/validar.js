@@ -120,7 +120,27 @@ export function simulacao(v) {
   casaSimulacao(v.casa);
   limitesPlanta(v.planta);
   fotosSimulacao(v.fotos);
+  visitaSimulacao(v.visita, v.urgencia);
   return json;
+}
+
+/**
+ * Lote 8 (passo Enviar): disponibilidade para a visita {dias: ["seg"…"sab"], periodo: "manha" | "tarde" | "qualquer"}
+ * e urgência ("normal" | "semana" | "urgente"). Opcionais (pedidos antigos não os têm).
+ */
+export const DIAS_VISITA = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+export const PERIODOS_VISITA = ['manha', 'tarde', 'qualquer'];
+export const URGENCIAS = ['normal', 'semana', 'urgente'];
+function visitaSimulacao(v, urgencia) {
+  if (urgencia !== undefined && urgencia !== null && !URGENCIAS.includes(urgencia)) falha(`Urgência inválida (use: ${URGENCIAS.join(', ')}).`);
+  if (v === undefined || v === null) return;
+  if (typeof v !== 'object' || Array.isArray(v)) falha('A disponibilidade para a visita tem de ser um objeto.');
+  if (v.dias !== undefined && v.dias !== null) {
+    if (!Array.isArray(v.dias) || v.dias.length > DIAS_VISITA.length || v.dias.some((d) => !DIAS_VISITA.includes(d)) || new Set(v.dias).size !== v.dias.length) {
+      falha(`Visita: dias inválidos (use: ${DIAS_VISITA.join(', ')}).`);
+    }
+  }
+  if (v.periodo !== undefined && v.periodo !== null && !PERIODOS_VISITA.includes(v.periodo)) falha(`Visita: período inválido (use: ${PERIODOS_VISITA.join(', ')}).`);
 }
 
 /**

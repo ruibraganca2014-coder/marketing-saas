@@ -14,21 +14,18 @@
 .sim-cabecalho .msg { margin: 0 0 16px; }
 /* Sem a barra dos passos (continuar/enviado) o tempo também não aparece. */
 .simulador:has(.sim-progresso[hidden]) .sim-falta { display: none; }
-.sim-retomar { margin-bottom: 20px; display: grid; gap: 10px; }
-.sim-retomar h2 { font-size: 1.4rem; margin: 0; }
-.sim-retomar p { margin: 0; }
-/* "Antes de começar" (app.js mostrarAntes): sempre antes do passo 1. */
-.sim-antes { margin-bottom: 20px; display: grid; gap: 16px; }
-.sim-antes h2 { font-size: 1.4rem; margin: 0; }
-.sim-antes h2:focus { outline: none; }
-.sim-antes > p { margin: 0; }
+/* "Como fazer a simulação" (lote 8): só no passo 1, por baixo dos cartões e por cima da barra Anterior/Seguinte. */
+.sim-como { display: grid; gap: 16px; margin-top: 20px; }
+.sim-como[hidden] { display: none; }
+.sim-como h2 { font-size: 1.3rem; margin: 0; }
+.sim-como > p { margin: 0; }
 
 /* ---------- Progresso ---------- */
 .sim-progresso { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 20px; }
 .sim-progresso[hidden] { display: none; }
 .sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
 .sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
-.sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
 /* "Começar de novo" sempre à mão (sem confirmação: "Anular" durante 10 s, app.js recomecarComAnular). Na mesma linha
    dos passos, à direita do 7, com o topo alinhado com os círculos (o <li> tem 4 px por cima do círculo). Em ecrãs
    estreitos (< 720 px) fica na linha da barra, à direita (sem uma linha só para ele), e os passos por baixo. */
@@ -200,7 +197,7 @@ input, select { min-height: 44px; }
 /* ---------- Quadro e divisões ---------- */
 /* Divisões (lote 5): um cartão por divisão com os aparelhos da planta — desenho, nome, − n + e foto — e
    "Divisão verificada ✓" (app.js cartaoDivisao, linhaAparelho). Telemóvel primeiro. */
-#divisoes { display: grid; gap: 14px; }
+#divisoes, #trocar { display: grid; gap: 14px; }
 .divisao-cartao { display: grid; gap: 10px; padding: 16px; scroll-margin: 90px 0 96px; }
 /* A divisão selecionada na planta do topo (e o cartão tocado): contorno cor de argila, como a seleção na planta. */
 .divisao-cartao.na-planta { outline: 3px solid var(--argila); outline-offset: 2px; }
@@ -442,8 +439,17 @@ html { scroll-padding-top: 72px; }
 .sim-planta-cabeca .confirmar { flex-basis: 100%; margin: 0; }
 .sim-planta-cabeca h2 { flex: none; margin: 0; font-size: 1rem; }
 .sim-planta-cabeca .btn[hidden] { display: none; }
-/* Aviso "planta mexida" numa linha (o texto todo no title, app.js) e o "Refazer planta" compacto. */
-.sim-planta-origem { flex: 1 1 0; margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
+/* Lote 8: o tamanho da planta na linha do título, compacto ("Largura [..] × Altura [..] m · Ajustar"); quebra para a
+   linha seguinte se não couber (sem scroll na horizontal). */
+.sim-planta-tamanho { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; font-size: .85rem; font-weight: 600; color: var(--texto-suave); }
+.sim-planta-tamanho .tam-campo { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.sim-planta-tamanho input { width: 4.2em; min-height: 36px; padding: 2px 6px; font-size: .9rem; }
+.sim-planta-tamanho .btn { padding: 4px 10px; font-size: .82rem; min-height: 36px; }
+.sim-planta-tamanho .msg { flex-basis: 100%; margin: 0; padding: 4px 10px; font-size: .8rem; }
+.sim-planta-tamanho .msg[hidden] { display: none; }
+/* Aviso "planta mexida" numa linha (o texto todo no title, app.js) e o "Refazer planta" compacto: se não couber ao lado
+   do tamanho, vai para uma 2.ª linha (nunca esconde os campos). */
+.sim-planta-origem { flex: 1 1 14em; margin: 0; min-width: min(14em, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
 .sim-planta-origem[hidden] { display: none; }
 #planta-refazer { flex: none; padding: 4px 12px; font-size: .82rem; }
 .sim-planta-fechar { flex: none; margin-left: auto; }
@@ -473,17 +479,18 @@ html { scroll-padding-top: 72px; }
 .sim-ver-planta { display: none; }
 @media (min-width: 1024px) {
   .simulador > .wrap { max-width: 1440px; }
-  #sim-form { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); grid-template-rows: auto auto 1fr; column-gap: 28px; align-items: start; }
+  #sim-form { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); grid-template-rows: auto auto auto 1fr; column-gap: 28px; align-items: start; }
   #sim-form:has(> .sim-planta[hidden]) { grid-template-columns: minmax(0, 1fr); }
   #sim-form > .sim-passo { grid-column: 1; grid-row: 1; }
-  #sim-form > .sim-navegacao { grid-column: 1; grid-row: 2; }
+  #sim-form > .sim-como { grid-column: 1; grid-row: 2; }
+  #sim-form > .sim-navegacao { grid-column: 1; grid-row: 3; }
   /* Presa por baixo do topo fixo (73 px) até ao fim da página: o sticky acaba no fundo do formulário, e depois dele
      só vêm os 40 px do fundo do <main> (a planta pode descer por eles: margem −28 px, 12 px antes do rodapé) e o
      rodapé (~80 px). Por isso a altura desconta o rodapé: o topo da planta nunca sobe acima do topo fixo. */
-  #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 4; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 92px); min-height: 420px; margin-bottom: -28px; }
+  #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 5; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 92px); min-height: 420px; margin-bottom: -28px; }
   /* A coluna das perguntas é mais estreita do que o ecrã: as grelhas contam com a largura dela. */
   :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
-  #divisoes .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  :is(#divisoes, #trocar) .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 @media (min-width: 1024px) and (max-width: 1199.98px) { #casa-tipos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media not all and (min-width: 1024px) {
@@ -499,6 +506,14 @@ html { scroll-padding-top: 72px; }
   .simulador { padding-bottom: 72px; }
 }
 @media (min-width: 1024px) { .sim-planta-fechar { display: none; } }
+/* Passo "Planta" (lote 8; app.js mostrarPasso): a planta à largura toda, entre o título e a barra Anterior/Seguinte,
+   também no telemóvel e no tablet (sem "Ver planta" nem "Fechar"). */
+#sim-form.passo-planta { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; }
+#sim-form.passo-planta > .sim-passo { grid-column: 1; grid-row: 1; }
+#sim-form.passo-planta > .sim-planta { grid-column: 1; grid-row: 2; display: flex; position: relative; top: auto; inset: auto; z-index: auto; height: calc(100dvh - 72px - 200px); min-height: 440px; margin: 0; padding: 0; overflow: visible; }
+#sim-form.passo-planta > .sim-navegacao { grid-column: 1; grid-row: 3; }
+#sim-form.passo-planta :is(.sim-ver-planta, .sim-planta-fechar) { display: none; }
+#sim-form.passo-planta > .sim-passo .sub-passo { margin-bottom: 8px; }
 /* Recurso CSS do "Ampliar" (sem Fullscreen API): por cima do topo fixo. */
 #sim-form > .sim-planta:has(.ecra-inteiro) { z-index: 60; }
 
@@ -540,3 +555,48 @@ html { scroll-padding-top: 72px; }
   .acao-inteligente .btn { flex: 1 1 0; }
 }
 .editor-legenda-acoes { margin: 0; }
+
+/* ---------- Lote 8: passo "Trocar e reparar" ---------- */
+/* Linha da lista: desenho · nome e quantos · Foto (o que fazer vem por baixo). */
+.aparelho-linha.trocar-linha { grid-template-columns: 36px minmax(0, 1fr) 92px; }
+.aparelho-linha.trocar-linha > .aparelho-foto { grid-column: 3; }
+@media (max-width: 479px) { .aparelho-linha.trocar-linha > .aparelho-foto { grid-column: 3; justify-self: end; } }
+.aparelho-nome-fixo { font-weight: 800; overflow-wrap: anywhere; }
+.aparelho > .por-responder { justify-self: start; margin-left: 44px; border-color: var(--alarme-texto); color: var(--alarme-texto); }
+/* O aparelho tocado na planta: a sua linha fica destacada (como a seleção na planta). */
+#trocar .aparelho.na-planta { border-radius: 10px; box-shadow: 0 0 0 3px var(--argila); padding-inline: 6px; }
+#trocar-quadro { margin-bottom: 14px; cursor: default; }
+#trocar-msg { margin: 0 0 12px; }
+.trocar-quadro-grupo .btn.acao-reparar[aria-pressed="true"] { background: var(--argila); border-color: var(--argila); color: var(--superficie); }
+#trocar-quadro > .btn { justify-self: start; }
+/* Divisões presas (fora de "A casa" e "Planta"): a dica com o botão para o passo Planta. */
+.sim-planta-presa { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; padding: 6px 10px; border-radius: 10px; background: var(--musgo-claro); font-size: .9rem; font-weight: 600; }
+.sim-planta-presa[hidden] { display: none; }
+/* Por baixo da planta: o aparelho tocado e o que fazer com ele (só neste passo). */
+.sim-planta-acao { flex: none; display: grid; gap: 8px; max-height: 45%; overflow: auto; overscroll-behavior: contain; padding: 8px 10px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); }
+.sim-planta-acao[hidden] { display: none; }
+.sim-planta-acao > p { margin: 0; }
+.sim-planta-acao-cabeca { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; }
+.sim-planta-acao-titulo { margin: 0; font-weight: 800; overflow-wrap: anywhere; }
+.sim-planta-acao :is(.aparelho-acao, .aparelho-acao-detalhes) { padding-left: 0; }
+.sim-planta-acao .acao-botoes { max-width: 100%; }
+/* Separadores das divisões (passos Divisões e "Trocar e reparar"; app.js separadoresDivisoes): os pisos e uma fila
+   que desliza para o lado (sem mexer na página) com o ícone e o nome; ✓ nas feitas; contorno vermelho nas que faltam. */
+.div-separadores { display: grid; gap: 8px; min-width: 0; }
+.div-pisos { display: flex; flex-wrap: wrap; gap: 6px; }
+.div-pisos .btn[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.div-pisos .btn.falta { border-color: var(--alarme-texto); }
+.div-tabs { display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; padding: 2px 2px 6px; max-width: 100%; }
+.div-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 4px 12px 4px 8px; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--texto); font: 700 .9rem/1.2 var(--letra); cursor: pointer; white-space: nowrap; }
+.div-tab:hover { background: var(--musgo-claro); }
+.div-tab:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+.div-tab[aria-selected="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.div-tab.falta { border-color: var(--alarme-texto); box-shadow: inset 0 -3px 0 var(--alarme-texto); }
+.div-tab-icone { width: 26px; height: 26px; flex: none; }
+.div-tab-feita { font-weight: 800; color: var(--musgo-texto); }
+.div-tab[aria-selected="true"] .div-tab-feita { color: inherit; }
+
+/* Passo Enviar: "A visita" (dias, período, urgência). */
+.sim-visita { display: grid; gap: 12px; margin-top: 16px; }
+.sim-visita h3 { margin: 0; }
+.escolhas-grelha.visita-dias { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }

@@ -122,6 +122,28 @@ const NOMES_UM = {
 };
 
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+// Lote 8 (passo Enviar do simulador): disponibilidade para a visita e urgência (pedidos antigos: sem elas).
+const DIAS_VISITA = { seg: "segunda", ter: "terça", qua: "quarta", qui: "quinta", sex: "sexta", sab: "sábado" };
+const PERIODOS_VISITA = { manha: "de manhã", tarde: "à tarde", qualquer: "a qualquer hora" };
+export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente — avaria sem luz" };
+/** "Terça e quinta, à tarde" / "Qualquer dia, a qualquer hora"; null nos pedidos sem `visita`. */
+export function visitaTxt(sim) {
+  const v = obj(obj(sim).visita);
+  if (!Object.keys(v).length) return null;
+  const dias = Object.keys(DIAS_VISITA).filter((k) => Array.isArray(v.dias) && v.dias.includes(k)).map((k) => DIAS_VISITA[k]);
+  const d = dias.length ? (dias.length === 1 ? dias[0] : `${dias.slice(0, -1).join(", ")} e ${dias.at(-1)}`) : "qualquer dia";
+  return `${d[0].toUpperCase()}${d.slice(1)}, ${PERIODOS_VISITA[v.periodo] ?? PERIODOS_VISITA.qualquer}`;
+}
+/** A urgência do pedido (normal, semana, urgente) ou null. */
+export const urgenciaDe = (sim) => (URGENCIAS[obj(sim).urgencia] ? obj(sim).urgencia : null);
+/** Linhas "Urgência" e "Disponibilidade para a visita" (ficha e relatório), com o selo "Urgente". */
+function linhasVisita(sim) {
+  const u = urgenciaDe(sim), v = visitaTxt(sim);
+  return [
+    ...(u ? [["Urgência", u === "urgente" ? selo(URGENCIAS[u], "aviso") : URGENCIAS[u]]] : []),
+    ...(v ? [["Disponibilidade para a visita", v]] : []),
+  ];
+}
 const arr = (v) => (Array.isArray(v) ? v : []);
 const n0 = (v) => numero(v) ?? 0;
 const plural = (n, um, varios) => `${num(n)} ${n === 1 ? um : varios}`;
@@ -266,6 +288,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
     dados([
+      ...linhasVisita(sim),
       ["Casa", casaTxt || "—"],
       ...(Array.isArray(sim.servico) ? [["Serviço", servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · ")]] : []),
     ...(deslTxt ? [["Deslocação", deslTxt]] : []),
@@ -592,6 +615,12 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   const por = (tema, texto) => out.push({ tema, texto });
   const quadroNovo = q.pacote !== undefined || q.modulos !== undefined || q.potencia_sugerida_kva !== undefined;
 
+  // Lote 8: urgência e disponibilidade para a visita (primeiro: é o que se usa para marcar).
+  const urg = urgenciaDe(s), disp = visitaTxt(s);
+  if (urg === "urgente") por("Urgência", `URGENTE — o cliente diz que está sem luz (avaria)${disp ? `. Disponível: ${disp.toLowerCase()}` : ""}. Marcar a visita o mais cedo possível.`);
+  else if (urg === "semana") por("Urgência", `O cliente pede a visita ESTA SEMANA${disp ? ` (${disp.toLowerCase()})` : ""}.`);
+  if (disp && urg !== "urgente" && urg !== "semana") por("Visita", `Disponibilidade do cliente: ${disp.toLowerCase()}.`);
+
   // Localidade e deslocação.
   const d = obj(s.deslocacao);
   if (d.estado === "visita") por("Localidade", `«${String(d.localidade ?? "")}» não foi reconhecida como concelho: confirmar a morada e o valor da deslocação (só está o mínimo).`);
@@ -664,6 +693,9 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
     const fora = planta.elementos.filter((e) => e.tipo !== "quadro" && divDe(e) == null);
     if (fora.length) por("Planta", `${plural(fora.length, "elemento fora das divisões", "elementos fora das divisões")} (${[...new Set(fora.map((e) => NOMES_ELEMENTOS[e.tipo] ?? String(e.tipo)))].join(", ")}): confirmar onde ficam.`);
   } else if (!planta && divisoesSim.length) por("Planta", "O cliente não desenhou a planta: a posição dos aparelhos define-se na visita.");
+
+  // Quadro com problemas (lote 8, "Trocar e reparar"): o que o cliente disse.
+  if (typeof q.avaria === "string") por("Reparação", `Quadro elétrico — ${q.avaria.trim() ? `«${q.avaria.trim()}»` : "sem descrição"}${q.foto === "quadro" ? " (ver foto)" : ""}. Diagnosticar na visita.`);
 
   // Reparações (lote 7): cada aparelho a reparar, com o que o cliente disse; a peça orça-se na visita.
   if (planta) {
@@ -994,6 +1026,8 @@ function blocoTrabalho(s, catalogo, fotos) {
   return h("section", { class: "rel-seccao rel-trabalho", id: "rel-trabalho", "aria-labelledby": "rel-trabalho-titulo" },
     h("h3", { id: "rel-trabalho-titulo", text: "LISTA DE TRABALHO" }),
     resumo.length ? dados(resumo) : null,
+    typeof obj(s.quadro).avaria === "string"
+      ? h("p", {}, h("strong", { text: "Quadro elétrico: Reparar " }), `(${obj(s.quadro).avaria.trim() ? `«${obj(s.quadro).avaria.trim()}»` : "sem descrição"}${obj(s.quadro).foto === "quadro" ? " — ver foto" : ""})`) : null,
     divisoes.length
       ? h("ul", { class: "rel-trabalho-lista" }, ...divisoes.map((d) => h("li", {},
         h("strong", { text: `${d.nome}${variosPisos ? ` (${nomePiso(d.piso)})` : ""}: ` }),
@@ -1040,6 +1074,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
       h("h2", { id: "rel-titulo", text: `${t(o.nome)} — pedido n.º ${t(o.id)}` }),
       dados([
         ["Cliente", t(o.nome)],
+        ...linhasVisita(s),
         ["Serviço", servicoTxt],
         ["Contacto", [o.telefone, o.email].filter(Boolean).join(" · ") || "—"],
         ["Localidade", t(o.localidade ?? casa.localidade)],

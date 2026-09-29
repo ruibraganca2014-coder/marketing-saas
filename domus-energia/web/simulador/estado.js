@@ -19,23 +19,37 @@ export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: códi
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
 /**
- * Os 7 passos (decisão do dono: o passo "Planta" saiu — a planta está no topo de todos os passos; lote 7: o passo
- * "Serviço" entra antes de "A casa").
+ * Os 9 passos (lote 6: a planta está ao lado de todos os passos; lote 7: o passo "Serviço" entra antes de "A casa";
+ * lote 8: "Planta" (a planta à largura toda, para a conferir) depois de "Equipamentos", o "Quadro elétrico" antes das
+ * "Divisões" e "Trocar e reparar" entre as divisões e o resumo).
  */
-export const PASSOS = ["Serviço", "A casa", "Equipamentos", "Divisões", "Quadro elétrico", "Resumo e preço", "Enviar"];
+export const PASSOS = ["Serviço", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Resumo e preço", "Enviar"];
 /**
- * Ordem dos passos gravada no estado (`ordem`: 5 = a de PASSOS, 7 passos com "Serviço" à frente).
+ * Ordem dos passos gravada no estado (`ordem`: 8 = a de PASSOS, 9 passos).
  * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo (quem estava no
  * passo "Planta" passa às Divisões — a planta está por cima delas):
  * - sem `passos` (6 passos, antes de "O que quer"): casa, planta, quadro, divisões, preço, enviar;
  * - `passos: 7` sem `ordem`: casa, o que quer, planta, quadro, divisões, preço, enviar;
  * - `ordem: 2` (versão de testes, nunca publicada): casa, o que quer, divisões, planta, quadro, preço, enviar;
  * - `ordem: 3` (7 passos): casa, equipamentos, planta, divisões, quadro, preço, enviar;
- * - `ordem: 4` (6 passos, antes do "Serviço"): casa, equipamentos, divisões, quadro, preço, enviar — tudo +1.
- * Os estados sem `servico` ficam com "Instalação nova" (tudo Novo: o preço é o mesmo de antes).
+ * - `ordem: 4` (6 passos, antes do "Serviço"): casa, equipamentos, divisões, quadro, preço, enviar — tudo +1;
+ * - `ordem: 5` (7 passos, antes de "Trocar e reparar"): serviço, casa, equipamentos, divisões, quadro, preço, enviar;
+ * - `ordem: 6` (8 passos, antes do passo "Planta"): serviço, casa, equipamentos, divisões, quadro, trocar e reparar,
+ *   preço, enviar;
+ * - `ordem: 7` (9 passos com as divisões antes do quadro; só existiu em testes).
+ * Lote 8: cada passo vai para o seu equivalente (quem estava no Quadro ou nas Divisões fica nele; o resumo e o enviar
+ * avançam); o antigo passo "Planta" (6 e 7 passos; ordem 2 e 3) volta a ser o passo Planta. As ações já escolhidas
+ * nas Divisões ficam nos aparelhos. Os estados sem `servico` ficam com "Instalação nova" (tudo Novo: o mesmo preço).
  */
-export const ORDEM = 5;
-const MIGRAR = { 6: [1, 3, 4, 3, 5, 6], 7: [1, 2, 3, 4, 3, 5, 6], ordem2: [1, 2, 3, 3, 4, 5, 6], ordem3: [1, 2, 3, 3, 4, 5, 6], ordem4: [1, 2, 3, 4, 5, 6] };
+export const ORDEM = 8;
+const MIGRAR = {
+  6: [1, 3, 4, 5, 7, 8], 7: [1, 2, 3, 4, 5, 7, 8], ordem2: [1, 2, 5, 3, 4, 7, 8], ordem3: [1, 2, 3, 5, 4, 7, 8],
+  ordem4: [1, 2, 5, 4, 7, 8], ordem5: [0, 1, 2, 5, 4, 7, 8], ordem6: [0, 1, 2, 5, 4, 6, 7, 8], ordem7: [0, 1, 2, 3, 5, 4, 6, 7, 8],
+};
+/** Disponibilidade para a visita e urgência (passo Enviar, lote 8; §6 `visita`, `urgencia`). */
+export const DIAS_VISITA = { seg: "Segunda", ter: "Terça", qua: "Quarta", qui: "Quinta", sex: "Sexta", sab: "Sábado" };
+export const PERIODOS_VISITA = { manha: "Manhã", tarde: "Tarde", qualquer: "Qualquer" };
+export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente — avaria sem luz" };
 export const SERVICO = "Simulador de orçamento";
 export const SERVICO_CLIENTE = "Ampliar a instalação (simulador)";
 
@@ -86,6 +100,7 @@ export function estadoNovo() {
     visitado: 0,               // passo mais adiantado a que o cliente já chegou
     servico: [],               // passo 1 (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
     mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
+    quadroAvaria: null,        // lote 8 ("Trocar e reparar"): quadro com problemas → o que se passa ("" = por descrever); null = sem problemas
     guardado: null,
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
     casa: casaNova(),
@@ -105,6 +120,8 @@ export function estadoNovo() {
     extras: { central: false, termostatos: 0 },
     termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
     contacto: { nome: "", telefone: "", email: "", localidade: "", morada: "", mensagem: "" },
+    visita: { dias: [], periodo: "qualquer" },   // lote 8 (passo Enviar): dias da semana e período; sem dias = qualquer dia
+    urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
   };
 }
 
@@ -286,16 +303,19 @@ export function normalizarEstado(v) {
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
   // Estados antigos (6 passos; 7 passos com outra ordem): o passo antigo passa ao novo (MIGRAR);
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
-  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
+  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   const passo = int(v.passo, 0, (migrar ? migrar.length : PASSOS.length) - 2);   // nunca volta direto ao "Enviar"
   e.passo = migrar ? migrar[passo] : passo;
-  // Os 7 passos de antes (ordem 3) e os 6 (ordem 4) já guardavam o mais adiantado; os outros contam o que estava antes do passo.
-  e.visitado = migrar === MIGRAR.ordem3 || migrar === MIGRAR.ordem4 ? Math.max(e.passo, migrar[int(v.visitado, 0, migrar.length - 2)])
+  // Os 7 passos de antes (ordem 3 e 5), os 6 (ordem 4), os 8 (ordem 6) e os 9 de testes (ordem 7) já guardavam o mais
+  // adiantado; os outros contam o que estava antes do passo.
+  const guardavaVisitado = [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7].includes(migrar);
+  e.visitado = guardavaVisitado ? Math.max(e.passo, migrar[int(v.visitado, 0, migrar.length - 2)])
     : migrar ? Math.max(...migrar.slice(0, passo + 1)) : Math.max(e.passo, int(v.visitado, 0, PASSOS.length - 2));
   // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
   e.servico = normalizarServico(v.servico) ?? ["nova"];
   e.mexerQuadro = bool(v.mexerQuadro);
+  e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   // Antes dos pisos a partir do r/c (0): a planta, as escadas e as divisões são migradas (migrarPisos).
   const pisosAntigos = v.pisosDesde0 !== true;
@@ -344,7 +364,7 @@ export function normalizarEstado(v) {
   e.plantaFase = FASES_PLANTA.includes(v.plantaFase) ? v.plantaFase : "tudo";
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
-  e.plantaBase = (!migrar || migrar === MIGRAR.ordem3 || migrar === MIGRAR.ordem4) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
+  e.plantaBase = (!migrar || guardavaVisitado) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
   // "O que quer" ainda sem pisos, ou a casa ainda sem valores por piso: a assinatura guardada foi feita à maneira
   // antiga; se era a da casa e das máquinas de então, passa a ser a de agora (a planta não fica "desatualizada"
   // só pela migração).
@@ -386,7 +406,16 @@ export function normalizarEstado(v) {
   const k = v.contacto && typeof v.contacto === "object" ? v.contacto : {};
   e.contacto = { nome: txt(k.nome, 120), telefone: txt(k.telefone, 30), email: txt(k.email, 254), localidade: txt(k.localidade, 80), morada: txt(k.morada, 200), mensagem: txt(k.mensagem, 2000) };
   if (!e.contacto.localidade.trim()) e.contacto.localidade = txt(c.localidade, 80);   // a antiga localidade do passo 1
+  e.visita = normalizarVisita(v.visita);
+  e.urgencia = URGENCIAS[v.urgencia] ? v.urgencia : "normal";
   return e;
+}
+
+/** Disponibilidade para a visita (lote 8): só dias conhecidos, sem repetidos, pela ordem da semana; período conhecido. */
+export function normalizarVisita(v) {
+  const o = v && typeof v === "object" ? v : {};
+  const dias = Array.isArray(o.dias) ? Object.keys(DIAS_VISITA).filter((k) => o.dias.includes(k)) : [];
+  return { dias, periodo: PERIODOS_VISITA[o.periodo] ? o.periodo : "qualquer" };
 }
 
 /** Linha "Fora das divisões" (elementos fora de todas; regras.js contarPlanta): não é uma divisão. */
@@ -528,7 +557,7 @@ export function quadroParaEnvio(estado, circuitos) {
 
 /** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
 export function temProgresso(e, passoInicial = 0) {
-  return !!e && (e.passo > passoInicial || e.servico.length > 0 || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+  return !!e && (e.passo > passoInicial || e.servico.length > 0 || e.quadroAvaria !== null || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -767,6 +796,9 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
   const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
   const semArtigo = () => ({ sku: null, horas: null });
   const planta = estado.plantaSaltada ? null : estado.planta;
+  const quadroAvaria = typeof estado.quadroAvaria === "string" ? textoSeguro(estado.quadroAvaria, MAX_AVARIA) : null;
+  const totais = totaisAcao(planta, servico, preco);
+  if (quadroAvaria !== null) totais.reparar.aparelhos++;   // o quadro com problemas conta como um aparelho a reparar
   return {
     versao: VERSAO,
     // Lote 7: o serviço pedido (passo 1) e, por aparelho, a ação (planta.elementos[].acao); a lista de trabalho por
@@ -775,9 +807,13 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     casa: casaParaEnvio(estado),
     quer: querParaEnvio(estado),
     planta: planta ? plantaParaEnvio(planta, servico) : null,
-    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }) },
+    // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
+    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
     trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave)),
-    totais_acao: totaisAcao(planta, servico, preco),
+    totais_acao: totais,
+    // Lote 8 (passo Enviar): disponibilidade para a visita e urgência.
+    visita: normalizarVisita(estado.visita),
+    urgencia: URGENCIAS[estado.urgencia] ? estado.urgencia : "normal",
     divisoes: estado.divisoes.filter((d) => !ehFora(d)).map((d) => {
       const n = normalizarDivisao(d);
       return {

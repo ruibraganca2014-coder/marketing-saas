@@ -1,5 +1,5 @@
-// Simulador de orçamento — serviço pedido (passo 1) e ação por aparelho (passo Divisões): Manter, Reparar,
-// Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lote 7). Só lógica, sem DOM e sem dependências.
+// Simulador de orçamento — serviço pedido (passo 1) e ação por aparelho (passo "Trocar e reparar", lote 8): Manter,
+// Reparar, Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lotes 7 e 8). Só lógica, sem DOM e sem dependências.
 
 /** Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos. */
 export const SERVICOS = {
@@ -9,14 +9,20 @@ export const SERVICOS = {
 };
 export const CHAVES_SERVICO = Object.keys(SERVICOS);
 
-/** Ações de cada aparelho (botões curtos no passo Divisões; letra da marca na planta). */
+/**
+ * Ações de cada aparelho (botões curtos no passo "Trocar e reparar"; letra da marca na planta). Lote 8: os nomes que o
+ * cliente vê são simples ("Trocar", "Avariado (reparar)"…); as chaves (manter, reparar, substituir, novo) e o pedido
+ * (§6) não mudam.
+ */
 export const ACOES = {
   manter: { nome: "Manter", letra: "M", ajuda: "Fica como está" },
-  reparar: { nome: "Reparar", letra: "R", ajuda: "Está avariado" },
-  substituir: { nome: "Substituir", letra: "S", ajuda: "Trocar por outro" },
-  novo: { nome: "Novo", letra: "N", ajuda: "Pôr um novo" },
+  reparar: { nome: "Avariado (reparar)", letra: "R", ajuda: "Está avariado: arranjamos" },
+  substituir: { nome: "Trocar", letra: "S", ajuda: "Trocar por outro" },
+  novo: { nome: "Novo / acrescentar", letra: "N", ajuda: "Pôr um novo" },
 };
 export const CHAVES_ACAO = Object.keys(ACOES);
+/** Ordem dos botões para o cliente (lote 8): Manter · Trocar · Avariado (reparar) · Novo / acrescentar. */
+export const ORDEM_BOTOES = ["manter", "substituir", "reparar", "novo"];
 export const MAX_AVARIA = 200;
 
 /** Só as chaves conhecidas, sem repetidos, pela ordem de SERVICOS; `null` se não for uma lista. */
