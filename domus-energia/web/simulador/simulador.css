@@ -75,13 +75,16 @@ input, select { min-height: 44px; }
 .escolhas { display: grid; gap: 10px; }
 .escolhas-grelha { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 720px) { .escolhas-grelha { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.escolha { position: relative; display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 10px 12px; border: 2px solid var(--borda); border-radius: 16px; background: var(--superficie); font-weight: 700; text-align: center; cursor: pointer; }
+/* Padding lateral curto e quebra com hífen: um rótulo comprido ("Apartamento") nunca sai do cartão, em nenhuma largura. */
+.escolha { position: relative; display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 10px 8px; border: 2px solid var(--borda); border-radius: 16px; background: var(--superficie); font-weight: 700; text-align: center; cursor: pointer; min-width: 0; hyphens: auto; overflow-wrap: anywhere; }
 .escolha input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .escolha:has(input:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
 .escolha:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
 /* Tipologia: T0…T5+ numa fila (3 por linha no telemóvel). */
 .escolhas-grelha.seis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (min-width: 720px) { .escolhas-grelha.seis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* Ecrãs muito estreitos: o tipo de imóvel em 2 colunas (em 3, quase todos os nomes teriam de partir-se com hífen). */
+@media (max-width: 359.98px) { #casa-tipos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .escolhas legend small { display: block; font-weight: 600; }
 .escolha small { display: block; font-weight: 600; color: var(--texto-suave); }
 .escolha > span { display: grid; gap: 2px; }
@@ -304,18 +307,22 @@ input, select { min-height: 44px; }
 .sim-sucesso p { margin: 0; }
 
 /* ---------- Navegação (fica visível no fundo do ecrã) ---------- */
-.sim-navegacao { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 20px; padding: 12px 0; background: var(--topo); border-top: 1px solid var(--borda); backdrop-filter: blur(8px); }
+/* Flexível em todas as larguras (container query na largura da própria barra): "Guardado…" encolhe primeiro (base 0,
+   reticências); numa barra estreita sai e "Ver planta" passa a "Planta" (o nome acessível fica "Ver planta"); se mesmo
+   assim não couber, um "Seguinte" comprido ("Pagar 19 € e enviar") passa para baixo — a barra nunca alarga a página. */
+.sim-navegacao { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 10px; margin-top: 20px; padding: 12px 0; background: var(--topo); border-top: 1px solid var(--borda); backdrop-filter: blur(8px); container: sim-nav / inline-size; }
 .sim-navegacao #sim-seguinte { margin-left: auto; }
 .sim-ver-planta-curto { display: none; }
-.sim-guardado { font-size: .82rem; color: var(--texto-suave); text-align: center; min-width: 0; }
-@media (max-width: 479px) {
-  .sim-guardado { display: none; }
-  /* Telemóvel: Anterior · Planta · Seguinte cabem numa linha ("Ver planta" passa a "Planta"; o nome acessível fica "Ver planta"); um
-     "Seguinte" comprido ("Pagar 19 € e enviar") passa para baixo em vez de sair do ecrã. */
-  .sim-navegacao { flex-wrap: wrap; row-gap: 8px; }
-  .sim-navegacao .btn { padding-inline: 14px; }
+.sim-guardado { flex: 1 1 0; font-size: .82rem; color: var(--texto-suave); text-align: center; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@container sim-nav (max-width: 600px) {
+  /* Só abaixo de 1024 px, onde "Ver planta" está na barra (no computador há espaço para "Guardado…"). */
+  @media not all and (min-width: 1024px) { .sim-guardado { display: none; } }
   .sim-ver-planta-longo { display: none; }
   .sim-ver-planta-curto { display: inline; }
+}
+@media (max-width: 479px) {
+  .sim-guardado { display: none; }
+  .sim-navegacao .btn { padding-inline: 14px; }
 }
 .pagina-simulador footer { padding-bottom: 28px; }
 

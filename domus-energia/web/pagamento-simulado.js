@@ -6,7 +6,7 @@
 import { pedirConta, ErroConta } from "./conta-comum.js";
 
 const $ = (id) => document.getElementById(id);
-const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(v);
+const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", useGrouping: "always" }).format(v);   // "1 120,00 €"
 const ref = new URLSearchParams(location.search).get("ref") ?? "";
 const RE_REF = /^pp_[A-Za-z0-9_-]{22}$/;
 const botoes = ["pag-sucesso", "pag-falha", "pag-cancelar"].map($);

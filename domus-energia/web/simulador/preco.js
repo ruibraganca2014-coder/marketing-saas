@@ -186,10 +186,13 @@ export function planoSugerido(pedidos, { distancia = false } = {}) {
   return "base";
 }
 
-const eur = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
-const eur0 = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, minimumFractionDigits: 0 });
+// useGrouping "always": separador de milhares também com 4 dígitos ("1 120 €"; em pt-PT, por omissão, só a partir de 10 000).
+const eur = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", useGrouping: "always" });
+const eur0 = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, minimumFractionDigits: 0, useGrouping: "always" });
 const horasFmt = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 2 });
-// O Intl usa espaço inseparável antes do "€": fica igual ao resto do site com espaço normal.
-export const formatarEuro = (x) => eur.format(x).replace(/[\u00a0\u202f]/g, " ");
-export const formatarEuroRedondo = (x) => eur0.format(x).replace(/[\u00a0\u202f]/g, " ");
+// O Intl usa espaço inseparável antes do "€": fica igual ao resto do site com espaço normal. O dos milhares fica
+// inseparável (parece um espaço normal, mas "1 120" nunca se parte em duas linhas).
+const espacos = (t) => t.replace(/[\u00a0\u202f](?=€)/g, " ").replace(/\u202f/g, "\u00a0");
+export const formatarEuro = (x) => espacos(eur.format(x));
+export const formatarEuroRedondo = (x) => espacos(eur0.format(x));
 export const formatarHoras = (h) => `${horasFmt.format(h)} h`;

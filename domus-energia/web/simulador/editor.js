@@ -141,6 +141,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
   let modo = null;            // null | {tipo: "elemento", el: "tomada"} | {tipo: "calibrar", pontos: []}
+  let calibracao = null;      // {pontos: [p1, p2]} (calibração do fundo, desenhada em desenhar())
   let arrasto = null;
   let desfazer = [];
   let refazer = [];
@@ -1167,6 +1168,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function definirModo(m) {
     if (m?.tipo === "elemento" && !podeAparelhos) m = null;   // o passo não deixa pôr aparelhos (ex.: "A casa")
     modo = m;
+    // Calibração a meio (só o 1.º ponto) cancelada com Esc ou outra ferramenta: o marcador sai da planta.
+    if (m?.tipo !== "calibrar" && calibracao && (calibracao.pontos?.length ?? 0) < 2) calibracao = null;
     const chave = m?.tipo === "elemento" ? (m.el === "maquina" ? `maquina:${m.modelo}` : m.el) : null;
     for (const [k, b] of Object.entries(ferramentas)) b.setAttribute("aria-pressed", String(k === chave));
     // A ferramenta ativa está sempre na linha (a do "+" do passo Divisões ou de "Mais…") e à vista nela.
@@ -1368,10 +1371,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const p = ev ? paraPlanta(ev.clientX, ev.clientY) : a.p0;
     if (a.tipo === "colocar") colocadoEm = performance.now();
     if (a.tipo === "colocar") {
-      const m = modo;
-      definirModo(null);
+      const m = modo, cal = calibracao;
+      definirModo(null);   // (tira a calibração a meio: aqui continua, com o 1.º ponto)
       if (m?.tipo === "elemento") adicionarElemento(m.el, p.x, p.y, m.modelo);
-      else if (m?.tipo === "calibrar") pontoCalibracao(p);
+      else if (m?.tipo === "calibrar") { calibracao = cal; pontoCalibracao(p); }
       return;
     }
     if (a.tipo === "deslocar") {
@@ -1483,7 +1486,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   });
 
   // ---------------------------------------------------------------- calibração do fundo
-  let calibracao = null;   // {p1, p2}
   function pontoCalibracao(p) {
     const pontos = [...(modo?.pontos ?? calibracao?.pontos ?? []), p];
     if (pontos.length < 2) {
@@ -1611,7 +1613,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     op.id = "fundo-opacidade";
     op.addEventListener("input", () => { f.opacidade = Number(op.value) / 100; desenhar(); });
     op.addEventListener("change", () => { memorizarDepois(); });
-    const larg = numeroInput(metros(f.largura_cm).replace(",", "."), { min: 0.5, max: 200, step: 0.1, id: "fundo-largura" });
+    const larg = numeroInput(metros(f.largura_cm).replace(",", "."), { min: 0.5, max: 200, step: "any", id: "fundo-largura" });
     larg.addEventListener("change", () => {
       const v = Number(larg.value);
       if (!(v > 0)) return;
@@ -1620,8 +1622,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       ajustarPlantaAoFundo();
       confirmar();
     });
-    const px = numeroInput(f.x_cm / 100, { min: -100, max: 100, step: 0.1, id: "fundo-x" });
-    const py = numeroInput(f.y_cm / 100, { min: -100, max: 100, step: 0.1, id: "fundo-y" });
+    const px = numeroInput(f.x_cm / 100, { min: -100, max: 100, step: "any", id: "fundo-x" });
+    const py = numeroInput(f.y_cm / 100, { min: -100, max: 100, step: "any", id: "fundo-y" });
     for (const [i, k] of [[px, "x_cm"], [py, "y_cm"]]) {
       i.addEventListener("change", () => {
         const v = Number(i.value);
@@ -1640,17 +1642,26 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const cal = el("div", "calibrar");
     if (calibracao?.pontos?.length === 2) {
       const med = Math.hypot(calibracao.pontos[1].x - calibracao.pontos[0].x, calibracao.pontos[1].y - calibracao.pontos[0].y);
-      const m = numeroInput("", { min: 0.1, max: 200, step: 0.01, id: "calibrar-metros" });
+      const m = numeroInput("", { min: 0.1, max: 200, step: "any", id: "calibrar-metros" });
       m.placeholder = metros(med);
       const aplicar = botao("Aplicar", "btn pequeno");
       const cancelar = botao("Cancelar");
       aplicar.id = "calibrar-aplicar";
       const erro = el("small", "falta-escolher", "");
+      erro.id = "calibrar-metros-erro";
+      erro.setAttribute("role", "alert");   // anunciado ao aparecer
       erro.hidden = true;
       aplicar.addEventListener("click", () => {
-        if (!aplicarCalibracao(Number(String(m.value).replace(",", ".")))) { erro.textContent = "Escreva o comprimento real em metros (ex.: 4,5)."; erro.hidden = false; m.focus(); }
+        if (!aplicarCalibracao(Number(String(m.value).replace(",", ".")))) {
+          erro.textContent = "Escreva o comprimento real em metros (ex.: 4,5).";
+          erro.hidden = false;
+          m.setAttribute("aria-invalid", "true");
+          m.setAttribute("aria-describedby", erro.id);
+          m.focus();
+        }
       });
       m.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); aplicar.click(); } });
+      m.addEventListener("input", () => { m.removeAttribute("aria-invalid"); });
       cancelar.addEventListener("click", () => { calibracao = null; desenharTudo(); mostrarFundoMsg("", "info"); fundoControlos.querySelector("#calibrar")?.focus({ preventScroll: true }); });
       cal.append(campo("Quanto mede essa parede, em metros?", m), erro);
       const bs = el("div", "form-botoes");

@@ -14,7 +14,7 @@ const el = (tag, cls, texto) => {
   if (texto != null) e.textContent = texto;
   return e;
 };
-const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(v);
+const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", useGrouping: "always" }).format(v);   // "1 120,00 €"
 /** "19,00 € (15,45 € + IVA 3,55 €)" — um pagamento (ou recibo) com a base e o IVA, quando o servidor os dá. */
 const comIva = (x) => (x?.base != null && x?.iva != null ? `${euro(x.valor)} (${euro(x.base)} + IVA ${euro(x.iva)})` : euro(x?.valor ?? 0));
 const pctTxt = (v) => `${String(v).replace(".", ",")} %`;
