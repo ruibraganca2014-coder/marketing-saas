@@ -1599,7 +1599,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   function desenharFundo() {
     fundoCorpo.replaceChildren();
-    const l = campo("Carregar planta (JPG, PNG ou PDF)", ficheiro, "A 1.ª página do PDF é convertida em imagem. Fica só neste navegador até enviar o pedido.");
+    const l = campo("Carregar planta (JPG, PNG ou PDF)", ficheiro, "Só a 1.ª página do PDF.");
     fundoCorpo.append(l, fundoMsg, fundoControlos);
     fundoControlos.replaceChildren();
     const f = planta.fundo;

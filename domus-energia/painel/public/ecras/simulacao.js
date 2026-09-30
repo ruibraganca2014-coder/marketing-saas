@@ -261,6 +261,16 @@ function maquinasDe(c) {
 
 // ---------------------------------------------------------------- visualizador
 
+/** "690 € – 930 €"; na avaria rápida o diagnóstico, fixo: "42,50 € + deslocação" (pedidos antigos com intervalo: o intervalo). */
+export function estimativaTxt(sim) {
+  const total = sim.total;
+  if (total && typeof total === "object") {
+    if (ehAvaria(sim) && numero(total.min) !== null && total.min === total.max) return `${euros(total.min)} + deslocação`;
+    return `${euros(total.min)} – ${euros(total.max)}`;
+  }
+  return numero(total) !== null ? euros(total) : "—";
+}
+
 /**
  * Secção "Simulação do cliente". `catalogo`: {SKU: {nome, categoria, ativo, …}} (GET orcamentos/:id → catalogo).
  */
@@ -272,9 +282,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const plano = typeof sim.plano_sugerido === "string" ? sim.plano_sugerido : null;
   const avisos = arr(sim.avisos).filter((a) => typeof a === "string" && a.trim());
   const nItens = itens.reduce((s, i) => s + (numero(i.qtd ?? i.quantidade) ?? 1), 0);
-  let estimativa = "—";
-  if (total && typeof total === "object") estimativa = `${euros(total.min)} – ${euros(total.max)}`;
-  else if (numero(total) !== null) estimativa = euros(total);
+  const estimativa = estimativaTxt(sim);
   const casaTxt = [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null, casa.localidade].filter(Boolean).join(" · ");
   const kva = numero(casa.potencia_contratada_kva);
   const instalacaoTxt = `${kva !== null ? `${num2(kva)} kVA` : "potência: não sabe"} · ${FASES[casa.fases] ?? "ligação: não sabe"}`;
@@ -305,7 +313,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ...(FUNIS_SIM[sim.funil] ? [["Pedido", FUNIS_SIM[sim.funil]]] : []),
       ...(avaria ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some((f) => obj(f).chave === "avaria:foto") ? " (ver foto)" : ""}`]] : []),
       ...linhasVisita(sim),
-      ["Casa", casaTxt || (avaria ? "Sem planta" : "—")],
+      ["Casa", avaria ? ["Sem planta", typeof casa.localidade === "string" ? casa.localidade : null].filter(Boolean).join(" · ") : casaTxt || "—"],
       ...(Array.isArray(sim.servico) ? [["Serviço", servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · ")]] : []),
     ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
@@ -315,7 +323,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),
       ...(sim.quer != null ? [["Objetivos", objetivosTxt || "Nenhum"]] : []),
       ...(avaria ? [] : [["Potência contratada e ligação", instalacaoTxt]]),
-      ["Estimativa (c/ IVA)", estimativa],
+      [avaria ? "Diagnóstico (c/ IVA)" : "Estimativa (c/ IVA)", estimativa],
       ...(avaria ? [] : [["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"]]),
       ["Equipamentos", String(nItens)],
     ]),
@@ -1082,9 +1090,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
       : h("p", { text: "Nada assinalado pela simulação. Confirmar na mesma o quadro, a terra e a potência contratada." }));
 
   const kva = numero(casa.potencia_contratada_kva), sug = numero(q.potencia_sugerida_kva), carga = numero(q.potencia_carga_w);
-  let estimativa = "—";
-  if (s.total && typeof s.total === "object") estimativa = `${euros(s.total.min)} – ${euros(s.total.max)}`;
-  else if (numero(s.total) !== null) estimativa = euros(s.total);
+  const estimativa = estimativaTxt(s);
   const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
   const avaria = ehAvaria(s);
   const servicoTxt = avaria ? FUNIS_SIM.avaria : servicosDe(s).map((k) => SERVICOS_SIM[k]).join(" · ");
@@ -1143,7 +1149,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? "Foto da avaria" : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
     partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true }),
-      dados([["Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));
+      dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));
   }
   partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado na visita técnica." }));
   return h("article", { class: "relatorio-tecnico simulacao", id: "relatorio-tecnico", "aria-labelledby": "rel-titulo" }, ...partes);

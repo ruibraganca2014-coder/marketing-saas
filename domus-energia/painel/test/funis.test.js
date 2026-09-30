@@ -14,7 +14,7 @@ import { acaoDe, precisaEscolher, faltaAcao } from '../../web/simulador/acoes.js
 import { pdfDeImagens } from '../../web/simulador/pdf.js';
 import { blocosOrcamento } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
-import { aVerificarNaVisita, avariaTxt, ehAvaria } from '../public/ecras/simulacao.js';
+import { aVerificarNaVisita, avariaTxt, ehAvaria, estimativaTxt } from '../public/ecras/simulacao.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 
 const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
@@ -61,6 +61,15 @@ test('migração: o passo "Serviço" passa a Início; estados de 9 passos ficam 
   const av = normalizarEstado({ ...estadoNovo(), funil: 'avaria', passo: 9, avaria: { onde: 'cozinha', problema: 'fogo', descricao: 'x'.repeat(300) } });
   assert.deepEqual([av.avaria.onde, av.avaria.problema, av.avaria.descricao.length], ['cozinha', null, 200]);
   assert.equal(temProgresso(av), true);
+});
+
+test('o contacto vindo do perfil da conta não é progresso (um estado vazio não vai para a conta por cima da casa guardada)', () => {
+  const e = estadoNovo();
+  e.contacto = { ...e.contacto, nome: 'Ana', telefone: '912 345 678', email: 'ana@exemplo.pt', morada: 'Rua A, 1', localidade: 'Oeiras' };
+  assert.equal(temProgresso(e), false);
+  assert.equal(temProgresso(normalizarEstado(e)), false);
+  e.funil = 'avaria';
+  assert.equal(temProgresso(e), true, 'escolher um caso já é progresso');
 });
 
 test('casa guardada: sem as ações do pedido; "Já tenho a planta" põe tudo em Manter e o pedido leva funil "planta"', () => {
@@ -111,7 +120,10 @@ test('avaria rápida (§6): funil "avaria", serviço reparar, avaria, foto e dia
   assert.deepEqual(sim.trabalho, []);
   assert.equal(sim.totais_acao.reparar.aparelhos, 1);
   assert.deepEqual(sim.itens.map((i) => [i.sku, i.qtd, i.grupo]), [['DIAG-AVARIA', 1, 'reparar']]);
-  assert.ok(sim.total.min > 0 && sim.total.max >= sim.total.min);
+  assert.ok(sim.total.min > 0);
+  assert.equal(sim.total.max, sim.total.min, 'o diagnóstico é um valor fixo (sem intervalo)');
+  assert.equal(sim.total.min, Math.round((preco.artigos_iva + preco.mao_obra_iva) * 100) / 100, 'sem a deslocação');
+  assert.match(estimativaTxt(sim), /^\d+,\d{2}\s€ \+ deslocação$/, 'no painel: o diagnóstico fixo, sem intervalo');
   assert.equal(sim.urgencia, 'urgente');
   assert.deepEqual(sim.fotos, [{ chave: FOTO_AVARIA, tipo: 'avaria', divisao: null, divisao_nome: 'Cozinha', piso: null, legenda }]);
   assert.equal(sim.casa.localidade, 'Oeiras');

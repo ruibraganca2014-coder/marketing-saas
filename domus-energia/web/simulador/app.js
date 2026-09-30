@@ -180,7 +180,6 @@ function passoAo(de, d) {
  */
 const MINUTOS_CURTO = [0.5, 0.5, 0, 0, 0.5, 0, 1, 0.5, 1];
 const minutosDe = (i) => (naoPrecisa(i) ? 0 : fluxoCurto() ? MINUTOS_CURTO[i] ?? 1 : FUNIS[funil()].minutos[i] ?? 1);
-const minutosDoFunil = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
 const minTxt = (m) => (m < 1 ? "½" : String(m));
 /** Por baixo do nome: "feito" nos passos para trás, "não precisa" nos saltados, o tempo típico nos que faltam. */
 const tempoDe = (i) => (naoPrecisa(i) ? "não precisa" : posicao(i) < posicao(estado.passo) ? "feito" : `~${minTxt(minutosDe(i))} min`);
@@ -427,6 +426,7 @@ function mudarServico(lista) {
   if (visitado > P.quer) acertarPedido();   // o pedido já foi preparado: segue as ações novas
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharProgresso();
+  desenharComo();
   agendarGravacao();
 }
 function mensagemServico(texto, tipo = "erro") {
@@ -441,17 +441,21 @@ function desenharInicio() {
   const cartao = $("funil-planta");
   cartao.querySelector("small").textContent = c ? `Continuar com a sua casa: ${resumoCasa(c)}` : "Ainda não tem planta guardada.";
   cartao.classList.toggle("sem-casa", !c);
+  if (c) cartao.querySelector("input").removeAttribute("aria-disabled"); else cartao.querySelector("input").setAttribute("aria-disabled", "true");
   cartao.classList.toggle("destaque-casa", !!c && !estado.funil);
   for (const i of document.querySelectorAll("#funis input")) i.checked = i.value === estado.funil;
   $("servicos-caixa").hidden = estado.funil !== "primeira";
   for (const i of document.querySelectorAll("#servicos input[type=checkbox]")) i.checked = estado.servico.includes(i.value);
   desenharComo();
 }
-/** "Como fazer a simulação · ~N min" e os passos numerados do funil escolhido (sem nenhum, os da primeira vez). */
+/**
+ * "Como fazer a simulação · ~N min" e os passos numerados do funil escolhido (sem nenhum, os da primeira vez), com as
+ * contas da barra: no fluxo curto sem os passos que "não precisa" (os números são os da barra).
+ */
 function desenharComo() {
-  const f = funil();
-  $("sim-como-titulo").textContent = `Como fazer a simulação · ~${minutosDoFunil(f)} min`;
-  $("sim-como-passos").textContent = FUNIS[f].passos.map((i, k) => `${k + 1} ${PASSOS[i]}`).join(" · ");
+  const seq = sequencia();
+  $("sim-como-titulo").textContent = `Como fazer a simulação · ~${Math.ceil(seq.reduce((s, i) => s + minutosDe(i), 0))} min`;
+  $("sim-como-passos").textContent = seq.map((i, k) => (naoPrecisa(i) ? null : `${k + 1} ${PASSOS[i]}`)).filter(Boolean).join(" · ");
 }
 /** Sem caso escolhido (ou, na primeira vez, sem serviço): fica (ou volta) no Início com a mensagem. Devolve true se bloqueou. */
 function bloquearInicio() {
@@ -2763,7 +2767,7 @@ function montarAvaria() {
   grupo("avaria-onde", "avaria-onde", AVARIA_ONDE, "onde");
   grupo("avaria-problema", "avaria-problema", AVARIA_PROBLEMA, "problema");
   const NOME_URGENCIA = { normal: "Normal", semana: "Esta semana", urgente: "Urgente" };
-  const AJUDA_URGENCIA = { normal: "Quando houver vaga.", semana: null, urgente: "Sem luz." };
+  const AJUDA_URGENCIA = { normal: "Sem pressa.", semana: null, urgente: "Sem luz." };
   $("avaria-urgencia").append(...Object.keys(URGENCIAS).map((k) => escolha("radio", "avaria-urgencia", k, NOME_URGENCIA[k], AJUDA_URGENCIA[k], (sim) => {
     if (sim) { estado.urgencia = k; agendarGravacao(false); }
   })));
@@ -2787,7 +2791,7 @@ function desenharAvaria() {
   const { preco, semDesloc } = calcular();
   ultimoPreco = { preco, plano: null };
   pr.hidden = semDesloc.total === null;
-  pr.textContent = semDesloc.total === null ? "" : `Diagnóstico: ${formatarEuro(semDesloc.total)} + deslocação. A reparação orça-se na visita.`;
+  pr.textContent = semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}. A reparação orça-se na visita.`;
   if (!$("avaria-msg").hidden) faltaAvaria(true);
 }
 function desenharFotoAvaria() {
@@ -3088,7 +3092,7 @@ function montarVisita() {
   $("visita-periodo").append(...Object.entries(PERIODOS_VISITA).map(([k, t]) => escolha("radio", "visita-periodo", k, t, null, (sim) => {
     if (sim) { estado.visita = normalizarVisita({ ...estado.visita, periodo: k }); agendarGravacao(false); }
   })));
-  const AJUDA_URGENCIA = { normal: "Quando houver vaga.", semana: null, urgente: "Sem luz." };
+  const AJUDA_URGENCIA = { normal: "Sem pressa.", semana: null, urgente: "Sem luz." };
   const NOME_URGENCIA = { normal: "Normal", semana: "Esta semana", urgente: "Urgente" };
   $("visita-urgencia").append(...Object.keys(URGENCIAS).map((k) => escolha("radio", "visita-urgencia", k, NOME_URGENCIA[k], AJUDA_URGENCIA[k], (sim) => {
     if (sim) { estado.urgencia = k; agendarGravacao(false); }
@@ -3195,7 +3199,8 @@ async function oferecerSimulacaoDaConta(eu) {
     if (temProgresso(estado, PASSO_INICIAL)) guardarNaConta(0); else decidido();
     return;
   }
-  if (local && t(local) >= t(daConta) - 1000) { guardarNaConta(0); return; }   // a deste navegador é a mais recente
+  // A deste navegador é a mais recente (e é uma simulação a sério: um estado sem progresso nunca grava por cima da da conta).
+  if (local && temProgresso(local, PASSO_INICIAL) && t(local) >= t(daConta) - 1000) { guardarNaConta(0); return; }
   if (!temProgresso(daConta, PASSO_INICIAL)) { decidido(); return; }
   // A da conta é a mais recente: continua-se nela (a deste navegador passa a ser essa).
   acabarAnular();
@@ -3224,7 +3229,7 @@ $("contacto-localidade").addEventListener("input", () => desenharDeslocacao());
 
 /** Passo 7: com a localidade do contacto, a deslocação (§5.1) e o total com ela (o Resumo mostra-o sem). */
 function desenharDeslocacao() {
-  const { pedidos, preco, plano } = calcular();
+  const { pedidos, preco, semDesloc, plano } = calcular();
   ultimoPreco = { preco, plano };
   const caixa = $("enviar-deslocacao");
   const d = preco.deslocacao;
@@ -3232,13 +3237,14 @@ function desenharDeslocacao() {
   if (d.estado === "sem_localidade") { caixa.hidden = true; textosPagamento(); return; }
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
-    caixa.append(el("p", null, `${d.concelho}${km} fica fora da área servida — contacte-nos. A deslocação não está incluída.`),
-      el("p", "sim-aviso-area", pagamentosAtivos ? "Atenção: fora da área servida não há visita técnica. Os 19 € pagam só o relatório técnico da instalação." : "Atenção: fora da área servida não há visita técnica: contactamos para combinar."));
+    caixa.append(el("p", null, `${d.concelho}${km}: fora da área servida, sem deslocação.`),
+      el("p", "sim-aviso-area", pagamentosAtivos ? "Sem visita técnica: os 19 € pagam só o relatório técnico." : "Sem visita técnica: contactamos para combinar."));
   }
   else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita."));
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
-  if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
+  if (funilAvaria()) { if (semDesloc.total !== null) caixa.append(el("p", "num", textoDiagnostico(semDesloc.total))); }
+  else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
   caixa.hidden = false;
 }
 
@@ -3265,7 +3271,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
     const loc = estado.contacto.localidade.trim() || estado.casa.localidade.trim();
     if (loc) partes.push(`Localidade: ${loc}`);
     if (codigoCliente) partes.push(`Cliente: ${codigoCliente}`);
-    if (preco?.min != null) partes.push(`Estimativa: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`);
+    if (preco?.min != null) partes.push(funilAvaria() ? textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva) : `Estimativa: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`);
     partes.push(`${estado.divisoes.length} ${estado.divisoes.length === 1 ? "divisão" : "divisões"}.`);
     const texto2 = partes.join("\n").slice(0, 1500);
     if (temWhatsapp()) {
@@ -3301,8 +3307,9 @@ function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.tri
 /** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: com os pagamentos desligados, sem os 19 €; fora da área, sem a visita. */
-const textoEstimativa = () => (foraDaArea() ? "Estimativa. Sem deslocação: o valor final é combinado consigo."
-  : pagamentosAtivos ? TEXTO_ESTIMATIVA : "Estimativa. O valor final é confirmado na visita técnica.");
+const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
+/** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 42,50 € + deslocação". */
+const textoDiagnostico = (valor) => `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`;
 /** Os textos fixos do passo Enviar e de "Pedido enviado!" com os pagamentos ligados (19 €) ou desligados (e fora da área). */
 function textosPagamento() {
   const fora = foraDaArea();
@@ -3312,10 +3319,8 @@ function textosPagamento() {
     : `${fora ? "Enviamos e contactamos consigo." : "Enviamos e contactamos para marcar a visita."} * obrigatório`;
   if (!enviado) {
     $("fim-texto").textContent = fora
-      ? "Recebemos a sua simulação. Vamos contactá-lo muito em breve. Pode acompanhar o pedido na sua conta."
-      : pagamentosAtivos
-        ? "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica (incluída nos 19 €, descontados na obra). Pode acompanhar o pedido na sua conta."
-        : "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica. Pode acompanhar o pedido na sua conta.";
+      ? "Recebemos o pedido. Vamos contactá-lo em breve. Acompanhe-o na sua conta."
+      : "Recebemos o pedido. Vamos contactá-lo para marcar a visita. Acompanhe-o na sua conta.";
   }
 }
 const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "")
@@ -3545,9 +3550,9 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   $("sim-navegacao").hidden = true;
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
-  $("fim-resumo").textContent = preco?.min != null
-    ? `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}. ${textoEstimativa().replace(/^Estimativa\. /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`
-    : "Vamos enviar-lhe o preço depois de analisarmos a simulação.";
+  $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
+    : funilAvaria() ? `${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
+    : `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).
   const ff = $("fim-fotos");

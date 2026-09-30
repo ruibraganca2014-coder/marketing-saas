@@ -636,12 +636,13 @@ export function quadroParaEnvio(estado, circuitos) {
 
 /**
  * Houve progresso que valha a pena retomar? (`passoInicial`: o Início.) Um estado só com a casa guardada (`soCasa`)
- * não é uma simulação em curso: dá só o cartão "Já tenho a planta".
+ * não é uma simulação em curso: dá só o cartão "Já tenho a planta". O contacto não conta (com sessão vem do perfil
+ * da conta; senão um estado vazio iria para a conta por cima da casa/simulação guardada lá).
  */
 export function temProgresso(e, passoInicial = 0) {
   return !!e && !e.soCasa && (e.passo > passoInicial || e.funil !== null || e.servico.length > 0 || e.quadroAvaria !== null
     || !!e.avaria?.onde || !!e.avaria?.problema || !!e.avaria?.descricao?.trim()
-    || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+    || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0);
 }
 
 // ------------------------------------------------------------ a casa guardada (funil "Já tenho a planta")
@@ -990,13 +991,14 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
 /**
  * `simulacao` do funil "avaria" (avaria rápida, sem planta; §6): `funil: "avaria"`, `servico: ["reparar"]`,
  * `avaria` = {onde, problema, descricao} e a foto (obrigatória); o preço é o diagnóstico (DIAG-AVARIA + horas ×
- * tarifa) com a deslocação. Sem planta, quadro, máquinas nem divisões; a casa só com a localidade.
+ * tarifa), um valor fixo (`total` min = max, sem a deslocação, que vai em `deslocacao`). Sem planta, quadro, máquinas nem divisões; a casa só com a localidade.
  */
 export function montarSimulacaoAvaria(estado, preco, fotos = []) {
   const a = normalizarAvaria(estado.avaria);
   const foraArea = preco.deslocacao?.estado === "fora_area";
   const totais = totaisAcao(null, ["reparar"], preco);
   totais.reparar.aparelhos = 1;
+  const diagnostico = preco.total === null ? null : Math.round((preco.artigos_iva + preco.mao_obra_iva) * 100) / 100;
   return {
     versao: VERSAO,
     funil: "avaria",
@@ -1014,7 +1016,7 @@ export function montarSimulacaoAvaria(estado, preco, fotos = []) {
     itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "reparar", horas: l.horas == null ? null : Math.round(l.horas * 100) / 100 })),
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
-    total: { min: preco.min, max: preco.max },
+    total: { min: diagnostico, max: diagnostico },   // o diagnóstico, fixo (sem intervalo nem a deslocação, que vai à parte)
     plano_sugerido: null,
     avisos: [],
     fotos: fotos.filter((f) => f.chave === FOTO_AVARIA).slice(0, 1).map((f) => ({

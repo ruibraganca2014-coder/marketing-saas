@@ -356,7 +356,9 @@ function blocoResumo(r, id) {
   linha("Avaria", r.avaria);
   linha("Localidade", r.localidade);
   linha("Divisões", r.divisoes ? String(r.divisoes) : null);
-  linha("Estimativa", r.estimativa ? `${euro(r.estimativa.min)} – ${euro(r.estimativa.max)} (com IVA; o valor final é o da proposta)` : null);
+  // Avaria rápida: o diagnóstico, fixo (como no simulador); pedidos antigos com intervalo, o intervalo.
+  if (r.avaria && r.estimativa && r.estimativa.min === r.estimativa.max) linha("Diagnóstico", `${euro(r.estimativa.min)} + deslocação (com IVA)`);
+  else linha("Estimativa", r.estimativa ? `${euro(r.estimativa.min)} – ${euro(r.estimativa.max)} (com IVA; o valor final é o da proposta)` : null);
   linha("Plano mensal sugerido", r.plano);
   b.append(dl);
   if (r.inclui?.length) {

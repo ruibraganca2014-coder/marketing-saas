@@ -58,7 +58,7 @@
             <div class="escolhas-grelha funis" id="funis"></div>
           </fieldset>
           <fieldset class="escolhas" id="servicos-caixa" hidden>
-            <legend>O que precisa? <small class="ajuda">Pode escolher mais do que um.</small></legend>
+            <legend>O que precisa?</legend>
             <div class="escolhas-grelha servicos" id="servicos"></div>
           </fieldset>
           <p class="msg" id="servico-msg" role="status" hidden></p>
@@ -123,7 +123,7 @@
           <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
           <!-- Sem "Instalação nova" (lote 7): o quadro só entra no preço se o cliente o quiser melhorar. -->
           <fieldset class="escolhas" id="quadro-mexer-caixa" hidden>
-            <legend>Melhorar o quadro? <small class="ajuda">Proteções novas ou quadro novo.</small></legend>
+            <legend>Melhorar o quadro?</legend>
             <div class="escolhas-grelha tres-curtas" id="quadro-mexer"></div>
           </fieldset>
           <div id="quadro-perguntas">
@@ -141,10 +141,8 @@
             </fieldset>
           </div>
           <div class="cartao quadro-foto" id="quadro-foto" hidden>
-            <h3 id="quadro-foto-titulo">Foto do quadro</h3>
-            <p>Porta aberta, de frente, com boa luz. Opcional.</p>
+            <h3 id="quadro-foto-titulo">Foto do quadro (opcional)</h3>
             <div id="quadro-foto-corpo"></div>
-            <p class="ajuda" id="quadro-foto-ajuda">Só a Domus Energia vê as fotos.</p>
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
           </div>
           <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
@@ -167,7 +165,7 @@
           </div>
           <fieldset class="cartao escolhas" id="extras">
             <legend>Extras</legend>
-            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central em casa</b> com bateria e sirene: funciona sem internet (plano Premium).</span></label>
+            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central</b> com bateria e sirene (Premium)</span></label>
             <label>Termóstatos<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
           </fieldset>
         </section>
@@ -177,7 +175,6 @@
           <h2 id="titulo-6" tabindex="-1">7. Trocar e reparar</h2>
           <!-- Funil "Já tenho a planta": a casa guardada e "Mudar a casa" (leva a "A casa", funil da primeira vez, mantendo tudo). -->
           <p class="msg info sim-casa-faixa" id="trocar-casa" hidden><span id="trocar-casa-texto"></span> · <button class="btn sec pequeno" id="trocar-casa-mudar" type="button">Mudar a casa</button></p>
-          <p class="divisoes-fotos-aviso"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>Foto obrigatória nas avarias.</span></p>
           <div class="divisoes-progresso" id="trocar-progresso-caixa">
             <p id="trocar-progresso" aria-live="polite"></p>
           </div>
@@ -281,7 +278,7 @@
         <section class="sim-passo sim-sucesso" id="passo-fim" aria-labelledby="titulo-fim" hidden>
           <div class="cartao">
             <h2 id="titulo-fim" tabindex="-1">Pedido enviado!</h2>
-            <p id="fim-texto">Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica (incluída nos 19 €, descontados na obra). Pode acompanhar o pedido na sua conta.</p>
+            <p id="fim-texto">Recebemos o pedido. Vamos contactá-lo para marcar a visita. Acompanhe-o na sua conta.</p>
             <p class="sim-nota" id="fim-resumo"></p>
             <p class="msg" id="fim-fotos" hidden></p>
             <div class="form-botoes">
