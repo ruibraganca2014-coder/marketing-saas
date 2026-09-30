@@ -118,7 +118,7 @@ const editor = criarEditor($("editor"), {
 // Lote 8: o tamanho da planta na linha do título "A sua planta" (saiu do "⋯").
 editor.montarTamanho($("planta-tamanho"));
 // "Refazer planta" (com confirmação) fica no "⋯" da planta, com Imprimir, Guardar PDF e Planta de fundo.
-document.querySelector("#editor-lado .editor-lado-acoes")?.append($("planta-refazer"));
+document.querySelector("#editor-menu")?.append($("planta-refazer"));   // no menu do "⋯"
 
 // ------------------------------------------------------------ gravação
 let temporizador = null;
@@ -225,6 +225,7 @@ function irPara(i, { foco = true } = {}) {
   estado.visitado = visitado;
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
   if (i > P.quer && de <= P.quer) prepararPassosSeguintes();
+  if (estado.passo !== de) editor.limparAviso();   // as mensagens da planta não passam para o passo seguinte
   mostrarPasso(foco);
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
@@ -1307,11 +1308,12 @@ function desenharQuadro() {
   for (const i of document.querySelectorAll("input[name=quadro-mexer]")) i.checked = i.value === (estado.mexerQuadro ? "sim" : "nao");
   $("quadro-perguntas").hidden = !noPedido;
   $("quadro-texto").textContent = comNova
-    ? "Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita."
-    : "Se não quiser mexer no quadro, fica como está: o eletricista vê-o na visita.";
+    ? comVisita("Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; o eletricista confirma tudo na visita.",
+      "Só três perguntas. O que vai dentro do quadro e o tamanho dele calculamos nós a partir da casa; confirmamos tudo consigo depois.")
+    : comVisita("Se não quiser mexer no quadro, fica como está: o eletricista vê-o na visita.", "Se não quiser mexer no quadro, fica como está.");
   const nota = $("quadro-nota");
   if (!noPedido) {
-    nota.textContent = "Não mexemos no quadro. Uma foto dele ajuda o eletricista a preparar a visita.";
+    nota.textContent = comVisita("Não mexemos no quadro. Uma foto dele ajuda o eletricista a preparar a visita.", "Não mexemos no quadro. Uma foto dele ajuda a preparar o relatório técnico.");
     nota.hidden = false;
     desenharFotoQuadro();
     return;
@@ -1320,7 +1322,7 @@ function desenharQuadro() {
   if (q.para_raios === "sim") partes.push("Com pára-raios incluímos sempre a proteção contra picos de corrente.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro e acrescentamos o que falta."
-    : q.quadro_novo === "novo" ? "Incluímos um quadro novo no preço." : "Por precaução incluímos um quadro novo no preço: se o seu servir, sai do preço na visita.");
+    : q.quadro_novo === "novo" ? "Incluímos um quadro novo no preço." : comVisita("Por precaução incluímos um quadro novo no preço: se o seu servir, sai do preço na visita.", "Por precaução incluímos um quadro novo no preço: se o seu servir, sai do preço."));
   nota.textContent = partes.join(" ");
   nota.hidden = false;
   desenharFotoQuadro();
@@ -1335,6 +1337,7 @@ function desenharFotoQuadro() {
   const foto = fotos.get("quadro");
   const caixa = $("quadro-foto");
   caixa.hidden = !(estado.quadro.quadro_novo === "atual" || foto || !quadroNoPedido({ ...estado, servico: servicos() }));
+  $("quadro-foto-ajuda").textContent = comVisita("As fotos ajudam o eletricista a preparar a visita. Só a Domus Energia as vê.", "As fotos ajudam a preparar o relatório técnico. Só a Domus Energia as vê.");
   const corpo = $("quadro-foto-corpo");
   corpo.replaceChildren();
   const depois = (ok, texto) => {
@@ -1797,7 +1800,7 @@ function separadoresDivisoes(pre, planta, { feita, falta, avisar }) {
     b.id = `${pre}-tab-${d.id}`;
     b.setAttribute("role", "tab");
     b.setAttribute("aria-selected", String(sel));
-    b.setAttribute("aria-controls", `${pre}-${d.id}`);
+    if (sel) b.setAttribute("aria-controls", `${pre}-${d.id}`);   // só o painel do separador escolhido existe
     b.tabIndex = sel ? 0 : -1;
     const ok = feita(d);
     const f = avisar && !ok && falta(d);
@@ -1944,7 +1947,7 @@ function cartaoDivisao(planta, d, nivel) {
   for (const l of linhas) ul.append(linhaAparelho(d, l));
   if (linhas.length) c.append(ul);
   else c.append(el("p", "ajuda", "Sem aparelhos na planta."));
-  if (ent?.estores_sem_motor) c.append(el("p", "ajuda", "Há estores sem motor: precisam primeiro de um motor, vemos isso na visita."));
+  if (ent?.estores_sem_motor) c.append(el("p", "ajuda", comVisita("Há estores sem motor: precisam primeiro de um motor, vemos isso na visita.", "Há estores sem motor: precisam primeiro de um motor, confirmamos isso consigo.")));
   // Objetivos ("O que quer fazer"): não acrescentam nada sozinhos, só dicas curtas (casa.js dicasObjetivos).
   for (const t of dicasObjetivos(d.nome, estado.quer.objetivos, { temTomadas: linhas.some((l) => l.tipo === "tomada") })) c.append(el("p", "ajuda divisao-dica", t));
   const bs = el("div", "divisao-botoes");
@@ -2031,7 +2034,7 @@ function linhaAparelho(d, l) {
     // Vários: "Qual?" com um botão por aparelho.
     bn.setAttribute("aria-label", `${n} ${nome.toLowerCase()} (${onde}): escolher qual mudar`);
     bn.setAttribute("aria-expanded", String(abertas.has(base)));
-    bn.setAttribute("aria-controls", `${base}-quais`);
+    if (abertas.has(base)) bn.setAttribute("aria-controls", `${base}-quais`);   // a lista "Qual?" só existe aberta
     bn.addEventListener("click", () => {
       if (abertas.has(base)) abertas.delete(base); else abertas.add(base);
       desenharDivisoes();
@@ -2589,14 +2592,13 @@ function desenharAcaoPlanta() {
   const base = `pl-${e.id}`;
   const chave = d.id ? chaveFoto(estado.planta, d, l) : null;
   if (chave && (pedeFoto([e]) || fotos.has(chave))) {
-    const [bf] = fotoDaLinha(chave, `${nomeLinha(l)} (${onde})`, base, (ok, texto) => {
+    const [bf, comFoto] = fotoDaLinha(chave, `${nomeLinha(l)} (${onde})`, base, (ok, texto) => {
       mensagemTrocar(texto, ok === false ? "erro" : "info");
       if (ok === null) return;
       desenharTrocar();
       focar(`${base}-foto`) || focar(`${base}-acao-manter`);
     });
-    if (bf) cab.append(bf);
-    else cab.append(el("span", "ajuda", "Foto tirada ✓"));
+    cab.append(bf ?? comFoto);   // com foto: a miniatura, "Trocar foto" e "Apagar" (como na lista)
   }
   caixa.append(cab, ...controloAcoes(d, l, [e], base, onde, !chave || fotos.has(chave)));
 }
@@ -2693,8 +2695,17 @@ function listaInclui(pedidos) {
   const qa = (a) => pedidos.filter((p) => p.acao === a).reduce((s, p) => s + p.qtd, 0);
   const itens = [];
   const add = (n, um, varios) => { if (n > 0) itens.push(n === 1 ? um : `${n} ${varios}`); };
-  add(qa("reparar"), "1 reparação (ver a avaria; a peça confirma-se na visita)", "reparações (ver cada avaria; as peças confirmam-se na visita)");
-  add(qa("substituir"), "1 aparelho trocado por outro", "aparelhos trocados por outros");
+  add(qa("reparar"), comVisita("1 reparação (ver a avaria; a peça confirma-se na visita)", "1 reparação (ver a avaria; a peça confirma-se depois)"),
+    comVisita("reparações (ver cada avaria; as peças confirmam-se na visita)", "reparações (ver cada avaria; as peças confirmam-se depois)"));
+  // Trocas pelo que realmente se troca (acoes.js pedidoDoElemento): "3 tomadas trocadas por inteligentes"…
+  const qs = (k) => pedidos.filter((p) => p.acao === "substituir" && (p.chave === k || p.chave.startsWith(`${k}_`))).reduce((s, p) => s + p.qtd, 0);
+  add(qs("tomada"), "1 tomada trocada por uma inteligente", "tomadas trocadas por inteligentes");
+  add(qs("interruptor"), "1 interruptor trocado por um inteligente", "interruptores trocados por inteligentes");
+  add(qs("estore"), "1 estore trocado por um automático", "estores trocados por automáticos");
+  add(qs("sensor_movimento"), "1 sensor de movimento trocado", "sensores de movimento trocados");
+  add(qs("sensor_porta"), "1 aviso de porta ou janela trocado", "avisos de porta ou janela trocados");
+  add(qs("troca_maquina"), "1 máquina trocada (só a ligação)", "máquinas trocadas (só a ligação)");
+  add(qs("aparelho_normal"), "1 aparelho trocado por outro", "aparelhos trocados por outros");
   add(q("interruptor"), "1 interruptor inteligente (luzes pelo telemóvel)", "interruptores inteligentes (luzes pelo telemóvel)");
   add(q("estore"), "1 estore automático", "estores automáticos");
   add(q("sensor_movimento"), "1 sensor de movimento", "sensores de movimento");
@@ -2707,7 +2718,7 @@ function listaInclui(pedidos) {
   if (quadroNoPedido({ ...estado, servico: servicos() })) {
     // Quadro novo sem "Instalação nova": os circuitos que já existem passam para ele (estimativa pelas divisões).
     const ex = existentesNoQuadroNovo(estado);
-    itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}${ex ? ` (com os ${ex} circuitos que a casa já tem: n.º de circuitos a confirmar na visita)` : ""}`);
+    itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}${ex ? ` (com os ${ex} circuitos que a casa já tem: n.º de circuitos a confirmar${comVisita(" na visita", "")})` : ""}`);
   }
   if (q("central")) itens.push("Central em casa, com bateria e sirene (funciona sem internet)");
   itens.push("Instalação por técnico habilitado");
@@ -2727,13 +2738,13 @@ function desenharPreco() {
   const total = $("preco-total");
   total.replaceChildren();
   if (!pedidos.length) {
-    total.append(el("p", "sim-intervalo", "Ainda não escolheu nada para instalar, reparar ou trocar."), el("p", "ajuda", "Volte aos passos anteriores, ou envie o pedido na mesma: falamos consigo na visita."));
+    total.append(el("p", "sim-intervalo", "Ainda não escolheu nada para instalar, reparar ou trocar."), el("p", "ajuda", comVisita("Volte aos passos anteriores, ou envie o pedido na mesma: falamos consigo na visita.", "Volte aos passos anteriores, ou envie o pedido na mesma: falamos consigo depois.")));
   } else if (semDesloc.min !== null) {
     // Sem deslocação: essa vem da localidade do contacto e mostra-se no passo 7.
     total.append(el("p", "sim-rotulo", "Estimativa com instalação"));
     total.append(el("p", "sim-intervalo num", `${formatarEuroRedondo(semDesloc.min)} – ${formatarEuroRedondo(semDesloc.max)}`));
-    total.append(el("p", "ajuda", "+ deslocação"));
-    if (!semDesloc.completo) total.append(el("p", "ajuda", "Algumas coisas ainda não têm preço: confirmamos na visita."));
+    if (!foraDaArea()) total.append(el("p", "ajuda", "+ deslocação"));   // fora da área não há deslocação (textoEstimativa)
+    if (!semDesloc.completo) total.append(el("p", "ajuda", comVisita("Algumas coisas ainda não têm preço: confirmamos na visita.", "Algumas coisas ainda não têm preço: confirmamos consigo depois.")));
   } else {
     total.append(el("p", "sim-intervalo", "Vamos enviar-lhe o preço"));
   }
@@ -2972,7 +2983,9 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 let TEXTO_ENVIAR = "Pagar 19 € e enviar";   // "Enviar pedido" com os pagamentos desligados no servidor (carregarCatalogo)
 let pagamentosAtivos = true;                 // GET /api/catalogo `pagamentos.ativo` (até lá, como sempre: com os 19 €)
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
-const foraDaArea = () => calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area";
+function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
+/** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
+function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: com os pagamentos desligados, sem os 19 €; fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa. Sem deslocação: o valor final é combinado consigo."
   : pagamentosAtivos ? TEXTO_ESTIMATIVA : "Estimativa. O valor final é confirmado na visita técnica.");
@@ -3222,8 +3235,9 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   ff.hidden = !r;
   if (r) {
     ff.className = `msg ${r.falhas ? "erro" : "ok"}`;
-    ff.textContent = r.semToken ? "Não foi possível enviar as fotos. O pedido foi recebido: pode mostrá-las ao eletricista na visita."
-      : r.falhas ? `Não foi possível enviar ${r.falhas} de ${r.total} ${r.total === 1 ? "foto" : "fotos"}. O pedido foi recebido: pode mostrá-las ao eletricista na visita.`
+    const mostrar = comVisita("pode mostrá-las ao eletricista na visita.", "combinamos consigo como as enviar.");
+    ff.textContent = r.semToken ? `Não foi possível enviar as fotos. O pedido foi recebido: ${mostrar}`
+      : r.falhas ? `Não foi possível enviar ${r.falhas} de ${r.total} ${r.total === 1 ? "foto" : "fotos"}. O pedido foi recebido: ${mostrar}`
         : r.total === 1 ? "Recebemos também a foto." : `Recebemos também as ${r.total} fotos.`;
   }
   // O pedido foi aceite: as fotos saem do navegador (com a simulação).

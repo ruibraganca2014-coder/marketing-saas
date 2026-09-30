@@ -175,8 +175,21 @@ input, select { min-height: 44px; }
 .editor-svg:focus-visible { outline: 3px solid var(--areia); outline-offset: -3px; }
 .editor-svg.a-colocar { cursor: crosshair; }
 .editor-ajuda { margin: 0; font-size: .86rem; color: var(--texto-suave); }
-.editor-lado { display: grid; gap: 12px; min-width: 0; }
-.editor-lado .cartao { padding: 16px; }
+/* "⋯": o menu (junto ao botão, por cima de tudo; editor.js juntoAoBotao dá top/left) e a janela do fundo (não modal). */
+.editor-menu, .editor-lado { position: fixed; inset: auto; z-index: 70; margin: 0; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); overflow: auto; overscroll-behavior: contain; }
+.editor-menu { display: grid; gap: 2px; width: max-content; min-width: 200px; max-width: calc(100vw - 16px); padding: 6px; }
+.editor-menu[hidden] { display: none; }
+.editor-menu[popover]:not(:popover-open) { display: none; }
+.editor-menu > .btn { justify-content: flex-start; width: 100%; border-color: transparent; text-align: left; }
+.editor-menu > .btn:hover, .editor-menu > .btn:focus-visible { background: var(--musgo-claro); }
+.editor-menu > .btn[hidden] { display: none; }
+.editor-menu .confirmar { max-width: 280px; margin: 4px 0 0; }
+.editor-lado { width: min(360px, calc(100vw - 16px)); padding: 12px 14px 14px; }
+.editor-lado[open] { display: grid; gap: 12px; min-width: 0; }
+.editor-lado-cabeca { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.editor-lado-cabeca h2 { margin: 0; font-size: 1.1rem; }
+.editor-lado .cartao { padding: 0; border: 0; box-shadow: none; background: transparent; }
+.editor-lado .cartao[hidden] { display: none; }
 .editor-lado h3 { margin: 0 0 8px; font-size: 1.15rem; }
 .editor-lado h3:focus { outline: none; }
 .perigo-sec { border-color: var(--alarme) !important; color: var(--alarme-texto) !important; }
@@ -458,7 +471,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-planta-origem { flex: 1 1 14em; margin: 0; min-width: min(14em, 100%); font-size: .8rem; font-weight: 600; color: var(--texto-suave); }
 .sim-planta-origem[hidden] { display: none; }
 #planta-refazer { flex: none; }
-.editor-lado-acoes .confirmar { flex-basis: 100%; }
 .sim-planta-fechar { flex: none; margin-left: auto; }
 .sim-planta-origem:not([hidden]) ~ .sim-planta-fechar { margin-left: 0; }
 .sim-planta .editor, .sim-planta .editor-principal { display: flex; flex-direction: column; align-items: stretch; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 6px; }
@@ -481,10 +493,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .editor-area > .editor-estado > * { max-width: 100%; min-height: 0; margin: 0; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--superficie) 88%, transparent); box-shadow: 0 1px 3px rgb(0 0 0 / .15); font-size: .8rem; line-height: 1.35; white-space: normal; }
 .editor-area > .editor-estado > :empty { display: none; }
 .sim-planta .editor-ajuda { display: none; }
-/* "⋯": as ações menos usadas e os cartões do fundo e do tamanho, por baixo das barras (fechado por omissão). */
-.editor-lado[hidden] { display: none; }
-.sim-planta .editor-lado { flex: none; max-height: 40%; overflow: auto; overscroll-behavior: contain; }
-.editor-lado-acoes { display: flex; flex-wrap: wrap; gap: 6px; }
 .editor-principal:fullscreen #editor-outras, .editor-principal.ecra-inteiro #editor-outras { display: none; }
 .sim-ver-planta { display: none; }
 @media (min-width: 1024px) {
