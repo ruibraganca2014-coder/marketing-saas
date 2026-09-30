@@ -6,7 +6,7 @@ import {
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_QUER, PEQUENAS_QUER, OBJETIVOS, NOME_FORA,
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
-  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO,
+  TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO, FIM_AVISO_FORA,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
@@ -528,18 +528,22 @@ export const opcoesAvisos = (estado) => ({
  * Todos os avisos do quadro: os dos circuitos (regras.js) e os das proteções, tamanho e potência (quadro.js) — estes só
  * com o quadro no pedido (lote 7: sem "Instalação nova" o cliente pode não querer mexer no quadro). Com aparelhos a
  * manter, reparar ou substituir, o aviso de que ficam nos circuitos que já existem (só os Novos têm circuitos novos).
+ * `foraArea`: fora da área servida não há visita técnica — "(orientativo — a confirmar)" em vez de "confirmamos na visita".
  */
-export const avisosEstado = (estado, circuitos = estado.quadro.circuitos) => {
+export const avisosEstado = (estado, circuitos = estado.quadro.circuitos, foraArea = false) => {
   const servico = Array.isArray(estado.servico) && estado.servico.length ? estado.servico : ["nova"];
   const n = contarAcoes(estado.plantaSaltada ? null : estado.planta, servico);
   const existentes = n.manter + n.reparar + n.substituir;
-  return [
+  const r = [
     ...avisosQuadro(circuitos, opcoesAvisos(estado)),
     // O estado todo (serviço, mexerQuadro, planta, divisões): o mesmo resumoQuadro que dá os artigos do preço
     // (preco.js pedidosQuadro) — os disjuntores dos circuitos que já existem e o tamanho da caixa.
     ...(quadroNoPedido({ ...estado, servico }) ? avisosProtecoes({ ...estado, servico, quadro: { ...estado.quadro, circuitos } }) : []),
     ...(existentes ? [`${existentes} ${existentes === 1 ? "aparelho fica" : "aparelhos ficam"} nos circuitos que já existem (manter, reparar ou substituir): só os novos têm circuitos novos. Confirmar o estado desses circuitos e a proteção diferencial${FIM_AVISO}`] : []),
   ];
+  if (!foraArea) return r;
+  return r.map((t) => (t.endsWith(FIM_AVISO) ? t.slice(0, -FIM_AVISO.length) + FIM_AVISO_FORA : t)
+    .replace(" — confirmamos na visita.", ".").replace(" a confirmar na visita", " a confirmar").replace(" confirmado na visita", " confirmado depois"));
 };
 
 /**
@@ -672,12 +676,14 @@ function acaoParaEnvio(e, servicos) {
 }
 
 const ORDEM_ACOES = Object.keys(ACOES);
+const FOTO_ACOES = ["reparar", "substituir"];   // as ações que pedem a foto da linha (app.js pedeFoto)
 /**
  * Lista de trabalho (lote 7, `simulacao.trabalho`; relatório técnico): por divisão, os aparelhos agrupados por ação e
  * tipo (máquinas por modelo), com o material (SKU) e as horas de cada grupo. `linhaArtigo(chave, acao)` →
- * {sku, horas} por unidade (app.js, a partir do catálogo); `fotos`: chaves das fotos tiradas ("d1:tomada").
+ * {sku, horas} por unidade (app.js, a partir do catálogo); `fotos`: chaves das fotos tiradas ("d1:tomada"), só nos
+ * grupos que as pedem (Reparar, Substituir); `objetivos`: para os Novos inteligentes, como no preço (acoes.js inteligenteDe).
  */
-export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = []) {
+export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], objetivos = []) {
   if (!planta || !plantaTemConteudo(planta)) return [];
   const p = normalizarPlanta(planta);
   const tem = new Set(fotos);
@@ -698,7 +704,7 @@ export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = []) {
     const k = modelo ?? e.tipo;
     let item = g.acoes.find((a) => a.acao === acao && a.k === k);
     if (!item) {
-      item = { acao, k, tipo: e.tipo, modelo, qtd: 0, material: [], horas: 0, foto: id && tem.has(`${id}:${k}`) ? `${id}:${k}` : null };
+      item = { acao, k, tipo: e.tipo, modelo, qtd: 0, material: [], horas: 0, foto: id && FOTO_ACOES.includes(acao) && tem.has(`${id}:${k}`) ? `${id}:${k}` : null };
       if (acao === "reparar") item.avarias = [];
       if (acao === "substituir" && perguntaInteligente(e.tipo)) item.inteligentes = 0;
       g.acoes.push(item);
@@ -706,7 +712,7 @@ export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = []) {
     item.qtd++;
     if (acao === "reparar") item.avarias.push(textoSeguro(e.avaria, MAX_AVARIA));
     if (acao === "substituir" && perguntaInteligente(e.tipo) && e.inteligente === true) item.inteligentes++;
-    const chave = pedidoDoElemento(e, acao);
+    const chave = pedidoDoElemento(e, acao, objetivos);
     if (chave) {
       const a = linhaArtigo(chave, acao);
       const m = item.material.find((x) => x.sku === a.sku);
@@ -825,7 +831,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     planta: planta ? plantaParaEnvio(planta, servico) : null,
     // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
     quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
-    trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave)),
+    trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? []),
     totais_acao: totais,
     // Lote 8 (passo Enviar): disponibilidade para a visita e urgência; null fora da área servida (não há visita).
     visita: foraArea ? null : normalizarVisita(estado.visita),
@@ -843,7 +849,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },
     plano_sugerido: plano,
-    avisos: avisosEstado(estado, circuitos),
+    avisos: avisosEstado(estado, circuitos, foraArea),
     fotos: fotos.slice(0, 40).map((f) => ({
       chave: String(f.chave).slice(0, 80), tipo: f.tipo, divisao: f.divisao ?? null,
       divisao_nome: f.divisao_nome == null ? null : textoSeguro(f.divisao_nome, 60) || "Divisão",

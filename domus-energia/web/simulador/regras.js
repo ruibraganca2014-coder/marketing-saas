@@ -32,6 +32,8 @@ export const MODELOS_DEDICADOS = [
 export const AMPERES_PLACA = 25;
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
+/** Fora da área servida não há visita técnica: o mesmo aviso termina em "(orientativo — a confirmar)" (estado.js avisosEstado). */
+export const FIM_AVISO_FORA = " (orientativo — a confirmar)";
 
 export const TIPOS_CIRCUITO = {
   iluminacao: "Iluminação",

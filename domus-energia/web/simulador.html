@@ -183,7 +183,7 @@
             <p id="trocar-progresso" aria-live="polite"></p>
           </div>
           <p class="msg" id="trocar-msg" role="status" hidden></p>
-          <section class="cartao divisao-cartao trocar-quadro" id="trocar-quadro" aria-labelledby="trocar-quadro-titulo"></section>
+          <section class="cartao divisao-cartao trocar-quadro" id="trocar-quadro"></section>
           <div id="trocar"></div>
         </section>
 
@@ -309,6 +309,9 @@
         <div class="sim-navegacao" id="sim-navegacao">
           <button class="btn sec" id="sim-anterior" type="button">Anterior</button>
           <span class="sim-guardado" id="sim-guardado" aria-live="polite"></span>
+          <!-- Telemóvel e tablet: a planta abre-se por cima das perguntas (app.js abrirPlanta); no computador está à direita.
+               Dentro da barra (e não fixo por cima dela): nunca tapa "Anterior"/"Seguinte" nem outros controlos. -->
+          <button class="btn sec sim-ver-planta" id="ver-planta" type="button" aria-label="Ver planta" aria-haspopup="dialog" aria-controls="sim-planta" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 4h18v16H3zM3 12h7M13 4v6M13 14v6M17 12h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span class="sim-ver-planta-longo">Ver planta</span><span class="sim-ver-planta-curto">Planta</span></button>
           <button class="btn" id="sim-seguinte" type="button">Seguinte</button>
         </div>
         <!-- A planta, em todos os passos (decisão do dono): no computador na coluna da direita, presa ao descer a página (depois das perguntas no DOM: o Tab passa primeiro pelas perguntas);
@@ -331,8 +334,6 @@
           <!-- A planta vai aparecendo (app.js fasePlanta): enquanto não há nada a desenhar, este texto discreto por cima dela. -->
           <p class="sim-planta-vazia" id="planta-vazia" hidden>A sua planta aparece aqui à medida que responde.</p>
         </section>
-        <!-- Telemóvel e tablet: a planta abre-se por cima das perguntas (app.js abrirPlanta); no computador está à direita. -->
-        <button class="btn sim-ver-planta" id="ver-planta" type="button" aria-haspopup="dialog" aria-controls="sim-planta" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 4h18v16H3zM3 12h7M13 4v6M13 14v6M17 12h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Ver planta</button>
       </form>
     </div>
   </main>

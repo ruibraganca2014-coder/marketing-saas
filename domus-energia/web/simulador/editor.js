@@ -185,11 +185,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // certo (Quarto, Quarto 2, Sala…); o que traz (casa.js resumoAparelhos) fica no nome acessível do botão.
   const barraDiv = grupoBarra("editor-divisoes", "Acrescentar divisão");
   const divisoesMais = el("div", "editor-mais-grelha");
+  /** Nome acessível: o que a divisão traz só quando o passo mostra os aparelhos (em "A casa" só as divisões). */
+  const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${resumoAparelhos(t.nome, t.w, t.h)})` : ""}`;
   function botaoDivisao(t) {
-    const traz = resumoAparelhos(t.nome, t.w, t.h);
     const b = botao("", "ferramenta tipo-divisao");
     b.dataset.divisao = t.nome;
-    b.setAttribute("aria-label", `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome} (com ${traz})`);
+    b.setAttribute("aria-label", rotuloDivisao(t));
     b.append(desenharIcone(svgEl("svg"), "divisao", { tipo: ICONE_DIVISAO[t.nome] ?? tipoDoNome(t.nome) }), el("span", "ferramenta-nome", t.nome));
     return b;
   }
@@ -446,7 +447,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
 
   // O menu do "⋯" (role=menu): no top layer (popover) onde o navegador o tem; abre com o foco no 1.º item, as setas
-  // passam de item em item, Esc (ou Tab) fecha e volta ao "⋯", tocar fora fecha. O app.js junta-lhe "Refazer planta".
+  // passam de item em item, Esc fecha e volta ao "⋯", Tab fecha e segue para o seguinte, tocar fora fecha. O app.js junta-lhe "Refazer planta".
   const menu = el("div", "editor-menu");
   menu.id = "editor-menu";
   menu.setAttribute("role", "menu");
@@ -472,6 +473,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     bOutras.setAttribute("aria-expanded", "false");
     if (voltar && noMenu) bOutras.focus({ preventScroll: true });
   }
+  /** O elemento focável a seguir ao "⋯" na ordem do Tab (fora do menu). */
+  function depoisDoBotao() {
+    const l = [...document.querySelectorAll("a[href], button, input, select, textarea, summary, [tabindex]")]
+      .filter((x) => !menu.contains(x) && !x.disabled && x.tabIndex >= 0 && x.getClientRects().length && !x.closest("[inert], [hidden]"));
+    return l[l.indexOf(bOutras) + 1] ?? null;
+  }
   bOutras.addEventListener("click", () => (menuAberto() ? fecharMenu() : abrirMenu()));
   bOutras.addEventListener("keydown", (ev) => {
     if (ev.key === "ArrowDown" && !menuAberto()) { ev.preventDefault(); abrirMenu(); }
@@ -479,8 +486,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   menu.addEventListener("keydown", (ev) => {
     const l = itensMenu();
     const i = l.indexOf(document.activeElement);
-    // Tab fecha (menu), salvo na confirmação de "Refazer planta" (Tab passa entre "Sim" e "Cancelar").
-    if (ev.key === "Escape" || (ev.key === "Tab" && !ev.target.closest(".confirmar"))) { ev.preventDefault(); ev.stopPropagation(); fecharMenu(); return; }
+    if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); fecharMenu(); return; }
+    // Tab (padrão menu; também na confirmação de "Refazer planta"): fecha e o foco segue para o elemento seguinte ao
+    // "⋯" (Shift+Tab: o próprio "⋯").
+    if (ev.key === "Tab") { ev.preventDefault(); ev.stopPropagation(); fecharMenu(false); (ev.shiftKey ? bOutras : depoisDoBotao() ?? bOutras).focus(); return; }
     const k = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: l.length - 1 }[ev.key];
     if (k === undefined || !l.length) return;
     ev.preventDefault();
@@ -1486,6 +1495,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     desenharTudo();
     fundoSec.open = true;
     mostrarLado(true);
+    mostrarFundoMsg("Parede marcada: escreva quanto mede e toque em \"Aplicar\".", "info");
     const input = fundoControlos.querySelector("#calibrar-metros");
     input?.focus();
   }
@@ -1502,7 +1512,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     f.y_cm = Math.round(a.y - (a.y - f.y_cm) * fator);
     ajustarPlantaAoFundo();
     calibracao = null;
-    confirmar(`Fundo calibrado: a imagem tem agora ${metros(f.largura_cm)} m de largura.`);
+    confirmar();
+    // A mensagem na janela do fundo (à vista, no lugar da de "Agora calibre…") e o foco num sítio lógico: o campo
+    // desapareceu ao redesenhar — "Fechar" da janela (dentro dela: Esc continua a fechá-la), ou o "⋯".
+    mostrarFundoMsg(`Fundo calibrado: a imagem tem agora ${metros(f.largura_cm)} m de largura.`, "ok");
+    (lado.open ? ladoFechar : bOutras).focus({ preventScroll: true });
     return true;
   }
 
@@ -1637,7 +1651,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         if (!aplicarCalibracao(Number(String(m.value).replace(",", ".")))) { erro.textContent = "Escreva o comprimento real em metros (ex.: 4,5)."; erro.hidden = false; m.focus(); }
       });
       m.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); aplicar.click(); } });
-      cancelar.addEventListener("click", () => { calibracao = null; desenharTudo(); });
+      cancelar.addEventListener("click", () => { calibracao = null; desenharTudo(); mostrarFundoMsg("", "info"); fundoControlos.querySelector("#calibrar")?.focus({ preventScroll: true }); });
       cal.append(campo("Quanto mede essa parede, em metros?", m), erro);
       const bs = el("div", "form-botoes");
       bs.append(aplicar, cancelar);
@@ -2163,6 +2177,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (!podeAparelhos && planta && obterElemento(selecionado)) selecionado = null;
       if (modo?.tipo === "elemento" && !podeAparelhos) definirModo(null);
       if (dlgMais.open) fecharMais();
+      for (const b of [...barraDiv.children, ...divisoesMais.children]) {
+        const t = tiposDivisao.find((x) => x.nome === b.dataset.divisao);
+        if (t) b.setAttribute("aria-label", rotuloDivisao(t));
+      }
       acertarBarra();
       if (planta) desenharTudo();
     },

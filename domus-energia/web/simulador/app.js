@@ -998,7 +998,10 @@ function acertarMexida() {
   const depois = sincAtual();
   let antes = estado.plantaSinc;
   if (!antes) {
-    if (!estado.plantaBase || (estado.plantaBase === assinaturaBase() && estado.plantaFase === depois.fase)) {
+    // Planta desenhada à mão antes de haver o que desenhar (sem plantaBase e ainda na fase "vazia"): não tem nada da
+    // casa — conta o que já tem (o Quarto feito à mão) e acrescenta só as divisões que faltam.
+    const aMaoDoZero = !estado.plantaBase && estado.plantaFase === "vazia";
+    if (!aMaoDoZero && (!estado.plantaBase || (estado.plantaBase === assinaturaBase() && estado.plantaFase === depois.fase))) {
       estado.plantaSinc = depois;
       return false;
     }
@@ -1386,13 +1389,20 @@ function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "I
     const fazer = () => { recalcular(); agendarGravacao(); desenhar(); ($(botaoId).hidden ? $(`titulo-${estado.passo}`) : $(botaoId)).focus(); };
     if (!editado()) { fazer(); return; }
     const c = el("div", "confirmar");
-    c.setAttribute("role", "alert");
-    c.append(el("p", null, pergunta));
+    const pg = el("p", null, pergunta);
+    c.append(pg);
     const bs = el("div", "botoes");
     const sim = el("button", "btn pequeno", textoSim);
     sim.type = "button";
     const nao = el("button", "btn sec pequeno", "Cancelar");
     nao.type = "button";
+    if (b.closest("[role=menu]")) {
+      // No menu do "⋯" ("Refazer planta"): a pergunta é um grupo de itens do menu (setas, Esc e Tab do editor.js).
+      pg.id = `${botaoId}-pergunta`;
+      c.setAttribute("role", "group");
+      c.setAttribute("aria-labelledby", pg.id);
+      for (const x of [sim, nao]) { x.setAttribute("role", "menuitem"); x.tabIndex = -1; }
+    } else c.setAttribute("role", "alert");
     sim.addEventListener("click", () => { c.remove(); fazer(); });
     nao.addEventListener("click", () => { c.remove(); b.focus(); });
     bs.append(sim, nao);
@@ -2147,6 +2157,7 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   const nomeL = nomeLinha(l, els.length).toLowerCase();
   const out = [];
   const linha = el("div", "aparelho-acao");
+  let quais = null;
   linha.append(botoesAcao(`${base}-acao`, `O que fazer: ${els.length > 1 ? `${els.length} ${nomeL}` : nomeL} (${onde})${els.length > 1 ? ", todos" : ""}`, comum,
     (k, id) => mudarAparelhos(d, els.map((e) => e.id), (e) => { e.acao = k; }, id)));
   if (els.length > 1) {
@@ -2154,7 +2165,6 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
     q.type = "button";
     q.id = `${base}-acao-quais`;
     q.setAttribute("aria-expanded", String(umAUm));
-    q.setAttribute("aria-controls", `${base}-acao-lista`);
     q.setAttribute("aria-label", `Escolher um a um: ${els.length} ${nomeL} (${onde})`);
     q.disabled = mistas;   // diferentes: a lista fica aberta
     q.addEventListener("click", () => {
@@ -2163,6 +2173,7 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
       focar(q.id);
     });
     linha.append(q);
+    quais = q;
   }
   out.push(linha);
   const detalhes = el("div", "aparelho-acao-detalhes");
@@ -2248,6 +2259,8 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   if (!temFoto && els.some((e) => acaoDe(e, sv) === "reparar")) detalhes.append(el("p", "ajuda acao-foto-dica falta-foto", "Tire uma foto da avaria (obrigatória): toque em \"Foto\"."));
   else if (!temFoto && els.some((e) => acaoDe(e, sv) === "substituir")) detalhes.append(el("p", "ajuda acao-foto-dica", "Tire uma foto — ajuda o eletricista (toque em \"Foto\")."));
   if (detalhes.childElementCount) out.push(detalhes);
+  // aria-controls só para a lista que existe (sem nada a perguntar, não há lista).
+  if (quais && detalhes.childElementCount) quais.setAttribute("aria-controls", detalhes.id);
   return out;
 }
 
@@ -2478,6 +2491,7 @@ function desenharQuadroTrocar() {
   c.replaceChildren();
   const t = el("h3", null, "Quadro elétrico");
   t.id = "trocar-quadro-titulo";
+  c.setAttribute("aria-labelledby", t.id);   // só com o título já desenhado (antes do passo não existe)
   const topo = el("div", "divisao-topo");
   topo.append(t);
   c.append(topo);
@@ -3350,7 +3364,7 @@ function anularRecomecar() {
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
 }
-/** O aviso fica logo por cima da barra de baixo (e do "Ver planta" fixo), ao centro dela: nunca tapa "Seguinte". */
+/** O aviso fica logo por cima da barra de baixo (onde está o "Ver planta"), ao centro dela: nunca tapa "Seguinte". */
 function posicionarAnular() {
   const a = $("sim-anular");
   if (!a.childElementCount) return;

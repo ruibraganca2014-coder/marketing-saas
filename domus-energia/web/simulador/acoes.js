@@ -110,11 +110,12 @@ export function plantaNovos(planta, servicos) {
 
 /**
  * Pedido (chave de preco.js PEDIDOS) de um elemento para a sua ação, ou null (Manter; ou Novo sem artigo — ponto de
- * luz, tomada normal, máquina, que entram pelos circuitos). Reparar = diagnóstico; Substituir = o aparelho (inteligente
- * se o cliente disse "Sim"; normal enquanto não responde) com as horas de troca; a máquina é do cliente: só a troca da
- * ligação.
+ * luz, tomada ou interruptor normal, máquina, que entram pelos circuitos). Reparar = diagnóstico; Substituir = o aparelho
+ * (inteligente se o cliente disse "Sim"; normal enquanto não responde) com as horas de troca; a máquina é do cliente: só
+ * a troca da ligação. Novo: a mesma decisão do preço (plantaInteligentes → contarPlanta): tomada/interruptor só se
+ * `inteligenteDe` (resposta do cliente, estado antigo ou o objetivo "Luzes pelo telemóvel").
  */
-export function pedidoDoElemento(e, acao) {
+export function pedidoDoElemento(e, acao, objetivos = []) {
   const p = e?.props ?? {};
   const botoes = Math.min(4, Math.max(1, Math.round(Number(p.botoes) || 1)));
   if (acao === "reparar") return "diagnostico";
@@ -129,8 +130,8 @@ export function pedidoDoElemento(e, acao) {
     return null;
   }
   if (acao === "novo") {
-    if (e.tipo === "interruptor") return `interruptor_${botoes}`;
-    if (e.tipo === "tomada") return p.inteligente ? "tomada" : null;
+    if (e.tipo === "interruptor") return inteligenteDe(e, objetivos) ? `interruptor_${botoes}` : null;
+    if (e.tipo === "tomada") return inteligenteDe(e, objetivos) ? "tomada" : null;
     if (e.tipo === "janela") return p.estore && p.motorizado ? "estore" : null;
     if (e.tipo === "sensor_movimento") return "sensor_movimento";
     if (e.tipo === "sensor_porta") return "sensor_porta";

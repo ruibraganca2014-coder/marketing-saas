@@ -8,7 +8,7 @@ import {
   inteligenteDe, plantaInteligentes,
 } from '../../web/simulador/acoes.js';
 import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa } from '../../web/simulador/casa.js';
-import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido } from '../../web/simulador/preco.js';
+import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido, encontrarArtigo } from '../../web/simulador/preco.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
@@ -323,4 +323,66 @@ test('planta mexida: acrescenta/tira só a máquina ou a divisão que mudou (div
   acertarPlantaMexida(p, sinc(casa2, []), sinc(casa, []), { casa });
   assert.equal(JSON.stringify(p.divisoes), antes);
   assert.equal(p.elementos.length, n);
+});
+
+test('lista de trabalho = preço: a mesma decisão (normal/inteligente, artigo, horas) em Novo, Trocar e Reparar', () => {
+  // Como app.js linhaArtigo: SKU e horas por unidade (Substituir: as horas de troca).
+  const linhaArtigo = (chave, acao) => {
+    const a = encontrarArtigo(chave, CATALOGO);
+    return { sku: a.sku, horas: acao === 'substituir' ? horasTroca(a) : Number(a.horas_instalacao) };
+  };
+  const cenarios = [
+    { servico: ['nova'], objetivos: [], acoes: {} },
+    { servico: ['nova'], objetivos: ['luzes'], acoes: {} },
+    { servico: ['nova'], objetivos: ['luzes'], acoes: { e3: { inteligente: false }, e1: { inteligente: true } } },
+    { servico: ['nova'], objetivos: [], acoes: { e4: { inteligente: true }, e2: { inteligente: false } } },
+    { servico: ['automatizar'], objetivos: ['luzes'], acoes: {
+      e1: { acao: 'novo', inteligente: true }, e2: { acao: 'novo', inteligente: false }, e3: { acao: 'novo' },
+      e4: { acao: 'substituir', inteligente: false }, e5: { acao: 'reparar', avaria: 'pisca' }, e6: { acao: 'substituir' } } },
+    { servico: ['automatizar', 'reparar'], objetivos: [], acoes: {
+      e1: { acao: 'substituir', inteligente: true }, e2: { acao: 'reparar', avaria: 'queimada' }, e3: { acao: 'novo', inteligente: true },
+      e4: { acao: 'novo' }, e5: { acao: 'substituir' }, e6: { acao: 'manter' } } },
+  ];
+  for (const c of cenarios) {
+    const e = estadoNovo();
+    e.servico = c.servico;
+    e.quer.objetivos = c.objetivos;
+    e.planta = planta(c.acoes);
+    e.divisoes = divisoesDaContagem(contarPlanta(plantaInteligentes(plantaNovos(e.planta, e.servico), c.objetivos)));
+    const preco = calcularPreco(pedidosDaSelecao(e), CATALOGO, null);
+    const sim = montarSimulacao(e, preco, 'base', [], linhaArtigo);
+    const doPreco = new Map(), daLista = new Map();
+    let hPreco = 0, hLista = 0;
+    for (const i of sim.itens.filter((x) => x.grupo !== 'quadro')) { doPreco.set(i.sku, (doPreco.get(i.sku) ?? 0) + i.qtd); hPreco += i.horas; }
+    for (const g of sim.trabalho) for (const a of g.acoes) {
+      for (const m of a.material) daLista.set(m.sku, (daLista.get(m.sku) ?? 0) + m.qtd);
+      hLista += a.horas;
+    }
+    const txt = JSON.stringify(c);
+    assert.deepEqual(Object.fromEntries([...daLista].sort()), Object.fromEntries([...doPreco].sort()), `material: ${txt}`);
+    assert.equal(Math.round(hLista * 100), Math.round(hPreco * 100), `horas: ${txt}`);
+  }
+});
+
+test('lista de trabalho: a foto de uma linha só vai para o grupo da ação que a pediu (não para o Manter)', () => {
+  const e = estadoNovo();
+  e.servico = ['reparar'];
+  e.planta = planta({ e1: { acao: 'reparar', avaria: 'queimada' } });
+  e.divisoes = [];
+  const sim = montarSimulacao(e, calcularPreco(pedidosDaSelecao(e), CATALOGO, null), 'base', [{ chave: 'd1:tomada', tipo: 'tomada' }]);
+  const tomadas = sim.trabalho[0].acoes.filter((a) => a.tipo === 'tomada');
+  assert.deepEqual(tomadas.map((a) => [a.acao, a.foto]), [['manter', null], ['reparar', 'd1:tomada']]);
+});
+
+test('fora da área servida: os avisos do pedido terminam em "(orientativo — a confirmar)" (sem visita)', () => {
+  const e = estadoNovo();
+  e.servico = ['automatizar'];
+  e.planta = planta({ e1: { acao: 'manter' } });
+  e.divisoes = [];
+  const preco = calcularPreco(pedidosDaSelecao(e), CATALOGO, null);
+  const dentro = montarSimulacao(e, preco, 'base', []).avisos;
+  const fora = montarSimulacao(e, { ...preco, deslocacao: { estado: 'fora_area', valor_iva: null } }, 'base', []).avisos;
+  assert.ok(dentro.length && dentro.every((a) => a.endsWith('(orientativo — confirmamos na visita)')));
+  assert.equal(fora.length, dentro.length);
+  assert.ok(fora.every((a) => a.endsWith('(orientativo — a confirmar)') && !/na visita/.test(a)), fora.join('\n'));
 });

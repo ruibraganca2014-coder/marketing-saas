@@ -51,6 +51,8 @@ button.sim-passo-botao:hover { background: var(--musgo-claro); }
 .sim-progresso .feito .sim-num { border-color: var(--musgo); color: var(--musgo-texto); }
 .sim-progresso .atual .sim-num { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
 .sim-progresso .atual .sim-passo-nome { color: var(--texto); font-weight: 800; }
+/* Nomes compridos ("Equipamentos", riscado ou não) partem com hífen em vez de passar para o passo do lado. */
+.sim-passo-nome { max-width: 100%; hyphens: auto; overflow-wrap: anywhere; }
 @media not all and (min-width: 720px) {
   .sim-passo-nome { display: none; }
   .sim-progresso .atual .sim-passo-nome { display: block; position: absolute; left: -10000px; }
@@ -304,8 +306,17 @@ input, select { min-height: 44px; }
 /* ---------- Navegação (fica visível no fundo do ecrã) ---------- */
 .sim-navegacao { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 20px; padding: 12px 0; background: var(--topo); border-top: 1px solid var(--borda); backdrop-filter: blur(8px); }
 .sim-navegacao #sim-seguinte { margin-left: auto; }
+.sim-ver-planta-curto { display: none; }
 .sim-guardado { font-size: .82rem; color: var(--texto-suave); text-align: center; min-width: 0; }
-@media (max-width: 479px) { .sim-guardado { display: none; } }
+@media (max-width: 479px) {
+  .sim-guardado { display: none; }
+  /* Telemóvel: Anterior · Planta · Seguinte cabem numa linha ("Ver planta" passa a "Planta"; o nome acessível fica "Ver planta"); um
+     "Seguinte" comprido ("Pagar 19 € e enviar") passa para baixo em vez de sair do ecrã. */
+  .sim-navegacao { flex-wrap: wrap; row-gap: 8px; }
+  .sim-navegacao .btn { padding-inline: 14px; }
+  .sim-ver-planta-longo { display: none; }
+  .sim-ver-planta-curto { display: inline; }
+}
 .pagina-simulador footer { padding-bottom: 28px; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -508,7 +519,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
   #sim-form > .sim-planta { grid-column: 2; grid-row: 1 / 5; position: sticky; top: 73px; z-index: 4; height: calc(100dvh - 73px - 92px); min-height: 420px; margin-bottom: -28px; }
   /* A coluna das perguntas é mais estreita do que o ecrã: as grelhas contam com a largura dela. */
   :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
-  :is(#divisoes, #trocar) .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 }
 @media (min-width: 1024px) and (max-width: 1199.98px) { #casa-tipos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media not all and (min-width: 1024px) {
@@ -517,10 +527,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
   .sim-planta.aberta { position: fixed; inset: 0; z-index: 60; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); overflow: hidden; }
   #editor-ecra-inteiro { display: none; }
   html.planta-aberta, html.planta-aberta body { overflow: hidden; }
-  .sim-ver-planta { display: inline-flex; position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 7; box-shadow: var(--sombra); }
-  .sim-planta[hidden] ~ .sim-ver-planta, #sim-form[hidden] .sim-ver-planta { display: none; }
-  /* O botão fixo e a barra de baixo não tapam o que tem o foco. */
-  html { scroll-padding-bottom: max(150px, calc(var(--sim-barra-h, 72px) + 12px)); }
+  /* "Ver planta" vive na barra Anterior/Seguinte (ao lado do Seguinte): nunca tapa os botões dela nem o resto. */
+  .sim-ver-planta { display: inline-flex; flex: none; }
+  #sim-form:has(> .sim-planta[hidden]) .sim-ver-planta, #sim-form[hidden] .sim-ver-planta { display: none; }
   .simulador { padding-bottom: 72px; }
 }
 @media (min-width: 1024px) { .sim-planta-fechar { display: none; } }
@@ -545,6 +554,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-progresso .nao-precisa .sim-passo-nome { text-decoration: line-through; }
 /* Divisões: Manter · Reparar · Substituir · Novo (botões curtos, juntos). */
 .divisoes-acoes-ajuda { margin: 0; color: var(--texto-suave); font-size: .92rem; }
+/* Com os botões de ação os aparelhos ficam numa coluna em todas as larguras (em 2 colunas, a 720–1023 px, os botões
+   ficavam cortados: "Mante", "Troca…"). */
+:is(#divisoes, #trocar) .aparelhos { grid-template-columns: minmax(0, 1fr); gap: 0; }
 .aparelho-acao { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-left: 44px; }
 .acao-botoes { display: inline-flex; flex-wrap: nowrap; border: 1px solid var(--borda); border-radius: 12px; overflow: hidden; background: var(--superficie); max-width: 100%; }
 .acao-botao { min-height: 40px; min-width: 0; padding: 4px 10px; border: 0; border-left: 1px solid var(--borda); background: transparent; color: var(--texto); font: 700 .85rem/1.1 var(--letra); cursor: pointer; }
