@@ -69,7 +69,7 @@ export function lerConfig(env = process.env) {
   const pagamentosModo = modoValido ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
   const semModo = !modoValido && !stripeChave;
   const pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0' && !semModo;
-  if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY): os pedidos com simulação são enviados sem pagar');
+  if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY): enviar é grátis, mas não se compra nada online (relatório, visita) e a avaria vai sem pagar');
   if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar"); o site e o painel mostram "Modo de demonstração"');
   // IVA dos pagamentos online (decisão do dono: a proposta é sem IVA e os pagamentos incluem-no). O valor no
   // painel (Catálogo → Configuração, "iva_pct") manda; IVA_TAXA só é o valor inicial.
@@ -128,8 +128,8 @@ export function lerConfig(env = process.env) {
     } : null,
     emailRemetente: String(env.EMAIL_REMETENTE || '').trim(),
     emailLocal: env.EMAIL_LOCAL === '1',     // modo local: os emails vão sempre para o registo (nunca SMTP)
-    // Pagamentos do pedido (19 €, sinal, restante): docs/PAGAMENTOS-PEDIDO.md
-    pagamentoPedido,                         // PAGAMENTO_PEDIDO=0 (ou sem modo nem chave): o pedido com simulação é enviado sem pagar
+    // Pagamentos do pedido (relatório, visita, avaria, sinal, restante): docs/PAGAMENTOS-PEDIDO.md
+    pagamentoPedido,                         // PAGAMENTO_PEDIDO=0 (ou sem modo nem chave): não se compra nada online (enviar é sempre grátis; a avaria também)
     pagamentosModo,
     pagamentosDesligadosSemModo: semModo,    // desligados porque falta configurar (aviso no painel)
     ivaTaxa,

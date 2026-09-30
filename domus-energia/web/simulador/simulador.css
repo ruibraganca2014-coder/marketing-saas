@@ -147,6 +147,8 @@ input, select { min-height: 44px; }
 .editor-mais-grelha { display: grid; align-content: start; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
 .editor-mais-grelha .ferramenta { white-space: normal; overflow-wrap: anywhere; hyphens: auto; }
 .editor-mais > .form-botoes { position: sticky; bottom: 0; padding: 10px 16px 16px; background: var(--superficie); border-top: 1px solid var(--borda); }
+/* "Acrescentar outro aparelho" (app.js abrirAparelhos): a grelha de "Mais…", com duas colunas já no telemóvel. */
+.janela-aparelhos .editor-mais-grelha { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
 /* Barra única das ações, centrada por cima da planta (editor.js `acoes`): grupos separados por um pequeno
    espaço; os botões que não se aplicam ficam desativados (a barra não muda de tamanho). No computador uma só
    fila (as duas linhas do DOM desfazem-se: display contents; quebra se não couber); no telemóvel duas filas —
@@ -661,5 +663,14 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 
 /* Passo Enviar: "A visita" (dias, período, urgência). */
 .sim-visita { display: grid; gap: 12px; margin-top: 16px; }
+/* Fase 3: "O que quer receber?" no passo Enviar (grátis / relatório / relatório e visita / só a visita). */
+.sim-compras { display: grid; gap: 10px; margin-top: 16px; min-width: 0; }
+.sim-compras h3 { margin: 0; }
+.sim-compras fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.sim-compras[hidden] { display: none; }
+.escolhas-grelha.compras-grelha { grid-template-columns: 1fr; }
+@media (min-width: 600px) { .escolhas-grelha.compras-grelha { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.compras-grelha .escolha { justify-content: flex-start; text-align: left; }
+.sim-compras .ajuda { margin: 0; }
 .sim-visita h3 { margin: 0; }
 .escolhas-grelha.visita-dias { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }

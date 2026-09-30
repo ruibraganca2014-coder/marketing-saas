@@ -7,7 +7,11 @@ import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
 import { pedidosAcoes } from "./acoes.js";
 
 // margem_pacotes_pct (fase 2): margem dos pacotes do passo "Melhorias" (melhorias.js), sobre material + mão de obra.
-export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, margem_intervalo_pct: 15, deslocacao_iva: 0, margem_pacotes_pct: 20 };
+// Fase 3: o intervalo da estimativa é −intervalo_menos_pct / +intervalo_mais_pct (10 % / 20 %); um servidor antigo
+// só com `margem_intervalo_pct` usa-a para os dois lados (como antes). preco_relatorio_iva: o relatório pormenorizado.
+export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, intervalo_menos_pct: 10, intervalo_mais_pct: 20, deslocacao_iva: 0, margem_pacotes_pct: 20, preco_relatorio_iva: 29 };
+/** Visita técnica: a deslocação + estas horas × a tarifa (o servidor calcula o valor a pagar da mesma maneira). */
+export const VISITA_HORAS = 0.5;
 export const TEXTO_ESTIMATIVA = "Estimativa; valor final após a visita.";
 export const SKU_SY2 = "TONGOU-SY2-JWT";
 export const SKU_SY1 = "TONGOU-SY1-JWT";
@@ -149,9 +153,12 @@ export const arredondar5 = (x) => Math.round(x / 5) * 5;
  */
 export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extra = 0) {
   const cfg = { ...CONFIG_OMISSAO };
-  for (const k of Object.keys(CONFIG_OMISSAO)) {
-    const v = Number(config?.[k]);
-    if (config && config[k] !== undefined && config[k] !== null && Number.isFinite(v) && v >= 0) cfg[k] = v;
+  const valido = (k) => config && config[k] !== undefined && config[k] !== null && Number.isFinite(Number(config[k])) && Number(config[k]) >= 0;
+  for (const k of Object.keys(CONFIG_OMISSAO)) if (valido(k)) cfg[k] = Number(config[k]);
+  // Servidor antigo (só a margem simétrica): usa-a para os dois lados.
+  if (valido("margem_intervalo_pct")) {
+    if (!valido("intervalo_menos_pct")) cfg.intervalo_menos_pct = Number(config.margem_intervalo_pct);
+    if (!valido("intervalo_mais_pct")) cfg.intervalo_mais_pct = Number(config.margem_intervalo_pct);
   }
   const linhas = pedidos.map(({ chave, qtd, acao = null, grupo = null }) => {
     const a = encontrarArtigo(chave, catalogo);
@@ -174,10 +181,11 @@ export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extr
   const desloc = !linhas.length ? 0 : deslocacao ? deslocacao.valor_iva ?? 0 : cfg.deslocacao_iva;
   const margem = cent(Number(extra) > 0 ? Number(extra) : 0);
   const total = cent(artigos + mao + desloc + margem);
-  const m = Math.min(cfg.margem_intervalo_pct, 100) / 100;
+  const menos = Math.min(cfg.intervalo_menos_pct, 100) / 100;
+  const mais = cfg.intervalo_mais_pct / 100;
   return {
     linhas, horas, mao_obra_iva: mao, deslocacao_iva: desloc, artigos_iva: artigos, melhorias_margem_iva: margem, total,
-    min: Math.max(0, arredondar5(total * (1 - m))), max: arredondar5(total * (1 + m)), completo, config: cfg, deslocacao,
+    min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)), completo, config: cfg, deslocacao,
   };
 }
 

@@ -16,7 +16,7 @@ import {
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
-  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS,
+  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent,
 } from "./preco.js";
 import {
   SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, soReparacoes, precisaEscolher, temAcao,
@@ -30,6 +30,7 @@ import {
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, FOTO_AVARIA, legendaAvaria, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
+  divisaoVista, divisoesPorVer, marcarVista,
 } from "./estado.js";
 import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
@@ -43,6 +44,7 @@ import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
 import { criarBlocoConta, pedirConta, urlPainelApi, credenciais, faixaDemonstracao } from "../conta-comum.js";
+import { aplicarEntrada } from "./entrada.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -246,6 +248,7 @@ function podeIrPara(i) {
   if (posicao(i) > 0 && bloquearInicio()) return false;
   if (funilAvaria()) return !(i === P.enviar && bloquearAvaria());
   if (i > P.casa && !funilPlanta() && bloquearCasa()) return false;
+  if (bloquearPorVer(P.divisoes, i) || bloquearPorVer(P.trocar, i)) return false;   // divisão a divisão
   if (i > P.trocar && bloquearTrocar()) return false;
   return !(ordemPasso(i) > ordemPasso(P.melhorias) && bloquearMelhorias());
 }
@@ -261,7 +264,9 @@ function irPara(i, { foco = true } = {}) {
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
   if (!funilAvaria() && estado.passo > P.quer && de <= P.quer) prepararPassosSeguintes();
   if (estado.passo !== de) editor.limparAviso();   // as mensagens da planta não passam para o passo seguinte
+  const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
   mostrarPasso(foco);
+  if (porVerAoEntrar) mostrarNaPlanta(porVerAoEntrar);
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
 }
@@ -330,6 +335,8 @@ $("sim-seguinte").addEventListener("click", () => {
   // respondido (as Divisões são só contar: seguem logo); da Avaria com onde, o que se passa e a foto.
   if (estado.passo === P.inicio && bloquearInicio()) return;
   if (estado.passo === P.casa && bloquearCasa()) return;
+  // Divisões e "Trocar e reparar": primeiro a divisão seguinte ainda por ver (divisão a divisão).
+  if (verSeguinteDivisao()) return;
   if (estado.passo === P.trocar && bloquearTrocar()) return;
   if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
@@ -1834,6 +1841,7 @@ function garantirEditor() {
 }
 
 function mensagemDivisoes(texto, tipo = "info") {
+  avisoPorVer.divisoes = false;
   const m = $("divisoes-msg");
   m.textContent = texto ?? "";
   m.className = `msg ${tipo}`;
@@ -1860,20 +1868,22 @@ function tirarUm(d, l) {
  * estivesse). Pelo teclado o aparelho fica logo no meio da divisão (como as ferramentas do editor); o cliente
  * arrasta-o para o sítio certo. O cartão atualiza-se sozinho (aoMudar).
  */
-function acrescentar(d, l, ev = null) {
+function acrescentar(d, l, ev = null, { porJa = null, origem = null } = {}) {
   if (d && !garantirPlanta()) return;
   const teclado = ev?.detail === 0;
+  // Pôr logo no meio da divisão: pelo teclado, ou escolhido na janela dos aparelhos (abrirAparelhos).
+  const ja = porJa ?? teclado;
   garantirEditor();
   divisaoTocada = d?.id ?? null;
   // Telemóvel e tablet: abre a planta por cima (ao fechar, o foco volta a este botão); no computador está à direita.
-  abrirPlanta(ev?.currentTarget ?? document.activeElement);
+  abrirPlanta(origem ?? ev?.currentTarget ?? document.activeElement);
   const oque = l ? (l.modelo ? `a nova máquina (${MODELOS[l.modelo].nome.toLowerCase()})` : NOMES_TIPO[l.tipo][2]) : null;
   const texto = !d ? "Escolha a divisão nas ferramentas da planta."
-    : oque && teclado ? `Posto no meio de "${d.nome}": mova com as setas.`
+    : oque && ja ? `Posto no meio de "${d.nome}": ${teclado ? "mova com as setas" : "arraste-o para o sítio certo"}.`
       : oque ? `Toque em "${d.nome}" para pôr ${oque}.`
         : `Escolha o aparelho e toque em "${d.nome}".`;
   doCartao = true;
-  editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: teclado && !!l });
+  editor.prepararColocar({ divisao: d?.id ?? null, tipo: l?.tipo ?? null, modelo: l?.modelo ?? null, texto, porJa: ja && !!l });
   doCartao = false;
   if (estado.passo === P.trocar) mensagemTrocar(texto); else mensagemDivisoes(texto);
   // Sem ferramenta escolhida (ou sem divisão): o foco vai para a linha das ferramentas.
@@ -1919,10 +1929,10 @@ function escolherDivisao(id, focoId = null) {
   if (focoId) focar(focoId);
 }
 /**
- * A fila dos separadores. `pre`: "div" ou "tr" (ids); `feita(d)`: ✓; `falta(d)`: marcado quando `avisar` (o aviso do
- * "Seguinte" está à vista). Nas Divisões (só contar) nunca há ✓ nem marcas.
+ * A fila dos separadores. `pre`: "div" ou "tr" (ids); `feita(d)`: ✓ (`rotuloFeita` no nome acessível); `falta(d)`:
+ * marcado quando `avisar` (o aviso do "Seguinte" ou o "Falta ver: …" está à vista). Nas Divisões o ✓ é "vista".
  */
-function separadoresDivisoes(pre, planta, { feita, falta, avisar }) {
+function separadoresDivisoes(pre, planta, { feita, falta, avisar, rotuloFeita = "tudo respondido", rotuloFalta = "falta responder" }) {
   const caixa = el("div", "div-separadores");
   const ordem = divisoesPorOrdem(planta);
   const ativa = divisaoDoSeparador(planta);
@@ -1967,8 +1977,7 @@ function separadoresDivisoes(pre, planta, { feita, falta, avisar }) {
     ic.classList.add("div-tab-icone");
     b.append(ic, el("span", "div-tab-nome", d.nome || "Divisão"));
     if (ok) { const v = el("span", "div-tab-feita", "✓"); v.setAttribute("aria-hidden", "true"); b.append(v); }
-    // Só em "Trocar e reparar" (as Divisões são só contar: sem marcas).
-    b.setAttribute("aria-label", `${d.nome || "Divisão"}${ok ? " (tudo respondido)" : f ? " (falta responder)" : ""}`);
+    b.setAttribute("aria-label", `${d.nome || "Divisão"}${ok ? ` (${rotuloFeita})` : f ? ` (${rotuloFalta})` : ""}`);
     b.addEventListener("click", () => escolherDivisao(d.id, b.id));
     b.addEventListener("keydown", (ev) => {
       const k = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: doPiso.length - 1 }[ev.key];
@@ -1986,6 +1995,143 @@ function separadoresDivisoes(pre, planta, { feita, falta, avisar }) {
     if (b && lista.scrollWidth > lista.clientWidth) lista.scrollLeft = Math.max(0, b.offsetLeft - (lista.clientWidth - b.offsetWidth) / 2);
   });
   return caixa;
+}
+
+/*
+ * Divisão a divisão (decisão do dono; estado.js vistas): nas Divisões e em "Trocar e reparar" o "Seguinte" abre
+ * primeiro a divisão seguinte ainda por ver (✓ nas vistas); só depois de vistas todas passa ao passo seguinte. Uma
+ * divisão fica vista quando o seu separador (o cartão) se abre. Pela barra dos passos, para lá de um destes passos
+ * com divisões por ver, abre a primeira que falta com "Falta ver: …" (os separadores que faltam ficam marcados).
+ */
+const CHAVE_POR_DIVISAO = { [P.divisoes]: "divisoes", [P.trocar]: "trocar" };
+/** A chave do passo `i` se é divisão a divisão neste funil (e não é saltado: fluxo curto sem Divisões), senão null. */
+const porDivisao = (i) => (CHAVE_POR_DIVISAO[i] && sequencia().includes(i) && !naoPrecisa(i) ? CHAVE_POR_DIVISAO[i] : null);
+/** As divisões (pela ordem dos separadores) ainda por ver no passo `i`. */
+const porVer = (i) => { const k = porDivisao(i); return k ? divisoesPorVer(estado, k, divisoesPorOrdem(plantaDivisoes())) : []; };
+const avisoPorVer = { divisoes: false, trocar: false };   // o "Falta ver: …" está à vista (marca os separadores)
+function textoPorVer(l) {
+  const nomes = l.slice(0, 4).map((d) => d.nome || "Divisão");
+  if (l.length > 4) nomes.push(`mais ${l.length - 4}`);
+  return `Falta ver: ${listaPt(nomes)}.`;
+}
+function mensagemPorDivisao(texto, tipo = "info") {
+  if (estado.passo === P.trocar) mensagemTrocar(texto, tipo); else mensagemDivisoes(texto, tipo);
+}
+/** O separador `d` do passo à vista abriu-se: fica visto (e o "Falta ver: …", se está à vista, segue). */
+function verDivisao(d, planta) {
+  const k = porDivisao(estado.passo);
+  if (!k || !d) return;
+  if (marcarVista(estado, k, d, planta.divisoes)) agendarGravacao();
+  if (!avisoPorVer[k]) return;
+  const l = porVer(estado.passo);
+  if (!l.length) { mensagemPorDivisao("Já viu todas as divisões.", "ok"); return; }
+  mensagemPorDivisao(textoPorVer(l), "erro");
+  avisoPorVer[k] = true;
+}
+/**
+ * Ao entrar num passo divisão a divisão com divisões por ver: o separador abre na primeira que falta (o separador é
+ * o mesmo nos dois passos: das Divisões para "Trocar e reparar" recomeça na primeira). Devolve o id dela (para a
+ * mostrar na planta) ou null.
+ */
+function abrirPrimeiraPorVer() {
+  avisoPorVer.divisoes = avisoPorVer.trocar = false;
+  const l = porVer(estado.passo);
+  if (!l.length || l[0].id === divisaoAtiva) return null;
+  divisaoAtiva = l[0].id;
+  return divisaoAtiva;
+}
+const rolarAte = (x) => x?.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+/**
+ * "Seguinte" num passo divisão a divisão: abre a divisão seguinte ainda por ver (depois da do separador, pela ordem
+ * dos separadores) e rola até ela; o foco fica no "Seguinte". Devolve true se abriu (não passa ao passo seguinte).
+ */
+function verSeguinteDivisao() {
+  const l = porVer(estado.passo);
+  if (!l.length) return false;
+  const ordem = divisoesPorOrdem(plantaDivisoes());
+  const a = ordem.findIndex((d) => d.id === divisaoAtiva);
+  const falta = new Set(l.map((d) => d.id));
+  const d = [...ordem.slice(a + 1), ...ordem.slice(0, a + 1)].find((x) => falta.has(x.id));
+  escolherDivisao(d.id);
+  mensagemPorDivisao(`Divisão ${ordem.indexOf(d) + 1} de ${ordem.length}: ${d.nome || "Divisão"}.`);
+  rolarAte($(estado.passo === P.trocar ? "trocar" : "divisoes"));
+  return true;
+}
+/**
+ * Barra dos passos: do passo divisão a divisão `p` (ou de antes dele) para lá dele, com divisões por ver: fica (ou
+ * volta) em `p`, abre a primeira que falta e diz quais faltam. Devolve true se bloqueou.
+ */
+function bloquearPorVer(p, i) {
+  if (ordemPasso(i) <= ordemPasso(p) || ordemPasso(estado.passo) > ordemPasso(p)) return false;
+  const l = porVer(p);
+  if (!l.length) return false;
+  if (estado.passo !== p) irPara(p, { foco: false });
+  const k = CHAVE_POR_DIVISAO[p];
+  avisoPorVer[k] = true;   // os separadores que faltam ficam marcados
+  escolherDivisao(l[0].id, `${p === P.trocar ? "tr" : "div"}-${l[0].id}-titulo`);
+  mensagemPorDivisao(textoPorVer(l), "erro");   // as que faltavam (também a que se abriu agora)
+  avisoPorVer[k] = true;
+  rolarAte($(p === P.trocar ? "trocar-msg" : "divisoes-msg"));
+  return true;
+}
+
+/*
+ * "Acrescentar outro aparelho" (Divisões e Trocar e reparar): uma janela (<dialog> modal: Esc fecha, o resto da página
+ * fica inerte) com a grelha de todos os aparelhos — a mesma lista e os mesmos desenhos da linha das ferramentas da
+ * planta e de "Mais…" (editor.aparelhos()). Escolher um põe-no logo no meio da divisão (como o "+" pelo teclado) e
+ * fecha; "Fechar" ou Esc fecham e o foco volta ao botão.
+ */
+let janelaAparelhos = null;
+function abrirAparelhos(d, botaoId) {
+  const dlg = janelaAparelhos ?? (() => {
+    const j = el("dialog", "editor-dialogo editor-mais janela-aparelhos");
+    j.id = "aparelhos-janela";
+    j.setAttribute("aria-labelledby", "aparelhos-titulo");
+    const t = el("h2");
+    t.id = "aparelhos-titulo";
+    const corpo = el("div", "editor-mais-corpo");
+    corpo.id = "aparelhos-corpo";
+    const fechar = el("button", "btn sec", "Fechar");
+    fechar.type = "button";
+    fechar.id = "aparelhos-fechar";
+    fechar.addEventListener("click", () => j.close());
+    const bs = el("div", "form-botoes");
+    bs.append(fechar);
+    j.append(t, corpo, bs);
+    // Fechar sem escolher (Esc, "Fechar"): o foco volta ao botão (o cartão pode ter sido redesenhado: pelo id).
+    j.addEventListener("close", () => { if (!j.dataset.escolhido) focar(j.dataset.volta); });
+    document.body.append(j);
+    janelaAparelhos = j;
+    return j;
+  })();
+  dlg.dataset.volta = botaoId;
+  delete dlg.dataset.escolhido;
+  $("aparelhos-titulo").textContent = `Acrescentar aparelho: ${d.nome || "divisão"}`;
+  const lista = editor.aparelhos();
+  const corpo = $("aparelhos-corpo");
+  corpo.replaceChildren();
+  for (const [titulo, doGrupo] of [["Elementos", lista.filter((a) => a.tipo !== "maquina")], ["Máquinas", lista.filter((a) => a.tipo === "maquina")]]) {
+    if (!doGrupo.length) continue;
+    const s = el("section", "editor-mais-seccao");
+    const g = el("div", "editor-mais-grelha");
+    for (const a of doGrupo) {
+      const b = el("button", "ferramenta");
+      b.type = "button";
+      b.dataset.aparelho = a.chave;
+      b.append(desenharIcone(svgNovo(), a.tipo, a.props), el("span", "ferramenta-nome", a.nome));
+      b.addEventListener("click", (ev) => {
+        dlg.dataset.escolhido = "1";
+        dlg.close();
+        acrescentar(d, { tipo: a.tipo, modelo: a.modelo }, ev, { porJa: true, origem: $(botaoId) });
+      });
+      g.append(b);
+    }
+    s.append(el("h3", null, titulo), g);
+    corpo.append(s);
+  }
+  dlg.showModal();
+  corpo.scrollTop = 0;
+  corpo.querySelector("button")?.focus();
 }
 
 function mostrarNaPlanta(id) {
@@ -2025,7 +2171,10 @@ function desenharDivisoes() {
   // Lote 8: separadores (com pisos, primeiro o piso) e só o cartão da divisão escolhida.
   const ativa = divisaoDoSeparador(planta);
   if (ativa) {
-    c.append(separadoresDivisoes("div", planta, { feita: () => false, falta: () => false, avisar: false }));
+    // Divisão a divisão: a do separador fica vista (✓); com o "Falta ver: …" à vista, as que faltam ficam marcadas.
+    if (estado.passo === P.divisoes) verDivisao(ativa, planta);
+    const vista = (d) => divisaoVista(estado, "divisoes", d);
+    c.append(separadoresDivisoes("div", planta, { feita: vista, falta: (d) => !vista(d), avisar: avisoPorVer.divisoes, rotuloFeita: "vista", rotuloFalta: "falta ver" }));
     c.append(painelSeparador(cartaoDivisao(planta, ativa, "h3"), "div", ativa));
   }
   // Estados antigos: divisões acrescentadas à mão no passo (sem divisão na planta) continuam no pedido.
@@ -2111,8 +2260,9 @@ function cartaoDivisao(planta, d, nivel) {
   const outro = el("button", "btn sec pequeno", "Acrescentar outro aparelho");
   outro.type = "button";
   outro.id = `${id}-acrescentar`;
-  outro.setAttribute("aria-label", `Acrescentar outro aparelho: ${d.nome || "divisão"} (na planta)`);
-  outro.addEventListener("click", (ev) => acrescentar(d, null, ev));
+  outro.setAttribute("aria-label", `Acrescentar outro aparelho: ${d.nome || "divisão"}`);
+  outro.setAttribute("aria-haspopup", "dialog");
+  outro.addEventListener("click", () => abrirAparelhos(d, outro.id));
   bs.append(outro);
   c.append(bs);
   return c;
@@ -2442,6 +2592,7 @@ const nAvarias = (planta) => aReparar(planta).length + (estado.quadroAvaria !== 
 let avisoTrocar = false;
 function mensagemTrocar(texto, tipo = "info") {
   avisoTrocar = false;
+  avisoPorVer.trocar = false;
   const m = $("trocar-msg");
   m.textContent = texto ?? "";
   m.className = `msg ${tipo}`;
@@ -2543,8 +2694,15 @@ function desenharTrocar() {
   // Separadores (com pisos, primeiro o piso) e só o cartão da divisão escolhida (como no passo Divisões).
   const ativa = divisaoDoSeparador(planta);
   if (ativa) {
+    // Divisão a divisão: a do separador fica vista; ✓ nas vistas com tudo respondido.
+    verDivisao(ativa, planta);
     const pronta = (d) => !faltaTrocar(planta, d).length;
-    c.append(separadoresDivisoes("tr", planta, { feita: pronta, falta: (d) => !pronta(d), avisar: avisoTrocar }));
+    const vista = (d) => divisaoVista(estado, "trocar", d);
+    const falta = (d) => (avisoTrocar && !pronta(d)) || (avisoPorVer.trocar && !vista(d));
+    c.append(separadoresDivisoes("tr", planta, {
+      feita: (d) => pronta(d) && vista(d), falta, avisar: avisoTrocar || avisoPorVer.trocar,
+      rotuloFeita: "vista, tudo respondido", rotuloFalta: avisoPorVer.trocar ? "falta ver" : "falta responder",
+    }));
     c.append(painelSeparador(cartaoTrocar(planta, ativa, "h3"), "tr", ativa));
   }
   desenharAcaoPlanta();
@@ -2583,8 +2741,9 @@ function cartaoTrocar(planta, d, nivel) {
   const outro = el("button", "btn sec pequeno", "Acrescentar um aparelho");
   outro.type = "button";
   outro.id = `${id}-acrescentar`;
-  outro.setAttribute("aria-label", `Acrescentar um aparelho: ${d.nome || "divisão"} (na planta)`);
-  outro.addEventListener("click", (ev) => acrescentar(d, null, ev));
+  outro.setAttribute("aria-label", `Acrescentar um aparelho: ${d.nome || "divisão"}`);
+  outro.setAttribute("aria-haspopup", "dialog");
+  outro.addEventListener("click", () => abrirAparelhos(d, outro.id));
   bs.append(outro);
   c.append(bs);
   return c;
@@ -2938,13 +3097,11 @@ async function carregarCatalogo() {
     if (!j || !Array.isArray(j.itens)) throw new Error("formato");
     catalogo = j.itens.filter((a) => a && typeof a.sku === "string");
     configOrc = j.config && typeof j.config === "object" ? j.config : null;
-    // Pagamentos do pedido: faixa "Modo de demonstração" (simulados) e, desligados, "Enviar pedido" sem os 19 €.
+    // Pagamentos do pedido: faixa "Modo de demonstração" (simulados). Desligados: enviar é grátis na mesma, mas não se
+    // compra nada (nem o relatório pormenorizado, nem a visita) e a avaria vai sem pagar.
     faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
-    // Os textos seguem o estado dos pagamentos no servidor: desligados, nada de 19 € nem de pagar.
     pagamentosAtivos = !(j.pagamentos && j.pagamentos.ativo === false);
-    TEXTO_ENVIAR = pagamentosAtivos ? "Pagar 19 € e enviar" : "Enviar pedido";
-    if (estado.passo === P.enviar && !aEnviar) $("sim-seguinte").textContent = TEXTO_ENVIAR;
-    textosPagamento();
+    textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
   } catch {
     catalogo = null;
     configOrc = null;
@@ -3185,6 +3342,7 @@ function montarVisita() {
   $("visita-urgencia").append(...Object.keys(URGENCIAS).map((k) => escolha("radio", "visita-urgencia", k, NOME_URGENCIA[k], AJUDA_URGENCIA[k], (sim) => {
     if (sim) { estado.urgencia = k; agendarGravacao(false); }
   })));
+  montarCompras();   // fase 3: "O que quer receber?", no mesmo passo
 }
 function desenharVisita() {
   $("visita-urgencia-caixa").hidden = funilAvaria();   // na avaria já se pergunta no passo Avaria
@@ -3326,12 +3484,16 @@ function desenharDeslocacao() {
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
     caixa.append(el("p", null, `${d.concelho}${km}: fora da área servida, sem deslocação.`),
-      el("p", "sim-aviso-area", pagamentosAtivos ? "Sem visita técnica: os 19 € pagam só o relatório técnico." : "Sem visita técnica: contactamos para combinar."));
+      el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Sem visita técnica: contactamos para combinar."));
   }
   else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita."));
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
-  if (funilAvaria()) { if (semDesloc.total !== null) caixa.append(el("p", "num", textoDiagnostico(semDesloc.total))); }
+  if (funilAvaria()) {
+    if (semDesloc.total !== null) caixa.append(el("p", "num", textoDiagnostico(semDesloc.total)));
+    // A avaria paga-se ao enviar: o diagnóstico e a deslocação (o servidor confirma o valor).
+    if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(preco.total)} (descontado na reparação)`));
+  }
   else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
   caixa.hidden = false;
 }
@@ -3386,30 +3548,119 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
   m.hidden = false;
 }
 
-// ---- Pagamento dos 19 € (docs/PAGAMENTOS-PEDIDO.md): enviar = pagar o relatório técnico e a visita (descontados na
-// obra). O valor é sempre o do servidor. Volta-se de lá (Stripe ou página simulada) para simulador.html?pagamento=<ref>.
-let TEXTO_ENVIAR = "Pagar 19 € e enviar";   // "Enviar pedido" com os pagamentos desligados no servidor (carregarCatalogo)
-let pagamentosAtivos = true;                 // GET /api/catalogo `pagamentos.ativo` (até lá, como sempre: com os 19 €)
+// ---- Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: ENVIAR É GRÁTIS (o relatório básico fica logo na conta). No passo
+// Enviar compra-se o relatório pormenorizado e/ou a visita técnica (estado.compras), pagos a seguir ao envio (o pedido
+// já existe: se o pagamento falhar, compra-se depois na conta). A avaria rápida paga o diagnóstico e a deslocação ao
+// enviar e volta-se para simulador.html?pagamento=<ref>. O valor a pagar é sempre o do servidor; os daqui são para mostrar.
+let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamento)
+let pagamentosAtivos = true;          // GET /api/catalogo `pagamentos.ativo`: desligados, não se compra nada
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
 function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
 /** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
-/** A nota da estimativa: com os pagamentos desligados, sem os 19 €; fora da área, sem a visita. */
+/** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 42,50 € + deslocação". */
 const textoDiagnostico = (valor) => `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`;
-/** Os textos fixos do passo Enviar e de "Pedido enviado!" com os pagamentos ligados (19 €) ou desligados (e fora da área). */
+/** Número ≥ 0 da configuração do servidor, ou o de omissão (preco.js). */
+function valorConfig(k) {
+  const v = configOrc?.[k];
+  return v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : CONFIG_OMISSAO[k];
+}
+/** Relatório pormenorizado (€ c/ IVA): `preco_relatorio_iva` (29 €). */
+const precoRelatorio = () => valorConfig("preco_relatorio_iva");
+/** Visita técnica (€ c/ IVA): a deslocação até à localidade + 0,5 h × tarifa; null fora da área ou sem a localidade. */
+function precoVisita() {
+  const d = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
+  if (d.estado === "fora_area" || d.estado === "sem_localidade") return null;
+  return cent((d.valor_iva ?? 0) + VISITA_HORAS * valorConfig("tarifa_hora_iva"));
+}
+/** Compras no passo Enviar: com os pagamentos ligados e fora da avaria (lá o diagnóstico já inclui a visita). */
+const comprasAtivas = () => pagamentosAtivos && !funilAvaria();
+/** O que se compra de facto: estado.compras, sem a visita fora da área. */
+function compraEfetiva() {
+  if (!comprasAtivas()) return { relatorio: false, visita: false };
+  return { relatorio: estado.compras.relatorio, visita: estado.compras.visita && !foraDaArea() };
+}
+/** Chave da compra no pedido (`compra` do POST /api/orcamento). */
+const chaveCompra = (c) => (c.relatorio ? (c.visita ? "pormenorizado_visita" : "pormenorizado") : c.visita ? "visita" : "basico");
+/** O botão do passo Enviar: "Enviar pedido", "Enviar e pagar 29,00 €" ou, na avaria, "Pagar 47,60 € e enviar". */
+function textoBotaoEnviar() {
+  if (funilAvaria()) {
+    if (!pagamentosAtivos || foraDaArea()) return "Enviar pedido";
+    const t = calcular().preco.total;
+    return t !== null ? `Pagar ${formatarEuro(t)} e enviar` : "Pagar e enviar";
+  }
+  const c = compraEfetiva();
+  const pv = precoVisita();
+  if (c.visita && pv === null) return "Enviar e pagar";
+  const v = (c.relatorio ? precoRelatorio() : 0) + (c.visita ? pv : 0);
+  return v > 0 ? `Enviar e pagar ${formatarEuro(v)}` : "Enviar pedido";
+}
+/** Os textos do passo Enviar e de "Pedido enviado!" (compras, avaria, fora da área, pagamentos desligados). */
 function textosPagamento() {
   const fora = foraDaArea();
   $("enviar-visita").hidden = fora;
-  $("enviar-texto").textContent = pagamentosAtivos
-    ? `Enviar custa 19 €: ${fora ? "relatório técnico" : "relatório técnico e visita, descontados na obra"}. * obrigatório`
-    : `${fora ? "Enviamos e contactamos consigo." : "Enviamos e contactamos para marcar a visita."} * obrigatório`;
+  desenharCompras();
+  $("enviar-texto").textContent = funilAvaria() && pagamentosAtivos
+    ? `${fora ? "Fora da área servida: fale connosco." : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
+    : `Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório`;
+  TEXTO_ENVIAR = textoBotaoEnviar();
+  if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
   if (!enviado) {
-    $("fim-texto").textContent = fora
-      ? "Recebemos o pedido. Vamos contactá-lo em breve. Acompanhe-o na sua conta."
-      : "Recebemos o pedido. Vamos contactá-lo para marcar a visita. Acompanhe-o na sua conta.";
+    $("fim-texto").textContent = funilAvaria()
+      ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
+      : "Recebemos o pedido. O relatório básico já está na sua conta.";
   }
+}
+
+// Fase 3: "O que quer receber?" (estado.compras): só o relatório básico (grátis), o pormenorizado, os dois com a visita,
+// ou só a visita. Os preços seguem a configuração e a localidade; fora da área, sem as opções com visita.
+const OPCOES_COMPRA = {
+  basico: { relatorio: false, visita: false },
+  pormenorizado: { relatorio: true, visita: false },
+  pormenorizado_visita: { relatorio: true, visita: true },
+  visita: { relatorio: false, visita: true },
+};
+function montarCompras() {
+  $("enviar-compras-opcoes").append(...Object.entries(OPCOES_COMPRA).map(([k, c]) => {
+    const l = escolha("radio", "enviar-compra", k, "…", "…", (sim) => {   // os textos vêm de desenharCompras
+      if (!sim) return;
+      estado.compras = { ...c };
+      agendarGravacao(false);
+      textosPagamento();
+    });
+    l.dataset.compra = k;
+    return l;
+  }));
+}
+function desenharCompras() {
+  const caixa = $("enviar-compras");
+  caixa.hidden = !comprasAtivas();
+  if (caixa.hidden) return;
+  const pr = formatarEuro(precoRelatorio());
+  const v = precoVisita();
+  const semLocal = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "sem_localidade";
+  const pv = v === null ? null : formatarEuro(v);
+  const TEXTOS = {
+    basico: ["Só o relatório básico — grátis", "Estimativa e lista do trabalho, logo na conta."],
+    pormenorizado: [`Relatório pormenorizado — ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
+    pormenorizado_visita: [`Relatório pormenorizado e visita — ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
+      pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : "Escreva a localidade para ver o preço da visita."],
+    visita: [`Só a visita técnica${pv ? ` — ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : "Escreva a localidade para ver o preço."],
+  };
+  const atual = chaveCompra(compraEfetiva());
+  for (const l of $("enviar-compras-opcoes").children) {
+    const k = l.dataset.compra;
+    const [t, a] = TEXTOS[k];
+    const s = l.querySelector("span");
+    s.firstChild.textContent = t.replace(/ €/g, " €");   // o "€" nunca fica sozinho na linha
+    s.querySelector("small").textContent = a;
+    l.hidden = OPCOES_COMPRA[k].visita && foraDaArea();
+    l.querySelector("input").checked = k === atual;
+  }
+  $("enviar-compras-nota").textContent = foraDaArea() ? "Fora da área servida: sem visita técnica."
+    : `O que pagar agora é descontado na obra.${semLocal && estado.compras.visita ? " Para a visita, escreva a localidade." : ""}`;
 }
 const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "")
   ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
@@ -3494,6 +3745,20 @@ async function enviar() {
     $("enviar-msg").scrollIntoView({ block: "nearest" });
     return;
   }
+  // Fase 3: a avaria paga-se ao enviar — fora da área não se envia (fale connosco); a visita precisa da localidade.
+  if (funilAvaria() && pagamentosAtivos && foraDaArea()) {
+    mostrarEnvio("A sua localidade fica fora da área servida: não enviamos técnico. Fale connosco.", "erro", true);
+    return;
+  }
+  const compra = compraEfetiva();
+  if (compra.visita && precoVisita() === null) {
+    mostrarEnvio("Escreva a localidade (concelho) para marcarmos a visita.", "erro");
+    const i = $("contacto-localidade");
+    i.setAttribute("aria-invalid", "true");
+    i.setAttribute("aria-describedby", "enviar-msg");
+    i.focus();
+    return;
+  }
   desenharPreco();
   const { preco, plano, aceites } = ultimoPreco;
   const listaFotos = fotosParaEnvio();
@@ -3508,6 +3773,7 @@ async function enviar() {
     return;
   }
   const corpo = montarPedido(estado, sim, { codigo: codigoCliente, website: $("contacto-website").value });
+  if (chaveCompra(compra) !== "basico") corpo.compra = chaveCompra(compra);
   const botao = $("sim-seguinte");
   aEnviar = true;
   botao.disabled = true;
@@ -3529,9 +3795,9 @@ async function enviar() {
   } catch {
     estadoHttp = 0;
   }
-  if (estadoHttp >= 200 && estadoHttp < 300 && resposta?.pagamento) {
-    // Pagar os 19 € (docs/PAGAMENTOS-PEDIDO.md): o pedido fica no servidor "a aguardar pagamento"; a simulação fica
-    // gravada neste navegador e volta-se aqui (simulador.html?pagamento=<ref>) para confirmar e enviar as fotos.
+  if (estadoHttp === 202 && resposta?.pagamento) {
+    // Avaria (docs/PAGAMENTOS-PEDIDO.md): o pedido fica no servidor "a aguardar pagamento"; a simulação fica gravada
+    // neste navegador e volta-se aqui (simulador.html?pagamento=<ref>) para confirmar e enviar as fotos.
     pagamentoEmCurso = true;
     clearTimeout(temporizadorConta);
     gravar();
@@ -3550,6 +3816,16 @@ async function enviar() {
     botao.disabled = false;
     botao.textContent = TEXTO_ENVIAR;
     concluido(preco, semFundo, resultadoFotos);
+    // Fase 3: a compra (relatório pormenorizado / visita) paga-se a seguir, sobre o pedido já enviado; volta-se à conta.
+    // Se não abrir, o pedido está feito na mesma: compra-se na conta.
+    if (resposta?.pagamento) {
+      $("fim-texto").textContent = "Recebemos o pedido. A abrir o pagamento…";
+      if (irPagar(resposta.pagamento)) return;
+    }
+    if (resposta?.pagamento || resposta?.pagamento_erro) {
+      const e = typeof resposta.pagamento_erro === "string" ? resposta.pagamento_erro.trim().slice(0, 200) : "";
+      $("fim-texto").textContent = `Recebemos o pedido e o relatório básico já está na sua conta. O pagamento não abriu${e ? ` (${e.replace(/[.!]$/, "")})` : ""}: pode comprar na sua conta.`;
+    }
     return;
   }
   aEnviar = false;
@@ -3572,6 +3848,8 @@ async function enviar() {
     mostrarEnvio(`Há dados em falta ou inválidos${e ? `: ${e}${/[.!?…]$/.test(e) ? "" : "."}` : "."} Verifique o formulário, ou fale connosco.`, "erro", true);
   }
   else if (estadoHttp === 413) mostrarEnvio("A simulação é demasiado grande para enviar. Remova o fundo da planta e tente de novo, ou fale connosco.", "erro", true);
+  // Avaria fora da área (ou sem o preço do diagnóstico): o servidor explica; fale connosco.
+  else if (estadoHttp === 409 && typeof erro === "string") mostrarEnvio(erro.trim().slice(0, 300), "erro", true);
   else mostrarEnvio(`Não foi possível enviar agora. A sua simulação fica guardada neste navegador: tente mais tarde${fale ? `, ou fale connosco ${fale}` : ""}.`, "erro", true);
 }
 
@@ -3618,9 +3896,8 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   if (!enviado) textosPagamento();   // o "Pedido enviado!" segue a localidade (fora da área: sem visita)
   enviado = true;
   if (pagamento) {
-    $("fim-texto").textContent = pagamento.com_visita === false
-      ? `Recebemos a sua simulação e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}). O relatório técnico fica pronto na sua conta depois de revisto pela nossa equipa (até 24 h). A sua localidade fica fora da área servida: não há visita técnica.`
-      : `Recebemos a sua simulação e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontados na obra. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.`;
+    // Avaria paga ao enviar: diagnóstico e deslocação (descontados se a reparação avançar); o CEO marca a visita.
+    $("fim-texto").textContent = `Recebemos o pedido e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. Vamos marcar a visita: a data fica na sua conta e vai por email.`;
     if (pagamento.modo === "simulado") $("fim-texto").textContent += " (Pagamento simulado: não foi cobrado nada.)";
   }
   clearTimeout(temporizador);
@@ -3826,7 +4103,7 @@ function iniciar() {
   const guardado = carregarEstado(armazem ?? semArmazem);
   // O catálogo pede-se já (o regresso do pagamento espera por ele para mostrar a estimativa enviada).
   promessaCatalogo = carregarCatalogo();
-  if (regressoPagamento && guardado) retomarDoPagamento(guardado);   // volta do pagamento dos 19 €
+  if (regressoPagamento && guardado) retomarDoPagamento(guardado);   // volta do pagamento da avaria
   else if (guardado && temProgresso(guardado, PASSO_INICIAL)) {
     // Lote 8: retoma logo onde ficou (sem "Continuar onde ficou?").
     estado = guardado;
@@ -3838,6 +4115,7 @@ function iniciar() {
   } else {
     // Sem simulação para continuar: o Início (com a casa guardada, se houver, no cartão "Já tenho a planta").
     if (guardado?.soCasa && temCasa(guardado) && !casaGuardada) { guardarCasa(armazem ?? semArmazem, guardado); casaGuardada = carregarCasa(armazem ?? semArmazem); }
+    aplicarEntrada(estado, params);   // páginas de anúncio: `?servico=` (entrada.js), antes do `?pacote=`
     preEscolherPacote();
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma

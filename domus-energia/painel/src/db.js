@@ -16,7 +16,13 @@ export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'propo
 export const ESTADO_ARQUIVADO = 'arquivado';
 export const ESTADOS_OBRA = ['agendada', 'em_curso', 'concluida', 'cancelada'];
 export const PAPEIS = ['ceo', 'tecnico', 'comercial'];
-export const CATEGORIAS = ['disjuntor', 'interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
+/**
+ * Fases dos pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md). `relatorio`: os 19 € do modelo antigo (relatório técnico
+ * e visita; só as linhas que já existem). Fase 3: `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` (os dois
+ * de uma vez, no passo Enviar) e `avaria` (diagnóstico + deslocação, pagos ao enviar a avaria rápida).
+ */
+export const FASES_PAGAMENTO = ['relatorio', 'sinal', 'restante', 'relatorio_pormenorizado', 'visita', 'pormenorizado_visita', 'avaria'];
+export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
 
@@ -333,6 +339,32 @@ export const MIGRACOES = [
   // 13 — margem dos pacotes do passo "Melhorias" do simulador (fase 2; 20 %). INSERT OR IGNORE: nunca mexe num valor
   // que o CEO já tenha editado.
   (db) => db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('margem_pacotes_pct', 20);`),
+  // 14 — fase 3 (monetização, docs/PAGAMENTOS-PEDIDO.md): enviar o pedido é grátis (relatório básico); compram-se à
+  // parte o relatório pormenorizado (`preco_relatorio_iva`, 29 €), a visita técnica (deslocação + 0,5 h × tarifa) ou os
+  // dois juntos; a avaria rápida paga o diagnóstico e a deslocação ao enviar. Recria `pagamentos_pedido` com as fases
+  // novas no CHECK (procedimento da migração 12: mesmas colunas, dados, índices e sequência); as linhas antigas
+  // (`relatorio`, os 19 €) ficam como estão. O intervalo da estimativa passa a −10 % / +20 % (`intervalo_menos_pct`,
+  // `intervalo_mais_pct`); `margem_intervalo_pct` fica na base (já não é usada). INSERT OR IGNORE: nunca mexe num valor
+  // que o CEO já tenha editado.
+  semChaves((db) => {
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pagamentos_pedido'").get().sql;
+    const fases = `fase TEXT NOT NULL CHECK (fase IN (${lista(FASES_PAGAMENTO)}))`;
+    const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, 'CREATE TABLE pagamentos_pedido_novo')
+      .replace(/fase TEXT NOT NULL CHECK \(fase IN \([^)]*\)\)/i, fases);
+    if (!novo.includes(fases)) throw new Error('migração 14: não foi possível ler o esquema de pagamentos_pedido');
+    const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'pagamentos_pedido' AND sql IS NOT NULL").all().map((x) => x.sql);
+    const seq = Math.max(db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'pagamentos_pedido'").get()?.seq ?? 0,
+      db.prepare('SELECT MAX(id) AS m FROM pagamentos_pedido').get().m ?? 0);
+    db.exec(novo);
+    db.exec('INSERT INTO pagamentos_pedido_novo SELECT * FROM pagamentos_pedido');
+    db.exec('DROP TABLE pagamentos_pedido');
+    db.exec('ALTER TABLE pagamentos_pedido_novo RENAME TO pagamentos_pedido');
+    for (const i of indices) db.exec(i);
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('pagamentos_pedido', 'pagamentos_pedido_novo')").run();
+    if (seq) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('pagamentos_pedido', ?)").run(seq);
+    db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
+      ('intervalo_menos_pct', 10), ('intervalo_mais_pct', 20), ('preco_relatorio_iva', 29);`);
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

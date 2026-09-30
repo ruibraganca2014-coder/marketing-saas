@@ -2,8 +2,9 @@
 // conta — estado (recebido → visita → proposta → aceite → instalação), a simulação enviada (resumo simples),
 // as fotos (acrescentar/trocar enquanto o pedido não está aceite nem convertido), a proposta com "Aceito a
 // proposta", a simulação por acabar (retomar no simulador) e a ligação à área da casa (depois da instalação).
-// Pagamentos (docs/PAGAMENTOS-PEDIDO.md): estado e recibo de cada fase (19 €, sinal, restante), aceitar a proposta
-// com o plano mensal e pagar o sinal, "Pagar o restante" depois da obra, e o relatório técnico (depois de revisto).
+// Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: o relatório básico (grátis, logo ao enviar); comprar o relatório
+// pormenorizado (revisto antes de o vermos) e a visita técnica (a data aparece quando a marcarmos); estado e recibo de
+// cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 import { formatarEuroRedondo } from "./simulador/preco.js";
@@ -123,11 +124,13 @@ function cartaoPedido(p) {
     passos.append(li);
   }
   c.append(passos);
-  if (p.data_visita && !p.obra) c.append(el("p", null, `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
+  if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
   if (p.proposta) c.append(blocoProposta(p));
   if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
+  if (p.relatorio_basico) c.append(blocoBasico(p));
   if (p.relatorio) c.append(blocoRelatorio(p));
+  if (p.compras && !p.obra) { const v = blocoVisita(p); if (v) c.append(v); }
   if (p.pagamentos?.length) c.append(blocoPagamentos(p));
   if (p.resumo) c.append(blocoResumo(p.resumo, p.id));
   c.append(blocoFotos(p));
@@ -231,16 +234,38 @@ function blocoPagamentos(p) {
   return b;
 }
 
+/** Mensagem pequena por baixo de um botão (erros das compras). */
+function msgPequena() {
+  const m = el("div", "msg", null);
+  m.hidden = true;
+  m.setAttribute("role", "status");
+  return m;
+}
+
+/** Compras desligadas no servidor (sem Stripe): diz como pedir. */
+const SEM_COMPRAS = "Pagamentos online desligados: fale connosco para pedir.";
+
 function blocoRelatorio(p) {
   const b = el("section", "conta-relatorio");
-  b.setAttribute("aria-label", "Relatório técnico");
-  b.append(el("h4", null, "Relatório técnico"));
+  b.setAttribute("aria-label", "Relatório pormenorizado");
+  b.append(el("h4", null, "Relatório pormenorizado"));
+  if (p.relatorio === "por_comprar") {
+    const cp = p.compras;
+    b.append(el("p", null, "Material e preço de cada divisão, revisto pela nossa equipa (até 24 h). Descontado na obra."));
+    if (!cp?.pode) b.append(el("p", "ajuda", "Já não se compra neste pedido."));
+    else if (!cp.ativas) b.append(el("p", "ajuda", SEM_COMPRAS));
+    else {
+      const msg = msgPequena();
+      b.append(botaoPagar(p, "relatorio_pormenorizado", `Comprar relatório pormenorizado (${euro(cp.relatorio.valor)})`, msg), msg);
+    }
+    return b;
+  }
   if (p.relatorio === "em_revisao") {
     b.append(el("p", null, "Relatório em revisão (até 24 h). Avisamos por email quando estiver pronto."));
     return b;
   }
   const zona = el("div", "relatorio-cliente");
-  const ver = el("button", "btn sec pequeno nao-imprimir", "Ver o relatório técnico");
+  const ver = el("button", "btn sec pequeno nao-imprimir", "Ver o relatório pormenorizado");
   ver.type = "button";
   ver.id = `relatorio-${p.id}`;
   const imprimir = el("button", "btn sec pequeno nao-imprimir", "Descarregar (imprimir / PDF)");
@@ -251,7 +276,7 @@ function blocoRelatorio(p) {
     cartao?.classList.add("a-imprimir");
     document.body.classList.add("imprimir-relatorio");
     const antes = document.title;
-    document.title = `Relatório técnico — pedido ${p.id}`;
+    document.title = `Relatório pormenorizado — pedido ${p.id}`;
     const fim = () => { document.body.classList.remove("imprimir-relatorio"); cartao?.classList.remove("a-imprimir"); document.title = antes; };
     addEventListener("afterprint", fim, { once: true });
     window.print();
@@ -269,6 +294,76 @@ function blocoRelatorio(p) {
     }
   });
   b.append(el("p", "ajuda nao-imprimir", "Revisto pela nossa equipa: o trabalho, as divisões, o material e o preço de cada divisão."), ver, imprimir, zona);
+  return b;
+}
+
+/** Relatório básico (grátis, logo ao enviar): o intervalo e a lista de trabalho por divisão (sem material nem preços). */
+function blocoBasico(p) {
+  const b = el("section", "conta-relatorio conta-basico");
+  b.setAttribute("aria-label", "Relatório básico");
+  b.append(el("h4", null, "Relatório básico"));
+  const zona = el("div", "relatorio-cliente");
+  const ver = el("button", "btn sec pequeno", "Ver o relatório básico");
+  ver.type = "button";
+  ver.id = `basico-${p.id}`;
+  ver.addEventListener("click", async () => {
+    ver.disabled = true;
+    try {
+      const r = await pedirConta(`pedidos/${p.id}/relatorio-basico`);
+      zona.replaceChildren(...desenharBasico(r.relatorio));
+      ver.hidden = true;
+    } catch (e) {
+      zona.replaceChildren(el("p", "msg erro", e.message));
+      ver.disabled = false;
+    }
+  });
+  b.append(el("p", "ajuda", "A estimativa e a lista do trabalho, por divisão."), ver, zona);
+  return b;
+}
+
+function desenharBasico(r) {
+  const out = [];
+  if (r.intervalo) out.push(el("p", "valor num", `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`),
+    el("p", "ajuda", `Com IVA${r.com_deslocacao ? " e deslocação" : ", sem deslocação"}.`));
+  const a = r.acoes ?? {};
+  const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]
+    .filter(([k]) => a[k] > 0).map(([k, t]) => `${a[k]} ${a[k] === 1 ? "aparelho" : "aparelhos"} ${t}`);
+  if (resumo.length) out.push(el("p", null, `Lista de trabalho: ${resumo.join(" · ")}.`));
+  for (const d of r.divisoes) {
+    out.push(el("h5", null, d.nome));
+    const ul = el("ul");
+    for (const t of d.trabalho) ul.append(el("li", null, t));
+    out.push(ul);
+  }
+  if (r.melhorias?.length) {
+    const ul = el("ul");
+    for (const m of r.melhorias) ul.append(el("li", null, m));
+    out.push(el("h5", null, "Melhorias"), ul);
+  }
+  out.push(el("p", "ajuda", r.nota));
+  return out;
+}
+
+/** Visita técnica: comprar (deslocação + 30 min), paga à espera da data, ou fora da área. A data marcada vai no topo. */
+function blocoVisita(p) {
+  const cp = p.compras;
+  const v = cp.visita;
+  if (p.data_visita) return null;   // já marcada: a data está no topo do cartão
+  const b = el("section", "conta-relatorio conta-visita");
+  b.setAttribute("aria-label", "Visita técnica");
+  b.append(el("h4", null, "Visita técnica"));
+  if (v.paga) {
+    b.append(el("p", null, cp.avaria ? "Visita pedida com o diagnóstico. Vamos marcar a data e avisamos por email." : "Visita paga. Vamos marcar a data e avisamos por email."));
+    return b;
+  }
+  if (!cp.pode) return null;
+  if (v.fora_area) b.append(el("p", null, "Fora da área servida: sem visita técnica. Fale connosco."));
+  else if (!cp.ativas) b.append(el("p", null, "Um técnico vê a casa e confirma o trabalho. Descontada na obra."), el("p", "ajuda", SEM_COMPRAS));
+  else {
+    const msg = msgPequena();
+    b.append(el("p", null, "Um técnico vê a casa e confirma o trabalho: deslocação e 30 min no local. Descontada na obra."),
+      botaoPagar(p, "visita", `Marcar visita técnica (${euro(v.valor)})`, msg), msg);
+  }
   return b;
 }
 

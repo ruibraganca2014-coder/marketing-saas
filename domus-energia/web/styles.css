@@ -815,6 +815,8 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .relatorio-cliente td.num, .relatorio-cliente th.num { text-align: right; white-space: nowrap; }
 .relatorio-cliente h5 { margin: 12px 0 4px; font-size: 1rem; }
 .relatorio-cliente h6 { margin: 8px 0 2px; font-size: .95rem; }
+/* Fase 3: o intervalo do relatório básico e o total do pormenorizado em destaque. */
+.relatorio-cliente .valor { margin: 0; font-size: 1.4rem; font-weight: 800; }
 @media print {
   body.imprimir-relatorio > *:not(main), body.imprimir-relatorio #conta-cartao, body.imprimir-relatorio .conta-atalhos, body.imprimir-relatorio .conta-pedido:not(.a-imprimir), body.imprimir-relatorio .nao-imprimir { display: none !important; }
 }
@@ -823,3 +825,30 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-planos label { display: flex; flex-direction: row; justify-content: flex-start; text-align: left; font-weight: 600; }
 .conta-planos input[type=radio] { width: 22px; height: 22px; min-height: 0; margin: 0; flex: none; }
 .conta-relatorio .btn { justify-self: start; }
+
+/* =================== Páginas de anúncio (carregador-carro, quadro-eletrico, casa-inteligente, poupar-energia) =================== */
+.anuncio-hero h1 { font-size: clamp(2rem, 5.5vw, 3.2rem); }
+.anuncio-preco-caixa { justify-self: stretch; max-width: 420px; padding: 24px; }
+@media (min-width: 860px) { .anuncio-preco-caixa { justify-self: center; width: 100%; } }
+.anuncio-preco-rotulo { margin: 0; font-weight: 700; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .04em; font-size: .85rem; }
+.hero .anuncio-preco { margin: 4px 0 12px; font: 800 clamp(2.4rem, 8vw, 3.2rem)/1.1 var(--letra-titulos); color: var(--musgo-texto); max-width: none; }
+.hero .anuncio-preco-texto { font-size: clamp(1.6rem, 5vw, 2rem); }
+.hero .anuncio-preco-nota { margin: 0; font-size: .95rem; color: var(--texto-suave); }
+@media (min-width: 760px) { .anuncio-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.anuncio-faq { display: grid; gap: 12px; max-width: 760px; }
+.anuncio-faq details { padding: 0; }
+.anuncio-faq summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 12px 20px; cursor: pointer; font-weight: 700; list-style: none; border-radius: var(--raio); }
+.anuncio-faq summary::-webkit-details-marker { display: none; }
+.anuncio-faq summary::after { content: "+"; flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--musgo-claro); color: var(--musgo-texto); font-weight: 800; }
+.anuncio-faq details[open] summary::after { content: "\2212"; }
+.anuncio-faq details p { margin: 0; padding: 0 20px 18px; color: var(--texto-suave); }
+.anuncio-fim .wrap { text-align: center; }
+.anuncio-fim .sub { margin: 0 auto 24px; }
+/* Telemóveis estreitos: o cabeçalho só com a marca, o tema e o menu (a Área de cliente fica no menu). */
+@media (max-width: 399px) { .anuncio .topo .anuncio-cliente { display: none; } }
+/* Rodapé (também no index.html): links para as páginas de anúncio. */
+.rodape-servicos { flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.rodape-servicos ul { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; }
+.rodape-servicos a { display: inline-block; padding: 4px 0; color: var(--musgo-texto); font-weight: 400; }
+.rodape-servicos a[aria-current="page"] { color: var(--texto); font-weight: 700; text-decoration: none; }
+/* =================== fim: páginas de anúncio =================== */

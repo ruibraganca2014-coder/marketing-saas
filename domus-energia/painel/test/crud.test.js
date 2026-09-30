@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 9, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 12, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -70,12 +70,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
   assert.deepEqual(cfg, {
     tarifa_hora_iva: 45, margem_intervalo_pct: 15, deslocacao_iva: 12.5,
     deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20,
+    intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 8, '7 + margem_pacotes_pct (migração 13)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 11, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14)');
   db.close();
 });
 
@@ -100,6 +101,33 @@ test('migração 12 (arquivado): os pedidos já anonimizados pelo RGPD passam a 
   assert.throws(() => db.prepare("UPDATE orcamentos SET estado = 'xyz' WHERE id = 1").run(), /CHECK/);
   assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'orcamentos_conta'").get(), 'índices refeitos');
+  db.close();
+});
+
+test('migração 14 (fase 3): fases novas nos pagamentos; os 19 € antigos ficam; intervalo −10/+20 e relatório 29 € sem mexer no editado', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA foreign_keys = OFF');
+  for (const m of MIGRACOES.slice(0, 13)) m(db);
+  db.exec('PRAGMA foreign_keys = ON; PRAGMA user_version = 13');
+  db.prepare(`INSERT INTO orcamentos (criado, atualizado, nome, servico) VALUES ('x', 'x', 'Antigo', 'S')`).run();
+  const ins = db.prepare(`INSERT INTO pagamentos_pedido (ref, orcamento_id, fase, valor_cent, descricao, estado, modo, retorno, com_visita, criado, atualizado, expira, iva_pct)
+    VALUES (?, 1, ?, ?, 'R', 'pago', 'simulado', 'simulador', 1, 'x', 'x', 0, 23)`);
+  ins.run('pp_antigo', 'relatorio', 1900);
+  db.prepare('DELETE FROM pagamentos_pedido WHERE ref = ?').run('pp_antigo');
+  ins.run('pp_antigo2', 'relatorio', 1900);
+  assert.throws(() => ins.run('pp_novo0', 'visita', 2500), /CHECK/, 'antes da 14 a fase nova não entra');
+  db.prepare("INSERT INTO config_orcamento (chave, valor) VALUES ('preco_relatorio_iva', 35)").run();   // já editado (não muda)
+  migrar(db);
+  assert.equal(versaoEsquema(db), MIGRACOES.length);
+  assert.deepEqual({ ...db.prepare('SELECT id, ref, fase, valor_cent, com_visita, iva_pct FROM pagamentos_pedido').get() },
+    { id: 2, ref: 'pp_antigo2', fase: 'relatorio', valor_cent: 1900, com_visita: 1, iva_pct: 23 }, 'a linha dos 19 € fica igual');
+  for (const [i, f] of ['relatorio_pormenorizado', 'visita', 'pormenorizado_visita', 'avaria'].entries()) ins.run(`pp_novo${i}`, f, 2900);
+  assert.throws(() => ins.run('pp_mau', 'outra', 1), /CHECK/);
+  assert.equal(db.prepare("SELECT id FROM pagamentos_pedido WHERE ref = 'pp_novo0'").get().id, 3, 'a sequência continua (o id 1 apagado não volta)');
+  assert.throws(() => ins.run('pp_dup', 'relatorio_pormenorizado', 2900), /UNIQUE/, 'índice único (pedido, fase) paga refeito');
+  const cfg = Object.fromEntries(db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor]));
+  assert.deepEqual([cfg.intervalo_menos_pct, cfg.intervalo_mais_pct, cfg.preco_relatorio_iva, cfg.margem_intervalo_pct], [10, 20, 35, 15]);
+  assert.equal(db.prepare('PRAGMA foreign_key_check').all().length, 0);
   db.close();
 });
 

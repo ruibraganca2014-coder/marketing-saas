@@ -50,8 +50,8 @@ O painel **não** tem as palavras-passe do servidor. Para criar clientes, adicio
 
 ### Endpoint público do formulário
 `POST /api/orcamento` `{nome, telefone?, email?, localidade?, morada?, servico, mensagem?, website?, simulacao?}` → 201 `{ok:true}`. **Com `simulacao` (simulador) exige a sessão da conta de cliente com o email confirmado** (docs/CONTA-CLIENTE.md); o formulário simples do site (sem simulação) não. No pedido o painel mostra a conta (email, confirmado sim/não), o texto da proposta que o cliente vê (`proposta_texto`, com o valor, no estado "proposta enviada") e a aceitação online ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria; lista no Início). Validação (nome 1–120, pelo menos telefone ou email, textos com limites), `website` é campo-armadilha (se preenchido → 201 mas descartado), limite 5 pedidos/hora por IP. Fica na SQLite com estado `novo`; o painel mostra um alerta de pedido novo. **Com simulação há pagamentos** ([PAGAMENTOS-PEDIDO.md](PAGAMENTOS-PEDIDO.md)):
-- o pedido só entra (como `novo`) depois de pagos os 19 €;
-- a ficha mostra os pagamentos do pedido (19 €, sinal, restante) com o estado e "Simulado" no modo de teste;
+- o pedido entra logo (como `novo`; enviar é grátis); a avaria rápida só depois de paga (diagnóstico + deslocação);
+- a ficha mostra os pagamentos do pedido (relatório pormenorizado, visita, avaria, sinal, restante) com o estado e "Simulado" no modo de teste, e "Marcar visita" (dia e hora) com a disponibilidade do cliente;
 - o CEO tem "Libertar relatório ao cliente";
 - a aceitação online só conta como "Aceite" depois do sinal pago (antes aparece "Aceite — a aguardar sinal");
 - "Marcar obra concluída" abre o pagamento do restante na conta.

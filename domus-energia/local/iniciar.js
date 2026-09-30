@@ -105,7 +105,7 @@ arrancar('painel', {
   // Conta de cliente: os emails (códigos) vão sempre para o terminal; chave local para as credenciais da casa.
   EMAIL_LOCAL: '1',
   CONTA_CHAVE: segredos.contaChave,
-  // Pagamentos do pedido (19 €, sinal, restante): sempre SIMULADOS no local (página pagamento-simulado.html).
+  // Pagamentos do pedido (relatório, visita, avaria, sinal, restante): sempre SIMULADOS no local (página pagamento-simulado.html).
   PAGAMENTOS_MODO: 'simulado',
   PAINEL_MQTT_PASS: 'local',
   PAINEL_CEO_EMAIL: segredos.ceoEmail,

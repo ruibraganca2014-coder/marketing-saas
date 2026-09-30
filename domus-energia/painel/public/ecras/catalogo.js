@@ -90,9 +90,10 @@ export default function catalogo(el) {
     const f = h("form", { class: "form-grelha", id: "form-config", novalidate: true },
       h("div", { class: "tres" },
         campoForm("Tarifa por hora (€, c/ IVA)", entrada("tarifa_hora_iva", campo(config, "tarifa_hora_iva"), "1000")),
-        campoForm("Margem do intervalo (%)", entrada("margem_intervalo_pct", campo(config, "margem_intervalo_pct"), "100", "0.1"), "Estimativa = total ± esta margem"),
-        campoForm("Deslocação — valor fixo (€, c/ IVA)", entrada("deslocacao_iva", campo(config, "deslocacao_iva"), "10000"), "Mínimo de cada deslocação")),
+        campoForm("Intervalo para baixo (%)", entrada("intervalo_menos_pct", campo(config, "intervalo_menos_pct") ?? 10, "100", "0.1"), "Estimativa: de total − este %"),
+        campoForm("Intervalo para cima (%)", entrada("intervalo_mais_pct", campo(config, "intervalo_mais_pct") ?? 20, "100", "0.1"), "… até total + este %")),
       h("div", { class: "tres" },
+        campoForm("Deslocação — valor fixo (€, c/ IVA)", entrada("deslocacao_iva", campo(config, "deslocacao_iva"), "10000"), "Mínimo de cada deslocação"),
         campoForm("Margem dos pacotes (%)", entrada("margem_pacotes_pct", campo(config, "margem_pacotes_pct") ?? 20, "100", "0.1"), "Melhorias: (material + mão de obra) + esta margem")),
       h("fieldset", { class: "grupo" }, h("legend", { text: "Deslocação por distância" }),
         h("p", { class: "ajuda", text: "Distância estimada desde a base: linha reta entre as sedes dos concelhos × 1,3 (estradas). Deslocação = valor fixo + preço por km acima dos km grátis. Acima da distância máxima (ou entre o continente e as ilhas, ou noutra ilha) o simulador mostra \"fora da área servida — contacte-nos\"." }),
@@ -104,15 +105,17 @@ export default function catalogo(el) {
           campoForm("Distância máxima servida (km)", entrada("deslocacao_max_km", campo(config, "deslocacao_max_km"), "2000", "1")))),
       h("fieldset", { class: "grupo" }, h("legend", { text: "Pagamentos online" }),
         campoForm("IVA dos pagamentos (%)", entrada("iva_pct", campo(config, "iva_pct") ?? 23, "50", "0.1"),
-          "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). Os 19 € já são com IVA.")),
+          "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). O relatório, a visita e a avaria já são com IVA."),
+        campoForm("Relatório pormenorizado (€, c/ IVA)", entrada("preco_relatorio_iva", campo(config, "preco_relatorio_iva") ?? 29, "1000"),
+          "Enviar é grátis (relatório básico). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal.")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar configuração" })), msg);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const corpo = {};
-      for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["margem_intervalo_pct", 100, "A margem do intervalo"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
+      for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["intervalo_menos_pct", 100, "O intervalo para baixo"], ["intervalo_mais_pct", 100, "O intervalo para cima"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
         ["margem_pacotes_pct", 100, "A margem dos pacotes"],
         ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"],
-        ["iva_pct", 50, "A taxa de IVA"]]) {
+        ["iva_pct", 50, "A taxa de IVA"], ["preco_relatorio_iva", 1000, "O preço do relatório"]]) {
         const v = numero(f.elements[k].value);
         if (v === null || v < 0 || v > max) { mensagem(msg, `${rot} tem de ser um número entre 0 e ${num(max)}.`); f.elements[k].focus(); return; }
         corpo[k] = v;

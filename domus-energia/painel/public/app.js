@@ -57,7 +57,7 @@ function faixaPagamentos() {
   $("faixa-pagamentos")?.remove();
   const p = eu?.pagamentos;
   const texto = p?.demonstracao ? "Modo de demonstração — pagamentos simulados: não é cobrado nada e qualquer pessoa pode \"pagar\". Para pagamentos reais: PAGAMENTOS_MODO=stripe e as chaves do Stripe no .env."
-    : p?.desligados_sem_configuracao ? "Pagamentos desligados: os pedidos com simulação chegam sem os 19 €. Para os ligar: STRIPE_SECRET_KEY (e PAGAMENTOS_MODO=stripe) no .env."
+    : p?.desligados_sem_configuracao ? "Pagamentos desligados: os pedidos chegam na mesma (grátis), mas o cliente não compra o relatório nem a visita e a avaria chega sem pagar. Para os ligar: STRIPE_SECRET_KEY (e PAGAMENTOS_MODO=stripe) no .env."
       : null;
   if (texto) document.querySelector(".topo-painel").after(h("div", { class: `faixa-pagamentos${p?.demonstracao ? " demonstracao" : ""}`, id: "faixa-pagamentos", role: "note", text: texto }));
 }

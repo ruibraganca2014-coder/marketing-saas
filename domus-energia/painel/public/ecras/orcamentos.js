@@ -2,12 +2,13 @@
 // visita, valor da proposta, motivo de perda, histórico e "Converter em cliente e obra" (orçamento aceite).
 // Com simulação: "Relatório técnico" (#/orcamentos/<id>/relatorio), vista para imprimir / guardar PDF.
 // Fotos do cliente (simulador): galeria na ficha (CEO/comercial podem apagar) e no relatório.
-// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): 19 €, sinal e restante com o estado; "Libertar relatório ao
-// cliente" (CEO); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída" (restante na conta).
+// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): relatório pormenorizado, visita, avaria, sinal e restante com o
+// estado; "Libertar relatório ao cliente" (CEO, depois de o cliente o comprar); "Marcar visita" (data e hora, com a
+// disponibilidade do cliente); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída".
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -255,10 +256,10 @@ export default function orcamentos(el, ctx) {
     const out = [];
     const acoes = [];
     const sim = simulacaoDe(o) || campo(o, "tem_simulacao") === true;
-    const acao = async (b, caminho, aviso) => {
+    const acao = async (b, caminho, aviso, corpo = {}) => {
       b.disabled = true;
       try {
-        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/${caminho}`, { corpo: {} });
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/${caminho}`, { corpo });
         const novo = campo(r, "orcamento") ?? r;
         substituir(novo);
         avisar(aviso);
@@ -269,15 +270,21 @@ export default function orcamentos(el, ctx) {
       // O CEO vê primeiro o que o cliente vai ver (lista de trabalho, material e preços do catálogo) e depois liberta.
       if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "previa-relatorio-cliente", text: "Pré-visualizar versão do cliente",
         onclick: (e) => previaRelatorio(id, e.currentTarget) }));
-      if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório técnico libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
+      // Fase 3: o relatório básico é grátis e automático; o pormenorizado só se liberta depois de o cliente o comprar
+      // (com os pagamentos desligados não se compra: o CEO decide).
+      const cp = campo(o, "compras");
+      const comprado = !cp || cp.relatorio?.comprado || cp.ativas === false;
+      if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório pormenorizado libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
+      else if (!comprado) out.push(h("p", { class: "ajuda", id: "relatorio-por-comprar", text: cp?.avaria ? "Avaria: sem relatório pormenorizado (o cliente tem o básico)." : "O cliente tem o relatório básico; o pormenorizado ainda não foi comprado." }));
       else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
         onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
-      else out.push(h("p", { class: "ajuda", text: "Relatório técnico em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
+      else out.push(h("p", { class: "ajuda", text: "Relatório pormenorizado em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
+      out.push(...blocoVisitaPainel(j, o, acao));
     }
     // Proposta sem IVA → o que o cliente paga online (com IVA): total, sinal e restante.
     const vp = campo(o, "valores_pagamento");
     if (vp && typeof vp === "object") {
-      out.unshift(h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (30 % menos ${euros(vp.relatorio)} já pagos) · restante ${euros(vp.restante)}.` }));
+      out.unshift(h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (30 % menos ${euros(vp.pago_antes ?? vp.relatorio ?? 0)} já pagos) · restante ${euros(vp.restante)}.` }));
     }
     if (arquivado) { /* sem ações: o pedido não muda */ }
     else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
@@ -295,6 +302,34 @@ export default function orcamentos(el, ctx) {
       h("h3", { text: "Pagamentos" }),
       pags.length ? h("ul", { class: "linhas-simples" }, ...linhas) : h("p", { class: "ajuda", text: "Sem pagamentos online (pedido antigo, de contacto ou registado no painel)." }),
       ...out, acoes.length ? h("div", { class: "form-botoes" }, ...acoes) : null)];
+  }
+
+  /**
+   * Fase 3: a visita técnica — paga (ou pedida com a avaria) ou não; "Marcar visita" com o dia e a hora (o cliente vê-a
+   * na conta e recebe um email), ao lado da disponibilidade que ele deu no simulador.
+   */
+  function blocoVisitaPainel(j, o, acao) {
+    const cp = campo(o, "compras");
+    const estado = campo(o, "estado");
+    if (!cp || campo(o, "obra_id") || ["aceite", "perdido"].includes(estado)) return [];
+    const sim = simulacaoDe(o);
+    const disp = sim ? visitaTxt(sim) : null;
+    const urg = sim ? urgenciaDe(sim) : null;
+    const v = cp.visita ?? {};
+    const quando = campo(o, "data_visita");
+    const texto = v.paga ? (cp.avaria ? "Visita pedida com a avaria (paga)." : "Visita técnica paga pelo cliente.")
+      : v.fora_area ? "Sem visita: fora da área servida." : `Visita técnica ainda não paga${v.valor != null ? ` (${euros(v.valor)})` : ""}.`;
+    const partes = [h("p", { class: "ajuda", id: "visita-estado", text: `${texto}${quando ? ` Marcada para ${data(quando)}.` : ""}` })];
+    if (disp || urg) partes.push(h("p", { class: "ajuda", id: "visita-disponibilidade", text: `Disponibilidade do cliente: ${disp ? disp.toLowerCase() : "não indicou"}${urg && urg !== "normal" ? ` · ${URGENCIAS[urg]}` : ""}.` }));
+    if (!v.paga && !quando) return partes;
+    const entrada = h("input", { name: "data_visita_marcar", type: "datetime-local", "aria-label": "Dia e hora da visita", value: paraInput(quando) });
+    const b = h("button", { class: "btn pequeno", type: "button", id: "marcar-visita", text: quando ? "Mudar a visita" : "Marcar visita",
+      onclick: (e) => {
+        if (!/T\d{2}:\d{2}/.test(entrada.value)) { avisar("Indique o dia e a hora da visita.", "erro"); entrada.focus(); return; }
+        acao(e.currentTarget, "marcar-visita", "Visita marcada: o cliente vê-a na conta e recebe um email.", { data_visita: entrada.value });
+      } });
+    partes.push(h("div", { class: "form-botoes marcar-visita" }, entrada, b));
+    return partes;
   }
 
   /** "Pré-visualizar versão do cliente": o relatório que a conta vai ver (GET orcamentos/:id/relatorio-cliente). */
@@ -483,7 +518,7 @@ const ACOES = {
   orcamento_anonimizado_rgpd: "Anonimizado (RGPD): a conta foi apagada; os pagamentos ficam",
   pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",
   pagamento_expirado: "Pagamento expirado", pagamento_simulado: "Pagamento simulado (página de teste)",
-  relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída",
+  relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída", visita_marcada: "Visita marcada",
 };
 /** Conta de cliente do pedido ({email, confirmado, ativo} ou null) em texto. */
 function textoConta(c) {
@@ -512,7 +547,7 @@ function textoHistorico(x, sim) {
     if (d.data_visita) partes.push(`visita: ${data(d.data_visita)}`);
     if (d.valor_proposta != null) partes.push(`proposta: ${euros(d.valor_proposta)}`);
     if (d.cliente) partes.push(`cliente: ${d.cliente}`);
-    if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante" }[d.fase] ?? d.fase);
+    if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante", relatorio_pormenorizado: "relatório pormenorizado", visita: "visita técnica", pormenorizado_visita: "relatório e visita", avaria: "diagnóstico da avaria" }[d.fase] ?? d.fase);
     if (d.valor != null) partes.push(euros(d.valor));
     if (d.sinal != null) partes.push(`sinal: ${euros(d.sinal)}`);
     if (d.modo === "simulado" || d.resultado) partes.push(d.resultado ? `simulado: ${d.resultado}` : "simulado");

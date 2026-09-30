@@ -46,7 +46,7 @@ async function carregar() {
 }
 
 /**
- * Já pago, cancelado, falhado ou expirado: "Voltar ao simulador" (19 €: volta ao passo Enviar, que confirma o estado)
+ * Já pago, cancelado, falhado ou expirado: "Voltar ao simulador" (avaria: volta ao passo Enviar, que confirma o estado)
  * e "Voltar à conta" (onde se veem os pedidos e os recibos).
  */
 function ligacoesVoltar(p) {

@@ -224,8 +224,8 @@
         <!-- 10. Enviar -->
         <section class="sim-passo" id="passo-8" aria-labelledby="titulo-8" data-passo="8" hidden>
           <h2 id="titulo-8" tabindex="-1">10. Enviar</h2>
-          <!-- O texto segue os pagamentos do servidor (app.js textosPagamento): desligados, sem 19 € nem pagar. -->
-          <p class="sub-passo" id="enviar-texto">Enviar custa 19 €: relatório técnico e visita, descontados na obra. * obrigatório</p>
+          <!-- O texto segue o caso e os pagamentos do servidor (app.js textosPagamento): enviar é grátis; a avaria paga ao enviar. -->
+          <p class="sub-passo" id="enviar-texto">Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->
           <div class="cartao" id="enviar-conta" role="group" aria-labelledby="enviar-conta-titulo">
             <h3 id="enviar-conta-titulo">A sua conta</h3>
@@ -247,6 +247,15 @@
             <label>Mensagem (opcional)<textarea id="contacto-mensagem" name="mensagem" maxlength="2000"></textarea></label>
             <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
             <div class="armadilha" aria-hidden="true"><label>Website<input id="contacto-website" name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
+          </div>
+          <!-- Fase 3: o que recebe (estado.compras; app.js desenharCompras). Sem pagamentos e na avaria não aparece. -->
+          <div class="cartao sim-compras" id="enviar-compras" hidden>
+            <h3 id="enviar-compras-titulo">O que quer receber?</h3>
+            <fieldset class="escolhas">
+              <legend class="so-leitor">O que quer receber?</legend>
+              <div class="escolhas-grelha compras-grelha" id="enviar-compras-opcoes"></div>
+            </fieldset>
+            <p class="ajuda" id="enviar-compras-nota"></p>
           </div>
           <!-- Lote 8: disponibilidade para a visita e urgência (vão no pedido: §6 visita, urgencia). -->
           <div class="cartao sim-visita" id="enviar-visita">
@@ -295,7 +304,7 @@
         <section class="sim-passo sim-sucesso" id="passo-fim" aria-labelledby="titulo-fim" hidden>
           <div class="cartao">
             <h2 id="titulo-fim" tabindex="-1">Pedido enviado!</h2>
-            <p id="fim-texto">Recebemos o pedido. Vamos contactá-lo para marcar a visita. Acompanhe-o na sua conta.</p>
+            <p id="fim-texto">Recebemos o pedido. O relatório básico já está na sua conta.</p>
             <p class="sim-nota" id="fim-resumo"></p>
             <p class="msg" id="fim-fotos" hidden></p>
             <div class="form-botoes">

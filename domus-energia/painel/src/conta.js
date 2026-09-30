@@ -37,7 +37,7 @@ const RE_CODIGO = /^\d{6}$/;
 
 // Estados reais do painel → texto simples para o cliente.
 const TEXTO_ESTADO = {
-  novo: 'Pedido recebido. Vamos contactá-lo para marcar a visita técnica (incluída nos 19 €, descontados na obra).',
+  novo: 'Pedido recebido. O relatório básico já está aqui.',
   contactado: 'Pedido em análise. Já falámos consigo.',
   visita_marcada: 'Visita técnica marcada.',
   proposta_enviada: 'A sua proposta está pronta.',
@@ -564,8 +564,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   };
 
   // "Aceito a proposta" com o plano mensal escolhido (docs/PAGAMENTOS-PEDIDO.md): fica "Aceite — a aguardar sinal" e
-  // devolve o pagamento do sinal (30 % menos os 19 € já pagos); só depois de pago passa a "aceite" no painel
-  // ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria). Sem pagamentos (PAGAMENTO_PEDIDO=0) ou
+  // devolve o pagamento do sinal (30 % menos o que já foi pago: relatório, visita, avaria); só depois de pago passa a
+  // "aceite" no painel ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria). Sem pagamentos (PAGAMENTO_PEDIDO=0) ou
   // com sinal 0 fica logo aceite. Aceitar outra vez enquanto o sinal está por pagar devolve o mesmo pagamento.
   h.aceitar = async ({ req, res, c, params, ip }) => {
     const o = pedidoDaConta(c, params.id);

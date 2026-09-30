@@ -2297,6 +2297,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       abrirDialogo();
       return true;
     },
+    /**
+     * Os aparelhos da janela "Mais…" (a mesma lista e pela mesma ordem: elementos e depois as máquinas de
+     * definirMaquinas): [{chave, tipo, modelo, nome, props}] — para a grelha "Acrescentar outro aparelho" dos passos.
+     */
+    aparelhos() {
+      return [
+        ...TIPOS_ELEMENTO.filter((t) => t !== "maquina").map((t) => ({ chave: t, tipo: t, modelo: null, nome: ELEMENTOS[t].nome, props: ELEMENTOS[t].props })),
+        ...modelosMaq.map((m) => ({ chave: `maquina:${m}`, tipo: "maquina", modelo: m, nome: MODELOS[m].nome, props: { modelo: m } })),
+      ];
+    },
     /** Passo "Divisões" ("−"): apaga um elemento (um passo de anular, como o botão Apagar). */
     apagar(id) {
       if (!planta || !existe(id)) return false;

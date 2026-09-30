@@ -51,6 +51,27 @@ export const FUNIS = {
 export const CHAVES_FUNIL = Object.keys(FUNIS);
 /** Os passos do funil (sem funil escolhido, os da primeira vez). */
 export const passosDoFunil = (funil) => (FUNIS[funil] ?? FUNIS.primeira).passos;
+/**
+ * Divisão a divisão (decisão do dono): nos passos com um separador por divisão (Divisões e Trocar e reparar) o
+ * "Seguinte" passa primeiro por cada divisão ainda por ver. `vistas[passo]`: as divisões (da planta) cujo separador
+ * já se abriu nesse passo, pela chave id + nome (uma divisão nova, ou outra divisão com esse id numa planta
+ * redesenhada, fica por ver). `vistasLivres`: passos que um estado de antes desta regra já tinha passado (não prendem).
+ */
+export const PASSOS_POR_DIVISAO = ["divisoes", "trocar"];
+export const chaveVista = (d) => `${d.id}:${String(d.nome ?? "").slice(0, 60)}`;
+/** A divisão `d` já foi vista no passo `passo` ("divisoes" | "trocar")? */
+export const divisaoVista = (e, passo, d) => !!e.vistas?.[passo]?.includes(chaveVista(d));
+/** As divisões de `divisoes` (pela ordem dada) ainda por ver no passo; nenhuma num passo livre. */
+export const divisoesPorVer = (e, passo, divisoes) => (e.vistasLivres?.includes(passo) ? [] : divisoes.filter((d) => !divisaoVista(e, passo, d)));
+/** Marca `d` como vista no passo (fica só o das divisões que ainda existem, `divisoes`). Devolve true se mudou. */
+export function marcarVista(e, passo, d, divisoes) {
+  const antes = e.vistas?.[passo] ?? [];
+  const existem = new Set(divisoes.map(chaveVista));
+  const depois = [...new Set([...antes.filter((k) => existem.has(k)), chaveVista(d)])];
+  if (depois.length === antes.length && depois.every((k, i) => k === antes[i])) return false;
+  e.vistas = { ...e.vistas, [passo]: depois };
+  return true;
+}
 /** Serviços do funil "Já tenho a planta": automatizar e reparar (a omissão dos aparelhos é Manter). */
 export const SERVICO_PLANTA = ["automatizar", "reparar"];
 /**
@@ -161,6 +182,8 @@ export function estadoNovo() {
     divisoes: [],
     divisoesEditadas: false,  // o cliente mexeu na lista de divisões: não a refazemos sozinhos
     verificadas: [],           // ids das divisões (da planta) que o cliente marcou "Divisão verificada" (lote 5)
+    vistas: { divisoes: [], trocar: [] },   // divisão a divisão: as divisões já vistas em cada passo (chaveVista)
+    vistasLivres: [],          // passos que um estado de antes da regra "divisão a divisão" já tinha passado
     fotosId: null,             // liga as fotos guardadas no IndexedDB (fotos.js) a esta simulação
     extras: { central: false, termostatos: 0 },
     termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
@@ -171,6 +194,9 @@ export function estadoNovo() {
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
     melhoriasPorVer: false,                                  // fase 2: estado de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir
     instalado: null,                                         // fase 2: o que o pedido da casa guardada já instala (melhorias.js instaladoDe)
+    // Fase 3 (monetização): o que o cliente compra ao enviar — relatório pormenorizado e/ou visita técnica (nada: só o
+    // relatório básico, grátis). Um só sítio: outro passo pode escolhê-lo antes; o passo Enviar mostra-o e muda-o.
+    compras: { relatorio: false, visita: false },
   };
 }
 
@@ -486,6 +512,11 @@ export function normalizarEstado(v) {
   e.divisoesEditadas = bool(v.divisoesEditadas);
   // Lote 5 (estados antigos: sem nenhuma verificada e sem fotos).
   e.verificadas = [...new Set(lista(v.verificadas, MAX_DIVISOES + 1).filter((x) => typeof x === "string" && RE_ID_PLANTA.test(x)))];
+  // Divisão a divisão: estados de antes da regra ficam sem nenhuma vista, mas não prendem quem já passou do passo.
+  const vs = v.vistas && typeof v.vistas === "object" ? v.vistas : null;
+  for (const k of PASSOS_POR_DIVISAO) e.vistas[k] = [...new Set(lista(vs?.[k], MAX_DIVISOES + 1).filter((x) => typeof x === "string" && x.length <= 110))];
+  e.vistasLivres = vs ? PASSOS_POR_DIVISAO.filter((k) => lista(v.vistasLivres, 2).includes(k))
+    : PASSOS_POR_DIVISAO.filter((k) => ordemPasso(e.visitado) > ordemPasso(PASSO[k]));
   e.fotosId = typeof v.fotosId === "string" && /^[a-f0-9]{8,40}$/.test(v.fotosId) ? v.fotosId : null;
   const ex = v.extras && typeof v.extras === "object" ? v.extras : {};
   e.extras = { central: bool(ex.central), termostatos: int(ex.termostatos, 0, 20) };
@@ -496,6 +527,8 @@ export function normalizarEstado(v) {
   if (!e.contacto.localidade.trim()) e.contacto.localidade = txt(c.localidade, 80);   // a antiga localidade do passo 1
   e.visita = normalizarVisita(v.visita);
   e.urgencia = URGENCIAS[v.urgencia] ? v.urgencia : "normal";
+  const cp = v.compras && typeof v.compras === "object" ? v.compras : {};
+  e.compras = { relatorio: bool(cp.relatorio), visita: bool(cp.visita) };
   return e;
 }
 

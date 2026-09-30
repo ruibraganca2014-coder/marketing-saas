@@ -73,7 +73,7 @@ function corpoOrcamento(dados) {
   return corpo;
 }
 
-form.addEventListener("submit", async (e) => {
+form?.addEventListener("submit", async (e) => {   // as páginas de anúncio não têm o formulário
   e.preventDefault();
   const botao = form.querySelector("button");
   const dados = Object.fromEntries(new FormData(form));

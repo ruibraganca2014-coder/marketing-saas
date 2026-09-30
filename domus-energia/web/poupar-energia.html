@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Poupar energia em casa — Domus Energia</title>
+  <meta name="description" content="Descubra onde gasta eletricidade em casa, em Lisboa e arredores: medidor no quadro e medição nas máquinas grandes, tudo no telemóvel. Simule grátis e veja o preço.">
+  <link rel="canonical" href="https://opancas.pt/poupar-energia.html">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="pt_PT">
+  <meta property="og:site_name" content="Domus Energia">
+  <meta property="og:title" content="Poupar energia em casa — Domus Energia">
+  <meta property="og:description" content="Descubra onde gasta eletricidade em casa, em Lisboa e arredores: medidor no quadro e medição nas máquinas grandes, tudo no telemóvel. Simule grátis e veja o preço.">
+  <meta property="og:url" content="https://opancas.pt/poupar-energia.html">
+  <meta name="twitter:card" content="summary">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="anuncio">
+  <!-- Página de anúncio: o mesmo cabeçalho e rodapé do index.html. "Simular grátis" abre o simulador já escolhido. -->
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <a class="link" href="index.html#servicos">Serviços</a>
+        <a class="link" href="index.html#planos">Planos e preços</a>
+        <a class="link" href="simulador.html">Simular orçamento</a>
+        <a class="link" href="index.html#contactos">Contactos</a>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno anuncio-cliente" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
+        <button class="menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="menu-movel" aria-label="Menu"><svg class="abrir" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="fechar" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </nav>
+    </div>
+    <nav class="menu-movel" id="menu-movel" aria-label="Secções do site" hidden>
+      <ul>
+        <li><a href="index.html#servicos">Serviços</a></li>
+        <li><a href="index.html#planos">Planos e preços</a></li>
+        <li><a href="index.html#contactos">Contactos</a></li>
+        <li><a href="simulador.html">Simular orçamento</a></li>
+        <li><a href="cliente.html">Área de cliente</a></li>
+        <li><a href="conta.html">A minha conta</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero anuncio-hero">
+      <div class="wrap">
+        <div>
+          <div class="selo">Lisboa e arredores</div>
+          <h1>Poupar energia</h1>
+          <p>Saiba quanto gasta cada máquina e descubra os consumos escondidos, com a medição no telemóvel.</p>
+          <div class="acoes">
+            <a class="btn" href="simulador.html?pacote=poupar-energia">Simular grátis</a>
+            <a class="btn sec js-whatsapp" href="#">Falar no WhatsApp</a>
+          </div>
+        </div>
+        <div class="cartao anuncio-preco-caixa">
+          <p class="anuncio-preco-rotulo">A partir de</p>
+          <p class="anuncio-preco num">342 €</p>
+          <p class="anuncio-preco-nota">Valor do simulador para um T2 típico que já tem instalação (medidor geral e medição na placa, no termoacumulador e na máquina de lavar), IVA incluído. O da sua casa sai na hora.</p>
+        </div>
+      </div>
+    </div>
+
+    <section aria-labelledby="vantagens-titulo">
+      <div class="wrap">
+        <h2 id="vantagens-titulo">O que ganha</h2>
+        <div class="grelha anuncio-tres">
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 24a11 11 0 1 1 22 0"/><path d="M18 24l5-7"/><circle class="cheio" cx="18" cy="24" r="2.4"/></svg></div>
+            <h3>O consumo da casa toda</h3>
+            <p>Um medidor geral no quadro mostra na app quanto a casa está a gastar.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M6 29h24M9 29V19M15 29V12M21 29v-9M27 29V8"/><circle class="cheio" cx="27" cy="8" r="2.4"/></svg></div>
+            <h3>Máquina a máquina</h3>
+            <p>Disjuntores com medição nas máquinas grandes: veja quais pesam mais na fatura.</p>
+          </div>
+          <div class="cartao">
+            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M8 28C8 15 16 8 29 7c0 13-7 21-19 21z"/><path d="M8 28c5-6 10-10 15-13"/></svg></div>
+            <h3>Poupe com o que aprende</h3>
+            <p>Programe horários, desligue à distância o que ficou ligado e evite os consumos escondidos.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="alt" aria-labelledby="como-titulo">
+      <div class="wrap">
+        <h2 id="como-titulo">Como funciona</h2>
+        <p class="sub">Simular e enviar o pedido é grátis e recebe um relatório básico. O relatório detalhado (29 €) e a visita técnica são opcionais e, se a obra avançar, o valor é descontado.</p>
+        <div class="grelha passos anuncio-tres">
+          <div class="cartao"><h3>Simule grátis</h3><p>Responda a umas perguntas sobre a sua casa e veja uma estimativa do preço na hora.</p></div>
+          <div class="cartao"><h3>Receba o relatório</h3><p>Ao enviar o pedido recebe um relatório básico grátis. Se quiser, pede o relatório detalhado (29 €) ou uma visita técnica.</p></div>
+          <div class="cartao"><h3>Marcamos a obra</h3><p>Combinamos o dia consigo. Se a obra avançar, o relatório detalhado e a visita são descontados.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="perguntas-titulo">
+      <div class="wrap">
+        <h2 id="perguntas-titulo">Perguntas frequentes</h2>
+        <div class="anuncio-faq">
+          <details class="cartao">
+            <summary>Quanto vou poupar?</summary>
+            <p>Depende da casa e dos hábitos. Não prometemos um valor: mostramos para onde vai a energia e com isso decide o que mudar.</p>
+          </details>
+          <details class="cartao">
+            <summary>Preciso de trocar o quadro?</summary>
+            <p>Normalmente não: o medidor e os disjuntores com medição entram no quadro que já tem. Se faltar espaço, o simulador conta com a ampliação.</p>
+          </details>
+          <details class="cartao">
+            <summary>Onde vejo os consumos?</summary>
+            <p>Na app Domus Energia e na área de cliente, no telemóvel ou no computador.</p>
+          </details>
+          <details class="cartao">
+            <summary>Quanto custa simular?</summary>
+            <p>Simular e enviar o pedido é grátis e recebe um relatório básico. O relatório detalhado (29 €) e a visita técnica são opcionais e, se a obra avançar, o valor é descontado.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="alt anuncio-fim" aria-labelledby="fim-titulo">
+      <div class="wrap">
+        <h2 id="fim-titulo">Veja o preço para a sua casa</h2>
+        <p class="sub">Leva poucos minutos e é grátis.</p>
+        <a class="btn" href="simulador.html?pacote=poupar-energia">Simular grátis</a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <nav class="rodape-servicos" aria-label="Serviços">
+        <span>Serviços</span>
+        <ul>
+          <li><a href="carregador-carro.html">Carregador de carro em casa</a></li>
+          <li><a href="quadro-eletrico.html">Quadro elétrico antigo</a></li>
+          <li><a href="casa-inteligente.html">Casa inteligente</a></li>
+          <li><a href="poupar-energia.html" aria-current="page">Poupar energia</a></li>
+        </ul>
+      </nav>
+      <a href="conta.html">A minha conta</a>
+      <a href="cliente.html">Área de cliente</a>
+    </div>
+  </footer>
+
+  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4.5A11.5 11.5 0 0 0 6.2 22l-1.6 5.6 5.8-1.5A11.5 11.5 0 1 0 16 4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12.2 10.6c.4-.4 1-.3 1.2.2l1 2.2c.2.4 0 .8-.3 1.1l-.6.6c.8 1.7 2.1 3 3.8 3.8l.6-.6c.3-.3.8-.4 1.1-.2l2.2 1c.5.2.6.9.2 1.2-2.4 2.6-6 1-8.2-1.2s-3.9-5.7-1-8.1z" fill="currentColor"/></svg></a>
+
+  <script src="config.js"></script>
+  <script type="module" src="site.js"></script>
+</body>
+</html>

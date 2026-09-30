@@ -37,7 +37,7 @@ export default function pagamentos(el) {
   const exportar = h("button", { class: "btn sec", type: "button", id: "exportar-csv", text: "Exportar CSV", disabled: true });
   const zonaTotais = h("section", { class: "cartao", "aria-labelledby": "totais-titulo" }, h("h2", { id: "totais-titulo", text: "Totais por mês" }), carregando());
   const zonaTabela = h("div", { class: "tabela-rolar" });
-  // Pagamentos dos pedidos (19 €, sinal, restante; docs/PAGAMENTOS-PEDIDO.md), com base, IVA e total e o pedido
+  // Pagamentos dos pedidos (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md), com base, IVA e total e o pedido
   // (também os anonimizados pelo RGPD). CSV do servidor: data;referencia;descricao;base;iva;total;estado;pedido.
   const exportarPed = h("button", { class: "btn sec pequeno", type: "button", id: "exportar-csv-pedidos", text: "Exportar CSV", disabled: true });
   const zonaPed = h("div", { class: "tabela-rolar" }, carregando());
@@ -46,7 +46,7 @@ export default function pagamentos(el) {
     zonaTotais,
     h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Pagamentos" }), fMes), zonaTabela),
     h("section", { class: "bloco-lista", id: "pagamentos-pedidos", "aria-labelledby": "pp-titulo" },
-      h("div", { class: "seccao-topo" }, h("h2", { id: "pp-titulo", text: "Pagamentos dos pedidos (19 €, sinal e restante)" }), exportarPed), zonaPed));
+      h("div", { class: "seccao-topo" }, h("h2", { id: "pp-titulo", text: "Pagamentos dos pedidos (relatório, visita, sinal e restante)" }), exportarPed), zonaPed));
   fMes.addEventListener("change", desenharTabela);
   exportar.addEventListener("click", exportarCsv);
   exportarPed.addEventListener("click", async () => {

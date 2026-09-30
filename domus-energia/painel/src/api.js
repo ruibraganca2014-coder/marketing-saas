@@ -30,7 +30,12 @@ const RE_SKU = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
 const MAX_APARELHOS_CONVERTER = 60;
 const CONFIG_ORCAMENTO = {
   tarifa_hora_iva: { min: 0, max: 1000, rotulo: 'a tarifa por hora' },
-  margem_intervalo_pct: { min: 0, max: 100, rotulo: 'a margem do intervalo (%)' },
+  // Fase 3: intervalo da estimativa assimétrico (−10 % / +20 %; migração 14). O antigo `margem_intervalo_pct` fica na
+  // base mas já não se usa nem se edita.
+  intervalo_menos_pct: { min: 0, max: 100, rotulo: 'o intervalo para baixo (%)' },
+  intervalo_mais_pct: { min: 0, max: 100, rotulo: 'o intervalo para cima (%)' },
+  // Fase 3: preço do relatório pormenorizado (com IVA; docs/PAGAMENTOS-PEDIDO.md).
+  preco_relatorio_iva: { min: 0, max: 1000, rotulo: 'o preço do relatório pormenorizado' },
   // Fase 2: margem dos pacotes do passo "Melhorias" (sobre material + mão de obra; web/simulador/melhorias.js).
   margem_pacotes_pct: { min: 0, max: 100, rotulo: 'a margem dos pacotes (%)' },
   deslocacao_iva: { min: 0, max: 10_000, rotulo: 'o valor fixo da deslocação' },          // valor fixo (mínimo) de cada deslocação
@@ -74,6 +79,7 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/libertar-relatorio', ['ceo'], 'libertarRelatorio'],
   ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
+  ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -150,7 +156,7 @@ export function criarApi(ctx) {
 
   const porIpOrcamento = new LimiteTaxa(config.limiteOrcamentoHora, 3600_000, relogio);
   const global = new LimiteTaxa(config.limiteOrcamentoGlobal, 3600_000, relogio);
-  const porContaRetentativa = new LimiteTaxa(20, 3600_000, relogio);   // "Pagar 19 € e enviar" outra vez, por conta
+  const porContaRetentativa = new LimiteTaxa(20, 3600_000, relogio);   // pagar a avaria e enviar outra vez, por conta
 
   // ------------------------------------------------------------ auditoria
   const insAuditoria = db.prepare('INSERT INTO auditoria (quando, utilizador_id, email, acao, alvo, detalhes, ip) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -170,7 +176,7 @@ export function criarApi(ctx) {
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
-  // Pagamentos do pedido (19 €, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
+  // Pagamentos do pedido (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
   let pagPed = null;
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed });
   pagPed = criarPagamentosPedido({
@@ -211,6 +217,8 @@ export function criarApi(ctx) {
       aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
       pagamentos: pagPed.listarParaPainel(o.id),
+      // Fase 3: o que o cliente comprou (relatório pormenorizado, visita) e os preços dele.
+      compras: o.simulacao ? pagPed.compras(o) : null,
       // Proposta (sem IVA) → total com IVA, sinal e restante (o que o cliente paga online).
       valores_pagamento: pagPed.resumoValores(o),
       anonimizado: o.anonimizado ?? null,
@@ -844,6 +852,8 @@ export function criarApi(ctx) {
     const o = naoArquivado(obterOrcamento(params.id));
     if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há relatório para libertar.');
     if (o.relatorio_libertado) throw new ErroApi(409, 'O relatório já foi libertado ao cliente.');
+    // Fase 3: só depois de o cliente o comprar (com os pagamentos desligados não se compra: o CEO decide).
+    if (pagPed.ativo && !pagPed.temRelatorio(o)) throw new ErroApi(409, 'O cliente ainda não comprou o relatório pormenorizado.');
     const agora = agoraIso();
     db.prepare('UPDATE orcamentos SET relatorio_libertado = ?, atualizado = ? WHERE id = ? AND relatorio_libertado IS NULL').run(agora, agora, o.id);
     auditar(u, 'relatorio_libertado', `orcamento:${o.id}`, null, ip);
@@ -851,6 +861,29 @@ export function criarApi(ctx) {
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: o seu relatório técnico está pronto', resumo: `relatório do pedido ${o.id} libertado`,
         texto: ['Olá,', '', `O relatório técnico do seu pedido n.º ${o.id} já foi revisto pela nossa equipa e está na sua conta.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // Fase 3: "Marcar visita" — a data e a hora da visita técnica (paga, ou a da avaria). Passa a "Visita marcada" (se ainda
+  // estava antes disso) e avisa o cliente por email; a conta mostra a data.
+  h.marcarVisita = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['data_visita']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const quando = diaHora(v.data_visita, 'a data da visita');
+    if (!quando || !/T\d{2}:\d{2}/.test(quando)) falha('Indique o dia e a hora da visita.');
+    if (o.obra_id || ['aceite', 'perdido'].includes(o.estado)) throw new ErroApi(409, 'Este pedido já não tem visita técnica.');
+    const agora = agoraIso();
+    const estado = ['novo', 'contactado'].includes(o.estado) ? 'visita_marcada' : o.estado;
+    db.prepare('UPDATE orcamentos SET data_visita = ?, estado = ?, atualizado = ? WHERE id = ?').run(quando, estado, agora, o.id);
+    auditar(u, 'visita_marcada', `orcamento:${o.id}`, { data_visita: quando, estado }, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      // A data é a hora de Lisboa sem fuso (datetime-local): formata-se tal e qual.
+      const txt = new Date(`${quando}:00Z`).toLocaleString('pt-PT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+      correio.enviar({ para: email, assunto: 'Domus Energia: visita técnica marcada', resumo: `visita do pedido ${o.id} marcada para ${quando}`,
+        texto: ['Olá,', '', `A visita técnica do seu pedido n.º ${o.id} está marcada para ${txt}.`, 'Se não puder, responda a este email ou ligue-nos.',
+          ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
@@ -1017,7 +1050,7 @@ export function criarApi(ctx) {
     });
   };
 
-  // ---- pagamentos dos pedidos (19 €, sinal, restante; só CEO): lista e CSV (data, referência, descrição, base,
+  // ---- pagamentos dos pedidos (relatório, visita, avaria, sinal, restante; só CEO): lista e CSV (data, referência, descrição, base,
   // IVA, total, estado, pedido). Os pedidos anonimizados (RGPD) continuam ligados: a contabilidade fica completa.
   h.pagamentosPedido = ({ res, url }) => {
     const mes = url.searchParams.get('mes');
@@ -1242,7 +1275,7 @@ export function criarApi(ctx) {
   async function orcamentoPublico(req, res, ip) {
     if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
-    // Tentar pagar de novo os 19 € (falhou, cancelou ou ainda está por pagar) não gasta o limite por IP: a conta tem
+    // Tentar pagar de novo a avaria (falhou, cancelou ou ainda está por pagar) não gasta o limite por IP: a conta tem
     // uma tentativa nas últimas 24 h, que é reaproveitada ou substituída; há um limite próprio por conta.
     const sessaoConta = pagPed.ativo ? contas.sessao(req, res) : null;
     const retentativa = Boolean(sessaoConta?.confirmado) && pagPed.temTentativaRecente(sessaoConta.id);
@@ -1256,7 +1289,7 @@ export function criarApi(ctx) {
       porIpOrcamento.registar(ip);
       global.registar('*');
     }
-    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao'], LIMITE_ORCAMENTO);
+    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao', 'compra'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
@@ -1276,21 +1309,39 @@ export function criarApi(ctx) {
     if (!c.telefone && !c.email) falha('Indique um telefone ou um email para o podermos contactar.');
     const codigoCli = texto(v.codigo_cliente, 'o código de cliente', { max: 32, re: RE_ID, reMsg: 'Código de cliente inválido.' });
     const sim = validarSimulacao(v.simulacao);
-    // Pedido com simulação = pagar 19 € (docs/PAGAMENTOS-PEDIDO.md): fica "a aguardar pagamento" (não aparece no
-    // painel) e só passa a orçamento quando o pagamento for confirmado. O valor é sempre o do servidor.
-    if (conta && sim && pagPed.ativo) {
-      let local = c.localidade ?? null;
-      if (!local) { try { local = JSON.parse(sim)?.casa?.localidade ?? null; } catch { local = null; } }
-      const pagamento = await pagPed.iniciarRelatorio({ conta, pedido: { c, codigoCli, sim, ip }, localidade: local });
-      registo.info(`orçamento a aguardar pagamento (${pagamento.ref})`);
+    // Fase 3 (docs/PAGAMENTOS-PEDIDO.md): o que o cliente compra no passo Enviar — só o relatório básico (grátis), o
+    // relatório pormenorizado, a visita técnica, ou os dois. O valor é sempre o do servidor.
+    const COMPRA = { basico: null, pormenorizado: 'relatorio_pormenorizado', visita: 'visita', pormenorizado_visita: 'pormenorizado_visita' };
+    const compra = v.compra === undefined || v.compra === null ? 'basico' : opcao(v.compra, 'compra', Object.keys(COMPRA));
+    if (compra !== 'basico' && !(conta && sim)) falha('Só se compra o relatório com a simulação.');
+    let simObj = null;
+    if (sim) { try { simObj = JSON.parse(sim); } catch { simObj = null; } }
+    // Avaria rápida = pagar o diagnóstico e a deslocação ao enviar: fica "a aguardar pagamento" (não aparece no painel)
+    // e só passa a orçamento quando o pagamento for confirmado. Fora da área servida: 409 (fale connosco).
+    if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria') {
+      const local = c.localidade ?? simObj?.casa?.localidade ?? null;
+      const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip }, localidade: local });
+      registo.info(`avaria a aguardar pagamento (${pagamento.ref})`);
       return responder(res, 202, { ok: true, pagamento });
     }
+    // O resto é grátis: passa logo a orçamento ("novo"), com o relatório básico na conta.
     const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip });
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
-    responder(res, 201, { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX });
+    const r = { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX };
+    if (conta) r.pedido = id;
+    // A compra vai a seguir, sobre o pedido que já existe: se falhar, o pedido fica (compra-se depois na conta).
+    if (COMPRA[compra]) {
+      try {
+        r.pagamento = await pagPed.comprar(conta, db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(id), COMPRA[compra]);
+      } catch (e) {
+        if (!(e instanceof ErroApi)) registo.erro(`orçamento ${id}: compra ${compra}: ${e?.stack || e}`);
+        r.pagamento_erro = e instanceof ErroApi ? e.message : 'Não foi possível abrir o pagamento. Pode comprar na sua conta.';
+      }
+    }
+    responder(res, 201, r);
   }
 
-  /** Grava um pedido do site (formulário ou simulador); também quando o pagamento dos 19 € é confirmado. */
+  /** Grava um pedido do site (formulário ou simulador); também quando o pagamento da avaria é confirmado. */
   function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null }) {
     const agora = agoraIso();
     const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id)
@@ -1325,7 +1376,7 @@ export function criarApi(ctx) {
       });
     const cfg = lerConfigOrcamento();
     const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
-    // Pagamentos do pedido: o simulador mostra a faixa "Modo de demonstração" e o botão certo ("Pagar 19 €…" ou "Enviar").
+    // Pagamentos do pedido: o simulador mostra a faixa "Modo de demonstração" e as compras do passo Enviar (desligados: não há).
     const { ativo, modo, demonstracao } = pagPed.info();
     responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao } }, { 'Cache-Control': 'public, max-age=60' });
   }

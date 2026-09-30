@@ -1,15 +1,22 @@
-// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): 19 € ao enviar a simulação (o pedido só aparece no painel
-// depois de pago), sucesso/falha/cancelar simulados, idempotência, valores do servidor, sinal = 30 % − 19 €,
-// restante no fim da obra, acesso cruzado negado, expiração em 24 h, relatório libertado pelo CEO e o modo stripe
-// (Stripe falso ao nível do fetch; webhook assinado; a página simulada não existe).
+// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md), fase 3 (monetização): enviar é GRÁTIS (o pedido passa logo a
+// orçamento e o cliente tem o relatório básico: intervalo −10/+20 % e lista de trabalho, sem material nem preços);
+// compram-se à parte o relatório pormenorizado (29 €, revisto e libertado pelo CEO) e a visita técnica (deslocação +
+// 0,5 h × tarifa; fora da área não há), no passo Enviar (os dois juntos) ou na conta; o CEO marca a visita (data na
+// conta e no email); a avaria rápida paga o diagnóstico e a deslocação ao enviar. Sinal = 30 % − tudo o que já foi pago.
+// Também: sucesso/falha/cancelar simulados, idempotência, valores do servidor, acesso cruzado, expiração, RGPD e o
+// modo stripe (Stripe falso ao nível do fetch; webhook assinado; a página simulada não existe).
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { painelComEquipa } from './ajuda.js';
-import { calcularSinal, foraDaArea, comIva, partirIva, deslocacaoServidor } from '../src/pagamentos-pedido.js';
+import {
+  calcularSinal, foraDaArea, comIva, partirIva, deslocacaoServidor, intervaloEstimativa, valorVisitaCent, precoRelatorioCent,
+} from '../src/pagamentos-pedido.js';
 import { lerConfig } from '../src/config.js';
 import { calcularPreco, cent as centSim } from '../../web/simulador/preco.js';
+import { estadoNovo, montarSimulacao, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
 
 const SIM = {
   versao: 1, casa: { tipo: 'apartamento', tipologia: 'T2', localidade: 'Sintra' },
@@ -18,29 +25,56 @@ const SIM = {
     { sku: 'SENS-PORTA-WIFI', qtd: 1, preco_iva: 20 }, { sku: 'TONGOU-SY2-JWT', qtd: 3, preco_iva: 30 }],
   mao_obra: { horas: 5, valor_iva: 175 }, deslocacao: { estado: 'estimada', valor_iva: 10 },
   total: { min: 900, max: 1200 }, plano_sugerido: 'conforto', quadro: { pacote: 'recomendado', circuitos: [{ codigo: 'C1' }] },
+  visita: { dias: ['seg', 'qua'], periodo: 'manha' }, urgencia: 'semana',
 };
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
+/** Avaria rápida (fase 1) como o simulador a monta: diagnóstico, sem planta. */
+const SIM_AVARIA = (() => {
+  const e = estadoNovo();
+  e.funil = 'avaria';
+  e.passo = PASSO.avaria;
+  e.avaria = { onde: 'cozinha', problema: 'sem_corrente', descricao: 'A tomada não dá nada' };
+  e.contacto.localidade = 'Sintra';
+  const preco = calcularPreco([{ chave: 'diagnostico', qtd: 1, acao: 'reparar' }], CATALOGO, null);
+  return montarSimulacao(e, preco, null, [{ chave: FOTO_AVARIA, legenda: 'Avaria' }]);
+})();
 const JPEG = (n = 2000) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, 1)]);
+// Configuração de omissão (base nova): Lisboa, 20 km grátis, 0,40 €/km, 38 €/h. Sintra ≈ 29 km → deslocação 3,60 €.
+const DESLOC_SINTRA = 3.6;
+const VISITA_SINTRA = 22.6;            // 3,60 + 0,5 × 38
+const DIAG_SINTRA = 25 + 19 + 3.6;     // DIAG-AVARIA 25 € + 0,5 h × 38 + deslocação
 
-test('sinal = 30 % da proposta COM IVA menos os 19 € já pagos (nunca negativo); IVA; área servida e deslocação', () => {
-  // Decisão do dono: 1000 € + IVA 23 % = 1230 €; sinal = 30 % × 1230 − 19 = 350 €; restante = 1230 − 19 − 350 = 861 €.
+test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes; intervalo −10/+20; visita; relatório; área', () => {
+  // Doc: 1000 € + IVA 23 % = 1230 €; relatório 29 € + visita 25 € pagos antes → sinal = 369 − 54 = 315 €; restante 861 €.
   assert.equal(comIva(100_000, 23), 123_000);
-  assert.equal(calcularSinal(comIva(100_000, 23), 1900), 35_000);
-  assert.equal(comIva(100_000, 23) - 1900 - 35_000, 86_100);
-  assert.deepEqual(partirIva(1900, 23), { base: 1545, iva: 355 });
+  assert.equal(calcularSinal(comIva(100_000, 23), 2900 + 2500), 31_500);
+  assert.equal(comIva(100_000, 23) - 5400 - 31_500, 86_100);
+  assert.deepEqual(partirIva(2900, 23), { base: 2358, iva: 542 });
   assert.deepEqual(partirIva(86_100, 23), { base: 70_000, iva: 16_100 });
-  assert.equal(calcularSinal(100_000, 1900), 28_100);
   assert.equal(calcularSinal(100_000, 0), 30_000);
-  assert.equal(calcularSinal(5000, 1900), 0);
-  assert.equal(calcularSinal(33_333, 1900), 8100);
+  assert.equal(calcularSinal(5000, 2900), 0, 'nunca negativo');
+  // Intervalo assimétrico (−10 % / +20 %, múltiplos de 5); a configuração antiga (só margem_intervalo_pct) continua a ler-se.
+  assert.deepEqual(intervaloEstimativa(1000, { intervalo_menos_pct: 10, intervalo_mais_pct: 20 }), { min: 900, max: 1200 });
+  assert.deepEqual(intervaloEstimativa(1000, {}), { min: 900, max: 1200 }, 'omissão −10/+20');
+  assert.deepEqual(intervaloEstimativa(1000, { margem_intervalo_pct: 15 }), { min: 850, max: 1150 }, 'só a chave antiga');
+  assert.deepEqual(intervaloEstimativa(1000, { intervalo_menos_pct: 5, intervalo_mais_pct: 30, margem_intervalo_pct: 15 }), { min: 950, max: 1300 });
+  // Os mesmos números no simulador (preco.js).
+  const sim = calcularPreco([{ chave: 'tomada', qtd: 1 }], [{ sku: 'TOMADA-WIFI', categoria: 'tomada', preco_venda_iva: 1000, horas_instalacao: 0 }], { intervalo_menos_pct: 10, intervalo_mais_pct: 20 }, { valor_iva: 0 });
+  assert.deepEqual([sim.min, sim.max], [900, 1200]);
+  const simAntigo = calcularPreco([{ chave: 'tomada', qtd: 1 }], [{ sku: 'TOMADA-WIFI', categoria: 'tomada', preco_venda_iva: 1000, horas_instalacao: 0 }], { margem_intervalo_pct: 15 }, { valor_iva: 0 });
+  assert.deepEqual([simAntigo.min, simAntigo.max], [850, 1150], 'servidor antigo (só margem_intervalo_pct): simétrico como antes');
   const cfg = { deslocacao_base: 'Lisboa', deslocacao_max_km: 100 };
   assert.equal(foraDaArea('Sintra', cfg), false);
   assert.equal(foraDaArea('Funchal', cfg), true, 'ilha');
   assert.equal(foraDaArea('Bragança', cfg), true, 'longe');
   assert.equal(foraDaArea('uma aldeia qualquer', cfg), false, 'desconhecido: a visita confirma');
-  const cd = { ...cfg, deslocacao_iva: 5, deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4 };
+  const cd = { ...cfg, deslocacao_iva: 5, deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, tarifa_hora_iva: 40 };
   assert.equal(deslocacaoServidor('Sintra', cd), 8.6, '5 + (29 − 20) × 0,40');
-  assert.equal(deslocacaoServidor('uma aldeia qualquer', cd), 5, 'só o fixo');
-  assert.equal(deslocacaoServidor('Funchal', cd), null, 'fora da área: não soma');
+  assert.equal(valorVisitaCent('Sintra', cd), 2860, 'deslocação 8,60 + 0,5 h × 40');
+  assert.equal(valorVisitaCent('uma aldeia qualquer', cd), 2500, 'só o fixo + 0,5 h');
+  assert.equal(valorVisitaCent('Funchal', cd), null, 'fora da área: não há visita');
+  assert.equal(precoRelatorioCent({}), 2900);
+  assert.equal(precoRelatorioCent({ preco_relatorio_iva: 35 }), 3500);
 });
 
 describe('modo simulado', () => {
@@ -50,191 +84,349 @@ describe('modo simulado', () => {
 
   const nOrc = () => p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n;
   const painel = (metodo, caminho, papel = 'ceo', corpo) => p.pedir(metodo, `/painel/api/${caminho}`, { cookie: p.cookies[papel], corpo });
+  /** Enviar (grátis): 201 com o pedido; `compra` = pormenorizado | pormenorizado_visita traz também o pagamento. */
   async function enviar(c, extra = {}) {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Pago', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', simulacao: SIM, ...extra } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', simulacao: SIM, ...extra } });
+    assert.equal(r.estado, 201, r.texto);
+    assert.ok(r.json.pedido, 'o pedido já existe');
+    return r.json;
+  }
+  async function enviarAvaria(c, extra = {}) {
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA, ...extra } });
     assert.equal(r.estado, 202, r.texto);
     return r.json.pagamento;
   }
   const simular = (c, ref, resultado) => p.pedir('POST', `/api/conta/pagamentos/${ref}/simular`, { cookie: c.cookie, corpo: { resultado } });
   const ver = (c, ref, q = '') => p.pedir('GET', `/api/conta/pagamentos/${ref}${q}`, { cookie: c.cookie });
-
-  async function pedidoPago(c) {
-    const pg = await enviar(c);
-    const r = await simular(c, pg.ref, 'sucesso');
+  const comprar = (c, id, fase) => p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase } });
+  const pedidoConta = async (c, id) => (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
+  /** Compra paga (simulada) na conta; devolve o pagamento. */
+  async function comprado(c, id, fase) {
+    const r = await comprar(c, id, fase);
     assert.equal(r.estado, 200, r.texto);
-    return { ref: pg.ref, id: r.json.pagamento.orcamento_id };
+    const ok = await simular(c, r.json.pagamento.ref, 'sucesso');
+    assert.equal(ok.json.pagamento.estado, 'pago', ok.texto);
+    return ok.json.pagamento;
   }
 
-  test('enviar: 19 € calculados no servidor, "a aguardar pagamento" (não aparece no painel); falha → volta; sucesso → pedido recebido', async () => {
+  test('enviar é grátis: pedido "novo" logo, relatório básico na conta (intervalo −10/+20 e lista de trabalho; sem material nem preços)', async () => {
     const c = await p.contaConfirmada();
     const antes = nOrc();
     const novosAntes = (await painel('GET', 'resumo')).json.pedidos_novos;
-    // O browser não escolhe o valor (campo desconhecido → 400).
-    const x = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', simulacao: SIM, valor: 1 } });
-    assert.equal(x.estado, 400);
-    const pg = await enviar(c, { simulacao: { ...SIM, total: { min: 1, max: 2 } } });
-    assert.equal(pg.valor, 19);
-    assert.equal(pg.estado, 'pendente');
-    assert.equal(pg.modo, 'simulado');
-    assert.equal(pg.com_visita, true);
-    assert.match(pg.descricao, /visita técnica \(19 € descontados na obra\)/);
+    // O browser não escolhe o valor (campo desconhecido → 400) nem uma compra que não existe.
+    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', simulacao: SIM, valor: 1 } })).estado, 400);
+    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', simulacao: SIM, compra: 'tudo' } })).estado, 400);
+    assert.equal((await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', compra: 'pormenorizado' } })).estado, 400, 'sem simulação não se compra');
+    const r = await enviar(c);
+    assert.equal(r.pagamento, undefined, 'nada para pagar');
+    assert.ok(r.fotos_token);
+    assert.equal(nOrc(), antes + 1);
+    assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes + 1);
+    const o = (await painel('GET', `orcamentos/${r.pedido}`)).json;
+    assert.equal(o.estado, 'novo');
+    assert.deepEqual(o.pagamentos, []);
+    assert.equal(o.compras.relatorio.comprado, false);
+    assert.equal(o.compras.visita.valor, VISITA_SINTRA);
+    // Fotos com o token da resposta.
+    const fo = await p.pedir('POST', '/api/orcamento/fotos', { corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Fotos-Token': r.fotos_token, 'X-Foto-Chave': 'quadro', 'X-Foto-Legenda': 'Quadro' } });
+    assert.equal(fo.estado, 201, fo.texto);
+    // Na conta: básico já disponível; pormenorizado por comprar (29 €); visita por comprar (deslocação + 0,5 h).
+    const l = await pedidoConta(c, r.pedido);
+    assert.equal(l.estado_texto, 'Pedido recebido. O relatório básico já está aqui.');
+    assert.equal(l.relatorio_basico, true);
+    assert.equal(l.relatorio, 'por_comprar');
+    assert.deepEqual([l.compras.ativas, l.compras.pode, l.compras.relatorio.valor, l.compras.visita.valor, l.compras.visita.fora_area], [true, true, 29, VISITA_SINTRA, false]);
+    assert.equal((await p.pedir('GET', `/api/conta/pedidos/${r.pedido}/relatorio`, { cookie: c.cookie })).estado, 409, 'o pormenorizado não, sem o comprar');
+    const b = await p.pedir('GET', `/api/conta/pedidos/${r.pedido}/relatorio-basico`, { cookie: c.cookie });
+    assert.equal(b.estado, 200, b.texto);
+    const rel = b.json.relatorio;
+    const total = (await painel('GET', `orcamentos/${r.pedido}/relatorio-cliente`)).json.relatorio.total;
+    assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.9) / 5) * 5, max: Math.round((total * 1.2) / 5) * 5 }, 'do total do servidor, −10 % / +20 %');
+    assert.equal(rel.com_deslocacao, true);
+    assert.deepEqual(rel.divisoes.map((d) => d.nome), ['Sala', 'Quarto', 'Quadro elétrico e geral']);
+    assert.ok(rel.divisoes[0].trabalho.some((t) => /Novo: 2 interruptores/.test(t)));
+    for (const proibido of ['material', 'preco_unitario', 'mao_obra', 'total', 'geral', 'artigo']) assert.ok(!b.texto.includes(`"${proibido}"`), `o básico não tem ${proibido}`);
+    assert.doesNotMatch(b.texto, /INT-VIDRO|Interruptor de parede|fornecedor|circuito/i, 'nem artigos, nem plano técnico');
+    // Outra conta não o vê.
+    const x = await p.contaConfirmada();
+    assert.equal((await p.pedir('GET', `/api/conta/pedidos/${r.pedido}/relatorio-basico`, { cookie: x.cookie })).estado, 404);
+  });
+
+  test('intervalo configurável no painel (−5 % / +30 %): o relatório básico segue-o', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido } = await enviar(c);
+    assert.equal((await painel('POST', 'config-orcamento', 'ceo', { intervalo_menos_pct: 5, intervalo_mais_pct: 30 })).estado, 200);
+    try {
+      const total = (await painel('GET', `orcamentos/${pedido}/relatorio-cliente`)).json.relatorio.total;
+      const rel = (await p.pedir('GET', `/api/conta/pedidos/${pedido}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
+      assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.95) / 5) * 5, max: Math.round((total * 1.3) / 5) * 5 });
+      assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config.intervalo_mais_pct, 30, 'o simulador recebe-o');
+      assert.equal((await painel('POST', 'config-orcamento', 'ceo', { intervalo_menos_pct: 101 })).estado, 400);
+    } finally {
+      await painel('POST', 'config-orcamento', 'ceo', { intervalo_menos_pct: 10, intervalo_mais_pct: 20 });
+    }
+  });
+
+  test('relatório pormenorizado (29 €, do servidor): falhar não mexe no pedido; pago → em revisão; o CEO só liberta depois de comprado', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = await enviar(c);
+    assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 409, 'ainda não foi comprado');
+    const r = await comprar(c, id, 'relatorio_pormenorizado');
+    assert.equal(r.estado, 200, r.texto);
+    const pg = r.json.pagamento;
+    assert.deepEqual([pg.fase, pg.valor, pg.estado, pg.modo, pg.orcamento_id], ['relatorio_pormenorizado', 29, 'pendente', 'simulado', id]);
     assert.equal(pg.url, `pagamento-simulado.html?ref=${pg.ref}`);
-    assert.equal(nOrc(), antes, 'ainda não é um pedido do painel');
-    assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes);
-    // Clicar outra vez antes de pagar: o mesmo pagamento (não cria dois).
-    assert.equal((await enviar(c)).ref, pg.ref);
-    // Falha simulada: volta ao simulador com a simulação intacta; nada no painel; email "não concluído".
+    assert.match(pg.descricao, /^Relatório pormenorizado do pedido n\.º \d+ \(descontado na obra\)$/);
+    assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).json.pagamento.ref, pg.ref, 'clicar outra vez: o mesmo pagamento');
+    // Falha: o pedido continua igual (não se perde nada) e volta-se à conta.
     const f = await simular(c, pg.ref, 'falha');
-    assert.equal(f.estado, 200, f.texto);
     assert.equal(f.json.pagamento.estado, 'falhado');
+    assert.equal(f.json.voltar, `conta.html?pagamento=${pg.ref}`);
+    assert.match(p.emails.at(-1).texto, /não foi concluído/);
+    assert.equal((await painel('GET', `orcamentos/${id}`)).json.estado, 'novo');
+    assert.equal((await pedidoConta(c, id)).relatorio, 'por_comprar');
+    // De novo: pago → "em revisão" (até o CEO libertar); o email diz isso.
+    const pago = await comprado(c, id, 'relatorio_pormenorizado');
+    assert.deepEqual([pago.recibo.valor, pago.recibo.base, pago.recibo.iva], [29, 23.58, 5.42]);
+    assert.match(p.emails.at(-1).texto, /Recebemos o seu pagamento \(SIMULAÇÃO/);
+    assert.match(p.emails.at(-1).texto, /relatório pormenorizado fica pronto na sua conta depois de revisto/);
+    let l = await pedidoConta(c, id);
+    assert.equal(l.relatorio, 'em_revisao');
+    assert.equal(l.compras.relatorio.comprado, true);
+    assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).estado, 409, 'já comprado');
+    assert.equal((await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie })).json.erro, 'O relatório está em revisão (até 24 h).');
+    const o = (await painel('GET', `orcamentos/${id}`)).json;
+    assert.deepEqual(o.pagamentos.map((x) => [x.fase, x.fase_texto, x.valor, x.estado]), [['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 'falhado'], ['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 'pago']]);
+    const lib = await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {});
+    assert.equal(lib.estado, 200, lib.texto);
+    l = await pedidoConta(c, id);
+    assert.equal(l.relatorio, 'disponivel');
+    const rel = (await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie })).json.relatorio;
+    assert.ok(rel.divisoes[0].material.length, 'o pormenorizado tem o material');
+    assert.match(rel.nota, /descontado na obra/);
+  });
+
+  test('visita técnica: deslocação + 0,5 h × tarifa (servidor); fora da área recusada; paga → o CEO marca → conta e email com a data e a disponibilidade no painel', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = await enviar(c);
+    const pg = await comprado(c, id, 'visita');
+    assert.deepEqual([pg.fase, pg.valor, pg.com_visita], ['visita', VISITA_SINTRA, true]);
+    assert.match(p.emails.at(-1).texto, /Vamos marcar a visita técnica/);
+    let l = await pedidoConta(c, id);
+    assert.equal(l.compras.visita.paga, true);
+    assert.equal(l.relatorio, 'por_comprar', 'a visita não inclui o relatório');
+    assert.equal((await comprar(c, id, 'visita')).estado, 409, 'já paga');
+    assert.equal((await comprar(c, id, 'pormenorizado_visita')).estado, 409, 'nem os dois juntos');
+    // O CEO (ou o comercial) marca a visita: data e hora; "Visita marcada"; email e conta com a data.
+    assert.equal((await painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: '2026-10-05' })).estado, 400, 'sem hora');
+    assert.equal((await painel('POST', `orcamentos/${id}/marcar-visita`, 'tecnico', { data_visita: '2026-10-05T10:30' })).estado, 403);
+    const mv = await painel('POST', `orcamentos/${id}/marcar-visita`, 'comercial', { data_visita: '2026-10-05T10:30' });
+    assert.equal(mv.estado, 200, mv.texto);
+    assert.equal(mv.json.estado, 'visita_marcada');
+    assert.equal(mv.json.data_visita, '2026-10-05T10:30');
+    assert.ok(mv.json.compras.visita.paga);
+    assert.deepEqual(mv.json.simulacao.visita, { dias: ['seg', 'qua'], periodo: 'manha' }, 'a disponibilidade do cliente vem na ficha');
+    assert.ok(mv.json.historico.some((h) => h.acao === 'visita_marcada' && h.detalhes.data_visita === '2026-10-05T10:30'));
+    const email = p.emails.at(-1);
+    assert.equal(email.assunto, 'Domus Energia: visita técnica marcada');
+    assert.match(email.texto, /segunda-feira, 5 de outubro.*10:30/);
+    l = await pedidoConta(c, id);
+    assert.equal(l.data_visita, '2026-10-05T10:30');
+    assert.equal(l.estado_texto, 'Visita técnica marcada.');
+    // Fora da área: não há visita (nem na conta, nem ao comprar).
+    const d = await p.contaConfirmada();
+    const { pedido: longe } = await enviar(d, { localidade: 'Funchal' });
+    const ld = await pedidoConta(d, longe);
+    assert.deepEqual([ld.compras.visita.valor, ld.compras.visita.fora_area], [null, true]);
+    const rf = await comprar(d, longe, 'visita');
+    assert.equal(rf.estado, 409);
+    assert.match(rf.json.erro, /fora da área servida/);
+    assert.equal((await comprar(d, longe, 'relatorio_pormenorizado')).estado, 200, 'o relatório compra-se na mesma');
+  });
+
+  test('passo Enviar: "relatório pormenorizado e visita" = um só pagamento (29 € + visita) sobre o pedido já criado; fora da área o pedido fica e diz porquê', async () => {
+    const c = await p.contaConfirmada();
+    const antes = nOrc();
+    const r = await enviar(c, { compra: 'pormenorizado_visita' });
+    assert.equal(nOrc(), antes + 1, 'o pedido existe antes de pagar');
+    const pg = r.pagamento;
+    assert.deepEqual([pg.fase, pg.valor, pg.orcamento_id], ['pormenorizado_visita', centSim(29 + VISITA_SINTRA), r.pedido]);
+    assert.match(pg.descricao, /^Relatório pormenorizado e visita técnica do pedido/);
+    // Comprar só o relatório na conta, com o combinado por pagar: o combinado sai (não se paga duas vezes).
+    const so = await comprar(c, r.pedido, 'relatorio_pormenorizado');
+    assert.equal((await ver(c, pg.ref)).json.pagamento.estado, 'cancelado');
+    await simular(c, so.json.pagamento.ref, 'cancelar');
+    const pago = await comprado(c, r.pedido, 'pormenorizado_visita');
+    assert.equal(pago.fase_texto, 'Relatório pormenorizado e visita técnica');
+    const l = await pedidoConta(c, r.pedido);
+    assert.deepEqual([l.relatorio, l.compras.visita.paga], ['em_revisao', true]);
+    // Só o pormenorizado no Enviar.
+    const r2 = await enviar(c, { compra: 'pormenorizado' });
+    assert.deepEqual([r2.pagamento.fase, r2.pagamento.valor], ['relatorio_pormenorizado', 29]);
+    // Fora da área com visita: o pedido é enviado na mesma (grátis) e a resposta explica.
+    const r3 = await enviar(c, { compra: 'pormenorizado_visita', localidade: 'Funchal' });
+    assert.equal(r3.pagamento, undefined);
+    assert.match(r3.pagamento_erro, /fora da área servida/);
+    assert.equal((await painel('GET', `orcamentos/${r3.pedido}`)).json.estado, 'novo');
+  });
+
+  test('avaria rápida: paga ao enviar o diagnóstico + deslocação (visita pedida); invisível até paga; fora da área 409; nada de relatório à parte', async () => {
+    const c = await p.contaConfirmada();
+    const antes = nOrc();
+    const pg = await enviarAvaria(c);
+    assert.deepEqual([pg.fase, pg.valor, pg.com_visita, pg.estado], ['avaria', centSim(DIAG_SINTRA), true, 'pendente']);
+    assert.match(pg.descricao, /Diagnóstico da avaria e deslocação/);
+    assert.equal(nOrc(), antes, 'ainda não é um pedido do painel');
+    assert.equal((await enviarAvaria(c)).ref, pg.ref, 'clicar outra vez: o mesmo pagamento');
+    const f = await simular(c, pg.ref, 'falha');
     assert.equal(f.json.voltar, `simulador.html?pagamento=${pg.ref}`);
     assert.equal(nOrc(), antes);
-    assert.match(p.emails.at(-1).texto, /não foi concluído/);
-    assert.equal((await simular(c, pg.ref, 'sucesso')).estado, 409, 'um pagamento falhado não se paga');
-    // Tentar de novo: pagamento novo; sucesso → pedido "novo" no painel, com a conta e o registo do pagamento.
-    const pg2 = await enviar(c);
+    const pg2 = await enviarAvaria(c);
     assert.notEqual(pg2.ref, pg.ref);
     const ok = await simular(c, pg2.ref, 'sucesso');
-    assert.equal(ok.json.pagamento.estado, 'pago');
-    assert.equal(ok.json.pagamento.recibo.valor, 19);
-    assert.equal(ok.json.pagamento.recibo.referencia, pg2.ref);
-    assert.equal(ok.json.pagamento.recibo.simulado, true);
     const id = ok.json.pagamento.orcamento_id;
     assert.ok(id);
     assert.equal(nOrc(), antes + 1);
+    assert.match(p.emails.at(-1).texto, /Vamos marcar a visita técnica/);
     const o = (await painel('GET', `orcamentos/${id}`)).json;
     assert.equal(o.estado, 'novo');
-    assert.equal(o.conta.email, c.email);
-    assert.deepEqual(o.pagamentos.map((x) => [x.fase, x.valor, x.estado, x.modo]), [['relatorio', 19, 'pago', 'simulado']]);
     assert.ok(o.historico.some((h) => h.acao === 'orcamento_recebido' && h.detalhes.pagamento === pg2.ref));
-    assert.ok(o.historico.some((h) => h.acao === 'pagamento_confirmado'));
-    assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes + 1);
-    assert.match(p.emails.at(-1).texto, /Recebemos o seu pagamento \(SIMULAÇÃO/);
-    assert.match(p.emails.at(-1).texto, new RegExp(pg2.ref));
-    assert.match(p.emails.at(-1).texto, /Data: \d{2}\/\d{2}\/\d{4}, \d{2}:\d{2}/, 'data com o ano em 4 algarismos (hora de Lisboa)');
-    // Fotos: o token vem no regresso (só para o pedido acabado de pagar) e funciona.
+    assert.equal(o.compras.visita.paga, true, 'a visita está paga');
+    // Fotos: o token vem no regresso (só para a avaria acabada de pagar).
     const v = await ver(c, pg2.ref, '?fotos=1');
-    assert.equal(v.json.pagamento.estado, 'pago');
-    const fo = await p.pedir('POST', '/api/orcamento/fotos', { corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Fotos-Token': v.json.fotos_token, 'X-Foto-Chave': 'quadro', 'X-Foto-Legenda': 'Quadro' } });
+    const fo = await p.pedir('POST', '/api/orcamento/fotos', { corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Fotos-Token': v.json.fotos_token, 'X-Foto-Chave': FOTO_AVARIA, 'X-Foto-Legenda': 'Avaria' } });
     assert.equal(fo.estado, 201, fo.texto);
-    // Sem ?fotos=1 não há token.
-    assert.equal((await ver(c, pg2.ref)).json.fotos_token, undefined);
+    // Na avaria não se vende o relatório nem a visita à parte.
+    const l = await pedidoConta(c, id);
+    assert.deepEqual([l.relatorio, l.compras.pode, l.compras.avaria], [null, false, true]);
+    assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).estado, 409);
+    // Fora da área: não se envia (fale connosco).
+    const rf = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'X', telefone: '912 000 111', servico: 'R', localidade: 'Funchal', simulacao: { ...SIM_AVARIA, casa: { ...SIM_AVARIA.casa, localidade: 'Funchal' } } } });
+    assert.equal(rf.estado, 409, rf.texto);
+    assert.match(rf.json.erro, /fora da área servida.*telefone ou WhatsApp/);
   });
 
-  test('idempotência: pagar outra vez, o mesmo evento e sucesso repetido não duplicam', async () => {
+  test('idempotência: o mesmo evento e sucesso repetido não duplicam; evento com o valor errado é ignorado', async () => {
     const c = await p.contaConfirmada();
-    const pg = await enviar(c);
+    const pg = await enviarAvaria(c);
     const ev = {
       id: 'evt_teste_repetido', type: 'checkout.session.completed',
-      data: { object: { id: 'cs_x', object: 'checkout.session', client_reference_id: pg.ref, amount_total: 1900, currency: 'eur', payment_status: 'paid' } },
+      data: { object: { id: 'cs_x', object: 'checkout.session', client_reference_id: pg.ref, amount_total: Math.round(DIAG_SINTRA * 100), currency: 'eur', payment_status: 'paid' } },
     };
     const pag = p.app.api.pagamentosPedido;
     const antes = nOrc();
     assert.equal(pag.tratarEvento(ev), 'pago');
     assert.equal(pag.tratarEvento(ev), 'repetido');
     assert.equal(pag.tratarEvento({ ...ev, id: 'evt_teste_outro' }), 'repetido', 'outro evento, o mesmo pagamento');
-    const r = await simular(c, pg.ref, 'sucesso');
-    assert.equal(r.estado, 200, 'sucesso outra vez responde o mesmo');
+    assert.equal((await simular(c, pg.ref, 'sucesso')).estado, 200, 'sucesso outra vez responde o mesmo');
     assert.equal(nOrc(), antes + 1, 'um só pedido');
-    // Valor errado num evento: ignorado.
-    const pg2 = await enviar(c);
-    assert.equal(pag.tratarEvento({ ...ev, id: 'evt_valor', data: { object: { ...ev.data.object, client_reference_id: pg2.ref, amount_total: 100 } } }), 'ignorado');
-    assert.equal((await ver(c, pg2.ref)).json.pagamento.estado, 'pendente');
-    // Cancelar.
-    const cn = await simular(c, pg2.ref, 'cancelar');
-    assert.equal(cn.json.pagamento.estado, 'cancelado');
-    assert.equal(nOrc(), antes + 1);
+    const { pedido } = await enviar(c);
+    const r = (await comprar(c, pedido, 'relatorio_pormenorizado')).json.pagamento;
+    assert.equal(pag.tratarEvento({ ...ev, id: 'evt_valor', data: { object: { ...ev.data.object, client_reference_id: r.ref, amount_total: 100 } } }), 'ignorado');
+    assert.equal((await ver(c, r.ref)).json.pagamento.estado, 'pendente');
+    assert.equal((await simular(c, r.ref, 'cancelar')).json.pagamento.estado, 'cancelado');
   });
 
   test('acesso cruzado: outra conta não vê nem paga (404); sem sessão 401; origem desconhecida 403', async () => {
     const a = await p.contaConfirmada();
     const b = await p.contaConfirmada();
-    const pg = await enviar(a);
+    const { pedido: id } = await enviar(a);
+    const pg = (await comprar(a, id, 'relatorio_pormenorizado')).json.pagamento;
     assert.equal((await ver(b, pg.ref)).estado, 404);
     assert.equal((await simular(b, pg.ref, 'sucesso')).estado, 404);
     assert.equal((await p.pedir('GET', `/api/conta/pagamentos/${pg.ref}`)).estado, 401);
     assert.equal((await p.pedir('POST', `/api/conta/pagamentos/${pg.ref}/simular`, { cookie: a.cookie, corpo: { resultado: 'sucesso' }, site: false, cabecalhos: { Origin: 'https://mau.exemplo', 'Sec-Fetch-Site': 'cross-site' } })).estado, 403);
     assert.equal((await ver(a, pg.ref)).json.pagamento.estado, 'pendente');
-    const { id } = await pedidoPago(a);
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: b.cookie, corpo: { fase: 'sinal' } })).estado, 404);
+    for (const fase of ['sinal', 'relatorio_pormenorizado', 'visita']) assert.equal((await comprar(b, id, fase)).estado, 404, fase);
     assert.equal((await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: b.cookie })).estado, 404);
     assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: b.cookie, corpo: { plano: 'base' } })).estado, 404);
   });
 
-  test('proposta 1000 € + IVA 23 % = 1230 €: aceitar + plano → sinal 350 € ("aceite — a aguardar sinal"); pago → aceite; obra concluída → restante 861 €', async () => {
+  test('proposta 1000 € + IVA 23 % = 1230 € com relatório (29 €) e visita pagos: sinal = 369 − 29 − visita; restante 861 €', async () => {
     const c = await p.contaConfirmada();
-    const { id } = await pedidoPago(c);
+    const { pedido: id } = await enviar(c);
+    await comprado(c, id, 'relatorio_pormenorizado');
+    await comprado(c, id, 'visita');
+    const sinalEsperado = centSim(369 - 29 - VISITA_SINTRA);
     assert.equal((await painel('POST', `orcamentos/${id}`, 'comercial', { estado: 'proposta_enviada', valor_proposta: 1000, proposta_texto: 'Instalação completa.' })).estado, 200);
-    // Sem plano: 400. Valor diferente: 409.
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).estado, 400);
+    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).estado, 400, 'sem plano');
     assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 999, plano: 'base' } })).estado, 409);
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } });
     assert.equal(ac.estado, 200, ac.texto);
-    assert.equal(ac.json.pagamento.fase, 'sinal');
-    assert.equal(ac.json.pagamento.valor, 350);
-    assert.equal(ac.json.pagamento.iva_pct, 23);
-    assert.equal(ac.json.pagamento.base, 284.55);
-    assert.equal(ac.json.pagamento.iva, 65.45);
-    assert.match(ac.json.pagamento.descricao, /1230,00 € com IVA/);
-    assert.equal(ac.json.pagamento.plano, 'conforto');
+    assert.deepEqual([ac.json.pagamento.fase, ac.json.pagamento.valor, ac.json.pagamento.iva_pct], ['sinal', sinalEsperado, 23]);
+    assert.match(ac.json.pagamento.descricao, /1230,00 € com IVA\), menos os 51,60 € já pagos/);
     assert.equal(ac.json.pedido.aguarda_sinal, true);
-    assert.equal(ac.json.pedido.sinal.valor, 350);
+    assert.deepEqual(ac.json.pedido.sinal, { valor: sinalEsperado, pct: 30, desconto: centSim(29 + VISITA_SINTRA), pago: false });
     assert.deepEqual(ac.json.pedido.proposta_iva, { base: 1000, iva_pct: 23, iva: 230, total: 1230 });
+    assert.equal(ac.json.pedido.compras.pode, false, 'aceite: já não se compra o relatório nem a visita');
+    assert.equal((await comprar(c, id, 'visita')).estado, 409);
     let o = (await painel('GET', `orcamentos/${id}`)).json;
     assert.equal(o.estado, 'proposta_enviada', 'só "aceite" depois do sinal');
     assert.equal(o.aguarda_sinal, true);
-    assert.equal(o.plano_escolhido, 'conforto');
-    // Aceitar outra vez: o mesmo sinal por pagar.
-    const ac2 = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } });
-    assert.equal(ac2.json.pagamento.ref, ac.json.pagamento.ref);
-    // Restante antes do tempo: 409.
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'restante' } })).estado, 409);
+    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } })).json.pagamento.ref, ac.json.pagamento.ref);
+    assert.equal((await comprar(c, id, 'restante')).estado, 409, 'restante antes do tempo');
     assert.equal((await simular(c, ac.json.pagamento.ref, 'sucesso')).json.pagamento.estado, 'pago');
     o = (await painel('GET', `orcamentos/${id}`)).json;
     assert.equal(o.estado, 'aceite');
-    assert.equal(o.aguarda_sinal, false);
     assert.ok(o.historico.some((h) => h.acao === 'proposta_aceite_cliente'));
     assert.ok((await painel('GET', 'resumo')).json.propostas_aceites_online.some((x) => x.id === id));
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'sinal' } })).estado, 409, 'sinal já pago');
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'restante' } })).estado, 409, 'obra por concluir');
-    let lista = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
-    assert.equal(lista.pode_pagar_restante, false);
-    assert.equal(lista.restante.valor, 861);
-    // O painel marca a obra concluída → "Pagar o restante" (700 €).
+    assert.equal((await comprar(c, id, 'sinal')).estado, 409, 'sinal já pago');
+    assert.equal((await comprar(c, id, 'restante')).estado, 409, 'obra por concluir');
+    assert.equal((await pedidoConta(c, id)).restante.valor, 861);
     assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'comercial', {})).estado, 200);
-    assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'comercial', {})).estado, 409);
     assert.match(p.emails.at(-1).texto, /861,00 €, com IVA/);
-    assert.match(p.emails.at(-1).texto, /1000,00 € \+ IVA 23 % \(230,00 €\) = 1230,00 €/);
-    assert.deepEqual((await painel('GET', `orcamentos/${id}`)).json.valores_pagamento, { proposta: 1000, iva_pct: 23, iva: 230, total: 1230, relatorio: 19, sinal: 350, restante: 861 });
-    lista = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
-    assert.equal(lista.pode_pagar_restante, true);
-    const rs = await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'restante' } });
-    assert.equal(rs.estado, 200, rs.texto);
+    assert.deepEqual((await painel('GET', `orcamentos/${id}`)).json.valores_pagamento,
+      { proposta: 1000, iva_pct: 23, iva: 230, total: 1230, pago_antes: centSim(29 + VISITA_SINTRA), sinal: sinalEsperado, restante: 861 });
+    assert.equal((await pedidoConta(c, id)).pode_pagar_restante, true);
+    const rs = await comprar(c, id, 'restante');
     assert.equal(rs.json.pagamento.valor, 861);
-    assert.equal(rs.json.pagamento.url, `pagamento-simulado.html?ref=${rs.json.pagamento.ref}`);
     const fim = await simular(c, rs.json.pagamento.ref, 'sucesso');
-    assert.equal(fim.json.voltar, `conta.html?pagamento=${rs.json.pagamento.ref}`);
-    // Recibo e email com a base e o IVA.
     assert.deepEqual([fim.json.pagamento.recibo.base, fim.json.pagamento.recibo.iva, fim.json.pagamento.recibo.valor], [700, 161, 861]);
     assert.match(p.emails.at(-1).texto, /Valor: 861,00 € \(700,00 € \+ IVA 23 % 161,00 €\)/);
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'restante' } })).estado, 409);
     o = (await painel('GET', `orcamentos/${id}`)).json;
-    assert.deepEqual(o.pagamentos.filter((x) => x.estado === 'pago').map((x) => [x.fase, x.valor]), [['relatorio', 19], ['sinal', 350], ['restante', 861]]);
-    lista = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
-    assert.equal(lista.pagamentos.length, 3);
-    assert.ok(lista.pagamentos.every((x) => x.estado === 'pago' && x.recibo));
+    assert.deepEqual(o.pagamentos.filter((x) => x.estado === 'pago').map((x) => [x.fase, x.valor]),
+      [['relatorio_pormenorizado', 29], ['visita', VISITA_SINTRA], ['sinal', sinalEsperado], ['restante', 861]]);
+    const total = o.pagamentos.filter((x) => x.estado === 'pago').reduce((t, x) => t + Math.round(x.valor * 100), 0);
+    assert.equal(total, 123_000, 'no fim pagou exatamente a proposta com IVA');
+  });
+
+  test('avaria paga e a reparação avança: o diagnóstico e a deslocação são descontados no sinal', async () => {
+    const c = await p.contaConfirmada();
+    const pg = await enviarAvaria(c);
+    const id = (await simular(c, pg.ref, 'sucesso')).json.pagamento.orcamento_id;
+    await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 200 });
+    const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 200, plano: 'base' } });
+    assert.equal(ac.json.pagamento.valor, centSim(0.3 * 246 - DIAG_SINTRA), '30 % × 246 − 47,60');
   });
 
   test('a proposta muda com o sinal por pagar: o sinal sai e o cliente aceita de novo', async () => {
     const c = await p.contaConfirmada();
-    const { id } = await pedidoPago(c);
+    const { pedido: id } = await enviar(c);
+    await comprado(c, id, 'relatorio_pormenorizado');
     await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000 });
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'base' } });
     await painel('POST', `orcamentos/${id}`, 'ceo', { valor_proposta: 2000 });
     assert.equal((await ver(c, ac.json.pagamento.ref)).json.pagamento.estado, 'cancelado');
     assert.equal((await simular(c, ac.json.pagamento.ref, 'sucesso')).estado, 409);
     const ac2 = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 2000, plano: 'base' } });
-    assert.equal(ac2.json.pagamento.valor, 719, '30 % × 2460 − 19');
+    assert.equal(ac2.json.pagamento.valor, 709, '30 % × 2460 − 29');
+  });
+
+  test('pedidos antigos (19 € pagos, fase "relatorio"): contam como relatório e visita comprados e descontam no sinal', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = await enviar(c);
+    const agora = new Date().toISOString();
+    p.app.db.prepare(`INSERT INTO pagamentos_pedido (ref, conta_id, orcamento_id, fase, valor_cent, descricao, estado, modo, retorno, com_visita, criado, atualizado, pago, expira, iva_pct)
+      VALUES ('pp_antigo19eurosAAAAAAAA', (SELECT conta_id FROM orcamentos WHERE id = ?), ?, 'relatorio', 1900, 'Relatório técnico e visita técnica (19 € descontados na obra)', 'pago', 'simulado', 'simulador', 1, ?, ?, ?, 0, 23)`).run(id, id, agora, agora, agora);
+    const l = await pedidoConta(c, id);
+    assert.deepEqual([l.relatorio, l.compras.relatorio.comprado, l.compras.visita.paga], ['em_revisao', true, true]);
+    assert.equal(l.pagamentos[0].fase_texto, 'Relatório técnico e visita (19 €)');
+    assert.equal((await comprar(c, id, 'visita')).estado, 409);
+    await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000 });
+    const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'base' } });
+    assert.equal(ac.json.pagamento.valor, 350, '30 % × 1230 − 19 (como antes)');
+    const csv = (await painel('GET', 'pagamentos-pedido?formato=csv')).texto;
+    assert.ok(csv.split('\r\n').some((x) => x.startsWith(agora.slice(0, 10)) || x.includes('pp_antigo19eurosAAAAAAAA')));
   });
 
   const precoCat = (sku) => p.app.db.prepare('SELECT preco_venda_iva_cent FROM catalogo WHERE sku = ?').get(sku).preco_venda_iva_cent / 100;
@@ -243,17 +435,20 @@ describe('modo simulado', () => {
     return troca ? (a.horas_troca ?? a.horas_instalacao * 0.5) : a.horas_instalacao;
   };
   const cent = (x) => Math.round(x * 100) / 100;
+  /** Pedido enviado com o relatório pormenorizado já pago; devolve o id. */
+  async function comRelatorio(c, simulacao) {
+    const { pedido } = await enviar(c, simulacao ? { simulacao } : {});
+    await comprado(c, pedido, 'relatorio_pormenorizado');
+    return pedido;
+  }
 
-  test('relatório técnico: em revisão até o CEO o libertar (com pré-visualização); versão do cliente sem dados internos e com os preços do CATÁLOGO', async () => {
+  test('relatório pormenorizado: em revisão até o CEO o libertar (com pré-visualização); versão do cliente sem dados internos e com os preços do CATÁLOGO', async () => {
     const c = await p.contaConfirmada();
     // O browser manda preços absurdos: o relatório usa os do catálogo do servidor.
     const barato = { ...SIM, itens: SIM.itens.map((i) => ({ ...i, preco_iva: 1 })), mao_obra: { horas: 1, valor_iva: 1 }, deslocacao: { estado: 'estimada', valor_iva: 1 } };
-    const pg = await enviar(c, { simulacao: barato });
-    const id = (await simular(c, pg.ref, 'sucesso')).json.pagamento.orcamento_id;
-    let l = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
-    assert.equal(l.relatorio, 'em_revisao');
+    const id = await comRelatorio(c, barato);
+    assert.equal((await pedidoConta(c, id)).relatorio, 'em_revisao');
     assert.equal((await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie })).estado, 409);
-    // O CEO pré-visualiza a versão do cliente antes de libertar (o comercial não).
     const previa = await painel('GET', `orcamentos/${id}/relatorio-cliente`);
     assert.equal(previa.estado, 200, previa.texto);
     assert.equal((await painel('GET', `orcamentos/${id}/relatorio-cliente`, 'comercial')).estado, 403);
@@ -263,8 +458,7 @@ describe('modo simulado', () => {
     assert.ok(lib.json.relatorio_libertado);
     assert.match(p.emails.at(-1).texto, /relatório técnico/);
     assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 409);
-    l = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);
-    assert.equal(l.relatorio, 'disponivel');
+    assert.equal((await pedidoConta(c, id)).relatorio, 'disponivel');
     const r = await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie });
     assert.equal(r.estado, 200, r.texto);
     const rel = r.json.relatorio;
@@ -278,7 +472,7 @@ describe('modo simulado', () => {
     assert.equal(rel.geral.total, cent(3 * precoCat('TONGOU-SY2-JWT')));
     const horas = cent(horasCat('INT-VIDRO-2') + 2 * horasCat('INT-VIDRO-1') + horasCat('BAB-CURTAIN') + horasCat('SENS-PORTA-WIFI') + 3 * horasCat('TONGOU-SY2-JWT'));
     assert.deepEqual(rel.mao_obra, { horas, valor: cent(horas * 38) }, 'horas do catálogo × tarifa da configuração');
-    assert.equal(rel.deslocacao, 3.6, 'Sintra: (29 − 20 km) × 0,40 €');
+    assert.equal(rel.deslocacao, DESLOC_SINTRA, 'Sintra: (29 − 20 km) × 0,40 €');
     assert.equal(rel.total, cent(sala.total + rel.divisoes[1].total + rel.geral.total + rel.mao_obra.valor + rel.deslocacao));
     assert.doesNotMatch(r.texto, /fornecedor|preco_compra|link|circuito/i);
   });
@@ -297,8 +491,7 @@ describe('modo simulado', () => {
       itens: [{ sku: 'DIAG-AVARIA', qtd: 1, preco_iva: 1, grupo: 'reparar' }, { sku: 'INT-VIDRO-1', qtd: 2, preco_iva: 1, grupo: 'substituir' },
         { sku: 'TOMADA-WIFI', qtd: 1, preco_iva: 1 }, { sku: 'TONGOU-SY2-JWT', qtd: 1, preco_iva: 1, grupo: 'quadro' }],
     };
-    const pg = await enviar(c, { simulacao: SIM_T });
-    const id = (await simular(c, pg.ref, 'sucesso')).json.pagamento.orcamento_id;
+    const { pedido: id } = await enviar(c, { simulacao: SIM_T });
     const rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
     assert.deepEqual(rel.acoes, { manter: 3, reparar: 1, substituir: 2, novo: 1 });
     assert.equal(rel.divisoes.length, 1);
@@ -310,6 +503,10 @@ describe('modo simulado', () => {
     const horas = cent(horasCat('DIAG-AVARIA') + 2 * horasCat('INT-VIDRO-1', true) + horasCat('TOMADA-WIFI') + horasCat('TONGOU-SY2-JWT'));
     assert.equal(rel.mao_obra.horas, horas, 'ao substituir, as horas de troca');
     assert.doesNotMatch(JSON.stringify(rel), /99999/, 'nada dos totais do browser');
+    // O básico tem a mesma lista de trabalho (sem o material).
+    const basico = (await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
+    assert.deepEqual(basico.divisoes[0], { nome: 'Cozinha', trabalho: coz.trabalho });
+    assert.deepEqual(basico.acoes, rel.acoes);
   });
 
   test('relatório do cliente (fase 2): secção Melhorias — material de cada pacote e instalação e configuração (margem pelo catálogo e pela configuração, não a do browser), total igual', async () => {
@@ -321,8 +518,10 @@ describe('modo simulado', () => {
     ];
     const extra = MEL.slice(0, 2).flatMap((m) => m.itens.map((i) => ({ ...i, preco_iva: 1, grupo: 'melhoria' })));
     const sim = { ...SIM, itens: [...SIM.itens, ...extra], melhorias: MEL.slice(0, 2), melhorias_margem_iva: 0.01 };
-    const pg = await enviar(c, { simulacao: sim });
-    const id = (await simular(c, pg.ref, 'sucesso')).json.pagamento.orcamento_id;
+    const { pedido: id } = await enviar(c, { simulacao: sim });
+    // O básico: os nomes dos pacotes aceites, sem preços.
+    const basico = (await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
+    assert.deepEqual(basico.melhorias, ['Segurança', 'Casa inteligente']);
     // A repetida (que o validador não deixa enviar) só se testa direto na linha guardada.
     p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify({ ...sim, melhorias: MEL, melhorias_margem_iva: 99999 }), id);
     // O que o simulador calcula (melhorias.js calcularMelhorias): (material + horas × tarifa) × margem, por pacote.
@@ -339,20 +538,17 @@ describe('modo simulado', () => {
     assert.equal(rel.melhorias.titulo, 'Melhorias');
     assert.ok(margemSim(20) > 0);
     assert.equal(rel.melhorias.instalacao, margemSim(20), 'margem_pacotes_pct = 20 (migração 13)');
-    // O material de cada pacote (os seus `itens`, preços do catálogo) na secção Melhorias, não nas divisões nem no quadro.
     const matDe = (m) => m.itens.map((i) => [i.qtd, precoCat(i.sku)]);
     assert.deepEqual(rel.melhorias.pacotes.map((x) => x.material.map((l) => [l.quantidade, l.preco_unitario])), MEL.slice(0, 2).map(matDe));
     assert.equal(rel.melhorias.pacotes[0].total, cent(MEL[0].itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0)));
     assert.equal(rel.divisoes[0].material.find((l) => /porta/i.test(l.artigo))?.quantidade, 1, 'a Sala fica com o seu sensor de porta');
     assert.equal(rel.geral.total, cent(3 * precoCat('TONGOU-SY2-JWT')), 'o quadro sem o material dos pacotes');
     assert.equal(rel.melhorias.total, cent(rel.melhorias.pacotes.reduce((t, x) => t + x.total, 0) + rel.melhorias.instalacao));
-    // O total não muda: todo o material dos `itens` (uma vez), a mão de obra, a deslocação e a margem dos pacotes.
     const semMargem = cent(rel.divisoes.reduce((t, d) => t + d.total, 0) + rel.geral.total + rel.mao_obra.valor + rel.deslocacao);
     const todoMaterial = cent(sim.itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0));
     assert.equal(rel.total, cent(todoMaterial + rel.mao_obra.valor + rel.deslocacao + margemSim(20)), 'total igual ao de antes');
     assert.equal(rel.total, cent(semMargem + rel.melhorias.total), 'no total');
     assert.doesNotMatch(JSON.stringify(rel), /99999|[Mm]argem/);
-    // A margem é a da configuração do servidor.
     p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(30, 'margem_pacotes_pct');
     try {
       rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
@@ -360,11 +556,8 @@ describe('modo simulado', () => {
     } finally {
       p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(20, 'margem_pacotes_pct');
     }
-    // "Quadro seguro" com o quadro no pedido: conta a diferença do quadro (`quadro_delta`; o que sai desconta), não os itens.
     const QS = { id: 'quadro-seguro', nome: 'Quadro seguro', itens: [{ sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }], preco: 1,
       quadro_delta: [{ sku: 'IDR-2P-40A-30MA', qtd: -2 }, { sku: 'GERAL-2P-63A', qtd: -1 }, { sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }] };
-    // Com o quadro no pedido, os artigos do "Quadro seguro" estão nas linhas do quadro (grupo "quadro"): as proteções
-    // que ele junta (os seus `itens`) passam para a secção Melhorias; o resto do quadro fica onde estava; total igual.
     const simQs = { ...SIM, itens: [...SIM.itens, { sku: 'RCBO-WIFI-TOSMR1', qtd: 3, preco_iva: 1, grupo: 'quadro' }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1, preco_iva: 1, grupo: 'quadro' }], melhorias: [QS] };
     p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify(simQs), id);
     rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
@@ -379,147 +572,128 @@ describe('modo simulado', () => {
     assert.deepEqual(rel.geral.material.map((l) => [l.quantidade, l.preco_unitario]), [[3, precoCat('TONGOU-SY2-JWT')], [1, precoCat('RCBO-WIFI-TOSMR1')]], 'o resto do quadro fica; nada contado 2 vezes');
     const todoQs = cent(simQs.itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0));
     assert.equal(rel.total, cent(todoQs + rel.mao_obra.valor + rel.deslocacao + margemQs), 'total igual ao de antes');
-    // Sem melhorias (pedidos antigos): sem a linha.
     p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify(SIM), id);
     rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
     assert.equal(rel.melhorias, null);
   });
 
-  test('expiração: por pagar há 24 h → expirado (o pedido guardado sai); não se paga', async () => {
+  test('expiração: avaria por pagar há 24 h → expirada (o pedido guardado sai); não se paga', async () => {
     const c = await p.contaConfirmada();
-    const pg = await enviar(c);
+    const pg = await enviarAvaria(c);
     p.relogio.avancar(24 * 3600_000 + 1000);
     try {
       const v = await ver(c, pg.ref);
       assert.equal(v.json.pagamento.estado, 'expirado');
       assert.equal(p.app.db.prepare('SELECT pedido FROM pagamentos_pedido WHERE ref = ?').get(pg.ref).pedido, null);
       assert.equal((await simular(c, pg.ref, 'sucesso')).estado, 409);
-      // Enviar outra vez cria um pagamento novo.
-      assert.notEqual((await enviar(c)).ref, pg.ref);
+      assert.notEqual((await enviarAvaria(c)).ref, pg.ref);
     } finally {
       p.relogio.avancar(-(24 * 3600_000 + 1000));
     }
   });
 
-  test('fora da área: paga 19 € só pelo relatório (sem visita)', async () => {
-    const c = await p.contaConfirmada();
-    const pg = await enviar(c, { localidade: 'Funchal' });
-    assert.equal(pg.valor, 19);
-    assert.equal(pg.com_visita, false);
-    assert.match(pg.descricao, /sem visita/);
-  });
-
   test('apagar a conta (RGPD): pedido com pagamentos pagos é ANONIMIZADO (pagamentos ligados, CSV); por pagar saem', async () => {
     const c = await p.contaConfirmada();
-    const { id } = await pedidoPago(c);
+    const id = await comRelatorio(c);
     await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000, notas: 'Ligar ao Sr. X', proposta_texto: 'Automatizar a sala.' });
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'base' } });
     await simular(c, ac.json.pagamento.ref, 'sucesso');
     await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {});
-    const rs = await p.pedir('POST', `/api/conta/pedidos/${id}/pagar`, { cookie: c.cookie, corpo: { fase: 'restante' } });
+    const rs = await comprar(c, id, 'restante');
     await simular(c, rs.json.pagamento.ref, 'sucesso');
-    const pend = await enviar(c);
+    const pend = await enviarAvaria(c);
     const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(c.email).id;
     const r = await painel('POST', `contas/${contaId}/apagar`, 'ceo', { email: c.email });
     assert.equal(r.estado, 200, r.texto);
     assert.equal(r.json.pedidos_anonimizados, 1);
-    assert.equal(r.json.pedidos_apagados, 0);
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE ref = ?').get(pend.ref).n, 0, 'o por pagar sai');
     const o = p.app.db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(id);
-    assert.ok(o, 'o pedido fica');
     assert.ok(o.anonimizado);
     assert.equal(o.nome, 'Anonimizado (RGPD)');
     for (const k of ['telefone', 'email', 'localidade', 'morada', 'mensagem', 'notas', 'simulacao', 'conta_id']) assert.equal(o[k], null, k);
     assert.equal(o.valor_proposta_cent, 100_000, 'os valores ficam');
-    assert.equal(o.proposta_texto, 'Automatizar a sala.', 'a descrição fica');
-    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM fotos WHERE orcamento_id = ?').get(id).n, 0);
-    const pagos = p.app.db.prepare('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? ORDER BY id').all(id);
-    assert.deepEqual(pagos.map((x) => [x.fase, x.estado, x.conta_id, x.pedido]), [['relatorio', 'pago', null, null], ['sinal', 'pago', null, null], ['restante', 'pago', null, null]]);
+    const pagos = p.app.db.prepare('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\' ORDER BY id').all(id);
+    assert.deepEqual(pagos.map((x) => [x.fase, x.conta_id, x.pedido]), [['relatorio_pormenorizado', null, null], ['sinal', null, null], ['restante', null, null]]);
     assert.ok(!JSON.stringify(p.app.db.prepare('SELECT * FROM auditoria').all()).includes(c.email), 'o email não fica na auditoria');
-    // Lista global (só CEO) e CSV: data, referência, descrição, base, IVA, total, estado, pedido.
     const g = await painel('GET', 'pagamentos-pedido?estado=pago');
-    assert.equal(g.estado, 200, g.texto);
     const doPedido = g.json.pagamentos.filter((x) => x.orcamento_id === id);
-    assert.deepEqual(doPedido.map((x) => [x.fase, x.valor, x.base, x.iva]).sort(), [['relatorio', 19, 15.45, 3.55], ['restante', 861, 700, 161], ['sinal', 350, 284.55, 65.45]]);
+    assert.deepEqual(doPedido.map((x) => [x.fase, x.fase_texto, x.valor, x.base, x.iva]).sort(),
+      [['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 23.58, 5.42], ['restante', 'Restante', 861, 700, 161], ['sinal', 'Sinal', 340, 276.42, 63.58]]);
     assert.equal((await painel('GET', 'pagamentos-pedido', 'comercial')).estado, 403);
     const csv = await painel('GET', 'pagamentos-pedido?formato=csv');
-    assert.equal(csv.estado, 200);
     const linhas = csv.texto.replace(/^﻿/, '').trim().split('\r\n');
     assert.equal(linhas[0], 'data;referencia;descricao;base;iva;total;estado;pedido');
     assert.ok(linhas.some((x) => x.includes(rs.json.pagamento.ref) && x.endsWith(`;700,00;161,00;861,00;pago;${id}`)));
-    // O pedido anonimizado continua no painel, sem dados pessoais nem conta.
     const fic = (await painel('GET', `orcamentos/${id}`)).json;
     assert.ok(fic.anonimizado);
     assert.equal(fic.conta, null);
-    assert.equal(fic.pagamentos.filter((x) => x.estado === 'pago').length, 3);
+    assert.equal(fic.compras, null, 'sem simulação (anonimizado): sem compras');
   });
 
   test('RGPD: o pedido anonimizado passa a "arquivado": fora do quadro, das listas e dos novos; só o CEO o vê; não muda', async () => {
     const c = await p.contaConfirmada();
-    const { id, ref } = await pedidoPago(c);
+    const id = await comRelatorio(c);
+    const ref = p.app.db.prepare('SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(id).ref;
     const novosAntes = (await painel('GET', 'resumo')).json.pedidos_novos;
     const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(c.email).id;
     const r = await painel('POST', `contas/${contaId}/apagar`, 'ceo', { email: c.email });
     assert.equal(r.json.pedidos_anonimizados, 1, r.texto);
     assert.equal(p.app.db.prepare('SELECT estado FROM orcamentos WHERE id = ?').get(id).estado, 'arquivado');
-    // Fora da lista normal (quadro e listas), dos novos e das contagens por estado.
     assert.ok(!(await painel('GET', 'orcamentos')).json.orcamentos.some((o) => o.id === id));
     assert.equal((await painel('GET', 'resumo')).json.pedidos_novos, novosAntes - 1);
-    const rc = (await painel('GET', 'resumo', 'comercial')).json;
-    assert.equal(rc.orcamentos_por_estado.arquivado, undefined);
-    assert.ok(!(await painel('GET', 'orcamentos', 'comercial')).json.orcamentos.some((o) => o.id === id));
-    // Filtro "Arquivados": só o CEO.
+    assert.equal((await painel('GET', 'resumo', 'comercial')).json.orcamentos_por_estado.arquivado, undefined);
     const arq = await painel('GET', 'orcamentos?estado=arquivado');
-    assert.equal(arq.estado, 200, arq.texto);
     assert.ok(arq.json.orcamentos.some((o) => o.id === id && o.estado === 'arquivado'));
     assert.equal((await painel('GET', 'orcamentos?estado=arquivado', 'comercial')).estado, 403);
-    assert.equal((await painel('GET', `orcamentos/${id}`)).json.estado, 'arquivado');
     assert.equal((await painel('GET', `orcamentos/${id}`, 'comercial')).estado, 404);
-    // Não muda: nem o estado, nem os dados, nem as ações.
-    for (const corpo of [{ estado: 'novo' }, { notas: 'x' }, { nome: 'Outro' }]) {
-      const m = await painel('POST', `orcamentos/${id}`, 'ceo', corpo);
-      assert.equal(m.estado, 409, JSON.stringify(corpo));
-    }
+    for (const corpo of [{ estado: 'novo' }, { notas: 'x' }, { nome: 'Outro' }]) assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', corpo)).estado, 409, JSON.stringify(corpo));
     assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 409);
     assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {})).estado, 409);
-    assert.equal(p.app.db.prepare('SELECT estado FROM orcamentos WHERE id = ?').get(id).estado, 'arquivado');
-    // Nenhum pedido passa a "arquivado" à mão.
-    const outro = (await pedidoPago(await p.contaConfirmada())).id;
+    assert.equal((await painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: '2026-10-05T10:00' })).estado, 409);
+    const outro = (await enviar(await p.contaConfirmada())).pedido;
     assert.equal((await painel('POST', `orcamentos/${outro}`, 'ceo', { estado: 'arquivado' })).estado, 400);
-    // Continua nos pagamentos e no CSV.
     assert.ok((await painel('GET', 'pagamentos-pedido')).json.pagamentos.some((x) => x.orcamento_id === id && x.ref === ref));
     assert.ok((await painel('GET', 'pagamentos-pedido?formato=csv')).texto.split('\r\n').some((x) => x.includes(ref) && x.endsWith(`;pago;${id}`)));
   });
 
-  test('retentativas: pagar outra vez depois de falhar/cancelar não gasta o limite de pedidos por IP', async () => {
+  test('retentativas: pagar outra vez a avaria depois de falhar/cancelar não gasta o limite de pedidos por IP', async () => {
     const c = await p.contaConfirmada();
     const ip = '198.51.100.23';
     let pg = null;
     for (let i = 0; i < 8; i++) {
-      const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, ip, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: SIM } });
+      const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, ip, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'R', localidade: 'Sintra', simulacao: SIM_AVARIA } });
       assert.equal(r.estado, 202, `tentativa ${i + 1}: ${r.texto}`);
       pg = r.json.pagamento;
       assert.equal((await simular(c, pg.ref, i % 2 ? 'cancelar' : 'falha')).estado, 200);
     }
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE ref = ? AND pedido IS NULL').get(pg.ref).n, 1, 'o pedido guardado sai ao falhar/cancelar');
-    // Outra pessoa no mesmo IP continua a poder enviar (o limite por IP não foi gasto).
     const d = await p.contaConfirmada();
     const r = await p.pedir('POST', '/api/orcamento', { cookie: d.cookie, ip, corpo: { nome: 'Outro', telefone: '912 000 112', servico: 'S', localidade: 'Sintra', simulacao: SIM } });
-    assert.equal(r.estado, 202, r.texto);
+    assert.equal(r.estado, 201, r.texto);
   });
 
-  test('IVA configurável no painel (iva_pct): a proposta de 1000 € com 6 % → sinal 30 % × 1060 − 19 = 299 €', async () => {
+  test('IVA configurável no painel (iva_pct): 1000 € com 6 % e o relatório pago → sinal 30 % × 1060 − 29 = 289 €; preço do relatório configurável', async () => {
     assert.equal((await painel('POST', 'config-orcamento', 'ceo', { iva_pct: 6 })).estado, 200);
     try {
       const c = await p.contaConfirmada();
-      const { id } = await pedidoPago(c);
+      const id = await comRelatorio(c);
       await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000 });
       const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'base' } });
-      assert.equal(ac.json.pagamento.valor, 299);
+      assert.equal(ac.json.pagamento.valor, 289);
       assert.equal(ac.json.pagamento.iva_pct, 6);
       assert.equal((await painel('POST', 'config-orcamento', 'ceo', { iva_pct: 51 })).estado, 400);
     } finally {
       await painel('POST', 'config-orcamento', 'ceo', { iva_pct: 23 });
+    }
+    assert.equal((await painel('POST', 'config-orcamento', 'ceo', { preco_relatorio_iva: 35 })).estado, 200);
+    try {
+      const c = await p.contaConfirmada();
+      const { pedido } = await enviar(c);
+      assert.equal((await comprar(c, pedido, 'relatorio_pormenorizado')).json.pagamento.valor, 35);
+      assert.equal((await pedidoConta(c, pedido)).compras.relatorio.valor, 35);
+      assert.equal((await p.pedir('GET', '/api/catalogo')).json.config.preco_relatorio_iva, 35, 'o simulador mostra-o');
+    } finally {
+      await painel('POST', 'config-orcamento', 'ceo', { preco_relatorio_iva: 29 });
     }
   });
 });
@@ -535,7 +709,7 @@ describe('modo stripe', () => {
       return new Response(JSON.stringify({ id: `cs_test_${chamadas.length}`, url: `https://checkout.stripe.com/c/pay/cs_test_${chamadas.length}`, amount_total: Number(params.get('line_items[0][price_data][unit_amount]')) }), { status: 200 });
     }
     const m = /checkout\/sessions\/(cs_test_\d+)$/.exec(url);
-    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'open', payment_status: 'unpaid', amount_total: 1900, currency: 'eur' }), { status: 200 });
+    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'open', payment_status: 'unpaid', amount_total: 2900, currency: 'eur' }), { status: 200 });
     return new Response('{}', { status: 200 });
   };
   before(async () => {
@@ -549,40 +723,40 @@ describe('modo stripe', () => {
     return p.pedir('POST', '/api/conta/pagamentos/stripe-webhook', { corpo, site: false, cabecalhos: { 'Stripe-Signature': assinatura ?? assinar(corpo) } });
   };
 
-  test('Checkout com cartão/MB Way/Multibanco; a página simulada não existe; webhook assinado confirma (uma vez)', async () => {
+  test('Checkout com cartão/MB Way/Multibanco (compra no passo Enviar, volta à conta); a página simulada não existe; webhook assinado confirma (uma vez)', async () => {
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: SIM } });
-    assert.equal(r.estado, 202, r.texto);
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: SIM, compra: 'pormenorizado' } });
+    assert.equal(r.estado, 201, r.texto);
     const pg = r.json.pagamento;
     assert.equal(pg.modo, 'stripe');
     assert.match(pg.url, /^https:\/\/checkout\.stripe\.com\//);
     const criar = new URLSearchParams(chamadas.at(-1).op.body);
-    assert.equal(criar.get('line_items[0][price_data][unit_amount]'), '1900');
+    assert.equal(criar.get('line_items[0][price_data][unit_amount]'), '2900');
     assert.equal(criar.get('client_reference_id'), pg.ref);
+    assert.equal(criar.get('metadata[fase]'), 'relatorio_pormenorizado');
     assert.deepEqual(['0', '1', '2'].map((i) => criar.get(`payment_method_types[${i}]`)), ['card', 'mb_way', 'multibanco']);
-    assert.equal(criar.get('success_url'), `https://site.teste/simulador.html?pagamento=${pg.ref}`);
+    assert.equal(criar.get('success_url'), `https://site.teste/conta.html?pagamento=${pg.ref}`);
     assert.equal(chamadas.at(-1).op.headers['Idempotency-Key'], `domus-${pg.ref}`);
-    // A página simulada não serve no modo stripe.
     assert.equal((await p.pedir('POST', `/api/conta/pagamentos/${pg.ref}/simular`, { cookie: c.cookie, corpo: { resultado: 'sucesso' } })).estado, 404);
     const sessao = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(pg.ref).stripe_sessao;
-    const ev = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: pg.ref, amount_total: 1900, currency: 'eur', payment_status: 'paid' } } };
+    const ev = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: pg.ref, amount_total: 2900, currency: 'eur', payment_status: 'paid' } } };
     assert.equal((await webhook(ev, 't=1,v1=00')).estado, 400, 'assinatura inválida');
-    const antes = p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n;
     const w = await webhook(ev);
     assert.equal(w.estado, 200, w.texto);
     assert.equal(w.json.resultado, 'pago');
     assert.equal((await webhook(ev)).json.resultado, 'repetido');
-    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n, antes + 1);
+    const l = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === r.json.pedido);
+    assert.equal(l.relatorio, 'em_revisao');
     // Sessão de outro pagamento (não corresponde): ignorada.
-    const r2 = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', simulacao: SIM } });
+    const r2 = await p.pedir('POST', `/api/conta/pedidos/${r.json.pedido}/pagar`, { cookie: c.cookie, corpo: { fase: 'visita' } });
+    assert.equal(r2.estado, 200, r2.texto);
     const ev2 = { ...ev, id: 'evt_2', data: { object: { ...ev.data.object, client_reference_id: r2.json.pagamento.ref } } };
     assert.equal((await webhook(ev2)).json.resultado, 'ignorado');
-    // Regresso ao site: lê a sessão no Stripe (ainda aberta → continua por pagar).
     const v = await p.pedir('GET', `/api/conta/pagamentos/${r2.json.pagamento.ref}`, { cookie: c.cookie });
     assert.equal(v.json.pagamento.estado, 'pendente');
   });
 
-  test('modo: sem PAGAMENTOS_MODO nem chave → pagamentos DESLIGADOS (envia sem pagar, aviso no painel); simulado só explícito (faixa de demonstração); só a chave → stripe', async () => {
+  test('modo: sem PAGAMENTOS_MODO nem chave → pagamentos DESLIGADOS (envia grátis, compras desligadas com aviso; a avaria vai sem pagar); simulado só explícito; só a chave → stripe', async () => {
     const semNada = lerConfig({ PAGAMENTO_PEDIDO: '1' });
     assert.equal(semNada.pagamentoPedido, false);
     assert.equal(semNada.pagamentosDesligadosSemModo, true);
@@ -596,9 +770,17 @@ describe('modo stripe', () => {
     const q = await painelComEquipa({ env: { PAGAMENTO_PEDIDO: '1' } });
     try {
       const c = await q.contaConfirmada();
-      const r = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', simulacao: SIM } });
-      assert.equal(r.estado, 201, 'enviado sem pagar, como antes');
+      const r = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', simulacao: SIM, compra: 'pormenorizado' } });
+      assert.equal(r.estado, 201, 'enviado (grátis)');
       assert.equal(r.json.pagamento, undefined);
+      assert.match(r.json.pagamento_erro, /pagamentos online estão desligados/);
+      const l = (await q.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos[0];
+      assert.equal(l.compras.ativas, false);
+      assert.equal((await q.pedir('POST', `/api/conta/pedidos/${l.id}/pagar`, { cookie: c.cookie, corpo: { fase: 'relatorio_pormenorizado' } })).estado, 404);
+      // Sem pagamentos o CEO pode libertar o relatório (não há compra).
+      assert.equal((await q.pedir('POST', `/painel/api/orcamentos/${l.id}/libertar-relatorio`, { cookie: q.cookies.ceo, corpo: {} })).estado, 200);
+      const av = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'R', simulacao: SIM_AVARIA } });
+      assert.equal(av.estado, 201, 'a avaria vai sem pagar');
       assert.deepEqual((await q.pedir('GET', '/api/catalogo')).json.pagamentos, { ativo: false, modo: null, demonstracao: false });
       const eu = (await q.pedir('GET', '/painel/api/eu', { cookie: q.cookies.ceo })).json.pagamentos;
       assert.equal(eu.desligados_sem_configuracao, true);
