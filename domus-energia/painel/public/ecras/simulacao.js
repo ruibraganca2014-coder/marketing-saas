@@ -332,7 +332,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
     partes.push(h("div", { class: "avisos-sim", role: "note" }, h("h4", { text: `Avisos (${avisos.length})` }),
       h("ul", {}, ...avisos.slice(0, 50).map((a) => h("li", { text: a })))));
   }
-  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva)));
+  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva), { margem: numero(sim.melhorias_margem_iva) }));
   const melhorias = blocoMelhorias(sim, catalogo);
   if (melhorias) partes.push(melhorias);
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
@@ -363,8 +363,11 @@ export function blocoMelhorias(sim, catalogo = {}) {
     h("p", { class: "ajuda", text: "Preço dado ao cliente, com a margem dos pacotes. O Quadro seguro com o quadro no pedido já está nas proteções do quadro." }));
 }
 
-/** Artigos, mão de obra e deslocação. `horas`: mais uma coluna com as horas de instalação do catálogo (relatório técnico). */
-function tabelaItens(itens, mo, catalogo, desl = null, { horas = false } = {}) {
+/**
+ * Artigos, mão de obra e deslocação. `horas`: mais uma coluna com as horas de instalação do catálogo (relatório técnico).
+ * `margem` (fase 2): a margem dos pacotes aceites nas Melhorias (`melhorias_margem_iva`), que o total do cliente já tem.
+ */
+function tabelaItens(itens, mo, catalogo, desl = null, { horas = false, margem = null } = {}) {
   let soma = 0, somaHoras = 0;
   const cols = horas ? 4 : 3;
   const linhas = itens.slice(0, 300).map((i) => {
@@ -392,7 +395,8 @@ function tabelaItens(itens, mo, catalogo, desl = null, { horas = false } = {}) {
   if (moValor !== null || numero(mo.horas) !== null) {
     pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: String(cols), text: `Mão de obra${numero(mo.horas) !== null ? ` (${num2(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
     if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: String(cols), text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
-    pe.push(h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0)) })));
+    if (margem > 0) pe.push(h("tr", { class: "margem-pacotes" }, h("th", { scope: "row", colspan: String(cols), text: "Margem dos pacotes" }), h("td", { class: "num", text: euros(margem) })));
+    pe.push(h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0) + (margem > 0 ? margem : 0)) })));
   }
   const fora = linhas.filter((l) => l.classList.contains("fora-catalogo")).length;
   return h("div", { class: "sim-bloco" }, h("h4", { text: "Artigos" }),
@@ -1167,7 +1171,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
   if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? "Foto da avaria" : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
-    partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true }),
+    partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva) }),
       dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));
   }
   partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado na visita técnica." }));

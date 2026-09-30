@@ -122,17 +122,21 @@ export function simulacao(v) {
   fotosSimulacao(v.fotos);
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
-  melhoriasSimulacao(v.melhorias);
+  melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
   return json;
 }
 
 /**
  * Fase 2 (passo "Melhorias"): `melhorias` = lista (opcional; pedidos antigos não a têm) de pacotes aceites
- * {id, nome ≤ 80, itens: [{sku, qtd 1–999}] (≤ 20), preco (€ c/ IVA, ≥ 0, ou null sem catálogo)}, sem ids repetidos.
+ * {id, nome ≤ 80, itens: [{sku, qtd 1–999}] (≤ 20), preco (€ c/ IVA, ≥ 0, ou null sem catálogo)}, sem ids repetidos;
+ * `melhorias_margem_iva` = a margem dos pacotes no total (€ c/ IVA, 0–1 000 000; opcional).
  */
 export const MELHORIAS = ['casa-inteligente', 'poupar-energia', 'seguranca', 'quadro-seguro'];
 const RE_SKU_MELHORIA = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
-function melhoriasSimulacao(l) {
+function melhoriasSimulacao(l, margem) {
+  if (margem !== undefined && !(typeof margem === 'number' && Number.isFinite(margem) && margem >= 0 && margem <= 1_000_000)) {
+    falha('Margem dos pacotes entre 0 e 1 000 000 €.');
+  }
   if (l === undefined || l === null) return;
   if (!Array.isArray(l)) falha('As melhorias têm de ser uma lista.');
   if (l.length > MELHORIAS.length) falha(`No máximo ${MELHORIAS.length} melhorias.`);

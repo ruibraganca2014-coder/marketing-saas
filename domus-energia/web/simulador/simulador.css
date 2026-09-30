@@ -290,7 +290,12 @@ input, select { min-height: 44px; }
 /* Fase 2: passo "Melhorias" — cartões de escolha (sim/não) com o que levam e o preço "a partir de". */
 .escolhas-grelha.melhorias-grelha { grid-template-columns: 1fr; }
 @media (min-width: 600px) { .escolhas-grelha.melhorias-grelha { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.escolha.melhoria { justify-content: flex-start; text-align: left; padding: 14px 16px; }
+.escolha.melhoria { justify-content: flex-start; text-align: left; padding: 14px 52px 14px 16px; }
+/* Caixa de escolha à vista (canto): vazia; escolhida, cheia com o visto — e a borda mais forte (não só a cor de fundo). */
+.escolha.melhoria::after { content: ""; position: absolute; top: 14px; right: 14px; width: 26px; height: 26px; box-sizing: border-box; display: grid; place-items: center; border: 2px solid var(--borda); border-radius: 8px; background: var(--superficie); color: var(--sobre-musgo); font-size: 1rem; line-height: 1; pointer-events: none; }
+.escolha.melhoria:has(input:checked) { box-shadow: inset 0 0 0 1px var(--musgo); }
+.escolha.melhoria:has(input:checked)::after { content: "✓"; border-color: var(--musgo); background: var(--musgo); }
+.escolha.melhoria:has(input:disabled)::after { content: none; }
 .escolha.melhoria > span { gap: 4px; }
 .escolha.melhoria .melhoria-preco { font-size: 1.05rem; color: var(--texto); }
 .escolha.melhoria:has(input:disabled) { cursor: default; opacity: .75; }

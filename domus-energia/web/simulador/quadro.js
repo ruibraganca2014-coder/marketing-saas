@@ -245,6 +245,25 @@ export function existentesNoQuadroNovo(estado) {
   return semNova && estado.mexerQuadro === true && levaQuadroNovo(estado.quadro) ? circuitosExistentes(estado) : 0;
 }
 
+/**
+ * Circuitos que já existem com AFDD (proteção com AFDD, sem "Instalação nova", com o quadro no pedido: "Quer melhorar o
+ * quadro? Sim"): contam-se como em circuitosExistentes — por piso, 1 de iluminação e 1 de tomadas por cada 2 quartos
+ * ou salas (as divisões com AFDD: circuitoComAfdd). Num quadro novo trocam os disjuntores desses circuitos
+ * (existentesNoQuadroNovo); no quadro atual entram no lugar deles.
+ */
+export function afddExistentes(estado) {
+  const sv = estado?.servico;
+  const semNova = Array.isArray(sv) && sv.length > 0 && !sv.includes("nova");
+  if (!semNova || estado.mexerQuadro !== true) return 0;
+  const p = estado.planta;
+  const daPlanta = !!p && !estado.plantaSaltada && (p.divisoes?.length ?? 0) > 0;
+  const porPiso = new Map();
+  for (const d of (daPlanta ? p.divisoes : (estado.divisoes ?? [])).filter((d) => d && typeof d === "object")) {
+    if (circuitoComAfdd({ tipo: "misto", divisoes: [d.nome] }, estado.casa?.tipo)) porPiso.set(pisoDe(d), (porPiso.get(pisoDe(d)) ?? 0) + 1);
+  }
+  return [...porPiso.values()].reduce((s, n) => s + 1 + Math.ceil(n / 2), 0);
+}
+
 /** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
 export function tamanhoQuadro(ocupados) {
   return TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? null;
@@ -296,11 +315,15 @@ export function resumoQuadro(estado) {
     if (i === "sy1") { sy1++; if (g) { sy1G++; mSy += MODULOS.sy; novos += MODULOS.sy; } }
   }
   // Quadro novo sem "Instalação nova": um disjuntor 1P+N por cada circuito que a casa já tem (estimativa, no geral).
+  // Com AFDD, os dos quartos e salas levam AFDD com disjuntor em vez dele (no quadro atual, no lugar do que lá está).
   const existentes = existentesNoQuadroNovo(estado);
-  disj += existentes;
+  const afddEx = prot.afdd ? (existentes ? Math.min(existentes, afddExistentes(estado)) : afddExistentes(estado)) : 0;
+  const semAfdd = existentes ? existentes - afddEx : 0;
+  disj += semAfdd;
+  if (!existentes) novos += afddEx * (MODULOS.afdd - MODULOS.disjuntor);
   linha("disjuntor", "Disjuntores dos circuitos", disjG, mDisj);
-  linha("disjuntor_existente", "Disjuntores dos circuitos que já existem (estimativa, a confirmar na visita)", existentes, existentes * MODULOS.disjuntor);
-  linha("afdd", "AFDD com disjuntor", nAfddG, mAfdd);
+  linha("disjuntor_existente", "Disjuntores dos circuitos que já existem (estimativa, a confirmar na visita)", semAfdd, semAfdd * MODULOS.disjuntor);
+  linha("afdd", "AFDD com disjuntor", nAfddG + afddEx, mAfdd + afddEx * MODULOS.afdd);
   linha("inteligente", `Disjuntores inteligentes (${[sy2G ? `${sy2G} SY2` : "", sy1G ? `${sy1G} SY1` : ""].filter(Boolean).join(", ")})`, sy2G + sy1G, mSy);
   linha("tetrapolar", "Disjuntor trifásico (máquina trifásica)", tetra, tetra * MODULOS.tetrapolar);
   linha("saida_parcial", "Geral de cada quadro parcial (saída do piso)", parciais, parciais * MODULOS.geral * P);
@@ -317,7 +340,7 @@ export function resumoQuadro(estado) {
   return {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
-    disjuntores: disj, sy2, sy1, tetrapolares: tetraT, circuitos_existentes: existentes,
+    disjuntores: disj, sy2, sy1, tetrapolares: tetraT, circuitos_existentes: existentes, afdd_existentes: afddEx,
     parciais, pisos_quadros: pisosQ,
     potencia: potenciaSugerida(circuitos),
   };
@@ -342,7 +365,7 @@ export function pedidosQuadro(estado) {
   add(p.idr_wifi ? "diferencial_wifi" : "diferencial", r.grupos.length);
   add("descarregador", p.descarregador ? 1 : 0);
   add("rele_tensao", p.rele_tensao ? 1 : 0);
-  add("afdd", r.afdd.length);
+  add("afdd", r.afdd.length + r.afdd_existentes);
   add("medidor_geral", p.medidor_geral ? 1 : 0);
   add("geral_wifi", p.geral_wifi ? 1 : 0);
   if (levaQuadroNovo(estado.quadro)) {

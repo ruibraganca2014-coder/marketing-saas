@@ -12,7 +12,7 @@ import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
-import { melhoriasNovas, normalizarMelhorias } from "./melhorias.js";
+import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
@@ -169,6 +169,7 @@ export function estadoNovo() {
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
     avaria: { onde: null, problema: null, descricao: "" },   // funil "avaria" (AVARIA_ONDE, AVARIA_PROBLEMA)
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
+    instalado: null,                                         // fase 2: o que o pedido da casa guardada já instala (melhorias.js instaladoDe)
   };
 }
 
@@ -395,6 +396,7 @@ export function normalizarEstado(v) {
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);
   e.melhorias = normalizarMelhorias(v.melhorias);
+  e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
   e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
@@ -670,7 +672,7 @@ export function temProgresso(e, passoInicial = 0) {
  */
 export const CHAVE_CASA = "domus.simulador.casa";
 const CAMPOS_CASA = ["pisosDesde0", "casa", "fasesEditadas", "quer", "planta", "plantaAuto", "plantaBase", "plantaFase", "plantaSinc",
-  "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados"];
+  "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados", "instalado"];
 /** O estado tem uma casa que se possa guardar? (o tipo de imóvel e uma planta com divisões) */
 export const temCasa = (e) => !!e && !!e.casa?.tipo && Array.isArray(e.planta?.divisoes) && e.planta.divisoes.length > 0;
 /** Estado só com a casa (`soCasa`), sem o que era do pedido (ações, avarias, fotos, contacto, visita). */
@@ -680,6 +682,9 @@ export function soCasaDe(e, agora = new Date()) {
   n.planta = { ...n.planta, elementos: (n.planta.elementos ?? []).map(({ acao, avaria, inteligente, ...x }) => x) };
   // O "Quadro seguro" é do pedido (melhorias.js): a casa guarda as proteções que o cliente escolheu antes dele.
   if (e.melhorias?.quadroAnterior && n.quadro) n.quadro = { ...n.quadro, ...normalizarProtecoes({ ...n.quadro, protecoes: e.melhorias.quadroAnterior }) };
+  // Fase 2: o que este pedido já instala (proteções do quadro, máquinas com disjuntor inteligente) conta como feito no
+  // "Já tenho a planta" (as Melhorias não o cobram outra vez).
+  n.instalado = instaladoDe(e);
   n.plantaSaltada = false;
   n.soCasa = true;
   n.guardado = agora.toISOString();
@@ -998,6 +1003,8 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },
+    // Fase 2: a margem dos pacotes aceites (já no `total`; o painel soma-a ao "Total (sem intervalo)").
+    melhorias_margem_iva: preco.melhorias_margem_iva ?? 0,
     // Fase 2: pacotes do passo "Melhorias" — os artigos também vão em `itens` (grupo "melhoria"; os do "Quadro seguro",
     // com o quadro no pedido, nas linhas do quadro); `preco` = o "a partir de" dado ao cliente (com a margem dos pacotes).
     melhorias: (Array.isArray(melhorias) ? melhorias : []).slice(0, 4).map((m) => ({

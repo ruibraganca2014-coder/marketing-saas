@@ -6,6 +6,7 @@
 // com o plano mensal e pagar o sinal, "Pagar o restante" depois da obra, e o relatório técnico (depois de revisto).
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
+import { formatarEuroRedondo } from "./simulador/preco.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, texto) => {
@@ -366,10 +367,10 @@ function blocoResumo(r, id) {
     for (const t of r.inclui) ul.append(el("li", null, t));
     b.append(el("p", null, "O que inclui:"), ul);
   }
-  // Fase 2: os pacotes do passo "Melhorias" (como no Orçamento do simulador).
+  // Fase 2: os pacotes do passo "Melhorias" (como no Orçamento do simulador: "751 €").
   if (r.melhorias?.length) {
     const ul = el("ul");
-    for (const m of r.melhorias) ul.append(el("li", null, `${m.nome}${m.preco === null ? "" : ` — ${euro(Math.round(m.preco))}`}`));
+    for (const m of r.melhorias) ul.append(el("li", null, `${m.nome}${m.preco === null ? "" : ` — ${formatarEuroRedondo(m.preco)}`}`));
     b.append(el("p", null, "Melhorias:"), ul);
   }
   return b;

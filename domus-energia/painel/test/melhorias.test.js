@@ -7,13 +7,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  estadoNovo, normalizarEstado, montarSimulacao, soCasaDe, PASSO, ordemPasso, maisAdiantado,
+  estadoNovo, normalizarEstado, montarSimulacao, soCasaDe, usarCasa, PASSO, ordemPasso, maisAdiantado,
 } from '../../web/simulador/estado.js';
 import { plantaDaCasa } from '../../web/simulador/casa.js';
 import { calcularPreco, pedidosDaSelecao, cent } from '../../web/simulador/preco.js';
 import { contarPlanta, sugerirCircuitos, divisoesDaContagem } from '../../web/simulador/regras.js';
 import { plantaNovos, plantaInteligentes } from '../../web/simulador/acoes.js';
-import { calcularMelhorias, mudarMelhoria, acertarMelhorias, quadroNoMaximo, CHAVES_MELHORIA, QUADRO_SEGURO } from '../../web/simulador/melhorias.js';
+import { calcularMelhorias, mudarMelhoria, acertarMelhorias, quadroNoMaximo, CHAVES_MELHORIA, MELHORIAS, QUADRO_SEGURO } from '../../web/simulador/melhorias.js';
+import { pedidosQuadro, pacoteDoQuadro, protecoesDoPacote, afddExistentes, CHAVES_PROTECOES } from '../../web/simulador/quadro.js';
 import { blocosOrcamento } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 import { abrirDb, migrar, MIGRACOES } from '../src/db.js';
@@ -78,13 +79,13 @@ test('pacotes nesta casa: contagens, "a partir de" = (material + horas × tarifa
 test('o total do orçamento sobe exatamente o preço de cada pacote aceite (e volta ao tirar)', () => {
   const e = casaT2(['nova']);
   const base = total(e);
-  let soma = 0;
   for (const id of CHAVES_MELHORIA) {
-    const preco = porId(calcularMelhorias(e, CATALOGO, {}))[id].preco;
     assert.equal(mudarMelhoria(e, id, true), true);
-    soma = cent(soma + preco);
+    // Os preços dos cartões aceites, como estão agora (com o Quadro seguro o medidor sai do "Poupar energia": já vem nele).
+    const soma = calcularMelhorias(e, CATALOGO, {}).filter((m) => m.aceite).reduce((t, m) => cent(t + m.preco), 0);
     assert.equal(cent(total(e) - base), soma, `com ${id}`);
   }
+  assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))['poupar-energia'].itens.some((i) => i.chave === 'medidor_geral'), false, 'o medidor não conta 2 vezes');
   for (const id of CHAVES_MELHORIA) mudarMelhoria(e, id, false);
   assert.equal(total(e), base);
   assert.deepEqual(e.melhorias, { aceites: [], quadroAnterior: null });
@@ -105,9 +106,11 @@ test('sem duplicados: o que a planta ou o pedido já têm não conta outra vez',
   assert.equal(qtd('casa-inteligente', 'modulo_interruptor'), ints.length - 1, 'o interruptor inteligente não leva módulo');
   assert.equal(qtd('seguranca', 'sensor_movimento'), 0, 'a sala já tem sensor de movimento no pedido');
   // Portas e janelas: os sensores de porta que o pedido já leva contam (a porta da rua sugere um).
+  // (A planta desenhada pela casa não tem porta da rua: +1 para a entrada.)
   const precisa = e.planta.elementos.filter((x) => (x.tipo === 'porta' && x.props.entrada) || x.tipo === 'janela').length;
   const ja = e.divisoes.reduce((s, d) => s + d.sensores_porta, 0);
-  assert.equal(qtd('seguranca', 'sensor_porta'), Math.max(0, precisa - ja));
+  const semRua = !e.planta.elementos.some((x) => x.tipo === 'porta' && x.props.entrada);
+  assert.equal(qtd('seguranca', 'sensor_porta'), Math.max(0, precisa - ja) + (semRua ? 1 : 0));
   // O quadro com medidor geral (no pedido): o "Poupar energia" já não o leva.
   e.quadro.protecoes.medidor_geral = true;
   assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))['poupar-energia'].vazio, true);
@@ -117,17 +120,25 @@ test('Quadro seguro: põe o quadro na proteção máxima, repõe ao tirar, "Já 
   const e = casaT2(['nova']);
   const antes = { ...e.quadro.protecoes };
   const m0 = porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO];
-  assert.deepEqual(m0.itens.map((i) => i.chave).sort(), ['afdd', 'diferencial_wifi']);   // o Recomendado já tem descarregador e relé
+  // O Recomendado já tem descarregador e relé; a Completa junta AFDD, medidor e geral Wi-Fi (+ diferenciais Wi-Fi).
+  assert.deepEqual(m0.itens.map((i) => i.chave).sort(), ['afdd', 'diferencial_wifi', 'geral_wifi', 'medidor_geral']);
+  assert.match(m0.resumo, /medidor geral, geral Wi-Fi/);
   mudarMelhoria(e, QUADRO_SEGURO, true);
   assert.ok(quadroNoMaximo(e.quadro));
+  // Decisão A: o passo Quadro mostra a proteção "Completa" (com os diferenciais Wi-Fi).
+  assert.equal(pacoteDoQuadro(e.quadro), 'completo');
+  assert.equal(e.quadro.pacote, 'completo');
+  assert.equal(e.quadro.protecoes.idr_wifi, true);
   assert.deepEqual(e.melhorias.quadroAnterior, antes);
   assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].preco, m0.preco, 'o mesmo preço depois de aceitar');
   assert.deepEqual(soCasaDe(e).quadro.protecoes, antes, 'a casa guardada não fica com o Quadro seguro');
   // Escolher outra proteção no passo Quadro tira a melhoria (app.js: mudarMelhoria(…, false) antes do pacote novo).
   mudarMelhoria(e, QUADRO_SEGURO, false);
   assert.deepEqual(e.quadro.protecoes, antes);
-  // Já no máximo: "Já incluído", não se aceita; pedido pelo `?pacote=` (sem as de antes) sai no acerto.
+  // Já no máximo (Completa + diferenciais Wi-Fi): "Já incluído", não se aceita; pedido pelo `?pacote=` (sem as de antes) sai no acerto.
   e.quadro.protecoes = { ...e.quadro.protecoes, afdd: true, idr_wifi: true };
+  assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].incluido, false, 'sem medidor e geral Wi-Fi ainda não é o máximo');
+  e.quadro.protecoes = protecoesDoPacote('completo', true);
   assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].incluido, true);
   assert.equal(mudarMelhoria(e, QUADRO_SEGURO, true), false);
   e.melhorias.aceites = [QUADRO_SEGURO];
@@ -143,7 +154,7 @@ test('Quadro seguro: põe o quadro na proteção máxima, repõe ao tirar, "Já 
 test('Quadro seguro sem o quadro no pedido (automatizar): proteções no quadro que fica, como linhas da melhoria', () => {
   const e = casaT2(['automatizar']);
   const m = porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO];
-  assert.deepEqual(m.itens.map((i) => i.chave).sort(), ['afdd', 'descarregador', 'diferencial_wifi', 'rele_tensao']);
+  assert.deepEqual(m.itens.map((i) => i.chave).sort(), ['afdd', 'descarregador', 'diferencial_wifi', 'geral_wifi', 'medidor_geral', 'rele_tensao']);
   assert.ok(m.itens.find((i) => i.chave === 'afdd').qtd >= 2, 'AFDD dos circuitos que já existem (quartos e sala)');
   assert.equal(m.linhas.length, m.itens.length);
   assert.ok(m.linhas.every((l) => l.grupo === 'melhoria'));
@@ -178,6 +189,9 @@ test('pedido (§6): `melhorias` e as linhas "melhoria"; o painel aceita e recusa
   assert.deepEqual(sim.melhorias[0].itens.map((i) => i.sku), ['BAB-MOD-2CH', 'TOMADA-WIFI']);
   assert.ok(sim.itens.some((i) => i.sku === 'BAB-MOD-2CH' && i.grupo === 'melhoria'));
   assert.equal(preco.melhorias_margem_iva, aceites[0].margem);
+  // Bug 2: a margem dos pacotes vai no pedido (o painel soma-a ao "Total (sem intervalo)").
+  assert.equal(sim.melhorias_margem_iva, aceites[0].margem);
+  assert.equal(cent(preco.artigos_iva + preco.mao_obra_iva + preco.deslocacao_iva + sim.melhorias_margem_iva), preco.total);
   assert.equal(typeof validarSimulacao(sim), 'string');
   assert.deepEqual(montarSimulacao(e, preco, 'base').melhorias, [], 'sem melhorias: lista vazia');
   const mal = (melhorias) => assert.throws(() => validarSimulacao({ ...sim, melhorias }), (err) => err.estado === 400, JSON.stringify(melhorias));
@@ -190,6 +204,11 @@ test('pedido (§6): `melhorias` e as linhas "melhoria"; o painel aceita e recusa
   mal([{ ...boa, itens: [{ sku: 'BAB-MOD-2CH', qtd: 0 }] }]);
   mal([{ ...boa, preco: -1 }]);
   assert.equal(typeof validarSimulacao({ ...sim, melhorias: [{ ...boa, preco: null }] }), 'string', 'sem catálogo: preço null');
+  const { melhorias_margem_iva: _, ...semMargem } = sim;
+  assert.equal(typeof validarSimulacao(semMargem), 'string', 'pedidos antigos: sem a margem');
+  for (const x of [-1, '5', null, Infinity, 2_000_000]) {
+    assert.throws(() => validarSimulacao({ ...sim, melhorias_margem_iva: x }), (err) => err.estado === 400, String(x));
+  }
 });
 
 test('margem dos pacotes: 20 % numa base nova e na migração 13, sem mexer num valor editado', () => {
@@ -211,4 +230,115 @@ test('PDF do orçamento: secção "Melhorias" só com melhorias aceites', () => 
   const b = blocosOrcamento({ ...d, melhorias: ['Casa inteligente: 5 interruptores, 4 tomadas — 377 €'] });
   const i = b.findIndex((x) => x.tipo === 'seccao' && x.texto === 'Melhorias');
   assert.ok(i > 0 && b[i + 1].texto.startsWith('Casa inteligente'));
+});
+
+// ------------------------------------------------------------ correções do QA da fase 2
+
+/** Automatizar (sem "Instalação nova") com "Melhorar o quadro? Sim" e o quadro atual ou novo. */
+function comQuadroMelhorado(quadroNovo) {
+  const e = casaT2(['automatizar']);
+  e.mexerQuadro = true;
+  e.quadro.quadro_novo = quadroNovo;
+  return e;
+}
+const qtdDe = (l, k) => l.filter((p) => p.chave === k).reduce((t, p) => t + p.qtd, 0);
+
+test('bug 1: AFDD nos circuitos que já existem — na proteção "Completa" do quadro e no Quadro seguro, com ou sem o quadro no pedido', () => {
+  const fora = casaT2(['automatizar']);
+  const n = afddExistentes({ ...fora, mexerQuadro: true });
+  assert.ok(n >= 2, 'T2: iluminação + tomadas dos quartos e sala');
+  assert.equal(afddExistentes(fora), 0, 'sem melhorar o quadro não conta');
+  assert.equal(afddExistentes({ ...casaT2(['nova']), mexerQuadro: true }), 0, 'instalação nova: os circuitos são todos novos');
+  const afddQs = (e) => porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].itens.find((i) => i.chave === 'afdd')?.qtd ?? 0;
+  assert.equal(afddQs(fora), n, 'sem o quadro no pedido');
+  for (const qn of ['atual', 'novo']) {
+    const e = comQuadroMelhorado(qn);
+    const m = porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO];
+    assert.equal(afddQs(e), n, `quadro ${qn}: o cartão tem o AFDD dos circuitos que existem`);
+    assert.match(m.resumo, new RegExp(`AFDD em ${n} circuitos`));
+    // A proteção "Completa" do próprio quadro cobra o mesmo AFDD (e, num quadro novo, menos disjuntores simples).
+    const completa = { ...e, quadro: { ...e.quadro, protecoes: protecoesDoPacote('completo', false) } };
+    assert.equal(qtdDe(pedidosQuadro(completa), 'afdd'), n, `quadro ${qn}: Completa`);
+    if (qn === 'novo') assert.equal(qtdDe(pedidosQuadro(e), 'disjuntor_circuito') - qtdDe(pedidosQuadro(completa), 'disjuntor_circuito'), n);
+    // Aceite, o total sobe o preço do cartão.
+    const base = total(e);
+    mudarMelhoria(e, QUADRO_SEGURO, true);
+    assert.equal(cent(total(e) - base), porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].preco, `quadro ${qn}: total`);
+  }
+});
+
+test('bug 3: "Já incluído" e aceitar seguem a mesma regra (sem o quadro no pedido conta o quadro que fica, não o escolhido)', () => {
+  const e = casaT2(['automatizar']);
+  e.quadro.protecoes = protecoesDoPacote('completo', true);   // escolhido no passo Quadro, mas "Melhorar o quadro? Não"
+  const m = porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO];
+  assert.equal(m.incluido, false);
+  assert.ok(m.preco > 0);
+  assert.equal(mudarMelhoria(e, QUADRO_SEGURO, true), true, 'o cartão com preço aceita-se');
+  assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))[QUADRO_SEGURO].aceite, true);
+  // A casa guardada já com a proteção máxima instalada: "Já incluído" e não se aceita.
+  const f = casaT2(['automatizar']);
+  f.instalado = { protecoes: protecoesDoPacote('completo', true), maquinas: [] };
+  assert.equal(porId(calcularMelhorias(f, CATALOGO, {}))[QUADRO_SEGURO].incluido, true);
+  assert.equal(mudarMelhoria(f, QUADRO_SEGURO, true), false);
+});
+
+test('bug 4: `?pacote=` só com as chaves dos pacotes (nada herdado do objeto)', () => {
+  for (const k of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.ok(MELHORIAS[k] !== undefined || k === '__proto__', `${k} existe no objeto (o bug)`);
+    assert.equal(CHAVES_MELHORIA.includes(k), false, k);
+  }
+  assert.deepEqual(normalizarEstado({ ...estadoNovo(), melhorias: { aceites: ['constructor', 'seguranca'] } }).melhorias.aceites, ['seguranca']);
+});
+
+test('decisão C: sem porta da rua desenhada, 1 sensor de porta para a entrada; as janelas só se desenhadas', () => {
+  const e = casaT2(['nova']);
+  const sp = (x) => porId(calcularMelhorias(x, CATALOGO, {})).seguranca.itens.find((i) => i.chave === 'sensor_porta')?.qtd ?? 0;
+  assert.equal(e.planta.elementos.some((x) => x.tipo === 'janela' || (x.tipo === 'porta' && x.props.entrada)), false);
+  assert.equal(sp(e), 1);
+  assert.match(porId(calcularMelhorias(e, CATALOGO, {})).seguranca.resumo, /^1 sensor de porta\/janela, 1 de movimento, 2 de água$/);
+  // Com a porta da rua desenhada: a dela (e não mais uma).
+  const sala = e.planta.divisoes.find((d) => d.nome === 'Sala');
+  e.planta.elementos.find((x) => x.tipo === 'porta' && x.divisao === sala.id).props.entrada = true;
+  assert.equal(sp(e), 1);
+  // Com um sensor de porta já nessa porta: nenhum.
+  e.planta.elementos.push({ id: 'sp1', tipo: 'sensor_porta', divisao: sala.id, piso: 0, x_cm: 0, y_cm: 0, rot: 0, props: {} });
+  assert.equal(sp(e), 0);
+  // Janelas desenhadas contam uma a uma.
+  e.planta.elementos.push({ id: 'j1', tipo: 'janela', divisao: sala.id, piso: 0, x_cm: 0, y_cm: 0, rot: 0, props: {} });
+  assert.equal(sp(e), 1);
+});
+
+test('decisão D: "Já tenho a planta" — o que a casa guardada já instalou não se cobra outra vez (e as casas antigas ficam como antes)', () => {
+  // 1.ª simulação: instalação nova com a proteção "Completa" e as máquinas com disjuntor inteligente.
+  const primeira = casaT2(['nova']);
+  primeira.quadro.protecoes = protecoesDoPacote('completo', false);
+  const casa = soCasaDe(primeira);
+  assert.deepEqual(casa.instalado.protecoes, { ...protecoesDoPacote('completo', false) });
+  const maquinas = primeira.planta.elementos.filter((x) => x.tipo === 'maquina');
+  assert.equal(casa.instalado.maquinas.length, maquinas.length, 'as 3 máquinas com SY2');
+  assert.deepEqual(normalizarEstado(JSON.parse(JSON.stringify(casa))).instalado, casa.instalado, 'guardado e lido');
+  // "Já tenho a planta": tudo Manter.
+  const plantaFunil = (c) => { const e = usarCasa(estadoNovo(), c); e.passo = PASSO.melhorias; return e; };
+  const e = plantaFunil(casa);
+  assert.deepEqual(e.instalado, casa.instalado);
+  const m = porId(calcularMelhorias(e, CATALOGO, {}));
+  assert.equal(m['poupar-energia'].vazio, true, 'medidor (Completa) e máquinas já com disjuntor inteligente');
+  const qs = m[QUADRO_SEGURO];
+  assert.deepEqual(qs.itens.map((i) => i.chave), ['diferencial_wifi'], 'só falta o que a Completa não tem');
+  // Com o Quadro seguro na 1.ª simulação: já incluído.
+  const comQs = casaT2(['nova']);
+  mudarMelhoria(comQs, QUADRO_SEGURO, true);
+  const e2 = plantaFunil(soCasaDe(comQs));
+  assert.equal(porId(calcularMelhorias(e2, CATALOGO, {}))[QUADRO_SEGURO].incluido, true);
+  assert.equal(mudarMelhoria(e2, QUADRO_SEGURO, true), false);
+  // Casa guardada antes disto (sem `instalado`): como antes — quadro no mínimo, as 3 máquinas sem disjuntor inteligente.
+  const { instalado: _, ...antiga } = casa;
+  const e3 = plantaFunil(normalizarEstado(JSON.parse(JSON.stringify(antiga))));
+  assert.equal(e3.instalado, null);
+  const m3 = porId(calcularMelhorias(e3, CATALOGO, {}));
+  assert.equal(m3['poupar-energia'].itens.find((i) => i.chave === 'disjuntor_protecoes')?.qtd, maquinas.length);
+  assert.ok(m3[QUADRO_SEGURO].itens.some((i) => i.chave === 'descarregador'), 'base Essencial');
+  // Guardar outra vez a casa no funil da planta (sem o quadro no pedido) mantém o que já estava instalado.
+  assert.deepEqual(soCasaDe(e).instalado, casa.instalado);
+  assert.deepEqual(Object.keys(casa.instalado.protecoes), CHAVES_PROTECOES);
 });

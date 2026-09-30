@@ -31,7 +31,7 @@ import {
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, FOTO_AVARIA, legendaAvaria, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
 } from "./estado.js";
-import { MELHORIAS, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
+import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
   opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso, existentesNoQuadroNovo,
 } from "./quadro.js";
@@ -244,7 +244,8 @@ function podeIrPara(i) {
   if (posicao(i) > 0 && bloquearInicio()) return false;
   if (funilAvaria()) return !(i === P.enviar && bloquearAvaria());
   if (i > P.casa && !funilPlanta() && bloquearCasa()) return false;
-  return !(i > P.trocar && bloquearTrocar());
+  if (i > P.trocar && bloquearTrocar()) return false;
+  return !(ordemPasso(i) > ordemPasso(P.melhorias) && bloquearMelhorias());
 }
 
 function irPara(i, { foco = true } = {}) {
@@ -317,7 +318,7 @@ function textoSeguinte() {
 }
 
 /** Os bloqueios de todo o caminho até ao Enviar (o "Seguinte" do Enviar). Devolve true se bloqueou. */
-const bloquearTudo = () => bloquearInicio() || (funilAvaria() ? bloquearAvaria() : bloquearCasa() || bloquearTrocar());
+const bloquearTudo = () => bloquearInicio() || (funilAvaria() ? bloquearAvaria() : bloquearCasa() || bloquearTrocar() || bloquearMelhorias());
 
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(passoAo(estado.passo, -1)));
@@ -328,6 +329,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.inicio && bloquearInicio()) return;
   if (estado.passo === P.casa && bloquearCasa()) return;
   if (estado.passo === P.trocar && bloquearTrocar()) return;
+  if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
   irPara(passoAo(estado.passo, 1));
 });
@@ -416,6 +418,8 @@ function escolherFunil(k) {
     estado.funil = k;
     estado.soCasa = false;
   }
+  // A avaria rápida não tem Melhorias: sai o pacote escolhido pelo `?pacote=` (o Quadro seguro repõe o quadro).
+  if (k === "avaria") for (const id of [...estado.melhorias.aceites]) mudarMelhoria(estado, id, false);
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharInicio();
   desenharProgresso();
@@ -1462,7 +1466,7 @@ function desenharQuadro() {
     return;
   }
   const partes = [];
-  if (seguro) partes.push("Melhoria Quadro seguro: AFDD, descarregador, relé de tensão e diferenciais Wi-Fi.");
+  if (seguro) partes.push("Com o Quadro seguro: Completa e diferenciais Wi-Fi. Escolher outra proteção tira o Quadro seguro.");
   if (q.para_raios === "sim") partes.push("Com pára-raios: descarregador de sobretensões incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
@@ -2445,10 +2449,6 @@ function mensagemTrocar(texto, tipo = "info") {
 function faltaNoTrocar() {
   const planta = plantaDivisoes();
   if (fluxoCurto() && !nAvarias(planta)) return { texto: "Marque pelo menos uma avaria (aparelho ou quadro).", alvo: "reparar" };
-  // Já tenho a planta: pelo menos uma coisa a trocar, reparar ou acrescentar (ou o quadro).
-  if (funilPlanta() && !estado.mexerQuadro && estado.quadroAvaria === null && !planta.elementos.some((e) => temAcao(e.tipo, e.props) && ACOES[e.acao] && e.acao !== "manter")) {
-    return { texto: "Escolha pelo menos uma coisa para trocar, reparar ou acrescentar.", alvo: divisoesPorOrdem(planta)[0]?.id ?? "quadro" };
-  }
   if (quadroPorDescrever()) return { texto: "Diga o que se passa no quadro.", alvo: "quadro" };
   if (estado.quadroAvaria !== null && !fotos.has("quadro")) return { texto: "Falta a foto do quadro (obrigatória com problemas).", alvo: "quadro-foto" };
   const falta = divisoesPorOrdem(planta).filter((d) => faltaTrocar(planta, d).length);
@@ -2873,6 +2873,7 @@ montarAvaria();
 // plano mensal sugerido com os pacotes aceites.
 function desenharMelhorias() {
   const { melhorias, plano } = calcular();
+  if (avisoMelhorias && !faltaNasMelhorias()) mensagemMelhorias(null);
   const foco = document.activeElement?.closest?.("#melhorias") ? document.activeElement.value : null;
   $("melhorias").replaceChildren(...melhorias.map(cartaoMelhoria));
   if (foco) document.querySelector(`#melhorias input[value="${foco}"]`)?.focus();
@@ -2880,6 +2881,32 @@ function desenharMelhorias() {
   est.textContent = catalogo === undefined ? "A obter os preços…" : catalogo === null ? "Sem preços agora: enviamos o preço depois do pedido." : "";
   est.hidden = !est.textContent;
   $("melhorias-plano").textContent = `Plano sugerido: ${PLANOS[plano].nome}, ${formatarEuro(PLANOS[plano].preco)} por mês.`;
+}
+/**
+ * Já tenho a planta: para o Orçamento, pelo menos uma coisa a trocar, reparar ou acrescentar (ou o quadro) — ou uma
+ * melhoria. (A primeira vez segue as regras do serviço, em "Trocar e reparar".) Texto do que falta, ou null.
+ */
+function faltaNasMelhorias() {
+  if (!funilPlanta() || estado.mexerQuadro || estado.quadroAvaria !== null) return null;
+  if (plantaDivisoes().elementos.some((e) => temAcao(e.tipo, e.props) && ACOES[e.acao] && e.acao !== "manter")) return null;
+  if (calcular().aceites.length) return null;
+  return "Escolha uma melhoria, ou algo para trocar, reparar ou acrescentar em Trocar e reparar.";
+}
+let avisoMelhorias = false;
+function mensagemMelhorias(texto) {
+  avisoMelhorias = !!texto;
+  const m = $("melhorias-msg");
+  m.textContent = texto ?? "";
+  m.hidden = !texto;
+}
+/** "Seguinte" (ou a barra) para lá das Melhorias sem nada no pedido: fica (ou volta) aqui com a mensagem. */
+function bloquearMelhorias() {
+  const t = faltaNasMelhorias();
+  if (!t) return false;
+  if (estado.passo !== P.melhorias) irPara(P.melhorias, { foco: false });
+  mensagemMelhorias(t);
+  $("melhorias-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
+  return true;
 }
 function cartaoMelhoria(m) {
   const fixo = m.incluido || m.vazio;
@@ -3767,7 +3794,7 @@ $("trocar-casa-mudar").addEventListener("click", mudarACasa);
  */
 function preEscolherPacote() {
   const k = params.get("pacote");
-  if (!MELHORIAS[k] || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
+  if (!CHAVES_MELHORIA.includes(k) || funilAvaria() || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
   estado.melhorias.aceites = [k];   // o "Quadro seguro" aplica-se ao quadro no cálculo (melhorias.js acertarMelhorias)
 }
 
