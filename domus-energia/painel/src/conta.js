@@ -100,6 +100,9 @@ function resumoSimulacao(json) {
       if (a?.acao === 'substituir') { const i = Math.min(n(a.inteligentes), n(a.qtd)); trocasInteligentes += i; trocas += n(a.qtd) - i; }
     }
   }
+  // Disjuntores inteligentes (medição por circuito) nos itens do pedido, como no "O que inclui" do simulador.
+  const partes = (Array.isArray(s.itens) ? s.itens.slice(0, 500) : [])
+    .filter((i) => typeof i?.sku === 'string' && /^TONGOU-SY[12]-/.test(i.sku)).reduce((t, i) => t + n(i.qtd), 0);
   const p = (k, um, varios) => (k ? `${k} ${k === 1 ? um : varios}` : null);
   const PACOTES = { essencial: 'Proteção básica no quadro elétrico', recomendado: 'Proteção recomendada no quadro elétrico', completo: 'Proteção completa no quadro elétrico' };
   const inclui = [
@@ -113,7 +116,9 @@ function resumoSimulacao(json) {
     p(trocas, 'aparelho trocado', 'aparelhos trocados'),
     p(reparacoes, 'reparação', 'reparações'),
     // Só quando o quadro entra no pedido (sem "Quer melhorar o quadro?" = Não); pedidos antigos sem no_preco contam.
-    s.quadro?.no_preco === false ? null : PACOTES[s.quadro?.pacote] ?? null,
+    partes ? `Ver quanto gasta e ligar ou desligar ${partes === 1 ? '1 parte' : `${partes} partes`} da casa no telemóvel` : null,
+    s.quadro?.no_preco === false || !PACOTES[s.quadro?.pacote] ? null : `${PACOTES[s.quadro.pacote]}${s.quadro.quadro_novo_no_preco === true ? ', com quadro novo' : ''}`,
+    'Instalação por técnico habilitado',
   ].filter(Boolean);
   const PLANOS = { base: 'Base', conforto: 'Conforto', premium: 'Premium' };
   const min = Number.isFinite(s.total?.min) ? s.total.min : null;

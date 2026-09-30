@@ -264,6 +264,8 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         desenhar();
         mensagem("Palavra-passe mudada.", "ok");
         aoMudar(eu);
+        msg.tabIndex = -1;
+        msg.focus();
       }));
       comEnter([cod, s1, s2], mudar);
       caixa.append(el("p", {}, "Código enviado para ", el("strong", { texto: emailRepor }), "."), msg, cod.l, el("div", { classe: "duas" }, s1.l, s2.l),

@@ -1,14 +1,19 @@
 const cfg = window.DOMUS;
 
-// Contactos a partir do config.js
+// Contactos a partir do config.js. Números de exemplo (só zeros, ex. 351900000000) ficam escondidos,
+// como na área de cliente (subscricao.js numeroReal).
+const numeroReal = (n) => { const d = String(n ?? "").replace(/^\+/, ""); return /^\d{6,15}$/.test(d) && !/^(351)?9?0+$/.test(d); };
+const temWhatsapp = numeroReal(cfg.whatsapp);
+const temTelefone = numeroReal(cfg.telefone);
 const whatsappPara = (texto) => `https://wa.me/${cfg.whatsapp}?text=${encodeURIComponent(texto)}`;
 const whatsappUrl = whatsappPara("Olá Domus Energia, gostava de pedir informações.");
 document.querySelectorAll(".js-whatsapp").forEach((a) => {
+  if (!temWhatsapp) { a.hidden = true; return; }
   a.href = whatsappUrl;
   a.target = "_blank";
   a.rel = "noopener";
 });
-document.querySelectorAll(".js-telefone").forEach((a) => (a.href = `tel:${cfg.telefone}`));
+document.querySelectorAll(".js-telefone").forEach((a) => { if (temTelefone) a.href = `tel:${cfg.telefone}`; else a.hidden = true; });
 document.querySelectorAll(".js-telefone-texto").forEach((el) => (el.textContent = cfg.telefoneVisivel));
 document.querySelectorAll(".js-email").forEach((a) => (a.href = `mailto:${cfg.email}`));
 document.querySelectorAll(".js-email-texto").forEach((el) => (el.textContent = cfg.email));
@@ -151,7 +156,8 @@ function mostrar(texto, ok, dados = null) {
     t.className = "btn sec pequeno";
     t.href = `tel:${cfg.telefone}`;
     t.textContent = `Ligar ${cfg.telefoneVisivel}`;
-    acoes.append(w, t);
+    if (temWhatsapp) acoes.append(w);
+    if (temTelefone) acoes.append(t);
     msg.append(acoes);
   }
   msg.className = `msg ${ok ? "ok" : "erro"}`;
