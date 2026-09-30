@@ -23,7 +23,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson } from './http.js';
-import { idNum, opcao } from './validar.js';
+import { idNum, opcao, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 
@@ -468,7 +468,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * Substituir / Novo, com as avarias; `simulacao.trabalho`, lote 7; os pedidos antigos: tudo Novo pelas linhas das
    * divisões) e o material; o resto (quadro elétrico, central…), a mão de obra e a deslocação à parte. Os PREÇOS e as
    * horas são os do CATÁLOGO e da configuração do servidor (nunca os `preco_iva`/`valor_iva` que o browser mandou).
-   * Sem preço de compra, fornecedor, ligações, notas internas nem circuitos.
+   * Sem preço de compra, fornecedor, ligações, notas internas nem circuitos. Fase 2: `melhorias` (nomes dos pacotes
+   * aceites) e `margem_pacotes` (null sem pacotes), calculada aqui pelo catálogo e pela configuração, somada ao total.
    */
   function relatorioCliente(o) {
     let s;
@@ -574,7 +575,34 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const maoObra = itens.size ? Math.round(horas * tarifa * 100) / 100 : null;
     const deslocacao = itens.size ? deslocacaoServidor(o.localidade ?? s.casa?.localidade ?? '', cfg) : null;
     const somaGeral = Math.round(geral.reduce((t, l) => t + (l.total ?? 0), 0) * 100) / 100;
-    const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0);
+    // Fase 2: a margem dos pacotes aceites nas Melhorias, como o simulador (web/simulador/melhorias.js calcularMelhorias):
+    // por pacote, custo = material + horas × tarifa dos seus artigos (preços e horas do CATÁLOGO), preço = custo × (1 +
+    // margem_pacotes_pct) e margem = preço − custo. Nunca a `melhorias_margem_iva` do browser. Os artigos dos pacotes já
+    // estão nos `itens` (material e mão de obra acima); aqui só entra a margem.
+    const pctPacotes = Number(cfg.margem_pacotes_pct);
+    const mPacotes = Math.min(100, Number.isFinite(pctPacotes) && pctPacotes >= 0 ? pctPacotes : 20) / 100;
+    const cent2 = (x) => Math.round(x * 100) / 100;
+    const vistos = new Set();
+    const melhorias = [];
+    for (const m of Array.isArray(s.melhorias) ? s.melhorias.slice(0, MELHORIAS.length) : []) {
+      if (!m || !MELHORIAS.includes(m.id) || vistos.has(m.id)) continue;
+      vistos.add(m.id);
+      // O "Quadro seguro" com o quadro no pedido custa a diferença do quadro (`quadro_delta`, com sinal: o que sai, como
+      // os diferenciais normais e a caixa menor, desconta; nunca abaixo de 0), como o simulador.
+      const delta = m.id === 'quadro-seguro' && Array.isArray(m.quadro_delta);
+      let mat = 0, h = 0;
+      for (const i of delta ? m.quadro_delta.slice(0, 30) : Array.isArray(m.itens) ? m.itens.slice(0, 20) : []) {
+        const a = typeof i?.sku === 'string' ? art(i.sku) : null;
+        const q = delta && Number.isInteger(i?.qtd) ? Math.max(-999, Math.min(999, i.qtd)) : inteiro(i?.qtd, 999);
+        if (!a || !q) continue;
+        mat += cent2((deCent(a.preco_venda_iva_cent) ?? 0) * q);
+        h += (Number(a.horas_instalacao) || 0) * q;
+      }
+      const custo = Math.max(0, cent2(cent2(mat) + cent2(cent2(h) * tarifa)));
+      melhorias.push({ nome: txtCurto(m.nome, 80) || m.id, margem: cent2(cent2(custo * (1 + mPacotes)) - custo) });
+    }
+    const margemPacotes = melhorias.length ? cent2(melhorias.reduce((t, m) => t + m.margem, 0)) : null;
+    const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0) + (margemPacotes ?? 0);
     const ta = s.totais_acao && typeof s.totais_acao === 'object' ? s.totais_acao : {};
     const aparelhos = (k) => inteiro(ta[k]?.aparelhos, 10_000);
     return {
@@ -582,7 +610,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       acoes: { manter: aparelhos('manter'), reparar: aparelhos('reparar'), substituir: aparelhos('substituir'), novo: aparelhos('novo') },
       divisoes, geral: { titulo: 'Quadro elétrico e geral', material: geral, total: somaGeral },
       mao_obra: maoObra === null ? null : { horas, valor: maoObra },
-      deslocacao, total: Math.round(soma * 100) / 100,
+      deslocacao, melhorias: melhorias.map((m) => m.nome), margem_pacotes: margemPacotes, total: Math.round(soma * 100) / 100,
       nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. Os 19 € já pagos são descontados na obra.',
     };
   }

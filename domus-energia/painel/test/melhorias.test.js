@@ -10,7 +10,7 @@ import {
   estadoNovo, normalizarEstado, montarSimulacao, soCasaDe, usarCasa, PASSO, ordemPasso, maisAdiantado,
 } from '../../web/simulador/estado.js';
 import { plantaDaCasa } from '../../web/simulador/casa.js';
-import { calcularPreco, pedidosDaSelecao, cent } from '../../web/simulador/preco.js';
+import { calcularPreco, pedidosDaSelecao, cent, encontrarArtigo } from '../../web/simulador/preco.js';
 import { contarPlanta, sugerirCircuitos, divisoesDaContagem } from '../../web/simulador/regras.js';
 import { plantaNovos, plantaInteligentes } from '../../web/simulador/acoes.js';
 import { calcularMelhorias, mudarMelhoria, acertarMelhorias, quadroNoMaximo, CHAVES_MELHORIA, MELHORIAS, QUADRO_SEGURO } from '../../web/simulador/melhorias.js';
@@ -209,6 +209,39 @@ test('pedido (§6): `melhorias` e as linhas "melhoria"; o painel aceita e recusa
   for (const x of [-1, '5', null, Infinity, 2_000_000]) {
     assert.throws(() => validarSimulacao({ ...sim, melhorias_margem_iva: x }), (err) => err.estado === 400, String(x));
   }
+});
+
+test('Quadro seguro com o quadro no pedido: `quadro_delta` = a diferença do quadro (com sinal), que custa o que o cartão diz; vai no pedido', () => {
+  const e = casaT2(['nova']);
+  mudarMelhoria(e, QUADRO_SEGURO, true);
+  acertarMelhorias(e);
+  const ms = calcularMelhorias(e, CATALOGO, {});
+  const qs = ms.find((m) => m.id === QUADRO_SEGURO);
+  assert.ok(qs.aceite && Array.isArray(qs.delta));
+  assert.ok(qs.delta.some((i) => i.qtd < 0), 'sai alguma coisa (diferenciais normais, geral, caixa menor)');
+  assert.ok(!ms.find((m) => m.id === 'casa-inteligente').delta, 'só o Quadro seguro');
+  // O custo pela diferença (entra − sai) é o do cartão.
+  const custo = (l) => { const pr = calcularPreco(l, CATALOGO, {}, { valor_iva: 0 }); return cent(pr.artigos_iva + pr.mao_obra_iva); };
+  const entra = custo(qs.delta.filter((i) => i.qtd > 0)), sai = custo(qs.delta.filter((i) => i.qtd < 0).map((i) => ({ ...i, qtd: -i.qtd })));
+  assert.ok(Math.abs(cent(entra - sai) - qs.custo) <= 0.01, `${entra} − ${sai} ≈ ${qs.custo}`);
+  const sku = (chave) => encontrarArtigo(chave, CATALOGO).sku;
+  const env = [{ id: qs.id, nome: qs.nome, itens: qs.itens.map((i) => ({ sku: sku(i.chave), qtd: i.qtd })), preco: qs.preco, quadro_delta: qs.delta.map((i) => ({ sku: sku(i.chave), qtd: i.qtd })) }];
+  const preco = calcularPreco([...pedidosDaSelecao(e), ...qs.linhas], CATALOGO, {}, { valor_iva: 0 }, qs.margem);
+  const sim = montarSimulacao(e, preco, 'base', [], null, env);
+  assert.deepEqual(sim.melhorias[0].quadro_delta, env[0].quadro_delta);
+  assert.equal(typeof validarSimulacao(sim), 'string');
+  // Sem o quadro no pedido (automatizar), o custo são as linhas da melhoria: sem `quadro_delta`.
+  const a = casaT2(['automatizar']);
+  mudarMelhoria(a, QUADRO_SEGURO, true);
+  acertarMelhorias(a);
+  assert.equal(calcularMelhorias(a, CATALOGO, {}).find((m) => m.id === QUADRO_SEGURO).delta, undefined);
+  const mal = (d, id = QUADRO_SEGURO) => assert.throws(() => validarSimulacao({ ...sim, melhorias: [{ ...sim.melhorias[0], id, quadro_delta: d }] }), (err) => err.estado === 400, JSON.stringify(d));
+  mal([{ sku: 'GERAL-2P-63A', qtd: 0 }]);
+  mal([{ sku: 'GERAL-2P-63A', qtd: -1000 }]);
+  mal([{ sku: 'GERAL-2P-63A', qtd: 1.5 }]);
+  mal({});
+  mal(Array(31).fill({ sku: 'GERAL-2P-63A', qtd: 1 }));
+  mal([{ sku: 'GERAL-2P-63A', qtd: 1 }], 'seguranca');
 });
 
 test('margem dos pacotes: 20 % numa base nova e na migração 13, sem mexer num valor editado', () => {

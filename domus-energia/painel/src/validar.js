@@ -129,6 +129,7 @@ export function simulacao(v) {
 /**
  * Fase 2 (passo "Melhorias"): `melhorias` = lista (opcional; pedidos antigos não a têm) de pacotes aceites
  * {id, nome ≤ 80, itens: [{sku, qtd 1–999}] (≤ 20), preco (€ c/ IVA, ≥ 0, ou null sem catálogo)}, sem ids repetidos;
+ * o "Quadro seguro" com o quadro no pedido leva também `quadro_delta` [{sku, qtd −999…999, ≠ 0}] (≤ 30);
  * `melhorias_margem_iva` = a margem dos pacotes no total (€ c/ IVA, 0–1 000 000; opcional).
  */
 export const MELHORIAS = ['casa-inteligente', 'poupar-energia', 'seguranca', 'quadro-seguro'];
@@ -151,6 +152,14 @@ function melhoriasSimulacao(l, margem) {
     for (const i of m.itens) {
       if (!i || typeof i !== 'object' || typeof i.sku !== 'string' || !RE_SKU_MELHORIA.test(i.sku)) falha('Melhorias: SKU inválido.');
       if (!Number.isInteger(i.qtd) || i.qtd < 1 || i.qtd > 999) falha('Melhorias: quantidade entre 1 e 999.');
+    }
+    // "Quadro seguro" com o quadro no pedido: a diferença do quadro (com sinal), ≤ 30 linhas, qtd −999…999 (≠ 0).
+    if (m.quadro_delta !== undefined) {
+      if (m.id !== 'quadro-seguro' || !Array.isArray(m.quadro_delta) || m.quadro_delta.length > 30) falha('Melhorias: diferença do quadro inválida.');
+      for (const i of m.quadro_delta) {
+        if (!i || typeof i !== 'object' || typeof i.sku !== 'string' || !RE_SKU_MELHORIA.test(i.sku)) falha('Melhorias: SKU inválido.');
+        if (!Number.isInteger(i.qtd) || i.qtd === 0 || Math.abs(i.qtd) > 999) falha('Melhorias: quantidade da diferença do quadro entre −999 e 999.');
+      }
     }
     if (m.preco !== undefined && m.preco !== null && !(typeof m.preco === 'number' && Number.isFinite(m.preco) && m.preco >= 0 && m.preco <= 1_000_000)) {
       falha('Melhorias: preço entre 0 e 1 000 000 €.');

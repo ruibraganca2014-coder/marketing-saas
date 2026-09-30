@@ -9,6 +9,7 @@ import { createHmac } from 'node:crypto';
 import { painelComEquipa } from './ajuda.js';
 import { calcularSinal, foraDaArea, comIva, partirIva, deslocacaoServidor } from '../src/pagamentos-pedido.js';
 import { lerConfig } from '../src/config.js';
+import { calcularPreco, cent as centSim } from '../../web/simulador/preco.js';
 
 const SIM = {
   versao: 1, casa: { tipo: 'apartamento', tipologia: 'T2', localidade: 'Sintra' },
@@ -309,6 +310,61 @@ describe('modo simulado', () => {
     const horas = cent(horasCat('DIAG-AVARIA') + 2 * horasCat('INT-VIDRO-1', true) + horasCat('TOMADA-WIFI') + horasCat('TONGOU-SY2-JWT'));
     assert.equal(rel.mao_obra.horas, horas, 'ao substituir, as horas de troca');
     assert.doesNotMatch(JSON.stringify(rel), /99999/, 'nada dos totais do browser');
+  });
+
+  test('relatório do cliente (fase 2): margem dos pacotes das Melhorias pelo catálogo e pela configuração (não a do browser), no total', async () => {
+    const c = await p.contaConfirmada();
+    const MEL = [
+      { id: 'seguranca', nome: 'Segurança', itens: [{ sku: 'SENS-PORTA-WIFI', qtd: 2 }, { sku: 'SENS-PIR-WIFI', qtd: 1 }, { sku: 'SENS-AGUA-WIFI', qtd: 2 }], preco: 1 },
+      { id: 'casa-inteligente', nome: 'Casa inteligente', itens: [{ sku: 'BAB-MOD-2CH', qtd: 3 }, { sku: 'TOMADA-WIFI', qtd: 2 }], preco: 1 },
+      { id: 'seguranca', nome: 'Repetida', itens: [{ sku: 'SENS-AGUA-WIFI', qtd: 999 }], preco: 1 },
+    ];
+    const extra = MEL.slice(0, 2).flatMap((m) => m.itens.map((i) => ({ ...i, preco_iva: 1, grupo: 'melhoria' })));
+    const sim = { ...SIM, itens: [...SIM.itens, ...extra], melhorias: MEL.slice(0, 2), melhorias_margem_iva: 0.01 };
+    const pg = await enviar(c, { simulacao: sim });
+    const id = (await simular(c, pg.ref, 'sucesso')).json.pagamento.orcamento_id;
+    // A repetida (que o validador não deixa enviar) só se testa direto na linha guardada.
+    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify({ ...sim, melhorias: MEL, melhorias_margem_iva: 99999 }), id);
+    // O que o simulador calcula (melhorias.js calcularMelhorias): (material + horas × tarifa) × margem, por pacote.
+    const catalogo = p.app.db.prepare('SELECT sku, preco_venda_iva_cent, horas_instalacao FROM catalogo').all()
+      .map((a) => ({ sku: a.sku, preco_venda_iva: a.preco_venda_iva_cent / 100, horas_instalacao: a.horas_instalacao }));
+    const CHAVE = { 'SENS-PORTA-WIFI': 'sensor_porta', 'SENS-PIR-WIFI': 'sensor_movimento', 'SENS-AGUA-WIFI': 'sensor_agua', 'BAB-MOD-2CH': 'modulo_interruptor', 'TOMADA-WIFI': 'tomada' };
+    const margemSim = (pct) => centSim(MEL.slice(0, 2).reduce((t, m) => {
+      const pr = calcularPreco(m.itens.map((i) => ({ chave: CHAVE[i.sku], qtd: i.qtd, grupo: 'melhoria' })), catalogo, {}, { valor_iva: 0 });
+      const custo = centSim(pr.artigos_iva + pr.mao_obra_iva);
+      return t + centSim(centSim(custo * (1 + pct / 100)) - custo);
+    }, 0));
+    let rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+    assert.deepEqual(rel.melhorias, ['Segurança', 'Casa inteligente'], 'sem repetidos');
+    assert.ok(margemSim(20) > 0);
+    assert.equal(rel.margem_pacotes, margemSim(20), 'margem_pacotes_pct = 20 (migração 13)');
+    const semMargem = cent(rel.divisoes.reduce((t, d) => t + d.total, 0) + rel.geral.total + rel.mao_obra.valor + rel.deslocacao);
+    assert.equal(rel.total, cent(semMargem + rel.margem_pacotes), 'no total');
+    assert.doesNotMatch(JSON.stringify(rel), /99999/);
+    // A margem é a da configuração do servidor.
+    p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(30, 'margem_pacotes_pct');
+    try {
+      rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+      assert.equal(rel.margem_pacotes, margemSim(30));
+    } finally {
+      p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(20, 'margem_pacotes_pct');
+    }
+    // "Quadro seguro" com o quadro no pedido: conta a diferença do quadro (`quadro_delta`; o que sai desconta), não os itens.
+    const QS = { id: 'quadro-seguro', nome: 'Quadro seguro', itens: [{ sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }], preco: 1,
+      quadro_delta: [{ sku: 'IDR-2P-40A-30MA', qtd: -2 }, { sku: 'GERAL-2P-63A', qtd: -1 }, { sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }] };
+    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify({ ...sim, melhorias: [QS] }), id);
+    rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+    const custoDe = (l) => { const pr = calcularPreco(l, catalogo, {}, { valor_iva: 0 }); return centSim(pr.artigos_iva + pr.mao_obra_iva); };
+    const CH = { 'IDR-2P-40A-30MA': 'diferencial', 'GERAL-2P-63A': 'disjuntor_geral', 'RCBO-WIFI-TOSMR1': 'diferencial_wifi', 'GERAL-WIFI-2P-63A': 'geral_wifi' };
+    const linhasQs = (f) => QS.quadro_delta.filter(f).map((i) => ({ chave: CH[i.sku], qtd: Math.abs(i.qtd) }));
+    const custoQs = centSim(custoDe(linhasQs((i) => i.qtd > 0)) - custoDe(linhasQs((i) => i.qtd < 0)));
+    assert.ok(custoQs > 0 && custoQs < custoDe(linhasQs((i) => i.qtd > 0)));
+    assert.ok(Math.abs(rel.margem_pacotes - centSim(centSim(custoQs * 1.2) - custoQs)) <= 0.01, `${rel.margem_pacotes} ≈ 20 % de ${custoQs}`);
+    // Sem melhorias (pedidos antigos): sem a linha.
+    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify(SIM), id);
+    rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+    assert.equal(rel.margem_pacotes, null);
+    assert.deepEqual(rel.melhorias, []);
   });
 
   test('expiração: por pagar há 24 h → expirado (o pedido guardado sai); não se paga', async () => {

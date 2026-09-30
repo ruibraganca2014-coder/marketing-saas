@@ -268,9 +268,12 @@ function quadroSeguro(estado, noPedido) {
   // Com o quadro no pedido, `itens` só mostra as proteções (a caixa maior e os disjuntores trocados vão no preço);
   // sem ele são as linhas da melhoria (com a ampliação do quadro, se for preciso).
   const lista = noPedido ? itens.filter((p) => NOMES_QUADRO[p.chave]) : itens;
+  // A diferença completa (com sinal: o que sai, como os diferenciais normais e a caixa menor, é negativo) — o custo
+  // do pacote com o quadro no pedido; vai no pedido (`quadro_delta`) para o servidor contar a margem como aqui.
+  const delta = [...new Set([...antes, ...depois].map((p) => p.chave))].map((k) => ({ chave: k, qtd: qtd(depois, k) - qtd(antes, k) })).filter((p) => p.qtd !== 0);
   return {
     incluido: !aceite && quadroNoMaximo({ ...q, protecoes: base }),
-    itens: lista, antes, depois,
+    itens: lista, antes, depois, delta,
     resumo: lista.map((p) => (p.chave === "afdd" ? `AFDD em ${p.qtd} ${p.qtd === 1 ? "circuito" : "circuitos"}` : NOMES_QUADRO[p.chave])).filter(Boolean),
   };
 }
@@ -284,7 +287,7 @@ function custo(pedidos, catalogo, config) {
 
 /**
  * Os 4 pacotes para esta casa: [{id, nome, resumo, itens:[{chave, qtd}], linhas, custo, preco, margem, aceite,
- * incluido, vazio}]. `linhas`: o que entra nos pedidos do orçamento (grupo "melhoria"); `preco` = custo × (1 + margem
+ * incluido, vazio}] (o "Quadro seguro" com o quadro no pedido leva também `delta`: a diferença do quadro, com sinal). `linhas`: o que entra nos pedidos do orçamento (grupo "melhoria"); `preco` = custo × (1 + margem
  * dos pacotes) — o que soma ao total (o custo pelas linhas e a `margem` à parte); null sem catálogo. `incluido`: o quadro
  * já está no máximo; `vazio`: nada a acrescentar nesta casa. Chamar acertarMelhorias antes.
  */
@@ -313,6 +316,7 @@ export function calcularMelhorias(estado, catalogo, config) {
     const vazio = !incluido && !itens.length;
     return {
       id, nome: MELHORIAS[id].nome, resumo: x.resumo.filter(Boolean).join(", "), itens, linhas, custo: c, preco,
+      ...(id === QUADRO_SEGURO && noPedido ? { delta: x.delta } : {}),
       margem: preco === null ? null : cent(preco - c), aceite: aceites.includes(id) && !incluido && !vazio, incluido, vazio,
     };
   });

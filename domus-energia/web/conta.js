@@ -307,6 +307,8 @@ function desenharRelatorio(r) {
   if (r.geral.material.length) out.push(el("h5", null, `${r.geral.titulo} — ${euro(r.geral.total)}`), tabelaMaterial(r.geral.material));
   if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${String(r.mao_obra.horas).replace(".", ",")} h)` : ""}: ${euro(r.mao_obra.valor)}`));
   if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}`));
+  // Fase 2: a margem dos pacotes aceites nas Melhorias (o material e a mão de obra deles já estão acima).
+  if (r.margem_pacotes != null) out.push(el("p", null, `Margem dos pacotes${r.melhorias?.length ? ` (${r.melhorias.join(", ")})` : ""}: ${euro(r.margem_pacotes)}`));
   out.push(el("p", "valor num", `Total estimado: ${euro(r.total)}`), el("p", "ajuda", r.nota));
   return out;
 }

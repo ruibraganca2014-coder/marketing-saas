@@ -221,11 +221,14 @@ const ESTILO_BLOCO = {
   nota: { fonte: 700, tam: 26, cor: "--texto-suave", antes: 34, depois: 0 },
 };
 
-/** Parte o texto em linhas que caibam em `largura` (px) com a fonte atual do contexto. */
+/**
+ * Parte o texto em linhas que caibam em `largura` (px) com a fonte atual do contexto. Só nos espaços normais: o espaço
+ * inseparável dos milhares ("1 652 €") nunca parte.
+ */
 function partirLinhas(g, texto, largura) {
   const linhas = [];
   let linha = "";
-  for (const palavra of String(texto).split(/\s+/).filter(Boolean)) {
+  for (const palavra of String(texto).split(/[ \t\r\n]+/).filter(Boolean)) {
     const tentativa = linha ? `${linha} ${palavra}` : palavra;
     if (g.measureText(tentativa).width <= largura || !linha) linha = tentativa;
     else { linhas.push(linha); linha = palavra; }

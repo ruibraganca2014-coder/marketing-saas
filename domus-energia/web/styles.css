@@ -808,6 +808,8 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-planos legend { font-weight: 700; margin-bottom: 4px; }
 .conta-planos label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .conta-relatorio { display: grid; gap: 8px; }
+/* Num telemóvel a tabela do material rola dentro do cartão (não alarga a página). */
+.relatorio-cliente { min-width: 0; overflow-x: auto; }
 .relatorio-cliente table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 .relatorio-cliente th, .relatorio-cliente td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--borda); vertical-align: top; }
 .relatorio-cliente td.num, .relatorio-cliente th.num { text-align: right; white-space: nowrap; }

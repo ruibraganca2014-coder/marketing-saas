@@ -1009,6 +1009,8 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     // com o quadro no pedido, nas linhas do quadro); `preco` = o "a partir de" dado ao cliente (com a margem dos pacotes).
     melhorias: (Array.isArray(melhorias) ? melhorias : []).slice(0, 4).map((m) => ({
       id: m.id, nome: textoSeguro(m.nome, 80), itens: (m.itens ?? []).slice(0, 20).map((i) => ({ sku: i.sku, qtd: i.qtd })), preco: m.preco ?? null,
+      // "Quadro seguro" com o quadro no pedido: a diferença do quadro (com sinal), para o servidor contar a margem.
+      ...(Array.isArray(m.quadro_delta) ? { quadro_delta: m.quadro_delta.slice(0, 30).map((i) => ({ sku: i.sku, qtd: i.qtd })) } : {}),
     })),
     plano_sugerido: plano,
     avisos: avisosEstado(estado, circuitos, foraArea),

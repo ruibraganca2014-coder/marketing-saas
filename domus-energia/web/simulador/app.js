@@ -2976,6 +2976,7 @@ const textoMelhoria = (m) => `${m.nome}: ${m.resumo}${m.preco === null ? "" : ` 
 /** `simulacao.melhorias` (§6): os pacotes aceites, com os SKUs do catálogo. */
 const melhoriasParaEnvio = (aceites) => aceites.map((m) => ({
   id: m.id, nome: m.nome, itens: m.itens.map((i) => ({ sku: linhaArtigo(i.chave).sku, qtd: i.qtd })).filter((i) => i.sku), preco: m.preco,
+  ...(m.delta ? { quadro_delta: m.delta.map((i) => ({ sku: linhaArtigo(i.chave).sku, qtd: i.qtd })).filter((i) => i.sku) } : {}),
 }));
 
 /** SKU e horas por unidade de um pedido (lista de trabalho do relatório técnico; Substituir: as horas de troca). */
