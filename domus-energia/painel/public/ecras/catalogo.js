@@ -92,6 +92,8 @@ export default function catalogo(el) {
         campoForm("Tarifa por hora (€, c/ IVA)", entrada("tarifa_hora_iva", campo(config, "tarifa_hora_iva"), "1000")),
         campoForm("Margem do intervalo (%)", entrada("margem_intervalo_pct", campo(config, "margem_intervalo_pct"), "100", "0.1"), "Estimativa = total ± esta margem"),
         campoForm("Deslocação — valor fixo (€, c/ IVA)", entrada("deslocacao_iva", campo(config, "deslocacao_iva"), "10000"), "Mínimo de cada deslocação")),
+      h("div", { class: "tres" },
+        campoForm("Margem dos pacotes (%)", entrada("margem_pacotes_pct", campo(config, "margem_pacotes_pct") ?? 20, "100", "0.1"), "Melhorias: (material + mão de obra) + esta margem")),
       h("fieldset", { class: "grupo" }, h("legend", { text: "Deslocação por distância" }),
         h("p", { class: "ajuda", text: "Distância estimada desde a base: linha reta entre as sedes dos concelhos × 1,3 (estradas). Deslocação = valor fixo + preço por km acima dos km grátis. Acima da distância máxima (ou entre o continente e as ilhas, ou noutra ilha) o simulador mostra \"fora da área servida — contacte-nos\"." }),
         h("div", { class: "duas" },
@@ -108,6 +110,7 @@ export default function catalogo(el) {
       e.preventDefault();
       const corpo = {};
       for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["margem_intervalo_pct", 100, "A margem do intervalo"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
+        ["margem_pacotes_pct", 100, "A margem dos pacotes"],
         ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"],
         ["iva_pct", 50, "A taxa de IVA"]]) {
         const v = numero(f.elements[k].value);

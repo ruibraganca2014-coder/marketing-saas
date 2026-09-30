@@ -100,9 +100,14 @@ function resumoSimulacao(json) {
       if (a?.acao === 'substituir') { const i = Math.min(n(a.inteligentes), n(a.qtd)); trocasInteligentes += i; trocas += n(a.qtd) - i; }
     }
   }
-  // Disjuntores inteligentes (medição por circuito) nos itens do pedido, como no "O que inclui" do simulador.
+  // Disjuntores inteligentes (medição por circuito) nos itens do pedido, como no "O que inclui" do simulador (sem os
+  // das Melhorias, que têm a sua lista).
   const partes = (Array.isArray(s.itens) ? s.itens.slice(0, 500) : [])
-    .filter((i) => typeof i?.sku === 'string' && /^TONGOU-SY[12]-/.test(i.sku)).reduce((t, i) => t + n(i.qtd), 0);
+    .filter((i) => typeof i?.sku === 'string' && /^TONGOU-SY[12]-/.test(i.sku) && i.grupo !== 'melhoria').reduce((t, i) => t + n(i.qtd), 0);
+  // Fase 2: os pacotes aceites no passo "Melhorias" (nome e o preço "a partir de" dado ao cliente).
+  const melhorias = (Array.isArray(s.melhorias) ? s.melhorias.slice(0, 4) : [])
+    .filter((m) => m && typeof m.nome === 'string' && m.nome.trim())
+    .map((m) => ({ nome: m.nome.slice(0, 80), preco: Number.isFinite(m.preco) && m.preco >= 0 ? m.preco : null }));
   const p = (k, um, varios) => (k ? `${k} ${k === 1 ? um : varios}` : null);
   const PACOTES = { essencial: 'Proteção básica no quadro elétrico', recomendado: 'Proteção recomendada no quadro elétrico', completo: 'Proteção completa no quadro elétrico' };
   const inclui = [
@@ -144,6 +149,7 @@ function resumoSimulacao(json) {
     localidade: typeof casa.localidade === 'string' ? casa.localidade.slice(0, 80) : null,
     divisoes: divisoes.length || (Number.isInteger(casa.divisoes) ? casa.divisoes : null),
     inclui,
+    melhorias,
     plano: PLANOS[s.plano_sugerido] ?? null,
     estimativa: min !== null && max !== null ? { min, max } : null,
   };

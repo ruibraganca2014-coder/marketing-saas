@@ -6,7 +6,8 @@ import { disjuntoresInteligentes } from "./regras.js";
 import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
 import { pedidosAcoes } from "./acoes.js";
 
-export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, margem_intervalo_pct: 15, deslocacao_iva: 0 };
+// margem_pacotes_pct (fase 2): margem dos pacotes do passo "Melhorias" (melhorias.js), sobre material + mão de obra.
+export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, margem_intervalo_pct: 15, deslocacao_iva: 0, margem_pacotes_pct: 20 };
 export const TEXTO_ESTIMATIVA = "Estimativa; valor final após a visita.";
 export const SKU_SY2 = "TONGOU-SY2-JWT";
 export const SKU_SY1 = "TONGOU-SY1-JWT";
@@ -64,6 +65,9 @@ export const PEDIDOS = {
   regulador: { sku: "DIMMER-WIFI", nome: "Regulador de luz Wi-Fi", procura: (a) => a.categoria === "luz" },
   tomada: { sku: "TOMADA-WIFI", nome: "Tomada inteligente Wi-Fi com medição", procura: (a) => a.categoria === "tomada" },
   termostato: { sku: "BAB-HC-T010", nome: "Termóstato Wi-Fi ecrã tátil", procura: (a) => a.categoria === "termostato" },
+  // Fase 2 (passo "Melhorias", melhorias.js): módulo atrás do interruptor e sensor de fuga de água.
+  modulo_interruptor: { sku: "BAB-MOD-2CH", nome: "Módulo interruptor Wi-Fi 2 canais (atrás do interruptor)", procura: (a) => a.categoria === "interruptor" && Number(a.especificacoes?.canais) > 0 },
+  sensor_agua: { sku: "SENS-AGUA-WIFI", nome: "Sensor de fuga de água Wi-Fi", procura: (a) => a.categoria === "sensor" && a.especificacoes?.deteta === "agua" },
   central: { sku: "RPI-CENTRAL", nome: "Central local Raspberry Pi (UPS, sirene)", procura: (a) => a.categoria === "central" },
   // Ações por aparelho (lote 7, acoes.js): Reparar = diagnóstico por avaria (a peça confirma-se na visita); Substituir
   // uma tomada/interruptor/ponto de luz normal; trocar a ligação de uma máquina (a máquina é do cliente).
@@ -137,12 +141,13 @@ export const arredondar5 = (x) => Math.round(x / 5) * 5;
 /**
  * Preço (§5). catalogo = null quando o GET /api/catalogo falhou. `deslocacao`: calcularDeslocacao() de
  * ./deslocacao.js (§5.1) — soma o seu valor_iva (null = fora da área: não soma); sem ele soma o
- * `deslocacao_iva` fixo (como antes).
+ * `deslocacao_iva` fixo (como antes). `extra`: a margem dos pacotes aceites no passo "Melhorias" (melhorias.js; as
+ * linhas deles já estão nos pedidos, com `grupo: "melhoria"`).
  * @returns {{linhas:{chave:string, sku:string, nome:string, qtd:number, preco_iva:number|null, total:number|null, horas:number|null}[],
- *   horas:number|null, mao_obra_iva:number|null, deslocacao_iva:number, artigos_iva:number|null, total:number|null,
+ *   horas:number|null, mao_obra_iva:number|null, deslocacao_iva:number, artigos_iva:number|null, melhorias_margem_iva:number, total:number|null,
  *   min:number|null, max:number|null, completo:boolean, config:object, deslocacao:object|null}}
  */
-export function calcularPreco(pedidos, catalogo, config, deslocacao = null) {
+export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extra = 0) {
   const cfg = { ...CONFIG_OMISSAO };
   for (const k of Object.keys(CONFIG_OMISSAO)) {
     const v = Number(config?.[k]);
@@ -160,17 +165,18 @@ export function calcularPreco(pedidos, catalogo, config, deslocacao = null) {
     };
   });
   if (!catalogo) {
-    return { linhas, horas: null, mao_obra_iva: null, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, total: null, min: null, max: null, completo: false, config: cfg, deslocacao };
+    return { linhas, horas: null, mao_obra_iva: null, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, melhorias_margem_iva: 0, total: null, min: null, max: null, completo: false, config: cfg, deslocacao };
   }
   const completo = linhas.every((l) => l.preco_iva !== null);
   const horas = cent(soma(linhas, (l) => l.horas));
   const mao = cent(horas * cfg.tarifa_hora_iva);
   const artigos = cent(soma(linhas, (l) => l.total));
   const desloc = !linhas.length ? 0 : deslocacao ? deslocacao.valor_iva ?? 0 : cfg.deslocacao_iva;
-  const total = cent(artigos + mao + desloc);
+  const margem = cent(Number(extra) > 0 ? Number(extra) : 0);
+  const total = cent(artigos + mao + desloc + margem);
   const m = Math.min(cfg.margem_intervalo_pct, 100) / 100;
   return {
-    linhas, horas, mao_obra_iva: mao, deslocacao_iva: desloc, artigos_iva: artigos, total,
+    linhas, horas, mao_obra_iva: mao, deslocacao_iva: desloc, artigos_iva: artigos, melhorias_margem_iva: margem, total,
     min: Math.max(0, arredondar5(total * (1 - m))), max: arredondar5(total * (1 + m)), completo, config: cfg, deslocacao,
   };
 }

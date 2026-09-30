@@ -187,8 +187,8 @@ export async function guardarPdf(planta, nPisos, omissao = null) {
 /**
  * O conteúdo do orçamento do cliente (passo Orçamento, "Descarregar orçamento (PDF)"), em blocos simples:
  * {tipo: "marca"|"titulo"|"data"|"seccao"|"texto"|"destaque"|"item"|"nota", texto}. Só o que o cliente vê no simulador:
- * a casa, o intervalo, o que inclui, os planos e a nota — nunca preços de compra, fornecedores nem artigos.
- * `d`: {data, casa, inclui[], intervalo, planos[{nome, preco, sugerido}], nota}.
+ * a casa, o intervalo, o que inclui, as melhorias aceites (fase 2), os planos e a nota — nunca preços de compra,
+ * fornecedores nem artigos. `d`: {data, casa, inclui[], melhorias[], intervalo, planos[{nome, preco, sugerido}], nota}.
  */
 export function blocosOrcamento(d) {
   const dataTxt = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" }).format(d.data ?? new Date());
@@ -202,6 +202,7 @@ export function blocosOrcamento(d) {
     { tipo: "destaque", texto: d.intervalo || "Enviamos o preço depois do pedido." },
     { tipo: "seccao", texto: "O que inclui" },
     ...((d.inclui ?? []).length ? d.inclui : ["Ainda nada."]).map((t) => ({ tipo: "item", texto: String(t) })),
+    ...((d.melhorias ?? []).length ? [{ tipo: "seccao", texto: "Melhorias" }, ...d.melhorias.map((t) => ({ tipo: "item", texto: String(t) }))] : []),
     { tipo: "seccao", texto: "Planos mensais" },
     ...(d.planos ?? []).map((p) => ({ tipo: "item", texto: `${p.nome}: ${p.preco}${p.sugerido ? " (sugerido)" : ""}` })),
     { tipo: "nota", texto: d.nota || "Estimativa; valor final após a visita." },

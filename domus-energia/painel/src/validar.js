@@ -122,7 +122,36 @@ export function simulacao(v) {
   fotosSimulacao(v.fotos);
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
+  melhoriasSimulacao(v.melhorias);
   return json;
+}
+
+/**
+ * Fase 2 (passo "Melhorias"): `melhorias` = lista (opcional; pedidos antigos não a têm) de pacotes aceites
+ * {id, nome ≤ 80, itens: [{sku, qtd 1–999}] (≤ 20), preco (€ c/ IVA, ≥ 0, ou null sem catálogo)}, sem ids repetidos.
+ */
+export const MELHORIAS = ['casa-inteligente', 'poupar-energia', 'seguranca', 'quadro-seguro'];
+const RE_SKU_MELHORIA = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
+function melhoriasSimulacao(l) {
+  if (l === undefined || l === null) return;
+  if (!Array.isArray(l)) falha('As melhorias têm de ser uma lista.');
+  if (l.length > MELHORIAS.length) falha(`No máximo ${MELHORIAS.length} melhorias.`);
+  const vistas = new Set();
+  for (const m of l) {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) falha('Melhorias: cada melhoria tem de ser um objeto.');
+    if (!MELHORIAS.includes(m.id)) falha(`Melhoria inválida (use: ${MELHORIAS.join(', ')}).`);
+    if (vistas.has(m.id)) falha(`A melhoria "${m.id}" aparece repetida.`);
+    vistas.add(m.id);
+    if (typeof m.nome !== 'string' || !m.nome.trim() || m.nome.length > 80 || CONTROLO_LINHA.test(m.nome)) falha('Melhorias: nome até 80 caracteres.');
+    if (!Array.isArray(m.itens) || m.itens.length > 20) falha('Melhorias: os itens têm de ser uma lista (máx. 20).');
+    for (const i of m.itens) {
+      if (!i || typeof i !== 'object' || typeof i.sku !== 'string' || !RE_SKU_MELHORIA.test(i.sku)) falha('Melhorias: SKU inválido.');
+      if (!Number.isInteger(i.qtd) || i.qtd < 1 || i.qtd > 999) falha('Melhorias: quantidade entre 1 e 999.');
+    }
+    if (m.preco !== undefined && m.preco !== null && !(typeof m.preco === 'number' && Number.isFinite(m.preco) && m.preco >= 0 && m.preco <= 1_000_000)) {
+      falha('Melhorias: preço entre 0 e 1 000 000 €.');
+    }
+  }
 }
 
 /**

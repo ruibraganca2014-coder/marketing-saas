@@ -330,6 +330,9 @@ export const MIGRACOES = [
     if (seq) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('orcamentos', ?)").run(seq);
     db.prepare(`UPDATE orcamentos SET estado = ? WHERE anonimizado IS NOT NULL OR nome = 'Anonimizado (RGPD)'`).run(ESTADO_ARQUIVADO);
   }),
+  // 13 — margem dos pacotes do passo "Melhorias" do simulador (fase 2; 20 %). INSERT OR IGNORE: nunca mexe num valor
+  // que o CEO já tenha editado.
+  (db) => db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('margem_pacotes_pct', 20);`),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

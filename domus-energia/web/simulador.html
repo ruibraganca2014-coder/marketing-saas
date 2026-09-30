@@ -183,14 +183,29 @@
           <div id="trocar"></div>
         </section>
 
-        <!-- 8. Orçamento (antes "Resumo e preço") -->
+        <!-- 8. Melhorias (fase 2; índice 10): 4 pacotes com o preço desta casa, a juntar ao orçamento (melhorias.js) -->
+        <section class="sim-passo" id="passo-10" aria-labelledby="titulo-10" data-passo="10" hidden>
+          <h2 id="titulo-10" tabindex="-1">8. Melhorias</h2>
+          <div class="msg info" id="melhorias-estado" role="status" hidden></div>
+          <fieldset class="escolhas">
+            <legend class="so-leitor">Melhorias a juntar ao orçamento</legend>
+            <div class="escolhas-grelha melhorias-grelha" id="melhorias"></div>
+          </fieldset>
+          <p class="sim-nota" id="melhorias-plano"></p>
+        </section>
+
+        <!-- 9. Orçamento (antes "Resumo e preço") -->
         <section class="sim-passo" id="passo-7" aria-labelledby="titulo-7" data-passo="7" hidden>
-          <h2 id="titulo-7" tabindex="-1">8. Orçamento</h2>
+          <h2 id="titulo-7" tabindex="-1">9. Orçamento</h2>
           <div class="msg info" id="preco-estado" role="status" hidden></div>
           <div class="cartao sim-casa-resumo" id="preco-casa" hidden></div>
           <div class="cartao sim-total" id="preco-total"></div>
           <h3>O que inclui</h3>
           <ul class="sim-inclui" id="preco-inclui"></ul>
+          <div id="preco-melhorias-caixa" hidden>
+            <h3>Melhorias</h3>
+            <ul class="sim-inclui" id="preco-melhorias"></ul>
+          </div>
           <p class="sim-nota" id="preco-nota"></p>
           <!-- Fase 1: o orçamento em PDF, feito no navegador (imprimir.js guardarPdfOrcamento). -->
           <div class="form-botoes"><button class="btn sec" id="preco-pdf" type="button">Descarregar orçamento (PDF)</button></div>
@@ -204,9 +219,9 @@
           <div class="sim-planos" id="preco-planos"></div>
         </section>
 
-        <!-- 9. Enviar -->
+        <!-- 10. Enviar -->
         <section class="sim-passo" id="passo-8" aria-labelledby="titulo-8" data-passo="8" hidden>
-          <h2 id="titulo-8" tabindex="-1">9. Enviar</h2>
+          <h2 id="titulo-8" tabindex="-1">10. Enviar</h2>
           <!-- O texto segue os pagamentos do servidor (app.js textosPagamento): desligados, sem 19 € nem pagar. -->
           <p class="sub-passo" id="enviar-texto">Enviar custa 19 €: relatório técnico e visita, descontados na obra. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->

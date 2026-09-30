@@ -33,12 +33,12 @@ function casaT2() {
   return e;
 }
 
-test('funis: passos e tempos (primeira ~13 min, já tenho planta ~4, avaria ~2)', () => {
+test('funis: passos e tempos (primeira ~14 min, já tenho planta ~5, avaria ~2; Melhorias antes do Orçamento)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
-  assert.deepEqual(FUNIS.primeira.passos, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
-  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.preco, PASSO.enviar]);
+  assert.deepEqual(FUNIS.primeira.passos, [0, 1, 2, 3, 4, 5, 6, PASSO.melhorias, 7, 8]);
+  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
-  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [13, 4, 2]);
+  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [14, 5, 2]);
   assert.deepEqual(passosDoFunil(null), FUNIS.primeira.passos, 'sem caso escolhido: os da primeira vez');
 });
 

@@ -31,6 +31,8 @@ const MAX_APARELHOS_CONVERTER = 60;
 const CONFIG_ORCAMENTO = {
   tarifa_hora_iva: { min: 0, max: 1000, rotulo: 'a tarifa por hora' },
   margem_intervalo_pct: { min: 0, max: 100, rotulo: 'a margem do intervalo (%)' },
+  // Fase 2: margem dos pacotes do passo "Melhorias" (sobre material + mão de obra; web/simulador/melhorias.js).
+  margem_pacotes_pct: { min: 0, max: 100, rotulo: 'a margem dos pacotes (%)' },
   deslocacao_iva: { min: 0, max: 10_000, rotulo: 'o valor fixo da deslocação' },          // valor fixo (mínimo) de cada deslocação
   deslocacao_km_gratis: { min: 0, max: 1000, rotulo: 'os km grátis da deslocação' },
   deslocacao_preco_km_iva: { min: 0, max: 100, rotulo: 'o preço por km da deslocação' },

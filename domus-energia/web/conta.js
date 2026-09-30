@@ -366,6 +366,12 @@ function blocoResumo(r, id) {
     for (const t of r.inclui) ul.append(el("li", null, t));
     b.append(el("p", null, "O que inclui:"), ul);
   }
+  // Fase 2: os pacotes do passo "Melhorias" (como no Orçamento do simulador).
+  if (r.melhorias?.length) {
+    const ul = el("ul");
+    for (const m of r.melhorias) ul.append(el("li", null, `${m.nome}${m.preco === null ? "" : ` — ${euro(Math.round(m.preco))}`}`));
+    b.append(el("p", null, "Melhorias:"), ul);
+  }
   return b;
 }
 

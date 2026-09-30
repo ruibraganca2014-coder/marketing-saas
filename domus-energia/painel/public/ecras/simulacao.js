@@ -333,6 +333,8 @@ export function vistaSimulacao(sim, catalogo = {}) {
       h("ul", {}, ...avisos.slice(0, 50).map((a) => h("li", { text: a })))));
   }
   if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva)));
+  const melhorias = blocoMelhorias(sim, catalogo);
+  if (melhorias) partes.push(melhorias);
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
   const planta = sim.planta && typeof sim.planta === "object" ? limparPlanta(sim.planta) : null;
   if (circuitos.length) partes.push(tabelaCircuitos(circuitos, planta));
@@ -344,6 +346,21 @@ export function vistaSimulacao(sim, catalogo = {}) {
   if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta, acoesDe(sim)));
   partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é confirmado na visita técnica." }));
   return h("section", { class: "simulacao", id: "simulacao-cliente" }, ...partes);
+}
+
+/**
+ * Fase 2: os pacotes aceites no passo "Melhorias" (`sim.melhorias`) — o que levam e o preço "a partir de" dado ao
+ * cliente (material + mão de obra + margem dos pacotes; os artigos estão também nos Artigos, marcados "Melhoria").
+ * null sem melhorias (pedidos antigos, avaria).
+ */
+export function blocoMelhorias(sim, catalogo = {}) {
+  const l = arr(obj(sim).melhorias).filter((m) => m && typeof m === "object" && typeof m.nome === "string");
+  if (!l.length) return null;
+  const itensTxt = (m) => arr(m.itens).filter((i) => i && typeof i.sku === "string")
+    .map((i) => `${num(numero(i.qtd) ?? 1)} × ${catalogo?.[i.sku]?.nome ?? i.sku}`).join(", ");
+  return h("div", { class: "sim-bloco", id: "sim-melhorias" }, h("h4", { text: `MELHORIAS (${l.length})` }),
+    h("ul", {}, ...l.map((m) => h("li", {}, h("strong", { text: `${m.nome}: ` }), `${itensTxt(m) || "—"} — ${euros(numero(m.preco))}`))),
+    h("p", { class: "ajuda", text: "Preço dado ao cliente, com a margem dos pacotes. O Quadro seguro com o quadro no pedido já está nas proteções do quadro." }));
 }
 
 /** Artigos, mão de obra e deslocação. `horas`: mais uma coluna com as horas de instalação do catálogo (relatório técnico). */
@@ -362,7 +379,7 @@ function tabelaItens(itens, mo, catalogo, desl = null, { horas = false } = {}) {
     const hArt = numero(art?.horas_instalacao);
     const hLinha = numero(i.horas) ?? (hArt === null ? null : Math.round(hArt * qtd * 100) / 100);
     somaHoras += hLinha ?? 0;
-    const grupo = i.grupo === "reparar" || i.grupo === "substituir" ? selo(ACOES_SIM[i.grupo], "aviso") : null;
+    const grupo = i.grupo === "reparar" || i.grupo === "substituir" ? selo(ACOES_SIM[i.grupo], "aviso") : i.grupo === "melhoria" ? selo("Melhoria", "info") : null;
     return h("tr", { dataset: { sku }, class: art ? "" : "fora-catalogo" },
       h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), grupo, marca)),
       h("td", { class: "num", "data-rotulo": "Qtd.", text: num(qtd) }),
@@ -1142,6 +1159,8 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   if (blocoQ) quadro.push(blocoQ);
   if (typeof q.disjuntor === "string") quadro.push(h("p", { class: "ajuda", text: `Disjuntor inteligente escolhido: ${q.disjuntor}.` }));
   if (quadro.length) partes.push(seccao("Quadro elétrico: circuitos, proteções e módulos", ...quadro));
+  const melhorias = blocoMelhorias(s, catalogo);
+  if (melhorias) partes.push(seccao("Melhorias aceites pelo cliente", melhorias));
   const estadoLeitura = obj(leitura).estado;
   const blocoLeitura = fotoQuadro || estadoLeitura === "feita" || estadoLeitura === "erro" ? blocoLeituraQuadro(leitura, o.id, fotoQuadro) : null;
   if (blocoLeitura) partes.push(h("section", { class: "rel-seccao", id: "rel-leitura-quadro" }, h("h3", { text: "Leitura automática da foto do quadro (confirmar na visita)" }), blocoLeitura));

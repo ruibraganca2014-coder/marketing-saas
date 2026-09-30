@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 8, 'sementes não duplicadas (7 + iva_pct, semeado no arranque)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 9, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -69,13 +69,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
   const cfg = Object.fromEntries(db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor]));
   assert.deepEqual(cfg, {
     tarifa_hora_iva: 45, margem_intervalo_pct: 15, deslocacao_iva: 12.5,
-    deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100,
+    deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 7);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 8, '7 + margem_pacotes_pct (migração 13)');
   db.close();
 });
 

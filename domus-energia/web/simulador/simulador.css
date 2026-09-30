@@ -287,6 +287,14 @@ input, select { min-height: 44px; }
 .sim-nota.forte { color: var(--texto); font-weight: 700; }
 /* "O que inclui": lista curta em linguagem simples (sem artigos, códigos nem horas). */
 .sim-inclui { margin: 0; padding: 14px 16px 14px 36px; display: grid; gap: 6px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); font-weight: 600; }
+/* Fase 2: passo "Melhorias" — cartões de escolha (sim/não) com o que levam e o preço "a partir de". */
+.escolhas-grelha.melhorias-grelha { grid-template-columns: 1fr; }
+@media (min-width: 600px) { .escolhas-grelha.melhorias-grelha { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.escolha.melhoria { justify-content: flex-start; text-align: left; padding: 14px 16px; }
+.escolha.melhoria > span { gap: 4px; }
+.escolha.melhoria .melhoria-preco { font-size: 1.05rem; color: var(--texto); }
+.escolha.melhoria:has(input:disabled) { cursor: default; opacity: .75; }
+.escolha.melhoria:has(input:disabled) input { cursor: default; }
 .sim-planos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }
 .sim-plano { position: relative; padding: 18px; }
 .sim-plano h4 { margin: 0 0 4px; font-family: var(--letra-titulos); font-size: 1.2rem; }

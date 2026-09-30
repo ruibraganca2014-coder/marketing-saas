@@ -29,8 +29,9 @@ import {
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, FOTO_AVARIA, legendaAvaria, normalizarAvaria,
-  temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa,
+  temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
 } from "./estado.js";
+import { MELHORIAS, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
   opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso, existentesNoQuadroNovo,
 } from "./quadro.js";
@@ -99,6 +100,7 @@ const editor = criarEditor($("editor"), {
     if (estado.passo > P.quer) refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
     if (estado.passo === P.divisoes) desenharDivisoes();
     if (estado.passo === P.trocar) desenharTrocar();
+    if (estado.passo === P.melhorias) desenharMelhorias();
     if (estado.passo === P.preco) desenharPreco();
     agendarGravacao();
   },
@@ -187,7 +189,7 @@ const tempoDe = (i) => (naoPrecisa(i) ? "não precisa" : posicao(i) < posicao(es
  * Passos da barra a que se pode voltar: os já vistos (na avaria, só os de trás — o passo mais adiantado da primeira vez
  * não conta). O Enviar só pelo "Seguinte".
  */
-const chegou = (i) => (funilAvaria() ? posicao(i) < posicao(estado.passo) : i <= visitado);
+const chegou = (i) => (funilAvaria() ? posicao(i) < posicao(estado.passo) : ordemPasso(i) <= ordemPasso(visitado));
 
 function desenharProgresso() {
   const ol = $("sim-passos");
@@ -251,7 +253,7 @@ function irPara(i, { foco = true } = {}) {
   // quadro e termóstatos pré-preenchidos (só o que o cliente ainda não mudou à mão).
   estado.passo = sequencia().includes(i) ? i : sequencia()[0];
   // O passo mais adiantado (a planta vai aparecendo por ele: fasePlanta); a avaria não tem planta e não conta.
-  if (!funilAvaria()) visitado = Math.max(visitado, estado.passo);
+  if (!funilAvaria()) visitado = maisAdiantado(visitado, estado.passo);
   estado.visitado = visitado;
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
   if (!funilAvaria() && estado.passo > P.quer && de <= P.quer) prepararPassosSeguintes();
@@ -289,6 +291,7 @@ function mostrarPasso(foco = true) {
   if (p === P.divisoes) desenharDivisoes();
   if (p === P.quadro) desenharQuadro();
   if (p === P.trocar) desenharTrocar();
+  if (p === P.melhorias) desenharMelhorias();
   desenharAcaoPlanta();   // a caixa "o que fazer" por baixo da planta só existe em "Trocar e reparar"
   if (p === P.preco) desenharPreco();
   if (p === P.avaria) desenharAvaria();
@@ -402,14 +405,14 @@ function escolherFunil(k) {
     else {
       usarCasa(estado, c);
       estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
-      visitado = Math.max(visitado, estado.visitado ?? 0, P.planta);
+      visitado = maisAdiantado(visitado, estado.visitado ?? 0, P.planta);
       estado.visitado = visitado;
       acertarPedido();
       pisosEditor = null;
     }
   }
   if (k !== "planta") {
-    if (estado.soCasa) { const e = estadoInicial(); e.contacto = estado.contacto; estado = e; visitado = PASSO_INICIAL; }
+    if (estado.soCasa) { const e = estadoInicial(); e.contacto = estado.contacto; e.melhorias = estado.melhorias; estado = e; visitado = PASSO_INICIAL; }
     estado.funil = k;
     estado.soCasa = false;
   }
@@ -1410,6 +1413,8 @@ function montarQuadro() {
   for (const [k, [nome, ajuda]] of Object.entries(PROTECAO_SIMPLES)) {
     g.append(escolha("radio", "quadro-pacote", k, nome, ajuda, (sim) => {
       if (!sim) return;
+      // O cliente escolheu a proteção: o "Quadro seguro" (Melhorias) sai e voltam as proteções de antes dele.
+      mudarMelhoria(estado, QUADRO_SEGURO, false);
       estado.quadro.protecoes = protecoesDoPacote(k, estado.quadro.protecoes?.idr_wifi);
       estado.quadro.pacote = k;
       quadroMudou();
@@ -1448,13 +1453,16 @@ function desenharQuadro() {
   for (const i of document.querySelectorAll("input[name=quadro-mexer]")) i.checked = i.value === (estado.mexerQuadro ? "sim" : "nao");
   $("quadro-perguntas").hidden = !noPedido;
   const nota = $("quadro-nota");
+  // Fase 2: o "Quadro seguro" aceite nas Melhorias (melhorias.js PROTECOES_MAXIMAS).
+  const seguro = estado.melhorias.aceites.includes(QUADRO_SEGURO) && !!estado.melhorias.quadroAnterior;
   if (!noPedido) {
-    nota.textContent = "O quadro fica como está.";
+    nota.textContent = seguro ? "O quadro fica; a melhoria Quadro seguro junta-lhe as proteções." : "O quadro fica como está.";
     nota.hidden = false;
     desenharFotoQuadro();
     return;
   }
   const partes = [];
+  if (seguro) partes.push("Melhoria Quadro seguro: AFDD, descarregador, relé de tensão e diferenciais Wi-Fi.");
   if (q.para_raios === "sim") partes.push("Com pára-raios: descarregador de sobretensões incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
@@ -2859,6 +2867,37 @@ function bloquearAvaria() {
 }
 montarAvaria();
 
+// ------------------------------------------------------------ Melhorias (fase 2)
+// 4 cartões (melhorias.js): o que o pacote leva nesta casa, "a partir de" (material + horas × tarifa + margem dos
+// pacotes) e a escolha (sim/não). "Quadro seguro" com o quadro já no máximo: "Já incluído", sem escolha. Por baixo, o
+// plano mensal sugerido com os pacotes aceites.
+function desenharMelhorias() {
+  const { melhorias, plano } = calcular();
+  const foco = document.activeElement?.closest?.("#melhorias") ? document.activeElement.value : null;
+  $("melhorias").replaceChildren(...melhorias.map(cartaoMelhoria));
+  if (foco) document.querySelector(`#melhorias input[value="${foco}"]`)?.focus();
+  const est = $("melhorias-estado");
+  est.textContent = catalogo === undefined ? "A obter os preços…" : catalogo === null ? "Sem preços agora: enviamos o preço depois do pedido." : "";
+  est.hidden = !est.textContent;
+  $("melhorias-plano").textContent = `Plano sugerido: ${PLANOS[plano].nome}, ${formatarEuro(PLANOS[plano].preco)} por mês.`;
+}
+function cartaoMelhoria(m) {
+  const fixo = m.incluido || m.vazio;
+  const l = escolha("checkbox", "melhoria", m.id, m.nome, m.incluido ? "Já incluído" : m.vazio ? "Nada a acrescentar nesta casa" : m.resumo, (sim) => {
+    mudarMelhoria(estado, m.id, sim);
+    desenharMelhorias();
+    agendarGravacao();
+    guardarNaConta();
+  });
+  l.id = `melhoria-${m.id}`;
+  l.classList.add("melhoria");
+  const i = l.querySelector("input");
+  i.checked = m.aceite;
+  i.disabled = fixo;
+  if (!fixo) l.querySelector("span").append(el("strong", "melhoria-preco num", m.preco === null ? "Preço depois do pedido" : `a partir de ${formatarEuroRedondo(m.preco)}`));
+  return l;
+}
+
 // ------------------------------------------------------------ 7. Preço
 let promessaCatalogo = null;   // o pedido do catálogo em curso (iniciar); o regresso do pagamento espera por ele
 async function carregarCatalogo() {
@@ -2882,21 +2921,35 @@ async function carregarCatalogo() {
     configOrc = null;
   }
   if (estado.passo === P.preco && !$(`passo-${P.preco}`).hidden) desenharPreco();
+  if (estado.passo === P.melhorias && !$(`passo-${P.melhorias}`).hidden) desenharMelhorias();
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharDeslocacao();
 }
 
 /** Avaria rápida: o preço é o diagnóstico (DIAG-AVARIA + horas × tarifa) e a deslocação. */
 const PEDIDOS_AVARIA = [{ chave: "diagnostico", qtd: 1, acao: "reparar" }];
 function calcular() {
-  const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : pedidosDaSelecao(estado);
+  // Fase 2: os pacotes do passo "Melhorias" (melhorias.js) — os aceites juntam as suas linhas (grupo "melhoria") e a
+  // margem dos pacotes (`extra`) ao total. A avaria rápida não tem melhorias.
+  if (!funilAvaria()) acertarMelhorias(estado);
+  const melhorias = funilAvaria() ? [] : calcularMelhorias(estado, catalogo ?? null, configOrc);
+  const aceites = melhorias.filter((m) => m.aceite);
+  const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao(estado), ...aceites.flatMap((m) => m.linhas)];
+  const extra = aceites.reduce((t, m) => t + (m.margem ?? 0), 0);
   // Local da obra: a localidade do contacto (passo 7) — como em casaParaEnvio. `preco` (o que se envia) já leva a
   // deslocação; `semDesloc` é o do Resumo (passo 6), sem deslocação ("+ deslocação").
   const deslocacao = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
-  const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao);
-  const semDesloc = calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 });
+  const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao, extra);
+  const semDesloc = calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 }, extra);
   // "Desligar tudo ao fechar" (serviços/industrial) também é controlar à distância.
-  return { pedidos, preco, semDesloc, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
+  return { pedidos, preco, semDesloc, melhorias, aceites, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
 }
+
+/** "Casa inteligente: 12 interruptores, 6 tomadas — 450 €" (Orçamento e PDF). */
+const textoMelhoria = (m) => `${m.nome}: ${m.resumo}${m.preco === null ? "" : ` — ${formatarEuroRedondo(m.preco)}`}`;
+/** `simulacao.melhorias` (§6): os pacotes aceites, com os SKUs do catálogo. */
+const melhoriasParaEnvio = (aceites) => aceites.map((m) => ({
+  id: m.id, nome: m.nome, itens: m.itens.map((i) => ({ sku: linhaArtigo(i.chave).sku, qtd: i.qtd })).filter((i) => i.sku), preco: m.preco,
+}));
 
 /** SKU e horas por unidade de um pedido (lista de trabalho do relatório técnico; Substituir: as horas de troca). */
 function linhaArtigo(chave, acao) {
@@ -2947,8 +3000,8 @@ function desenharCasaResumo() {
  * horas nem cabos; esses vão no pedido para o relatório técnico).
  */
 function listaInclui(pedidos) {
-  // Os aparelhos novos (as linhas sem ação); Reparar e Substituir à parte (lote 7).
-  const novos = pedidos.filter((p) => !p.acao);
+  // Os aparelhos novos (as linhas sem ação); Reparar e Substituir à parte (lote 7); as Melhorias têm a sua lista.
+  const novos = pedidos.filter((p) => !p.acao && p.grupo !== "melhoria");
   const q = (k) => novos.filter((p) => p.chave === k || p.chave.startsWith(`${k}_`)).reduce((s, p) => s + p.qtd, 0);
   const qa = (a) => pedidos.filter((p) => p.acao === a).reduce((s, p) => s + p.qtd, 0);
   const itens = [];
@@ -2987,8 +3040,8 @@ function desenharPreco() {
   desenharObjetivos();   // "O que quer fazer" (neste passo; refeito se o tipo de imóvel mudou)
   desenharCasaResumo();
   const est = $("preco-estado");
-  const { pedidos, preco, semDesloc, plano } = calcular();
-  ultimoPreco = { preco, plano };
+  const { pedidos, preco, semDesloc, plano, aceites } = calcular();
+  ultimoPreco = { preco, plano, aceites };
   est.hidden = true;
   if (catalogo === undefined) { est.textContent = "A obter os preços…"; est.hidden = false; }
   else if (catalogo === null) { est.textContent = "Sem preços agora: enviamos o preço depois do pedido."; est.hidden = false; }
@@ -3010,6 +3063,9 @@ function desenharPreco() {
 
   const ul = $("preco-inclui");
   ul.replaceChildren(...(pedidos.length ? listaInclui(pedidos) : ["Ainda nada."]).map((t) => el("li", null, t)));
+  // Fase 2: os pacotes aceites no passo "Melhorias" (já estão no total).
+  $("preco-melhorias-caixa").hidden = !aceites.length;
+  $("preco-melhorias").replaceChildren(...aceites.map((m) => el("li", null, textoMelhoria(m))));
   $("preco-nota").textContent = "Preços com IVA incluído.";
 
   const pl = $("preco-planos");
@@ -3036,7 +3092,7 @@ function desenharPreco() {
  * de compra nem fornecedores.
  */
 function dadosPdfOrcamento() {
-  const { pedidos, semDesloc, plano } = calcular();
+  const { pedidos, semDesloc, plano, aceites } = calcular();
   const c = estado.casa;
   const casa = [TIPOS_CASA[c.tipo] ?? null, !negocio() && c.tipologia ? c.tipologia : null].filter(Boolean).join(" ");
   const loc = estado.contacto.localidade.trim();
@@ -3048,6 +3104,7 @@ function dadosPdfOrcamento() {
     omissao: acaoOmissao(servicos()),
     nomesAcoes: NOMES_ACOES,
     inclui: pedidos.length ? listaInclui(pedidos) : [],
+    melhorias: aceites.map(textoMelhoria),
     intervalo: pedidos.length && semDesloc.min !== null ? `${formatarEuroRedondo(semDesloc.min)} – ${formatarEuroRedondo(semDesloc.max)}${foraDaArea() ? "" : " + deslocação"}` : null,
     planos: Object.entries(PLANOS).map(([k, x]) => ({ nome: x.nome, preco: `${formatarEuro(x.preco)} por mês`, sugerido: k === plano })),
     nota: "Estimativa; valor final após a visita.",
@@ -3229,8 +3286,8 @@ $("contacto-localidade").addEventListener("input", () => desenharDeslocacao());
 
 /** Passo 7: com a localidade do contacto, a deslocação (§5.1) e o total com ela (o Resumo mostra-o sem). */
 function desenharDeslocacao() {
-  const { pedidos, preco, semDesloc, plano } = calcular();
-  ultimoPreco = { preco, plano };
+  const { pedidos, preco, semDesloc, plano, aceites } = calcular();
+  ultimoPreco = { preco, plano, aceites };
   const caixa = $("enviar-deslocacao");
   const d = preco.deslocacao;
   caixa.replaceChildren();
@@ -3346,7 +3403,7 @@ async function retomarDoPagamento(guardado) {
   const { ref, cancelado } = regressoPagamento;
   history.replaceState(null, "", location.pathname);
   estado = guardado;
-  visitado = funilAvaria() ? visitadoDe(estado) : Math.max(visitadoDe(estado), P.enviar);
+  visitado = funilAvaria() ? visitadoDe(estado) : maisAdiantado(visitadoDe(estado), P.enviar);
   estado.passo = P.enviar;
   contaVista = true;   // não trocar pela simulação da conta a meio do pagamento
   mostrarPasso(false);
@@ -3407,9 +3464,9 @@ async function enviar() {
     return;
   }
   desenharPreco();
-  const { preco, plano } = ultimoPreco;
+  const { preco, plano, aceites } = ultimoPreco;
   const listaFotos = fotosParaEnvio();
-  let sim = montarSimulacao(estado, preco, plano, listaFotos, linhaArtigo);
+  let sim = montarSimulacao(estado, preco, plano, listaFotos, linhaArtigo, melhoriasParaEnvio(aceites ?? []));
   let semFundo = false;
   if (tamanhoSimulacao(sim) > MAX_SIMULACAO && sim.planta?.fundo) {
     sim = { ...sim, planta: { ...sim.planta, fundo: null } };
@@ -3701,8 +3758,18 @@ $("sim-recomecar-topo").addEventListener("click", recomecarComAnular);
 addEventListener("pagehide", acabarAnular);
 
 /** O passo mais adiantado de um estado lido (na avaria o que conta é o da primeira vez, que ela não muda). */
-const visitadoDe = (e) => (e.funil === "avaria" ? e.visitado ?? 0 : Math.max(e.passo, e.visitado ?? 0));
+const visitadoDe = (e) => (e.funil === "avaria" ? e.visitado ?? 0 : maisAdiantado(e.passo, e.visitado ?? 0));
 $("trocar-casa-mudar").addEventListener("click", mudarACasa);
+
+/**
+ * `?pacote=casa-inteligente|poupar-energia|seguranca|quadro-seguro` (a página de entrada, fase 3): o pacote fica
+ * escolhido nas Melhorias — só enquanto o cliente ainda não chegou a esse passo nem escolheu nenhum.
+ */
+function preEscolherPacote() {
+  const k = params.get("pacote");
+  if (!MELHORIAS[k] || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
+  estado.melhorias.aceites = [k];   // o "Quadro seguro" aplica-se ao quadro no cálculo (melhorias.js acertarMelhorias)
+}
 
 // ------------------------------------------------------------ arranque
 function iniciar() {
@@ -3732,11 +3799,13 @@ function iniciar() {
     estado = guardado;
     visitado = visitadoDe(estado);
     if (estado.passo > P.quer && !funilAvaria()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+    preEscolherPacote();
     mostrarPasso(false);
     carregarFotosDoEstado();
   } else {
     // Sem simulação para continuar: o Início (com a casa guardada, se houver, no cartão "Já tenho a planta").
     if (guardado?.soCasa && temCasa(guardado) && !casaGuardada) { guardarCasa(armazem ?? semArmazem, guardado); casaGuardada = carregarCasa(armazem ?? semArmazem); }
+    preEscolherPacote();
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
