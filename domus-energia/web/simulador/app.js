@@ -256,7 +256,15 @@ function mostrarPasso(foco = true) {
   if (foco) {
     const t = $(`titulo-${p}`);
     t.focus({ preventScroll: true });
-    t.scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+    // Rola até à barra dos passos (o título vem logo a seguir): "Começar de novo" e os passos ficam inteiros por baixo
+    // do topo fixo (scroll-padding-top), nunca meio tapados por ele (um toque ali ia para o topo). No passo Planta
+    // (a planta ocupa o ecrã até à barra de baixo) a barra dos passos fica toda escondida por baixo do topo, se a
+    // página rolar até lá; senão, fica inteira à vista.
+    const comportamento = reduzido() ? "auto" : "smooth";
+    const passos = document.querySelector(".sim-progresso:not([hidden])");
+    const yEscondida = passos && p === P.planta ? scrollY + passos.getBoundingClientRect().bottom - (document.querySelector(".topo")?.getBoundingClientRect().bottom ?? 0) : null;
+    if (yEscondida !== null && yEscondida <= document.documentElement.scrollHeight - innerHeight) scrollTo({ top: yEscondida, behavior: comportamento });
+    else (passos ?? t).scrollIntoView({ block: "start", behavior: comportamento });
   }
 }
 

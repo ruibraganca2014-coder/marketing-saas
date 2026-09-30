@@ -559,6 +559,9 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
     p.elementos = p.elementos.filter((e) => e.divisao !== d.id);
   };
   const porAparelhos = (d) => {
+    // Uma só vez por divisão: a criada à mão (editor.js criarDivisao) já traz os aparelhos base, mesmo escondidos
+    // no passo "A casa"; ao passar à fase "tudo" não se lhe põem outra vez (senão ficavam em duplicado).
+    if (p.elementos.some((e) => e.divisao === d.id && e.tipo !== "maquina")) return;
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (p.elementos.length >= MAX_ELEMENTOS) break;
       p.elementos.push({ ...a, id: novoId("e", p.elementos), piso: d.piso ?? 0, divisao: d.id });
