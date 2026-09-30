@@ -667,7 +667,7 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
         p.elementos.push({ id: novoId("e", p.elementos), tipo: "maquina", x_cm, y_cm, rot: 0, piso: d.piso ?? 0, divisao: d.id, props, ...(temPergunta("maquina", props) ? { por_responder: true } : {}) });
         if (DESTINO[modelo] && !certas.includes(tipoDivisao(d.nome))) {
           const nm = MODELOS[modelo]?.nome ?? modelo;
-          dicas.push(`Pusemos ${feminino(nm) ? "a" : "o"} ${nm.charAt(0).toLowerCase()}${nm.slice(1)} ${feminino(d.nome) ? "na" : "no"} ${d.nome} — arraste se for noutro sítio.`);
+          dicas.push(`${nm}: ${feminino(nm) ? "posta" : "posto"} ${feminino(d.nome) ? "na" : "no"} ${d.nome}.`);
         }
       }
     }

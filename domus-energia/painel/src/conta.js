@@ -122,6 +122,22 @@ function resumoSimulacao(json) {
   ].filter(Boolean);
   const PLANOS = { base: 'Base', conforto: 'Conforto', premium: 'Premium' };
   const min = Number.isFinite(s.total?.min) ? s.total.min : null;
+  // Fase 1: a avaria rápida (sem planta) — o que se passa e onde; inclui o diagnóstico.
+  if (s.funil === 'avaria') {
+    const ONDE = { sala: 'Sala', cozinha: 'Cozinha', quarto: 'Quarto', casa_banho: 'Casa de banho', exterior: 'Exterior', quadro: 'Quadro elétrico', outro: 'Outro' };
+    const PROBLEMA = { sem_corrente: 'Tomada sem corrente', luz: 'Luz não acende', disjuntor: 'Disjuntor dispara', queimado: 'Cheiro a queimado', outro: 'Outro' };
+    const av = s.avaria && typeof s.avaria === 'object' ? s.avaria : {};
+    const max0 = Number.isFinite(s.total?.max) ? s.total.max : null;
+    return {
+      casa: 'Sem planta (avaria)',
+      avaria: [PROBLEMA[av.problema] ?? 'Avaria', ONDE[av.onde]].filter(Boolean).join(' · '),
+      localidade: typeof casa.localidade === 'string' ? casa.localidade.slice(0, 80) : null,
+      divisoes: null,
+      inclui: ['Diagnóstico da avaria (a reparação orça-se na visita)', 'Visita de técnico habilitado'],
+      plano: null,
+      estimativa: min !== null && max0 !== null ? { min, max: max0 } : null,
+    };
+  }
   const max = Number.isFinite(s.total?.max) ? s.total.max : null;
   return {
     casa: [tipo, typeof casa.tipologia === 'string' ? casa.tipologia : null].filter(Boolean).join(' ') || null,

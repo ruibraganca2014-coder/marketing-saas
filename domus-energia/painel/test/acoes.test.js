@@ -156,7 +156,7 @@ test('pedido de automatizar/reparar com quadro: avisos e circuitos_existentes pe
 });
 
 test('estados antigos: 6 passos → 9 (cada passo no seu equivalente), sem serviço = Instalação nova; ações da planta guardadas', () => {
-  assert.deepEqual(PASSOS, ['Serviço', 'A casa', 'Equipamentos', 'Planta', 'Quadro elétrico', 'Divisões', 'Trocar e reparar', 'Resumo e preço', 'Enviar']);
+  assert.deepEqual(PASSOS, ['Início', 'A casa', 'Equipamentos', 'Planta', 'Quadro elétrico', 'Divisões', 'Trocar e reparar', 'Orçamento', 'Enviar', 'Avaria']);
   const velho = { ...estadoNovo(), passos: 6, ordem: 4, passo: 2, visitado: 3 };
   delete velho.servico;
   const e = normalizarEstado(velho);
@@ -308,7 +308,7 @@ test('planta mexida: acrescenta/tira só a máquina ou a divisão que mudou (div
   assert.equal(p.elementos.length, n + 1);
   const m = p.elementos.find((e) => e.tipo === 'maquina');
   assert.equal(p.divisoes.find((d) => d.id === m.divisao).nome, 'Kitnet');
-  assert.deepEqual(dicas, ['Pusemos a placa de cozinha na Kitnet — arraste se for noutro sítio.']);
+  assert.deepEqual(dicas, ['Placa de cozinha: posta na Kitnet.']);
   acertarPlantaMexida(p, sinc(casa, placa), sinc(casa, []), { casa });
   assert.equal(p.elementos.length, n);
   // Mais um quarto e a garagem: aparecem ao lado, sem sobrepor; desmarcar tira só essas.

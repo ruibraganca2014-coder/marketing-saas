@@ -14,18 +14,19 @@
 .sim-cabecalho .msg { margin: 0 0 16px; }
 /* Sem a barra dos passos (continuar/enviado) o tempo também não aparece. */
 .simulador:has(.sim-progresso[hidden]) .sim-falta { display: none; }
-/* "Como fazer a simulação" (lote 8): só no passo 1, por baixo dos cartões e por cima da barra Anterior/Seguinte. */
-.sim-como { display: grid; gap: 16px; margin-top: 20px; }
+/* "Como fazer a simulação" (fase 1): só no Início, duas linhas curtas por baixo dos cartões e por cima da barra
+   Anterior/Seguinte (os passos do funil e o que ter à mão). */
+.sim-como { display: grid; gap: 4px; margin-top: 18px; padding: 0; }
 .sim-como[hidden] { display: none; }
-.sim-como h2 { font-size: 1.3rem; margin: 0; }
-.sim-como > p { margin: 0; }
+.sim-como h2 { font-size: 1.05rem; margin: 0; }
+.sim-como > p { margin: 0; color: var(--texto-suave); font-size: .95rem; }
 
 /* ---------- Progresso ---------- */
 .sim-progresso { display: grid; grid-template-columns: minmax(0, 1fr); margin: 0 0 20px; }
 .sim-progresso[hidden] { display: none; }
 .sim-barra { height: 6px; border-radius: 999px; background: var(--borda); overflow: hidden; margin-bottom: 10px; }
 .sim-barra span { display: block; height: 100%; background: var(--musgo); border-radius: 999px; transition: width .3s ease; }
-.sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
+.sim-progresso ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(var(--sim-n-passos, 9), minmax(0, 1fr)); gap: 4px; }
 /* "Começar de novo" sempre à mão (sem confirmação: "Anular" durante 10 s, app.js recomecarComAnular). Na mesma linha
    dos passos, à direita do 7, com o topo alinhado com os círculos (o <li> tem 4 px por cima do círculo). Em ecrãs
    estreitos (< 720 px) fica na linha da barra, à direita (sem uma linha só para ele), e os passos por baixo. */
@@ -553,6 +554,16 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 
 /* ---------- Lote 7: passo "Serviço" e ação por aparelho ---------- */
 /* Serviço: cartões na horizontal (como os dos equipamentos), 1 por linha no telemóvel, 3 no ecrã largo. */
+/* Início (fase 1): os 3 casos, um por linha no telemóvel e lado a lado a partir de 720 px; o da casa guardada destacado. */
+#funis { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { #funis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+#funis .escolha.com-icone { min-height: 92px; }
+#funis .escolha.destaque-casa { border-color: var(--musgo); box-shadow: 0 0 0 3px var(--musgo-claro); }
+#funis .escolha.sem-casa > span > small { font-style: italic; }
+/* Avaria rápida: onde e o que se passa em botões curtos; a faixa da casa guardada (Trocar e reparar). */
+.escolhas-grelha.avaria-grelha { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.sim-casa-faixa { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.sim-casa-faixa[hidden] { display: none; }
 #servicos { grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 720px) { #servicos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 #servicos .escolha.com-icone { min-height: 92px; }

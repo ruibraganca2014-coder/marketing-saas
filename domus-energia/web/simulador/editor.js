@@ -568,7 +568,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   let podeAparelhos = true;
   /** Tentou mudar uma divisão presa: a dica (e quem usa o editor mostra onde se mudam, `aoDivisaoPresa`). */
   function divisaoPresa() {
-    avisar("Para mudar as divisões, vá ao passo Planta.");
+    avisar("Divisões presas neste passo.");
     aoDivisaoPresa?.();
   }
   let acoesOpcoes = {};      // lote 8: {todas, escolher} (planta-svg.js opção `acoes`)
@@ -695,7 +695,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     verTudo();
     nDivisoesVista = divisoesPiso().length;
     desenharTudo();
-    if (dizer) avisar(`${nomePiso(p)}: ${nDivisoesVista} ${nDivisoesVista === 1 ? "divisão" : "divisões"}. O que acrescentar vai para este piso.`);
+    if (dizer) avisar(`${nomePiso(p)}: ${nDivisoesVista} ${nDivisoesVista === 1 ? "divisão" : "divisões"}.`);
   }
 
   /** Caixa do que está desenhado no piso visível (divisões, elementos e a parte visível do fundo); a planta toda se vazio. */
@@ -896,7 +896,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     // Numa zona sobreposta: a divisão selecionada (ex.: "+" do passo Divisões); sem ela, a desenhada por cima.
     e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? divisaoDoElemento(planta, e);
     selecionado = e.id;
-    const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro de uma divisão para contar nela";
+    const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro";
     confirmar(`Na planta: ${nomeFerramenta(tipo, modelo)} (${onde}).`);
     return e;
   }
@@ -1055,7 +1055,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const novo = [Math.round(limitar(p.x, 0, planta.largura_cm)), Math.round(limitar(p.y, 0, planta.altura_cm))];
     pts.splice(i + 1, 0, novo);
     const v = validarPontos(pts, planta.largura_cm, planta.altura_cm);
-    if (!v) { avisar("Não foi possível pôr um canto aqui: está demasiado perto de outro."); return; }
+    if (!v) { avisar("Canto demasiado perto de outro."); return; }
     memorizar();
     const c0 = caixaDe(d), dentro = elementosDentro(d);
     definirPontos(d, v);
@@ -1069,7 +1069,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (pts.length <= MIN_CANTOS) { avisar(`Uma divisão tem pelo menos ${MIN_CANTOS} cantos.`); return; }
     pts.splice(i, 1);
     const v = validarPontos(pts, planta.largura_cm, planta.altura_cm);
-    if (!v) { avisar("Sem este canto as paredes cruzavam-se ou a divisão ficava pequena demais: mova-o em vez de o apagar."); return; }
+    if (!v) { avisar("Não dá para apagar este canto: mova-o."); return; }
     memorizar();
     const c0 = caixaDe(d), dentro = elementosDentro(d);
     definirPontos(d, v);
@@ -1177,7 +1177,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     svg.classList.toggle("a-colocar", !!m);
     // Sem ferramenta, nada a dizer (decisão do dono: saiu o texto de ajuda longo por cima da planta).
     if (!m) dica.textContent = "";
-    else if (m.tipo === "elemento") dica.textContent = `Toque na planta onde quer pôr: ${nomeFerramenta(m.el, m.modelo)}. Esc cancela.`;
+    else if (m.tipo === "elemento") dica.textContent = `Toque na planta para pôr: ${nomeFerramenta(m.el, m.modelo).toLowerCase()}. Esc cancela.`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
   }
@@ -1198,7 +1198,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       await guardarPdf(planta, nPisos(), acoesOmissao);
       avisar(`PDF guardado: planta-domus.pdf (${nPisos() > 1 ? `${nPisos()} páginas, uma por piso` : "1 página"}).`);
     } catch {
-      avisar("Não foi possível fazer o PDF neste navegador. Experimente \"Imprimir\" e escolha \"Guardar como PDF\".");
+      avisar("PDF falhou: use \"Imprimir\" › Guardar como PDF.");
     } finally {
       bPdf.disabled = false;
       bPdf.focus({ preventScroll: true });
@@ -1383,7 +1383,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         desenharTudo();
         if (!a.alvo) definirModo(null);
         else if (!podeDivisoes) avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada.`);
-        else avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"} selecionada. Arraste para mover; arraste os cantos para mudar a forma (Shift: sem grelha). Duplo clique numa parede acrescenta um canto; num canto, apaga-o.`);
+        else avisar(`${obterDivisao(a.alvo)?.nome || "Divisão"}: arraste para mover, os cantos para a forma.`);
       }
       return;
     }

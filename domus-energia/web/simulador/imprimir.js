@@ -103,8 +103,8 @@ function imagemDeSvg(svg, w, h) {
   return img.decode().then(() => img);
 }
 
-/** Uma página (canvas) por piso: título, planta a caber e legenda por baixo. */
-async function paginaPiso(planta, piso, deitada, omissao = null) {
+/** Uma página (canvas) por piso: título, planta a caber e legenda por baixo. `nomes`: os nomes das ações para o cliente. */
+async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
   const [W, H] = deitada ? [PX_A4[1], PX_A4[0]] : PX_A4;
   const c = document.createElement("canvas");
   c.width = W;
@@ -121,7 +121,7 @@ async function paginaPiso(planta, piso, deitada, omissao = null) {
 
   // Legenda: ícone de 36 px e nome, em linhas.
   const itens = legenda(planta, piso);
-  const marcas = temMarcas(planta, piso, omissao) ? legendaAcoes(omissao) : null;
+  const marcas = temMarcas(planta, piso, omissao) ? legendaAcoes(omissao, false, nomes) : null;
   g.font = `24px ${fonte}`;
   const linhas = [[]];
   let x = M;
@@ -181,4 +181,126 @@ export async function guardarPdf(planta, nPisos, omissao = null) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
   return bytes;
+}
+
+// ------------------------------------------------------------------ orçamento em PDF (fase 1)
+/**
+ * O conteúdo do orçamento do cliente (passo Orçamento, "Descarregar orçamento (PDF)"), em blocos simples:
+ * {tipo: "marca"|"titulo"|"data"|"seccao"|"texto"|"destaque"|"item"|"nota", texto}. Só o que o cliente vê no simulador:
+ * a casa, o intervalo, o que inclui, os planos e a nota — nunca preços de compra, fornecedores nem artigos.
+ * `d`: {data, casa, inclui[], intervalo, planos[{nome, preco, sugerido}], nota}.
+ */
+export function blocosOrcamento(d) {
+  const dataTxt = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" }).format(d.data ?? new Date());
+  const b = [
+    { tipo: "marca", texto: "Domus Energia" },
+    { tipo: "titulo", texto: "Orçamento estimado" },
+    { tipo: "data", texto: dataTxt },
+    { tipo: "seccao", texto: "A casa" },
+    { tipo: "texto", texto: d.casa || "—" },
+    { tipo: "seccao", texto: "Estimativa (com IVA)" },
+    { tipo: "destaque", texto: d.intervalo || "Enviamos o preço depois do pedido." },
+    { tipo: "seccao", texto: "O que inclui" },
+    ...((d.inclui ?? []).length ? d.inclui : ["Ainda nada."]).map((t) => ({ tipo: "item", texto: String(t) })),
+    { tipo: "seccao", texto: "Planos mensais" },
+    ...(d.planos ?? []).map((p) => ({ tipo: "item", texto: `${p.nome}: ${p.preco}${p.sugerido ? " (sugerido)" : ""}` })),
+    { tipo: "nota", texto: d.nota || "Estimativa; valor final após a visita." },
+  ];
+  return b;
+}
+
+const ESTILO_BLOCO = {
+  marca: { fonte: 800, tam: 30, cor: "--musgo", antes: 0, depois: 6 },
+  titulo: { fonte: 800, tam: 52, cor: "--texto", antes: 0, depois: 8 },
+  data: { fonte: 400, tam: 26, cor: "--texto-suave", antes: 0, depois: 34 },
+  seccao: { fonte: 800, tam: 30, cor: "--argila", antes: 26, depois: 10 },
+  texto: { fonte: 400, tam: 28, cor: "--texto", antes: 0, depois: 6 },
+  destaque: { fonte: 800, tam: 44, cor: "--texto", antes: 0, depois: 6 },
+  item: { fonte: 400, tam: 26, cor: "--texto", antes: 0, depois: 6, marca: "•  " },
+  nota: { fonte: 700, tam: 26, cor: "--texto-suave", antes: 34, depois: 0 },
+};
+
+/** Parte o texto em linhas que caibam em `largura` (px) com a fonte atual do contexto. */
+function partirLinhas(g, texto, largura) {
+  const linhas = [];
+  let linha = "";
+  for (const palavra of String(texto).split(/\s+/).filter(Boolean)) {
+    const tentativa = linha ? `${linha} ${palavra}` : palavra;
+    if (g.measureText(tentativa).width <= largura || !linha) linha = tentativa;
+    else { linhas.push(linha); linha = palavra; }
+  }
+  if (linha) linhas.push(linha);
+  return linhas.length ? linhas : [""];
+}
+
+/** As páginas de texto do orçamento (A4 ao alto, ~150 dpi): os blocos por ordem, a passar à página seguinte se preciso. */
+function paginasTexto(blocos) {
+  const [W, H] = PX_A4;
+  const M = 90, fonte = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+  const paginas = [];
+  let c, g, y;
+  const nova = () => {
+    c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    g = c.getContext("2d");
+    g.fillStyle = "#ffffff";
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = CLARAS["--musgo"];
+    g.fillRect(0, 0, W, 16);
+    g.textBaseline = "top";
+    y = M;
+    paginas.push(c);
+  };
+  nova();
+  for (const b of blocos) {
+    const e = ESTILO_BLOCO[b.tipo] ?? ESTILO_BLOCO.texto;
+    g.font = `${e.fonte} ${e.tam}px ${fonte}`;
+    const recuo = e.marca ? g.measureText(e.marca).width : 0;
+    const linhas = partirLinhas(g, b.texto, W - 2 * M - recuo);
+    const alt = e.antes + linhas.length * e.tam * 1.3 + e.depois;
+    if (y + alt > H - M && y > M) nova();
+    y += y > M ? e.antes : 0;
+    g.font = `${e.fonte} ${e.tam}px ${fonte}`;
+    g.fillStyle = CLARAS[e.cor];
+    linhas.forEach((l, i) => {
+      if (e.marca && i === 0) g.fillText(e.marca, M, y);
+      g.fillText(l, M + recuo, y);
+      y += e.tam * 1.3;
+    });
+    y += e.depois;
+  }
+  return paginas;
+}
+
+/**
+ * Faz o PDF do orçamento (resumo + 1 página por piso da planta, com as marcas das ações) e descarrega-o
+ * ("orcamento-domus.pdf"). Devolve os bytes. `d`: blocosOrcamento + {planta, pisos, omissao, nomesAcoes}.
+ */
+export async function guardarPdfOrcamento(d) {
+  const paginas = [];
+  for (const c of paginasTexto(blocosOrcamento(d))) paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: A4_PT[0], altura_pt: A4_PT[1] });
+  if (d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length)) {
+    const deitada = paisagem(d.planta);
+    const [wpt, hpt] = deitada ? [A4_PT[1], A4_PT[0]] : A4_PT;
+    for (const piso of listaPisos(d.pisos ?? 1)) {
+      const c = await paginaPiso(d.planta, piso, deitada, d.omissao ?? null, d.nomesAcoes ?? null);
+      paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: wpt, altura_pt: hpt });
+    }
+  }
+  const bytes = pdfDeImagens(paginas);
+  descarregar(bytes, NOME_PDF_ORCAMENTO);
+  return bytes;
+}
+const NOME_PDF_ORCAMENTO = "orcamento-domus.pdf";
+
+function descarregar(bytes, nome) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }

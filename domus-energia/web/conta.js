@@ -353,6 +353,7 @@ function blocoResumo(r, id) {
   const dl = el("dl", "dados-simples");
   const linha = (k, v) => { if (v) { dl.append(el("dt", null, k), el("dd", null, v)); } };
   linha("Casa", r.casa);
+  linha("Avaria", r.avaria);
   linha("Localidade", r.localidade);
   linha("Divisões", r.divisoes ? String(r.divisoes) : null);
   linha("Estimativa", r.estimativa ? `${euro(r.estimativa.min)} – ${euro(r.estimativa.max)} (com IVA; o valor final é o da proposta)` : null);

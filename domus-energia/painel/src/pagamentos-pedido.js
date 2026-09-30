@@ -510,6 +510,18 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       };
     };
     let divs = [];
+    // Fase 1: a avaria rápida (sem planta) — uma linha "Reparar" com o diagnóstico, no sítio que o cliente disse.
+    if (s.funil === 'avaria') {
+      const ONDE = { sala: 'Sala', cozinha: 'Cozinha', quarto: 'Quarto', casa_banho: 'Casa de banho', exterior: 'Exterior', quadro: 'Quadro elétrico', outro: 'Outro' };
+      const PROBLEMA = { sem_corrente: 'tomada sem corrente', luz: 'luz não acende', disjuntor: 'disjuntor dispara', queimado: 'cheiro a queimado', outro: 'avaria' };
+      const av = s.avaria && typeof s.avaria === 'object' ? s.avaria : {};
+      const d = novaDivisao(ONDE[av.onde] ?? 'Avaria');
+      const desc = txtCurto(av.descricao, 200);
+      const temFoto = Array.isArray(s.fotos) && s.fotos.some((f) => f?.chave === 'avaria:foto');
+      d.trabalho.push(`Reparar: diagnóstico — ${PROBLEMA[av.problema] ?? 'avaria'}${desc ? ` («${desc}»)` : ''}${temFoto ? '; ver foto' : ''}`);
+      d.junta('DIAG-AVARIA', itens.get('DIAG-AVARIA')?.qtd ?? 1);
+      divs.push(d);
+    }
     const trabalho = Array.isArray(s.trabalho) ? s.trabalho.slice(0, 201).filter((g) => g && typeof g === 'object' && Array.isArray(g.acoes)) : [];
     if (trabalho.length) {
       for (const g of trabalho) {
@@ -522,7 +534,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
         }
         if (d.trabalho.length || d.material.length) divs.push(d);
       }
-    } else {
+    } else if (s.funil !== 'avaria') {
       // Pedidos antigos (sem ações): tudo Novo, pelas linhas das divisões.
       divs = (Array.isArray(s.divisoes) ? s.divisoes.slice(0, 200) : []).filter((d) => d && typeof d === 'object').map((x) => {
         const d = novaDivisao(txtCurto(x.nome, 60) || 'Divisão');

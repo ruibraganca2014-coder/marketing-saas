@@ -121,7 +121,24 @@ export function simulacao(v) {
   limitesPlanta(v.planta);
   fotosSimulacao(v.fotos);
   visitaSimulacao(v.visita, v.urgencia);
+  funilSimulacao(v.funil, v.avaria);
   return json;
+}
+
+/**
+ * Fase 1 (funis): `funil` ∈ primeira, planta, avaria (opcional: pedidos antigos não o têm); `avaria` (só na avaria
+ * rápida) = {onde, problema, descricao ≤ 200}, com valores conhecidos.
+ */
+export const FUNIS = ['primeira', 'planta', 'avaria'];
+export const AVARIA_ONDE = ['sala', 'cozinha', 'quarto', 'casa_banho', 'exterior', 'quadro', 'outro'];
+export const AVARIA_PROBLEMA = ['sem_corrente', 'luz', 'disjuntor', 'queimado', 'outro'];
+function funilSimulacao(funil, a) {
+  if (funil !== undefined && funil !== null && !FUNIS.includes(funil)) falha(`Funil inválido (use: ${FUNIS.join(', ')}).`);
+  if (a === undefined || a === null) return;
+  if (typeof a !== 'object' || Array.isArray(a)) falha('A avaria tem de ser um objeto.');
+  if (a.onde !== undefined && a.onde !== null && !AVARIA_ONDE.includes(a.onde)) falha(`Avaria: onde inválido (use: ${AVARIA_ONDE.join(', ')}).`);
+  if (a.problema !== undefined && a.problema !== null && !AVARIA_PROBLEMA.includes(a.problema)) falha(`Avaria: problema inválido (use: ${AVARIA_PROBLEMA.join(', ')}).`);
+  if (a.descricao !== undefined && a.descricao !== null && (typeof a.descricao !== 'string' || a.descricao.length > 200)) falha('Avaria: descrição até 200 caracteres.');
 }
 
 /**

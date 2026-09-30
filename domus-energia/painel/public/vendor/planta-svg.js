@@ -173,8 +173,8 @@ const comAcao = (e) => ["luz", "interruptor", "tomada", "sensor_movimento", "sen
 export function legendaAcoes(omissao, todas = false, nomes = null) {
   // Lote 8: `nomes` = os nomes que o cliente vê (simulador: "Trocar", "Avariado (reparar)"…); sem eles, os técnicos.
   if (todas) return `Marcas: ${Object.entries(ACOES).map(([k, [l, n]]) => `${l} ${nomes?.[k] ?? n}`).join(" · ")}.`;
-  const outras = Object.entries(ACOES).filter(([k]) => k !== omissao).map(([, [l, n]]) => `${l} ${n}`);
-  return `Marcas: ${outras.join(" · ")}; sem marca: ${ACOES[omissao]?.[1] ?? "Novo"}.`;
+  const outras = Object.entries(ACOES).filter(([k]) => k !== omissao).map(([k, [l, n]]) => `${l} ${nomes?.[k] ?? n}`);
+  return `Marcas: ${outras.join(" · ")}; sem marca: ${nomes?.[omissao] ?? ACOES[omissao]?.[1] ?? "Novo"}.`;
 }
 
 let contador = 0;

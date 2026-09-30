@@ -19,13 +19,38 @@ export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: códi
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
 /**
- * Os 9 passos (lote 6: a planta está ao lado de todos os passos; lote 7: o passo "Serviço" entra antes de "A casa";
- * lote 8: "Planta" (a planta à largura toda, para a conferir) depois de "Equipamentos", o "Quadro elétrico" antes das
- * "Divisões" e "Trocar e reparar" entre as divisões e o resumo).
+ * Os passos (lote 6: a planta está ao lado de todos os passos; lote 7: o passo "Serviço" entra antes de "A casa";
+ * lote 8: "Planta" depois de "Equipamentos", o "Quadro elétrico" antes das "Divisões" e "Trocar e reparar" entre as
+ * divisões e o resumo). Funis (fase 1): o passo 1 passa a "Início" (o caso do cliente e, na primeira vez, o serviço),
+ * "Resumo e preço" passa a "Orçamento" e entra o passo "Avaria" (índice 9, só no funil da avaria rápida). Cada funil
+ * usa só alguns passos, por esta ordem (FUNIS).
  */
-export const PASSOS = ["Serviço", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Resumo e preço", "Enviar"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria"];
+/** Índices dos passos (os mesmos ids `passo-N` da página). */
+export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9 };
 /**
- * Ordem dos passos gravada no estado (`ordem`: 8 = a de PASSOS, 9 passos).
+ * Funis (fase 1, decisões do dono): o caso escolhido no Início. `passos` pela ordem da barra; `minutos` de cada passo
+ * (só para o cliente saber quanto falta). Primeira vez ~13 min; já tenho planta ~4 min; avaria ~2 min.
+ */
+export const FUNIS = {
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 3, 4, 5, 6, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 3: 2, 4: 2, 5: 1, 6: 2, 7: 1, 8: 1 } },
+  planta: { nome: "Já tenho a planta", passos: [0, 6, 7, 8], minutos: { 0: 0.5, 6: 2, 7: 0.5, 8: 1 } },
+  avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
+};
+export const CHAVES_FUNIL = Object.keys(FUNIS);
+/** Os passos do funil (sem funil escolhido, os da primeira vez). */
+export const passosDoFunil = (funil) => (FUNIS[funil] ?? FUNIS.primeira).passos;
+/** Serviços do funil "Já tenho a planta": automatizar e reparar (a omissão dos aparelhos é Manter). */
+export const SERVICO_PLANTA = ["automatizar", "reparar"];
+/**
+ * Avaria rápida (funil 3): onde, o que se passa, descrição (≤ 200) e foto obrigatória (chave FOTO_AVARIA). Vai no
+ * pedido em `simulacao.avaria` = {onde, problema, descricao} (§6).
+ */
+export const AVARIA_ONDE = { sala: "Sala", cozinha: "Cozinha", quarto: "Quarto", casa_banho: "Casa de banho", exterior: "Exterior", quadro: "Quadro elétrico", outro: "Outro" };
+export const AVARIA_PROBLEMA = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", outro: "Outro" };
+export const FOTO_AVARIA = "avaria:foto";
+/**
+ * Ordem dos passos gravada no estado (`ordem`: 9 = a de PASSOS, com o Início e a Avaria).
  * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo (quem estava no
  * passo "Planta" passa às Divisões — a planta está por cima delas):
  * - sem `passos` (6 passos, antes de "O que quer"): casa, planta, quadro, divisões, preço, enviar;
@@ -36,15 +61,19 @@ export const PASSOS = ["Serviço", "A casa", "Equipamentos", "Planta", "Quadro e
  * - `ordem: 5` (7 passos, antes de "Trocar e reparar"): serviço, casa, equipamentos, divisões, quadro, preço, enviar;
  * - `ordem: 6` (8 passos, antes do passo "Planta"): serviço, casa, equipamentos, divisões, quadro, trocar e reparar,
  *   preço, enviar;
- * - `ordem: 7` (9 passos com as divisões antes do quadro; só existiu em testes).
+ * - `ordem: 7` (9 passos com as divisões antes do quadro; só existiu em testes);
+ * - `ordem: 8` (9 passos, antes dos funis): os mesmos índices (o "Serviço" passa a "Início").
  * Lote 8: cada passo vai para o seu equivalente (quem estava no Quadro ou nas Divisões fica nele; o resumo e o enviar
  * avançam); o antigo passo "Planta" (6 e 7 passos; ordem 2 e 3) volta a ser o passo Planta. As ações já escolhidas
  * nas Divisões ficam nos aparelhos. Os estados sem `servico` ficam com "Instalação nova" (tudo Novo: o mesmo preço).
+ * Funis: os estados antigos ficam no funil da primeira vez (quem estava no Serviço sem nada escolhido fica no Início
+ * sem funil).
  */
-export const ORDEM = 8;
+export const ORDEM = 9;
 const MIGRAR = {
   6: [1, 3, 4, 5, 7, 8], 7: [1, 2, 3, 4, 5, 7, 8], ordem2: [1, 2, 5, 3, 4, 7, 8], ordem3: [1, 2, 3, 5, 4, 7, 8],
   ordem4: [1, 2, 5, 4, 7, 8], ordem5: [0, 1, 2, 5, 4, 7, 8], ordem6: [0, 1, 2, 5, 4, 6, 7, 8], ordem7: [0, 1, 2, 3, 5, 4, 6, 7, 8],
+  ordem8: [0, 1, 2, 3, 4, 5, 6, 7, 8],
 };
 /** Disponibilidade para a visita e urgência (passo Enviar, lote 8; §6 `visita`, `urgencia`). */
 export const DIAS_VISITA = { seg: "Segunda", ter: "Terça", qua: "Quarta", qui: "Quinta", sex: "Sexta", sab: "Sábado" };
@@ -98,7 +127,9 @@ export function estadoNovo() {
     ordem: ORDEM,
     passo: 0,
     visitado: 0,               // passo mais adiantado a que o cliente já chegou
-    servico: [],               // passo 1 (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
+    funil: null,               // fase 1: primeira | planta | avaria (FUNIS); null = ainda no Início sem caso escolhido
+    soCasa: false,             // só a casa guardada (sem simulação em curso): a da conta depois de enviar um pedido
+    servico: [],               // Início, funil "primeira" (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
     mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
     quadroAvaria: null,        // lote 8 ("Trocar e reparar"): quadro com problemas → o que se passa ("" = por descrever); null = sem problemas
     guardado: null,
@@ -123,6 +154,7 @@ export function estadoNovo() {
     contacto: { nome: "", telefone: "", email: "", localidade: "", morada: "", mensagem: "" },
     visita: { dias: [], periodo: "qualquer" },   // lote 8 (passo Enviar): dias da semana e período; sem dias = qualquer dia
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
+    avaria: { onde: null, problema: null, descricao: "" },   // funil "avaria" (AVARIA_ONDE, AVARIA_PROBLEMA)
   };
 }
 
@@ -317,17 +349,35 @@ export function normalizarEstado(v) {
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
   // Estados antigos (6 passos; 7 passos com outra ordem): o passo antigo passa ao novo (MIGRAR);
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
-  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
+  const migrar = v.ordem === ORDEM && v.passos === PASSOS.length ? null : v.ordem === 8 ? MIGRAR.ordem8 : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
-  const passo = int(v.passo, 0, (migrar ? migrar.length : PASSOS.length) - 2);   // nunca volta direto ao "Enviar"
-  e.passo = migrar ? migrar[passo] : passo;
-  // Os 7 passos de antes (ordem 3 e 5), os 6 (ordem 4), os 8 (ordem 6) e os 9 de testes (ordem 7) já guardavam o mais
-  // adiantado; os outros contam o que estava antes do passo.
-  const guardavaVisitado = [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7].includes(migrar);
-  e.visitado = guardavaVisitado ? Math.max(e.passo, migrar[int(v.visitado, 0, migrar.length - 2)])
-    : migrar ? Math.max(...migrar.slice(0, passo + 1)) : Math.max(e.passo, int(v.visitado, 0, PASSOS.length - 2));
   // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
   e.servico = normalizarServico(v.servico) ?? ["nova"];
+  // Funis (fase 1): os estados antigos são todos da primeira vez; quem ficou no "Serviço" sem nada escolhido fica no
+  // Início sem funil (escolhe o caso).
+  if (migrar) {
+    const passo = int(v.passo, 0, migrar.length - 2);   // nunca volta direto ao "Enviar"
+    e.passo = migrar[passo];
+    e.funil = e.passo > 0 || e.servico.length ? "primeira" : null;
+    // Os 7 passos de antes (ordem 3 e 5), os 6 (ordem 4), os 8 (ordem 6) e os 9 (ordem 7 e 8) já guardavam o mais
+    // adiantado; os outros contam o que estava antes do passo.
+    const guardavaVisitado = [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
+    e.visitado = guardavaVisitado ? Math.max(e.passo, migrar[int(v.visitado, 0, migrar.length - 2)]) : Math.max(...migrar.slice(0, passo + 1));
+  } else {
+    e.funil = FUNIS[v.funil] ? v.funil : null;
+    let passo = int(v.passo, 0, PASSOS.length - 1);
+    if (passo > 0 && !e.funil) e.funil = "primeira";
+    const seq = passosDoFunil(e.funil);
+    // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
+    if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
+    if (!seq.includes(passo)) passo = 0;
+    e.passo = passo;
+    const vis = int(v.visitado, 0, PASSOS.length - 1);
+    e.visitado = seq.includes(vis) && vis !== PASSO.enviar && seq.indexOf(vis) > seq.indexOf(passo) ? vis : passo;
+  }
+  const guardavaVisitado = !migrar || [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
+  e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
+  e.avaria = normalizarAvaria(v.avaria);
   e.mexerQuadro = bool(v.mexerQuadro);
   e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
@@ -379,7 +429,7 @@ export function normalizarEstado(v) {
   e.plantaSinc = normalizarSinc(v.plantaSinc);
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
-  e.plantaBase = (!migrar || guardavaVisitado) && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
+  e.plantaBase = guardavaVisitado && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
   // "O que quer" ainda sem pisos, ou a casa ainda sem valores por piso: a assinatura guardada foi feita à maneira
   // antiga; se era a da casa e das máquinas de então, passa a ser a de agora (a planta não fica "desatualizada"
   // só pela migração).
@@ -431,6 +481,16 @@ export function normalizarVisita(v) {
   const o = v && typeof v === "object" ? v : {};
   const dias = Array.isArray(o.dias) ? Object.keys(DIAS_VISITA).filter((k) => o.dias.includes(k)) : [];
   return { dias, periodo: PERIODOS_VISITA[o.periodo] ? o.periodo : "qualquer" };
+}
+
+/** Avaria rápida (funil 3): só valores conhecidos; a descrição sem caracteres de controlo (≤ 200). */
+export function normalizarAvaria(v) {
+  const o = v && typeof v === "object" ? v : {};
+  return {
+    onde: AVARIA_ONDE[o.onde] ? o.onde : null,
+    problema: AVARIA_PROBLEMA[o.problema] ? o.problema : null,
+    descricao: txt(o.descricao, MAX_AVARIA).replace(CONTROLO_LINHA, " "),
+  };
 }
 
 /** Linha "Fora das divisões" (elementos fora de todas; regras.js contarPlanta): não é uma divisão. */
@@ -574,9 +634,75 @@ export function quadroParaEnvio(estado, circuitos) {
   };
 }
 
-/** Houve progresso que valha a pena retomar? (`passoInicial`: 1 na área de cliente, que começa em "O que quer") */
+/**
+ * Houve progresso que valha a pena retomar? (`passoInicial`: o Início.) Um estado só com a casa guardada (`soCasa`)
+ * não é uma simulação em curso: dá só o cartão "Já tenho a planta".
+ */
 export function temProgresso(e, passoInicial = 0) {
-  return !!e && (e.passo > passoInicial || e.servico.length > 0 || e.quadroAvaria !== null || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+  return !!e && !e.soCasa && (e.passo > passoInicial || e.funil !== null || e.servico.length > 0 || e.quadroAvaria !== null
+    || !!e.avaria?.onde || !!e.avaria?.problema || !!e.avaria?.descricao?.trim()
+    || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0 || !!e.contacto.localidade);
+}
+
+// ------------------------------------------------------------ a casa guardada (funil "Já tenho a planta")
+/**
+ * A casa do cliente fica guardada à parte da simulação (CHAVE_CASA, neste navegador; na conta, como um estado
+ * `soCasa`): o tipo, a casa, as máquinas, a planta (sem as ações de um pedido), o quadro e as divisões. Dá o cartão
+ * "Já tenho a planta" no Início, mesmo depois de enviar o pedido ou de "Começar de novo".
+ */
+export const CHAVE_CASA = "domus.simulador.casa";
+const CAMPOS_CASA = ["pisosDesde0", "casa", "fasesEditadas", "quer", "planta", "plantaAuto", "plantaBase", "plantaFase", "plantaSinc",
+  "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados"];
+/** O estado tem uma casa que se possa guardar? (o tipo de imóvel e uma planta com divisões) */
+export const temCasa = (e) => !!e && !!e.casa?.tipo && Array.isArray(e.planta?.divisoes) && e.planta.divisoes.length > 0;
+/** Estado só com a casa (`soCasa`), sem o que era do pedido (ações, avarias, fotos, contacto, visita). */
+export function soCasaDe(e, agora = new Date()) {
+  const n = estadoNovo();
+  for (const k of CAMPOS_CASA) if (e[k] !== undefined) n[k] = structuredClone(e[k]);
+  n.planta = { ...n.planta, elementos: (n.planta.elementos ?? []).map(({ acao, avaria, inteligente, ...x }) => x) };
+  n.plantaSaltada = false;
+  n.soCasa = true;
+  n.guardado = agora.toISOString();
+  return n;
+}
+/** "Apartamento T2, 5 divisões" (cartão "Já tenho a planta" e faixa de "Trocar e reparar"). */
+export function resumoCasa(e) {
+  if (!temCasa(e)) return "";
+  const c = e.casa;
+  const n = e.planta.divisoes.length;
+  const tipo = [TIPOS_CASA[c.tipo] ?? "Casa", perfilCasa(c.tipo) === "habitacao" && TIPOLOGIAS.includes(c.tipologia) ? c.tipologia : null].filter(Boolean).join(" ");
+  return `${tipo}, ${n} ${n === 1 ? "divisão" : "divisões"}`;
+}
+/** Guarda a casa (sem a imagem de fundo se não couber). Devolve true se ficou guardada. */
+export function guardarCasa(storage, e, agora = new Date()) {
+  if (!temCasa(e)) return false;
+  const c = soCasaDe(e, agora);
+  try { storage.setItem(CHAVE_CASA, JSON.stringify(c)); return true; } catch { /* quota: sem o fundo */ }
+  try { storage.setItem(CHAVE_CASA, JSON.stringify({ ...c, planta: { ...c.planta, fundo: null } })); return true; } catch { return false; }
+}
+/** A casa guardada neste navegador (estado `soCasa`), ou null. */
+export function carregarCasa(storage) {
+  try {
+    const bruto = storage.getItem(CHAVE_CASA);
+    if (!bruto) return null;
+    const e = normalizarEstado({ ...JSON.parse(bruto), passo: 0, funil: null, soCasa: true });
+    return temCasa(e) ? e : null;
+  } catch {
+    return null;
+  }
+}
+/**
+ * Funil "Já tenho a planta": a simulação passa a usar a casa `c` (a guardada; ou a do próprio estado) — os aparelhos
+ * sem ação ficam "Manter" (o cliente escolhe só o que troca, repara ou acrescenta) e o serviço é automatizar + reparar.
+ */
+export function usarCasa(e, c = e) {
+  if (c !== e) for (const k of CAMPOS_CASA) if (c[k] !== undefined) e[k] = structuredClone(c[k]);
+  e.plantaSaltada = false;
+  e.soCasa = false;
+  e.funil = "planta";
+  e.servico = [...SERVICO_PLANTA];
+  e.planta = { ...e.planta, elementos: e.planta.elementos.map((x) => (temAcao(x.tipo, x.props) && !ACOES[x.acao] ? { ...x, acao: "manter" } : x)) };
+  return e;
 }
 
 // ------------------------------------------------------------ navegador (localStorage)
@@ -810,6 +936,7 @@ export function deslocacaoParaEnvio(d) {
  * [{chave, tipo, divisao, divisao_nome, piso, legenda}] (as imagens vão depois, uma a uma, com o token).
  */
 export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = null) {
+  if (estado.funil === "avaria") return montarSimulacaoAvaria(estado, preco, fotos);
   const circuitos = estado.quadro.circuitos.map((c, i) => {
     const n = normalizarCircuito(c, i);
     return { ...n, nome: textoSeguro(n.nome, 60), divisoes: n.divisoes.map((d) => textoSeguro(d, 60)).filter(Boolean) };
@@ -823,6 +950,8 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
   if (quadroAvaria !== null) totais.reparar.aparelhos++;   // o quadro com problemas conta como um aparelho a reparar
   return {
     versao: VERSAO,
+    // Fase 1 (funis): o caso escolhido no Início — "primeira" (obras ou automatizar) ou "planta" (já tinha a planta).
+    funil: estado.funil === "planta" ? "planta" : "primeira",
     // Lote 7: o serviço pedido (passo 1) e, por aparelho, a ação (planta.elementos[].acao); a lista de trabalho por
     // divisão e os totais por ação são para o relatório técnico.
     servico,
@@ -857,6 +986,44 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     })),
   };
 }
+
+/**
+ * `simulacao` do funil "avaria" (avaria rápida, sem planta; §6): `funil: "avaria"`, `servico: ["reparar"]`,
+ * `avaria` = {onde, problema, descricao} e a foto (obrigatória); o preço é o diagnóstico (DIAG-AVARIA + horas ×
+ * tarifa) com a deslocação. Sem planta, quadro, máquinas nem divisões; a casa só com a localidade.
+ */
+export function montarSimulacaoAvaria(estado, preco, fotos = []) {
+  const a = normalizarAvaria(estado.avaria);
+  const foraArea = preco.deslocacao?.estado === "fora_area";
+  const totais = totaisAcao(null, ["reparar"], preco);
+  totais.reparar.aparelhos = 1;
+  return {
+    versao: VERSAO,
+    funil: "avaria",
+    servico: ["reparar"],
+    casa: { tipo: null, divisoes: null, localidade: textoSeguro(estado.contacto.localidade, 80) || null, potencia_contratada_kva: null, fases: null },
+    quer: null,
+    planta: null,
+    quadro: null,
+    avaria: { onde: a.onde, problema: a.problema, descricao: textoSeguro(a.descricao, MAX_AVARIA) },
+    trabalho: [],
+    totais_acao: totais,
+    visita: foraArea ? null : normalizarVisita(estado.visita),
+    urgencia: foraArea ? null : URGENCIAS[estado.urgencia] ? estado.urgencia : "normal",
+    divisoes: [],
+    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "reparar", horas: l.horas == null ? null : Math.round(l.horas * 100) / 100 })),
+    mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
+    deslocacao: deslocacaoParaEnvio(preco.deslocacao),
+    total: { min: preco.min, max: preco.max },
+    plano_sugerido: null,
+    avisos: [],
+    fotos: fotos.filter((f) => f.chave === FOTO_AVARIA).slice(0, 1).map((f) => ({
+      chave: FOTO_AVARIA, tipo: "avaria", divisao: null, divisao_nome: a.onde ? AVARIA_ONDE[a.onde] : null, piso: null, legenda: textoSeguro(f.legenda, 120),
+    })),
+  };
+}
+/** Legenda da foto da avaria: "Avaria — Tomada sem corrente · Cozinha". */
+export const legendaAvaria = (a) => ["Avaria", [AVARIA_PROBLEMA[a?.problema], AVARIA_ONDE[a?.onde]].filter(Boolean).join(" · ")].filter(Boolean).join(" — ");
 
 /**
  * `simulacao.quer` (§6): as listas de chaves (como antes), `quantidades` (o total de cada máquina marcada) e,
