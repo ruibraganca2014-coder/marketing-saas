@@ -92,6 +92,14 @@ function resumoSimulacao(json) {
     conta.tomadas += n(d.tomadas_inteligentes);
     conta.reguladas += n(d.luzes_regulaveis);
   }
+  // Lote 7: trocas e reparações da lista de trabalho (simulacao.trabalho).
+  let trocasInteligentes = 0; let trocas = 0; let reparacoes = 0;
+  for (const g of Array.isArray(s.trabalho) ? s.trabalho.slice(0, 200) : []) {
+    for (const a of Array.isArray(g?.acoes) ? g.acoes.slice(0, 100) : []) {
+      if (a?.acao === 'reparar') reparacoes += n(a.qtd);
+      if (a?.acao === 'substituir') { const i = Math.min(n(a.inteligentes), n(a.qtd)); trocasInteligentes += i; trocas += n(a.qtd) - i; }
+    }
+  }
   const p = (k, um, varios) => (k ? `${k} ${k === 1 ? um : varios}` : null);
   const PACOTES = { essencial: 'Proteção básica no quadro elétrico', recomendado: 'Proteção recomendada no quadro elétrico', completo: 'Proteção completa no quadro elétrico' };
   const inclui = [
@@ -101,6 +109,9 @@ function resumoSimulacao(json) {
     p(conta.movimento, 'sensor de movimento', 'sensores de movimento'),
     p(conta.porta, 'aviso de porta ou janela aberta', 'avisos de porta ou janela aberta'),
     p(conta.tomadas, 'tomada inteligente', 'tomadas inteligentes'),
+    p(trocasInteligentes, 'aparelho trocado por um inteligente', 'aparelhos trocados por inteligentes'),
+    p(trocas, 'aparelho trocado', 'aparelhos trocados'),
+    p(reparacoes, 'reparação', 'reparações'),
     // Só quando o quadro entra no pedido (sem "Quer melhorar o quadro?" = Não); pedidos antigos sem no_preco contam.
     s.quadro?.no_preco === false ? null : PACOTES[s.quadro?.pacote] ?? null,
   ].filter(Boolean);

@@ -38,7 +38,7 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     faixaDemonstracao(Boolean(eu?.pagamentos?.demonstracao));
     const dentro = Boolean(eu?.conta?.confirmado);
     $("conta-dentro").hidden = !dentro;
-    if (!dentro) { $("conta-pedidos").replaceChildren(); return; }
+    if (!dentro) { $("conta-pedidos").replaceChildren(); mensagem(null); return; }
     $("conta-casa").hidden = !eu.tem_casa;
     const r = $("conta-retomar");
     r.replaceChildren();
@@ -432,6 +432,9 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
     });
     await carregar();
     mensagem("Foto enviada.", "ok");
+    const m = $("conta-msg");
+    m.tabIndex = -1;
+    m.focus();
   } catch (e) {
     aviso(e.message);
   }

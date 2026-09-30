@@ -275,6 +275,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     try { await pedirConta("sair", { corpo: {} }); } catch { /* a sessão fica sem efeito no servidor na mesma ao expirar */ }
     eu = null;
     modo = "entrar";
+    mensagem(null);
     desenhar();
     aoMudar(null);
   }
