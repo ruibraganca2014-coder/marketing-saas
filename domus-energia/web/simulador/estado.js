@@ -169,6 +169,7 @@ export function estadoNovo() {
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
     avaria: { onde: null, problema: null, descricao: "" },   // funil "avaria" (AVARIA_ONDE, AVARIA_PROBLEMA)
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
+    melhoriasPorVer: false,                                  // fase 2: estado de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir
     instalado: null,                                         // fase 2: o que o pedido da casa guardada já instala (melhorias.js instaladoDe)
   };
 }
@@ -396,6 +397,9 @@ export function normalizarEstado(v) {
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);
   e.melhorias = normalizarMelhorias(v.melhorias);
+  // Estados de antes das Melhorias (ordem ≤ 9) já para lá delas nunca as viram: a barra não as dá como feitas.
+  const antesMelhorias = !(v.ordem === ORDEM && v.passos === PASSOS.length);
+  e.melhoriasPorVer = e.funil !== "avaria" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
   e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
   e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;

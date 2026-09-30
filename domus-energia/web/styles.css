@@ -814,6 +814,7 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .relatorio-cliente th, .relatorio-cliente td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--borda); vertical-align: top; }
 .relatorio-cliente td.num, .relatorio-cliente th.num { text-align: right; white-space: nowrap; }
 .relatorio-cliente h5 { margin: 12px 0 4px; font-size: 1rem; }
+.relatorio-cliente h6 { margin: 8px 0 2px; font-size: .95rem; }
 @media print {
   body.imprimir-relatorio > *:not(main), body.imprimir-relatorio #conta-cartao, body.imprimir-relatorio .conta-atalhos, body.imprimir-relatorio .conta-pedido:not(.a-imprimir), body.imprimir-relatorio .nao-imprimir { display: none !important; }
 }

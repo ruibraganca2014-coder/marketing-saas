@@ -94,13 +94,19 @@ export function mudarMelhoria(estado, id, sim) {
 /**
  * Acerta o "Quadro seguro" com o quadro de agora: escolhido pelo `?pacote=` (ainda sem as proteções de antes) aplica-se
  * — ou, já incluído, sai (fica "Já incluído"); o quadro trocado por fora (casa guardada, "Já tenho a planta") volta ao
- * máximo.
+ * máximo. Com `tirarSemNada` (o cliente já chegou às Melhorias), um pacote aceite que ficou "Nada a acrescentar" ou
+ * "Já incluído" (ex.: o Poupar energia só com o medidor, depois de o Quadro seguro o trazer) sai dos aceites. Antes
+ * disso não: sem a planta, o pacote do `?pacote=` ainda não tem nada a acrescentar.
  */
-export function acertarMelhorias(estado) {
+export function acertarMelhorias(estado, tirarSemNada = false) {
   const m = estado.melhorias;
-  if (!m.aceites.includes(QUADRO_SEGURO)) { m.quadroAnterior = null; return; }
-  if (!m.quadroAnterior && quadroSeguroIncluido(estado)) { m.aceites = m.aceites.filter((k) => k !== QUADRO_SEGURO); return; }
-  if (!m.quadroAnterior || !quadroNoMaximo(estado.quadro)) aplicarQuadroSeguro(estado);
+  if (!m.aceites.includes(QUADRO_SEGURO)) m.quadroAnterior = null;
+  else if (!m.quadroAnterior && quadroSeguroIncluido(estado)) m.aceites = m.aceites.filter((k) => k !== QUADRO_SEGURO);
+  else if (!m.quadroAnterior || !quadroNoMaximo(estado.quadro)) aplicarQuadroSeguro(estado);
+  if (!tirarSemNada) return;
+  for (let x; m.aceites.length && (x = calcularMelhorias(estado, null).find((p) => m.aceites.includes(p.id) && (p.incluido || p.vazio)));) {
+    mudarMelhoria(estado, x.id, false);
+  }
 }
 
 // ------------------------------------------------------------ o que a casa guardada já tem instalado

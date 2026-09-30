@@ -305,10 +305,18 @@ function desenharRelatorio(r) {
     if (d.material.length) out.push(tabelaMaterial(d.material));
   }
   if (r.geral.material.length) out.push(el("h5", null, `${r.geral.titulo} — ${euro(r.geral.total)}`), tabelaMaterial(r.geral.material));
+  // Fase 2: os pacotes aceites nas Melhorias — o material de cada um e a instalação e configuração deles.
+  const mel = r.melhorias;
+  if (mel?.pacotes?.length) {
+    out.push(el("h5", null, `${mel.titulo} — ${euro(mel.total)}`));
+    for (const p of mel.pacotes) {
+      out.push(el("h6", null, `${p.nome} — ${euro(p.total)}`));
+      if (p.material.length) out.push(tabelaMaterial(p.material));
+    }
+    out.push(el("p", null, `Instalação e configuração dos pacotes: ${euro(mel.instalacao)}`));
+  }
   if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${String(r.mao_obra.horas).replace(".", ",")} h)` : ""}: ${euro(r.mao_obra.valor)}`));
   if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}`));
-  // Fase 2: a margem dos pacotes aceites nas Melhorias (o material e a mão de obra deles já estão acima).
-  if (r.margem_pacotes != null) out.push(el("p", null, `Margem dos pacotes${r.melhorias?.length ? ` (${r.melhorias.join(", ")})` : ""}: ${euro(r.margem_pacotes)}`));
   out.push(el("p", "valor num", `Total estimado: ${euro(r.total)}`), el("p", "ajuda", r.nota));
   return out;
 }

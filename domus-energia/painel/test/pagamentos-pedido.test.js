@@ -312,7 +312,7 @@ describe('modo simulado', () => {
     assert.doesNotMatch(JSON.stringify(rel), /99999/, 'nada dos totais do browser');
   });
 
-  test('relatório do cliente (fase 2): margem dos pacotes das Melhorias pelo catálogo e pela configuração (não a do browser), no total', async () => {
+  test('relatório do cliente (fase 2): secção Melhorias — material de cada pacote e instalação e configuração (margem pelo catálogo e pela configuração, não a do browser), total igual', async () => {
     const c = await p.contaConfirmada();
     const MEL = [
       { id: 'seguranca', nome: 'Segurança', itens: [{ sku: 'SENS-PORTA-WIFI', qtd: 2 }, { sku: 'SENS-PIR-WIFI', qtd: 1 }, { sku: 'SENS-AGUA-WIFI', qtd: 2 }], preco: 1 },
@@ -335,36 +335,54 @@ describe('modo simulado', () => {
       return t + centSim(centSim(custo * (1 + pct / 100)) - custo);
     }, 0));
     let rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
-    assert.deepEqual(rel.melhorias, ['Segurança', 'Casa inteligente'], 'sem repetidos');
+    assert.deepEqual(rel.melhorias.pacotes.map((x) => x.nome), ['Segurança', 'Casa inteligente'], 'sem repetidos');
+    assert.equal(rel.melhorias.titulo, 'Melhorias');
     assert.ok(margemSim(20) > 0);
-    assert.equal(rel.margem_pacotes, margemSim(20), 'margem_pacotes_pct = 20 (migração 13)');
+    assert.equal(rel.melhorias.instalacao, margemSim(20), 'margem_pacotes_pct = 20 (migração 13)');
+    // O material de cada pacote (os seus `itens`, preços do catálogo) na secção Melhorias, não nas divisões nem no quadro.
+    const matDe = (m) => m.itens.map((i) => [i.qtd, precoCat(i.sku)]);
+    assert.deepEqual(rel.melhorias.pacotes.map((x) => x.material.map((l) => [l.quantidade, l.preco_unitario])), MEL.slice(0, 2).map(matDe));
+    assert.equal(rel.melhorias.pacotes[0].total, cent(MEL[0].itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0)));
+    assert.equal(rel.divisoes[0].material.find((l) => /porta/i.test(l.artigo))?.quantidade, 1, 'a Sala fica com o seu sensor de porta');
+    assert.equal(rel.geral.total, cent(3 * precoCat('TONGOU-SY2-JWT')), 'o quadro sem o material dos pacotes');
+    assert.equal(rel.melhorias.total, cent(rel.melhorias.pacotes.reduce((t, x) => t + x.total, 0) + rel.melhorias.instalacao));
+    // O total não muda: todo o material dos `itens` (uma vez), a mão de obra, a deslocação e a margem dos pacotes.
     const semMargem = cent(rel.divisoes.reduce((t, d) => t + d.total, 0) + rel.geral.total + rel.mao_obra.valor + rel.deslocacao);
-    assert.equal(rel.total, cent(semMargem + rel.margem_pacotes), 'no total');
-    assert.doesNotMatch(JSON.stringify(rel), /99999/);
+    const todoMaterial = cent(sim.itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0));
+    assert.equal(rel.total, cent(todoMaterial + rel.mao_obra.valor + rel.deslocacao + margemSim(20)), 'total igual ao de antes');
+    assert.equal(rel.total, cent(semMargem + rel.melhorias.total), 'no total');
+    assert.doesNotMatch(JSON.stringify(rel), /99999|[Mm]argem/);
     // A margem é a da configuração do servidor.
     p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(30, 'margem_pacotes_pct');
     try {
       rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
-      assert.equal(rel.margem_pacotes, margemSim(30));
+      assert.equal(rel.melhorias.instalacao, margemSim(30));
     } finally {
       p.app.db.prepare('UPDATE config_orcamento SET valor = ? WHERE chave = ?').run(20, 'margem_pacotes_pct');
     }
     // "Quadro seguro" com o quadro no pedido: conta a diferença do quadro (`quadro_delta`; o que sai desconta), não os itens.
     const QS = { id: 'quadro-seguro', nome: 'Quadro seguro', itens: [{ sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }], preco: 1,
       quadro_delta: [{ sku: 'IDR-2P-40A-30MA', qtd: -2 }, { sku: 'GERAL-2P-63A', qtd: -1 }, { sku: 'RCBO-WIFI-TOSMR1', qtd: 2 }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1 }] };
-    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify({ ...sim, melhorias: [QS] }), id);
+    // Com o quadro no pedido, os artigos do "Quadro seguro" estão nas linhas do quadro (grupo "quadro"): as proteções
+    // que ele junta (os seus `itens`) passam para a secção Melhorias; o resto do quadro fica onde estava; total igual.
+    const simQs = { ...SIM, itens: [...SIM.itens, { sku: 'RCBO-WIFI-TOSMR1', qtd: 3, preco_iva: 1, grupo: 'quadro' }, { sku: 'GERAL-WIFI-2P-63A', qtd: 1, preco_iva: 1, grupo: 'quadro' }], melhorias: [QS] };
+    p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify(simQs), id);
     rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
     const custoDe = (l) => { const pr = calcularPreco(l, catalogo, {}, { valor_iva: 0 }); return centSim(pr.artigos_iva + pr.mao_obra_iva); };
     const CH = { 'IDR-2P-40A-30MA': 'diferencial', 'GERAL-2P-63A': 'disjuntor_geral', 'RCBO-WIFI-TOSMR1': 'diferencial_wifi', 'GERAL-WIFI-2P-63A': 'geral_wifi' };
     const linhasQs = (f) => QS.quadro_delta.filter(f).map((i) => ({ chave: CH[i.sku], qtd: Math.abs(i.qtd) }));
     const custoQs = centSim(custoDe(linhasQs((i) => i.qtd > 0)) - custoDe(linhasQs((i) => i.qtd < 0)));
     assert.ok(custoQs > 0 && custoQs < custoDe(linhasQs((i) => i.qtd > 0)));
-    assert.ok(Math.abs(rel.margem_pacotes - centSim(centSim(custoQs * 1.2) - custoQs)) <= 0.01, `${rel.margem_pacotes} ≈ 20 % de ${custoQs}`);
+    const margemQs = rel.melhorias.instalacao;
+    assert.ok(Math.abs(margemQs - centSim(centSim(custoQs * 1.2) - custoQs)) <= 0.01, `${margemQs} ≈ 20 % de ${custoQs}`);
+    assert.deepEqual(rel.melhorias.pacotes[0].material.map((l) => [l.quantidade, l.preco_unitario]), [[2, precoCat('RCBO-WIFI-TOSMR1')], [1, precoCat('GERAL-WIFI-2P-63A')]]);
+    assert.deepEqual(rel.geral.material.map((l) => [l.quantidade, l.preco_unitario]), [[3, precoCat('TONGOU-SY2-JWT')], [1, precoCat('RCBO-WIFI-TOSMR1')]], 'o resto do quadro fica; nada contado 2 vezes');
+    const todoQs = cent(simQs.itens.reduce((t, i) => t + i.qtd * precoCat(i.sku), 0));
+    assert.equal(rel.total, cent(todoQs + rel.mao_obra.valor + rel.deslocacao + margemQs), 'total igual ao de antes');
     // Sem melhorias (pedidos antigos): sem a linha.
     p.app.db.prepare('UPDATE orcamentos SET simulacao = ? WHERE id = ?').run(JSON.stringify(SIM), id);
     rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
-    assert.equal(rel.margem_pacotes, null);
-    assert.deepEqual(rel.melhorias, []);
+    assert.equal(rel.melhorias, null);
   });
 
   test('expiração: por pagar há 24 h → expirado (o pedido guardado sai); não se paga', async () => {

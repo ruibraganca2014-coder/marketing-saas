@@ -468,8 +468,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * Substituir / Novo, com as avarias; `simulacao.trabalho`, lote 7; os pedidos antigos: tudo Novo pelas linhas das
    * divisões) e o material; o resto (quadro elétrico, central…), a mão de obra e a deslocação à parte. Os PREÇOS e as
    * horas são os do CATÁLOGO e da configuração do servidor (nunca os `preco_iva`/`valor_iva` que o browser mandou).
-   * Sem preço de compra, fornecedor, ligações, notas internas nem circuitos. Fase 2: `melhorias` (nomes dos pacotes
-   * aceites) e `margem_pacotes` (null sem pacotes), calculada aqui pelo catálogo e pela configuração, somada ao total.
+   * Sem preço de compra, fornecedor, ligações, notas internas nem circuitos. Fase 2: `melhorias` (null sem pacotes) =
+   * {titulo, pacotes: [{nome, material, total}], instalacao, total}: o material de cada pacote aceite (fora das divisões
+   * e do quadro) e a "Instalação e configuração dos pacotes" (a margem deles, pelo catálogo e pela configuração).
    */
   function relatorioCliente(o) {
     let s;
@@ -510,6 +511,18 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
         },
       };
     };
+    // Fase 2: os pacotes aceites nas Melhorias (sem repetidos). O material de cada um (os seus `itens`, que também vão
+    // nos `itens` da simulação — os do "Quadro seguro" com o quadro no pedido, nas linhas do quadro) sai primeiro, para
+    // a secção "Melhorias": não aparece nas divisões nem no quadro e o total não muda.
+    const vistos = new Set();
+    const pacotes = [];
+    for (const m of Array.isArray(s.melhorias) ? s.melhorias.slice(0, MELHORIAS.length) : []) {
+      if (!m || !MELHORIAS.includes(m.id) || vistos.has(m.id)) continue;
+      vistos.add(m.id);
+      const d = novaDivisao(txtCurto(m.nome, 80) || m.id);
+      for (const i of Array.isArray(m.itens) ? m.itens.slice(0, 20) : []) d.junta(i?.sku, inteiro(i?.qtd, 999));
+      pacotes.push({ m, d });
+    }
     let divs = [];
     // Fase 1: a avaria rápida (sem planta) — uma linha "Reparar" com o diagnóstico, no sítio que o cliente disse.
     if (s.funil === 'avaria') {
@@ -575,18 +588,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const maoObra = itens.size ? Math.round(horas * tarifa * 100) / 100 : null;
     const deslocacao = itens.size ? deslocacaoServidor(o.localidade ?? s.casa?.localidade ?? '', cfg) : null;
     const somaGeral = Math.round(geral.reduce((t, l) => t + (l.total ?? 0), 0) * 100) / 100;
-    // Fase 2: a margem dos pacotes aceites nas Melhorias, como o simulador (web/simulador/melhorias.js calcularMelhorias):
-    // por pacote, custo = material + horas × tarifa dos seus artigos (preços e horas do CATÁLOGO), preço = custo × (1 +
-    // margem_pacotes_pct) e margem = preço − custo. Nunca a `melhorias_margem_iva` do browser. Os artigos dos pacotes já
-    // estão nos `itens` (material e mão de obra acima); aqui só entra a margem.
+    // Fase 2: a instalação e configuração dos pacotes (a margem deles), como o simulador (web/simulador/melhorias.js
+    // calcularMelhorias): por pacote, custo = material + horas × tarifa dos seus artigos (preços e horas do CATÁLOGO),
+    // preço = custo × (1 + margem_pacotes_pct) e margem = preço − custo. Nunca a `melhorias_margem_iva` do browser. A
+    // mão de obra dos artigos dos pacotes já está na de cima (horas dos `itens`).
     const pctPacotes = Number(cfg.margem_pacotes_pct);
     const mPacotes = Math.min(100, Number.isFinite(pctPacotes) && pctPacotes >= 0 ? pctPacotes : 20) / 100;
     const cent2 = (x) => Math.round(x * 100) / 100;
-    const vistos = new Set();
-    const melhorias = [];
-    for (const m of Array.isArray(s.melhorias) ? s.melhorias.slice(0, MELHORIAS.length) : []) {
-      if (!m || !MELHORIAS.includes(m.id) || vistos.has(m.id)) continue;
-      vistos.add(m.id);
+    let instalacao = 0;
+    const listaPacotes = pacotes.map(({ m, d }) => {
       // O "Quadro seguro" com o quadro no pedido custa a diferença do quadro (`quadro_delta`, com sinal: o que sai, como
       // os diferenciais normais e a caixa menor, desconta; nunca abaixo de 0), como o simulador.
       const delta = m.id === 'quadro-seguro' && Array.isArray(m.quadro_delta);
@@ -599,10 +609,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
         h += (Number(a.horas_instalacao) || 0) * q;
       }
       const custo = Math.max(0, cent2(cent2(mat) + cent2(cent2(h) * tarifa)));
-      melhorias.push({ nome: txtCurto(m.nome, 80) || m.id, margem: cent2(cent2(custo * (1 + mPacotes)) - custo) });
-    }
-    const margemPacotes = melhorias.length ? cent2(melhorias.reduce((t, m) => t + m.margem, 0)) : null;
-    const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0) + (margemPacotes ?? 0);
+      instalacao += cent2(cent2(custo * (1 + mPacotes)) - custo);
+      const linhas = d.material.map((x) => linhaMat(x.sku, x.quantidade));
+      return { nome: d.nome, material: linhas, total: cent2(linhas.reduce((t, l) => t + (l.total ?? 0), 0)) };
+    });
+    const inst = cent2(instalacao);
+    const melhorias = listaPacotes.length
+      ? { titulo: 'Melhorias', pacotes: listaPacotes, instalacao: inst, total: cent2(listaPacotes.reduce((t, x) => t + x.total, 0) + inst) } : null;
+    const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0) + (melhorias?.total ?? 0);
     const ta = s.totais_acao && typeof s.totais_acao === 'object' ? s.totais_acao : {};
     const aparelhos = (k) => inteiro(ta[k]?.aparelhos, 10_000);
     return {
@@ -610,7 +624,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       acoes: { manter: aparelhos('manter'), reparar: aparelhos('reparar'), substituir: aparelhos('substituir'), novo: aparelhos('novo') },
       divisoes, geral: { titulo: 'Quadro elétrico e geral', material: geral, total: somaGeral },
       mao_obra: maoObra === null ? null : { horas, valor: maoObra },
-      deslocacao, melhorias: melhorias.map((m) => m.nome), margem_pacotes: margemPacotes, total: Math.round(soma * 100) / 100,
+      deslocacao, melhorias, total: Math.round(soma * 100) / 100,
       nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. Os 19 € já pagos são descontados na obra.',
     };
   }

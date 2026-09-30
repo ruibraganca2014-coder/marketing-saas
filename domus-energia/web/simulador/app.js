@@ -184,7 +184,9 @@ const MINUTOS_CURTO = [0.5, 0.5, 0, 0, 0.5, 0, 1, 0.5, 1];
 const minutosDe = (i) => (naoPrecisa(i) ? 0 : fluxoCurto() ? MINUTOS_CURTO[i] ?? 1 : FUNIS[funil()].minutos[i] ?? 1);
 const minTxt = (m) => (m < 1 ? "½" : String(m));
 /** Por baixo do nome: "feito" nos passos para trás, "não precisa" nos saltados, o tempo típico nos que faltam. */
-const tempoDe = (i) => (naoPrecisa(i) ? "não precisa" : posicao(i) < posicao(estado.passo) ? "feito" : `~${minTxt(minutosDe(i))} min`);
+const tempoDe = (i) => (naoPrecisa(i) ? "não precisa" : feito(i) ? "feito" : `~${minTxt(minutosDe(i))} min`);
+/** Para trás na barra; as Melhorias só depois de vistas (os estados de antes delas já estavam para lá: estado.js). */
+const feito = (i) => posicao(i) < posicao(estado.passo) && !(i === P.melhorias && estado.melhoriasPorVer);
 /**
  * Passos da barra a que se pode voltar: os já vistos (na avaria, só os de trás — o passo mais adiantado da primeira vez
  * não conta). O Enviar só pelo "Seguinte".
@@ -202,7 +204,7 @@ function desenharProgresso() {
     const atual = i === estado.passo;
     const semPasso = naoPrecisa(i) && !atual;
     if (atual) li.setAttribute("aria-current", "step");
-    li.className = atual ? "atual" : semPasso ? "nao-precisa" : k < atualPos ? "feito" : "";
+    li.className = atual ? "atual" : semPasso ? "nao-precisa" : feito(i) ? "feito" : "";
     const num = el("span", "sim-num", String(k + 1));
     num.setAttribute("aria-hidden", "true");
     const tempoTxt = tempoDe(i);
@@ -292,7 +294,7 @@ function mostrarPasso(foco = true) {
   if (p === P.divisoes) desenharDivisoes();
   if (p === P.quadro) desenharQuadro();
   if (p === P.trocar) desenharTrocar();
-  if (p === P.melhorias) desenharMelhorias();
+  if (p === P.melhorias) { estado.melhoriasPorVer = false; desenharMelhorias(); }
   desenharAcaoPlanta();   // a caixa "o que fazer" por baixo da planta só existe em "Trocar e reparar"
   if (p === P.preco) desenharPreco();
   if (p === P.avaria) desenharAvaria();
@@ -2957,7 +2959,8 @@ const PEDIDOS_AVARIA = [{ chave: "diagnostico", qtd: 1, acao: "reparar" }];
 function calcular() {
   // Fase 2: os pacotes do passo "Melhorias" (melhorias.js) — os aceites juntam as suas linhas (grupo "melhoria") e a
   // margem dos pacotes (`extra`) ao total. A avaria rápida não tem melhorias.
-  if (!funilAvaria()) acertarMelhorias(estado);
+  // Já nas Melhorias (ou para lá delas), um pacote aceite que ficou sem nada a acrescentar sai dos aceites.
+  if (!funilAvaria()) acertarMelhorias(estado, ordemPasso(visitado) >= ordemPasso(P.melhorias));
   const melhorias = funilAvaria() ? [] : calcularMelhorias(estado, catalogo ?? null, configOrc);
   const aceites = melhorias.filter((m) => m.aceite);
   const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao(estado), ...aceites.flatMap((m) => m.linhas)];
@@ -3791,12 +3794,14 @@ $("trocar-casa-mudar").addEventListener("click", mudarACasa);
 
 /**
  * `?pacote=casa-inteligente|poupar-energia|seguranca|quadro-seguro` (a página de entrada, fase 3): o pacote fica
- * escolhido nas Melhorias — só enquanto o cliente ainda não chegou a esse passo nem escolheu nenhum.
+ * escolhido nas Melhorias — só enquanto o cliente ainda não chegou a esse passo nem escolheu nenhum. O "Quadro seguro"
+ * aplica-se já ao quadro (o passo Quadro elétrico mostra logo "Completa" e a nota; escolher outra proteção tira-o).
  */
 function preEscolherPacote() {
   const k = params.get("pacote");
   if (!CHAVES_MELHORIA.includes(k) || funilAvaria() || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
-  estado.melhorias.aceites = [k];   // o "Quadro seguro" aplica-se ao quadro no cálculo (melhorias.js acertarMelhorias)
+  estado.melhorias.aceites = [k];
+  acertarMelhorias(estado);
 }
 
 // ------------------------------------------------------------ arranque

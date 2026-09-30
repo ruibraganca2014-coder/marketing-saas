@@ -375,3 +375,59 @@ test('decisão D: "Já tenho a planta" — o que a casa guardada já instalou n�
   assert.deepEqual(soCasaDe(e).instalado, casa.instalado);
   assert.deepEqual(Object.keys(casa.instalado.protecoes), CHAVES_PROTECOES);
 });
+
+test('ronda 3: `?pacote=quadro-seguro` aplica-se logo (o passo Quadro mostra "Completa"); tirar repõe as proteções de antes', () => {
+  const e = estadoNovo();
+  const antes = { ...e.quadro.protecoes };
+  const pacoteAntes = pacoteDoQuadro(e.quadro);
+  assert.notEqual(pacoteAntes, 'completo');
+  e.melhorias.aceites = [QUADRO_SEGURO];   // app.js preEscolherPacote, logo no arranque
+  acertarMelhorias(e);
+  assert.equal(e.quadro.pacote, 'completo');
+  assert.ok(quadroNoMaximo(e.quadro));
+  assert.deepEqual(e.melhorias.quadroAnterior, antes);
+  mudarMelhoria(e, QUADRO_SEGURO, false);
+  assert.deepEqual([e.quadro.protecoes, e.quadro.pacote, e.melhorias.aceites], [antes, pacoteAntes, []]);
+});
+
+test('ronda 3: estados de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir', () => {
+  assert.equal(estadoNovo().melhoriasPorVer, false);
+  const v9 = (x) => ({ ...estadoNovo(), passos: 10, ordem: 9, funil: 'primeira', servico: ['nova'], ...x });
+  assert.equal(normalizarEstado(v9({ passo: PASSO.preco, visitado: PASSO.preco })).melhoriasPorVer, true);
+  assert.equal(normalizarEstado(v9({ funil: 'planta', passo: PASSO.trocar, visitado: PASSO.preco })).melhoriasPorVer, true);
+  assert.equal(normalizarEstado(v9({ passo: PASSO.trocar, visitado: PASSO.trocar })).melhoriasPorVer, false, 'ainda não passou por elas');
+  assert.equal(normalizarEstado({ ...estadoNovo(), passos: 9, ordem: 8, passo: PASSO.preco, visitado: PASSO.preco, servico: ['nova'] }).melhoriasPorVer, true, 'ordem 8');
+  // Estados de agora: só com a marca gravada (e enquanto está para lá das Melhorias).
+  const agora = (x) => normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco, ...x });
+  assert.equal(agora({}).melhoriasPorVer, false);
+  assert.equal(agora({ melhoriasPorVer: true }).melhoriasPorVer, true);
+  assert.equal(agora({ melhoriasPorVer: true, passo: PASSO.melhorias, visitado: PASSO.melhorias }).melhoriasPorVer, false);
+});
+
+test('ronda 3: pacote aceite que fica "Nada a acrescentar"/"Já incluído" sai dos aceites (já nas Melhorias)', () => {
+  const e = casaT2(['nova']);
+  // Só o medidor geral no Poupar energia: as máquinas já têm disjuntor inteligente.
+  for (const c of e.quadro.circuitos) if (c.tipo === 'maquina') c.inteligente = true;
+  let m = porId(calcularMelhorias(e, CATALOGO, {}));
+  assert.deepEqual(m['poupar-energia'].itens.map((i) => i.chave), ['medidor_geral']);
+  mudarMelhoria(e, 'poupar-energia', true);
+  mudarMelhoria(e, QUADRO_SEGURO, true);   // traz o medidor: o Poupar energia fica sem nada
+  acertarMelhorias(e);
+  assert.deepEqual(e.melhorias.aceites, ['poupar-energia', QUADRO_SEGURO], 'antes das Melhorias fica (sem planta ainda não há nada)');
+  acertarMelhorias(e, true);
+  assert.deepEqual(e.melhorias.aceites, [QUADRO_SEGURO]);
+  m = porId(calcularMelhorias(e, CATALOGO, {}));
+  assert.equal(m['poupar-energia'].vazio, true);
+  // Tirar o Quadro seguro não o traz de volta às escondidas.
+  mudarMelhoria(e, QUADRO_SEGURO, false);
+  acertarMelhorias(e, true);
+  assert.deepEqual(e.melhorias.aceites, []);
+  assert.equal(porId(calcularMelhorias(e, CATALOGO, {}))['poupar-energia'].aceite, false);
+  // O `?pacote=` sem planta (nada a acrescentar ainda) só fica enquanto o cliente não chegou às Melhorias.
+  const n = estadoNovo();
+  n.melhorias.aceites = ['seguranca'];
+  acertarMelhorias(n);
+  assert.deepEqual(n.melhorias.aceites, ['seguranca']);
+  acertarMelhorias(n, true);
+  assert.deepEqual(n.melhorias.aceites, []);
+});
