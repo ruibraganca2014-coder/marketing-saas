@@ -813,6 +813,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
   const planta = estado.plantaSaltada ? null : estado.planta;
   const quadroAvaria = typeof estado.quadroAvaria === "string" ? textoSeguro(estado.quadroAvaria, MAX_AVARIA) : null;
   const totais = totaisAcao(planta, servico, preco);
+  const foraArea = preco.deslocacao?.estado === "fora_area";
   if (quadroAvaria !== null) totais.reparar.aparelhos++;   // o quadro com problemas conta como um aparelho a reparar
   return {
     versao: VERSAO,
@@ -826,9 +827,9 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
     trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave)),
     totais_acao: totais,
-    // Lote 8 (passo Enviar): disponibilidade para a visita e urgência.
-    visita: normalizarVisita(estado.visita),
-    urgencia: URGENCIAS[estado.urgencia] ? estado.urgencia : "normal",
+    // Lote 8 (passo Enviar): disponibilidade para a visita e urgência; null fora da área servida (não há visita).
+    visita: foraArea ? null : normalizarVisita(estado.visita),
+    urgencia: foraArea ? null : URGENCIAS[estado.urgencia] ? estado.urgencia : "normal",
     divisoes: estado.divisoes.filter((d) => !ehFora(d)).map((d) => {
       const n = normalizarDivisao(d);
       return {
@@ -837,7 +838,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
       };
     }),
     // `grupo` (lote 7): reparar, substituir, novo ou quadro; `horas` = as desta linha (as de troca ao substituir).
-    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "novo", horas: l.horas ?? null })),
+    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "novo", horas: l.horas == null ? null : Math.round(l.horas * 100) / 100 })),
     mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },

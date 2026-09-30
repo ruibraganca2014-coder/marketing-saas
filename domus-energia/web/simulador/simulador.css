@@ -38,7 +38,8 @@
   .sim-progresso ol { grid-column: 1; margin-top: 0; }
   .sim-recomecar { grid-row: 2; align-self: start; margin-top: 4px; }
 }
-/* "Simulação apagada · Anular" (app.js recomecarComAnular): pequeno, em baixo ao centro, não bloqueia nada; vazio não se vê. */
+/* "Simulação apagada · Anular" (app.js recomecarComAnular): pequeno, logo por cima da barra de baixo (e do "Ver planta")
+   ao centro da coluna das perguntas (app.js posicionarAnular): não tapa "Seguinte"; vazio não se vê. */
 .sim-anular { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); z-index: 55; transform: translateX(-50%); display: flex; align-items: center; gap: 4px 8px; max-width: calc(100vw - 32px); padding: 6px 6px 6px 16px; border: 1px solid var(--borda); border-radius: 999px; background: var(--superficie); box-shadow: var(--sombra); color: var(--texto); font-weight: 600; font-size: .92rem; }
 .sim-anular:empty { display: none; }
 .sim-anular .sim-anular-sep { color: var(--texto-suave); }
@@ -126,6 +127,9 @@ input, select { min-height: 44px; }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
 .editor-ferramentas > .ferramentas-mais { margin-left: 4px; padding-left: 10px; border: 2px dashed var(--borda); }
 .editor-ferramentas > .ferramentas-mais:hover { border-color: var(--musgo); }
+/* "Mais…" fixo no fim da linha (a linha desliza por baixo dele): sempre à vista, qualquer que seja a largura. */
+.editor-ferramentas > .ferramentas-mais { position: sticky; right: 0; z-index: 1; margin-left: auto; box-shadow: -8px 0 0 var(--fundo); }
+.editor-ferramentas { scroll-padding-right: 100px; }
 .ferramentas-mais-icone { font-size: 1.1rem; line-height: 1; }
 /* Janela "Mais…": a lista completa, agrupada (divisões, elementos, máquinas), em grelha. */
 .editor-dialogo.editor-mais { width: min(720px, calc(100vw - 24px)); }
@@ -428,7 +432,9 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
    ao descer a página, da barra de cima até ao fundo do ecrã. Telemóvel e tablet: as perguntas ocupam o ecrã e o
    botão fixo "Ver planta" abre-a por cima, em ecrã inteiro (.aberta). Por cima da planta, duas linhas compactas:
    as ferramentas (desliza para o lado) e as ações só com ícones; os pisos junto à planta. */
-html { scroll-padding-top: 72px; }
+/* A barra de baixo (Anterior/Seguinte) está sempre à vista: o que se leva à vista (scrollIntoView, foco) fica por
+   cima dela em todas as larguras. --sim-barra-h = a altura real da barra (app.js medirBarra, ResizeObserver). */
+html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 72px) + 12px); }
 .sim-planta { display: flex; flex-direction: column; gap: 6px; min-width: 0; margin: 0; padding: 0; background: var(--fundo); }
 .sim-planta[hidden] { display: none; }
 /* Planta ainda vazia (app.js desenharPlantaVazia): o texto discreto a meio da planta, sem apanhar os toques. */
@@ -462,6 +468,9 @@ html { scroll-padding-top: 72px; }
 .sim-planta .editor-acoes { flex: none; flex-direction: row; flex-wrap: nowrap; justify-content: safe flex-start; align-items: center; gap: 4px 8px; padding: 0 2px 2px; border: 0; background: transparent; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
 .sim-planta .editor-acoes-linha { display: contents; }
 .sim-planta .editor-acoes-grupo { flex: none; flex-wrap: nowrap; gap: 4px; }
+/* O "⋯" fixo no fim da linha das ações (editor.js: o último grupo; a linha desliza por baixo dele). */
+.sim-planta .editor-acoes > .g-fundo { position: sticky; right: 0; z-index: 1; margin-left: auto; padding-left: 6px; background: var(--fundo); }
+.sim-planta .editor-acoes { scroll-padding-right: 56px; }
 .editor-acoes .btn.icone { min-width: 38px; padding: 0 7px; }
 .editor-acoes .btn.icone svg { width: 20px; height: 20px; }
 /* Separadores dos pisos junto à planta, compactos (nome e resumo numa linha). */
@@ -503,7 +512,7 @@ html { scroll-padding-top: 72px; }
   .sim-ver-planta { display: inline-flex; position: fixed; right: 16px; bottom: calc(80px + env(safe-area-inset-bottom)); z-index: 7; box-shadow: var(--sombra); }
   .sim-planta[hidden] ~ .sim-ver-planta, #sim-form[hidden] .sim-ver-planta { display: none; }
   /* O botão fixo e a barra de baixo não tapam o que tem o foco. */
-  html { scroll-padding-bottom: 150px; }
+  html { scroll-padding-bottom: max(150px, calc(var(--sim-barra-h, 72px) + 12px)); }
   .simulador { padding-bottom: 72px; }
 }
 @media (min-width: 1024px) { .sim-planta-fechar { display: none; } }

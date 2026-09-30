@@ -426,7 +426,7 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` }, nitido ? null : { opacity: ESBATIDO });
     const t = no("title");
     const acao = omissaoAcao && comAcao(e) ? (ACOES[e.acao] ? e.acao : soEscolhidas ? null : omissaoAcao) : null;
-    t.textContent = `${descrever(e, nomesDivisao)}${acao ? ` — ${ACOES[acao][1]}` : ""}`;
+    t.textContent = `${descrever(e, nomesDivisao)}${acao ? ` — ${opcoes.acoes.nomes?.[acao] ?? ACOES[acao][1]}` : ""}`;
     g.append(t);
     if (!soLeitura && raioToque > raio) g.append(no("circle", { r: raioToque, cx: 0, cy: 0 }, { fill: "transparent" }));
     if (sel) {

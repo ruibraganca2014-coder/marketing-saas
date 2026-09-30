@@ -1509,7 +1509,13 @@ const NOMES_TIPO = {
 };
 const ORDEM_TIPOS = Object.keys(NOMES_TIPO);
 const listaPt = (a) => (a.length <= 1 ? a.join("") : `${a.slice(0, -1).join(", ")} e ${a[a.length - 1]}`);
-const focar = (id) => { const x = id && $(id); if (!x || x.disabled) return false; x.focus({ preventScroll: true }); return true; };
+const focar = (id) => { const x = id && $(id); if (!x || x.disabled) return false; x.focus({ preventScroll: true }); porCimaDaBarra(x); return true; };
+/** Depois de redesenhar, o botão com o foco não pode ficar por baixo da barra de baixo (o toque seguinte ia para ela). */
+function porCimaDaBarra(x) {
+  if (x.closest(".sim-planta")) return;
+  const n = $("sim-navegacao").getBoundingClientRect(), r = x.getBoundingClientRect();
+  if (n.height && r.height && r.bottom > n.top && r.top < n.bottom) x.scrollIntoView({ block: "nearest" });
+}
 
 let divisaoTocada = null;       // divisão mexida a partir deste passo (o pedido dela segue a planta)
 const abertas = new Set();      // linhas com vários aparelhos com a lista "Qual?" aberta
@@ -1982,7 +1988,7 @@ function fotoDaLinha(chave, rotuloFoto, base, depois) {
   img.src = foto.miniatura;
   img.alt = `Foto: ${rotuloFoto}`;
   acoes.append(img);
-  const trocar = el("button", "btn sec pequeno", "Trocar");
+  const trocar = el("button", "btn sec pequeno", "Trocar foto");
   trocar.type = "button";
   trocar.id = `${base}-foto`;
   trocar.setAttribute("aria-label", `Trocar a foto: ${rotuloFoto}`);
@@ -2890,7 +2896,7 @@ function desenharDeslocacao() {
   const caixa = $("enviar-deslocacao");
   const d = preco.deslocacao;
   caixa.replaceChildren();
-  if (d.estado === "sem_localidade") { caixa.hidden = true; return; }
+  if (d.estado === "sem_localidade") { caixa.hidden = true; textosPagamento(); return; }
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
     caixa.append(el("p", null, `${d.concelho}${km} fica fora da área servida — contacte-nos. A deslocação não está incluída.`),
@@ -2898,6 +2904,7 @@ function desenharDeslocacao() {
   }
   else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita."));
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
+  textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
   if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
   caixa.hidden = false;
 }
@@ -2956,17 +2963,24 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 // obra). O valor é sempre o do servidor. Volta-se de lá (Stripe ou página simulada) para simulador.html?pagamento=<ref>.
 let TEXTO_ENVIAR = "Pagar 19 € e enviar";   // "Enviar pedido" com os pagamentos desligados no servidor (carregarCatalogo)
 let pagamentosAtivos = true;                 // GET /api/catalogo `pagamentos.ativo` (até lá, como sempre: com os 19 €)
-/** A nota da estimativa: com os pagamentos desligados, sem os 19 €. */
-const textoEstimativa = () => (pagamentosAtivos ? TEXTO_ESTIMATIVA : "Estimativa. O valor final é confirmado na visita técnica.");
-/** Os textos fixos do passo Enviar e de "Pedido enviado!" com os pagamentos ligados (19 €) ou desligados. */
+/** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
+const foraDaArea = () => calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area";
+/** A nota da estimativa: com os pagamentos desligados, sem os 19 €; fora da área, sem a visita. */
+const textoEstimativa = () => (foraDaArea() ? "Estimativa. Sem deslocação: o valor final é combinado consigo."
+  : pagamentosAtivos ? TEXTO_ESTIMATIVA : "Estimativa. O valor final é confirmado na visita técnica.");
+/** Os textos fixos do passo Enviar e de "Pedido enviado!" com os pagamentos ligados (19 €) ou desligados (e fora da área). */
 function textosPagamento() {
+  const fora = foraDaArea();
+  $("enviar-visita").hidden = fora;
   $("enviar-texto").textContent = pagamentosAtivos
-    ? "Enviar o pedido custa 19 €: o relatório técnico da instalação e a visita técnica, descontados na obra (a estimativa do Resumo continua grátis). Primeiro a conta (para acompanhar o pedido), depois o contacto; a seguir paga e o pedido é enviado. * obrigatório"
-    : "Enviamos a simulação à nossa equipa e contactamos para marcar a visita. Primeiro a conta (para acompanhar o pedido), depois o contacto. * obrigatório";
+    ? `Enviar o pedido custa 19 €: ${fora ? "o relatório técnico da instalação" : "o relatório técnico da instalação e a visita técnica, descontados na obra"} (a estimativa do Resumo continua grátis). Primeiro a conta (para acompanhar o pedido), depois o contacto; a seguir paga e o pedido é enviado. * obrigatório`
+    : `Enviamos a simulação à nossa equipa e ${fora ? "contactamos consigo" : "contactamos para marcar a visita"}. Primeiro a conta (para acompanhar o pedido), depois o contacto. * obrigatório`;
   if (!enviado) {
-    $("fim-texto").textContent = pagamentosAtivos
-      ? "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica (incluída nos 19 €, descontados na obra). Pode acompanhar o pedido na sua conta."
-      : "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica. Pode acompanhar o pedido na sua conta.";
+    $("fim-texto").textContent = fora
+      ? "Recebemos a sua simulação. Vamos contactá-lo muito em breve. Pode acompanhar o pedido na sua conta."
+      : pagamentosAtivos
+        ? "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica (incluída nos 19 €, descontados na obra). Pode acompanhar o pedido na sua conta."
+        : "Recebemos a sua simulação. Vamos contactá-lo muito em breve para marcar a visita técnica. Pode acompanhar o pedido na sua conta.";
   }
 }
 const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "")
@@ -3173,6 +3187,7 @@ async function enviarFotos(lista, resposta, botao) {
 }
 
 function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
+  if (!enviado) textosPagamento();   // o "Pedido enviado!" segue a localidade (fora da área: sem visita)
   enviado = true;
   if (pagamento) {
     $("fim-texto").textContent = pagamento.com_visita === false
@@ -3286,6 +3301,7 @@ function recomecarComAnular() {
   b.addEventListener("click", anularRecomecar);
   a.replaceChildren(el("span", null, "Simulação apagada"), el("span", "sim-anular-sep", " · "), b);
   a.querySelector(".sim-anular-sep").setAttribute("aria-hidden", "true");
+  posicionarAnular();
   antes.temporizador = setTimeout(acabarAnular, PRAZO_ANULAR);
   anular = antes;
 }
@@ -3312,6 +3328,25 @@ function anularRecomecar() {
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
 }
+/** O aviso fica logo por cima da barra de baixo (e do "Ver planta" fixo), ao centro dela: nunca tapa "Seguinte". */
+function posicionarAnular() {
+  const a = $("sim-anular");
+  if (!a.childElementCount) return;
+  const n = $("sim-navegacao").getBoundingClientRect();
+  const v = document.querySelector(".sim-ver-planta")?.getBoundingClientRect();
+  const topo = Math.min(innerHeight, n.height ? n.top : innerHeight, v?.height ? v.top : innerHeight);
+  a.style.bottom = `${Math.max(16, innerHeight - topo + 8)}px`;
+  a.style.left = n.width ? `${n.left + n.width / 2}px` : "";
+}
+addEventListener("scroll", posicionarAnular, { passive: true });
+addEventListener("resize", posicionarAnular);
+/** A altura real da barra de baixo vai para --sim-barra-h (scroll-padding-bottom em simulador.css): o que se leva à vista
+ * (scrollIntoView "nearest", foco) nunca fica por baixo dela, em todas as larguras. */
+function medirBarra() {
+  document.documentElement.style.setProperty("--sim-barra-h", `${Math.ceil($("sim-navegacao").getBoundingClientRect().height)}px`);
+  posicionarAnular();
+}
+if (typeof ResizeObserver === "function") new ResizeObserver(medirBarra).observe($("sim-navegacao"));
 $("sim-recomecar-topo").addEventListener("click", recomecarComAnular);
 addEventListener("pagehide", acabarAnular);
 

@@ -297,6 +297,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     seccaoEl.hidden = !podeAparelhos;
     seccaoMaq.hidden = !podeAparelhos || !modelosMaq.length;
     bMaisFerr.hidden = !podeDivisoes && !podeAparelhos;
+    // O nome diz só o que a janela mostra neste passo (ex.: em "A casa", só as divisões).
+    const noMais = [!seccaoDiv.hidden && "divisões", !seccaoEl.hidden && "elementos", !seccaoMaq.hidden && "máquinas"].filter(Boolean);
+    bMaisFerr.setAttribute("aria-label", `Mais: ${noMais.length > 1 ? `${noMais.slice(0, -1).join(", ")} e ${noMais.at(-1)}` : noMais[0] ?? ""}`);
     for (const b of barraDiv.children) b.hidden = !(divisoesNaBarra === null || divisoesNaBarra.includes(b.dataset.divisao) || naBarraExtra.has(`divisao:${b.dataset.divisao}`));
     for (const b of barra.children) b.hidden = !(ELEMENTOS_BASE.includes(b.dataset.ferramenta) || naBarraExtra.has(b.dataset.ferramenta));
     for (const b of barraMaq.children) b.hidden = !(maquinasNaBarra.includes(b.dataset.maquina) || naBarraExtra.has(`maquina:${b.dataset.maquina}`));
@@ -307,7 +310,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const bMaisFerr = botao("", "ferramenta ferramentas-mais");
   bMaisFerr.id = "editor-mais";
   bMaisFerr.setAttribute("aria-haspopup", "dialog");
-  bMaisFerr.setAttribute("aria-label", "Mais: todas as divisões, elementos e máquinas");
+  bMaisFerr.setAttribute("aria-label", "Mais: divisões, elementos e máquinas");
   bMaisFerr.append(el("span", "ferramentas-mais-icone", "⋯"), el("span", "ferramenta-nome", "Mais…"));
   fila.append(barraDiv, barra, barraMaq, bMaisFerr);
   const dlgMais = el("dialog", "editor-dialogo editor-mais");
@@ -398,10 +401,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bOutras.id = "editor-outras";
   bOutras.setAttribute("aria-expanded", "false");
   bOutras.setAttribute("aria-controls", "editor-lado");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra), grupo("g-fundo", bOutras));
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra));
   const linhaSelecao = el("div", "editor-acoes-linha");
   linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sApagar));
-  acoes.append(linhaGeral, linhaSelecao);
+  // O "⋯" no fim da linha, fixo (fora do que desliza; simulador.css .g-fundo): está sempre à vista.
+  acoes.append(linhaGeral, linhaSelecao, grupo("g-fundo", bOutras));
   // Dentro da planta, discreto (em baixo, à esquerda): o que está selecionado e o texto de estado (vazio sem nada a dizer).
   const estadoLinha = el("div", "editor-estado");
   estadoLinha.append(selecaoNome, dica);
@@ -771,7 +775,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     selecionado = d.id;
     destaque = { id: d.id, desde: performance.now() };
     setTimeout(() => { if (destaque?.id === d.id) { destaque = null; desenhar(); } }, DESTAQUE_MS);
-    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n ? ` com ${n} aparelhos habituais (porta, interruptor, luz, tomadas…)` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
+    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n && podeAparelhos ? ` com ${n} aparelhos habituais (porta, interruptor, luz, tomadas…)` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
     return d;
   }
 
@@ -1052,8 +1056,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function verNaLinha(b) {
     const f = fila.getBoundingClientRect(), r = b.getBoundingClientRect();
     if (!f.width || !r.width) return;
+    // "Mais…" fica fixo no fim da linha: o botão tem de ficar à esquerda dele.
+    const m = b === bMaisFerr ? null : bMaisFerr.getBoundingClientRect();
+    const fim = m?.width ? Math.min(f.right, m.left) : f.right;
     if (r.left < f.left) fila.scrollLeft -= f.left - r.left + 8;
-    else if (r.right > f.right) fila.scrollLeft += r.right - f.right + 8;
+    else if (r.right > fim) fila.scrollLeft += r.right - fim + 8;
   }
 
   function definirModo(m) {
@@ -1876,7 +1883,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (m) { m.disabled = !r.props.estore; m.checked = !!r.props.motorizado; }
     }, "dlg");
     if (campos.length) dlgCorpo.append(...campos);
-    else dlgCorpo.append(el("p", "ajuda", "Nada a escolher: pode apagá-lo."));
+    else dlgCorpo.append(el("p", "ajuda", "Nada a escolher. Pode apagar este aparelho."));
     // Sem nada a escolher (ponto de luz, sensores, quadro) a janela fica só com Apagar e Cancelar.
     dGuardar.hidden = !campos.length;
   }
@@ -2039,7 +2046,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     definirAcoes(omissao, { todas = false, escolher = false, nomes = null } = {}) {
       if (omissao === acoesOmissao && todas === !!acoesOpcoes.todas && escolher === !!acoesOpcoes.escolher) return;
       acoesOmissao = omissao ?? null;
-      acoesOpcoes = todas ? { todas: true, escolher } : {};
+      acoesOpcoes = todas ? { todas: true, escolher, nomes } : { nomes };
       legendaAcao.hidden = !acoesOmissao || !todas;   // lote 8: só em "Trocar e reparar" (e na impressão/PDF)
       legendaAcao.textContent = acoesOmissao ? legendaAcoes(acoesOmissao, todas, nomes) : "";
       if (planta) desenhar();
