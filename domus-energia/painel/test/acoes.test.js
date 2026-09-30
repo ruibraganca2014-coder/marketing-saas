@@ -7,7 +7,7 @@ import {
   acaoOmissao, soReparacoes, precisaEscolher, faltaAcao, plantaNovos, pedidosAcoes, acaoDe, contarAcoes,
   inteligenteDe, plantaInteligentes,
 } from '../../web/simulador/acoes.js';
-import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa } from '../../web/simulador/casa.js';
+import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa, zonaRotulo, tapaRotulo } from '../../web/simulador/casa.js';
 import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido, encontrarArtigo } from '../../web/simulador/preco.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
@@ -323,6 +323,33 @@ test('planta mexida: acrescenta/tira só a máquina ou a divisão que mudou (div
   acertarPlantaMexida(p, sinc(casa2, []), sinc(casa, []), { casa });
   assert.equal(JSON.stringify(p.divisoes), antes);
   assert.equal(p.elementos.length, n);
+});
+
+test('máquinas postas automaticamente não caem no nome/medidas da divisão (planta T2 gerada e mexida)', () => {
+  const casa = { tipo: 'apartamento', tipologia: 'T2', quartos: 2, casas_banho: 1, salas: 1, pisos: 1, extras: {} };
+  const sinc = (maquinas) => ({ divisoes: divisoesDaCasa(casa, []).map((d) => ({ nome: d.nome, piso: d.piso ?? 0 })), maquinas, fase: 'tudo' });
+  const maquinas = ['placa', 'forno', 'frigorifico', 'ar_condicionado', 'termoacumulador'].map((modelo) => ({ modelo, qtd: 1, piso: null }));
+  const semRotulo = (p, caso) => {
+    const ms = p.elementos.filter((e) => e.tipo === 'maquina');
+    assert.ok(ms.length > 0, caso);
+    for (const m of ms) for (const d of p.divisoes) {
+      assert.ok(!tapaRotulo(zonaRotulo(d), m.x_cm, m.y_cm), `${caso}: ${m.props.modelo} (${m.x_cm}, ${m.y_cm}) sobre o nome de ${d.nome}`);
+    }
+  };
+  semRotulo(plantaDaCasa(casa, maquinas), 'gerada');
+  // Planta mexida (o caso do forno: a cozinha arrastada −350, +300 para cima da sala; o forno caía em "3,5 × 3 m · 10,5 m²"):
+  // cada divisão arrastada, com os aparelhos, para vários sítios; depois o forno.
+  const soForno = ['forno'].map((modelo) => ({ modelo, qtd: 1, piso: null }));
+  const base = plantaDaCasa(casa, []);
+  for (const alvo of base.divisoes) for (const [dx, dy] of [[250, -50], [-350, 300], [-400, 450], [250, 250], [0, 400]]) {
+    if (alvo.x_cm + dx < 0 || alvo.y_cm + dy < 0) continue;
+    const p = structuredClone(base);
+    const d = p.divisoes.find((x) => x.id === alvo.id);
+    d.x_cm += dx; d.y_cm += dy;
+    for (const e of p.elementos) if (e.divisao === d.id) { e.x_cm += dx; e.y_cm += dy; }
+    acertarPlantaMexida(p, sinc([]), sinc(soForno), { casa });
+    semRotulo(p, `${alvo.nome} +${dx},${dy}`);
+  }
 });
 
 test('lista de trabalho = preço: a mesma decisão (normal/inteligente, artigo, horas) em Novo, Trocar e Reparar', () => {

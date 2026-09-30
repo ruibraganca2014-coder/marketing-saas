@@ -474,7 +474,7 @@ export function plantaDaCasa(casa, maquinas = []) {
     const onde = divisoesParaMaquina(doPiso.length ? doPiso : p.divisoes, m.modelo);
     for (let i = 0; i < m.qtd && onde.length && p.elementos.length < MAX_ELEMENTOS; i++) {
       const d = onde[i % onde.length];
-      const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => q.piso === d.piso));
+      const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => q.piso === d.piso), p.divisoes.filter((q) => q.piso === d.piso));
       const props = propsOmissao("maquina", m.modelo);
       p.elementos.push({ id: `e${++e}`, tipo: "maquina", x_cm, y_cm, rot: 0, piso: d.piso, divisao: null, props, ...(temPergunta("maquina", props) ? { por_responder: true } : {}) });
     }
@@ -485,19 +485,56 @@ export function plantaDaCasa(casa, maquinas = []) {
 /**
  * Sítio livre para mais um aparelho dentro da divisão (retângulo): o ponto da grelha de 25 cm, a
  * 30 cm das paredes, mais longe dos aparelhos que já lá estão (a partir de PASSO_MAQUINA conta
- * igual: fica o mais em baixo e à esquerda, "ao fundo da divisão").
+ * igual: fica o mais em baixo e à esquerda, "ao fundo da divisão"). Foge também do nome e das medidas desta
+ * divisão e das `divisoes` (as do piso; zonaRotulo), mas sem nunca ficar mais colado a outro ícone por causa
+ * disso: sem sítio livre, o ícone vai para baixo do texto (que se desenha por cima) e não para cima de outro ícone.
  */
-export function lugarLivre(d, elementos) {
+export function lugarLivre(d, elementos, divisoes = [d]) {
   const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
-  let melhor = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2], nota = -1;
+  const zonas = [d, ...divisoes.filter((q) => q !== d)].map(zonaRotulo).filter(Boolean);
+  let melhor = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2], nota = -Infinity;
   for (let y = d.y_cm + d.altura_cm - 30; y >= d.y_cm + 30; y -= 25) {
     for (let x = d.x_cm + 30; x <= d.x_cm + d.largura_cm - 30; x += 25) {
-      const n = Math.min(PASSO_MAQUINA, ...perto.map((q) => Math.hypot(q.x_cm - x, q.y_cm - y)));
+      const n = Math.min(PASSO_MAQUINA, ...perto.map((q) => Math.hypot(q.x_cm - x, q.y_cm - y)), ...zonas.map((z) => Math.max(PASSO_MAQUINA / 2, distRotulo(z, x, y) + RAIO_ICONE)));
       if (n > nota) { nota = n; melhor = [x, y]; }
     }
   }
   return melhor.map(Math.round);
 }
+
+// Tamanhos do desenho da planta no editor (editor.js tamanhos: letra de 14 px e ícones de 15 px de raio), em cm,
+// com a planta toda à vista a 0,35 px por cm (casa T3 na pré-visualização dos passos 2 e 3; no passo 4 e em casas
+// mais pequenas a planta fica maior e o nome ocupa menos).
+const PX_POR_CM = 0.35, LETRA_ROTULO = 14 / PX_POR_CM, RAIO_ICONE = 15 / PX_POR_CM;
+const fmtMetros = (cm) => (Math.round(cm) / 100).toLocaleString("pt-PT", { maximumFractionDigits: 2 });
+
+/**
+ * Caixa [x0, y0, x1, y1] (cm) do nome e das medidas de uma divisão retangular, como planta-svg.js desenharPlanta
+ * os desenha: no canto de cima à esquerda, o nome (encolhe numa divisão baixa) e por baixo "L × A m · N m²" (só se
+ * couber); a largura pelo n.º de letras, até à da divisão. Forma livre (nome ao centro): null.
+ */
+export function zonaRotulo(d) {
+  if (Array.isArray(d.pontos) && d.pontos.length !== 4) return null;
+  const L = LETRA_ROTULO, w = d.largura_cm, h = d.altura_cm;
+  const largura = Math.max(L, w - L * 0.8);
+  const tamNome = Math.min(L, h / 1.35);
+  let larg = Math.min(largura, String(d.nome ?? "").length * 0.6 * tamNome), fundo = tamNome * 1.4;
+  if (h >= L * 2.5) {
+    const m2 = (Math.round((w * h) / 1000) / 10).toLocaleString("pt-PT", { maximumFractionDigits: 1 });
+    larg = Math.max(larg, Math.min(largura, `${fmtMetros(w)} × ${fmtMetros(h)} m · ${m2} m²`.length * 0.55 * L * 0.72));
+    fundo = L * 2.4;
+  }
+  return [d.x_cm, d.y_cm, d.x_cm + L * 0.4 + larg, d.y_cm + fundo];
+}
+
+/** Distância (cm) de (x, y) à caixa do nome/medidas (0 dentro; sem caixa, Infinity). */
+function distRotulo(zona, x, y) {
+  if (!zona) return Infinity;
+  const [x0, y0, x1, y1] = zona;
+  return Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1));
+}
+/** O ícone (raio RAIO_ICONE) em (x, y) toca na caixa do nome/medidas? */
+export const tapaRotulo = (zona, x, y) => distRotulo(zona, x, y) < RAIO_ICONE;
 
 // ------------------------------------------------------------ planta mexida pelo cliente (§0, lote 8)
 
@@ -625,7 +662,7 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
         if (!onde.length) for (const t of PARECIDA[modelo] ?? []) for (const d of divs) if (tipoDivisao(d.nome) === t && !onde.includes(d)) onde.push(d);
         if (!onde.length) onde.push(divs.reduce((a, b) => (areaDe(b) > areaDe(a) ? b : a)));
         const d = onde[doModelo().length % onde.length];
-        const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => (q.piso ?? 0) === (d.piso ?? 0)));
+        const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => (q.piso ?? 0) === (d.piso ?? 0)), p.divisoes.filter((q) => (q.piso ?? 0) === (d.piso ?? 0)));
         const props = propsOmissao("maquina", modelo);
         p.elementos.push({ id: novoId("e", p.elementos), tipo: "maquina", x_cm, y_cm, rot: 0, piso: d.piso ?? 0, divisao: d.id, props, ...(temPergunta("maquina", props) ? { por_responder: true } : {}) });
         if (DESTINO[modelo] && !certas.includes(tipoDivisao(d.nome))) {
