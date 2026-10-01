@@ -433,6 +433,7 @@ const DESTINO = {
   campainha_video: ["entrada", "corredor", "sala", "sala_cozinha"],
   carregador_bicicleta: ["garagem", "entrada", "corredor", "varanda"],
   toalheiro: ["wc"],
+  secador: ["wc"],
   box_router: ["sala", "sala_cozinha", "escritorio", "rececao", "loja", "entrada"],
   repetidor_wifi: ["corredor", "entrada", "quarto"],
   nas: ["escritorio", "sala", "sala_cozinha"],

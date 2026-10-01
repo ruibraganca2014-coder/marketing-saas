@@ -35,7 +35,7 @@ describe('fotos pelo telemóvel (QR)', () => {
   after(() => p.fechar());
 
   test('migração 19: tabelas novas; uma base antiga (18) migra sem mexer no resto', () => {
-    assert.equal(MIGRACOES.length, 19);
+    assert.ok(MIGRACOES.length >= 19);   // a 20 (tomada tripla) veio depois
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');
     migrar(db);

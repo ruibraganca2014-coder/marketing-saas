@@ -692,10 +692,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       id: String(d.id ?? ''), nome: txtCurto(d.nome, 60) || 'Divisão', piso: num(d.piso), x_cm: num(d.x_cm), y_cm: num(d.y_cm), largura_cm: num(d.largura_cm), altura_cm: num(d.altura_cm),
       ...(Array.isArray(d.pontos) ? { pontos: d.pontos.slice(0, 24).map((q) => [num(q?.[0]), num(q?.[1])]) } : {}),
     }));
-    const PROPS = ['dupla', 'comando', 'modelo', 'entrada', 'estore'];
+    const PROPS = ['dupla', 'comando', 'modelo', 'entrada', 'estore', 'caixas'];   // caixas (1–3): número (ronda sinalizar)
     const elementos = (Array.isArray(p.elementos) ? p.elementos.slice(0, 400) : []).filter((e) => e && typeof e === 'object' && typeof e.tipo === 'string').map((e) => ({
       id: String(e.id ?? ''), tipo: e.tipo.slice(0, 20), x_cm: num(e.x_cm), y_cm: num(e.y_cm), rot: num(e.rot), piso: num(e.piso), divisao: typeof e.divisao === 'string' ? e.divisao : null,
-      props: Object.fromEntries(PROPS.filter((k) => e.props?.[k] !== undefined).map((k) => [k, typeof e.props[k] === 'string' ? e.props[k].slice(0, 40) : Boolean(e.props[k])])),
+      props: Object.fromEntries(PROPS.filter((k) => e.props?.[k] !== undefined).map((k) => [k, k === 'caixas' ? Math.min(3, Math.max(1, num(e.props[k]) || 1)) : typeof e.props[k] === 'string' ? e.props[k].slice(0, 40) : Boolean(e.props[k])])),
       // O nome dado pelo cliente; numa máquina sem nome, o do modelo (lista numerada dos aparelhos de utilização).
       ...(typeof e.nome === 'string' && e.nome.trim() ? { nome: txtCurto(e.nome, 60) } : e.tipo === 'maquina' && NOME_MAQUINA[e.props?.modelo] ? { nome: NOME_MAQUINA[e.props.modelo] } : {}),
     }));

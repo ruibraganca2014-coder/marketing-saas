@@ -8,7 +8,7 @@ import {
   contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
   plantaTemConteudo, formatarW, FASES,
   perfilCasa, maquinasGrandesDe, modelosDoPerfil, tiposDivisaoPara,
-  TIPOS_COM_PISOS, nomePiso, pisoDe,
+  TIPOS_COM_PISOS, nomePiso, pisoDe, caixasDe,
 } from "./regras.js";
 import {
   plantaDaCasa, assinaturaCasa, dicasObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
@@ -60,6 +60,30 @@ const el = (tag, cls, texto) => {
 // Rotas do painel (/api/orcamento*, /api/catalogo, /api/conta/*): no mesmo site, ou em DOMUS.apiBase (conta-comum.js).
 const urlApi = urlPainelApi;
 const reduzido = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+/*
+ * Escolha em falta (decisão do dono: "só contorno a pulsar", sem mensagem vermelha): o grupo ou cartão que precisa da
+ * resposta do cliente fica com um contorno vermelho a pulsar ~2 s (`.em-falta`, simulador.css; com movimento reduzido
+ * fica parado 2 s) e `aria-invalid` enquanto dura; a página rola até ele e o foco vai para o 1.º campo dele (ou `foco`:
+ * um elemento, um seletor, ou false para não mexer no foco). `texto` (o que falta) vai só para os leitores de ecrã
+ * (#sim-falta-leitor). As mensagens ficam para o que não é uma escolha no ecrã (servidor, "Sem ligação", fotos).
+ */
+const aPulsar = new Map();
+function assinalar(alvo, texto, foco = null) {
+  if (!alvo) return;
+  clearTimeout(aPulsar.get(alvo));
+  alvo.classList.remove("em-falta");
+  void alvo.offsetWidth;   // reinicia a animação se ainda estava a pulsar
+  alvo.classList.add("em-falta");
+  alvo.setAttribute("aria-invalid", "true");
+  aPulsar.set(alvo, setTimeout(() => { alvo.classList.remove("em-falta"); alvo.removeAttribute("aria-invalid"); aPulsar.delete(alvo); }, 2000));
+  const leitor = $("sim-falta-leitor");
+  leitor.textContent = leitor.textContent === texto ? `${texto} ` : texto;   // repetido: muda para voltar a ser lido
+  if (foco !== false) {
+    const f = (typeof foco === "string" ? document.querySelector(foco) : foco) ?? alvo.querySelector("input:not(:disabled), select, textarea, button");
+    f?.focus({ preventScroll: true });
+  }
+  alvo.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
+}
 
 // Armazenamento do navegador (pode não existir ou lançar exceções: modo privado, bloqueado).
 const armazem = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -452,7 +476,6 @@ const ICONES_CAMINHO = {
  */
 function escolherFunil(k) {
   acabarAnular();
-  mensagemServico(null);
   mensagemPlanta(null);
   if (k === "planta") {
     if (estado.funil !== "planta") { estado.funil = "planta"; estado.caminho = null; }
@@ -476,7 +499,6 @@ function escolherFunil(k) {
  */
 function escolherCaminho(k) {
   acabarAnular();
-  mensagemServico(null);
   mensagemPlanta(null);
   if (k === "carregar") { $("planta-ficheiro").click(); return; }
   const c = casaParaPlanta();
@@ -545,7 +567,6 @@ function escolherProblema(k, sim) {
   const l = new Set(problemasAvaria());
   if (sim) l.add(k); else l.delete(k);
   estado.avaria = normalizarAvaria({ ...estado.avaria, problema: [...l] });
-  mensagemServico(null);
   desenharPerigo();
   agendarGravacao(false);
 }
@@ -574,18 +595,11 @@ function desenharPerigo() {
 function mudarServico(lista) {
   acabarAnular();   // começou outra: a apagada já não se pode repor
   estado.servico = lista;
-  if (lista.length) mensagemServico(null);
   if (visitado > P.quer) acertarPedido();   // o pedido já foi preparado: segue as ações novas
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharProgresso();
   desenharComo();
   agendarGravacao();
-}
-function mensagemServico(texto, tipo = "erro") {
-  const m = $("servico-msg");
-  m.textContent = texto ?? "";
-  m.className = `msg ${texto ? tipo : ""}`;
-  m.hidden = !texto;
 }
 /**
  * O Início: os cartões (o da casa guardada destacado), os serviços (primeira vez), o que precisa (já tenho a planta:
@@ -620,16 +634,15 @@ function desenharComo() {
   $("sim-como-titulo").textContent = `Como fazer a simulação · ~${Math.ceil(seq.reduce((s, i) => s + minutosDe(i), 0))} min`;
   $("sim-como-passos").textContent = seq.map((i, k) => (naoPrecisa(i) ? null : `${k + 1} ${PASSOS[i]}`)).filter(Boolean).join(" · ");
 }
-/** Sem caso escolhido (ou, na primeira vez, sem serviço): fica (ou volta) no Início com a mensagem. Devolve true se bloqueou. */
+/** Sem caso escolhido (ou, na primeira vez, sem serviço): fica (ou volta) no Início e assinala o grupo que falta. Devolve true se bloqueou. */
 function bloquearInicio() {
-  const falta = !estado.funil ? ["Escolha o seu caso.", "#funis input"]
-    : estado.funil === "primeira" && !estado.servico.length ? ["Escolha pelo menos um serviço.", "#servicos input"]
-      : estado.funil === "planta" && !estado.caminho ? ["Escolha o que precisa.", "#caminhos label:not([hidden]) input"]
-        : estado.funil === "avaria" && !problemasAvaria().length ? ["Diga o que se passa.", "#inicio-problema input"] : null;
+  const falta = !estado.funil ? ["Escolha o seu caso.", "funis", "#funis input"]
+    : estado.funil === "primeira" && !estado.servico.length ? ["Escolha pelo menos um serviço.", "servicos-caixa", "#servicos input"]
+      : estado.funil === "planta" && !estado.caminho ? ["Escolha o que precisa.", "planta-caixa", "#caminhos label:not([hidden]) input"]
+        : estado.funil === "avaria" && !problemasAvaria().length ? ["Diga o que se passa.", "problema-caixa", "#inicio-problema input"] : null;
   if (!falta) return false;
   if (estado.passo !== P.inicio) irPara(P.inicio, { foco: false });
-  mensagemServico(falta[0]);
-  document.querySelector(falta[1])?.focus();
+  assinalar($(falta[1]).closest("fieldset"), falta[0], falta[2]);
   return true;
 }
 
@@ -640,18 +653,12 @@ function bloquearInicio() {
  */
 const casaPorEscolher = () => !codigoCliente
   && (!estado.casa.tipo || (!negocio() && !estado.casa.tipologia && estado.casa.divisoes == null));
-function mensagemCasa(texto) {
-  const m = $("casa-msg");
-  m.textContent = texto ?? "";
-  m.className = `msg ${texto ? "erro" : ""}`;
-  m.hidden = !texto;
-}
-/** Sem tipo ou tipologia: volta (ou fica) no passo "A casa" com a mensagem e o foco no que falta. Devolve true se bloqueou. */
+/** Sem tipo ou tipologia: volta (ou fica) no passo "A casa" e assinala o grupo que falta. Devolve true se bloqueou. */
 function bloquearCasa() {
   if (!casaPorEscolher()) return false;
   if (estado.passo !== P.casa) irPara(P.casa, { foco: false });
-  mensagemCasa("Escolha o tipo de casa e a tipologia.");
-  (estado.casa.tipo ? $("casa-tipologias") : $("casa-tipos")).querySelector("input")?.focus();
+  if (estado.casa.tipo) assinalar($("casa-tipologia-caixa"), "Escolha a tipologia.");
+  else assinalar($("casa-tipos").closest("fieldset"), "Escolha o tipo de casa.");
   return true;
 }
 /** Botão de escolha (rádio ou sim/não) no estilo .escolha, com texto de ajuda e desenho (por cima do nome) opcionais. */
@@ -876,7 +883,6 @@ function sincronizarCasa() {
   for (const i of $("casa-extras").querySelectorAll("input")) i.checked = i.value === "outra" ? c.outras.length > 0 : !!vis.extras?.[i.value];
   desenharOutras();
   desenharPisosCasa();
-  if (!casaPorEscolher()) mensagemCasa(null);
   $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
   for (const i of document.querySelectorAll("input[name=casa-para-raios]")) i.checked = i.value === (estado.quadro.para_raios ?? "");
 }
@@ -1284,7 +1290,7 @@ function pedirTirarMaquina(k) {
 
 /**
  * Máquinas da planta → "Equipamentos" (andam juntas nos dois sentidos): cada cartão acende com as máquinas desse
- * modelo que a planta tem (escolhidas antes ou postas com "Mais…"), por piso; tirá-las da planta apaga o cartão. A
+ * modelo que a planta tem (escolhidas antes ou postas pela linha das ferramentas), por piso; tirá-las da planta apaga o cartão. A
  * planta fica como está (plantaSinc passa a ser o que ela tem). Devolve true se "Equipamentos" mudou.
  */
 function querDaPlanta() {
@@ -1317,25 +1323,10 @@ const maquinasEditor = () => [
   ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), ...modelosDoPerfil(estado.casa.tipo),
 ];
 
-/**
- * Linha das ferramentas do editor (decisão do dono): os botões de divisão dos tipos que a casa tem (as divisões do
- * passo 1 e as da planta; a kitnet conta como sala e cozinha), as máquinas escolhidas no passo 2. O resto fica em
- * "Mais…". Sem nenhuma divisão (área de cliente sem tipologia), os 4 primeiros (Sala, Quarto, Cozinha, Casa de banho).
- */
-function divisoesDaBarra() {
-  const tipos = new Set();
-  const nomes = [...(casaDaDivisoes() ? divisoesDaCasa(estado.casa, maquinasParaPlanta(estado)).map((d) => d.nome) : []), ...(estado.planta?.divisoes ?? []).map((d) => d.nome)];
-  for (const n of nomes) {
-    const t = tipoDivisao(n);
-    if (t === "sala_cozinha") { tipos.add("sala"); tipos.add("cozinha"); } else tipos.add(t);
-  }
-  const todos = tiposDivisaoPara(estado.casa.tipo);
-  const l = todos.filter((t) => t.nome !== "Outra" && tipos.has(tipoDivisao(t.nome))).map((t) => t.nome);
-  return l.length ? l : todos.slice(0, 4).map((t) => t.nome);   // sem divisões (área de cliente): as 4 primeiras
-}
+/** Linha das ferramentas do editor (ronda sinalizar: sem "Mais…"): todas as divisões do tipo de imóvel e todas as máquinas. */
 function ferramentasEditor() {
-  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo), divisoesDaBarra());
-  editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo), maquinasEscolhidas(estado.quer));
+  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
+  editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
 }
 
 // ------------------------------------------------------------ Planta no topo (pré-desenhada) — docs §1.1, §2
@@ -1560,7 +1551,7 @@ function mudarACasa() {
 $("planta-fechar").addEventListener("click", () => fecharPlanta());
 ecraLargo.addEventListener("change", () => { if (ecraLargo.matches) fecharPlanta({ foco: false }); });
 document.addEventListener("keydown", (ev) => {
-  // Com uma janela do editor aberta (Opções, "Mais…") as teclas são dela.
+  // Com uma janela do editor aberta (Opções) as teclas são dela.
   if (!plantaAberta() || document.querySelector("dialog[open]")) return;
   if (ev.key === "Escape" && !ev.defaultPrevented) { ev.preventDefault(); fecharPlanta(); return; }
   if (ev.key !== "Tab") return;
@@ -1759,7 +1750,6 @@ function desenharFotoQuadro() {
     m.className = `msg ${ok === false ? "erro" : "info"}`;
     m.hidden = !texto;
     if (ok === null) return;
-    if (fotos.has("quadro")) $("quadro-msg").hidden = true;
     desenharQuadro();
     focar("quadro-foto-botao");
   };
@@ -1793,16 +1783,11 @@ function desenharFotoQuadro() {
 
 /** Falta a foto do quadro (obrigatória no funil que tem o passo Quadro)? */
 const faltaFotoQuadro = () => sequencia().includes(P.quadro) && !fotos.has("quadro");
-/** Sem a foto do quadro: fica (ou volta) no passo Quadro com a mensagem e o foco no botão. Devolve true se bloqueou. */
+/** Sem a foto do quadro: fica (ou volta) no passo Quadro e assinala o cartão da foto (foco no botão). Devolve true se bloqueou. */
 function bloquearQuadro() {
   if (!faltaFotoQuadro()) return false;
   if (estado.passo !== P.quadro) irPara(P.quadro, { foco: false });
-  const m = $("quadro-msg");
-  m.textContent = "Tire uma foto do quadro para continuar.";
-  m.hidden = false;
-  const b = $("quadro-foto-botao");
-  b?.focus({ preventScroll: true });
-  b?.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
+  assinalar($("quadro-foto"), "Tire uma foto do quadro para continuar.", $("quadro-foto-botao"));
   return true;
 }
 
@@ -2034,7 +2019,11 @@ function detalheLinha(l) {
     const b = [...new Set(ps.map((p) => Math.min(4, Math.max(1, Math.round(Number(p.botoes) || 1)))))].sort((x, y) => x - y);
     return `${listaPt(b.map(String))} ${b.length === 1 && b[0] === 1 ? "botão" : "botões"}`;
   }
-  if (l.tipo === "tomada") return conta(ps.filter((p) => p.inteligente).length, "inteligente", "inteligentes");
+  if (l.tipo === "tomada") {
+    const partes = [conta(ps.filter((p) => caixasDe(p) === 2).length, "dupla", "duplas"), conta(ps.filter((p) => caixasDe(p) === 3).length, "tripla", "triplas"),
+      conta(ps.filter((p) => p.inteligente).length, "inteligente", "inteligentes")].filter(Boolean);
+    return partes.length ? partes.join(", ") : null;
+  }
   if (l.tipo === "porta") return conta(ps.filter((p) => p.entrada).length, "porta da rua", "da rua");
   if (l.tipo === "janela") {
     const partes = [conta(ps.filter((p) => p.estore && p.motorizado).length, "com estore motorizado", "com estore motorizado"),
@@ -2298,14 +2287,15 @@ function separadoresDivisoes(pre, planta, { feita, falta, avisar, rotuloFeita = 
  * Divisão a divisão (decisão do dono; estado.js vistas): nas Divisões e em "Trocar e reparar" o "Seguinte" abre
  * primeiro a divisão seguinte ainda por ver (✓ nas vistas); só depois de vistas todas passa ao passo seguinte. Uma
  * divisão fica vista quando o seu separador (o cartão) se abre. Pela barra dos passos, para lá de um destes passos
- * com divisões por ver, abre a primeira que falta com "Falta ver: …" (os separadores que faltam ficam marcados).
+ * com divisões por ver, abre a primeira que falta e os separadores a pulsar (os que faltam ficam marcados; "Falta
+ * ver: …" só para os leitores de ecrã).
  */
 const CHAVE_POR_DIVISAO = { [P.divisoes]: "divisoes", [P.trocar]: "trocar" };
 /** A chave do passo `i` se é divisão a divisão neste funil (e não é saltado: fluxo curto sem Divisões), senão null. */
 const porDivisao = (i) => (CHAVE_POR_DIVISAO[i] && sequencia().includes(i) && !naoPrecisa(i) ? CHAVE_POR_DIVISAO[i] : null);
 /** As divisões (pela ordem dos separadores) ainda por ver no passo `i`. */
 const porVer = (i) => { const k = porDivisao(i); return k ? divisoesPorVer(estado, k, divisoesPorOrdem(plantaDivisoes())) : []; };
-const avisoPorVer = { divisoes: false, trocar: false };   // o "Falta ver: …" está à vista (marca os separadores)
+const avisoPorVer = { divisoes: false, trocar: false };   // o aviso do "Seguinte" está à vista (marca os separadores que faltam)
 function textoPorVer(l) {
   const nomes = l.slice(0, 4).map((d) => d.nome || "Divisão");
   if (l.length > 4) nomes.push(`mais ${l.length - 4}`);
@@ -2314,16 +2304,12 @@ function textoPorVer(l) {
 function mensagemPorDivisao(texto, tipo = "info") {
   if (estado.passo === P.trocar) mensagemTrocar(texto, tipo); else mensagemDivisoes(texto, tipo);
 }
-/** O separador `d` do passo à vista abriu-se: fica visto (e o "Falta ver: …", se está à vista, segue). */
+/** O separador `d` do passo à vista abriu-se: fica visto (com o aviso à vista, vistas todas diz "Já viu todas as divisões."). */
 function verDivisao(d, planta) {
   const k = porDivisao(estado.passo);
   if (!k || !d) return;
   if (marcarVista(estado, k, d, planta.divisoes)) agendarGravacao();
-  if (!avisoPorVer[k]) return;
-  const l = porVer(estado.passo);
-  if (!l.length) { mensagemPorDivisao("Já viu todas as divisões.", "ok"); return; }
-  mensagemPorDivisao(textoPorVer(l), "erro");
-  avisoPorVer[k] = true;
+  if (avisoPorVer[k] && !porVer(estado.passo).length) mensagemPorDivisao("Já viu todas as divisões.", "ok");
 }
 /**
  * Ao entrar num passo divisão a divisão com divisões por ver: o separador abre na primeira que falta (o separador é
@@ -2365,17 +2351,19 @@ function bloquearPorVer(p, i) {
   if (estado.passo !== p) irPara(p, { foco: false });
   const k = CHAVE_POR_DIVISAO[p];
   avisoPorVer[k] = true;   // os separadores que faltam ficam marcados
-  escolherDivisao(l[0].id, `${p === P.trocar ? "tr" : "div"}-${l[0].id}-titulo`);
-  mensagemPorDivisao(textoPorVer(l), "erro");   // as que faltavam (também a que se abriu agora)
+  const pre = p === P.trocar ? "tr" : "div";
+  escolherDivisao(l[0].id, `${pre}-${l[0].id}-titulo`);
+  mensagemPorDivisao(null);
   avisoPorVer[k] = true;
-  rolarAte($(p === P.trocar ? "trocar-msg" : "divisoes-msg"));
+  // Os separadores a pulsar; o foco fica no da divisão que se abriu (as que faltavam, também esta, para os leitores de ecrã).
+  assinalar(document.querySelector(`#passo-${p} .div-separadores`), textoPorVer(l), $(`${pre}-${l[0].id}-titulo`));
   return true;
 }
 
 /*
  * "Acrescentar outro aparelho" (Divisões e Trocar e reparar): uma janela (<dialog> modal: Esc fecha, o resto da página
  * fica inerte) com a grelha de todos os aparelhos — a mesma lista e os mesmos desenhos da linha das ferramentas da
- * planta e de "Mais…" (editor.aparelhos()). Escolher um põe-no logo no meio da divisão (como o "+" pelo teclado) e
+ * planta (editor.aparelhos()). Escolher um põe-no logo no meio da divisão (como o "+" pelo teclado) e
  * fecha; "Fechar" ou Esc fecham e o foco volta ao botão.
  */
 let janelaAparelhos = null;
@@ -2874,7 +2862,7 @@ const quadroPorDescrever = () => typeof estado.quadroAvaria === "string"
 /** Avarias indicadas: aparelhos a reparar e o quadro com problemas. */
 const nAvarias = (planta) => aReparar(planta).length + (estado.quadroAvaria !== null ? 1 : 0);
 
-/** A mensagem do passo é a do "Seguinte" (o que falta): segue as respostas (atualiza-se ou passa a "tudo respondido"). */
+/** O aviso do "Seguinte" está à vista (os separadores que faltam ficam marcados até "Tudo respondido."). */
 let avisoTrocar = false;
 function mensagemTrocar(texto, tipo = "info") {
   avisoTrocar = false;
@@ -2900,37 +2888,33 @@ function faltaNoTrocar() {
  * "Seguinte" (ou a barra dos passos) para lá deste passo com respostas em falta (lote 8: o que era pedido para
  * "Divisão verificada"): sem "Instalação nova" e fora do fluxo curto, cada aparelho com a ação escolhida; cada avaria
  * com o que se passa; ao trocar uma tomada ou um interruptor, se quer inteligente; no fluxo curto, pelo menos uma avaria.
- * Fica (ou volta) neste passo com a mensagem e o foco no que falta. Devolve true se bloqueou.
+ * Fica (ou volta) neste passo e assinala o que falta (o cartão a pulsar, o foco no 1.º campo). Devolve true se bloqueou.
  */
 function bloquearTrocar() {
   const f = faltaNoTrocar();
   if (!f) return false;
   if (estado.passo !== P.trocar) irPara(P.trocar, { foco: false });
-  mensagemTrocar(f.texto, "erro");
+  mensagemTrocar(null);
   avisoTrocar = true;
-  const rolar = (x) => x?.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
-  if (f.alvo === "reparar") { const b = document.querySelector("#trocar .acao-reparar") ?? $("trocar-quadro-problemas"); b?.focus({ preventScroll: true }); rolar(b); }
-  else if (f.alvo === "quadro") {
+  if (f.alvo === "reparar") {
+    const b = document.querySelector("#trocar .acao-reparar") ?? $("trocar-quadro-problemas");
+    assinalar(b?.closest(".divisao-cartao") ?? $("trocar"), f.texto, b);
+  } else if (f.alvo === "quadro") {
     // Sem cartão escolhido: o 1.º cartão; com "Outro" sem descrição: a descrição.
     const alvo = estado.quadroProblemas.length ? $("trocar-quadro-avaria") : document.querySelector("#trocar-quadro-problemas-grelha input");
     if (alvo?.id === "trocar-quadro-avaria") alvo.setAttribute("aria-invalid", "true");
-    alvo?.focus({ preventScroll: true });
-    rolar($("trocar-quadro"));
-  }
-  else if (f.alvo === "quadro-foto") { focar("trocar-quadro-foto"); rolar($("trocar-quadro")); }
+    assinalar($("trocar-quadro"), f.texto, alvo);
+  } else if (f.alvo === "quadro-foto") assinalar($("trocar-quadro"), f.texto, $("trocar-quadro-foto"));
   else {
-    // O separador da 1.ª divisão com respostas em falta (os que faltam ficam marcados).
+    // O separador da 1.ª divisão com respostas em falta (os que faltam ficam marcados) e o cartão dela a pulsar.
     escolherDivisao(f.alvo, `tr-${f.alvo}-titulo`);
-    $("trocar-msg").scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+    assinalar($(`tr-${f.alvo}`), f.texto, $(`tr-${f.alvo}-titulo`));
   }
   return true;
 }
+/** Com o aviso do "Seguinte" à vista (separadores marcados): respondido tudo, "Tudo respondido." */
 function atualizarAvisoTrocar() {
-  if (!avisoTrocar) return;
-  const f = faltaNoTrocar();
-  if (!f) { mensagemTrocar("Tudo respondido.", "ok"); return; }
-  mensagemTrocar(f.texto, "erro");
-  avisoTrocar = true;
+  if (avisoTrocar && !faltaNoTrocar()) mensagemTrocar("Tudo respondido.", "ok");
 }
 
 /** Por cima da lista: quantos aparelhos em cada ação (sem "Instalação nova", quantos já têm resposta); fluxo curto: as avarias. */
@@ -3278,7 +3262,6 @@ function montarAvaria() {
     estado.avaria = normalizarAvaria({ ...estado.avaria, descricao: $("avaria-descricao").value });
     $("avaria-descricao").removeAttribute("aria-invalid");
     agendarGravacao(false);
-    if (!$("avaria-msg").hidden) faltaAvaria(true);
   });
 }
 // Sem "O que se passa?" ao chegar ao passo (estados de antes da ronda A): a pergunta fica aqui até sair da página.
@@ -3302,7 +3285,6 @@ function desenharAvaria() {
   ultimoPreco = { preco, plano: null };
   pr.hidden = semDesloc.total === null;
   pr.textContent = semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}. A reparação orça-se na visita.`;
-  if (!$("avaria-msg").hidden) faltaAvaria(true);
 }
 /** As fotos da avaria já tiradas (chaves FOTOS_AVARIA, pela ordem). */
 const fotosAvaria = () => FOTOS_AVARIA.filter((k) => fotos.has(k));
@@ -3351,29 +3333,24 @@ function desenharFotoAvaria() {
   b.addEventListener("click", () => { foco = "avaria-foto-botao"; pedirFoto(livre, depois, { rotulo: `Foto ${FOTOS_AVARIA.indexOf(livre) + 1} da avaria` }); });
   corpo.append(b);
 }
-/** O que falta na avaria (texto e onde pôr o foco), ou null; `atualizar`: só refaz a mensagem que está à vista. */
-function faltaAvaria(atualizar = false) {
+/** O que falta na avaria (texto para os leitores de ecrã e onde pôr o foco), ou null. */
+function faltaAvaria() {
   const a = estado.avaria;
-  const f = !a.onde.length ? ["Diga onde é a avaria.", "#avaria-onde input"]
+  return !a.onde.length ? ["Diga onde é a avaria.", "#avaria-onde input"]
     : !a.problema.length ? ["Diga o que se passa.", "#avaria-problema input"]
       : a.problema.includes("outro") && !a.descricao.trim() ? ["Descreva a avaria.", "#avaria-descricao"]
         : !fotosAvaria().length ? ["Falta a foto da avaria.", "#avaria-foto-botao"] : null;
-  const m = $("avaria-msg");
-  m.textContent = f ? f[0] : atualizar ? "Tudo respondido." : "";
-  m.className = `msg ${f ? "erro" : "ok"}`;
-  m.hidden = !f && !atualizar;
-  return f;
 }
-/** Avaria por responder: fica (ou volta) no passo Avaria com a mensagem e o foco no que falta. Devolve true se bloqueou. */
+/** Avaria por responder: fica (ou volta) no passo Avaria e assinala o grupo que falta (foco nele). Devolve true se bloqueou. */
 function bloquearAvaria() {
   const f = faltaAvaria();
   if (!f) return false;
   if (estado.passo !== P.avaria) irPara(P.avaria, { foco: false });
-  faltaAvaria();
   if (f[1] === "#avaria-descricao") $("avaria-descricao").setAttribute("aria-invalid", "true");
   const alvo = document.querySelector(f[1]);
-  alvo?.focus({ preventScroll: true });
-  alvo?.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
+  // O grupo que pulsa: o fieldset (Onde / O que se passa), a etiqueta da descrição ou o cartão das fotos.
+  const grupo = alvo?.closest(f[1] === "#avaria-descricao" ? "label" : f[1] === "#avaria-foto-botao" ? ".cartao" : "fieldset");
+  assinalar(grupo ?? alvo, f[0], alvo);
   return true;
 }
 montarAvaria();
@@ -3385,7 +3362,6 @@ montarAvaria();
 function desenharMelhorias() {
   desenharQuadroMelhorias();   // o cartão "Quadro elétrico" (B3) antes dos pacotes: o "Quadro seguro" segue-o
   const { melhorias, plano } = calcular();
-  if (avisoMelhorias && !faltaNasMelhorias()) mensagemMelhorias(null);
   const foco = document.activeElement?.closest?.("#melhorias") ? document.activeElement.value : null;
   $("melhorias").replaceChildren(...melhorias.map(cartaoMelhoria));
   if (foco) document.querySelector(`#melhorias input[value="${foco}"]`)?.focus();
@@ -3404,20 +3380,12 @@ function faltaNasMelhorias() {
   if (calcular().aceites.length) return null;
   return "Escolha uma melhoria, ou algo para trocar, reparar ou acrescentar em Trocar e reparar.";
 }
-let avisoMelhorias = false;
-function mensagemMelhorias(texto) {
-  avisoMelhorias = !!texto;
-  const m = $("melhorias-msg");
-  m.textContent = texto ?? "";
-  m.hidden = !texto;
-}
-/** "Seguinte" (ou a barra) para lá das Melhorias sem nada no pedido: fica (ou volta) aqui com a mensagem. */
+/** "Seguinte" (ou a barra) para lá das Melhorias sem nada no pedido: fica (ou volta) aqui com os pacotes a pulsar. */
 function bloquearMelhorias() {
   const t = faltaNasMelhorias();
   if (!t) return false;
   if (estado.passo !== P.melhorias) irPara(P.melhorias, { foco: false });
-  mensagemMelhorias(t);
-  $("melhorias-msg").scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
+  assinalar($("melhorias"), t);
   return true;
 }
 function cartaoMelhoria(m) {
@@ -3970,7 +3938,6 @@ for (const k of CAMPOS) {
   $(`contacto-${k}`).addEventListener("input", () => {
     estado.contacto[k] = $(`contacto-${k}`).value;
     $(`contacto-${k}`).removeAttribute("aria-invalid");
-    $(`contacto-${k}`).removeAttribute("aria-describedby");
     agendarGravacao();
   });
 }
@@ -4242,21 +4209,16 @@ async function enviar() {
   if (aEnviar) return;
   // Conta obrigatória, com o email confirmado (o painel recusa sem ela: 401/403).
   if (!contaEu?.conta?.confirmado) {
-    mostrarEnvio(contaEu ? "Confirme primeiro o seu email: escreva o código que lhe enviámos, em \"A sua conta\"." : "Para enviar, crie uma conta ou entre na sua conta (em \"A sua conta\", em cima).", "erro");
     blocoConta.focar();
-    $("enviar-conta").scrollIntoView({ block: "start", behavior: reduzido() ? "auto" : "smooth" });
+    assinalar($("enviar-conta"), contaEu ? "Confirme primeiro o seu email: escreva o código que lhe enviámos, em \"A sua conta\"." : "Para enviar, crie uma conta ou entre na sua conta, em \"A sua conta\".", false);
     return;
   }
   estado.contacto.email = contaEu.conta.email;
   const prob = problemaContacto(estado.contacto);
   if (prob) {
-    mostrarEnvio(prob.texto, "erro");
     const i = $(`contacto-${prob.campo}`);
     i.setAttribute("aria-invalid", "true");
-    i.setAttribute("aria-describedby", "enviar-msg");
-    i.focus();
-    // A mensagem fica por cima dos campos: garante que se vê (a barra de baixo tapa o fundo do ecrã).
-    $("enviar-msg").scrollIntoView({ block: "nearest" });
+    assinalar(i.closest("label"), prob.texto, i);
     return;
   }
   // Fase 3: a avaria paga-se ao enviar — fora da área não se envia (fale connosco); a visita precisa da localidade.
@@ -4266,11 +4228,9 @@ async function enviar() {
   }
   const compra = compraEfetiva();
   if (compra.visita && precoVisita() === null) {
-    mostrarEnvio(semConcelho() ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade (concelho) para marcarmos a visita.", "erro");
     const i = $("contacto-localidade");
     i.setAttribute("aria-invalid", "true");
-    i.setAttribute("aria-describedby", "enviar-msg");
-    i.focus();
+    assinalar(i.closest("label"), semConcelho() ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade (concelho) para marcarmos a visita.", i);
     return;
   }
   desenharPreco();
@@ -4478,10 +4438,7 @@ function recomecar({ manterFotos = false } = {}) {
   pisosEditor = null;
   abertas.clear();
   abertasAcao.clear();
-  mensagemServico(null);
-  mensagemCasa(null);
   mensagemTrocar(null);
-  $("avaria-msg").hidden = true;
   $("avaria-foto-msg").hidden = true;
   fotos.clear();
   // As fotos são da simulação: saem com ela (com "Anular" à vista, só no fim do prazo: acabarAnular).

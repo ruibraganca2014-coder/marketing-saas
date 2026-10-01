@@ -110,7 +110,7 @@ export const MAQUINAS_PEQUENAS = {
   habitacao: [
     ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira", "air_fryer", "torradeira", "cafe_expresso"]],
     ["Sala e quartos", ["televisao", "computador", "consola", "aquecedor_portatil"]],
-    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro"]],
+    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro", "secador"]],
   ],
   servicos: [
     ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
@@ -168,7 +168,7 @@ export const ELEMENTOS = {
   porta: { nome: "Porta", props: { entrada: false } },
   janela: { nome: "Janela", props: { estore: false, motorizado: false } },
   quadro: { nome: "Quadro elétrico", props: {} },
-  tomada: { nome: "Tomada", props: { dupla: false, inteligente: false } },
+  tomada: { nome: "Tomada", props: { dupla: false, inteligente: false, caixas: 1 } },
   // Luz sem pergunta (decisão do dono): sempre não regulável; o `brilho` de um estado antigo sai ao carregar.
   luz: { nome: "Ponto de luz", props: {} },
   interruptor: { nome: "Interruptor", props: { botoes: 1, comando: "simples" } },
@@ -179,7 +179,13 @@ export const ELEMENTOS = {
 // As telecomunicações (telecom_*, "brevemente") saíram do simulador: os estados e as plantas antigas que as
 // tinham perdem-nas ao carregar (normalizarPlanta só aceita os tipos de ELEMENTOS).
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
-export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "brilho", "botoes", "comando", "modelo", "potencia_w"];
+export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "caixas", "brilho", "botoes", "comando", "modelo", "potencia_w"];
+/**
+ * Quantas tomadas na mesma caixa (ronda sinalizar; `props.caixas`: 1 simples, 2 dupla, 3 tripla). `dupla` fica por
+ * compatibilidade (estados e pedidos antigos: dupla → 2 caixas; é sempre `caixas === 2`; um `dupla: true` posto à mão com
+ * `caixas` 1 ou em falta vale 2). Conta como 1 ponto no circuito.
+ */
+export const caixasDe = (p) => { const c = Number(p?.caixas); return c === 2 || c === 3 ? c : p?.dupla ? 2 : 1; };
 
 /**
  * Tipos de comando do interruptor (ronda regras; `props.comando`, "simples" por omissão): o que o cliente escolhe na
@@ -296,6 +302,7 @@ export const MODELOS = {
   campainha_video: { nome: "Campainha com vídeo", w: 10 },
   carregador_bicicleta: { nome: "Carregador de bicicleta / trotinete", w: 100 },
   toalheiro: { nome: "Aquecedor de toalhas", w: 500 },
+  secador: { nome: "Secador de cabelo", w: 1800 },   // ronda sinalizar: carga normal da tomada da casa de banho
   aspirador_robo: { nome: "Aspirador robô", w: 40 },
   impressora: { nome: "Impressora", w: 500 },
   terminal_pagamento: { nome: "Caixa / terminal de pagamento", w: 50 },

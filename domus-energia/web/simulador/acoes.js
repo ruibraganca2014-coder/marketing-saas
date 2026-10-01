@@ -1,7 +1,7 @@
 // Simulador de orçamento — serviço pedido (passo 1) e ação por aparelho (passo "Trocar e reparar", lote 8): Manter,
 // Reparar, Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lotes 7 e 8). Só lógica, sem DOM.
 
-import { COMANDOS, comandoDe } from "./regras.js";
+import { COMANDOS, comandoDe, caixasDe } from "./regras.js";
 
 /** Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos. */
 export const SERVICOS = {
@@ -143,7 +143,7 @@ export function pedidoDoElemento(e, acao, objetivos = []) {
 
 /**
  * Ronda regras: os pedidos de um ponto NOVO normal (preço fechado por ponto, catálogo PONTO-LUZ-NOVO, TOMADA-NOVA,
- * TOMADA-DUPLA-NOVA, INTERRUPTOR-NOVO) e a aparelhagem do tipo de comando (COMANDOS: comutador de escada, inversor,
+ * TOMADA-DUPLA-NOVA, TOMADA-TRIPLA-NOVA, INTERRUPTOR-NOVO) e a aparelhagem do tipo de comando (COMANDOS: comutador de escada, inversor,
  * botão de pressão — uma peça por interruptor); a campainha normal (máquina "campainha") = a campainha + um botão de
  * pressão. Um ponto inteligente = o ponto + o aparelho Wi-Fi (pedidoDoElemento): nunca se conta duas vezes o ponto.
  * Lista vazia nos outros (máquinas, sensores, janelas: sem ponto fechado).
@@ -152,7 +152,7 @@ export function pontosDoElemento(e) {
   if (!e) return [];
   const p = e.props ?? {};
   if (e.tipo === "luz") return ["ponto_luz"];
-  if (e.tipo === "tomada") return [p.dupla ? "ponto_tomada_dupla" : "ponto_tomada"];
+  if (e.tipo === "tomada") return [{ 1: "ponto_tomada", 2: "ponto_tomada_dupla", 3: "ponto_tomada_tripla" }[caixasDe(p)]];
   if (e.tipo === "interruptor") {
     const artigo = COMANDOS[comandoDe(p)].artigo;
     return artigo ? ["ponto_interruptor", artigo] : ["ponto_interruptor"];

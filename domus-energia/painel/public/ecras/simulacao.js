@@ -41,7 +41,7 @@ const MODELOS = {
   terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
   carregador_baterias: "Carregador de baterias",
   air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
-  carregador_bicicleta: "Carregador de bicicleta/trotinete", toalheiro: "Aquecedor de toalhas",
+  carregador_bicicleta: "Carregador de bicicleta/trotinete", toalheiro: "Aquecedor de toalhas", secador: "Secador de cabelo",
   outro: "Outra máquina",
 };
 // Tipos de comando do interruptor (ronda regras; web/simulador/regras.js COMANDOS): texto curto da ficha.
@@ -957,7 +957,13 @@ function aparelhosTxt(els) {
   const ints = de("interruptor");
   if (ints.length) partes.push(`${plural(ints.length, "interruptor", "interruptores")} (${ints.map((e) => `${Math.min(4, Math.max(1, numero(p(e).botoes) ?? 1))} bot.${comandoTxt(p(e))}`).join(" + ")})`);
   const toms = de("tomada");
-  if (toms.length) { const d = toms.filter((e) => p(e).dupla).length; partes.push(`${plural(toms.length, "tomada", "tomadas")}${d ? ` (${num(d)} ${d === 1 ? "dupla" : "duplas"})` : ""}`); }
+  if (toms.length) {
+    // Quantas na mesma caixa (web/simulador/regras.js caixasDe: `caixas` 2 = dupla, 3 = tripla; pedidos antigos só `dupla`).
+    const caixas = (e) => { const c = Number(p(e).caixas); return c === 2 || c === 3 ? c : p(e).dupla ? 2 : 1; };
+    const d = toms.filter((e) => caixas(e) === 2).length, t = toms.filter((e) => caixas(e) === 3).length;
+    const extra = [d ? `${num(d)} ${d === 1 ? "dupla" : "duplas"}` : null, t ? `${num(t)} ${t === 1 ? "tripla" : "triplas"}` : null].filter(Boolean);
+    partes.push(`${plural(toms.length, "tomada", "tomadas")}${extra.length ? ` (${extra.join(", ")})` : ""}`);
+  }
   const jan = de("janela");
   if (jan.length) {
     const mot = jan.filter((e) => p(e).estore && p(e).motorizado).length, man = jan.filter((e) => p(e).estore && !p(e).motorizado).length;

@@ -14,7 +14,7 @@ import {
   MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2, MAX_PISO,
   propsOmissao, atualizarDivisoes, divisaoDoElemento, divisaoEm, pontosDivisao, areaPoligono, caixaPontos,
   distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior, pisoDe, nomePiso,
-  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, temPergunta, COMANDOS, comandoDe,
+  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, temPergunta, COMANDOS, comandoDe, caixasDe,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { aparelhosOmissao, resumoAparelhos, tipoDivisao as tipoDoNome } from "./casa.js";
@@ -42,7 +42,7 @@ const NOMES_CURTOS = {
   box_router: "Box/router", nas: "NAS", camara: "Câmara", rega: "Rega", iluminacao_jardim: "Luz exterior",
   terminal_pagamento: "Terminal pagamento", ferramentas: "Ferramentas", cafeteira: "Cafeteira", outro: "Outra",
   esquentador: "Esquentador", radiador: "Radiador", cafe_expresso: "Café expresso", campainha: "Campainha", campainha_video: "Campainha vídeo",
-  carregador_bicicleta: "Carreg. bicicleta", toalheiro: "Aquec. toalhas", hidromassagem: "Hidro­massagem",
+  carregador_bicicleta: "Carreg. bicicleta", toalheiro: "Aquec. toalhas", secador: "Secador", hidromassagem: "Hidro­massagem",
   // Palavras mais largas do que o botão: hífen opcional (­) onde se pode partir.
   termoacumulador: "Termo­acumulador", ar_condicionado: "Ar condi­cionado", desumidificador: "Desumidi­ficador",
 };
@@ -167,12 +167,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   raiz.replaceChildren();
   raiz.classList.add("editor");
 
-  // Ferramentas numa só linha compacta por cima da planta (decisão do dono), que desliza para o lado: só as
-  // divisões da casa (as do passo 1: definirTiposDivisao), os 4 elementos base e as máquinas escolhidas no passo 2
-  // (definirMaquinas), em 3 grupos separados por um traço discreto, e no fim "Mais…" — a janela com a lista
-  // completa (divisões, elementos, máquinas). Uma ferramenta escolhida na janela (ou pelo "+" do passo Divisões)
-  // passa a aparecer na linha enquanto o editor estiver aberto (`naBarraExtra`; "Começar de novo" esquece-as).
-  // Os botões de tudo existem na linha; os que não são para lá estão escondidos (`hidden`).
+  // Ferramentas numa só linha compacta por cima da planta (decisão do dono), que desliza para o lado (carrossel):
+  // todas as divisões do tipo de imóvel (definirTiposDivisao), todos os elementos e todas as máquinas
+  // (definirMaquinas), em 3 grupos separados por um traço discreto. (Ronda sinalizar: saiu o "Mais…" — a janela com
+  // a lista completa; tudo está na linha, as setas ‹ › dão a volta.)
   const fila = el("div", "editor-ferramentas");
   fila.setAttribute("role", "toolbar");
   fila.setAttribute("aria-label", "Ferramentas da planta");
@@ -205,16 +203,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   if (typeof ResizeObserver === "function") new ResizeObserver(acertarSetasFila).observe(fila);
   const ferramentas = {};
-  const naBarraExtra = new Set();   // chaves ("divisao:Garagem", "janela", "maquina:forno") que o cliente trouxe
-  let divisoesNaBarra = null;       // nomes dos botões de divisão da linha (null = todos)
-  let maquinasNaBarra = [];         // modelos das máquinas da linha
-  /** Elementos da linha; os outros (janela, quadro, sensores) estão em "Mais…". */
-  const ELEMENTOS_BASE = ["porta", "interruptor", "luz", "tomada"];
   const grupoBarra = (cls, rotulo) => { const g = el("div", `editor-barra ${cls}`); g.setAttribute("role", "group"); g.setAttribute("aria-label", rotulo); return g; };
   // 1. Um botão por tipo de divisão, com o seu desenho (planta-svg.js divisao_<tipo>): cria-a logo, com o nome
   // certo (Quarto, Quarto 2, Sala…); o que traz (casa.js resumoAparelhos) fica no nome acessível do botão.
   const barraDiv = grupoBarra("editor-divisoes", "Acrescentar divisão");
-  const divisoesMais = el("div", "editor-mais-grelha");
   /** Nome acessível: o que a divisão traz só quando o passo mostra os aparelhos (em "A casa" só as divisões). */
   const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${resumoAparelhos(t.nome, t.w, t.h)})` : ""}`;
   function botaoDivisao(t) {
@@ -226,7 +218,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   function desenharBotoesDivisao() {
     barraDiv.replaceChildren();
-    divisoesMais.replaceChildren();
     for (const t of tiposDivisao) {
       const b = botaoDivisao(t);
       // O botão cria-a logo (rato, toque ou teclado), num sítio livre.
@@ -235,21 +226,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         if (criarDivisao(t.nome)) mostrarPlanta();
       });
       barraDiv.append(b);
-      const m = botaoDivisao(t);
-      m.addEventListener("click", () => {
-        fecharMais();
-        mostrarNaBarra(`divisao:${t.nome}`);
-        definirModo(null);
-        if (criarDivisao(t.nome)) mostrarPlanta();
-      });
-      divisoesMais.append(m);
     }
     acertarBarra();
   }
 
   // 2. Elementos da instalação elétrica (as máquinas têm o seu grupo, um botão por modelo).
   const barra = grupoBarra("editor-elementos", "Pôr na planta");
-  const elementosMais = el("div", "editor-mais-grelha");
   for (const t of TIPOS_ELEMENTO.filter((x) => x !== "maquina")) {
     const b = botao("", "ferramenta");
     b.dataset.ferramenta = t;
@@ -257,16 +239,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     b.append(desenharIcone(svgEl("svg"), t, ELEMENTOS[t].props), el("span", "ferramenta-nome", ELEMENTOS[t].nome));
     ligarFerramenta(b, t, t, null);
     barra.append(b);
-    elementosMais.append(botaoMais(t, t, null, ELEMENTOS[t].nome));
   }
-  // 3. Máquinas: um botão com o desenho de cada modelo (definirMaquinas: na linha as escolhidas; em "Mais…" todas).
+  // 3. Máquinas: um botão com o desenho de cada modelo (definirMaquinas), todos na linha.
   const barraMaq = grupoBarra("editor-maquinas", "Pôr uma máquina na planta");
-  const maquinasMais = el("div", "editor-mais-grelha");
   let modelosMaq = [];
   function desenharBotoesMaquina() {
     for (const k of Object.keys(ferramentas)) if (k.startsWith("maquina:")) delete ferramentas[k];
     barraMaq.replaceChildren();
-    maquinasMais.replaceChildren();
     for (const m of modelosMaq) {
       const b = botao("", "ferramenta maquina-ferramenta");
       b.dataset.maquina = m;
@@ -275,7 +254,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       b.append(desenharIcone(svgEl("svg"), "maquina", { modelo: m }), el("span", "ferramenta-nome", NOMES_CURTOS[m] ?? MODELOS[m].nome));
       ligarFerramenta(b, `maquina:${m}`, "maquina", m);
       barraMaq.append(b);
-      maquinasMais.append(botaoMais(`maquina:${m}`, "maquina", m, MODELOS[m].nome));
     }
     acertarBarra();
   }
@@ -299,77 +277,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     }
     definirModo({ tipo: "elemento", el: tipo, modelo });
   }
-  /** Botão da janela "Mais…" (elemento ou máquina): escolhe a ferramenta, fecha a janela e fica na linha. */
-  function botaoMais(chave, tipo, modelo, nome) {
-    const b = botao("", "ferramenta");
-    b.dataset.mais = chave;
-    b.append(desenharIcone(svgEl("svg"), tipo, modelo ? { modelo } : ELEMENTOS[tipo].props), el("span", "ferramenta-nome", nome));
-    b.addEventListener("click", (ev) => {
-      const teclado = ev.detail === 0;
-      fecharMais();
-      mostrarNaBarra(chave);
-      usarFerramenta(tipo, modelo, teclado);
-      if (!teclado) ferramentas[chave]?.focus({ preventScroll: true });
-    });
-    return b;
-  }
-  /** A ferramenta `chave` passa a aparecer na linha (se ainda lá não estava). */
-  function mostrarNaBarra(chave) {
-    if (!chave || naBarraExtra.has(chave)) return;
-    naBarraExtra.add(chave);
-    acertarBarra();
-  }
-  /** Mostra na linha só o que é para lá (e as ferramentas trazidas); esconde os grupos vazios. */
+  /** Mostra na linha os grupos que o passo deixa mudar (lote 8, definirPermissoes); esconde os vazios. */
   function acertarBarra() {
-    // Lote 8 (definirPermissoes): só as ferramentas do que o passo deixa mudar (divisões e/ou aparelhos).
     barraDiv.classList.toggle("sem-permissao", !podeDivisoes);
     for (const g of [barra, barraMaq]) g.classList.toggle("sem-permissao", !podeAparelhos);
-    seccaoDiv.hidden = !podeDivisoes;
-    seccaoEl.hidden = !podeAparelhos;
-    seccaoMaq.hidden = !podeAparelhos || !modelosMaq.length;
-    bMaisFerr.hidden = !podeDivisoes && !podeAparelhos;
-    // O nome diz só o que a janela mostra neste passo (ex.: em "A casa", só as divisões).
-    const noMais = [!seccaoDiv.hidden && "divisões", !seccaoEl.hidden && "elementos", !seccaoMaq.hidden && "máquinas"].filter(Boolean);
-    bMaisFerr.setAttribute("aria-label", `Mais: ${noMais.length > 1 ? `${noMais.slice(0, -1).join(", ")} e ${noMais.at(-1)}` : noMais[0] ?? ""}`);
-    for (const b of barraDiv.children) b.hidden = !(divisoesNaBarra === null || divisoesNaBarra.includes(b.dataset.divisao) || naBarraExtra.has(`divisao:${b.dataset.divisao}`));
-    for (const b of barra.children) b.hidden = !(ELEMENTOS_BASE.includes(b.dataset.ferramenta) || naBarraExtra.has(b.dataset.ferramenta));
-    for (const b of barraMaq.children) b.hidden = !(maquinasNaBarra.includes(b.dataset.maquina) || naBarraExtra.has(`maquina:${b.dataset.maquina}`));
-    for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || ![...g.children].some((b) => !b.hidden);
+    for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || !g.children.length;
     rovingFerramentas?.();
     acertarSetasFila();
   }
-  // "Mais…": a lista completa, agrupada, numa janela (<dialog> modal, Esc fecha).
-  const bMaisFerr = botao("", "ferramenta ferramentas-mais");
-  bMaisFerr.id = "editor-mais";
-  bMaisFerr.setAttribute("aria-haspopup", "dialog");
-  bMaisFerr.setAttribute("aria-label", "Mais: divisões, elementos e máquinas");
-  bMaisFerr.append(el("span", "ferramentas-mais-icone", "⋯"), el("span", "ferramenta-nome", "Mais…"));
-  fila.append(barraDiv, barra, barraMaq, bMaisFerr);
-  const dlgMais = el("dialog", "editor-dialogo editor-mais");
-  dlgMais.setAttribute("aria-labelledby", "mais-titulo");
-  const maisTitulo = el("h2", null, "Todas as ferramentas");
-  maisTitulo.id = "mais-titulo";
-  const maisSeccao = (titulo, grelha) => { const s = el("section", "editor-mais-seccao"); s.append(el("h3", null, titulo), grelha); return s; };
-  const seccaoMaq = maisSeccao("Máquinas", maquinasMais);
-  const seccaoDiv = maisSeccao("Divisões", divisoesMais);
-  const seccaoEl = maisSeccao("Elementos", elementosMais);
-  const maisFechar = botao("Fechar");
-  maisFechar.id = "mais-fechar";
-  const maisBotoes = el("div", "form-botoes");
-  maisBotoes.append(maisFechar);
-  const maisCorpo = el("div", "editor-mais-corpo");
-  maisCorpo.append(seccaoDiv, seccaoEl, seccaoMaq);
-  dlgMais.append(maisTitulo, maisCorpo, maisBotoes);
-  function fecharMais() { if (dlgMais.open) dlgMais.close(); }
-  bMaisFerr.addEventListener("click", () => {
-    definirModo(null);
-    // As permissões do passo valem em todas as secções (ex.: no passo "A casa" não há elementos nem máquinas).
-    acertarBarra();
-    dlgMais.showModal();
-    maisCorpo.scrollTop = 0;
-    maisCorpo.querySelector("button")?.focus();
-  });
-  maisFechar.addEventListener("click", () => { fecharMais(); bMaisFerr.focus({ preventScroll: true }); });
+  fila.append(barraDiv, barra, barraMaq);
 
   const bDesfazer = iconeAcao(botao(""), "anular", "Anular (Ctrl+Z)");
   bDesfazer.setAttribute("aria-keyshortcuts", "Control+Z");
@@ -629,7 +545,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   dlgBotoes.append(dGuardar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
-  raiz.append(principal, menu, lado, dialogo, dlgMais);
+  raiz.append(principal, menu, lado, dialogo);
 
   // ---------------------------------------------------------------- barras (role=toolbar): setas
   /**
@@ -660,7 +576,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       marcar(atual ?? ativos()[0] ?? l[0]);
     };
   }
-  // A linha das ferramentas: uma só paragem do Tab; as setas passam pelos botões à vista dos 3 grupos e "Mais…".
+  // A linha das ferramentas: uma só paragem do Tab; as setas passam pelos botões à vista dos 3 grupos.
   rovingFerramentas = barraComSetas(fila, () => [...fila.querySelectorAll("button")]);
   // Pela ordem em que se veem (os grupos têm `order` no CSS: no computador a seleção vem antes do fundo).
   const ordemVista = (b) => Number(getComputedStyle(b.closest(".editor-acoes-grupo")).order) || 0;
@@ -1185,11 +1101,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function verNaLinha(b) {
     const f = fila.getBoundingClientRect(), r = b.getBoundingClientRect();
     if (!f.width || !r.width) return;
-    // "Mais…" fica fixo no fim da linha: o botão tem de ficar à esquerda dele.
-    const m = b === bMaisFerr ? null : bMaisFerr.getBoundingClientRect();
-    const fim = m?.width ? Math.min(f.right, m.left) : f.right;
     if (r.left < f.left) fila.scrollLeft -= f.left - r.left + 8;
-    else if (r.right > fim) fila.scrollLeft += r.right - fim + 8;
+    else if (r.right > f.right) fila.scrollLeft += r.right - f.right + 8;
   }
 
   function definirModo(m) {
@@ -1199,8 +1112,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (m?.tipo !== "calibrar" && calibracao && (calibracao.pontos?.length ?? 0) < 2) calibracao = null;
     const chave = m?.tipo === "elemento" ? (m.el === "maquina" ? `maquina:${m.modelo}` : m.el) : null;
     for (const [k, b] of Object.entries(ferramentas)) b.setAttribute("aria-pressed", String(k === chave));
-    // A ferramenta ativa está sempre na linha (a do "+" do passo Divisões ou de "Mais…") e à vista nela.
-    if (chave && ferramentas[chave]) { mostrarNaBarra(chave); verNaLinha(ferramentas[chave]); }
+    // A ferramenta ativa (também a do "+" do passo Divisões) fica à vista na linha.
+    if (chave && ferramentas[chave]) verNaLinha(ferramentas[chave]);
     svg.classList.toggle("a-colocar", !!m);
     // Sem ferramenta, nada a dizer (decisão do dono: saiu o texto de ajuda longo por cima da planta).
     if (!m) dica.textContent = "";
@@ -1267,7 +1180,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   bEcra.addEventListener("click", () => { if (emEcraInteiro()) sairEcra(); else entrarEcra(); });
   document.addEventListener("fullscreenchange", depoisEcra);
-  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && ecraCss && !dialogo.open && !dlgMais.open) sairEcra(); });
+  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && ecraCss && !dialogo.open) sairEcra(); });
 
   // ---------------------------------------------------------------- ponteiro
   const pararToqueLongo = () => { clearTimeout(toqueLongo); toqueLongo = null; };
@@ -1507,7 +1420,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     });
   }
   raiz.addEventListener("keydown", (ev) => {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.target.matches?.("input, textarea, select") || dialogo.open || dlgMais.open) return;
+    if (!(ev.ctrlKey || ev.metaKey) || ev.target.matches?.("input, textarea, select") || dialogo.open) return;
     const k = ev.key.toLowerCase();
     if (k === "z" && !ev.shiftKey) { ev.preventDefault(); anular(); } else if (k === "y" || (k === "z" && ev.shiftKey)) { ev.preventDefault(); refazerAcao(); }
   });
@@ -1782,8 +1695,17 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       r.push(caixa("Tem estore?", !!p.estore, mudar((v) => { p.estore = v; if (!v) p.motorizado = false; }), false, `${pre}-estore`));
       r.push(caixa("É motorizado?", !!p.motorizado, mudar((v) => { p.motorizado = v; }), !p.estore, `${pre}-motorizado`));
     }
-    // Tomada: só "É dupla?" (ronda regras; "Por uma inteligente?" só em "Trocar e reparar").
-    if (tipo === "tomada") r.push(caixa("É dupla? (2 tomadas na mesma caixa)", !!p.dupla, mudar((v) => { p.dupla = v; }), false, `${pre}-dupla`));
+    // Tomada (ronda sinalizar): "Quantas?" (simples, dupla, tripla: `caixas`; `dupla` segue por compatibilidade) e a tomada
+    // inteligente na mesma janela (`inteligente`; em "Trocar e reparar" a pergunta "Por um inteligente?" continua a mandar).
+    if (tipo === "tomada") {
+      const s = document.createElement("select");
+      s.id = `${pre}-caixas`;
+      for (const [n, t] of [[1, "Simples (1 tomada)"], [2, "Dupla (2 na mesma caixa)"], [3, "Tripla (3 na mesma caixa)"]]) { const o = document.createElement("option"); o.value = String(n); o.textContent = t; s.append(o); }
+      s.value = String(caixasDe(p));
+      s.addEventListener("change", mudar(() => { p.caixas = Number(s.value); p.dupla = p.caixas === 2; }));
+      r.push(campo("Quantas?", s));
+      r.push(caixa("Tomada inteligente (Wi-Fi, com medição)", !!p.inteligente, mudar((v) => { p.inteligente = v; }), false, `${pre}-inteligente`));
+    }
     if (tipo === "interruptor") {
       const s = document.createElement("select");
       s.id = `${pre}-botoes`;
@@ -1926,7 +1848,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const p = e.props;
     if (e.tipo === "porta") return p.entrada ? "Porta da rua" : "Porta";
     if (e.tipo === "janela") return p.estore ? (p.motorizado ? "Janela com estore motorizado" : "Janela com estore") : "Janela";
-    if (e.tipo === "tomada") return p.inteligente ? "Tomada inteligente" : p.dupla ? "Tomada dupla" : "Tomada";
+    if (e.tipo === "tomada") return `Tomada${caixasDe(p) === 3 ? " tripla" : caixasDe(p) === 2 ? " dupla" : ""}${p.inteligente ? " inteligente" : ""}`;
     if (e.tipo === "interruptor") return `Interruptor de ${p.botoes} ${p.botoes === 1 ? "botão" : "botões"}${comandoDe(p) !== "simples" ? ` (${COMANDOS[comandoDe(p)].nome.toLowerCase()})` : ""}`;
     if (e.tipo === "maquina") return MODELOS[p.modelo]?.nome ?? "Máquina";
     return ELEMENTOS[e.tipo].nome;
@@ -2229,8 +2151,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desfazer = []; refazer = [];
       if (!podeAparelhos && planta && obterElemento(selecionado)) selecionado = null;
       if (modo?.tipo === "elemento" && !podeAparelhos) definirModo(null);
-      if (dlgMais.open) fecharMais();
-      for (const b of [...barraDiv.children, ...divisoesMais.children]) {
+      for (const b of barraDiv.children) {
         const t = tiposDivisao.find((x) => x.nome === b.dataset.divisao);
         if (t) b.setAttribute("aria-label", rotuloDivisao(t));
       }
@@ -2255,24 +2176,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     /** Piso visível (0 = r/c). */
     get piso() { return pisoAtual; },
     mudarPiso: (p) => mudarPiso(p),
-    /**
-     * Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara; todos em "Mais…"). `naBarra`: os nomes dos
-     * botões que ficam na linha (as divisões da casa do passo 1); sem ele, todos.
-     */
-    definirTiposDivisao(lista, naBarra = null) {
-      divisoesNaBarra = Array.isArray(naBarra) ? naBarra : null;
+    /** Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara), todos na linha. */
+    definirTiposDivisao(lista) {
       if (lista === tiposDivisao) { acertarBarra(); return; }
       tiposDivisao = lista;
       desenharBotoesDivisao();
     },
     /**
-     * Máquinas: um botão por modelo (chaves de regras.js MODELOS), pela ordem dada, todos em "Mais…"; `naBarra`: os
-     * modelos que ficam na linha (as escolhidas no passo 2). `janela`: os modelos da lista "Qual é?" da janela da
-     * máquina (os do perfil do imóvel; sem ela, todos).
+     * Máquinas: um botão por modelo (chaves de regras.js MODELOS), pela ordem dada, todos na linha. `janela`: os
+     * modelos da lista "Qual é?" da janela da máquina (os do perfil do imóvel; sem ela, todos).
      */
-    definirMaquinas(lista, janela = null, naBarra = []) {
+    definirMaquinas(lista, janela = null) {
       modelosJanela = Array.isArray(janela) ? janela : null;
-      maquinasNaBarra = Array.isArray(naBarra) ? naBarra : [];
       const l = [...new Set(lista)].filter((m) => MODELOS[m]);
       if (l.join() === modelosMaq.join()) { acertarBarra(); return; }
       modelosMaq = l;
@@ -2288,8 +2203,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (dialogo.open) dialogo.close();
       dialogoAtivo = false;
       rascunho = null;
-      fecharMais();
-      naBarraExtra.clear();
       acertarBarra();
       if (dialogo.parentElement !== raiz) raiz.append(dialogo);
       if (emEcraInteiro()) sairEcra();
@@ -2329,7 +2242,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       return true;
     },
     /**
-     * Os aparelhos da janela "Mais…" (a mesma lista e pela mesma ordem: elementos e depois as máquinas de
+     * Os aparelhos da linha das ferramentas (a mesma lista e pela mesma ordem: elementos e depois as máquinas de
      * definirMaquinas): [{chave, tipo, modelo, nome, props}] — para a grelha "Acrescentar outro aparelho" dos passos.
      */
     aparelhos() {
@@ -2359,7 +2272,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         // Teclado: como Enter numa ferramenta, põe-no logo no meio da divisão (fica selecionado: as setas movem-no).
         const c = centroColocacao();
         definirModo(null);
-        mostrarNaBarra(m.el === "maquina" ? `maquina:${m.modelo}` : m.el);
         adicionarElemento(m.el, c.x, c.y, m.modelo);
       } else {
         definirModo(m);

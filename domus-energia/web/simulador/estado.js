@@ -7,7 +7,7 @@ import {
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
   TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO, FIM_AVISO_FORA,
-  comandoDe,
+  comandoDe, caixasDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente } from "./acoes.js";
@@ -388,8 +388,10 @@ export function normalizarProps(tipo, p) {
     else if (k === "comando") r.comando = comandoDe(v);   // ronda regras: estados antigos sem `comando` ficam "simples"
     else if (k === "modelo") r.modelo = MODELOS[v.modelo] ? v.modelo : o.modelo;
     else if (k === "potencia_w") r.potencia_w = int(v.potencia_w, 0, 100_000, MODELOS[r.modelo]?.w ?? o.potencia_w);
+    else if (k === "caixas") r.caixas = caixasDe(v);   // ronda sinalizar: estados antigos só com `dupla` → 2
     else r[k] = bool(v[k]);
   }
+  if (tipo === "tomada") r.dupla = r.caixas === 2;   // `dupla` segue `caixas` (compatibilidade)
   if (tipo === "janela" && !r.estore) r.motorizado = false;
   return r;
 }

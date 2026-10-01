@@ -6,16 +6,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, migrar, versaoEsquema, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20 } from '../src/catalogo-sementes.js';
 import { pontosDoElemento, pedidosDoElemento, pedidosPontosNovos, plantaNovos, plantaInteligentes } from '../../web/simulador/acoes.js';
 import { pedidosDaSelecao, calcularPreco, encontrarArtigo, PEDIDOS } from '../../web/simulador/preco.js';
 import { plantaDaCasa, aparelhosOmissao, comandoSugerido } from '../../web/simulador/casa.js';
-import { contarPlanta, divisoesDaContagem, sugerirCircuitos, COMANDOS, comandoDe, ELEMENTOS, PROPS_PERMITIDAS } from '../../web/simulador/regras.js';
+import { contarPlanta, divisoesDaContagem, sugerirCircuitos, COMANDOS, comandoDe, ELEMENTOS, PROPS_PERMITIDAS, caixasDe } from '../../web/simulador/regras.js';
 import { pedidosQuadro, resumoQuadro, potenciaSugerida, compartimentosRtiebt, minimoRtiebt, avisosProtecoes, gruposDiferenciais } from '../../web/simulador/quadro.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, normalizarProps } from '../../web/simulador/estado.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_PONTOS_20].filter((a) => a.ativo !== false);
 const CATALOGO_ANTIGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
 const qtd = (pedidos, chave) => pedidos.filter((p) => p.chave === chave).reduce((s, p) => s + p.qtd, 0);
 
@@ -43,7 +43,7 @@ test('migração 15: os artigos da ronda regras entram numa base existente sem d
   const antes = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1 + SEMENTES_PONTOS_20.length);   // a 20 traz a tomada tripla
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'PONTO-LUZ-NOVO'").get().c, 5000);
   for (const s of SEMENTES_PONTOS) assert.ok(db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(s.sku), s.sku);
   const a = db.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'IDR-2P-40A-30MA-A'").get();
@@ -246,4 +246,56 @@ test('potência sugerida nunca abaixo do mínimo da RTIEBT 801.5.2.2 (6,9 kVA co
   s.planta = plantaDaCasa(s.casa, []);
   assert.equal(compartimentosRtiebt(s), null);
   assert.equal(resumoQuadro(s).potencia.minimo_kva, null);
+});
+
+test('ronda sinalizar — tomada tripla: caixas 1–3 (dupla antiga → 2), ponto TOMADA-TRIPLA-NOVA a 65 €, 1 ponto no circuito, migração 20', () => {
+  // Normalização: `caixas` manda; `dupla` segue-a (compatibilidade); estados antigos só com `dupla` passam a 2 caixas.
+  assert.deepEqual(normalizarProps('tomada', { dupla: true }), { dupla: true, inteligente: false, caixas: 2 });
+  assert.deepEqual(normalizarProps('tomada', { caixas: 3 }), { dupla: false, inteligente: false, caixas: 3 });
+  assert.deepEqual(normalizarProps('tomada', { caixas: 2, dupla: false }), { dupla: true, inteligente: false, caixas: 2 });
+  assert.deepEqual(normalizarProps('tomada', { caixas: 7, inteligente: true }), { dupla: false, inteligente: true, caixas: 1 });   // fora de 1–3: simples
+  assert.deepEqual(normalizarProps('tomada', { caixas: 1, dupla: true }), { dupla: true, inteligente: false, caixas: 2 });   // `dupla` posto à mão vale
+  assert.deepEqual(normalizarProps('tomada', { caixas: 'x' }), { dupla: false, inteligente: false, caixas: 1 });
+  assert.deepEqual(normalizarProps('tomada', {}), { dupla: false, inteligente: false, caixas: 1 });
+  assert.equal(caixasDe({ dupla: true }), 2);
+  assert.equal(caixasDe({ caixas: 3, dupla: false }), 3);
+  assert.equal(caixasDe({}), 1);
+  assert.ok(PROPS_PERMITIDAS.includes('caixas'));
+  // Pontos: tripla → ponto_tomada_tripla (o inteligente junta a tomada Wi-Fi, como as outras).
+  const tripla = { tipo: 'tomada', props: { caixas: 3 } };
+  assert.deepEqual(pontosDoElemento(tripla), ['ponto_tomada_tripla']);
+  assert.deepEqual(pontosDoElemento({ tipo: 'tomada', props: { caixas: 2 } }), ['ponto_tomada_dupla']);
+  assert.deepEqual(pedidosDoElemento({ ...tripla, inteligente: true }, 'novo'), ['ponto_tomada_tripla', 'tomada']);
+  assert.equal(PEDIDOS.ponto_tomada_tripla.sku, 'TOMADA-TRIPLA-NOVA');
+  // Preço: 65 € e, no circuito, 1 ponto (como a dupla: RTIEBT 801.5.3).
+  const e = casaT2(['nova']);
+  const tom = e.planta.elementos.find((x) => x.tipo === 'tomada');
+  tom.props = { ...tom.props, caixas: 3, dupla: false };
+  const pontos = pedidosPontosNovos(e.planta, e.servico);
+  assert.equal(qtd(pontos, 'ponto_tomada_tripla'), 1);
+  const preco = calcularPreco(pontos, CATALOGO, null);
+  assert.equal(preco.linhas.find((l) => l.sku === 'TOMADA-TRIPLA-NOVA').preco_iva, 65);
+  const antes = contarPlanta(casaT2(['nova']).planta).reduce((s, c) => s + c.tomadas, 0);
+  assert.equal(contarPlanta(e.planta).reduce((s, c) => s + c.tomadas, 0), antes);
+  // O pedido leva `caixas` e passa na validação do painel.
+  const sim = montarSimulacao(normalizarEstado(e), calcularPreco(pontos, CATALOGO, null), 'base', []);
+  const t = sim.planta.elementos.find((x) => x.id === tom.id);
+  assert.equal(t.props.caixas, 3);
+  assert.equal(t.props.dupla, false);
+  assert.doesNotThrow(() => validarSimulacao(sim));
+  // Migração 20: numa base na versão 19 entra só a tomada tripla; não mexe num artigo do CEO com o mesmo SKU.
+  const db = new DatabaseSync(':memory:');
+  for (let i = 0; i < 19; i++) MIGRACOES[i](db);
+  db.exec('PRAGMA user_version = 19');
+  db.prepare(`INSERT INTO catalogo (sku, nome, categoria, preco_venda_iva_cent, horas_instalacao, especificacoes, atualizado)
+    VALUES ('TOMADA-TRIPLA-NOVA', 'Tripla do CEO', 'outro', 7000, 0, '{}', 'x')`).run();
+  const n0 = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
+  migrar(db);
+  assert.equal(versaoEsquema(db), MIGRACOES.length);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0);
+  assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get().c, 7000);
+  const nova = abrirDb(':memory:');
+  const a = nova.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get();
+  assert.equal(a.c, 6500);
+  assert.equal(JSON.parse(a.e).funcao, 'ponto_tomada_tripla');
 });

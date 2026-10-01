@@ -58,13 +58,15 @@ const NOMES = {
 };
 // Tipos de comando do interruptor (web/simulador/regras.js COMANDOS; "simples" não se escreve).
 const COMANDOS = { simples: "simples", lustre: "lustre", escada: "escada", inversor: "inversor", botao: "botão de pressão" };
+// Quantas tomadas na mesma caixa (regras.js caixasDe: `caixas` 1–3; pedidos antigos só com `dupla` → 2).
+const caixasDe = (p) => { const c = Number(p?.caixas); return c === 2 || c === 3 ? c : p?.dupla ? 2 : 1; };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
   frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)",
   esquentador: "Esquentador elétrico instantâneo", radiador: "Aquecedor / radiador elétrico", hidromassagem: "Hidromassagem / jacuzzi",
   air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
-  carregador_bicicleta: "Carregador de bicicleta / trotinete", toalheiro: "Aquecedor de toalhas",
+  carregador_bicicleta: "Carregador de bicicleta / trotinete", toalheiro: "Aquecedor de toalhas", secador: "Secador de cabelo",
   arca_frigorifica: "Arca / vitrine frigorífica", maquina_cafe: "Máquina de café profissional", servidor: "Servidor / bastidor", compressor: "Compressor",
   soldadura: "Máquina de soldar", maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador de carro elétrico 22 kW",
   arca_congeladora: "Arca congeladora", micro_ondas: "Micro-ondas", exaustor: "Exaustor", cafeteira: "Cafeteira / chaleira", computador: "Computador",
@@ -84,6 +86,7 @@ const ICONES = {
   quadro: [["rect", { x: 13, y: 11, width: 22, height: 26, rx: 3 }, "t"], ["path", { d: "M18 17v6M22.5 17v6M27 17v6M31 17v6M17 30h14" }, "t"]],
   tomada: [["circle", { cx: 24, cy: 24, r: 11.5 }, "t"], ["circle", { cx: 19.8, cy: 24, r: 1.7 }, "c"], ["circle", { cx: 28.2, cy: 24, r: 1.7 }, "c"]],
   tomada_dupla: [["rect", { x: 9.5, y: 16, width: 29, height: 16, rx: 7 }, "t"], ["circle", { cx: 16, cy: 24, r: 1.5 }, "c"], ["circle", { cx: 20.5, cy: 24, r: 1.5 }, "c"], ["circle", { cx: 27.5, cy: 24, r: 1.5 }, "c"], ["circle", { cx: 32, cy: 24, r: 1.5 }, "c"]],
+  tomada_tripla: [["rect", { x: 5, y: 16.5, width: 38, height: 15, rx: 6.5 }, "t"], ["circle", { cx: 10.5, cy: 24, r: 1.4 }, "c"], ["circle", { cx: 14.5, cy: 24, r: 1.4 }, "c"], ["circle", { cx: 22, cy: 24, r: 1.4 }, "c"], ["circle", { cx: 26, cy: 24, r: 1.4 }, "c"], ["circle", { cx: 33.5, cy: 24, r: 1.4 }, "c"], ["circle", { cx: 37.5, cy: 24, r: 1.4 }, "c"]],
   luz: [["path", { d: "M18.3 27.8c-2.1-1.8-3.3-4.3-3.3-7C15 15.9 19 12 24 12s9 3.9 9 8.8c0 2.7-1.2 5.2-3.3 7-1 .9-1.6 2-1.6 3.3v.9h-8.2v-.9c0-1.3-.6-2.4-1.6-3.3z" }, "t"], ["path", { d: "M20.6 35.5h6.8" }, "t"]],
   interruptor: [["rect", { x: 14, y: 12, width: 20, height: 24, rx: 4 }, "t"], ["rect", { x: 20, y: 17.5, width: 8, height: 13, rx: 2 }, "t"]],
   maquina: [["rect", { x: 13, y: 11, width: 22, height: 26, rx: 3 }, "t"], ["circle", { cx: 24, cy: 26, r: 6.5 }, "t"], ["path", { d: "M17 15.5h5" }, "t"]],
@@ -142,6 +145,8 @@ const ICONES = {
   maquina_campainha: [["path", { d: "M15 30a9 9 0 0 1 18 0v2H15z" }, "t"], ["path", { d: "M24 12v3M21 36h6" }, "t"], ["circle", { cx: 24, cy: 41, r: 2.2 }, "c"]],
   maquina_carregador_bicicleta: [["circle", { cx: 13, cy: 31, r: 6 }, "t"], ["circle", { cx: 35, cy: 31, r: 6 }, "t"], ["path", { d: "M13 31l6-10h11l5 10M19 21l5 10h-11M28 17h4.5" }, "t"], ["path", { d: "M24 6l-4 6.5h3.5l-1.5 5 5.5-7h-3.5z" }, "c"]],
   maquina_toalheiro: [["path", { d: "M13 8v32M35 8v32M13 13h22M13 20h22M13 27h22M13 34h22" }, "t"], ["rect", { x: 19, y: 13, width: 10, height: 12, rx: 1.5 }, "c"]],
+  // Secador de cabelo: o corpo redondo, o bico com o ar a sair e a pega para baixo.
+  maquina_secador: [["circle", { cx: 19, cy: 20, r: 8.5 }, "t"], ["path", { d: "M27.5 17h8.5v6h-8.5M17 28.5l-3 10.5h7.5l2-9.5" }, "t"], ["path", { d: "M39.5 16.5c1.5 2.1 1.5 4.9 0 7M43 14.5c2.5 3.3 2.5 7.7 0 11" }, "t"], ["circle", { cx: 19, cy: 20, r: 2.2 }, "c"]],
   maquina_carregador_baterias: [["rect", { x: 9, y: 15, width: 25, height: 18, rx: 2 }, "t"], ["path", { d: "M34 20.5v7M14 24h6M17 21v6M25 24h5" }, "t"]],
   // Divisões (botões do editor, desenharIcone(svg, "divisao", {tipo})): um desenho por tipo de divisão
   // (web/simulador/casa.js tipoDivisao); sem desenho próprio, o quadrado tracejado de "Outra".
@@ -272,7 +277,7 @@ function descrever(e, nomesDivisao) {
   let t = NOMES[e.tipo] || "Elemento";
   if (e.tipo === "porta" && p.entrada) t = "Porta da rua";
   if (e.tipo === "janela" && p.estore) t = p.motorizado ? "Janela com estore motorizado" : "Janela com estore";
-  if (e.tipo === "tomada" && p.dupla) t = "Tomada dupla";
+  if (e.tipo === "tomada" && caixasDe(p) === 3) t = "Tomada tripla"; else if (e.tipo === "tomada" && caixasDe(p) === 2) t = "Tomada dupla";
   if (e.tipo === "luz" && p.brilho) t = "Ponto de luz regulável";
   if (e.tipo === "interruptor") t = `Interruptor de ${Math.min(4, Math.max(1, Math.round(numero(p.botoes, 1))))} ${numero(p.botoes, 1) > 1 ? "botões" : "botão"}${COMANDOS[p.comando] && p.comando !== "simples" ? ` (${COMANDOS[p.comando]})` : ""}`;
   if (e.tipo === "maquina") t = `${MODELOS[p.modelo] || MODELOS.outro} (${Math.round(numero(p.potencia_w))} W)`;
@@ -286,7 +291,8 @@ function descrever(e, nomesDivisao) {
 function icone(e) {
   const p = e.props || {};
   if (e.tipo === "janela" && p.estore) return ICONES.janela_estore;
-  if (e.tipo === "tomada" && p.dupla) return ICONES.tomada_dupla;
+  if (e.tipo === "tomada" && caixasDe(p) === 3) return ICONES.tomada_tripla;
+  if (e.tipo === "tomada" && caixasDe(p) === 2) return ICONES.tomada_dupla;
   if (e.tipo === "maquina" && ICONES[`maquina_${p.modelo}`]) return ICONES[`maquina_${p.modelo}`];
   if (e.tipo === "divisao") return ICONES[`divisao_${p.tipo}`] || ICONES.divisao_outra;
   return ICONES[e.tipo] || ICONES.maquina;

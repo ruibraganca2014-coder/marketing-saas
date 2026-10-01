@@ -149,19 +149,7 @@ input, select { min-height: 44px; }
 .ferramenta:hover { border-color: var(--musgo); }
 .ferramenta[aria-pressed="true"] { border-color: var(--musgo); background: var(--musgo); color: var(--sobre-musgo); }
 .ferramenta[aria-pressed="true"] svg { color: var(--sobre-musgo); }
-.editor-ferramentas > .ferramentas-mais { margin-left: 4px; padding-left: 10px; border: 2px dashed var(--borda); }
-.editor-ferramentas > .ferramentas-mais:hover { border-color: var(--musgo); }
-/* "Mais…" fixo no fim da linha (a linha desliza por baixo dele): sempre à vista, qualquer que seja a largura. */
-.editor-ferramentas > .ferramentas-mais { position: sticky; right: 0; z-index: 1; margin-left: auto; box-shadow: -8px 0 0 var(--fundo); }
-.editor-ferramentas { scroll-padding-right: 100px; }
-/* Telemóvel: a linha é o carrossel (as setas ‹ › passam de página em página; já não dobra — B11 revisto); "Mais…" é só
-   o último botão (não tapa a 3.ª ferramenta). */
-@media (max-width: 599px) {
-  .editor-ferramentas > .ferramentas-mais { position: static; margin-left: 4px; box-shadow: none; }
-  .editor-ferramentas { scroll-padding-right: 0; }
-}
-.ferramentas-mais-icone { font-size: 1.1rem; line-height: 1; }
-/* Janela "Mais…": a lista completa, agrupada (divisões, elementos, máquinas), em grelha. */
+/* Janela "Acrescentar outro aparelho" (app.js; a mesma grelha que era a do "Mais…", que saiu na ronda sinalizar). */
 .editor-dialogo.editor-mais { width: min(720px, calc(100vw - 24px)); }
 .editor-mais > h2 { margin: 0; padding: 18px 16px 0; }
 .editor-mais-corpo { display: grid; align-content: start; gap: 14px; padding: 12px 16px; }
@@ -684,6 +672,11 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .div-tab:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
 .div-tab[aria-selected="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
 .div-tab.falta { border-color: var(--alarme-texto); box-shadow: inset 0 -3px 0 var(--alarme-texto); }
+/* Escolha em falta (app.js assinalar; decisão do dono: sem mensagem vermelha): o grupo ou cartão que falta responder fica com
+   um contorno vermelho a pulsar ~2 s (a classe sai ao fim de 2 s); com movimento reduzido, o contorno fica parado. */
+.em-falta { outline: 3px solid var(--alarme-texto); outline-offset: 4px; border-radius: 12px; animation: em-falta .5s ease-in-out 4; }
+@keyframes em-falta { 0%, 100% { outline-color: var(--alarme-texto); } 50% { outline-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .em-falta { animation: none; } }
 .div-tab-icone { width: 26px; height: 26px; flex: none; }
 .div-tab-feita { font-weight: 800; color: var(--musgo-texto); }
 .div-tab[aria-selected="true"] .div-tab-feita { color: inherit; }
@@ -707,7 +700,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 /* ---------- Ronda B: passo "Quadro elétrico" — só a foto (obrigatória); o esquema do quadro faz-se no painel ---------- */
 .quadro-foto > .ajuda { font-size: .92rem; }
 .quadro-foto .msg[hidden] { display: none; }
-#quadro-msg[hidden] { display: none; }
 /* Esquema do quadro no relatório pormenorizado (web/conta.js; quadro-desenho.js desenharEsquemaQuadro): só para ver. */
 .qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
 .qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }

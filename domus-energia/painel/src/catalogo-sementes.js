@@ -191,3 +191,8 @@ export const SEMENTES_PONTOS = [
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
     especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
 ];
+// Ronda sinalizar (decisão do dono, 2026-10-01): a tomada tripla (3 na mesma caixa; `props.caixas` = 3) — ponto novo com
+// preço fechado, 65 €. Entra pela migração 20 (INSERT OR IGNORE; o CEO edita o preço no painel).
+export const SEMENTES_PONTOS_20 = [
+  ponto('TOMADA-TRIPLA-NOVA', 'Tomada tripla nova (3 tomadas na mesma caixa; material e mão de obra)', 65, 'ponto_tomada_tripla'),
+];

@@ -5,7 +5,7 @@
 // (e imagens data:, por isso o SVG entra no canvas como data: URL).
 
 import { desenharPlanta, desenharIcone, nomePiso, legendaAcoes } from "./planta-svg.js";
-import { ELEMENTOS, MODELOS, pisoDe } from "./regras.js";
+import { ELEMENTOS, MODELOS, pisoDe, caixasDe } from "./regras.js";
 import { ACOES, temAcao } from "./acoes.js";
 import { pdfDeImagens, A4_PT } from "./pdf.js";
 
@@ -22,17 +22,17 @@ const PX_A4 = [1240, 1754];   // A4 a 150 dpi, ao alto
 const listaPisos = (n) => Array.from({ length: Math.max(1, n) }, (_, i) => i);
 const paisagem = (planta) => Number(planta.largura_cm) >= Number(planta.altura_cm);
 
-/** Ícones usados num piso (um por desenho: janela com estore, tomada dupla e cada máquina contam à parte). */
+/** Ícones usados num piso (um por desenho: janela com estore, tomada dupla ou tripla e cada máquina contam à parte). */
 function legenda(planta, piso) {
   const vistos = new Map();
   for (const e of planta.elementos ?? []) {
     if (pisoDe(e) !== piso || !ELEMENTOS[e.tipo]) continue;
     const p = e.props ?? {};
-    const variante = e.tipo === "janela" && p.estore ? "estore" : e.tipo === "tomada" && p.dupla ? "dupla" : e.tipo === "maquina" ? String(p.modelo) : "";
+    const variante = e.tipo === "janela" && p.estore ? "estore" : e.tipo === "tomada" && caixasDe(p) > 1 ? (caixasDe(p) === 3 ? "tripla" : "dupla") : e.tipo === "maquina" ? String(p.modelo) : "";
     const chave = `${e.tipo}:${variante}`;
     if (vistos.has(chave)) continue;
     const nome = e.tipo === "maquina" ? (MODELOS[p.modelo]?.nome ?? ELEMENTOS.maquina.nome)
-      : variante === "estore" ? "Janela com estore" : variante === "dupla" ? "Tomada dupla" : ELEMENTOS[e.tipo].nome;
+      : variante === "estore" ? "Janela com estore" : variante === "dupla" ? "Tomada dupla" : variante === "tripla" ? "Tomada tripla" : ELEMENTOS[e.tipo].nome;
     vistos.set(chave, { tipo: e.tipo, props: p, nome });
   }
   return [...vistos.values()];

@@ -28,6 +28,8 @@ export const COMANDOS = {
 const COMANDO_OMISSAO = "simples";
 /** O comando de um interruptor da planta (valor desconhecido ou em falta → simples). */
 export const comandoDe = (props) => (COMANDOS[props?.comando] ? props.comando : COMANDO_OMISSAO);
+// Quantas tomadas na mesma caixa (regras.js caixasDe: `caixas` 1–3; pedidos antigos só com `dupla` → 2).
+const caixasDe = (p) => { const c = Number(p?.caixas); return c === 2 || c === 3 ? c : p?.dupla ? 2 : 1; };
 
 /** "escada (2 comutadores)", "inversor (4 sítios: 2 comutadores + 2 inversores)", "simples (1 interruptor)"… */
 export function descreverComando(comando, n = 1) {
@@ -80,6 +82,7 @@ const SIMBOLOS = {
   // Tomada com terra: a corda do lado da parede (em cima), o semicírculo para a divisão, a haste e o traço do PE.
   tomada: [["path", { d: "M12 18h24M12 18a12 12 0 0 0 24 0M24 30v10M24 18v7" }, "t"]],
   tomada_dupla: [["path", { d: "M12 18h24M12 18a12 12 0 0 0 24 0M24 30v10M24 18v7M19 40h10" }, "t"]],
+  tomada_tripla: [["path", { d: "M12 18h24M12 18a12 12 0 0 0 24 0M24 30v10M24 18v7M19 40h10M19 35.5h10" }, "t"]],
   // Comandos: círculo com alavanca; os traços na ponta dizem o tipo (1 = simples; 2 = lustre; dos dois lados = escada;
   // dos dois lados na ponta e a meio = inversor).
   interruptor_simples: [["circle", { cx: 22, cy: 32, r: 4 }, "t"], ["path", { d: "M24.8 29.2L36 13M36 13l3.3 2.3" }, "t"]],
@@ -95,7 +98,7 @@ const SIMBOLOS = {
   janela: [["path", { d: "M8 22h32M8 26h32M8 20v8M40 20v8" }, "t"]],
 };
 const NOME_SIMBOLO = {
-  luz: "Ponto de luz", tomada: "Tomada com terra (PE)", tomada_dupla: "Tomada dupla com terra (PE)",
+  luz: "Ponto de luz", tomada: "Tomada com terra (PE)", tomada_dupla: "Tomada dupla com terra (PE)", tomada_tripla: "Tomada tripla com terra (PE)",
   interruptor_simples: "Interruptor simples", interruptor_lustre: "Comutador de lustre", interruptor_escada: "Comutador de escada",
   interruptor_inversor: "Inversor", botao: "Botão de pressão", campainha: "Campainha", quadro: "Quadro elétrico",
   aparelho: "Aparelho de utilização (n.º: ver lista)", detetor: "Detetor (movimento / porta)", porta: "Porta", janela: "Janela",
@@ -107,7 +110,7 @@ export function simboloDe(e) {
   const p = e?.props ?? {};
   switch (e?.tipo) {
     case "luz": return "luz";
-    case "tomada": return p.dupla ? "tomada_dupla" : "tomada";
+    case "tomada": return caixasDe(p) === 3 ? "tomada_tripla" : caixasDe(p) === 2 ? "tomada_dupla" : "tomada";
     case "interruptor": return comandoDe(p) === "botao" ? "botao" : `interruptor_${comandoDe(p)}`;
     case "botao_pressao": case "botao": return "botao";
     case "campainha": return "campainha";

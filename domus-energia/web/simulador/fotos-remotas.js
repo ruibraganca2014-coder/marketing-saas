@@ -165,7 +165,9 @@ export function abrirFotoRemota({ chave, rotulo, sim, urlApi, credenciais, aoFic
       return;
     }
     if (parado) return;
-    const base = `${location.origin}${location.pathname.replace(/[^/]*$/, "")}`;
+    // Em localhost o telemóvel não chega ao computador: o lançador local põe em config.js o endereço na rede Wi-Fi.
+    const origemQr = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) && window.DOMUS?.fotosBase ? window.DOMUS.fotosBase : location.origin;
+    const base = `${origemQr}${location.pathname.replace(/[^/]*$/, "")}`;
     const url = `${base}foto.html#t=${t.token}&k=${encodeURIComponent(chave)}`;
     try {
       qr.replaceChildren(svgQR(url, { rotulo: `Código QR para abrir ${rotulo} no telemóvel`, tamanho: 200 }));

@@ -85,6 +85,7 @@ export const PEDIDOS = {
   ponto_luz: { sku: "PONTO-LUZ-NOVO", nome: "Ponto de luz novo", procura: comFuncao("ponto_luz") },
   ponto_tomada: { sku: "TOMADA-NOVA", nome: "Tomada nova", procura: comFuncao("ponto_tomada") },
   ponto_tomada_dupla: { sku: "TOMADA-DUPLA-NOVA", nome: "Tomada dupla nova", procura: comFuncao("ponto_tomada_dupla") },
+  ponto_tomada_tripla: { sku: "TOMADA-TRIPLA-NOVA", nome: "Tomada tripla nova", procura: comFuncao("ponto_tomada_tripla") },
   ponto_interruptor: { sku: "INTERRUPTOR-NOVO", nome: "Interruptor novo", procura: comFuncao("ponto_interruptor") },
   comutador_escada: { sku: "COMUTADOR-ESCADA", nome: "Comutador de escada", procura: comFuncao("comutador_escada") },
   inversor: { sku: "INVERSOR", nome: "Inversor de grupo", procura: comFuncao("inversor") },

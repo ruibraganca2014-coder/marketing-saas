@@ -20,6 +20,7 @@
 // Uso: npm run instalar (uma vez) e depois npm start.
 
 import http from 'node:http';
+import { networkInterfaces } from 'node:os';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -40,8 +41,15 @@ const PORTA_MQTT = Number(process.env.PORTA_MQTT || 1883);
 const PORTA_PAINEL = 8081;
 const PORTA_PAGAMENTOS = 8082;
 const ORIGEM = `http://localhost:${PORTA_SITE}`;
+// Rede local (Wi-Fi): o site ouve em todas as interfaces para o telemóvel abrir foto.html pelo QR
+// (http://<IP do computador>:8090 — a porta 8080 costuma estar bloqueada na rede por antivírus/firewall, por isso a
+// rede local usa outra, PORTA_REDE); essas origens também são aceites pelo painel. REDE_LOCAL=0 desliga.
+const REDE_LOCAL = process.env.REDE_LOCAL !== '0';
+const PORTA_REDE = Number(process.env.PORTA_REDE || 8090);
+const IPS_LOCAIS = REDE_LOCAL ? Object.values(networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a.address) : [];
+const ORIGENS_REDE = IPS_LOCAIS.map((ip) => `http://${ip}:${PORTA_REDE}`);
 // Origens aceites pelo painel nos pedidos que alteram dados (CSRF): a do site e as de ORIGENS_EXTRA.
-const ORIGENS = [ORIGEM, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
+const ORIGENS = [ORIGEM, ...ORIGENS_REDE, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
 
 for (const s of ['painel', 'planos', 'clientes', 'pagamentos', 'pedidos-admin', 'motor']) {
   mkdirSync(join(DADOS, s), { recursive: true });
@@ -171,7 +179,10 @@ async function servirSite(req, res, caminho) {
   if (caminho === '/config.js') {
     // O config.js real aponta para o servidor; aqui troca-se só o mqttUrl.
     const original = await readFile(join(WEB, 'config.js'), 'utf8');
-    const local = original.replace(/mqttUrl:\s*"[^"]*"/, `mqttUrl: "ws://localhost:${PORTA_SITE}/mqtt"`);
+    let local = original.replace(/mqttUrl:\s*"[^"]*"/, `mqttUrl: "ws://localhost:${PORTA_SITE}/mqtt"`);
+    // O QR das fotos (fotos-remotas.js) usa este endereço quando o site está aberto em localhost.
+    if (ORIGENS_REDE[0]) local = local.replace(/^};/m, `  fotosBase: "${ORIGENS_REDE[0]}",
+};`);
     res.writeHead(200, { 'content-type': TIPOS['.js'], 'cache-control': 'no-store' });
     return res.end(local);
   }
@@ -194,12 +205,13 @@ async function servirSite(req, res, caminho) {
 // "//x" seria lido como outro anfitrião; assim o caminho é sempre só o caminho.
 const caminhoDe = (url) => new URL(`${ORIGEM}${url.startsWith('/') ? url : `/${url}`}`).pathname;
 
-const servidor = http.createServer((req, res) => {
+function atender(req, res) {
   const caminho = caminhoDe(req.url);
   const porta = destino(caminho);
   if (porta) return reencaminhar(req, res, porta);
   servirSite(req, res, caminho).catch(() => { res.writeHead(500); res.end(); });
-});
+}
+const servidor = http.createServer(atender);
 
 const wss = new WebSocketServer({ noServer: true });
 servidor.on('upgrade', (req, socket, cabeca) => {
@@ -209,6 +221,8 @@ servidor.on('upgrade', (req, socket, cabeca) => {
 });
 
 await new Promise((ok) => servidor.listen(PORTA_SITE, '127.0.0.1', ok));
+// Segundo ouvinte, só para a rede local (o mesmo site; sem MQTT por WebSocket).
+if (REDE_LOCAL) await new Promise((ok) => http.createServer(atender).listen(PORTA_REDE, '0.0.0.0', ok));
 
 console.log(`
 Domus Energia a correr localmente
@@ -218,6 +232,7 @@ Domus Energia a correr localmente
   Conta:          ${ORIGEM}/conta.html     (códigos dos emails aparecem aqui, "[email] para ...")
   Painel:         ${ORIGEM}/painel/        (credenciais do CEO em local/dados/local.json)
   MQTT:           mqtt://localhost:${PORTA_MQTT}  e  ws://localhost:${PORTA_SITE}/mqtt
+  Rede local:     ${ORIGENS_REDE.join('  ') || '(desligada)'}   (telemóvel no mesmo Wi-Fi; QR das fotos; REDE_LOCAL=0 desliga)
 Ctrl+C para parar.
 `);
 

@@ -43,6 +43,8 @@
       <!-- Depois de "Começar de novo" (o do topo): aviso pequeno, não bloqueante, com "Anular" durante 10 s
            (app.js recomecarComAnular); vazio, não se vê. -->
       <div class="sim-anular" id="sim-anular" role="status"></div>
+      <!-- Escolha em falta (app.js assinalar): o grupo pulsa a vermelho, sem mensagem; o que falta é lido só pelos leitores de ecrã. -->
+      <p class="so-leitor" id="sim-falta-leitor" role="status"></p>
 
       <nav class="sim-progresso" aria-label="Passos do simulador">
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
@@ -76,7 +78,6 @@
             <div class="escolhas-grelha problemas" id="inicio-problema"></div>
           </fieldset>
           <div class="msg erro sim-perigo" id="inicio-perigo" role="alert" hidden></div>
-          <p class="msg" id="servico-msg" role="status" hidden></p>
         </section>
 
         <!-- 2. A casa -->
@@ -90,8 +91,7 @@
             <legend>Tipologia</legend>
             <div class="escolhas-grelha seis" id="casa-tipologias"></div>
           </fieldset>
-          <!-- Tipo e tipologia vêm por escolher: o "Seguinte" pede-os (app.js bloquearCasa). -->
-          <p class="msg" id="casa-msg" role="status" hidden></p>
+          <!-- Tipo e tipologia vêm por escolher: o "Seguinte" assinala o grupo que falta (app.js bloquearCasa). -->
           <div class="duas" id="casa-negocio" hidden>
             <label>Área (m²)<input id="casa-area" type="number" inputmode="numeric" min="10" max="5000" step="1"></label>
           </div>
@@ -161,7 +161,6 @@
             <div id="quadro-foto-corpo"></div>
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
           </div>
-          <p class="msg erro" id="quadro-msg" role="alert" hidden></p>
         </section>
 
         <!-- 6. Divisões: só contar o que existe (decisão do dono): separadores, um cartão por divisão com os aparelhos da planta (− n +) e "Acrescentar outro aparelho"; sem fotos, perguntas obrigatórias nem "Divisão verificada" (o que fazer a cada um e as fotos: passo 7) -->
@@ -199,7 +198,6 @@
           <h2 id="titulo-10" tabindex="-1">8. Melhorias</h2>
           <p class="sub-passo">Opcional. Preço para esta casa; valor final após a visita.</p>
           <div class="msg info" id="melhorias-estado" role="status" hidden></div>
-          <p class="msg erro" id="melhorias-msg" role="status" hidden></p>
           <!-- Ronda de correções (B3): o quadro elétrico — Manter como está / Melhorar (com a proteção) / Quadro novo (app.js
                desenharQuadroMelhorias; estado.mexerQuadro, estado.quadro.pacote/protecoes/quadro_novo como antes). O pacote
                "Quadro seguro" (cartão abaixo) = Completa + diferenciais Wi-Fi (melhorias.js). -->
@@ -332,7 +330,6 @@
             <div class="escolhas-grelha tres-curtas" id="avaria-urgencia"></div>
           </fieldset>
           <p class="msg info" id="avaria-preco" aria-live="polite" hidden></p>
-          <p class="msg" id="avaria-msg" role="status" hidden></p>
         </section>
 
         <!-- Enviado -->
