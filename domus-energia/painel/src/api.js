@@ -21,6 +21,7 @@ import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
+import { criarLeituraSimulador } from './leitura-simulador.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -173,6 +174,8 @@ export function criarApi(ctx) {
   // Fotos do simulador e leitura automática da foto do quadro (fotos.js, leitura-quadro.js).
   const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
   const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
+  // Leitura da foto do quadro no simulador, antes do pedido (POST /api/simulador/ler-quadro; leitura-simulador.js).
+  const lerQuadroSimulador = criarLeituraSimulador({ config, registo, relogio, leitor: ctx.leitor ?? null });
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
@@ -1399,6 +1402,10 @@ export function criarApi(ctx) {
       if (caminho === '/api/orcamento/fotos') {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await fotoPublica(req, res, ip);
+      }
+      if (caminho === '/api/simulador/ler-quadro') {
+        if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
+        return await lerQuadroSimulador(req, res, ip);
       }
       if (caminho === '/api/catalogo') {
         if (req.method !== 'GET' && req.method !== 'HEAD') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET' });

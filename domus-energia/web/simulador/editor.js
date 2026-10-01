@@ -2162,6 +2162,24 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
+    /** Ronda A: ajusta e centra a vista na planta (o "Ver tudo"): ao abrir uma planta guardada, ao mudar de passo… */
+    verTudo() {
+      if (!planta) return;
+      verTudo();
+      desenhar();
+    },
+    /**
+     * Ronda A ("Carregar a planta" no Início): usa `r` = fundo.js lerFundo() como planta de fundo, como o "Planta de
+     * fundo" do "⋯" (encaixada na planta, que fica com a proporção da imagem).
+     */
+    usarFundo(r) {
+      if (!planta || !r?.imagem) return;
+      memorizar();
+      aspetoFundo = r.altura / r.largura;
+      encaixarFundo(r.imagem, aspetoFundo);
+      verTudo();
+      confirmar("Planta carregada. Ponha as divisões por cima dela.");
+    },
     /**
      * Lote 7: ação por omissão do serviço ("novo" ou "manter"): os aparelhos com outra ação levam a marca (M, R, S, N)
      * na planta, com a legenda no "⋯" e na impressão. null = sem marcas.

@@ -118,15 +118,19 @@ const ACOES_SIM = { manter: "Manter", reparar: "Reparar", substituir: "Substitui
 // Fase 1 (funis; web/simulador/estado.js FUNIS, AVARIA_*): o caso escolhido pelo cliente e a avaria rápida (sem planta).
 const FUNIS_SIM = { primeira: "Primeira vez (obras ou automatizar)", planta: "Já tinha a planta", avaria: "Avaria rápida (sem planta)" };
 const AVARIA_ONDE_SIM = { sala: "Sala", cozinha: "Cozinha", quarto: "Quarto", casa_banho: "Casa de banho", exterior: "Exterior", quadro: "Quadro elétrico", outro: "Outro" };
-const AVARIA_PROBLEMA_SIM = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", outro: "Outro" };
+/** Fotos da avaria: "avaria:foto" (a 1.ª, obrigatória) e "avaria:foto_2"… "avaria:foto_5". */
+const fotoAvaria = (f) => /^avaria:foto(_[2-5])?$/.test(String(obj(f).chave ?? ""));
+const AVARIA_PROBLEMA_SIM = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", faiscas: "Faz faíscas", choque: "Dá choque", outro: "Outro" };
 /** É um pedido da avaria rápida (sem planta)? */
 export const ehAvaria = (sim) => obj(sim).funil === "avaria";
-/** "Tomada sem corrente · Cozinha — «não dá nada»" (avaria rápida); null nos outros pedidos. */
+/** Os nomes de `onde`/`problema` da avaria (ronda B: lista; os pedidos antigos: uma string) juntos com ", ". */
+const nomesAvaria = (v, mapa) => (Array.isArray(v) ? v : v ? [v] : []).map((k) => mapa[k]).filter(Boolean).join(", ");
+/** "Sala, Cozinha — Luz não acende, Disjuntor dispara — «não dá nada»" (avaria rápida); null nos outros pedidos. */
 export function avariaTxt(sim) {
   if (!ehAvaria(sim)) return null;
   const a = obj(obj(sim).avaria);
   const d = typeof a.descricao === "string" && a.descricao.trim() ? ` — «${a.descricao.trim()}»` : "";
-  return `${[AVARIA_PROBLEMA_SIM[a.problema] ?? "Avaria", AVARIA_ONDE_SIM[a.onde]].filter(Boolean).join(" · ")}${d}`;
+  return `${[nomesAvaria(a.onde, AVARIA_ONDE_SIM), nomesAvaria(a.problema, AVARIA_PROBLEMA_SIM) || "Avaria"].filter(Boolean).join(" — ")}${d}`;
 }
 const ORDEM_ACOES = Object.keys(ACOES_SIM);
 const NOMES_UM = {
@@ -311,7 +315,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
     h("h3", { text: "Simulação do cliente" }),
     dados([
       ...(FUNIS_SIM[sim.funil] ? [["Pedido", FUNIS_SIM[sim.funil]]] : []),
-      ...(avaria ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some((f) => obj(f).chave === "avaria:foto") ? " (ver foto)" : ""}`]] : []),
+      ...(avaria ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some(fotoAvaria) ? " (ver foto)" : ""}`]] : []),
       ...linhasVisita(sim),
       ["Casa", avaria ? ["Sem planta", typeof casa.localidade === "string" ? casa.localidade : null].filter(Boolean).join(" · ") : casaTxt || "—"],
       ...(Array.isArray(sim.servico) ? [["Serviço", servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · ")]] : []),
@@ -663,7 +667,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   // Lote 8: urgência e disponibilidade para a visita (primeiro: é o que se usa para marcar).
   const urg = urgenciaDe(s), disp = visitaTxt(s);
   // Fase 1: a avaria rápida (sem planta) — o que o cliente disse, primeiro.
-  if (ehAvaria(s)) por("Avaria", `${avariaTxt(s)}${arr(s.fotos).some((f) => obj(f).chave === "avaria:foto") ? " (ver foto)" : " (sem foto)"}. Pedido sem planta: diagnosticar e orçar a reparação na visita.`);
+  if (ehAvaria(s)) por("Avaria", `${avariaTxt(s)}${arr(s.fotos).some(fotoAvaria) ? " (ver foto)" : " (sem foto)"}. Pedido sem planta: diagnosticar e orçar a reparação na visita.`);
   if (urg === "urgente") por("Urgência", `URGENTE — o cliente diz que está sem luz (avaria)${disp ? `. Disponível: ${disp.toLowerCase()}` : ""}. Marcar a visita o mais cedo possível.`);
   else if (urg === "semana") por("Urgência", `O cliente pede a visita ESTA SEMANA${disp ? ` (${disp.toLowerCase()})` : ""}.`);
   if (disp && urg !== "urgente" && urg !== "semana") por("Visita", `Disponibilidade do cliente: ${disp.toLowerCase()}.`);
@@ -889,6 +893,32 @@ export function blocoLeituraQuadro(leitura, orcamentoId = null, fotoQuadro = nul
     ];
   lin.push(["Confiança", `${CONFIANCA[x.confianca] ?? "—"}${l.modelo ? ` · ${String(l.modelo)}` : ""}${l.quando ? `, ${data(l.quando)}` : ""}`]);
   return com(dados(lin), l.foto_apagada ? aviso("A foto do quadro foi apagada depois desta leitura.") : null);
+}
+
+/**
+ * O quadro como o cliente o deixou no simulador (`simulacao.quadro.leitura_cliente`: lido da foto no simulador e
+ * corrigido por ele, ou desenhado à mão); null nos pedidos sem ele. Ao lado da leitura do servidor, para comparar.
+ */
+export function blocoLeituraCliente(sim) {
+  const l = obj(obj(obj(sim).quadro).leitura_cliente);
+  if (!Object.keys(l).length) return null;
+  const ou = (v, suf) => (numero(v) !== null ? `${num(numero(v))}${suf}` : "?");
+  const contar = (lista, fmt) => {
+    const m = new Map();
+    for (const d of arr(lista)) { const k = fmt(obj(d)); m.set(k, (m.get(k) ?? 0) + 1); }
+    return m.size ? [...m].map(([k, n]) => `${num(n)} × ${k}`).join(", ") : "nenhum";
+  };
+  const g = l.disjuntor_geral && typeof l.disjuntor_geral === "object" ? l.disjuntor_geral : null;
+  const origem = l.origem === "foto" ? (l.corrigida ? "lido da foto no simulador e corrigido pelo cliente" : "lido da foto no simulador (o cliente não mudou)") : "desenhado à mão pelo cliente";
+  return dados([
+    ["Origem", origem],
+    ["Geral", g ? ou(g.amperes, " A") : "sem geral"],
+    ["Diferenciais", contar(l.diferenciais, (d) => `${ou(d.sensibilidade_ma, " mA")} / ${ou(d.amperes, " A")}`)],
+    ["Disjuntores", `${num(arr(l.disjuntores).length)}${arr(l.disjuntores).length ? ` (${contar(l.disjuntores, (d) => ou(d.amperes, " A"))})` : ""}`],
+    ["Módulos livres", numero(l.modulos_livres) !== null ? num(numero(l.modulos_livres)) : "?"],
+    ["Estado", [ESTADOS_QUADRO_FOTO[l.estado] ?? "—", l.fusiveis === true ? "com fusíveis" : null, l.sinais_aquecimento === true ? "sinais de aquecimento" : null].filter(Boolean).join(" · ")],
+    ...(typeof l.notas === "string" && l.notas.trim() ? [["Notas da leitura", l.notas.trim()]] : []),
+  ]);
 }
 
 /** "3 luzes (1 regulável) · 2 interruptores (1 + 2 bot.) · …" dos elementos da planta de uma divisão. */
@@ -1134,10 +1164,10 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
     ...(avaria ? [h("section", { class: "rel-seccao rel-trabalho", id: "rel-avaria", "aria-labelledby": "rel-avaria-titulo" },
       h("h3", { id: "rel-avaria-titulo", text: "AVARIA (pedido sem planta)" }),
       dados([
-        ["Onde", AVARIA_ONDE_SIM[obj(s.avaria).onde] ?? "—"],
-        ["O que se passa", AVARIA_PROBLEMA_SIM[obj(s.avaria).problema] ?? "—"],
+        ["Onde", nomesAvaria(obj(s.avaria).onde, AVARIA_ONDE_SIM) || "—"],
+        ["O que se passa", nomesAvaria(obj(s.avaria).problema, AVARIA_PROBLEMA_SIM) || "—"],
         ["Descrição", typeof obj(s.avaria).descricao === "string" && obj(s.avaria).descricao.trim() ? `«${obj(s.avaria).descricao.trim()}»` : "—"],
-        ["Foto", listaFotos.some((f) => f.chave === "avaria:foto") || arr(s.fotos).some((f) => obj(f).chave === "avaria:foto") ? "ver em baixo" : "sem foto"],
+        ["Foto", listaFotos.some(fotoAvaria) || arr(s.fotos).some(fotoAvaria) ? "ver em baixo" : "sem foto"],
       ]))] : []),
     blocoVerificar,
     avaria ? seccao("Casa", dados([["Imóvel", "Sem planta (avaria rápida)"], ["Deslocação", deslocacaoTxt(s.deslocacao) ?? "—"]])) : seccao("Casa e pisos", dados([
@@ -1168,8 +1198,10 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const estadoLeitura = obj(leitura).estado;
   const blocoLeitura = fotoQuadro || estadoLeitura === "feita" || estadoLeitura === "erro" ? blocoLeituraQuadro(leitura, o.id, fotoQuadro) : null;
   if (blocoLeitura) partes.push(h("section", { class: "rel-seccao", id: "rel-leitura-quadro" }, h("h3", { text: "Leitura automática da foto do quadro (confirmar na visita)" }), blocoLeitura));
+  const blocoCliente = blocoLeituraCliente(s);
+  if (blocoCliente) partes.push(h("section", { class: "rel-seccao", id: "rel-quadro-cliente" }, h("h3", { text: "Quadro descrito pelo cliente no simulador (confirmar na visita)" }), blocoCliente));
   const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
-  if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? "Foto da avaria" : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
+  if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? (outrasFotos.length > 1 ? `Fotos da avaria (${outrasFotos.length})` : "Foto da avaria") : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
     partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva) }),
       dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));

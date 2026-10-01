@@ -668,12 +668,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     // Fase 1: a avaria rápida (sem planta) — uma linha "Reparar" com o diagnóstico, no sítio que o cliente disse.
     if (s.funil === 'avaria') {
       const ONDE = { sala: 'Sala', cozinha: 'Cozinha', quarto: 'Quarto', casa_banho: 'Casa de banho', exterior: 'Exterior', quadro: 'Quadro elétrico', outro: 'Outro' };
-      const PROBLEMA = { sem_corrente: 'tomada sem corrente', luz: 'luz não acende', disjuntor: 'disjuntor dispara', queimado: 'cheiro a queimado', outro: 'avaria' };
+      const PROBLEMA = { sem_corrente: 'tomada sem corrente', luz: 'luz não acende', disjuntor: 'disjuntor dispara', queimado: 'cheiro a queimado', faiscas: 'faz faíscas', choque: 'dá choque', outro: 'avaria' };
       const av = s.avaria && typeof s.avaria === 'object' ? s.avaria : {};
-      const d = novaDivisao(ONDE[av.onde] ?? 'Avaria');
+      const lista = (v) => (Array.isArray(v) ? v : v ? [v] : []);   // ronda B: várias escolhas (os antigos: uma string)
+      const d = novaDivisao(lista(av.onde).map((k) => ONDE[k]).filter(Boolean).join(', ') || 'Avaria');
       const desc = txtCurto(av.descricao, 200);
-      const temFoto = Array.isArray(s.fotos) && s.fotos.some((f) => f?.chave === 'avaria:foto');
-      d.trabalho.push(`Reparar: diagnóstico — ${PROBLEMA[av.problema] ?? 'avaria'}${desc ? ` («${desc}»)` : ''}${temFoto ? '; ver foto' : ''}`);
+      const temFoto = Array.isArray(s.fotos) && s.fotos.some((f) => typeof f?.chave === 'string' && f.chave.startsWith('avaria:foto'));
+      d.trabalho.push(`Reparar: diagnóstico — ${lista(av.problema).map((k) => PROBLEMA[k]).filter(Boolean).join(', ') || 'avaria'}${desc ? ` («${desc}»)` : ''}${temFoto ? '; ver foto' : ''}`);
       d.junta('DIAG-AVARIA', itens.get('DIAG-AVARIA')?.qtd ?? 1);
       divs.push(d);
     }

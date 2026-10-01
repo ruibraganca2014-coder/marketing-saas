@@ -298,6 +298,45 @@ export async function guardarPdfOrcamento(d) {
 }
 const NOME_PDF_ORCAMENTO = "orcamento-domus.pdf";
 
+// ------------------------------------------------------------------ relatório básico em PDF (ronda A)
+/**
+ * O relatório básico (passo "Relatório básico", grátis): a casa, as divisões com os aparelhos, o quadro e a potência
+ * sugerida — sem preços. `d`: {data, casa, divisoes[{nome, itens}], quadro[], potencia}.
+ */
+export function blocosRelatorio(d) {
+  const dataTxt = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" }).format(d.data ?? new Date());
+  return [
+    { tipo: "marca", texto: "Domus Energia" },
+    { tipo: "titulo", texto: "Relatório básico" },
+    { tipo: "data", texto: dataTxt },
+    { tipo: "seccao", texto: "A casa" },
+    { tipo: "texto", texto: d.casa || "—" },
+    { tipo: "seccao", texto: "Divisões" },
+    ...((d.divisoes ?? []).length ? d.divisoes.map((x) => ({ tipo: "item", texto: `${x.nome}: ${x.itens || "sem aparelhos"}` })) : [{ tipo: "item", texto: "Ainda sem divisões." }]),
+    { tipo: "seccao", texto: "Quadro elétrico" },
+    ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })),
+    ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []),
+    { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." },
+  ];
+}
+
+/** Faz o PDF do relatório básico (texto + 1 página por piso da planta) e descarrega-o ("relatorio-domus.pdf"). */
+export async function guardarPdfRelatorio(d) {
+  const paginas = [];
+  for (const c of paginasTexto(blocosRelatorio(d))) paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: A4_PT[0], altura_pt: A4_PT[1] });
+  if (d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length)) {
+    const deitada = paisagem(d.planta);
+    const [wpt, hpt] = deitada ? [A4_PT[1], A4_PT[0]] : A4_PT;
+    for (const piso of listaPisos(d.pisos ?? 1)) {
+      const c = await paginaPiso(d.planta, piso, deitada);
+      paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: wpt, altura_pt: hpt });
+    }
+  }
+  const bytes = pdfDeImagens(paginas);
+  descarregar(bytes, "relatorio-domus.pdf");
+  return bytes;
+}
+
 function descarregar(bytes, nome) {
   const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
   const a = document.createElement("a");

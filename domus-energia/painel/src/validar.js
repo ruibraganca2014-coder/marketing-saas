@@ -123,6 +123,7 @@ export function simulacao(v) {
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
   melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
+  leituraClienteSimulacao(v.quadro && typeof v.quadro === 'object' ? v.quadro.leitura_cliente : undefined);
   return json;
 }
 
@@ -168,18 +169,65 @@ function melhoriasSimulacao(l, margem) {
 }
 
 /**
+ * Passo "Quadro elétrico": o quadro do cliente como ele o deixou (lido da foto no simulador e corrigido, ou descrito à
+ * mão) em `quadro.leitura_cliente` (opcional) = {origem: foto|manual, corrigida, e_quadro_eletrico, disjuntor_geral:
+ * {amperes} | null, diferenciais: [{sensibilidade_ma, amperes}] (≤ 30), disjuntores: [{amperes}] (≤ 80),
+ * modulos_livres, estado, fusiveis, sinais_aquecimento, confianca, notas ≤ 300}; números null = não se sabe.
+ */
+export const LEITURA_ESTADOS = ['bom', 'razoavel', 'antigo', 'mau', 'nao_se_ve'];
+const LEITURA_CAMPOS = ['origem', 'corrigida', 'e_quadro_eletrico', 'disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'sinais_aquecimento', 'confianca', 'notas'];
+function leituraClienteSimulacao(l) {
+  if (l === undefined || l === null) return;
+  const f = (m) => falha(`Quadro (leitura): ${m}.`);
+  if (typeof l !== 'object' || Array.isArray(l)) f('tem de ser um objeto');
+  for (const k of Object.keys(l)) if (!LEITURA_CAMPOS.includes(k)) f(`campo desconhecido (${k.slice(0, 40)})`);
+  const numNulo = (v, min, max, rot) => { if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max)) f(`${rot} entre ${min} e ${max}`); };
+  const boolNulo = (v, rot) => { if (v !== undefined && v !== null && typeof v !== 'boolean') f(`${rot} tem de ser true, false ou null`); };
+  if (!['foto', 'manual'].includes(l.origem)) f('origem inválida (use: foto, manual)');
+  boolNulo(l.corrigida, 'corrigida');
+  boolNulo(l.e_quadro_eletrico, 'e_quadro_eletrico');
+  boolNulo(l.fusiveis, 'fusiveis');
+  boolNulo(l.sinais_aquecimento, 'sinais_aquecimento');
+  const g = l.disjuntor_geral;
+  if (g !== undefined && g !== null) {
+    if (typeof g !== 'object' || Array.isArray(g) || Object.keys(g).some((k) => k !== 'amperes')) f('disjuntor geral inválido');
+    numNulo(g.amperes, 1, 1000, 'amperes do geral');
+  }
+  const lista = (v, max, campos, rot, cada) => {
+    if (v === undefined || v === null) return;
+    if (!Array.isArray(v) || v.length > max) f(`${rot}: lista até ${max}`);
+    for (const x of v) {
+      if (!x || typeof x !== 'object' || Array.isArray(x) || Object.keys(x).some((k) => !campos.includes(k))) f(`${rot}: cada um tem de ser um objeto`);
+      cada(x);
+    }
+  };
+  lista(l.diferenciais, 30, ['sensibilidade_ma', 'amperes'], 'diferenciais', (x) => { numNulo(x.sensibilidade_ma, 1, 3000, 'mA do diferencial'); numNulo(x.amperes, 1, 1000, 'amperes do diferencial'); });
+  lista(l.disjuntores, 80, ['amperes'], 'disjuntores', (x) => numNulo(x.amperes, 1, 1000, 'amperes do disjuntor'));
+  if (l.modulos_livres !== undefined && l.modulos_livres !== null && !(Number.isInteger(l.modulos_livres) && l.modulos_livres >= 0 && l.modulos_livres <= 200)) f('módulos livres entre 0 e 200');
+  if (l.estado !== undefined && l.estado !== null && !LEITURA_ESTADOS.includes(l.estado)) f(`estado inválido (use: ${LEITURA_ESTADOS.join(', ')})`);
+  if (l.confianca !== undefined && l.confianca !== null && !['alta', 'media', 'baixa'].includes(l.confianca)) f('confiança inválida');
+  if (l.notas !== undefined && l.notas !== null && (typeof l.notas !== 'string' || l.notas.length > 300 || CONTROLO_LINHA.test(l.notas))) f('notas até 300 caracteres');
+}
+
+/**
  * Fase 1 (funis): `funil` ∈ primeira, planta, avaria (opcional: pedidos antigos não o têm); `avaria` (só na avaria
- * rápida) = {onde, problema, descricao ≤ 200}, com valores conhecidos.
+ * rápida) = {onde, problema, descricao ≤ 200}, com valores conhecidos. Ronda B: `onde` e `problema` com várias escolhas
+ * (lista de 1 a 7 chaves sem repetidas); os pedidos antigos trazem uma só (string), que continua aceite.
  */
 export const FUNIS = ['primeira', 'planta', 'avaria'];
 export const AVARIA_ONDE = ['sala', 'cozinha', 'quarto', 'casa_banho', 'exterior', 'quadro', 'outro'];
-export const AVARIA_PROBLEMA = ['sem_corrente', 'luz', 'disjuntor', 'queimado', 'outro'];
+export const AVARIA_PROBLEMA = ['sem_corrente', 'luz', 'disjuntor', 'queimado', 'faiscas', 'choque', 'outro'];
 function funilSimulacao(funil, a) {
   if (funil !== undefined && funil !== null && !FUNIS.includes(funil)) falha(`Funil inválido (use: ${FUNIS.join(', ')}).`);
   if (a === undefined || a === null) return;
   if (typeof a !== 'object' || Array.isArray(a)) falha('A avaria tem de ser um objeto.');
-  if (a.onde !== undefined && a.onde !== null && !AVARIA_ONDE.includes(a.onde)) falha(`Avaria: onde inválido (use: ${AVARIA_ONDE.join(', ')}).`);
-  if (a.problema !== undefined && a.problema !== null && !AVARIA_PROBLEMA.includes(a.problema)) falha(`Avaria: problema inválido (use: ${AVARIA_PROBLEMA.join(', ')}).`);
+  const chaves = (v, opcoes, rot) => {
+    if (v === undefined || v === null) return;
+    const l = Array.isArray(v) ? v : [v];
+    if (!l.length || l.length > opcoes.length || new Set(l).size !== l.length || l.some((k) => !opcoes.includes(k))) falha(`Avaria: ${rot} inválido (use: ${opcoes.join(', ')}; uma ou várias, sem repetir).`);
+  };
+  chaves(a.onde, AVARIA_ONDE, 'onde');
+  chaves(a.problema, AVARIA_PROBLEMA, 'problema');
   if (a.descricao !== undefined && a.descricao !== null && (typeof a.descricao !== 'string' || a.descricao.length > 200)) falha('Avaria: descrição até 200 caracteres.');
 }
 

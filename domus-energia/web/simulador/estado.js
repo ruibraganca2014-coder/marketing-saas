@@ -11,7 +11,7 @@ import {
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
-import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
+import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL, normalizarLeitura, sugestoesDaLeitura } from "./quadro.js";
 import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
 
 export const VERSAO = 1;
@@ -25,27 +25,29 @@ export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem d
  * divisões e o resumo). Funis (fase 1): o passo 1 passa a "Início" (o caso do cliente e, na primeira vez, o serviço),
  * "Resumo e preço" passa a "Orçamento" e entra o passo "Avaria" (índice 9, só no funil da avaria rápida). Cada funil
  * usa só alguns passos, por esta ordem (FUNIS). Fase 2: o passo "Melhorias" (índice 10, no fim da lista para os índices
- * de antes não mudarem) fica entre "Trocar e reparar" e o Orçamento (ORDEM_PASSOS).
+ * de antes não mudarem) fica entre "Trocar e reparar" e o Orçamento (ORDEM_PASSOS). Ronda A: entram o "Relatório básico"
+ * (11, grátis, depois da Planta) e o "Relatório completo" (12, depois das Melhorias); a Planta passa para depois das
+ * Divisões.
  */
-export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório básico", "Relatório completo"];
 /** Índices dos passos (os mesmos ids `passo-N` da página). */
-export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10 };
+export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12 };
 /**
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
- * chegou" comparam-se por esta ordem, não pelo índice (o das Melhorias é 10).
+ * chegou" comparam-se por esta ordem, não pelo índice.
  */
-export const ORDEM_PASSOS = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9];
+export const ORDEM_PASSOS = [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8, 9];
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
 /**
  * Funis (fase 1, decisões do dono): o caso escolhido no Início. `passos` pela ordem da barra; `minutos` de cada passo
- * (só para o cliente saber quanto falta). Primeira vez ~14 min; já tenho planta ~5 min; avaria ~2 min. Fase 2: as
- * Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta".
+ * (só para o cliente saber quanto falta). Primeira vez ~15 min; já tenho planta ~6 min; avaria ~2 min. Fase 2: as
+ * Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta". Ronda A: os dois relatórios.
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 3: 2, 4: 2, 5: 1, 6: 2, 10: 1, 7: 1, 8: 1 } },
-  planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 7: 0.5, 8: 1 } },
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 4: 2, 5: 1, 3: 2, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
+  planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 12, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 0.5, 8: 1 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
 export const CHAVES_FUNIL = Object.keys(FUNIS);
@@ -75,12 +77,37 @@ export function marcarVista(e, passo, d, divisoes) {
 /** Serviços do funil "Já tenho a planta": automatizar e reparar (a omissão dos aparelhos é Manter). */
 export const SERVICO_PLANTA = ["automatizar", "reparar"];
 /**
+ * Ronda A: "Já tenho a planta" → "O que precisa?" (`estado.caminho`): automatizar ou reparações (funil "planta", com a
+ * casa guardada e esse serviço), obras (a casa guardada no funil da primeira vez, a passar pela casa e pela planta) ou
+ * carregar a planta (PDF ou foto como fundo, no funil da primeira vez). null = ainda não escolheu (ou outro caso).
+ */
+export const CAMINHOS = ["automatizar", "reparar", "obras", "carregar"];
+/** Ronda A: os passos novos (Relatório básico e Relatório completo): um estado de antes deles não os viu (`relatoriosPorVer`). */
+export const PASSOS_NOVOS = [11, 12];
+/**
  * Avaria rápida (funil 3): onde, o que se passa, descrição (≤ 200) e foto obrigatória (chave FOTO_AVARIA). Vai no
  * pedido em `simulacao.avaria` = {onde, problema, descricao} (§6).
  */
 export const AVARIA_ONDE = { sala: "Sala", cozinha: "Cozinha", quarto: "Quarto", casa_banho: "Casa de banho", exterior: "Exterior", quadro: "Quadro elétrico", outro: "Outro" };
-export const AVARIA_PROBLEMA = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", outro: "Outro" };
+export const AVARIA_PROBLEMA = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", faiscas: "Faz faíscas", choque: "Dá choque", outro: "Outro" };
+/** Ronda A: problemas perigosos — o Início mostra logo "Desligue o disjuntor geral e contacte-nos já." */
+export const AVARIA_PERIGO = ["queimado", "faiscas", "choque"];
+/**
+ * Desenhos de linha dos 7 problemas (caminhos SVG numa caixa 48×48, o mesmo traço dos cartões do Início; app.js
+ * iconeDe): partilhados pelo Início, pelo passo Avaria e pelo "Quadro elétrico — Com problemas" em Trocar e reparar.
+ */
+export const ICONES_PROBLEMA = {
+  sem_corrente: ["M10 10h28v28H10z", "M19 20v5M29 20v5", "M20 32h8"],
+  luz: ["M24 6a11 11 0 0 0-6.5 19.9V31h13v-5.1A11 11 0 0 0 24 6z", "M19 36h10M21 41h6"],
+  disjuntor: ["M14 6h20v36H14z", "M20 13h8v12h-8z", "M24 31v5"],
+  queimado: ["M24 42c-7 0-11-5-11-11 0-7 6-10 6-17 4 3 7 7 7 11 2-2 3-4 3-6 4 4 6 8 6 12 0 6-4 11-11 11z"],
+  faiscas: ["M24 6v8M24 34v8M6 24h8M34 24h8M11 11l6 6M31 31l6 6M37 11l-6 6M17 31l-6 6"],
+  choque: ["M26 6 12 27h10l-3 15 16-22H24z"],
+  outro: ["M18 18a6 6 0 1 1 9 5c-2 1-3 2-3 4v2", "M24 35v.5"],
+};
 export const FOTO_AVARIA = "avaria:foto";
+/** Fotos da avaria (até 5; a 1.ª é obrigatória): "avaria:foto", "avaria:foto_2"… "avaria:foto_5". */
+export const FOTOS_AVARIA = [FOTO_AVARIA, "avaria:foto_2", "avaria:foto_3", "avaria:foto_4", "avaria:foto_5"];
 /**
  * Ordem dos passos gravada no estado (`ordem`: 9 = a de PASSOS, com o Início e a Avaria).
  * Os estados antigos são migrados ao carregar; cada lista dá, para o passo antigo, o passo novo (quem estava no
@@ -102,8 +129,32 @@ export const FOTO_AVARIA = "avaria:foto";
  * sem funil).
  * - `ordem: 9` (10 passos, antes das Melhorias): os mesmos índices (as Melhorias acrescentaram o 10) — carrega-se como os
  *   de agora; quem estava no Orçamento pode voltar às Melhorias pela barra (ORDEM_PASSOS).
+ * - `ordem: 10` (11 passos, antes dos relatórios; a Planta a seguir aos Equipamentos): os mesmos índices, mas a ordem
+ *   mudou — reordenar() (os relatórios ficam por ver; quem estava para lá do primeiro passo por ver volta a ele).
  */
-export const ORDEM = 10;
+export const ORDEM = 11;
+/** Até à ordem 10: a ordem dos passos e os passos de cada funil (antes dos relatórios; a Planta depois dos Equipamentos). */
+const ORDEM_10 = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9];
+const FUNIS_10 = { primeira: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], planta: [0, 6, 10, 7, 8], avaria: [0, 9, 8] };
+/**
+ * Ronda A: um estado de antes (ordem ≤ 10; `e.passo` e `e.visitado` com os índices de agora, pela ordem de então) passa
+ * à ordem de agora. Vistos: os passos até ao mais adiantado de então. O mais adiantado passa a ser o último da
+ * sequência nova até onde está tudo visto (os relatórios, novos, não prendem, mas ficam por ver: relatoriosPorVer);
+ * quem estava para lá do primeiro passo por ver (ex.: na Planta, que agora vem depois do Quadro e das Divisões) volta
+ * a ele. Muda `e`.
+ */
+function reordenar(e) {
+  if (e.funil === "avaria" || !e.funil) return;
+  const lim = ORDEM_10.indexOf(e.visitado);
+  const vistos = new Set(FUNIS_10[e.funil].filter((i) => ORDEM_10.indexOf(i) <= lim));
+  const seq = passosDoFunil(e.funil);
+  let k = 0;
+  while (k + 1 < seq.length && (vistos.has(seq[k + 1]) || PASSOS_NOVOS.includes(seq[k + 1]))) k++;
+  while (k > 0 && PASSOS_NOVOS.includes(seq[k])) k--;
+  if (ordemPasso(e.passo) > ordemPasso(seq[k])) e.passo = seq[Math.min(k + 1, seq.length - 1)];
+  e.visitado = maisAdiantado(seq[k], e.passo);
+  e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => seq.includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
+}
 const MIGRAR = {
   6: [1, 3, 4, 5, 7, 8], 7: [1, 2, 3, 4, 5, 7, 8], ordem2: [1, 2, 5, 3, 4, 7, 8], ordem3: [1, 2, 3, 5, 4, 7, 8],
   ordem4: [1, 2, 5, 4, 7, 8], ordem5: [0, 1, 2, 5, 4, 7, 8], ordem6: [0, 1, 2, 5, 4, 6, 7, 8], ordem7: [0, 1, 2, 3, 5, 4, 6, 7, 8],
@@ -162,10 +213,12 @@ export function estadoNovo() {
     passo: 0,
     visitado: 0,               // passo mais adiantado a que o cliente já chegou
     funil: null,               // fase 1: primeira | planta | avaria (FUNIS); null = ainda no Início sem caso escolhido
+    caminho: null,             // ronda A: "Já tenho a planta" → o que precisa (CAMINHOS); null = por escolher (ou outro caso)
     soCasa: false,             // só a casa guardada (sem simulação em curso): a da conta depois de enviar um pedido
     servico: [],               // Início, funil "primeira" (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
     mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
-    quadroAvaria: null,        // lote 8 ("Trocar e reparar"): quadro com problemas → o que se passa ("" = por descrever); null = sem problemas
+    quadroAvaria: null,        // lote 8 ("Trocar e reparar"): quadro com problemas → a descrição (ronda B: opcional, ""); null = sem problemas
+    quadroProblemas: [],       // ronda B: o que se passa no quadro com problemas — chaves de AVARIA_PROBLEMA (os mesmos 7 cartões da avaria)
     guardado: null,
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
     casa: casaNova(),
@@ -177,7 +230,9 @@ export function estadoNovo() {
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
-    quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },   // + pacote, proteções, pára-raios, quadro novo (quadro.js)
+    // + pacote, proteções, pára-raios, quadro novo (quadro.js); `leitura` = o quadro do cliente (foto lida e corrigida, ou
+    // descrito à mão; quadro.js leituraVazia) e `sugestoes` = o que ela sugere (quadro.js sugestoesDaLeitura; para as Melhorias).
+    quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao(), leitura: null, sugestoes: null },
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
     divisoesEditadas: false,  // o cliente mexeu na lista de divisões: não a refazemos sozinhos
@@ -190,9 +245,10 @@ export function estadoNovo() {
     contacto: { nome: "", telefone: "", email: "", localidade: "", morada: "", mensagem: "" },
     visita: { dias: [], periodo: "qualquer" },   // lote 8 (passo Enviar): dias da semana e período; sem dias = qualquer dia
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
-    avaria: { onde: null, problema: null, descricao: "" },   // funil "avaria" (AVARIA_ONDE, AVARIA_PROBLEMA)
+    avaria: { onde: [], problema: [], descricao: "" },       // funil "avaria": listas de chaves (AVARIA_ONDE, AVARIA_PROBLEMA)
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
     melhoriasPorVer: false,                                  // fase 2: estado de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir
+    relatoriosPorVer: [],                                    // ronda A: o mesmo para os relatórios (PASSOS_NOVOS) num estado de antes deles
     instalado: null,                                         // fase 2: o que o pedido da casa guardada já instala (melhorias.js instaladoDe)
     // Fase 3 (monetização): o que o cliente compra ao enviar — relatório pormenorizado e/ou visita técnica (nada: só o
     // relatório básico, grátis). Um só sítio: outro passo pode escolhê-lo antes; o passo Enviar mostra-o e muda-o.
@@ -391,8 +447,10 @@ export function normalizarEstado(v) {
   if (!v || typeof v !== "object" || v.versao !== VERSAO) return null;
   // Estados antigos (6 passos; 7 passos com outra ordem): o passo antigo passa ao novo (MIGRAR);
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
-  // `ordem: 9` (antes das Melhorias) tem os mesmos índices: carrega-se como um estado de agora.
-  const atual = (v.ordem === ORDEM && v.passos === PASSOS.length) || (v.ordem === 9 && v.passos === 10);
+  // `ordem: 9` (antes das Melhorias) e `ordem: 10` (antes dos relatórios) têm os mesmos índices: carregam-se como um
+  // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
+  const deAgora = v.ordem === ORDEM && v.passos === PASSOS.length;
+  const atual = deAgora || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
   const migrar = atual ? null : v.ordem === 8 ? MIGRAR.ordem8 : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
@@ -411,7 +469,7 @@ export function normalizarEstado(v) {
     e.funil = FUNIS[v.funil] ? v.funil : null;
     let passo = int(v.passo, 0, PASSOS.length - 1);
     if (passo > 0 && !e.funil) e.funil = "primeira";
-    const seq = passosDoFunil(e.funil);
+    const seq = deAgora ? passosDoFunil(e.funil) : FUNIS_10[e.funil ?? "primeira"];
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
     if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
     if (!seq.includes(passo)) passo = 0;
@@ -419,16 +477,24 @@ export function normalizarEstado(v) {
     const vis = int(v.visitado, 0, PASSOS.length - 1);
     e.visitado = seq.includes(vis) && vis !== PASSO.enviar && seq.indexOf(vis) > seq.indexOf(passo) ? vis : passo;
   }
+  e.caminho = CAMINHOS.includes(v.caminho) ? v.caminho : null;
+  if (!deAgora) reordenar(e);
+  else e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
+  // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
+  // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
+  if (e.funil === "planta" && !e.caminho && e.passo !== 0) e.caminho = e.servico.includes("automatizar") ? "automatizar" : "reparar";
+  if (e.funil === "planta" ? !["automatizar", "reparar", null].includes(e.caminho) : e.funil === "primeira" ? !["obras", "carregar", null].includes(e.caminho) : true) e.caminho = null;
   const guardavaVisitado = !migrar || [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);
   e.melhorias = normalizarMelhorias(v.melhorias);
   // Estados de antes das Melhorias (ordem ≤ 9) já para lá delas nunca as viram: a barra não as dá como feitas.
-  const antesMelhorias = !(v.ordem === ORDEM && v.passos === PASSOS.length);
+  const antesMelhorias = !deAgora && !(v.ordem === 10 && v.passos === 11);
   e.melhoriasPorVer = e.funil !== "avaria" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
   e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
   e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;
+  e.quadroProblemas = e.quadroAvaria === null ? [] : chavesAvaria(v.quadroProblemas, AVARIA_PROBLEMA);
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;
   // Antes dos pisos a partir do r/c (0): a planta, as escadas e as divisões são migradas (migrarPisos).
   const pisosAntigos = v.pisosDesde0 !== true;
@@ -494,7 +560,8 @@ export function normalizarEstado(v) {
     if (e.plantaBase === assinaturaCasa(casaAntes, velhas)) e.plantaBase = assinaturaCasa(e.casa, maquinasParaPlanta(e));
   }
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
-  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q) };
+  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q), leitura: normalizarLeitura(q.leitura) };
+  e.quadro.sugestoes = sugestoesDaLeitura(e.quadro.leitura);
   e.quadroEditado = bool(v.quadroEditado);
   // "Fora das divisões" (elementos fora de todas) não é uma divisão: estados antigos traziam-na na lista.
   e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao).filter((d) => !ehFora(d));
@@ -539,12 +606,17 @@ export function normalizarVisita(v) {
   return { dias, periodo: PERIODOS_VISITA[o.periodo] ? o.periodo : "qualquer" };
 }
 
-/** Avaria rápida (funil 3): só valores conhecidos; a descrição sem caracteres de controlo (≤ 200). */
+/** Chaves conhecidas de `mapa`, sem repetidas e pela ordem dele; os estados antigos traziam uma só (string). */
+const chavesAvaria = (v, mapa) => { const l = Array.isArray(v) ? v : typeof v === "string" ? [v] : []; return Object.keys(mapa).filter((k) => l.includes(k)); };
+/**
+ * Avaria rápida (funil 3): "Onde?" e "O que se passa?" com várias escolhas (listas de chaves conhecidas; ronda B); a
+ * descrição sem caracteres de controlo (≤ 200).
+ */
 export function normalizarAvaria(v) {
   const o = v && typeof v === "object" ? v : {};
   return {
-    onde: AVARIA_ONDE[o.onde] ? o.onde : null,
-    problema: AVARIA_PROBLEMA[o.problema] ? o.problema : null,
+    onde: chavesAvaria(o.onde, AVARIA_ONDE),
+    problema: chavesAvaria(o.problema, AVARIA_PROBLEMA),
     descricao: txt(o.descricao, MAX_AVARIA).replace(CONTROLO_LINHA, " "),
   };
 }
@@ -697,7 +769,7 @@ export function quadroParaEnvio(estado, circuitos) {
  */
 export function temProgresso(e, passoInicial = 0) {
   return !!e && !e.soCasa && (e.passo > passoInicial || e.funil !== null || e.servico.length > 0 || e.quadroAvaria !== null
-    || !!e.avaria?.onde || !!e.avaria?.problema || !!e.avaria?.descricao?.trim()
+    || !!e.avaria?.onde?.length || !!e.avaria?.problema?.length || !!e.avaria?.descricao?.trim()
     || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0);
 }
 
@@ -1007,7 +1079,8 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
   const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
   const semArtigo = () => ({ sku: null, horas: null });
   const planta = estado.plantaSaltada ? null : estado.planta;
-  const quadroAvaria = typeof estado.quadroAvaria === "string" ? textoSeguro(estado.quadroAvaria, MAX_AVARIA) : null;
+  // Ronda B: "Faz faíscas, Dá choque — a tampa está solta" (os cartões escolhidos e, se houver, a descrição).
+  const quadroAvaria = typeof estado.quadroAvaria === "string" ? textoSeguro(textoQuadroAvaria(estado), 320) : null;
   const totais = totaisAcao(planta, servico, preco);
   const foraArea = preco.deslocacao?.estado === "fora_area";
   if (quadroAvaria !== null) totais.reparar.aparelhos++;   // o quadro com problemas conta como um aparelho a reparar
@@ -1022,7 +1095,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     quer: querParaEnvio(estado),
     planta: planta ? plantaParaEnvio(planta, servico) : null,
     // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
-    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
+    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria, leitura_cliente: normalizarLeitura(estado.quadro.leitura) },
     trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? []),
     totais_acao: totais,
     // Lote 8 (passo Enviar): disponibilidade para a visita e urgência; null fora da área servida (não há visita).
@@ -1090,13 +1163,29 @@ export function montarSimulacaoAvaria(estado, preco, fotos = []) {
     total: { min: diagnostico, max: diagnostico },   // o diagnóstico, fixo (sem intervalo nem a deslocação, que vai à parte)
     plano_sugerido: null,
     avisos: [],
-    fotos: fotos.filter((f) => f.chave === FOTO_AVARIA).slice(0, 1).map((f) => ({
-      chave: FOTO_AVARIA, tipo: "avaria", divisao: null, divisao_nome: a.onde ? AVARIA_ONDE[a.onde] : null, piso: null, legenda: textoSeguro(f.legenda, 120),
+    fotos: fotos.filter((f) => FOTOS_AVARIA.includes(f.chave)).slice(0, FOTOS_AVARIA.length).map((f) => ({
+      chave: f.chave, tipo: "avaria", divisao: null, divisao_nome: a.onde.length ? textoSeguro(a.onde.map((k) => AVARIA_ONDE[k]).join(", "), 120) : null, piso: null, legenda: textoSeguro(f.legenda, 120),
     })),
   };
 }
-/** Legenda da foto da avaria: "Avaria — Tomada sem corrente · Cozinha". */
-export const legendaAvaria = (a) => ["Avaria", [AVARIA_PROBLEMA[a?.problema], AVARIA_ONDE[a?.onde]].filter(Boolean).join(" · ")].filter(Boolean).join(" — ");
+/** "Sala, Cozinha — Luz não acende, Disjuntor dispara" (onde e o que se passa, com várias escolhas). */
+export function textoAvaria(a) {
+  const n = normalizarAvaria(a);
+  return [n.onde.map((k) => AVARIA_ONDE[k]).join(", "), n.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ");
+}
+/** "Quadro elétrico — Com problemas" (Trocar e reparar): os cartões escolhidos e a descrição, "Faz faíscas, Dá choque — «…»" sem as aspas. */
+export function textoQuadroAvaria(e) {
+  const nomes = chavesAvaria(e.quadroProblemas, AVARIA_PROBLEMA).map((k) => AVARIA_PROBLEMA[k]).join(", ");
+  const desc = typeof e.quadroAvaria === "string" ? e.quadroAvaria.trim().slice(0, MAX_AVARIA) : "";
+  return [nomes, desc].filter(Boolean).join(" — ");
+}
+/** Algum dos problemas é perigoso (queimado, faíscas, choque)? → "Desligue o disjuntor geral e contacte-nos já." */
+export const avariaPerigosa = (a) => normalizarAvaria(a).problema.some((k) => AVARIA_PERIGO.includes(k));
+/** Legenda da foto da avaria: "Avaria — Tomada sem corrente, Luz não acende · Cozinha". */
+export function legendaAvaria(a) {
+  const n = normalizarAvaria(a);
+  return ["Avaria", [n.problema.map((k) => AVARIA_PROBLEMA[k]).join(", "), n.onde.map((k) => AVARIA_ONDE[k]).join(", ")].filter(Boolean).join(" · ")].filter(Boolean).join(" — ");
+}
 
 /**
  * `simulacao.quer` (§6): as listas de chaves (como antes), `quantidades` (o total de cada máquina marcada) e,

@@ -6,13 +6,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estadoNovo, normalizarEstado, temProgresso, montarSimulacao, FUNIS, PASSO, passosDoFunil, guardarCasa, carregarCasa,
-  resumoCasa, usarCasa, temCasa, CHAVE_CASA, FOTO_AVARIA, legendaAvaria,
+  resumoCasa, usarCasa, temCasa, CHAVE_CASA, FOTO_AVARIA, legendaAvaria, avariaPerigosa, ordemPasso, maisAdiantado, AVARIA_PROBLEMA, AVARIA_PERIGO,
 } from '../../web/simulador/estado.js';
 import { plantaDaCasa } from '../../web/simulador/casa.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { acaoDe, precisaEscolher, faltaAcao } from '../../web/simulador/acoes.js';
 import { pdfDeImagens } from '../../web/simulador/pdf.js';
-import { blocosOrcamento } from '../../web/simulador/imprimir.js';
+import { blocosOrcamento, blocosRelatorio } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 import { aVerificarNaVisita, avariaTxt, ehAvaria, estimativaTxt } from '../public/ecras/simulacao.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
@@ -33,12 +33,14 @@ function casaT2() {
   return e;
 }
 
-test('funis: passos e tempos (primeira ~14 min, já tenho planta ~5, avaria ~2; Melhorias antes do Orçamento)', () => {
+test('funis: passos e tempos (primeira ~15 min, já tenho planta ~6, avaria ~2; Melhorias antes do Orçamento; ronda A: relatórios e Planta depois das Divisões)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
-  assert.deepEqual(FUNIS.primeira.passos, [0, 1, 2, 3, 4, 5, 6, PASSO.melhorias, 7, 8]);
-  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.preco, PASSO.enviar]);
+  assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.quadro, PASSO.divisoes, PASSO.planta, PASSO.relatorio,
+    PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
+  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
-  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [14, 5, 2]);
+  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [15, 6, 2]);
+  for (const f of ['primeira', 'planta']) assert.deepEqual(FUNIS[f].passos, [...FUNIS[f].passos].sort((a, b) => ordemPasso(a) - ordemPasso(b)), `${f}: pela ordem dos passos`);
   assert.deepEqual(passosDoFunil(null), FUNIS.primeira.passos, 'sem caso escolhido: os da primeira vez');
 });
 
@@ -49,7 +51,8 @@ test('migração: o passo "Serviço" passa a Início; estados de 9 passos ficam 
   assert.equal(temProgresso(semNada), false);
   const comServico = normalizarEstado(v9({ passo: 0, servico: ['automatizar'] }));
   assert.deepEqual([comServico.passo, comServico.funil, comServico.servico], [0, 'primeira', ['automatizar']]);
-  for (const [antes, depois] of [[1, 1], [3, 3], [6, 6], [7, 7], [8, 7]]) {
+  // (Ronda A: quem estava na Planta passa ao Quadro elétrico, que agora vem antes dela.)
+  for (const [antes, depois] of [[1, 1], [3, 4], [6, 6], [7, 7], [8, 7]]) {
     const e = normalizarEstado(v9({ passo: antes, visitado: antes, servico: ['nova'] }));
     assert.deepEqual([e.passo, e.funil], [depois, 'primeira'], `passo ${antes} → ${depois}`);
   }
@@ -59,7 +62,8 @@ test('migração: o passo "Serviço" passa a Início; estados de 9 passos ficam 
   assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'planta', passo: PASSO.planta }).passo, PASSO.inicio);
   assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'x', passo: 3 }).funil, 'primeira');
   const av = normalizarEstado({ ...estadoNovo(), funil: 'avaria', passo: 9, avaria: { onde: 'cozinha', problema: 'fogo', descricao: 'x'.repeat(300) } });
-  assert.deepEqual([av.avaria.onde, av.avaria.problema, av.avaria.descricao.length], ['cozinha', null, 200]);
+  // Ronda B: onde e problema são listas (a string antiga passa a [valor]; as chaves desconhecidas saem).
+  assert.deepEqual([av.avaria.onde, av.avaria.problema, av.avaria.descricao.length], [['cozinha'], [], 200]);
   assert.equal(temProgresso(av), true);
 });
 
@@ -114,7 +118,7 @@ test('avaria rápida (§6): funil "avaria", serviço reparar, avaria, foto e dia
   const sim = montarSimulacao(e, preco, null, [{ chave: FOTO_AVARIA, legenda }]);
   assert.equal(sim.funil, 'avaria');
   assert.deepEqual(sim.servico, ['reparar']);
-  assert.deepEqual(sim.avaria, { onde: 'cozinha', problema: 'sem_corrente', descricao: 'A tomada do micro-ondas não dá nada' });
+  assert.deepEqual(sim.avaria, { onde: ['cozinha'], problema: ['sem_corrente'], descricao: 'A tomada do micro-ondas não dá nada' }, 'listas (ronda B)');
   assert.equal(sim.planta, null);
   assert.equal(sim.quadro, null);
   assert.deepEqual(sim.trabalho, []);
@@ -133,7 +137,20 @@ test('avaria rápida (§6): funil "avaria", serviço reparar, avaria, foto e dia
   assert.throws(() => validarSimulacao({ ...sim, avaria: { ...sim.avaria, descricao: 'x'.repeat(201) } }), /200 caracteres/);
   // Painel: ficha e "A verificar na visita" (sem potência nem ligação a confirmar num pedido sem casa).
   assert.ok(ehAvaria(sim));
-  assert.equal(avariaTxt(sim), 'Tomada sem corrente · Cozinha — «A tomada do micro-ondas não dá nada»');
+  assert.equal(avariaTxt(sim), 'Cozinha — Tomada sem corrente — «A tomada do micro-ondas não dá nada»');
+  // Ronda B: várias escolhas (listas) e os pedidos antigos (uma string) — os dois formatos.
+  const varias = { ...sim, avaria: { onde: ['sala', 'cozinha'], problema: ['luz', 'disjuntor'], descricao: '' } };
+  assert.doesNotThrow(() => validarSimulacao(varias));
+  assert.equal(avariaTxt(varias), 'Sala, Cozinha — Luz não acende, Disjuntor dispara');
+  const antiga = { ...sim, avaria: { onde: 'sala', problema: 'faiscas', descricao: '' } };
+  assert.doesNotThrow(() => validarSimulacao(antiga));
+  assert.equal(avariaTxt(antiga), 'Sala — Faz faíscas');
+  assert.doesNotThrow(() => validarSimulacao({ ...sim, avaria: { onde: ['exterior'], problema: ['choque'], descricao: '' } }));
+  for (const mau of [{ onde: [] }, { onde: ['sala', 'sala'] }, { problema: ['fogo'] }, { problema: Array(8).fill('luz') }]) {
+    assert.throws(() => validarSimulacao({ ...sim, avaria: { ...sim.avaria, ...mau } }), /inválido/, JSON.stringify(mau));
+  }
+  assert.equal(legendaAvaria({ onde: ['sala', 'cozinha'], problema: ['luz', 'choque'] }), 'Avaria — Luz não acende, Dá choque · Sala, Cozinha');
+  assert.ok(avariaPerigosa({ problema: ['luz', 'choque'] }) && !avariaPerigosa({ problema: ['luz'] }));
   const v = aVerificarNaVisita(sim);
   assert.equal(v[0].tema, 'Avaria');
   assert.match(v[0].texto, /ver foto.*sem planta/i);
@@ -167,4 +184,63 @@ test('PDF do orçamento: blocos sem preços de compra e um PDF válido (uma pág
   const offs = [...s.slice(xref).matchAll(/(\d{10}) 00000 n /g)].map((m) => Number(m[1]));
   assert.equal(offs.length, 11);
   offs.forEach((o, i) => assert.ok(s.slice(o).startsWith(`${i + 1} 0 obj`), `objeto ${i + 1}`));
+});
+
+test('ronda A: estados de antes dos relatórios (ordem 10 e 9) retomam com sentido na ordem nova', () => {
+  const v10 = (x) => ({ ...estadoNovo(), passos: 11, ordem: 10, funil: 'primeira', servico: ['nova'], ...x });
+  const r = (x) => { const e = normalizarEstado(x); return [e.passo, e.visitado, e.relatoriosPorVer]; };
+  // Na Planta (antes: a seguir aos Equipamentos): o Quadro e as Divisões ainda não foram vistos → volta ao Quadro.
+  assert.deepEqual(r(v10({ passo: PASSO.planta, visitado: PASSO.planta })), [PASSO.quadro, PASSO.quadro, []]);
+  // No Quadro: fica; a Planta (vista antes) fica para depois das Divisões.
+  assert.deepEqual(r(v10({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.quadro, PASSO.quadro, []]);
+  // Nas Divisões já tinha visto o Trocar: pode ir até ele pela barra; o Relatório básico fica por ver.
+  assert.deepEqual(r(v10({ passo: PASSO.divisoes, visitado: PASSO.trocar })), [PASSO.divisoes, PASSO.trocar, [PASSO.relatorio]]);
+  // No Orçamento: fica lá; os dois relatórios ficam por ver (a barra não os dá como feitos).
+  assert.deepEqual(r(v10({ passo: PASSO.preco, visitado: PASSO.preco })), [PASSO.preco, PASSO.preco, [PASSO.relatorio, PASSO.completo]]);
+  assert.deepEqual(r(v10({ passo: PASSO.melhorias, visitado: PASSO.melhorias })), [PASSO.melhorias, PASSO.melhorias, [PASSO.relatorio]]);
+  // Já tenho a planta: só o Relatório completo é novo.
+  assert.deepEqual(r(v10({ funil: 'planta', passo: PASSO.trocar, visitado: PASSO.preco })), [PASSO.trocar, PASSO.preco, [PASSO.completo]]);
+  // Ordem 9 (antes das Melhorias) e 8 (antes dos funis): o mesmo, e as Melhorias por ver como antes.
+  const v9 = normalizarEstado({ ...estadoNovo(), passos: 10, ordem: 9, funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco });
+  assert.deepEqual([v9.passo, v9.relatoriosPorVer, v9.melhoriasPorVer], [PASSO.preco, [PASSO.relatorio, PASSO.completo], true]);
+  const v8 = normalizarEstado({ ...estadoNovo(), passos: 9, ordem: 8, passo: PASSO.preco, visitado: PASSO.preco, servico: ['nova'] });
+  assert.deepEqual([v8.passo, v8.relatoriosPorVer], [PASSO.preco, [PASSO.relatorio, PASSO.completo]]);
+  // A avaria não muda.
+  assert.deepEqual(r(v10({ funil: 'avaria', passo: PASSO.avaria, visitado: PASSO.avaria })), [PASSO.avaria, PASSO.avaria, []]);
+  // Estados de agora: os relatórios por ver guardam-se (só os que ficaram para trás).
+  const agora = normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo, 99] });
+  assert.deepEqual(agora.relatoriosPorVer, [PASSO.completo]);
+  assert.deepEqual(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.planta, visitado: PASSO.planta, relatoriosPorVer: [PASSO.completo] }).relatoriosPorVer, []);
+  assert.equal(maisAdiantado(PASSO.planta, PASSO.divisoes, PASSO.quadro), PASSO.planta, 'a Planta vem depois das Divisões');
+});
+
+test('ronda A: "Já tenho a planta" → o que precisa (caminho) segue o funil; compras e avaria do Início guardam-se', () => {
+  const n = (x) => normalizarEstado({ ...estadoNovo(), ...x });
+  assert.equal(n({ funil: 'planta', caminho: 'automatizar' }).caminho, 'automatizar');
+  assert.equal(n({ funil: 'primeira', caminho: 'carregar', servico: ['nova'] }).caminho, 'carregar');
+  assert.equal(n({ funil: 'primeira', caminho: 'automatizar', servico: ['nova'] }).caminho, null, 'automatizar só no "Já tenho a planta"');
+  assert.equal(n({ funil: 'planta', caminho: 'obras' }).caminho, null, 'obras só na primeira vez');
+  assert.equal(n({ funil: 'avaria', caminho: 'reparar' }).caminho, null);
+  assert.equal(n({ funil: 'planta', caminho: 'x' }).caminho, null);
+  // Estado de antes (sem caminho), já para lá do Início no "Já tenho a planta": fica com o do serviço.
+  assert.equal(normalizarEstado({ ...estadoNovo(), passos: 11, ordem: 10, funil: 'planta', servico: ['automatizar', 'reparar'], passo: PASSO.trocar, visitado: PASSO.trocar }).caminho, 'automatizar');
+  // O relatório completo escolhido num passo é o mesmo que o passo Enviar mostra (estado.compras).
+  assert.deepEqual(n({ compras: { relatorio: true, visita: 'sim' } }).compras, { relatorio: true, visita: false });
+  // "O que se passa" no Início: as chaves novas e as perigosas (aviso de segurança).
+  assert.deepEqual(Object.keys(AVARIA_PROBLEMA), ['sem_corrente', 'luz', 'disjuntor', 'queimado', 'faiscas', 'choque', 'outro']);
+  assert.ok(AVARIA_PERIGO.every((k) => AVARIA_PROBLEMA[k]));
+  assert.deepEqual(n({ funil: 'avaria', avaria: { problema: ['choque', 'luz', 'x'] } }).avaria.problema, ['luz', 'choque'], 'várias escolhas');
+});
+
+test('ronda A: relatório básico em PDF — a casa, as divisões, o quadro e a potência, sem preços', () => {
+  const b = blocosRelatorio({
+    data: new Date('2026-10-01T12:00:00Z'), casa: 'Apartamento T2 · 5 divisões', divisoes: [{ nome: 'Sala', itens: '2 tomadas e 1 interruptor' }, { nome: 'Quarto', itens: '' }],
+    quadro: ['8 circuitos · proteção básica', 'Quadro de 24 módulos'], potencia: 'Potência sugerida: 6,9 kVA.',
+  });
+  const txt = b.map((x) => x.texto).join('\n');
+  assert.equal(b[1].texto, 'Relatório básico');
+  assert.match(txt, /Sala: 2 tomadas e 1 interruptor/);
+  assert.match(txt, /Quarto: sem aparelhos/);
+  assert.match(txt, /Potência sugerida: 6,9 kVA/);
+  assert.doesNotMatch(txt, /\d\s?€|compra|fornecedor|SKU/i, 'sem preços');
 });

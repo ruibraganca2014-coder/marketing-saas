@@ -38,7 +38,8 @@
 	# (planta com imagem, até 1 MB): limite de 2 MB aqui, 1,25 MB no serviço.
 	# As fotos do simulador vão a seguir, uma a uma, para /api/orcamento/fotos (≤ 1 MB cada).
 	# A conta de cliente (/api/conta/*: criar/entrar, simulação guardada até 1,5 MB, fotos ≤ 1 MB) também é do painel.
-	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/*
+	# A leitura da foto do quadro no simulador (/api/simulador/ler-quadro, ≤ 1 MB) também.
+	@orcamento path /api/orcamento /api/orcamento/fotos /api/simulador/ler-quadro /api/catalogo /api/conta/*
 	handle @orcamento {
 		request_body {
 			max_size 2MB

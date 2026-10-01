@@ -674,3 +674,96 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-compras .ajuda { margin: 0; }
 .sim-visita h3 { margin: 0; }
 .escolhas-grelha.visita-dias { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+
+/* ---------- Ronda B: passo "Quadro elétrico" — foto obrigatória, leitura e desenho do quadro (quadro-desenho.js) ---------- */
+.quadro-foto > .ajuda { font-size: .92rem; }
+.quadro-foto .msg[hidden], .quadro-sugestoes[hidden], .quadro-ver-desenho[hidden] { display: none; }
+.quadro-sugestoes { padding: 10px 14px; border-radius: 12px; background: var(--areia-suave); }
+.quadro-sugestoes h4 { margin: 0 0 4px; font-size: .95rem; }
+.quadro-sugestoes ul { margin: 0; padding-left: 1.2em; }
+.quadro-ver-desenho { justify-self: start; }
+@media (min-width: 1024px) { .quadro-ver-desenho { display: none; } }
+#quadro-msg[hidden] { display: none; }
+/* O painel da direita mostra o quadro (e não a planta): app.js desenharPainelQuadro. */
+.sim-planta.com-quadro :is(#editor, #planta-tamanho, #planta-origem, #planta-presa, #planta-acao, #planta-vazia, #planta-refazer) { display: none; }
+.sim-painel-trocar[hidden], .sim-quadro[hidden] { display: none; }
+.sim-quadro { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px; }
+.sim-quadro-desenho { flex: none; }
+.qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }
+.qd-calha { fill: var(--borda); stroke: var(--texto-suave); stroke-width: 1; }
+.qd-vazio { fill: var(--texto-suave); font: 600 11px var(--letra); }
+.qd-livre { fill: none; stroke: var(--texto-suave); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.qd-item { cursor: pointer; outline: none; }
+.qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
+.qd-geral .qd-corpo { fill: var(--musgo-claro); }
+.qd-diferencial .qd-corpo { fill: var(--areia-suave); }
+.qd-alavanca { fill: var(--texto); }
+.qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
+.qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }
+.qd-txt { fill: var(--texto); font: 600 10px var(--letra); }
+.qd-txt.forte { font-weight: 800; font-size: 12px; }
+.qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
+.qd-item:hover .qd-corpo { stroke: var(--argila); }
+.qd-item:focus-visible .qd-corpo { stroke: var(--foco); stroke-width: 3.5; }
+.qd-item.sel .qd-corpo { stroke: var(--argila); stroke-width: 3.5; }
+.sim-quadro-editar { display: grid; gap: 10px; }
+.sim-quadro-editar .form-botoes { margin: 0; }
+.qd-sel { display: grid; gap: 8px; padding: 10px 12px; border: 2px solid var(--argila); border-radius: 14px; background: var(--superficie); }
+.qd-sel-titulo { margin: 0; font-weight: 800; }
+.qd-chips { margin: 0; padding: 0; border: 0; }
+.qd-chips legend { padding: 0; margin-bottom: 4px; font-size: .9rem; font-weight: 700; }
+.qd-chips .escolhas-grelha { display: flex; flex-wrap: wrap; gap: 6px; }
+.qd-chips .escolha { min-height: 44px; min-width: 52px; padding: 6px 10px; border-radius: 12px; }
+.qd-livres-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-weight: 700; }
+.escolha.qd-fusiveis { justify-content: flex-start; min-height: 48px; text-align: left; }
+
+/* ---------- Ronda B: "Equipamentos" — a máquina que está na planta fica acesa; "Tirar da planta?" por cima do cartão ---------- */
+.quer-item:has(> .escolha input:checked) > .escolha { box-shadow: inset 0 0 0 2px var(--musgo); }
+.quer-item:has(> .escolha input:checked) .escolha-icone { color: var(--musgo-texto); }
+.quer-item > .quer-tirar { position: absolute; inset: 0; z-index: 2; margin: 0; align-content: center; justify-items: center; text-align: center; border: 2px solid var(--alarme); border-radius: 16px; }
+.quer-item > .quer-tirar .botoes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+
+/* ---------- Ronda B: passo "Avaria" ---------- */
+.avaria-problema-escolhido { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 12px; }
+.avaria-problema-escolhido[hidden], #avaria-problema-caixa[hidden], .avaria-perigo[hidden] { display: none; }
+.btn-link { padding: 4px 2px; min-height: 44px; border: 0; background: none; color: var(--argila-texto); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.btn-link:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; border-radius: 4px; }
+.avaria-perigo { font-weight: 800; }
+/* "Quadro elétrico — Com problemas" (Trocar e reparar): os mesmos 7 cartões da avaria dentro do cartão do quadro. */
+.trocar-quadro-problemas { margin: 0; }
+#trocar-quadro-perigo { margin: 0; }
+/* "É urgente?": a cor da escolha segue a urgência (o texto fica sempre; a borda também muda, não só o fundo). */
+:is(#avaria-urgencia, #visita-urgencia) .escolha:has(input[value="normal"]:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
+:is(#avaria-urgencia, #visita-urgencia) .escolha:has(input[value="semana"]:checked) { border-color: var(--argila); background: var(--areia-suave); }
+:is(#avaria-urgencia, #visita-urgencia) .escolha:has(input[value="urgente"]:checked) { border-color: var(--alarme); background: var(--alarme-suave); box-shadow: inset 0 0 0 1px var(--alarme); }
+.fotos-avaria { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.foto-avaria { display: grid; gap: 6px; justify-items: start; width: min(140px, calc(50% - 5px)); }
+.foto-avaria .foto-quadro { width: 100%; aspect-ratio: 1; object-fit: cover; }
+
+/* ---------- Ronda A: Início (o que precisa, o que se passa, aviso de segurança) e os dois relatórios ---------- */
+#caminhos { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { #caminhos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+#caminhos .escolha.com-icone { min-height: 84px; }
+#caminhos .escolha[hidden] { display: none; }
+.escolhas-grelha.problemas { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.sim-perigo { margin-top: 12px; }
+.sim-perigo[hidden] { display: none; }
+.sim-relatorio, .sim-completo { display: grid; gap: 14px; margin-bottom: 14px; min-width: 0; }
+.sim-relatorio .cartao h3, .sim-completo .cartao h3 { margin: 0 0 10px; font-size: 1.1rem; }
+.sim-relatorio .cartao p { margin: 0 0 8px; }
+.sim-relatorio-figura { margin: 10px 0 0; }
+.sim-relatorio-figura figcaption { color: var(--texto-suave); font-size: .9rem; margin-top: 4px; }
+.sim-relatorio-planta { display: block; width: 100%; height: auto; max-height: 60vh; aspect-ratio: 4 / 3; background: var(--superficie); }
+/* Relatório completo: a amostra tapada e desfocada (nada se lê). */
+.sim-amostra { position: relative; overflow: hidden; }
+.sim-amostra-corpo { display: grid; gap: 10px; filter: blur(3px); user-select: none; pointer-events: none; }
+.sim-amostra-divisao { display: grid; gap: 4px; }
+.sim-amostra-linha { display: flex; justify-content: space-between; gap: 12px; font-size: .95rem; }
+.sim-amostra-linha.forte { font-weight: 800; }
+.sim-amostra-preco { color: var(--texto-suave); white-space: nowrap; }
+.sim-amostra-planta .sim-relatorio-planta { max-height: 180px; }
+.sim-amostra > .ajuda { margin: 10px 0 0; }
+.sim-completo-quero { display: grid; gap: 8px; }
+.sim-completo-quero[hidden] { display: none; }
+.sim-completo-quero .ajuda { margin: 0; }

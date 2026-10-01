@@ -48,7 +48,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       return responder(res, 400, { erro: 'Endereço inválido.' });
     }
     const c = url.pathname;
-    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
+    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/simulador/ler-quadro' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
     if (c === '/painel') {
       res.writeHead(301, { ...CABECALHOS_SEGURANCA, Location: '/painel/', 'Content-Length': 0 });
       return res.end();

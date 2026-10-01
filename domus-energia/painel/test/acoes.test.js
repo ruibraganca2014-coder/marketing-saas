@@ -156,12 +156,12 @@ test('pedido de automatizar/reparar com quadro: avisos e circuitos_existentes pe
 });
 
 test('estados antigos: 6 passos → 9 (cada passo no seu equivalente), sem serviço = Instalação nova; ações da planta guardadas', () => {
-  assert.deepEqual(PASSOS, ['Início', 'A casa', 'Equipamentos', 'Planta', 'Quadro elétrico', 'Divisões', 'Trocar e reparar', 'Orçamento', 'Enviar', 'Avaria', 'Melhorias']);
+  assert.deepEqual(PASSOS, ['Início', 'A casa', 'Equipamentos', 'Planta', 'Quadro elétrico', 'Divisões', 'Trocar e reparar', 'Orçamento', 'Enviar', 'Avaria', 'Melhorias', 'Relatório básico', 'Relatório completo']);
   const velho = { ...estadoNovo(), passos: 6, ordem: 4, passo: 2, visitado: 3 };
   delete velho.servico;
   const e = normalizarEstado(velho);
   assert.equal(e.passo, 5, 'Divisões (2) → 5');
-  assert.equal(e.visitado, 5, 'o quadro (3 → 4) também já foi visto');
+  assert.equal(e.visitado, 3, 'o quadro (3 → 4) também já foi visto; ronda A: a Planta (agora depois das Divisões) também');
   const noResumo = normalizarEstado({ ...estadoNovo(), passos: 6, ordem: 4, passo: 4, visitado: 5 });
   assert.deepEqual([noResumo.passo, noResumo.visitado], [7, 7], 'Resumo (4) → Resumo (7); nunca volta direto ao Enviar');
   assert.deepEqual(e.servico, ['nova']);
