@@ -2,13 +2,17 @@
 // visita, valor da proposta, motivo de perda, histórico e "Converter em cliente e obra" (orçamento aceite).
 // Com simulação: "Relatório técnico" (#/orcamentos/<id>/relatorio), vista para imprimir / guardar PDF.
 // Fotos do cliente (simulador): galeria na ficha (CEO/comercial podem apagar) e no relatório.
+// Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): nos pedidos de avaria/reparação, a secção
+// "Diagnóstico" (o que o cliente descreveu → tipos prováveis e primeiras verificações; lista de verificação com medições;
+// tipo encontrado; conclusão) → POST orcamentos/:id/diagnostico; aparece no relatório técnico e no pormenorizado do cliente.
 // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): relatório pormenorizado, visita, avaria, sinal e restante com o
 // estado; "Libertar relatório ao cliente" (CEO, depois de o cliente o comprar); "Marcar visita" (data e hora, com a
 // disponibilidade do cliente); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída".
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, blocoDiagnostico } from "./simulacao.js";
+import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from "./diagnostico-conteudo.js";
 // Conteúdo técnico do relatório pormenorizado (cópia de web/simulador/simbolos.js): planta técnica, esquemas, ensaios.
 import { seccaoTecnica } from "../vendor/simbolos.js";
 // Esquema do quadro feito pelo eletricista (ronda B; cópia de web/simulador/quadro-desenho.js): desenho e modelo.
@@ -171,6 +175,8 @@ export default function orcamentos(el, ctx) {
     }
     // Ronda B: o esquema do quadro feito pelo eletricista a partir da foto do cliente (a ficha completa traz `esquema_quadro`).
     if (o && typeof o === "object" && "esquema_quadro" in o) partes.push(seccaoEsquemaQuadro(j, o, fotos, arquivado));
+    // Diagnóstico de avarias: nos pedidos da avaria rápida e nos que têm reparações (a ficha completa traz `diagnostico`).
+    if (o && typeof o === "object" && "diagnostico" in o && precisaDiagnostico(sim)) partes.push(seccaoDiagnostico(j, o, sim, arquivado));
     const plano = campo(o, "plano_escolhido") ? ` Plano mensal escolhido: ${PLANOS_NOME[campo(o, "plano_escolhido")] ?? campo(o, "plano_escolhido")}.` : "";
     if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
     else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
@@ -408,6 +414,10 @@ export default function orcamentos(el, ctx) {
         q.replaceChildren(svg);
       }).catch(() => {});
     }
+    // Diagnóstico da avaria (só no pormenorizado): o que foi verificado, o tipo e a conclusão, sem quem o fez.
+    const dg = campo(rel, "diagnostico");
+    const blocoDg = dg && typeof dg === "object" ? blocoDiagnostico(dg) : null;
+    if (blocoDg) tecnica.append(h("h3", { text: "Diagnóstico da avaria" }), h("p", { class: "ajuda", text: "Feito pelo nosso eletricista na visita." }), blocoDg);
   }
 
   /**
@@ -605,6 +615,72 @@ export default function orcamentos(el, ctx) {
     return sec;
   }
 
+  /**
+   * Diagnóstico de avarias (decisão do dono; docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): o que o cliente escolheu no
+   * passo Avaria → tipos de avaria prováveis e primeiras verificações (diagnostico-conteudo.js PROBLEMAS); a lista de
+   * verificação que o eletricista assinala (com a medição opcional), o tipo de avaria encontrado e "Conclusão / causa
+   * encontrada". "Guardar diagnóstico" → POST orcamentos/:id/diagnostico (CEO e comercial); tudo em branco apaga.
+   */
+  function seccaoDiagnostico(j, o, sim, arquivado) {
+    const id = String(campo(o, "id"));
+    const d = campo(o, "diagnostico") ?? null;
+    const sec = h("section", { class: "diagnostico-pedido", id: "diagnostico-pedido" });
+    sec.append(h("h3", { text: "Diagnóstico" }),
+      h("p", { class: "ajuda" }, "Lista de verificação da avaria, com as medições e a causa encontrada. O guia completo está em ",
+        h("a", { href: "#/ajuda/diagnostico", text: "Ajuda técnica → Diagnóstico de avarias" }), ". O cliente vê o resultado só no relatório pormenorizado."));
+    const problemas = sim && sim.avaria && typeof sim.avaria === "object" ? sim.avaria.problema : null;
+    const sug = sugestoesPara(Array.isArray(problemas) ? problemas : problemas ? [problemas] : []);
+    const quadroAvaria = sim && sim.quadro && typeof sim.quadro.avaria === "string" ? sim.quadro.avaria.trim() : null;
+    sec.append(h("h4", { text: "O que o cliente descreveu" }),
+      sug.length || quadroAvaria !== null
+        ? h("ul", { class: "diag-sugestoes", id: "diag-sugestoes" }, ...sug.map((s) => h("li", {}, h("strong", { text: `${s.nome} → ${s.tiposNome.join(" ou ") || "a apurar"}: ` }), s.verificar)),
+          quadroAvaria !== null ? h("li", {}, h("strong", { text: `Quadro com problemas${quadroAvaria ? ` («${quadroAvaria}»)` : ""} → sobrecarga, curto-circuito ou ligação solta: ` }), PROBLEMAS.disjuntor.verificar) : null)
+        : h("p", { class: "ajuda", id: "diag-sugestoes", text: `Reparações sem problema tipificado. ${PROBLEMAS.outro.verificar}` }));
+    if (arquivado) { sec.append(blocoDiagnostico(d) ?? h("p", { class: "ajuda", text: "Sem diagnóstico registado." })); return sec; }
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const valores = d && d.valores && typeof d.valores === "object" ? d.valores : {};
+    const feitas = Array.isArray(d?.verificacoes) ? d.verificacoes : [];
+    const linhas = CHECKLIST.map((c) => h("li", { class: c.valor ? "com-valor" : "" },
+      h("label", { class: "caixa" }, h("input", { type: "checkbox", name: `diag_${c.chave}`, checked: feitas.includes(c.chave) }), h("span", {}, c.nome, c.referencia ? h("span", { class: "ajuda bloco-ajuda", text: c.referencia }) : null)),
+      c.valor ? h("label", { class: "diag-valor" }, h("span", { class: "ajuda", text: `Medido (${c.valor.unidade})` }),
+        h("input", { name: `diag_valor_${c.chave}`, type: "number", min: "0", max: String(c.valor.max), step: c.valor.casas ? String(1 / 10 ** c.valor.casas) : "1", inputmode: "decimal", value: valores[c.chave] ?? "", "aria-label": `${c.nome}: valor medido (${c.valor.unidade})` })) : null));
+    const sTipo = escolha("diag_tipo", { "": "Ainda não apurado", ...NOME_TIPO }, d?.tipo ?? "");
+    const f = h("form", { class: "form-grelha", id: "form-diagnostico", novalidate: true },
+      h("h4", { text: "Lista de verificação" }),
+      h("ul", { class: "diag-lista" }, ...linhas),
+      h("div", { class: "duas" },
+        campoForm("Tipo de avaria encontrado", sTipo),
+        campoForm("Conclusão / causa encontrada", h("textarea", { name: "diag_conclusao", maxlength: String(MAX_CONCLUSAO), rows: "3", placeholder: "O que se encontrou, o que se fez, o que falta." }, d?.conclusao ?? ""))),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", id: "diagnostico-guardar", text: "Guardar diagnóstico" }),
+        h("span", { class: "ajuda", id: "diagnostico-estado", role: "status", text: d?.data ? `Registado ${data(d.data)}${d.por ? ` por ${d.por}` : ""}.` : "" })),
+      msg);
+    f.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const el = f.elements;
+      const corpo = { verificacoes: [], valores: {}, tipo: el.diag_tipo.value || null, conclusao: el.diag_conclusao.value.trim() || null };
+      for (const c of CHECKLIST) {
+        if (el[`diag_${c.chave}`].checked) corpo.verificacoes.push(c.chave);
+        if (!c.valor) continue;
+        const v = el[`diag_valor_${c.chave}`].value.trim();
+        if (v === "") continue;
+        const n = numero(v);
+        if (n === null || n < 0 || n > c.valor.max) { mensagem(msg, `${c.nome}: o valor medido tem de ser um número entre 0 e ${c.valor.max} ${c.valor.unidade} (ou ficar em branco).`); el[`diag_valor_${c.chave}`].focus(); return; }
+        corpo.valores[c.chave] = n;
+      }
+      const vazio = !corpo.verificacoes.length && !Object.keys(corpo.valores).length && !corpo.tipo && !corpo.conclusao;
+      const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/diagnostico`, { corpo: { diagnostico: vazio ? null : corpo } });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo, false);
+        avisar(vazio ? "Diagnóstico apagado." : "Diagnóstico guardado: aparece no relatório técnico e no pormenorizado do cliente.");
+        if (ficha?.j === j) { desenharFicha(j, novo); document.getElementById("diagnostico-guardar")?.focus({ preventScroll: true }); }
+      } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
+    });
+    sec.append(f);
+    return sec;
+  }
+
   function formConverter(j, o) {
     const id = String(campo(o, "id"));
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -704,7 +780,7 @@ export default function orcamentos(el, ctx) {
       corpo.replaceChildren(relatorioTecnico({
         id: campo(o, "id"), nome: campo(o, "nome"), telefone: campo(o, "telefone"), email: campo(o, "email"),
         localidade: campo(o, "localidade"), criado: campo(o, "criado", "criado_em"), data_visita: campo(o, "data_visita"),
-      }, sim, catalogoDe(o), { fotos: lista(campo(o, "fotos") ?? [], "fotos"), leitura: campo(o, "leitura_quadro"), esquema: campo(o, "esquema_quadro") }));
+      }, sim, catalogoDe(o), { fotos: lista(campo(o, "fotos") ?? [], "fotos"), leitura: campo(o, "leitura_quadro"), esquema: campo(o, "esquema_quadro"), diagnostico: campo(o, "diagnostico") }));
       // O título dá o nome ao PDF guardado pelo browser.
       document.title = `Relatório técnico — ${txt(o, "nome")} (pedido ${campo(o, "id")})`;
       imprimir.disabled = false;
@@ -746,7 +822,11 @@ const ACOES = {
   pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",
   pagamento_expirado: "Pagamento expirado", pagamento_simulado: "Pagamento simulado (página de teste)",
   relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída", visita_marcada: "Visita marcada",
+  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado",
 };
+/** O pedido precisa da secção "Diagnóstico": avaria rápida, serviço de reparações, aparelhos a reparar ou quadro com problemas. */
+export const precisaDiagnostico = (sim) => !!sim && (ehAvaria(sim) || servicosDe(sim).includes("reparar")
+  || Number(sim.totais_acao?.reparar?.aparelhos) > 0 || (sim.quadro && typeof sim.quadro === "object" && typeof sim.quadro.avaria === "string"));
 /** Conta de cliente do pedido ({email, confirmado, ativo} ou null) em texto. */
 function textoConta(c) {
   if (!c || typeof c !== "object") return "Sem conta (pedido de contacto ou antigo)";

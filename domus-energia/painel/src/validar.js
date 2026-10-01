@@ -1,6 +1,7 @@
 // Validação dos dados que chegam da internet. Mensagens em pt-PT.
 
 import { ErroApi } from './http.js';
+import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
 
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/;
@@ -213,6 +214,32 @@ export function esquemaQuadro(l) {
 }
 
 /**
+ * Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"; ecras/diagnostico-conteudo.js CHECKLIST):
+ * `{verificacoes: [chaves feitas], valores: {chave: número}, tipo: chave de TIPOS_AVARIA | "outro" | null,
+ * conclusao: texto ≤ 2000 | null}`. Devolve o objeto limpo; 400 com a razão.
+ */
+export function diagnostico(d) {
+  const f = (m) => falha(`Diagnóstico: ${m}.`);
+  if (!d || typeof d !== 'object' || Array.isArray(d)) f('tem de ser um objeto');
+  for (const k of Object.keys(d)) if (!['verificacoes', 'valores', 'tipo', 'conclusao'].includes(k)) f(`campo desconhecido (${k.slice(0, 40)})`);
+  const v = d.verificacoes ?? [];
+  if (!Array.isArray(v) || v.some((k) => !CHAVES_CHECKLIST.includes(k)) || new Set(v).size !== v.length) f(`verificações: lista de chaves conhecidas, sem repetir (${CHAVES_CHECKLIST.join(', ')})`);
+  const valores = {};
+  const vv = d.valores ?? {};
+  if (!vv || typeof vv !== 'object' || Array.isArray(vv)) f('valores: tem de ser um objeto');
+  for (const [k, x] of Object.entries(vv)) {
+    const c = CHECKLIST.find((y) => y.chave === k && y.valor);
+    if (!c) f(`valores: medição desconhecida (${k.slice(0, 40)})`);
+    if (x === null || x === undefined || x === '') continue;
+    valores[k] = numero(x, `o valor de "${c.nome}" (${c.valor.unidade})`, { min: 0, max: c.valor.max, casas: c.valor.casas });
+  }
+  const tipo = d.tipo === undefined || d.tipo === null || d.tipo === '' ? null : d.tipo;
+  if (tipo !== null && !Object.keys(NOME_TIPO).includes(tipo)) f(`tipo de avaria inválido (use: ${Object.keys(NOME_TIPO).join(', ')})`);
+  const conclusao = texto(d.conclusao, 'a conclusão do diagnóstico', { max: MAX_CONCLUSAO, multilinha: true });
+  return { verificacoes: CHAVES_CHECKLIST.filter((k) => v.includes(k)), valores, tipo, conclusao };
+}
+
+/**
  * Fase 1 (funis): `funil` ∈ primeira, planta, avaria (opcional: pedidos antigos não o têm); `avaria` (só na avaria
  * rápida) = {onde, problema, descricao ≤ 200}, com valores conhecidos. Ronda B: `onde` e `problema` com várias escolhas
  * (lista de 1 a 7 chaves sem repetidas); os pedidos antigos trazem uma só (string), que continua aceite.
@@ -289,6 +316,15 @@ function casaSimulacao(c) {
     falha(`Casa: potência contratada inválida (use: ${POTENCIAS_KVA.map((x) => String(x).replace('.', ',')).join(' / ')} kVA, ou vazio se não sabe).`);
   }
   if (!vazio(c.fases) && !FASES.includes(c.fases)) falha('Casa: ligação inválida (use: mono, tri, ou vazio se não sabe).');
+  // "Outra divisão" de "A casa tem…": até 10 linhas {nome ≤ 30 caracteres, qtd 1–10}.
+  if (!vazio(c.outras)) {
+    if (!Array.isArray(c.outras) || c.outras.length > 10) falha('Casa: outras divisões tem de ser uma lista com até 10 linhas.');
+    for (const o of c.outras) {
+      if (!o || typeof o !== 'object' || Array.isArray(o)) falha('Casa: cada outra divisão tem de ser um objeto {nome, qtd}.');
+      if (typeof o.nome !== 'string' || o.nome.length > 30) falha('Casa: o nome de uma outra divisão tem até 30 caracteres.');
+      if (!(Number.isInteger(o.qtd) && o.qtd >= 1 && o.qtd <= 10)) falha('Casa: a quantidade de uma outra divisão é um inteiro entre 1 e 10.');
+    }
+  }
 }
 
 /**

@@ -442,6 +442,21 @@ function desenharRelatorio(r) {
     if (linhas.length) q.append(el("p", "ajuda", linhas.join(" · ") + "."));
     out.push(el("h5", null, "Esquema do quadro elétrico"), el("p", "ajuda", "Desenhado pelo nosso eletricista a partir do quadro atual (ou do previsto)."), q);
   }
+  // Diagnóstico da avaria feito pelo nosso eletricista no painel (só no pormenorizado, nunca no básico): o que foi
+  // verificado (com o valor medido), o tipo de avaria encontrado e a conclusão.
+  const dg = r.diagnostico;
+  if (dg && typeof dg === "object") {
+    out.push(el("h5", null, "Diagnóstico da avaria"), el("p", "ajuda", "Feito pelo nosso eletricista na visita."));
+    const vs = Array.isArray(dg.verificacoes) ? dg.verificacoes : [];
+    if (vs.length) {
+      const ul = el("ul", "conta-diag-feitas");
+      for (const v of vs) ul.append(el("li", null, `${v.nome}${v.medido != null ? ` — ${String(v.medido).replace(".", ",")} ${v.unidade ?? ""}`.trimEnd() : ""}`));
+      out.push(ul);
+    }
+    if (dg.tipo_nome) out.push(el("p", null, `Tipo de avaria encontrado: ${dg.tipo_nome}.`));
+    if (dg.conclusao) out.push(el("p", "conta-diag-conclusao", `Conclusão: ${dg.conclusao}`));
+    if (dg.data) out.push(el("p", "ajuda", `Registado em ${dataTxt(dg.data, true)}.`));
+  }
   return out;
 }
 

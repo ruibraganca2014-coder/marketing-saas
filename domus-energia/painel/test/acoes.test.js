@@ -7,9 +7,10 @@ import {
   acaoOmissao, soReparacoes, precisaEscolher, faltaAcao, plantaNovos, pedidosAcoes, acaoDe, contarAcoes,
   inteligenteDe, plantaInteligentes,
 } from '../../web/simulador/acoes.js';
-import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa, zonaRotulo, tapaRotulo } from '../../web/simulador/casa.js';
+import { acertarPlantaMexida, plantaDaCasa, divisoesDaCasa, zonaRotulo, tapaRotulo, nomesOutras, assinaturaCasa } from '../../web/simulador/casa.js';
 import { pedidosDaSelecao, calcularPreco, horasTroca, quadroNoPedido, encontrarArtigo } from '../../web/simulador/preco.js';
-import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web/simulador/estado.js';
+import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS, casaParaEnvio } from '../../web/simulador/estado.js';
+import { simulacao as validarSimulacao } from '../src/validar.js';
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
@@ -414,4 +415,37 @@ test('fora da área servida: os avisos do pedido terminam em "(orientativo — a
   assert.ok(dentro.length && dentro.every((a) => a.endsWith('(orientativo — confirmamos na visita)')));
   assert.equal(fora.length, dentro.length);
   assert.ok(fora.every((a) => a.endsWith('(orientativo — a confirmar)') && !/na visita/.test(a)), fora.join('\n'));
+});
+
+test('"Outra divisão" (A casa tem…): planta automática com o kit genérico, assinatura, estado antigo, pedido e validação', () => {
+  const casa = { tipo: 'apartamento', tipologia: 'T1', quartos: 1, casas_banho: 1, salas: 1, pisos: 1, extras: {}, outras: [{ nome: 'Ginásio', qtd: 2 }, { nome: '  ', qtd: 1 }] };
+  assert.deepEqual(nomesOutras(casa), ['Ginásio', 'Ginásio 2', 'Outra divisão']);
+  const nomes = divisoesDaCasa(casa, []).map((d) => d.nome);
+  assert.deepEqual(nomes.slice(-3), ['Ginásio', 'Ginásio 2', 'Outra divisão']);
+  const p = plantaDaCasa(casa, []);
+  const g = p.divisoes.find((d) => d.nome === 'Ginásio');
+  assert.ok(g && g.piso === 0);
+  const dela = p.elementos.filter((e) => e.divisao === g.id);
+  const conta = (t) => dela.filter((e) => e.tipo === t).length;
+  assert.deepEqual([conta('porta'), conta('interruptor'), conta('luz'), conta('tomada')], [1, 1, 1, 2]);
+  const luz = dela.find((e) => e.tipo === 'luz');
+  assert.deepEqual([luz.x_cm, luz.y_cm], [g.x_cm + g.largura_cm / 2, g.y_cm + g.altura_cm / 2], 'luz ao centro');
+  // A assinatura só muda quando há outras divisões (as plantas guardadas não ficam "desatualizadas").
+  const sem = { ...casa, outras: [] };
+  assert.equal(assinaturaCasa(sem, []), assinaturaCasa({ ...sem, outras: undefined }, []));
+  assert.notEqual(assinaturaCasa(casa, []), assinaturaCasa(sem, []));
+  // Estado antigo sem o campo → []; nomes limpos e limites no estado normalizado e no pedido.
+  const velho = normalizarEstado({ ...estadoNovo(), casa: { tipo: 'apartamento', tipologia: 'T1' } });
+  assert.deepEqual(velho.casa.outras, []);
+  const novo = normalizarEstado({ ...estadoNovo(), casa: { tipo: 'apartamento', tipologia: 'T1', outras: [{ nome: 'Sótão\u0000 com nome muito, muito comprido mesmo', qtd: 99 }, 'x', { nome: 'Adega', qtd: 0 }] } });
+  assert.deepEqual(novo.casa.outras, [{ nome: 'Sótão  com nome muito, muito c', qtd: 10 }, { nome: 'Adega', qtd: 1 }]);
+  const envio = casaParaEnvio(novo);
+  assert.deepEqual(envio.outras, novo.casa.outras);
+  assert.equal(casaParaEnvio(normalizarEstado({ ...estadoNovo(), casa: { tipo: 'servicos' } })).outras, null);
+  // validar.js: aceita a lista do pedido; recusa nomes compridos, quantidades fora de 1–10 e mais de 10 linhas.
+  validarSimulacao({ versao: 1, casa: { tipo: 'apartamento', outras: envio.outras } });
+  validarSimulacao({ versao: 1, casa: { tipo: 'apartamento', outras: null } });
+  for (const outras of [[{ nome: 'x'.repeat(31), qtd: 1 }], [{ nome: 'Adega', qtd: 0 }], [{ nome: 'Adega', qtd: 1.5 }], ['Adega'], Array.from({ length: 11 }, () => ({ nome: 'A', qtd: 1 })), 'Adega']) {
+    assert.throws(() => validarSimulacao({ versao: 1, casa: { tipo: 'apartamento', outras } }), /outra/i, JSON.stringify(outras).slice(0, 40));
+  }
 });

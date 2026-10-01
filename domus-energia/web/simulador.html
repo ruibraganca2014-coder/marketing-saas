@@ -14,6 +14,7 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="simulador/simulador.css">
+  <link rel="stylesheet" href="simulador/fotos-remotas.css">
 </head>
 <body class="pagina-simulador">
   <a class="saltar" href="#conteudo">Saltar para o simulador</a>
@@ -101,6 +102,8 @@
             <fieldset class="escolhas" id="casa-extras-caixa">
               <legend>A casa tem…</legend>
               <div class="escolhas-grelha" id="casa-extras"></div>
+              <!-- "Outra divisão" (ginásio, sótão…): o nome e quantas, uma linha por divisão (app.js desenharOutras). -->
+              <div class="casa-outras" id="casa-outras" hidden></div>
             </fieldset>
           </div>
           <div class="duas">
@@ -176,11 +179,6 @@
           <div class="form-botoes">
             <button class="btn sec" id="divisao-adicionar" type="button">Mudar as divisões (passo Planta)</button>
           </div>
-          <fieldset class="cartao escolhas" id="extras">
-            <legend>Extras</legend>
-            <label class="caixa-linha"><input type="checkbox" id="extra-central"><span><b>Central</b> com bateria e sirene (Premium)</span></label>
-            <label>Termóstatos<input type="number" id="extra-termostatos" inputmode="numeric" min="0" max="20" step="1"></label>
-          </fieldset>
         </section>
 
         <!-- 7. Trocar e reparar (lote 8): o que fazer com cada coisa da casa — na planta (tocar no aparelho) ou na lista por divisão -->

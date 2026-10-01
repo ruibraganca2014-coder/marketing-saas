@@ -90,6 +90,7 @@ const ICONES_ACAO = {
   opcoes: '<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>',
   apagar: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   outras: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
+  ajustar: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
 };
 function iconeAcao(b, nome, rotulo) {
   b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONES_ACAO[nome]}</svg>`;
@@ -175,6 +176,34 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const fila = el("div", "editor-ferramentas");
   fila.setAttribute("role", "toolbar");
   fila.setAttribute("aria-label", "Ferramentas da planta");
+  // Carrossel (decisão do dono): setas ‹ › nos dois extremos — cada toque anda uma "página" (a largura à vista) e dá
+  // a volta (da última página volta à primeira e vice-versa); a linha continua a deslizar com o dedo ou a roda do rato.
+  // As setas só aparecem quando a linha não cabe toda.
+  const filaCaixa = el("div", "editor-ferramentas-caixa");
+  const setaFila = (sinal, rotulo, d) => {
+    const b = botao(sinal, "btn sec ferramentas-seta");
+    b.setAttribute("aria-label", rotulo);
+    b.title = rotulo;
+    b.addEventListener("click", () => {
+      const pagina = fila.clientWidth, max = Math.max(0, fila.scrollWidth - pagina), s = fila.scrollLeft;
+      // A página seguinte começa no primeiro botão que não cabe inteiro (nenhum fica cortado nas duas páginas).
+      const fr = fila.getBoundingClientRect();
+      const pos = [...fila.querySelectorAll("button")].filter((x) => !x.hidden && x.offsetParent !== null)
+        .map((x) => { const r = x.getBoundingClientRect(); return [r.left - fr.left + s, r.right - fr.left + s]; });
+      let x;
+      if (d > 0) x = s >= max - 3 ? 0 : (pos.find(([, r]) => r > s + pagina + 1)?.[0] ?? max) - 2;
+      else x = s <= 3 ? max : ([...pos].reverse().find(([l]) => l < s - 1)?.[1] ?? 0) + 2 - pagina;
+      fila.scrollTo({ left: limitar(x, 0, max), behavior: "smooth" });
+    });
+    return b;
+  };
+  const filaAnt = setaFila("‹", "Aparelhos anteriores", -1), filaSeg = setaFila("›", "Mais aparelhos", 1);
+  filaCaixa.append(filaAnt, fila, filaSeg);
+  function acertarSetasFila() {
+    const sobra = fila.scrollWidth > fila.clientWidth + 1;
+    filaAnt.hidden = filaSeg.hidden = !sobra;
+  }
+  if (typeof ResizeObserver === "function") new ResizeObserver(acertarSetasFila).observe(fila);
   const ferramentas = {};
   const naBarraExtra = new Set();   // chaves ("divisao:Garagem", "janela", "maquina:forno") que o cliente trouxe
   let divisoesNaBarra = null;       // nomes dos botões de divisão da linha (null = todos)
@@ -307,6 +336,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     for (const b of barraMaq.children) b.hidden = !(maquinasNaBarra.includes(b.dataset.maquina) || naBarraExtra.has(`maquina:${b.dataset.maquina}`));
     for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || ![...g.children].some((b) => !b.hidden);
     rovingFerramentas?.();
+    acertarSetasFila();
   }
   // "Mais…": a lista completa, agrupada, numa janela (<dialog> modal, Esc fecha).
   const bMaisFerr = botao("", "ferramenta ferramentas-mais");
@@ -348,6 +378,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const bMenos = iconeAcao(botao(""), "afastar", "Afastar");
   const bMais = iconeAcao(botao(""), "aproximar", "Aproximar");
   const bTudo = iconeAcao(botao(""), "tudo", "Ver tudo");
+  // "Ajustar" (decisão do dono): a folha volta ao tamanho das divisões (saiu da linha do título "A sua planta").
+  const bAjustar = iconeAcao(botao(""), "ajustar", "Ajustar a folha às divisões");
+  bAjustar.id = "planta-ajustar";
   // "Ampliar": a planta e as ferramentas em ecrã inteiro (só no computador; no telemóvel a planta já abre por cima).
   const bEcra = iconeAcao(botao(""), "ampliar", "Ampliar (ecrã inteiro)");
   bEcra.id = "editor-ecra-inteiro";
@@ -404,7 +437,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bOutras.setAttribute("aria-haspopup", "menu");
   bOutras.setAttribute("aria-expanded", "false");
   bOutras.setAttribute("aria-controls", "editor-menu");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bEcra));
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bAjustar, bEcra));
   const linhaSelecao = el("div", "editor-acoes-linha");
   linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sApagar));
   // O "⋯" no fim da linha, fixo (fora do que desliza; simulador.css .g-fundo): está sempre à vista.
@@ -553,12 +586,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   fundoMsg.setAttribute("role", "status");
   const fundoControlos = el("div", "editor-fundo-controlos");
 
-  // Tamanho da planta
-  const tamSec = el("details", "editor-tamanho cartao");
-  tamSec.append(el("summary", null, "Tamanho da planta"));
-  const tamCorpo = el("div", "duas");
-  tamSec.append(tamCorpo);
-
   // Lote 7: legenda das marcas das ações (M, R, S, N) na planta.
   const legendaAcao = el("p", "ajuda editor-legenda-acoes");
   legendaAcao.hidden = true;
@@ -572,11 +599,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     aoDivisaoPresa?.();
   }
   let acoesOpcoes = {};      // lote 8: {todas, escolher} (planta-svg.js opção `acoes`)
-  lado.append(ladoCabeca, fundoSec, tamSec);
+  lado.append(ladoCabeca, fundoSec);
   const principal = el("div", "editor-principal");
   // Os separadores dos pisos ficam junto à planta, por baixo das duas linhas (ferramentas e ações). Lote 8: a legenda
   // das marcas fica por baixo da planta, só quando as marcas estão em todos os aparelhos ("Trocar e reparar").
-  principal.append(fila, acoes, separadores, area, legendaAcao, ajudaTeclado);
+  principal.append(filaCaixa, acoes, separadores, area, legendaAcao, ajudaTeclado);
 
   // Janela de edição (duplo clique, toque longo, Enter ou "Opções"): <dialog> modal, Esc fecha.
   const dialogo = el("dialog", "editor-dialogo");
@@ -1693,13 +1720,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     memorizarPendente = setTimeout(() => { aoMudar(planta); }, 0);
   }
 
-  // Tamanho da planta: os campos fazem-se uma só vez (desenharTamanho só acerta os valores e o botão "Ajustar ao
-  // conteúdo"). Refazê-los a cada mudança tirava o foco a quem escrevia e perdia o clique seguinte (Tab, "Ajustar").
-  const tamW = numeroInput(20, { min: 1, max: MAX_LADO_CM / 100, step: 0.5, id: "planta-largura" });
-  const tamH = numeroInput(15, { min: 1, max: MAX_LADO_CM / 100, step: 0.5, id: "planta-altura" });
-  const tamAjustar = botao("Ajustar ao conteúdo", "btn sec pequeno");
-  tamAjustar.id = "planta-ajustar";
-  // Aviso curto por baixo dos campos (a dica fica por cima da planta, fora da vista no telemóvel).
+  // Tamanho da folha (decisão do dono): "2×" e "½×" dobram / reduzem a metade a folha (largura e altura), com as
+  // divisões onde estão (nunca ficam de fora: a metade recusa-se se as cortasse); "Ajustar" (ícone na barra das ações)
+  // volta ao tamanho das divisões. Já não há campos de largura e altura.
+  // Aviso curto na linha do título (a dica fica por cima da planta, fora da vista no telemóvel).
   const tamMsg = el("p", "msg", "");
   tamMsg.setAttribute("role", "status");
   tamMsg.hidden = true;
@@ -1710,39 +1734,32 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     clearTimeout(tamMsgFim);
     tamMsgFim = setTimeout(() => { tamMsg.hidden = true; }, 5000);
   }
-  // Aplica enquanto se escreve (com uma pequena pausa), sem nunca reescrever o campo onde se escreve: um valor a
-  // meio ("2" antes de "20") abaixo do mínimo espera. Ao sair do campo (ou Enter) um valor abaixo do mínimo passa
-  // ao mínimo, com o aviso. A partir daí a folha fica com este tamanho (tamanho_fixo, gravado).
-  function aplicarTamanho(i, k, final) {
+  /** Folha `f` vezes maior (2 ou 0,5), à quadrícula, entre o que as divisões e os elementos ocupam e o máximo. */
+  function escalarFolha(f) {
     if (!planta) return;
-    const v = Number(String(i.value).replace(",", "."));
-    if (!(v > 0)) { if (final) i.value = String(planta[k] / 100); return; }
-    const pedido = Math.ceil((v * 100) / ESCALA_CM) * ESCALA_CM;
-    const min = tamanhoMinimo(k);
-    if (pedido < min && !final) return;
-    const novo = limitar(pedido, min, MAX_LADO_CM);
-    if (novo !== planta[k] || !planta.tamanho_fixo) {
-      memorizar();
-      planta[k] = novo;
-      planta.tamanho_fixo = true;
-      verTudo();
-      confirmar();
-    }
-    if (pedido < min) avisoTamanho(`Mínimo ${metros(min)} m para caber tudo.`);
-    else if (pedido > MAX_LADO_CM) avisoTamanho(`Máximo ${metros(MAX_LADO_CM)} m.`);
-    if (final) i.value = String(planta[k] / 100);
+    const w = limitar(Math.ceil((planta.largura_cm * f) / ESCALA_CM) * ESCALA_CM, 100, MAX_LADO_CM);
+    const h = limitar(Math.ceil((planta.altura_cm * f) / ESCALA_CM) * ESCALA_CM, 100, MAX_LADO_CM);
+    if (w < tamanhoMinimo("largura_cm") || h < tamanhoMinimo("altura_cm")) { avisoTamanho("Metade não chega para as divisões."); return; }
+    if (w === planta.largura_cm && h === planta.altura_cm) { avisoTamanho(f > 1 ? `Máximo ${metros(MAX_LADO_CM)} m.` : "Já está no mínimo."); return; }
+    memorizar();
+    planta.largura_cm = w;
+    planta.altura_cm = h;
+    planta.tamanho_fixo = true;   // a partir daqui a folha fica com este tamanho (gravado); "Ajustar" solta-a
+    verTudo();
+    confirmar(`Folha de ${metros(w)} × ${metros(h)} m.`);
   }
-  for (const [i, k] of [[tamW, "largura_cm"], [tamH, "altura_cm"]]) {
-    let espera = null, escreveu = false;
-    i.addEventListener("input", () => { escreveu = true; clearTimeout(espera); espera = setTimeout(() => aplicarTamanho(i, k, false), 500); });
-    // Só depois de escrever (entrar e sair do campo sem escrever não fixa o tamanho).
-    const fim = () => { clearTimeout(espera); if (!escreveu) return; escreveu = false; aplicarTamanho(i, k, true); };
-    i.addEventListener("change", fim);
-    i.addEventListener("blur", fim);
-    i.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); fim(); } });
-  }
+  const tamDobro = botao("2×");
+  tamDobro.id = "planta-dobro";
+  tamDobro.setAttribute("aria-label", "Folha duas vezes maior");
+  tamDobro.title = tamDobro.getAttribute("aria-label");
+  tamDobro.addEventListener("click", () => escalarFolha(2));
+  const tamMetade = botao("½×");
+  tamMetade.id = "planta-metade";
+  tamMetade.setAttribute("aria-label", "Folha com metade do tamanho");
+  tamMetade.title = tamMetade.getAttribute("aria-label");
+  tamMetade.addEventListener("click", () => escalarFolha(0.5));
   // Sempre ativo: com a folha já à medida, carregar não muda nada.
-  tamAjustar.addEventListener("click", () => {
+  bAjustar.addEventListener("click", () => {
     if (!planta) return;
     memorizar();
     delete planta.tamanho_fixo;
@@ -1750,13 +1767,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     verTudo();
     confirmar("A planta voltou ao tamanho das divisões.");
   });
-  tamCorpo.append(campo("Largura (m)", tamW), campo("Altura (m)", tamH), tamAjustar);
-  tamSec.append(tamMsg);
-  function desenharTamanho() {
-    if (!planta) return;
-    if (document.activeElement !== tamW) tamW.value = String(planta.largura_cm / 100);
-    if (document.activeElement !== tamH) tamH.value = String(planta.altura_cm / 100);
-  }
 
   // ---------------------------------------------------------------- propriedades (janela de edição)
   /**
@@ -2151,7 +2161,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     desenhar();
     desenharSelecao();
     desenharFundo();
-    desenharTamanho();
     rovingAcoes();
     reporFoco(foco);
   }
@@ -2229,23 +2238,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (planta) desenharTudo();
     },
     /**
-     * Lote 8: o tamanho da planta sai do "⋯" e passa para `caixa` (a linha do título "A sua planta"), compacto:
-     * "Largura [..] × Altura [..] m · Ajustar" — os mesmos campos e a mesma lógica (aplica ao escrever, mínimo ao sair).
+     * Lote 8: o tamanho da planta na `caixa` (a linha do título "A sua planta"): os botões "2×" e "½×" (decisão do dono;
+     * o "Ajustar" está na barra das ações) e o aviso curto.
      */
     montarTamanho(caixa) {
-      tamW.setAttribute("aria-label", "Largura da planta, em metros");
-      tamH.setAttribute("aria-label", "Altura da planta, em metros");
-      const rot = (t, i) => { const l = el("label", "tam-campo"); l.append(el("span", null, t), i); return l; };
-      const x = el("span", "tam-x", "×");
-      x.setAttribute("aria-hidden", "true");
-      tamAjustar.textContent = "Ajustar";
-      tamAjustar.title = "Ajustar ao conteúdo (o tamanho das divisões)";
-      tamAjustar.setAttribute("aria-label", "Ajustar o tamanho da planta ao conteúdo");
-      caixa.replaceChildren(rot("Largura", tamW), x, rot("Altura", tamH), el("span", "tam-unidade", "m"), tamAjustar, tamMsg);
-      tamSec.remove();
+      caixa.replaceChildren(tamDobro, tamMetade, tamMsg);
       bOutras.setAttribute("aria-label", "Mais ações da planta: imprimir, PDF e planta de fundo");
       bOutras.title = bOutras.getAttribute("aria-label");
-      desenharTamanho();
     },
     /** N.º de pisos da casa (1 = sem separadores, salvo se a planta já tiver coisas noutros pisos). */
     definirPisos(n) {
@@ -2305,7 +2304,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       mostrarFundoMsg("", "info");
       ficheiro.value = "";
       fundoSec.open = false;
-      tamSec.open = false;
       mostrarLado(false);
       fecharMenu(false);
       separadores.hidden = true;

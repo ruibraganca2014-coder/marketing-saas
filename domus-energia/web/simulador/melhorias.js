@@ -28,7 +28,7 @@ export const PROTECOES_MAXIMAS = [...CHAVES_PROTECOES];
 const comMaximas = (p) => ({ ...p, ...protecoesDoPacote("completo", true) });
 
 /** Divisões onde vai a tomada Wi-Fi (as de estar e trabalhar; sem casas de banho, corredores, arrumos…). */
-const HABITAVEIS = ["sala", "sala_cozinha", "quarto", "cozinha", "escritorio", "loja", "rececao"];
+const HABITAVEIS = ["sala", "sala_cozinha", "quarto", "cozinha", "escritorio", "loja", "rececao", "outra"];
 /** Sensor de movimento: um na entrada e em cada sala (ou loja/receção). */
 const COM_MOVIMENTO = ["entrada", "sala", "sala_cozinha", "loja", "rececao"];
 /** Sensor de fuga de água: cozinha, casas de banho e lavandaria. */

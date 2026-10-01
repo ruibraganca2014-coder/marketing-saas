@@ -48,7 +48,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       return responder(res, 400, { erro: 'Endereço inválido.' });
     }
     const c = url.pathname;
-    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
+    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/fotos-remotas') || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
     if (c === '/painel') {
       res.writeHead(301, { ...CABECALHOS_SEGURANCA, Location: '/painel/', 'Content-Length': 0 });
       return res.end();
@@ -67,6 +67,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   if (mqtt) alertas.iniciar();
   pedidos.iniciar();
   api.fotos.iniciar();
+  api.fotosRemotas.iniciar();
   api.contas.iniciar();
   api.pagamentosPedido.iniciar();
 
@@ -75,6 +76,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
     async fechar() {
       await pedidos.parar();
       await api.fotos.parar();
+      api.fotosRemotas.parar();
       api.contas.parar();
       api.pagamentosPedido.parar();
       auth.fechar();

@@ -33,6 +33,7 @@ import { idNum, opcao, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
+import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
 
 export const SINAL_PCT = 30;
 export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório pormenorizado (config `preco_relatorio_iva`)
@@ -619,6 +620,35 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return e && typeof e === 'object' && !Array.isArray(e) ? e : null;
   }
 
+  /** Diagnóstico da avaria feito no painel (`orcamentos.diagnostico`, JSON; migração 18), ou null. */
+  function diagnosticoDe(o) {
+    if (!o?.diagnostico) return null;
+    let d;
+    try { d = typeof o.diagnostico === 'string' ? JSON.parse(o.diagnostico) : o.diagnostico; } catch { return null; }
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+    const valores = d.valores && typeof d.valores === 'object' && !Array.isArray(d.valores) ? d.valores : {};
+    return {
+      verificacoes: Array.isArray(d.verificacoes) ? d.verificacoes.filter((k) => CHAVES_CHECKLIST.includes(k)) : [],
+      valores: Object.fromEntries(Object.entries(valores).filter(([k, x]) => CHAVES_CHECKLIST.includes(k) && x !== null && x !== '' && Number.isFinite(Number(x))).map(([k, x]) => [k, Number(x)])),
+      tipo: typeof d.tipo === 'string' && NOME_TIPO_AVARIA[d.tipo] ? d.tipo : null,
+      conclusao: (typeof d.conclusao === 'string' ? d.conclusao.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ' ').trim().slice(0, 2000) : '') || null,
+      data: typeof d.data === 'string' ? d.data : null, por: typeof d.por === 'string' ? d.por : null,
+    };
+  }
+
+  /**
+   * O diagnóstico na versão do cliente (só no relatório pormenorizado, nunca no básico): o que foi verificado (nomes, com
+   * o valor medido), o tipo de avaria encontrado e a conclusão; sem o email de quem o fez. null sem diagnóstico.
+   */
+  function diagnosticoCliente(o) {
+    const d = diagnosticoDe(o);
+    if (!d) return null;
+    return {
+      verificacoes: CHECKLIST.filter((c) => d.verificacoes.includes(c.chave)).map((c) => ({ chave: c.chave, nome: c.nome, medido: d.valores[c.chave] ?? null, unidade: c.valor?.unidade ?? null })),
+      tipo: d.tipo, tipo_nome: d.tipo ? NOME_TIPO_AVARIA[d.tipo] : null, conclusao: d.conclusao, data: d.data,
+    };
+  }
+
   /** Ensaios medidos na visita/obra (`orcamentos.ensaios`, migração 16; registados no painel), ou null. */
   function ensaiosDe(o) {
     if (!o?.ensaios) return null;
@@ -848,6 +878,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // formato da leitura do quadro: disjuntor_geral, diferenciais, disjuntores, modulos_livres, ordem). Passa tal e
       // qual (null sem esquema); a conta desenha-o com web/simulador/quadro-desenho.js.
       esquema_quadro: esquemaQuadroDe(o),
+      // Diagnóstico da avaria feito no painel (`orcamentos.diagnostico`, migração 18): só aqui, nunca no básico.
+      diagnostico: diagnosticoCliente(o),
     };
   }
 
@@ -1109,7 +1141,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   return {
     modo, ativo: config.pagamentoPedido, tratar, iniciarAvaria, comprar, compras, temRelatorio, temVisita, aoAceitar, pagarFase,
-    aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, valores, expirar, iniciar, parar, publico,
+    aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     PLANOS: PLANOS_MENSAIS,
   };

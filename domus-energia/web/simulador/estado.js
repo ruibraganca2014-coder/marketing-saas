@@ -11,7 +11,7 @@ import {
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente } from "./acoes.js";
-import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
+import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao, LIMITES_OUTRAS } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
 
@@ -201,6 +201,7 @@ export function casaNova() {
     extras: { jardim: false, exterior: false, garagem: false, arrecadacao: false, varanda: false, kitnet: false, entrada: false, corredor: false, escritorio: false, lavandaria: false, despensa: false },
     area_m2: null, espacos: null,
     porPiso: null,             // casas com 2 ou mais pisos: [{quartos, casas_banho, salas, extras}] por piso (casa.js acertarPisos)
+    outras: [],                // "Outra divisão" de "A casa tem…": [{nome, qtd}] (ginásio, sótão…; casa.js nomesOutras)
     divisoes: null, localidade: "", potencia_contratada_kva: POTENCIA_OMISSAO_KVA, fases: "mono",
   };
 }
@@ -270,6 +271,10 @@ const int = (v, min, max, omissao = 0) => Math.round(num(v, min, max, omissao));
 const txt = (v, max) => (typeof v === "string" ? v.slice(0, max) : "");
 const bool = (v) => v === true;
 const lista = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+/** "Outra divisão" de "A casa tem…" ([{nome, qtd}]; casa.js LIMITES_OUTRAS): nomes limpos (≤ 30 letras), qtd 1–10. */
+const outrasDaCasa = (v) => lista(v, LIMITES_OUTRAS.linhas)
+  .filter((o) => o && typeof o === "object")
+  .map((o) => ({ nome: textoSeguro(o.nome, LIMITES_OUTRAS.nome), qtd: int(o.qtd, ...LIMITES_OUTRAS.qtd, 1) }));
 
 /** Nome das escadas numeradas a partir de 1 (estados antigos) → a partir do r/c: "Escadas (piso 1)" → "Escadas (r/c)". */
 const RE_ESCADAS_ANTIGAS = /^Escadas \(piso (\d+)\)$/;
@@ -529,6 +534,7 @@ export function normalizarEstado(v) {
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva) ?? POTENCIA_OMISSAO_KVA,
     fases: FASES[c.fases] ? c.fases : null,
     porPiso: Array.isArray(c.porPiso) ? c.porPiso : null,
+    outras: outrasDaCasa(c.outras),   // estado antigo sem o campo: nenhuma
   };
   // Valores por piso (2 ou mais pisos); um estado sem eles fica com os da casa toda repartidos como antes
   // (casa.js repartirPisos com o escritório no r/c: a planta desenhada é a mesma).
@@ -1039,6 +1045,8 @@ export function casaParaEnvio(estado) {
     salas: tipologia && tipologia !== "T0" ? int(c.salas, ...LIMITES_CASA.salas, 1) : null,
     pisos: tipologia ? (TIPOS_COM_PISOS.includes(c.tipo) ? int(c.pisos, ...LIMITES_CASA.pisos, 1) : 1) : null,
     extras: tipologia ? Object.fromEntries(Object.keys(EXTRAS_CASA).map((k) => [k, bool(c.extras?.[k])])) : null,
+    // "Outra divisão" de "A casa tem…" ([{nome, qtd}]; [] sem nenhuma); null sem tipologia.
+    outras: tipologia ? outrasDaCasa(c.outras) : null,
     area_m2: negocio ? int(c.area_m2, ...LIMITES_CASA.area_m2, AREA_OMISSAO[c.tipo]) : null,
     espacos: negocio ? int(c.espacos, ...LIMITES_CASA.espacos, ESPACOS_OMISSAO[c.tipo]) : null,
     // Com 2 ou mais pisos, o que tem cada piso (os totais acima são a soma); null com um só piso.

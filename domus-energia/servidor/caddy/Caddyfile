@@ -7,6 +7,7 @@
 #   https://HOST/api/orcamento  -> painel (formulário público; ANTES da regra /api/*)
 #   https://HOST/api/orcamento/fotos -> painel (fotos do simulador, ≤ 1 MB cada; idem)
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
+#   https://HOST/api/fotos-remotas* -> painel (fotos pelo telemóvel via QR, web/foto.html; idem)
 #   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem), incluindo os
 #                                  pagamentos do pedido /api/conta/pagamentos/* e o webhook do Stripe deles
 #                                  /api/conta/pagamentos/stripe-webhook (docs/PAGAMENTOS-PEDIDO.md)
@@ -38,7 +39,7 @@
 	# (planta com imagem, até 1 MB): limite de 2 MB aqui, 1,25 MB no serviço.
 	# As fotos do simulador vão a seguir, uma a uma, para /api/orcamento/fotos (≤ 1 MB cada).
 	# A conta de cliente (/api/conta/*: criar/entrar, simulação guardada até 1,5 MB, fotos ≤ 1 MB) também é do painel.
-	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/*
+	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/* /api/fotos-remotas /api/fotos-remotas/*
 	handle @orcamento {
 		request_body {
 			max_size 2MB

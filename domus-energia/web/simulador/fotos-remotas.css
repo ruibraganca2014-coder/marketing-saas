@@ -1,0 +1,32 @@
+/* Fotos pelo telemóvel (QR; fotos-remotas.js): a janela do QR no simulador (computador) e a página foto.html (telemóvel). */
+
+/* ---------- Janela do QR (simulador.html) ---------- */
+.foto-remota .foto-remota-rotulo { margin: 0; font-weight: 700; color: var(--musgo-texto); }
+.foto-remota-corpo { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; }
+.foto-remota-qr { flex: none; display: grid; place-items: center; width: 216px; height: 216px; padding: 8px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); }
+.foto-remota-qr svg { display: block; width: 100%; height: 100%; }
+.foto-remota-qr[aria-busy="true"]::before { content: ""; width: 36px; height: 36px; border: 4px solid var(--borda); border-top-color: var(--musgo); border-radius: 50%; animation: foto-remota-roda 1s linear infinite; }
+@keyframes foto-remota-roda { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .foto-remota-qr[aria-busy="true"]::before { animation: none; } }
+.foto-remota-texto { flex: 1 1 200px; display: grid; gap: 12px; min-width: 0; }
+.foto-remota-texto p { margin: 0; }
+.foto-remota .msg[hidden] { display: none; }
+@media (max-width: 480px) { .foto-remota-qr { margin: 0 auto; } }
+
+/* ---------- foto.html (telemóvel) ---------- */
+.pagina-foto .saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
+.pagina-foto .saltar:focus { top: 10px; }
+.pagina-foto main { padding: 24px 0 48px; }
+.pagina-foto h1 { font-size: 1.6rem; margin: 0 0 6px; }
+.foto-rotulo { margin: 0 0 18px; font-size: 1.1rem; font-weight: 700; color: var(--musgo-texto); }
+.foto-cartao { display: grid; gap: 14px; }
+.foto-cartao > * { margin: 0; }
+.foto-cartao .msg[hidden], .foto-cartao [hidden] { display: none; }
+.foto-botao { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 72px; font-size: 1.15rem; }
+.foto-botao svg { width: 28px; height: 28px; }
+.foto-botao input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+.foto-botao:has(input:focus-visible) { outline: 3px solid var(--foco); outline-offset: 2px; }
+.foto-previa { display: block; width: 100%; max-height: 60vh; object-fit: contain; border-radius: 12px; border: 2px solid var(--musgo); background: #000; }
+.foto-seguintes { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.foto-seguintes .btn { width: 100%; justify-content: flex-start; white-space: normal; text-align: left; }
+.foto-seguintes .enviada { color: var(--texto-suave); }

@@ -83,7 +83,10 @@ input, select { min-height: 44px; }
 .escolha:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
 /* Tipologia: T0…T5+ numa fila (3 por linha no telemóvel). */
 .escolhas-grelha.seis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (min-width: 720px) { .escolhas-grelha.seis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* 6 cartões sem partir palavras ("Apartamento"): letra e margens um pouco mais pequenas, sem hifenização; a partir
+   de 720 px tantas colunas quantas couberem com 112 px (dobra em 2 filas se não couberem as 6). */
+.escolhas-grelha.seis .escolha { padding: 10px 4px; font-size: .95rem; hyphens: manual; overflow-wrap: normal; }
+@media (min-width: 720px) { .escolhas-grelha.seis { grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); } }
 /* Ecrãs muito estreitos: o tipo de imóvel em 2 colunas (em 3, quase todos os nomes teriam de partir-se com hífen). */
 @media (max-width: 359.98px) { #casa-tipos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .escolhas legend small { display: block; font-weight: 600; }
@@ -104,6 +107,15 @@ input, select { min-height: 44px; }
 .contador-caixa .btn { width: 44px; min-width: 44px; min-height: 44px; padding: 0; font-size: 1.3rem; line-height: 1; }
 .contador-valor { min-width: 2.5ch; text-align: center; font-weight: 800; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
 .contador[hidden] { display: none; }
+/* "Outra divisão" em "A casa tem…": uma linha por divisão (nome, − n +, Tirar) e "Mais uma divisão". */
+.casa-outras { display: grid; gap: 8px; margin-top: 4px; }
+.casa-outras[hidden] { display: none; }
+.casa-outra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.casa-outra input[type="text"] { flex: 1 1 160px; min-width: 0; }
+.casa-outra .contador-caixa { flex: none; }
+.casa-outras .form-botoes { justify-content: flex-start; margin: 0; }
+/* Passo "A casa": a planta é automática (as divisões vêm de "A casa tem…"); a linha das ferramentas fica escondida. */
+#sim-form.passo-casa .editor-ferramentas-caixa { display: none; }
 /* "O que quer": máquinas pequenas por grupos (Cozinha, Sala e quartos…). */
 .quer-grupos { display: grid; gap: 14px; }
 .quer-grupo > legend { font-size: 1rem; font-weight: 700; color: var(--texto-suave); }
@@ -120,6 +132,12 @@ input, select { min-height: 44px; }
    e as máquinas escolhidas, em 3 grupos separados por um traço discreto, e "Mais…" no fim (a lista completa numa
    janela). A linha desliza para o lado dentro de si e encaixa num botão (a página não rola na horizontal). */
 .editor-ferramentas { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding: 2px 2px 6px; scrollbar-width: thin; }
+/* Carrossel (decisão do dono; editor.js `filaCaixa`): setas ‹ › nos dois extremos, só quando a linha não cabe toda;
+   cada toque anda uma página e dá a volta. A linha continua a deslizar com o dedo e a roda do rato. */
+.editor-ferramentas-caixa { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.editor-ferramentas-caixa > .editor-ferramentas { flex: 1 1 auto; }
+.editor-ferramentas-caixa > .ferramentas-seta { flex: none; min-width: 36px; min-height: 44px; padding: 0 8px; font-size: 1.4rem; line-height: 1; }
+.editor-ferramentas-caixa > .ferramentas-seta[hidden] { display: none; }
 .editor-barra { display: flex; flex: none; align-items: center; gap: 6px; }
 .editor-barra[hidden], .ferramenta[hidden] { display: none; }
 .editor-ferramentas > :not(:first-child) { margin-left: 4px; padding-left: 10px; border-left: 1px solid var(--borda); }
@@ -136,11 +154,11 @@ input, select { min-height: 44px; }
 /* "Mais…" fixo no fim da linha (a linha desliza por baixo dele): sempre à vista, qualquer que seja a largura. */
 .editor-ferramentas > .ferramentas-mais { position: sticky; right: 0; z-index: 1; margin-left: auto; box-shadow: -8px 0 0 var(--fundo); }
 .editor-ferramentas { scroll-padding-right: 100px; }
-/* B11 — telemóvel: a linha dobra em vez de deslizar; "Mais…" é só o último botão (não tapa a 3.ª ferramenta). */
+/* Telemóvel: a linha é o carrossel (as setas ‹ › passam de página em página; já não dobra — B11 revisto); "Mais…" é só
+   o último botão (não tapa a 3.ª ferramenta). */
 @media (max-width: 599px) {
-  .editor-ferramentas { flex-wrap: wrap; overflow-x: visible; }
-  .editor-barra { flex: 0 1 auto; flex-wrap: wrap; }
   .editor-ferramentas > .ferramentas-mais { position: static; margin-left: 4px; box-shadow: none; }
+  .editor-ferramentas { scroll-padding-right: 0; }
 }
 .ferramentas-mais-icone { font-size: 1.1rem; line-height: 1; }
 /* Janela "Mais…": a lista completa, agrupada (divisões, elementos, máquinas), em grelha. */
@@ -411,7 +429,7 @@ input, select { min-height: 44px; }
 .editor-principal:fullscreen .editor-acoes-linha, .editor-principal.ecra-inteiro .editor-acoes-linha { display: contents; }
 .editor-principal:fullscreen :is(.editor-acoes-grupo, .editor-pisos), .editor-principal.ecra-inteiro :is(.editor-acoes-grupo, .editor-pisos) { flex: none; flex-wrap: nowrap; }
 /* A linha das ferramentas (já numa só fila que desliza) não encolhe: a planta fica com a maior parte da altura. */
-.editor-principal:fullscreen .editor-ferramentas, .editor-principal.ecra-inteiro .editor-ferramentas { flex: none; }
+.editor-principal:fullscreen .editor-ferramentas-caixa, .editor-principal.ecra-inteiro .editor-ferramentas-caixa { flex: none; }
 .editor-principal:fullscreen::backdrop { background: var(--fundo); }
 html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Em ecrã inteiro o "Sair" fica à frente no seu grupo e o grupo à frente na barra (no telemóvel não há Esc). */
@@ -503,8 +521,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 /* Lote 8: o tamanho da planta na linha do título, compacto ("Largura [..] × Altura [..] m · Ajustar"); quebra para a
    linha seguinte se não couber (sem scroll na horizontal). */
 .sim-planta-tamanho { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; font-size: .85rem; font-weight: 600; color: var(--texto-suave); }
-.sim-planta-tamanho .tam-campo { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
-.sim-planta-tamanho input { width: 4.2em; min-height: 36px; padding: 2px 6px; font-size: .9rem; }
 .sim-planta-tamanho .btn { padding: 4px 10px; font-size: .82rem; min-height: 36px; }
 .sim-planta-tamanho .msg { flex-basis: 100%; margin: 0; padding: 4px 10px; font-size: .8rem; }
 .sim-planta-tamanho .msg[hidden] { display: none; }
@@ -517,7 +533,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-planta-origem:not([hidden]) ~ .sim-planta-fechar { margin-left: 0; }
 .sim-planta .editor, .sim-planta .editor-principal { display: flex; flex-direction: column; align-items: stretch; flex: 1 1 auto; min-width: 0; min-height: 0; gap: 6px; }
 .sim-planta .editor-area { flex: 1 1 auto; height: auto; min-height: 200px; scroll-margin: 0; }
-.sim-planta .editor-ferramentas { flex: none; padding-bottom: 4px; }
+.sim-planta .editor-ferramentas-caixa { flex: none; }
+.sim-planta .editor-ferramentas { padding-bottom: 4px; }
 /* Linha 2: as ações só com ícones, numa fila que desliza (as duas linhas do DOM desfazem-se). */
 .sim-planta .editor-acoes { flex: none; flex-direction: row; flex-wrap: nowrap; justify-content: safe flex-start; align-items: center; gap: 4px 8px; padding: 0 2px 2px; border: 0; background: transparent; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: thin; }
 .sim-planta .editor-acoes-linha { display: contents; }
@@ -588,7 +605,7 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 #funis .escolha.sem-casa { border-style: dashed; background: transparent; box-shadow: none; color: var(--texto-suave); }
 #funis .escolha.sem-casa .escolha-icone { color: var(--texto-suave); opacity: .55; }
 /* Avaria rápida: onde e o que se passa em botões curtos; a faixa da casa guardada (Trocar e reparar). */
-.escolhas-grelha.avaria-grelha { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.escolhas-grelha.avaria-grelha { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .sim-casa-faixa { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .sim-casa-faixa[hidden] { display: none; }
 #servicos { grid-template-columns: minmax(0, 1fr); }
@@ -736,7 +753,7 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 @media (min-width: 720px) { #caminhos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #caminhos .escolha.com-icone { min-height: 84px; }
 #caminhos .escolha[hidden] { display: none; }
-.escolhas-grelha.problemas { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.escolhas-grelha.problemas { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }   /* auto-fit: os cartões esticam até à largura toda (sem colunas vazias) */
 .sim-perigo { margin-top: 12px; }
 .sim-perigo[hidden] { display: none; }
 .sim-relatorio, .sim-completo { display: grid; gap: 14px; margin-bottom: 14px; min-width: 0; }

@@ -8,7 +8,7 @@ import {
 } from './http.js';
 import {
   texto, numero, booleano, opcao, dia, diaHora, hora, idNum, simulacao as validarSimulacao,
-  RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro,
+  RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro, diagnostico as validarDiagnostico,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
 import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
@@ -18,6 +18,7 @@ import { LimiteTaxa } from './limite.js';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
+import { criarFotosRemotas } from './fotos-remotas.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
@@ -88,6 +89,7 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
+  ['POST', 'orcamentos/:id/diagnostico', ['ceo', 'comercial'], 'guardarDiagnostico'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -181,6 +183,9 @@ export function criarApi(ctx) {
   // Fotos do simulador e leitura automática da foto do quadro (fotos.js, leitura-quadro.js).
   const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
   const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
+  // Fotos pelo telemóvel (QR; fotos-remotas.js): os envios contam no mesmo limite por IP; as sondagens do computador
+  // (de 3 em 3 s) e os pedidos de token têm o seu.
+  const fotosRemotas = criarFotosRemotas({ db, config, registo, relogio, limiteFotos: porIpFotos, limiteConsultas: new LimiteTaxa(config.limiteFotosConsultasHora, 3600_000, relogio) });
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
@@ -233,6 +238,8 @@ export function criarApi(ctx) {
       ensaios: pagPed.ensaiosDe(o),
       // Esquema do quadro feito pelo eletricista (migração 17; {…esquema, data, por}), ou null.
       esquema_quadro: esquemaQuadroDe(o),
+      // Diagnóstico da avaria feito pelo eletricista (migração 18; {verificacoes, valores, tipo, conclusao, data, por}), ou null.
+      diagnostico: pagPed.diagnosticoDe(o),
       pagamentos: pagPed.listarParaPainel(o.id),
       // Fase 3: o que o cliente comprou (relatório pormenorizado, visita) e os preços dele.
       compras: o.simulacao ? pagPed.compras(o) : null,
@@ -942,6 +949,20 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
+  // Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): a lista de verificação, as medições, o tipo
+  // de avaria encontrado e a conclusão (validar.js diagnostico), guardados em `orcamentos.diagnostico` com a data e quem
+  // o fez; `null` apaga. O relatório técnico mostra-o; o cliente vê-o só no relatório pormenorizado.
+  h.guardarDiagnostico = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['diagnostico']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const agora = agoraIso();
+    const guardado = v.diagnostico === undefined || v.diagnostico === null ? null : { ...validarDiagnostico(v.diagnostico), data: agora, por: u.email };
+    db.prepare('UPDATE orcamentos SET diagnostico = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
+    auditar(u, 'diagnostico_atualizado', `orcamento:${o.id}`, guardado
+      ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao) } : { apagado: true }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
   // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
   h.previaRelatorioCliente = ({ res, params }) => {
     const o = obterOrcamento(params.id);
@@ -1442,6 +1463,7 @@ export function criarApi(ctx) {
     try {
       // Rotas públicas: CORS com credenciais só para o site público noutra origem (SITE_ORIGENS).
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
+      if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
       if (caminho.startsWith('/api/conta/')) {
         if (await pagPed.tratar(req, res, url, ip)) return undefined;
         return await contas.tratar(req, res, url, ip);
@@ -1484,6 +1506,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, contas, correio, pagamentosPedido: pagPed };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed };
 }
 

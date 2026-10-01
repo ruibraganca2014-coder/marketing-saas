@@ -245,10 +245,28 @@ export function divisoesDaCasa(casa, maquinas = []) {
       extras: { ...x, corredor: x.corredor ?? quartos >= 2 },
     })], c.tipologia);
   }
+  // "Outra divisão" de "A casa tem…" (ginásio, sótão…; `casa.outras`): no r/c, a seguir às outras divisões da casa.
+  if (perfilCasa(c.tipo) === "habitacao" && c.tipologia) for (const nome of nomesOutras(c)) add(nome);
   const tem = (tipos) => r.some((d) => tipos.includes(tipoDivisao(d.nome)));
   const lista = (Array.isArray(maquinas) ? maquinas : []).map((m) => itemMaquina(m).modelo);
   if (lista.some((m) => PRECISA_EXTERIOR[m] && !tem(PRECISA_EXTERIOR[m]))) add("Exterior");
   return r.slice(0, MAX_DIVISOES);
+}
+
+/** Limites de "Outra divisão" (`casa.outras`: [{nome, qtd}]): n.º de linhas, letras do nome e quantas de cada. */
+export const LIMITES_OUTRAS = { linhas: 10, nome: 30, qtd: [1, 10] };
+/**
+ * Nomes das "outras divisões" da casa (`casa.outras`: [{nome, qtd}]), pela ordem: "Ginásio", e com qtd 2 ou mais
+ * "Ginásio", "Ginásio 2"…; sem nome, "Outra divisão". Estados antigos sem o campo: nenhuma.
+ */
+export function nomesOutras(casa) {
+  const r = [];
+  for (const o of (Array.isArray(casa?.outras) ? casa.outras : []).slice(0, LIMITES_OUTRAS.linhas)) {
+    const nome = String(o?.nome ?? "").trim().slice(0, LIMITES_OUTRAS.nome) || "Outra divisão";
+    const qtd = inteiro(o?.qtd, LIMITES_OUTRAS.qtd, 1);
+    for (let i = 1; i <= qtd; i++) r.push(i === 1 ? nome : `${nome} ${i}`);
+  }
+  return r;
 }
 
 /**
@@ -305,7 +323,7 @@ function divisoesPorPiso(pp, tipologia) {
  * Aparelhos por omissão de uma divisão nova (§2.2): só os base — porta, interruptor e ponto de luz em todas — e
  * as tomadas pelo tipo de divisão (decisão do dono: nada de janelas, sensores, quadro, TV ou outros automáticos).
  */
-const TOMADAS_TIPO = { quarto: 2, sala: 3, sala_cozinha: 3, cozinha: 3, escritorio: 2, wc: 1, garagem: 1, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2 };
+const TOMADAS_TIPO = { quarto: 2, sala: 3, sala_cozinha: 3, cozinha: 3, escritorio: 2, wc: 1, garagem: 1, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2, outra: 2 };
 
 /** Divisões de passagem (ronda regras): 2 portas e a luz comandada de 2 sítios (comando "escada" nos 2 interruptores). */
 const PASSAGEM = ["corredor", "entrada", "escadas"];
@@ -718,6 +736,8 @@ export function assinaturaCasa(casa, maquinas = []) {
   const pp = !negocio && temPorPiso(c) && Array.isArray(c.porPiso) ? c.porPiso.map(valoresPiso) : null;
   // "Exterior" e "Arrecadação" (novos) só entram quando marcados: as assinaturas guardadas antes não mudam.
   const novos = ["exterior", "arrecadacao"].filter((k) => x[k]);
+  // "Outra divisão" (novo): só entra quando há alguma (as assinaturas guardadas antes não mudam).
+  const outras = negocio ? [] : nomesOutras(c);
   return JSON.stringify([
     perfil, negocio ? null : c.tipologia ?? null, negocio ? null : quartosDe(c), c.casas_banho, c.salas, c.pisos,
     ...Object.keys(EXTRAS_CASA).filter((k) => !["exterior", "arrecadacao"].includes(k)).map((k) => !!x[k]),
@@ -726,6 +746,7 @@ export function assinaturaCasa(casa, maquinas = []) {
     maquinas.map(itemMaquina).map((m) => (m.qtd === 1 && m.piso === null ? m.modelo : `${m.modelo}×${m.qtd}@${m.piso ?? "-"}`)).sort(),
     ...(pp ? [pp.map((f) => [f.quartos, f.casas_banho, f.salas, Object.keys(EXTRAS_CASA).filter((k) => f.extras[k]).join("+")])] : []),
     ...(novos.length ? [novos] : []),
+    ...(outras.length ? [outras] : []),
   ]);
 }
 

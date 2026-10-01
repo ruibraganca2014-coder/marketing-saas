@@ -8,6 +8,8 @@ import { h, euros, num, selo, dados, data } from "../ui.js";
 import * as desenho from "../vendor/planta-svg.js";
 // Esquema do quadro feito no painel (cópia de web/simulador/quadro-desenho.js): só para ver no relatório técnico.
 import { desenharEsquemaQuadro, resumoEsquema } from "../vendor/quadro-desenho.js";
+// Diagnóstico de avarias (ecras/diagnostico-conteudo.js): nomes da lista de verificação e dos tipos de avaria.
+import { CHECKLIST, NOME_TIPO } from "./diagnostico-conteudo.js";
 
 export const PLANOS_SIM = { base: "Base", conforto: "Conforto", premium: "Premium" };
 const TIPOS_CASA = {
@@ -104,6 +106,11 @@ function pisosDetalhe(casa) {
     ].filter(Boolean);
     return [nomePiso(p), partes.join(" · ") || "—"];
   });
+}
+/** "Outra divisão" de "A casa tem…" (casa.outras: [{nome, qtd}]): "Ginásio, Sótão ×2" (vazio sem nenhuma). */
+function outrasTxt(casa) {
+  return arr(casa.outras).filter((o) => o && typeof o === "object").slice(0, 10)
+    .map((o) => `${typeof o.nome === "string" && o.nome.trim() ? o.nome.trim() : "Outra divisão"}${numero(o.qtd) > 1 ? ` ×${num(numero(o.qtd))}` : ""}`).join(", ");
 }
 /** Serviços e industrial: "120 m² · 5 espaços" (vazio nas casas). */
 function areaTxt(casa) {
@@ -327,6 +334,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
     ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...pisosDetalhe(casa),
+      ...(outrasTxt(casa) ? [["Outras divisões", outrasTxt(casa)]] : []),
       ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
       ...(sim.quer != null ? [["Máquinas grandes", maquinasTxt || "Nenhuma"]] : []),
       ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),
@@ -917,6 +925,28 @@ export function blocoEsquemaQuadro(esquema) {
   return h("div", { class: "esquema-quadro-bloco" }, svg, dados(linhas));
 }
 
+/**
+ * O diagnóstico da avaria feito no painel (`orcamentos.diagnostico`; docs/PAINEL-EMPRESA.md "Diagnóstico de avarias")
+ * no relatório técnico, na ficha arquivada e na pré-visualização do cliente: os passos assinalados (com o valor medido),
+ * o tipo de avaria encontrado e a conclusão. Aceita o formato do painel (`verificacoes` = chaves, `valores`) e o do
+ * cliente (`verificacoes` = [{chave, nome, medido, unidade}], `tipo_nome`). null sem diagnóstico.
+ */
+export function blocoDiagnostico(d) {
+  if (!d || typeof d !== "object") return null;
+  const valores = obj(d.valores);
+  const feitas = arr(d.verificacoes).map((v) => (typeof v === "string" ? { chave: v } : obj(v))).map((v) => {
+    const c = CHECKLIST.find((x) => x.chave === v.chave);
+    if (!c) return null;
+    const medido = numero(v.medido ?? valores[c.chave]);
+    return h("li", {}, c.nome, medido !== null ? h("span", { class: "num", text: ` — ${num2(medido)} ${c.valor?.unidade ?? ""}`.trimEnd() }) : null);
+  }).filter(Boolean);
+  const tipoNome = typeof d.tipo_nome === "string" && d.tipo_nome ? d.tipo_nome : d.tipo ? NOME_TIPO[d.tipo] ?? String(d.tipo) : null;
+  return h("div", { class: "diagnostico-bloco" },
+    feitas.length ? h("ul", { class: "diag-feitas" }, ...feitas) : h("p", { class: "ajuda", text: "Sem passos da lista de verificação assinalados." }),
+    dados([["Tipo de avaria encontrado", tipoNome ?? "—"], ["Conclusão / causa", typeof d.conclusao === "string" && d.conclusao.trim() ? d.conclusao.trim() : "—"],
+      ...(d.data ? [["Registado", `${data(d.data)}${d.por ? ` · ${String(d.por)}` : ""}`]] : [])]));
+}
+
 /** "3 luzes (1 regulável) · 2 interruptores (1 + 2 bot.) · …" dos elementos da planta de uma divisão. */
 function aparelhosTxt(els) {
   const de = (t) => els.filter((e) => e.tipo === t);
@@ -1117,7 +1147,7 @@ function blocoTrabalho(s, catalogo, fotos) {
  * "A VERIFICAR NA VISITA" e tudo o que a simulação calculou (o cliente só viu o preço e o plano).
  * `pedido`: {id, nome, telefone, email, localidade, criado, data_visita}.
  */
-export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitura = null, esquema = null } = {}) {
+export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitura = null, esquema = null, diagnostico = null } = {}) {
   const o = obj(pedido), s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), mo = obj(s.mao_obra);
   const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
   const temPlanta = !!planta && !!(planta.divisoes.length || planta.elementos.length || planta.fundo);
@@ -1141,6 +1171,8 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
   const avaria = ehAvaria(s);
   const servicoTxt = avaria ? FUNIS_SIM.avaria : servicosDe(s).map((k) => SERVICOS_SIM[k]).join(" · ");
+  // Diagnóstico da avaria feito no painel (ficha do pedido): a seguir ao que o cliente descreveu.
+  const blocoDiag = blocoDiagnostico(diagnostico);
 
   const partes = [
     h("header", { class: "rel-cabecalho" },
@@ -1165,11 +1197,13 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
         ["Descrição", typeof obj(s.avaria).descricao === "string" && obj(s.avaria).descricao.trim() ? `«${obj(s.avaria).descricao.trim()}»` : "—"],
         ["Foto", listaFotos.some(fotoAvaria) || arr(s.fotos).some(fotoAvaria) ? "ver em baixo" : "sem foto"],
       ]))] : []),
+    ...(blocoDiag ? [h("section", { class: "rel-seccao", id: "rel-diagnostico" }, h("h3", { text: "Diagnóstico da avaria (feito no painel)" }), blocoDiag)] : []),
     blocoVerificar,
     avaria ? seccao("Casa", dados([["Imóvel", "Sem planta (avaria rápida)"], ["Deslocação", deslocacaoTxt(s.deslocacao) ?? "—"]])) : seccao("Casa e pisos", dados([
       ["Imóvel", [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null].filter(Boolean).join(" · ") || "—"],
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...pisosDetalhe(casa),
+      ...(outrasTxt(casa) ? [["Outras divisões", outrasTxt(casa)]] : []),
       ...(areaTxt(casa) ? [["Área e espaços", areaTxt(casa)]] : []),
       ["Potência contratada", kva !== null ? `${num2(kva)} kVA` : "NÃO SABE"],
       ["Ligação", FASES[casa.fases] ?? "NÃO SABE"],

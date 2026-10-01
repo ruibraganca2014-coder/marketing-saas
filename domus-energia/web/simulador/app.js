@@ -12,7 +12,7 @@ import {
 } from "./regras.js";
 import {
   plantaDaCasa, assinaturaCasa, dicasObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
-  acertarPisos, temPorPiso, resumoPiso, divisoesDaCasa, tipoDivisao, acertarPlantaMexida,
+  acertarPisos, temPorPiso, resumoPiso, divisoesDaCasa, tipoDivisao, acertarPlantaMexida, nomesOutras, LIMITES_OUTRAS,
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
@@ -47,6 +47,7 @@ import {
 } from "./fotos.js";
 import { criarBlocoConta, pedirConta, urlPainelApi, credenciais, faixaDemonstracao } from "../conta-comum.js";
 import { aplicarEntrada } from "./entrada.js";
+import { ehTelemovel, abrirFotoRemota } from "./fotos-remotas.js";
 
 const cfg = window.DOMUS ?? {};
 const $ = (id) => document.getElementById(id);
@@ -297,6 +298,8 @@ function mostrarPasso(foco = true) {
   // Passo "Planta" (lote 8): a planta à largura toda, por baixo do título (CSS #sim-form.passo-planta); sem "Ver planta".
   if (p === P.planta) fecharPlanta({ foco: false });
   $("sim-form").classList.toggle("passo-planta", p === P.planta);
+  // Passo "A casa": a planta é automática (as divisões vêm de "A casa tem…"); a linha das ferramentas fica escondida (CSS).
+  $("sim-form").classList.toggle("passo-casa", p === P.casa);
   textoSeguinte();
   atualizarPlanta();
   if (p === P.inicio) desenharInicio();
@@ -821,6 +824,14 @@ function desenharCasa() {
         agendarGravacao();
       }));
     }
+    // "Outra divisão" (ginásio, sótão…; `estado.casa.outras`, da casa toda — no r/c): marcar abre a lista (nome e
+    // quantas, desenharOutras); desmarcar tira todas.
+    $("casa-extras").append(escolha("checkbox", "casa-extra-outra", "outra", "Outra divisão", "Ginásio, sótão…", (sim) => {
+      estado.casa.outras = sim ? [{ nome: "", qtd: 1 }] : [];
+      desenharOutras();
+      if (sim) $("casa-outras").querySelector("input")?.focus();
+      agendarGravacao();
+    }));
   }
   for (const i of g.querySelectorAll("input")) i.checked = i.value === estado.casa.tipo;
   sincronizarCasa();
@@ -862,11 +873,84 @@ function sincronizarCasa() {
     // Só as moradias têm mais de um piso.
     $("contador-pisos").hidden = !TIPOS_COM_PISOS.includes(c.tipo);
   }
-  for (const i of $("casa-extras").querySelectorAll("input")) i.checked = !!vis.extras?.[i.value];
+  for (const i of $("casa-extras").querySelectorAll("input")) i.checked = i.value === "outra" ? c.outras.length > 0 : !!vis.extras?.[i.value];
+  desenharOutras();
   desenharPisosCasa();
   if (!casaPorEscolher()) mensagemCasa(null);
   $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
   for (const i of document.querySelectorAll("input[name=casa-para-raios]")) i.checked = i.value === (estado.quadro.para_raios ?? "");
+}
+/**
+ * Linhas de "Outra divisão" (`estado.casa.outras`): em cada uma o nome (≤ 30 letras), quantas (− n +) e "Tirar"; no fim
+ * "Mais uma divisão" (até 10 linhas). Escondido sem nenhuma. Com o foco lá dentro e o mesmo n.º de linhas não se
+ * redesenha (os valores já estão nas linhas): quem escreve o nome não perde o foco.
+ */
+function desenharOutras() {
+  const caixa = $("casa-outras");
+  const lista = estado.casa.outras;
+  caixa.hidden = !lista.length;
+  if (!caixa.hidden && caixa.querySelectorAll(".casa-outra").length === lista.length && caixa.contains(document.activeElement)) return;
+  caixa.replaceChildren();
+  if (!lista.length) return;
+  const [min, max] = LIMITES_OUTRAS.qtd;
+  lista.forEach((o, i) => {
+    const linha = el("div", "casa-outra");
+    const nome = document.createElement("input");
+    nome.type = "text";
+    nome.maxLength = LIMITES_OUTRAS.nome;
+    nome.autocomplete = "off";
+    nome.placeholder = "Nome (ex.: Ginásio, Sótão)";
+    nome.value = o.nome;
+    nome.id = `casa-outra-${i}`;
+    nome.setAttribute("aria-label", `Nome da outra divisão ${i + 1}`);
+    nome.addEventListener("input", () => { o.nome = nome.value.slice(0, LIMITES_OUTRAS.nome); agendarGravacao(); });
+    const grupo = el("div", "contador-caixa");
+    grupo.setAttribute("role", "group");
+    grupo.setAttribute("aria-label", `Quantas: ${o.nome || "outra divisão"}`);
+    const valor = el("output", "contador-valor", String(o.qtd));
+    valor.setAttribute("aria-live", "polite");
+    const botaoQ = (sinal, rotulo, d) => {
+      const b = el("button", "btn sec", sinal);
+      b.type = "button";
+      b.setAttribute("aria-label", rotulo);
+      b.addEventListener("click", () => {
+        o.qtd = Math.min(max, Math.max(min, o.qtd + d));
+        valor.textContent = String(o.qtd);
+        menos.disabled = o.qtd <= min;
+        mais.disabled = o.qtd >= max;
+        agendarGravacao();
+      });
+      return b;
+    };
+    const menos = botaoQ("−", "Menos uma", -1), mais = botaoQ("+", "Mais uma", 1);
+    menos.disabled = o.qtd <= min;
+    mais.disabled = o.qtd >= max;
+    grupo.append(menos, valor, mais);
+    const tirar = el("button", "btn sec pequeno", "Tirar");
+    tirar.type = "button";
+    tirar.setAttribute("aria-label", `Tirar ${o.nome || "esta divisão"}`);
+    tirar.addEventListener("click", () => {
+      lista.splice(i, 1);
+      sincronizarCasa();   // a caixa "Outra divisão" desmarca-se sem nenhuma
+      ($("casa-outras").querySelector("input") ?? $("casa-extras").querySelector("input[value=outra]"))?.focus();
+      agendarGravacao();
+    });
+    linha.append(nome, grupo, tirar);
+    caixa.append(linha);
+  });
+  if (lista.length < LIMITES_OUTRAS.linhas) {
+    const maisUma = el("button", "btn sec pequeno", "Mais uma divisão");
+    maisUma.type = "button";
+    maisUma.addEventListener("click", () => {
+      lista.push({ nome: "", qtd: 1 });
+      desenharOutras();
+      $(`casa-outra-${lista.length - 1}`)?.focus();
+      agendarGravacao();
+    });
+    const fb = el("div", "form-botoes");
+    fb.append(maisUma);
+    caixa.append(fb);
+  }
 }
 /**
  * Separadores por piso do passo 1 (casas com 2 ou mais pisos; o mesmo estilo dos de "O que quer"): cada um
@@ -1570,7 +1654,6 @@ function acertarPedido() {
 // estado.quadro.pacote/protecoes/quadro_novo); o pára-raios / linha aérea pergunta-se em "A casa" (estado.quadro.para_raios).
 // Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados sozinhos
 // (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
-const lerNum = (i, min, max) => Math.min(max, Math.max(min, Math.round(Number(i.value) || 0)));
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
 const PROTECAO_SIMPLES = {
   essencial: ["Básica", "Diferencial obrigatório (RTIEBT); 30 mA recomendado."],
@@ -1680,7 +1763,7 @@ function desenharFotoQuadro() {
     desenharQuadro();
     focar("quadro-foto-botao");
   };
-  const tirar = () => pedirFoto("quadro", depois, { galeria: true });
+  const tirar = () => pedirFoto("quadro", depois, { galeria: true, rotulo: "Foto do quadro elétrico" });
   if (!foto) {
     const b = el("button", "btn foto-grande");
     b.type = "button";
@@ -1784,19 +1867,40 @@ document.body.append(entradaFoto);
 let fotoAlvo = null;   // {chave, aoFim(ok, texto)}: ok null = ainda a preparar
 
 /** Tirar (ou trocar) a foto `chave`; `aoFim(ok, texto)` diz como correu (ok null: ainda a preparar). */
-function pedirFoto(chave, aoFim, { galeria = false } = {}) {
+function pedirFoto(chave, aoFim, { galeria = false, rotulo = "Foto" } = {}) {
   if (!fotos.has(chave) && fotos.size >= MAX_FOTOS) { aoFim(false, `Já tem ${MAX_FOTOS} fotos, o máximo. Apague uma para tirar outra.`); return; }
-  fotoAlvo = { chave, aoFim };
   // `galeria` (foto do quadro): sem "capture", o telemóvel deixa escolher entre a câmara e a galeria.
   if (galeria) entradaFoto.removeAttribute("capture"); else entradaFoto.setAttribute("capture", "environment");
   entradaFoto.value = "";
-  entradaFoto.click();
+  const escolherFicheiro = () => { fotoAlvo = { chave, aoFim }; entradaFoto.click(); };
+  // Num computador (decisão do dono): a janela com o QR para tirar a foto com o telemóvel, "ou escolher um ficheiro"
+  // (fotos-remotas.js). Num telemóvel a câmara abre logo, como sempre.
+  if (ehTelemovel()) { escolherFicheiro(); return; }
+  abrirFotoRemota({
+    chave, rotulo, urlApi, credenciais,
+    sim: () => { if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); } return estado.fotosId; },
+    aoFicheiro: escolherFicheiro,
+    // A foto pedida segue o caminho normal; outra chave da mesma simulação (o telemóvel passou à "seguinte") fica
+    // guardada e o passo redesenha-se.
+    aoFoto: (k, blob) => processarFoto(k === chave ? { chave, aoFim } : { chave: k, aoFim: (ok) => { if (ok !== null) redesenharPasso(); } }, blob),
+  });
+}
+/** O passo atual outra vez (uma foto chegou do telemóvel para uma chave que não é a do botão carregado). */
+function redesenharPasso() {
+  if (estado.passo === P.divisoes) desenharDivisoes();
+  else if (estado.passo === P.quadro) desenharQuadro();
+  else if (estado.passo === P.trocar) desenharTrocar();
+  else if (estado.passo === P.avaria) desenharAvaria();
 }
 entradaFoto.addEventListener("change", async () => {
   const alvo = fotoAlvo;
   const f = entradaFoto.files?.[0];
   fotoAlvo = null;
   if (!alvo || !f) return;
+  await processarFoto(alvo, f);
+});
+/** Reduz, guarda (IndexedDB) e regista a foto `f` (File ou Blob) como `alvo.chave`; `alvo.aoFim(ok, texto)` diz como correu. */
+async function processarFoto(alvo, f) {
   alvo.aoFim(null, "A preparar a foto…");
   try {
     const r = await reduzirFoto(f);
@@ -1809,7 +1913,7 @@ entradaFoto.addEventListener("change", async () => {
   } finally {
     entradaFoto.value = "";
   }
-});
+}
 async function tirarFoto(chave) {
   fotos.delete(chave);
   if (estado.fotosId) await apagarFoto(estado.fotosId, chave);
@@ -2397,17 +2501,7 @@ function desenharDivisoes() {
     });
     c.append(g);
   }
-  $("extra-central").checked = estado.extras.central;
-  $("extra-termostatos").value = String(estado.extras.termostatos);
-  // "Aquecimento / ar condicionado" já não põe termóstatos sozinho: uma dica ao lado do campo.
-  let dicaT = $("extra-termostatos-dica");
-  if (!dicaT) {
-    dicaT = el("p", "ajuda divisao-dica");
-    dicaT.id = "extra-termostatos-dica";
-    $("extra-termostatos").closest("label").after(dicaT);
-  }
-  dicaT.textContent = "Aquecimento ou AC: quantos termóstatos?";
-  dicaT.hidden = !(quer("clima") && !estado.extras.termostatos);
+  // A caixa "Extras" (central, termóstatos) saiu do passo (decisão do dono); `estado.extras` fica (estados antigos e o pedido).
 }
 
 /** Por cima dos cartões: quantas divisões e aparelhos há na planta (decisão do dono: já não se verifica divisão a divisão). */
@@ -2491,7 +2585,7 @@ function fotoDaLinha(chave, rotuloFoto, base, depois) {
     bf.id = `${base}-foto`;
     bf.setAttribute("aria-label", `Tirar foto: ${rotuloFoto}`);
     bf.append(iconeCamara(), el("span", null, "Foto"));
-    bf.addEventListener("click", () => pedirFoto(chave, depois));
+    bf.addEventListener("click", () => pedirFoto(chave, depois, { rotulo: `Foto: ${rotuloFoto}` }));
     return [bf, null];
   }
   const acoes = el("div", "aparelho-foto-acoes");
@@ -2503,7 +2597,7 @@ function fotoDaLinha(chave, rotuloFoto, base, depois) {
   trocar.type = "button";
   trocar.id = `${base}-foto`;
   trocar.setAttribute("aria-label", `Trocar a foto: ${rotuloFoto}`);
-  trocar.addEventListener("click", () => pedirFoto(chave, depois));
+  trocar.addEventListener("click", () => pedirFoto(chave, depois, { rotulo: `Foto: ${rotuloFoto}` }));
   const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
   apagar.type = "button";
   apagar.id = `${base}-foto-apagar`;
@@ -2587,8 +2681,6 @@ ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
 }, desenharDivisoes);
 // Lote 8: as divisões mudam-se no passo Planta (aqui estão presas).
 $("divisao-adicionar").addEventListener("click", () => irPara(P.planta));
-$("extra-central").addEventListener("change", () => { estado.extras.central = $("extra-central").checked; agendarGravacao(); });
-$("extra-termostatos").addEventListener("input", () => { estado.extras.termostatos = lerNum($("extra-termostatos"), 0, 20); estado.termostatosEditados = true; if ($("extra-termostatos-dica")) $("extra-termostatos-dica").hidden = !(quer("clima") && !estado.extras.termostatos); agendarGravacao(); });
 
 // ------------------------------------------------------------ 6. Trocar e reparar (lote 8)
 // O que fazer com cada coisa da casa (as ações saíram do passo Divisões): na lista (um cartão por divisão, só os
@@ -3256,7 +3348,7 @@ function desenharFotoAvaria() {
   b.type = "button";
   b.id = "avaria-foto-botao";
   b.append(iconeCamara(), el("span", null, tiradas.length ? "Tirar outra foto" : "Tirar foto da avaria"));
-  b.addEventListener("click", () => { foco = "avaria-foto-botao"; pedirFoto(livre, depois); });
+  b.addEventListener("click", () => { foco = "avaria-foto-botao"; pedirFoto(livre, depois, { rotulo: `Foto ${FOTOS_AVARIA.indexOf(livre) + 1} da avaria` }); });
   corpo.append(b);
 }
 /** O que falta na avaria (texto e onde pôr o foco), ou null; `atualizar`: só refaz a mensagem que está à vista. */
@@ -3434,6 +3526,7 @@ function desenharCasaResumo() {
     partes.push(`${k.pisos} ${k.pisos === 1 ? "piso" : "pisos"}`);
     const extras = Object.entries(EXTRAS_CASA).filter(([x]) => k.extras[x]).map(([, t]) => t.toLowerCase());
     linha("Tipologia", [...partes, ...extras].join(" · "));
+    if (k.outras.length) linha("Outras divisões", nomesOutras(k).join(", "));
     // Com 2 ou mais pisos, o que tem cada piso.
     for (const [p, f] of (porPisoCasa() ?? []).entries()) {
       linha(nomePiso(p), [resumoPiso(f, k.tipologia), ...Object.entries(EXTRAS_CASA).filter(([x]) => f.extras[x]).map(([, t]) => t.toLowerCase())].join(" · "));

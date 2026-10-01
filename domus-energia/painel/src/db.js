@@ -383,6 +383,35 @@ export const MIGRACOES = [
   // disjuntores, módulos livres pela ordem da calha, estado, fusíveis, notas; validar.js esquemaQuadro). Só no
   // relatório pormenorizado do cliente.
   (db) => { db.exec('ALTER TABLE orcamentos ADD COLUMN esquema_quadro TEXT'); },
+  // 18 — diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): a lista de verificação que o
+  // eletricista preenche na ficha dos pedidos de avaria/reparação (`orcamentos.diagnostico`, JSON: verificacoes,
+  // valores, tipo, conclusao, data, por; validar.js diagnostico). Só no relatório pormenorizado do cliente.
+  (db) => { db.exec('ALTER TABLE orcamentos ADD COLUMN diagnostico TEXT'); },
+  // 19 — fotos pelo telemóvel (QR; docs/SIMULADOR-ORCAMENTO.md §6.2, fotos-remotas.js): um token por simulação
+  // (24 h; na base só o SHA-256) e as chaves pedidas pelo computador, com a foto recebida do telemóvel (os bytes
+  // ficam em FOTOS_DIR/remotas/). Só tabelas novas: nada muda nos pedidos nem nas fotos dos pedidos.
+  (db) => db.exec(`
+    CREATE TABLE fotos_remotas_tokens (
+      hash TEXT PRIMARY KEY,                    -- SHA-256 do token (o token só vai para os dois navegadores)
+      sim TEXT NOT NULL,                        -- fotosId da simulação (estado.js)
+      expira INTEGER NOT NULL,                  -- ms desde 1970
+      seq INTEGER NOT NULL DEFAULT 0,           -- n.º da última foto recebida (o computador pede "desde")
+      criado TEXT NOT NULL
+    );
+    CREATE INDEX fotos_remotas_tokens_expira ON fotos_remotas_tokens(expira);
+    CREATE TABLE fotos_remotas (
+      token_hash TEXT NOT NULL REFERENCES fotos_remotas_tokens(hash) ON DELETE CASCADE,
+      chave TEXT NOT NULL,                      -- "quadro", "avaria:foto_2" ou "<id da divisão>:<tipo>"
+      rotulo TEXT,                              -- o que o telemóvel mostra ("Foto do quadro elétrico")
+      pedida TEXT NOT NULL,
+      id TEXT,                                  -- 24 hex (nome do ficheiro); NULL por receber ou já entregue
+      tipo_mime TEXT CHECK (tipo_mime IS NULL OR tipo_mime IN ('image/jpeg', 'image/png')),
+      bytes INTEGER,
+      seq INTEGER,                              -- n.º de ordem da receção
+      recebida TEXT,
+      PRIMARY KEY (token_hash, chave)
+    );
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
