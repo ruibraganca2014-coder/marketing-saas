@@ -14,7 +14,7 @@ import {
   MAX_CANTOS, MIN_CANTOS, AREA_MIN_CM2, MAX_PISO,
   propsOmissao, atualizarDivisoes, divisaoDoElemento, divisaoEm, pontosDivisao, areaPoligono, caixaPontos,
   distanciaSegmento, paredesCruzam, validarPontos, definirPontos, pontoInterior, pisoDe, nomePiso,
-  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, temPergunta,
+  pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, temPergunta, COMANDOS, comandoDe,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { aparelhosOmissao, resumoAparelhos, tipoDivisao as tipoDoNome } from "./casa.js";
@@ -41,7 +41,7 @@ const NOMES_CURTOS = {
   arca_frigorifica: "Arca/vitrine", maquina_cafe: "Máq. de café", servidor: "Servidor", maquina_trifasica: "Máq. trifásica",
   box_router: "Box/router", nas: "NAS", camara: "Câmara", rega: "Rega", iluminacao_jardim: "Luz exterior",
   terminal_pagamento: "Terminal pagamento", ferramentas: "Ferramentas", cafeteira: "Cafeteira", outro: "Outra",
-  esquentador: "Esquentador", radiador: "Radiador", cafe_expresso: "Café expresso", campainha_video: "Campainha vídeo",
+  esquentador: "Esquentador", radiador: "Radiador", cafe_expresso: "Café expresso", campainha: "Campainha", campainha_video: "Campainha vídeo",
   carregador_bicicleta: "Carreg. bicicleta", toalheiro: "Aquec. toalhas", hidromassagem: "Hidro­massagem",
   // Palavras mais largas do que o botão: hífen opcional (­) onde se pode partir.
   termoacumulador: "Termo­acumulador", ar_condicionado: "Ar condi­cionado", desumidificador: "Desumidi­ficador",
@@ -1772,7 +1772,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       r.push(caixa("Tem estore?", !!p.estore, mudar((v) => { p.estore = v; if (!v) p.motorizado = false; }), false, `${pre}-estore`));
       r.push(caixa("É motorizado?", !!p.motorizado, mudar((v) => { p.motorizado = v; }), !p.estore, `${pre}-motorizado`));
     }
-    // Tomada: nada a escolher aqui (decisão do dono: "Por uma inteligente?" só em "Trocar e reparar").
+    // Tomada: só "É dupla?" (ronda regras; "Por uma inteligente?" só em "Trocar e reparar").
+    if (tipo === "tomada") r.push(caixa("É dupla? (2 tomadas na mesma caixa)", !!p.dupla, mudar((v) => { p.dupla = v; }), false, `${pre}-dupla`));
     if (tipo === "interruptor") {
       const s = document.createElement("select");
       s.id = `${pre}-botoes`;
@@ -1780,6 +1781,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       s.value = String(p.botoes);
       s.addEventListener("change", mudar(() => { p.botoes = Number(s.value); }));
       r.push(campo("Quantos botões?", s));
+      // Ronda regras: o tipo de comando (simples, lustre, escada, inversor, botão de pressão) com uma linha de explicação.
+      const c = document.createElement("select");
+      c.id = `${pre}-comando`;
+      for (const [k, v] of Object.entries(COMANDOS)) { const o = document.createElement("option"); o.value = k; o.textContent = v.nome; c.append(o); }
+      c.value = comandoDe(p);
+      const ajuda = el("small", "ajuda", COMANDOS[c.value].ajuda);
+      c.addEventListener("change", mudar(() => {
+        p.comando = c.value;
+        ajuda.textContent = COMANDOS[c.value].ajuda;
+        if (p.botoes < COMANDOS[c.value].botoes_min) { p.botoes = COMANDOS[c.value].botoes_min; s.value = String(p.botoes); }
+      }));
+      const l = campo("Comando", c);
+      l.append(ajuda);
+      r.push(l);
     }
     if (tipo === "maquina") {
       const s = document.createElement("select");
@@ -1901,8 +1916,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const p = e.props;
     if (e.tipo === "porta") return p.entrada ? "Porta da rua" : "Porta";
     if (e.tipo === "janela") return p.estore ? (p.motorizado ? "Janela com estore motorizado" : "Janela com estore") : "Janela";
-    if (e.tipo === "tomada") return p.inteligente ? "Tomada inteligente" : "Tomada";
-    if (e.tipo === "interruptor") return `Interruptor de ${p.botoes} ${p.botoes === 1 ? "botão" : "botões"}`;
+    if (e.tipo === "tomada") return p.inteligente ? "Tomada inteligente" : p.dupla ? "Tomada dupla" : "Tomada";
+    if (e.tipo === "interruptor") return `Interruptor de ${p.botoes} ${p.botoes === 1 ? "botão" : "botões"}${comandoDe(p) !== "simples" ? ` (${COMANDOS[comandoDe(p)].nome.toLowerCase()})` : ""}`;
     if (e.tipo === "maquina") return MODELOS[p.modelo]?.nome ?? "Máquina";
     return ELEMENTOS[e.tipo].nome;
   }

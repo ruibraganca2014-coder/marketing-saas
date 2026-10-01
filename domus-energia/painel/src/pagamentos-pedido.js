@@ -32,6 +32,7 @@ import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson
 import { idNum, opcao, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
+import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 
 export const SINAL_PCT = 30;
 export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório pormenorizado (config `preco_relatorio_iva`)
@@ -604,6 +605,68 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return `${ACAO_TEXTO[a.acao]}: ${t}`;
   }
 
+  /** O esquema do quadro desenhado no painel (`orcamentos.esquema_quadro`, JSON; migração 17), ou null. */
+  function esquemaQuadroDe(o) {
+    if (!o?.esquema_quadro) return null;
+    let e;
+    try { e = typeof o.esquema_quadro === 'string' ? JSON.parse(o.esquema_quadro) : o.esquema_quadro; } catch { return null; }
+    return e && typeof e === 'object' && !Array.isArray(e) ? e : null;
+  }
+
+  /** Ensaios medidos na visita/obra (`orcamentos.ensaios`, migração 16; registados no painel), ou null. */
+  function ensaiosDe(o) {
+    if (!o?.ensaios) return null;
+    let e;
+    try { e = JSON.parse(o.ensaios); } catch { return null; }
+    if (!e || typeof e !== 'object') return null;
+    const n = (k) => (Number.isFinite(Number(e[k])) && e[k] !== null && e[k] !== '' ? Number(e[k]) : null);
+    return { continuidade_pe: n('continuidade_pe'), isolamento: n('isolamento'), terra: n('terra'), diferencial: n('diferencial'), notas: txtCurto(e.notas, 1000) || null, data: typeof e.data === 'string' ? e.data : null };
+  }
+
+  /**
+   * Lista de ensaios do relatório pormenorizado (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem da RTIEBT
+   * 612.1: continuidade do PE (612.2, valor medido), isolamento (612.3, ≥ `ensaio_isolamento_mohm` a 500 V DC), terra
+   * (801.5.6.1, < `ensaio_terra_ohm` em habitação com disjuntor de entrada diferencial; RA × IΔn ≤ 50 V, 413.1.4.2) e o
+   * diferencial (Anexo B: disparo ≤ IΔn; os ≤ `ensaio_diferencial_ms` são só referência EN 61008/61009). Os valores de
+   * referência vêm da configuração (editáveis no painel) e vão marcados "a confirmar pelo técnico"; `medido` vem dos
+   * ensaios registados no painel (null = a medir na visita/obra). Textos nossos.
+   */
+  function listaEnsaios(cfg, medidos) {
+    const fmt = (v) => String(v).replace('.', ',');
+    const iso = numCfg(cfg, 'ensaio_isolamento_mohm', 0.5), dif = numCfg(cfg, 'ensaio_diferencial_ms', 300), terra = numCfg(cfg, 'ensaio_terra_ohm', 100);
+    const m = medidos ?? {};
+    return {
+      introducao: 'Ensaios a fazer na visita ou no fim da obra, pela ordem habitual (RTIEBT 612.1): primeiro sem tensão, depois com tensão. O valor medido fica registado por nós.',
+      lista: [
+        { chave: 'continuidade_pe', nome: 'Continuidade do condutor de proteção (PE) e das ligações equipotenciais', referencia: 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', unidade: 'Ω', norma: 'RTIEBT 612.2', medido: m.continuidade_pe ?? null },
+        { chave: 'isolamento', nome: 'Resistência de isolamento, entre cada condutor ativo e a terra, com os aparelhos desligados', referencia: `≥ ${fmt(iso)} MΩ, a 500 V DC`, unidade: 'MΩ', norma: 'RTIEBT 612.3 (Quadro 61A)', medido: m.isolamento ?? null },
+        { chave: 'terra', nome: 'Resistência de terra das massas (habitação com disjuntor de entrada diferencial)', referencia: `< ${fmt(terra)} Ω; e RA × IΔn ≤ 50 V`, unidade: 'Ω', norma: 'RTIEBT 801.5.6.1 e 413.1.4.2', medido: m.terra ?? null },
+        { chave: 'diferencial', nome: 'Disparo do diferencial de 30 mA (à corrente IΔn)', referencia: `dispara a uma corrente ≤ IΔn; tempo ≤ ${fmt(dif)} ms`, unidade: 'ms', norma: 'RTIEBT Anexo B (só exige disparo ≤ IΔn); o tempo é referência EN 61008/61009', medido: m.diferencial ?? null },
+      ],
+      notas: m.notas ?? null,
+      nota: 'Valores de referência a confirmar pelo técnico.',
+    };
+  }
+
+  /** A planta (§2.1) só com o que o relatório técnico desenha: sem imagem de fundo, só os campos conhecidos. */
+  function plantaParaRelatorio(p) {
+    if (!p || typeof p !== 'object') return null;
+    const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+    const divisoes = (Array.isArray(p.divisoes) ? p.divisoes.slice(0, 40) : []).filter((d) => d && typeof d === 'object').map((d) => ({
+      id: String(d.id ?? ''), nome: txtCurto(d.nome, 60) || 'Divisão', piso: num(d.piso), x_cm: num(d.x_cm), y_cm: num(d.y_cm), largura_cm: num(d.largura_cm), altura_cm: num(d.altura_cm),
+      ...(Array.isArray(d.pontos) ? { pontos: d.pontos.slice(0, 24).map((q) => [num(q?.[0]), num(q?.[1])]) } : {}),
+    }));
+    const PROPS = ['dupla', 'comando', 'modelo', 'entrada', 'estore'];
+    const elementos = (Array.isArray(p.elementos) ? p.elementos.slice(0, 400) : []).filter((e) => e && typeof e === 'object' && typeof e.tipo === 'string').map((e) => ({
+      id: String(e.id ?? ''), tipo: e.tipo.slice(0, 20), x_cm: num(e.x_cm), y_cm: num(e.y_cm), rot: num(e.rot), piso: num(e.piso), divisao: typeof e.divisao === 'string' ? e.divisao : null,
+      props: Object.fromEntries(PROPS.filter((k) => e.props?.[k] !== undefined).map((k) => [k, typeof e.props[k] === 'string' ? e.props[k].slice(0, 40) : Boolean(e.props[k])])),
+      // O nome dado pelo cliente; numa máquina sem nome, o do modelo (lista numerada dos aparelhos de utilização).
+      ...(typeof e.nome === 'string' && e.nome.trim() ? { nome: txtCurto(e.nome, 60) } : e.tipo === 'maquina' && NOME_MAQUINA[e.props?.modelo] ? { nome: NOME_MAQUINA[e.props.modelo] } : {}),
+    }));
+    if (!divisoes.length && !elementos.length) return null;
+    return { largura_cm: Math.max(1, num(p.largura_cm) || 2000), altura_cm: Math.max(1, num(p.altura_cm) || 1500), divisoes, elementos };
+  }
+
   /**
    * Relatório técnico na versão do cliente (docs/PAGAMENTOS-PEDIDO.md): por divisão, a LISTA DE TRABALHO (Reparar /
    * Substituir / Novo, com as avarias; `simulacao.trabalho`, lote 7; os pedidos antigos: tudo Novo pelas linhas das
@@ -612,6 +675,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * Sem preço de compra, fornecedor, ligações, notas internas nem circuitos. Fase 2: `melhorias` (null sem pacotes) =
    * {titulo, pacotes: [{nome, material, total}], instalacao, total}: o material de cada pacote aceite (fora das divisões
    * e do quadro) e a "Instalação e configuração dos pacotes" (a margem deles, pelo catálogo e pela configuração).
+   * Conteúdo técnico (só aqui, nunca no básico; web/simulador/simbolos.js): `planta` (para a planta técnica com a
+   * simbologia normalizada), `esquemas` (o tipo de comando de cada luz, por divisão), `terra_nota` e `ensaios`.
    */
   function relatorioCliente(o) {
     let s;
@@ -761,6 +826,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0) + (melhorias?.total ?? 0);
     const ta = s.totais_acao && typeof s.totais_acao === 'object' ? s.totais_acao : {};
     const aparelhos = (k) => inteiro(ta[k]?.aparelhos, 10_000);
+    const planta = s.funil === 'avaria' ? null : plantaParaRelatorio(s.planta);
     return {
       pedido: o.id, libertado: o.relatorio_libertado,
       acoes: { manter: aparelhos('manter'), reparar: aparelhos('reparar'), substituir: aparelhos('substituir'), novo: aparelhos('novo') },
@@ -768,6 +834,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       mao_obra: maoObra === null ? null : { horas, valor: maoObra },
       deslocacao, melhorias, total: Math.round(soma * 100) / 100,
       nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. O que já pagou (relatório, visita) é descontado na obra.',
+      // Conteúdo técnico do pormenorizado (decisões 4, 5, 7, 8 e 12): planta técnica, esquema por luz, terra e ensaios.
+      planta, esquemas: planta ? esquemasDaPlanta(planta) : [],
+      terra_nota: 'Verificar terra (PE) nas tomadas na visita.',
+      ensaios: listaEnsaios(cfg, ensaiosDe(o)),
+      // "Esquema do quadro elétrico" desenhado pelo eletricista no painel (`orcamentos.esquema_quadro`, migração 17;
+      // formato da leitura do quadro: disjuntor_geral, diferenciais, disjuntores, modulos_livres, ordem). Passa tal e
+      // qual (null sem esquema); a conta desenha-o com web/simulador/quadro-desenho.js.
+      esquema_quadro: esquemaQuadroDe(o),
     };
   }
 
@@ -1025,7 +1099,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   return {
     modo, ativo: config.pagamentoPedido, tratar, iniciarAvaria, comprar, compras, temRelatorio, temVisita, aoAceitar, pagarFase,
-    aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, valores, expirar, iniciar, parar, publico,
+    aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     PLANOS: PLANOS_MENSAIS,
   };

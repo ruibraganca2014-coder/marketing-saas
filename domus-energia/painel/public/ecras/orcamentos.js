@@ -9,6 +9,14 @@ import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
 import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS } from "./simulacao.js";
+// Conteúdo técnico do relatório pormenorizado (cópia de web/simulador/simbolos.js): planta técnica, esquemas, ensaios.
+import { seccaoTecnica } from "../vendor/simbolos.js";
+// Esquema do quadro feito pelo eletricista (ronda B; cópia de web/simulador/quadro-desenho.js): desenho e modelo.
+import {
+  desenharQuadroCliente, nomeComponente, normalizarEsquema, esquemaVazio, resumoEsquema, ESTADOS_QUADRO, AMPERES_GERAL,
+  AMPERES_DIFERENCIAL, AMPERES_DISJUNTOR, MA_DIFERENCIAL, MAX_ESQUEMA,
+} from "../vendor/quadro-desenho.js";
+import { urlFoto } from "./simulacao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
@@ -161,10 +169,14 @@ export default function orcamentos(el, ctx) {
         h("p", { class: "ajuda", text: "Enviadas pelo cliente (no simulador ou na conta). Toque numa foto para a ver inteira." }),
         galeriaFotos(id, fotos, { aoApagar: arquivado ? null : (f, b) => apagarFoto(j, id, f, b) })));
     }
+    // Ronda B: o esquema do quadro feito pelo eletricista a partir da foto do cliente (a ficha completa traz `esquema_quadro`).
+    if (o && typeof o === "object" && "esquema_quadro" in o) partes.push(seccaoEsquemaQuadro(j, o, fotos, arquivado));
     const plano = campo(o, "plano_escolhido") ? ` Plano mensal escolhido: ${PLANOS_NOME[campo(o, "plano_escolhido")] ?? campo(o, "plano_escolhido")}.` : "";
     if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
     else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
     partes.push(...blocoPagamentos(j, o, arquivado));
+    // Ensaios medidos (relatório pormenorizado): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`.
+    if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && campo(o, "ensaios") !== undefined) partes.push(formEnsaios(j, o));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
@@ -375,7 +387,221 @@ export default function orcamentos(el, ctx) {
     if (mo) partes.push(h("p", { text: `Mão de obra${campo(mo, "horas") ? ` (cerca de ${String(campo(mo, "horas")).replace(".", ",")} h)` : ""}: ${euros(campo(mo, "valor"))}` }));
     if (campo(rel, "deslocacao") != null) partes.push(h("p", { text: `Deslocação: ${euros(campo(rel, "deslocacao"))}` }));
     partes.push(h("p", { class: "valor num", text: `Total estimado: ${euros(campo(rel, "total"))}` }), h("p", { class: "ajuda", text: txt(rel, "nota") }));
-    j.corpo.append(...partes);
+    // Só no pormenorizado: a planta técnica (simbologia normalizada), o esquema por luz, a terra e a lista de ensaios.
+    const tecnica = h("div", { class: "relatorio-cliente-tecnico" }, ...seccaoTecnica(rel, { titulo: "h3", subtitulo: "h4" }));
+    j.corpo.append(...partes, tecnica);
+    // "Esquema do quadro elétrico" desenhado pelo eletricista (orcamentos.esquema_quadro): o cliente vê-o desenhado com
+    // o vendor/quadro-desenho.js (cópia do simulador); se a cópia ainda não existir no painel, fica só o resumo.
+    const eq = campo(rel, "esquema_quadro");
+    if (eq && typeof eq === "object") {
+      const q = h("div", { class: "rel-quadro" });
+      const resumo = [eq.disjuntor_geral?.amperes ? `geral ${eq.disjuntor_geral.amperes} A` : null,
+        Array.isArray(eq.diferenciais) ? `${eq.diferenciais.length} diferenciais` : null, Array.isArray(eq.disjuntores) ? `${eq.disjuntores.length} disjuntores` : null,
+        Number.isFinite(Number(eq.modulos_livres)) ? `${eq.modulos_livres} módulos livres` : null].filter(Boolean).join(" · ");
+      tecnica.append(h("h3", { text: "Esquema do quadro elétrico" }), h("p", { class: "ajuda", text: `Desenhado no painel pelo eletricista${resumo ? `: ${resumo}` : ""}.` }), q);
+      import("../vendor/quadro-desenho.js").then((m) => {
+        const svg = m.desenharQuadroCliente?.(eq, { resumo: "esquema do quadro elétrico" });
+        if (!svg) return;
+        svg.removeAttribute("id");
+        for (const g of svg.querySelectorAll(".qd-item")) { g.removeAttribute("tabindex"); g.removeAttribute("role"); }
+        q.replaceChildren(svg);
+      }).catch(() => {});
+    }
+  }
+
+  /**
+   * Ensaios medidos na visita/obra (POST orcamentos/:id/ensaios): continuidade do PE, isolamento, terra e disparo do
+   * diferencial, mais notas. O cliente vê-os na lista de ensaios do relatório pormenorizado; vazio = "a medir".
+   */
+  function formEnsaios(j, o) {
+    const id = String(campo(o, "id"));
+    const e = campo(o, "ensaios") ?? {};
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const entrada = (nome, rotulo, ajuda) => campoForm(rotulo, h("input", { name: nome, type: "number", min: "0", max: "1000000", step: "0.001", inputmode: "decimal", value: campo(e, nome) ?? "" }), ajuda);
+    const f = h("form", { class: "form-grelha", id: "form-ensaios", novalidate: true },
+      h("h3", { text: "Ensaios medidos" }),
+      h("p", { class: "ajuda", text: "Valores medidos na visita ou no fim da obra (ordem RTIEBT 612.1). Aparecem na lista de ensaios do relatório pormenorizado do cliente; em branco = a medir." }),
+      h("div", { class: "duas" },
+        entrada("continuidade_pe", "Continuidade do PE (Ω)", "612.2: valor medido"),
+        entrada("isolamento", "Isolamento (MΩ)", "612.3: ≥ referência, a 500 V DC")),
+      h("div", { class: "duas" },
+        entrada("terra", "Resistência de terra (Ω)", "801.5.6.1: < referência"),
+        entrada("diferencial", "Disparo do diferencial (ms)", "a IΔn; referência EN 61008/61009")),
+      campoForm("Notas", h("textarea", { name: "notas", maxlength: "1000", rows: "2" }, campo(e, "notas") ?? "")),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", text: "Guardar ensaios" }),
+        campo(e, "data") ? h("span", { class: "ajuda", text: `Registados ${data(campo(e, "data"))}.` }) : null),
+      msg);
+    f.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const el = f.elements;
+      const corpo = { notas: el.notas.value.trim() || null };
+      for (const k of ["continuidade_pe", "isolamento", "terra", "diferencial"]) {
+        const v = el[k].value.trim();
+        if (v === "") { corpo[k] = null; continue; }
+        const n = numero(v);
+        if (n === null || n < 0) { mensagem(msg, "Cada valor medido tem de ser um número igual ou maior que 0 (ou ficar em branco)."); el[k].focus(); return; }
+        corpo[k] = n;
+      }
+      const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/ensaios`, { corpo });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo);
+        avisar("Ensaios guardados: o cliente vê-os no relatório pormenorizado.");
+        if (ficha?.j === j) desenharFicha(j, novo);
+      } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
+    });
+    return f;
+  }
+
+  /**
+   * Ronda B (decisão do dono): "Esquema do quadro" — a foto do quadro do cliente ao lado do editor de calha DIN
+   * (vendor/quadro-desenho.js): o geral, os diferenciais, os disjuntores e os módulos livres pela ordem da calha
+   * (`ordem`); tocar num componente dá os amperes/mA e "Apagar"; tocar num módulo livre deixa pôr aí um disjuntor ou
+   * diferencial; "+ Geral/Diferencial/Disjuntor" juntam no fim; "Módulos livres" − n +; estado e fusíveis. "Guardar
+   * esquema" → POST orcamentos/:id/esquema-quadro (CEO e comercial). O cliente vê-o só no relatório pormenorizado.
+   */
+  function seccaoEsquemaQuadro(j, o, fotos, arquivado) {
+    const id = String(campo(o, "id"));
+    const guardado = campo(o, "esquema_quadro");
+    const fotoQuadro = fotos.find((f) => campo(f, "chave") === "quadro") ?? null;
+    const sec = h("section", { class: "esquema-quadro", id: "esquema-quadro" });
+    sec.append(h("h3", { text: "Esquema do quadro" }),
+      h("p", { class: "ajuda", text: "Desenhe o quadro do cliente a partir da foto: toque em + para juntar, num componente para mudar ou apagar, num módulo livre para pôr aí um disjuntor. O cliente vê o esquema no relatório pormenorizado." }));
+    const foto = fotoQuadro
+      ? h("figure", { class: "foto-cliente esquema-foto" }, h("a", { href: urlFoto(id, campo(fotoQuadro, "id")), target: "_blank", rel: "noopener", title: "Abrir a foto inteira" },
+        h("img", { src: urlFoto(id, campo(fotoQuadro, "id")), alt: "Foto do quadro elétrico do cliente", loading: "lazy", decoding: "async" })), h("figcaption", { text: "Foto do quadro (cliente)" }))
+      : h("p", { class: "ajuda esquema-foto", text: "O cliente ainda não enviou a foto do quadro." });
+    if (arquivado) {
+      const svg = guardado ? desenharQuadroCliente(normalizarEsquema(guardado), { soLeitura: true, resumo: resumoEsquema(guardado) }) : null;
+      sec.append(h("div", { class: "esquema-quadro-grelha" }, foto, h("div", {}, svg ?? h("p", { class: "ajuda", text: "Sem esquema." }))));
+      return sec;
+    }
+    // Estado do editor: o esquema em edição (normalizado a cada mudança), o componente tocado e se há mudanças por guardar.
+    let l = normalizarEsquema(guardado) ?? esquemaVazio();
+    let sel = null;
+    let mudado = false;
+    const desenhoCx = h("div", { class: "esquema-quadro-desenho" });
+    const editarCx = h("div", { class: "esquema-quadro-editar" });
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const guardar = h("button", { class: "btn pequeno", type: "button", id: "esquema-guardar", text: "Guardar esquema" });
+    const estadoTxt = h("span", { class: "ajuda", id: "esquema-estado", role: "status" });
+    const focar = (idEl) => document.getElementById(idEl)?.focus({ preventScroll: true });
+    const mudar = (fn) => { fn(l); l = normalizarEsquema(l); mudado = true; desenhar(); };
+    const posDoLivre = (k) => { let n = 0; return l.ordem.findIndex((t) => t === "livre" && n++ === k); };
+    const tirarDaOrdem = (tipo, i) => {
+      l.ordem = l.ordem.filter((t) => t !== (tipo === "geral" ? "geral" : `${tipo}:${i}`)).map((t) => {
+        const [tt, n] = t.split(":");
+        return tt === tipo && Number(n) > i ? `${tipo}:${Number(n) - 1}` : t;
+      });
+    };
+    /** Junta um componente (no fim da calha, ou no lugar `pos` de `ordem`) e devolve a seleção dele. */
+    const juntar = (tipo, pos = null) => {
+      let token = "geral";
+      if (tipo === "diferencial") { l.diferenciais.push({ sensibilidade_ma: 30, amperes: 40 }); token = `diferencial:${l.diferenciais.length - 1}`; }
+      else if (tipo === "disjuntor") { l.disjuntores.push({ amperes: 16 }); token = `disjuntor:${l.disjuntores.length - 1}`; }
+      else l.disjuntor_geral = { amperes: null };
+      if (pos === null || pos < 0) l.ordem.push(token); else l.ordem[pos] = token;
+      return token === "geral" ? { tipo: "geral", i: 0 } : { tipo, i: Number(token.split(":")[1]) };
+    };
+    const botao = (texto, attrs, aoClicar) => h("button", { class: "btn sec pequeno", type: "button", ...attrs, onclick: aoClicar }, texto);
+    const chips = (rotulo, nome, valores, atual, aoEscolher) => {
+      const g = h("div", { class: "qd-chips", role: "group", "aria-label": rotulo });
+      g.append(h("span", { class: "qd-chips-rotulo", text: rotulo }));
+      for (const v of [...new Set([...valores, ...(atual ? [atual] : [])])].sort((a, b) => a - b)) {
+        g.append(h("button", { class: "segmento qd-chip", type: "button", "aria-pressed": String(v === atual), dataset: { chip: `${nome}-${v}` }, text: String(v),
+          onclick: () => { aoEscolher(v); document.querySelector(`[data-chip="${nome}-${v}"]`)?.focus({ preventScroll: true }); } }));
+      }
+      return g;
+    };
+    function desenhar() {
+      const lista = (tipo) => (tipo === "diferencial" ? l.diferenciais : tipo === "disjuntor" ? l.disjuntores : null);
+      if (sel && !(sel.tipo === "geral" ? l.disjuntor_geral : sel.tipo === "livre" ? posDoLivre(sel.i) >= 0 : lista(sel.tipo)?.[sel.i])) sel = null;
+      desenhoCx.replaceChildren(desenharQuadroCliente(l, {
+        selecionado: sel, resumo: resumoEsquema(l), vazio: "Toque em + para juntar.",
+        aoTocar: (tipo, i) => { sel = sel?.tipo === tipo && sel.i === i ? null : { tipo, i }; desenhar(); focar("esquema-sel-titulo"); },
+      }));
+      editarCx.replaceChildren();
+      if (sel?.tipo === "livre") {
+        const k = sel.i;
+        const caixa = h("div", { class: "qd-sel" }, h("p", { class: "qd-sel-titulo", id: "esquema-sel-titulo", tabindex: "-1", text: nomeComponente(l, "livre", k) }));
+        const porAqui = (idB, texto, tipo, pode) => botao(texto, { id: idB, disabled: !pode, "aria-label": `${texto} (no lugar do módulo livre ${k + 1})` }, () => {
+          let novo = null;
+          mudar((x) => { novo = juntar(tipo, posDoLivre(k)); x.modulos_livres = Math.max(0, (x.modulos_livres ?? 1) - 1); });
+          sel = novo; desenhar(); focar("esquema-sel-titulo");
+        });
+        caixa.append(h("div", { class: "form-botoes" },
+          porAqui("esquema-aqui-disjuntor", "Pôr disjuntor aqui", "disjuntor", l.disjuntores.length < MAX_ESQUEMA.disjuntores),
+          porAqui("esquema-aqui-diferencial", "Pôr diferencial aqui", "diferencial", l.diferenciais.length < MAX_ESQUEMA.diferenciais),
+          botao("Apagar módulo livre", { class: "btn sec pequeno perigo", "aria-label": `Apagar: ${nomeComponente(l, "livre", k)}` }, () => {
+            sel = null;
+            mudar((x) => { x.ordem.splice(posDoLivre(k), 1); x.modulos_livres = Math.max(0, (x.modulos_livres ?? 1) - 1); });
+            focar("esquema-livres-mais");
+          }),
+          botao("Feito", {}, () => { sel = null; desenhar(); desenhoCx.querySelector("svg")?.focus({ preventScroll: true }); })));
+        editarCx.append(caixa);
+      } else if (sel) {
+        const { tipo, i } = sel;
+        const alvo = () => (tipo === "geral" ? l.disjuntor_geral : lista(tipo)[i]);
+        const caixa = h("div", { class: "qd-sel" }, h("p", { class: "qd-sel-titulo", id: "esquema-sel-titulo", tabindex: "-1", text: nomeComponente(l, tipo, i) }));
+        if (tipo === "diferencial") caixa.append(chips("Sensibilidade (mA)", "ma", MA_DIFERENCIAL, alvo().sensibilidade_ma, (v) => mudar((x) => { x.diferenciais[i].sensibilidade_ma = v; })));
+        const amperes = tipo === "geral" ? AMPERES_GERAL : tipo === "diferencial" ? AMPERES_DIFERENCIAL : AMPERES_DISJUNTOR;
+        caixa.append(chips("Amperes (A)", "amperes", amperes, alvo().amperes, (v) => mudar((x) => { (tipo === "geral" ? x.disjuntor_geral : (tipo === "diferencial" ? x.diferenciais : x.disjuntores)[i]).amperes = v; })));
+        caixa.append(h("div", { class: "form-botoes" },
+          botao("Apagar", { class: "btn sec pequeno perigo", "aria-label": `Apagar: ${nomeComponente(l, tipo, i)}` }, () => {
+            sel = null;
+            mudar((x) => { if (tipo === "geral") x.disjuntor_geral = null; else (tipo === "diferencial" ? x.diferenciais : x.disjuntores).splice(i, 1); tirarDaOrdem(tipo, i); });
+            focar("esquema-mais-disjuntor");
+          }),
+          botao("Feito", {}, () => { sel = null; desenhar(); desenhoCx.querySelector("svg")?.focus({ preventScroll: true }); })));
+        editarCx.append(caixa);
+      }
+      // Juntar no fim da calha (depois dos módulos livres): o novo fica logo tocado.
+      const mais = (idB, texto, tipo, pode) => botao(texto, { id: idB, disabled: !pode }, () => { let novo = null; mudar(() => { novo = juntar(tipo); }); sel = novo; desenhar(); focar("esquema-sel-titulo"); });
+      editarCx.append(h("div", { class: "form-botoes qd-mais" },
+        l.disjuntor_geral ? null : mais("esquema-mais-geral", "+ Geral", "geral", true),
+        mais("esquema-mais-diferencial", "+ Diferencial", "diferencial", l.diferenciais.length < MAX_ESQUEMA.diferenciais),
+        mais("esquema-mais-disjuntor", "+ Disjuntor", "disjuntor", l.disjuntores.length < MAX_ESQUEMA.disjuntores)));
+      // Módulos livres: "+" junta um no fim da calha, "−" tira o último.
+      const n = l.modulos_livres;
+      const botaoN = (sinal, rot, dd) => h("button", { class: "segmento", type: "button", id: `esquema-livres-${dd > 0 ? "mais" : "menos"}`, "aria-label": rot, text: sinal,
+        disabled: dd < 0 ? !n : (n ?? 0) >= MAX_ESQUEMA.modulos_livres,
+        onclick: () => {
+          mudar((x) => {
+            x.modulos_livres = Math.max(0, Math.min(MAX_ESQUEMA.modulos_livres, (x.modulos_livres ?? 0) + dd));
+            if (dd > 0) x.ordem.push("livre"); else if (x.ordem.lastIndexOf("livre") >= 0) x.ordem.splice(x.ordem.lastIndexOf("livre"), 1);
+          });
+          const mesmo = document.getElementById(`esquema-livres-${dd > 0 ? "mais" : "menos"}`);
+          (mesmo && !mesmo.disabled ? mesmo : document.getElementById(`esquema-livres-${dd > 0 ? "menos" : "mais"}`))?.focus();
+        } });
+      editarCx.append(h("div", { class: "qd-livres-linha" }, h("span", { text: "Módulos livres" }),
+        h("div", { class: "segmentos", role: "group", "aria-label": "Módulos livres" }, botaoN("−", "Menos um módulo livre", -1), h("output", { class: "qd-livres-valor num", "aria-live": "polite", text: n === null ? "?" : String(n) }), botaoN("+", "Mais um módulo livre", 1))));
+      const estados = h("div", { class: "qd-chips", role: "group", "aria-label": "Estado do quadro" }, h("span", { class: "qd-chips-rotulo", text: "Estado do quadro" }));
+      for (const [k, t] of Object.entries(ESTADOS_QUADRO).filter(([k]) => k !== "nao_se_ve")) {
+        estados.append(h("button", { class: "segmento qd-chip", type: "button", "aria-pressed": String(l.estado === k), dataset: { chip: `estado-${k}` }, text: t,
+          onclick: () => { mudar((x) => { x.estado = x.estado === k ? null : k; }); document.querySelector(`[data-chip="estado-${k}"]`)?.focus({ preventScroll: true }); } }));
+      }
+      editarCx.append(estados);
+      editarCx.append(h("label", { class: "qd-fusiveis" }, h("input", { type: "checkbox", name: "esquema_fusiveis", checked: l.fusiveis === true, onchange: (ev) => { const sim = ev.currentTarget.checked; mudar((x) => { x.fusiveis = sim; }); document.querySelector("input[name=esquema_fusiveis]")?.focus({ preventScroll: true }); } }), " Tem fusíveis (em vez de disjuntores)"));
+      const notas = h("textarea", { name: "esquema_notas", maxlength: String(MAX_ESQUEMA.notas), rows: "2", "aria-label": "Notas do esquema", placeholder: "Notas (marca, o que confirmar na visita…)" }, l.notas ?? "");
+      notas.addEventListener("input", () => { l.notas = notas.value; mudado = true; estadoTxt.textContent = "Mudanças por guardar."; });
+      editarCx.append(notas);
+      estadoTxt.textContent = mudado ? "Mudanças por guardar." : guardado?.data ? `Guardado ${data(guardado.data)}${guardado.por ? ` por ${guardado.por}` : ""}.` : "";
+    }
+    guardar.addEventListener("click", async () => {
+      guardar.disabled = true; mensagem(msg, null);
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/esquema-quadro`, { corpo: { esquema: normalizarEsquema(l) } });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo, false);
+        avisar("Esquema do quadro guardado: o cliente vê-o no relatório pormenorizado.");
+        if (ficha?.j === j) { desenharFicha(j, novo); document.getElementById("esquema-guardar")?.focus({ preventScroll: true }); }
+      } catch (erro) { guardar.disabled = false; mensagem(msg, erro.message); }
+    });
+    desenhar();
+    sec.append(h("div", { class: "esquema-quadro-grelha" }, foto, h("div", { class: "esquema-quadro-editor" }, desenhoCx, editarCx)),
+      h("div", { class: "form-botoes" }, guardar, estadoTxt), msg);
+    return sec;
   }
 
   function formConverter(j, o) {
@@ -477,7 +703,7 @@ export default function orcamentos(el, ctx) {
       corpo.replaceChildren(relatorioTecnico({
         id: campo(o, "id"), nome: campo(o, "nome"), telefone: campo(o, "telefone"), email: campo(o, "email"),
         localidade: campo(o, "localidade"), criado: campo(o, "criado", "criado_em"), data_visita: campo(o, "data_visita"),
-      }, sim, catalogoDe(o), { fotos: lista(campo(o, "fotos") ?? [], "fotos"), leitura: campo(o, "leitura_quadro") }));
+      }, sim, catalogoDe(o), { fotos: lista(campo(o, "fotos") ?? [], "fotos"), leitura: campo(o, "leitura_quadro"), esquema: campo(o, "esquema_quadro") }));
       // O título dá o nome ao PDF guardado pelo browser.
       document.title = `Relatório técnico — ${txt(o, "nome")} (pedido ${campo(o, "id")})`;
       imprimir.disabled = false;

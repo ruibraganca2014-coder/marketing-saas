@@ -13,9 +13,9 @@ import { estadoNovo, normalizarEstado, montarSimulacao, PASSOS } from '../../web
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
 
 /** Cozinha com 2 tomadas, 2 interruptores, 1 luz, uma placa e a porta. */
 function planta(acoes = {}) {
@@ -49,7 +49,7 @@ test('serviço: ação por omissão, fluxo curto e o que falta responder', () =>
   assert.equal(acaoDe({ tipo: 'janela', props: { estore: false }, acao: 'reparar' }, ['nova']), 'novo', 'janela sem estore: sem ação');
 });
 
-test('Instalação nova sem ações: os mesmos pedidos (e o mesmo preço) de antes', () => {
+test('Instalação nova sem ações: os mesmos pedidos de antes mais os pontos novos (ronda regras)', () => {
   const p = planta();
   const antes = divisoesDaContagem(contarPlanta(p));
   const agora = divisoesDaContagem(contarPlanta(plantaNovos(p, ['nova'])));
@@ -57,8 +57,10 @@ test('Instalação nova sem ações: os mesmos pedidos (e o mesmo preço) de ant
   const base = { casa: null, quadro: { circuitos: [] }, extras: {} };
   const pa = pedidosDaSelecao({ ...base, divisoes: antes }).map(({ chave, qtd }) => ({ chave, qtd }));
   const pn = pedidosDaSelecao({ ...base, servico: ['nova'], planta: p, divisoes: agora }).map(({ chave, qtd }) => ({ chave, qtd }));
-  assert.deepEqual(pn, pa);
-  assert.equal(calcularPreco(pn, CATALOGO, null).total, calcularPreco(pa, CATALOGO, null).total);
+  // Os pontos novos com preço fechado (2 tomadas, 2 interruptores, 1 luz) juntam-se; o resto é igual.
+  const pontos = [{ chave: 'ponto_tomada', qtd: 2 }, { chave: 'ponto_interruptor', qtd: 2 }, { chave: 'ponto_luz', qtd: 1 }];
+  assert.deepEqual(pn, [...pa, ...pontos]);
+  assert.equal(calcularPreco(pn, CATALOGO, null).total, calcularPreco([...pa, ...pontos], CATALOGO, null).total);
 });
 
 test('preço por ação: Manter 0 €, Reparar = diagnóstico, Substituir = aparelho + horas de troca', () => {

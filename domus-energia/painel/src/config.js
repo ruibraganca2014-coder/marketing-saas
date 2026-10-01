@@ -111,9 +111,6 @@ export function lerConfig(env = process.env) {
     // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
     anthropicKey,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
-    // Leitura no simulador (POST /api/simulador/ler-quadro): 3 por simulação, e estes limites por 24 h.
-    limiteLeituraDia: Number(env.LIMITE_LEITURA_QUADRO_DIA || 50),       // todos os IPs
-    limiteLeituraIpDia: Number(env.LIMITE_LEITURA_QUADRO_IP_DIA || 6),   // por IP
     resultadoRetencaoMs: 7 * 24 * 3600_000,  // resultados nunca vistos são apagados ao fim de 7 dias
     // Conta de cliente (docs/CONTA-CLIENTE.md)
     siteOrigens: [...new Set(siteOrigens)],

@@ -35,10 +35,7 @@ import {
 import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
   opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso, existentesNoQuadroNovo,
-  leituraVazia, leituraDaFoto, normalizarLeitura, sugestoesDaLeitura, resumoLeitura, ESTADOS_QUADRO, AMPERES_GERAL,
-  AMPERES_DIFERENCIAL, AMPERES_DISJUNTOR, MA_DIFERENCIAL, MAX_LEITURA,
 } from "./quadro.js";
-import { desenharQuadroCliente, nomeComponente } from "./quadro-desenho.js";
 import { criarEditor } from "./editor.js";
 import { guardarPdfOrcamento, guardarPdfRelatorio } from "./imprimir.js";
 import { desenharIcone, desenharPlanta } from "./planta-svg.js";
@@ -315,7 +312,6 @@ function mostrarPasso(foco = true) {
   // Ronda A: a planta à vista fica ajustada e centrada (planta guardada, "Já tenho a planta", outro passo).
   if (!sem) editor.verTudo();
   desenharAcaoPlanta();   // a caixa "o que fazer" por baixo da planta só existe em "Trocar e reparar"
-  desenharPainelQuadro();   // no passo Quadro o painel mostra o desenho do quadro (fora dele, a planta)
   if (p === P.preco) desenharPreco();
   if (p === P.avaria) desenharAvaria();
   if (p === P.enviar) desenharEnviar();
@@ -1488,7 +1484,7 @@ function abrirPlanta(origem = document.activeElement) {
   document.documentElement.classList.add("planta-aberta");
   $("ver-planta").setAttribute("aria-expanded", "true");
   editor.verTudo();   // ronda A: aberta por cima, ajustada e centrada
-  (s.classList.contains("com-quadro") ? $("quadro-desenho-svg") : s.querySelector(".editor-svg"))?.focus({ preventScroll: true });
+  s.querySelector(".editor-svg")?.focus({ preventScroll: true });
   return true;
 }
 function fecharPlanta({ foco = true } = {}) {
@@ -1564,7 +1560,9 @@ const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length 
 // Lote 7: só os aparelhos Novos entram nas linhas do pedido e nos circuitos novos (acoes.js plantaNovos); Manter,
 // Reparar e Substituir ficam nos circuitos existentes e têm o seu preço (preco.js pedidosDaSelecao).
 // Tomadas e interruptores: inteligentes só com a resposta do cliente (ou o objetivo "Luzes pelo telemóvel"): acoes.js plantaInteligentes.
-const contagemAtual = () => contarPlanta(plantaInteligentes(plantaNovos(usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)), servicos()), estado.quer.objetivos));
+/** A planta que conta: a do cliente ou, com a planta saltada, a que a casa desenha (também para os pontos novos, preco.js). */
+const plantaParaContar = () => (usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
+const contagemAtual = () => contarPlanta(plantaInteligentes(plantaNovos(plantaParaContar(), servicos()), estado.quer.objetivos));
 
 /**
  * Circuitos sugeridos (§4) a partir da contagem. Toda a casa tem luzes e tomadas: se não há nenhuma
@@ -1574,7 +1572,7 @@ const contagemAtual = () => contarPlanta(plantaInteligentes(plantaNovos(usaPlant
  */
 function circuitosSugeridos(cont) {
   const pisosQ = pisosDosQuadros(estado);
-  // RTIEBT (quadro.js): zonas húmidas no C5, T3 e mais com iluminação e tomadas em 2 zonas.
+  // Critério Domus (quadro.js): zonas húmidas no C5, T3 e mais com iluminação e tomadas em 2 zonas.
   // Com quadros parciais os pisos já repartem a casa (uma avaria nunca a deixa toda às escuras): sem a divisão
   // dia/noite do T3+ dentro de cada quadro.
   const doQuadro = (linhas, geral) => {
@@ -1631,7 +1629,7 @@ function acertarPedido() {
 const lerNum = (i, min, max) => Math.min(max, Math.max(min, Math.round(Number(i.value) || 0)));
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
 const PROTECAO_SIMPLES = {
-  essencial: ["Básica", "Diferenciais 30 mA: o obrigatório."],
+  essencial: ["Básica", "Diferencial obrigatório (RTIEBT); 30 mA recomendado."],
   recomendado: ["Recomendada", "+ descarregador de sobretensões e relé de tensão."],
   completo: ["Completa", "+ AFDD nos quartos e sala e geral Wi-Fi."],
 };
@@ -1709,9 +1707,9 @@ function desenharQuadro() {
 montarQuadro();
 
 /**
- * Foto do quadro (obrigatória, sempre — também com "Melhorar o quadro? Não"): câmara ou galeria. Depois de tirada é
- * lida no servidor (lerFotoQuadro) e desenhada no painel da direita. Botão grande; depois, a miniatura com "Trocar" e
- * "Apagar".
+ * Foto do quadro (obrigatória, sempre — também com "Melhorar o quadro? Não"): câmara ou galeria. Botão grande; depois,
+ * a miniatura com "Trocar" e "Apagar". Ronda B (decisão do dono): o passo é SÓ a foto — o esquema do quadro é feito
+ * pelo eletricista no painel, a partir dela (docs/PAINEL-EMPRESA.md "Esquema do quadro").
  */
 function desenharFotoQuadro() {
   const foto = fotos.get("quadro");
@@ -1727,8 +1725,7 @@ function desenharFotoQuadro() {
     desenharQuadro();
     focar("quadro-foto-botao");
   };
-  // Foto nova (ou trocada): lida logo.
-  const tirar = () => pedirFoto("quadro", (ok, texto) => { depois(ok, texto); if (ok === true) lerFotoQuadro(); }, { galeria: true });
+  const tirar = () => pedirFoto("quadro", depois, { galeria: true });
   if (!foto) {
     const b = el("button", "btn foto-grande");
     b.type = "button";
@@ -1754,225 +1751,7 @@ function desenharFotoQuadro() {
     bs.append(trocar, apagar);
     corpo.append(img, bs);
   }
-  desenharLeituraQuadro();
 }
-
-// ---- Leitura da foto e desenho do quadro (painel da direita; quadro.js, quadro-desenho.js)
-let leituraQ = { aLer: false, texto: "", tipo: "info" };   // o que a última leitura disse (não se grava)
-let quadroSel = null;                                     // componente tocado no desenho: {tipo, i}
-let painelQuadro = true;                                  // no passo Quadro o painel mostra o quadro (false: a planta)
-let passoDoPainel = null;
-
-/** Lê a foto do quadro no servidor (POST /api/simulador/ler-quadro); sem leitura, o cliente desenha-o à mão. */
-async function lerFotoQuadro() {
-  const foto = fotos.get("quadro");
-  if (!foto?.blob || leituraQ.aLer) return;
-  leituraQ = { aLer: true, texto: "A ler a foto do quadro…", tipo: "info" };
-  desenharLeituraQuadro();
-  let r = null, json = null;
-  try {
-    r = await fetch(`${urlApi}/simulador/ler-quadro`, {
-      method: "POST",
-      credentials: credenciais,
-      headers: { "Content-Type": foto.blob.type === "image/png" ? "image/png" : "image/jpeg", Accept: "application/json", "X-Simulacao-Id": estado.fotosId ?? "" },
-      body: foto.blob,
-      ...(typeof AbortSignal.timeout === "function" ? { signal: AbortSignal.timeout(90_000) } : {}),
-    });
-    json = await r.json().catch(() => null);
-  } catch { r = null; }
-  const manual = (texto, tipo = "info") => {
-    estado.quadro.leitura ??= leituraVazia("manual");
-    leituraQ = { aLer: false, texto, tipo };
-  };
-  if (r?.ok && json?.leitura && typeof json.leitura === "object") {
-    const l = leituraDaFoto(json.leitura);
-    if (!l.e_quadro_eletrico) manual("A foto não parece ser de um quadro. Tire outra ou desenhe-o à mão.", "erro");
-    else {
-      estado.quadro.leitura = l;
-      quadroSel = null;
-      leituraQ = { aLer: false, texto: `Lemos o seu quadro: ${resumoLeitura(l) || "sem componentes à vista"}. Confira o desenho e corrija o que estiver mal.`, tipo: "ok" };
-    }
-  } else if (r?.status === 503) manual("Leitura automática indisponível. Desenhe o quadro: toque em + para juntar.");
-  else manual(typeof json?.erro === "string" ? json.erro : "Não conseguimos ler a foto. Desenhe o quadro: toque em + para juntar.", "erro");
-  estado.quadro.sugestoes = sugestoesDaLeitura(estado.quadro.leitura);
-  agendarGravacao(false);
-  if (estado.passo === P.quadro) desenharQuadro();
-}
-
-/** O cliente mudou o quadro no desenho: fica corrigido; as sugestões seguem-no. */
-function mudarLeitura(mudar) {
-  const l = normalizarLeitura(estado.quadro.leitura) ?? leituraVazia("manual");
-  mudar(l);
-  l.corrigida = true;
-  estado.quadro.leitura = l;
-  estado.quadro.sugestoes = sugestoesDaLeitura(l);
-  agendarGravacao(false);
-  desenharLeituraQuadro();
-}
-
-/** Mensagem da leitura, sugestões (passo) e o desenho (painel). */
-function desenharLeituraQuadro() {
-  const m = $("quadro-leitura-msg");
-  m.textContent = leituraQ.texto;
-  m.className = `msg ${leituraQ.tipo}`;
-  m.hidden = !leituraQ.texto;
-  const s = estado.quadro.sugestoes;
-  $("quadro-sugestoes").hidden = !s?.notas?.length;
-  $("quadro-sugestoes-lista").replaceChildren(...(s?.notas ?? []).map((t) => el("li", null, t)));
-  $("quadro-ver-desenho").hidden = !(fotos.has("quadro") || estado.quadro.leitura);
-  desenharPainelQuadro();
-}
-
-/** Painel da direita no passo Quadro: o desenho do quadro ou a planta ("Ver planta" / "Ver quadro"). */
-function desenharPainelQuadro() {
-  if (estado.passo !== passoDoPainel) { passoDoPainel = estado.passo; painelQuadro = true; quadroSel = null; }
-  const noPasso = estado.passo === P.quadro;
-  const com = noPasso && painelQuadro;
-  $("sim-planta").classList.toggle("com-quadro", com);
-  $("sim-quadro").hidden = !com;
-  $("sim-planta-titulo").textContent = com ? "O seu quadro" : "A sua planta";
-  const t = $("painel-trocar");
-  t.hidden = !noPasso;
-  t.textContent = com ? "Ver planta" : "Ver quadro";
-  const vp = $("ver-planta");
-  vp.querySelector(".sim-ver-planta-longo").textContent = com ? "Ver quadro" : "Ver planta";
-  vp.querySelector(".sim-ver-planta-curto").textContent = com ? "Quadro" : "Planta";
-  vp.setAttribute("aria-label", com ? "Ver quadro" : "Ver planta");
-  if (!com) return;
-  // Com a foto e ainda sem leitura (a ler, ou a leitura falhou): o quadro vazio, para desenhar à mão.
-  const semFoto = !fotos.has("quadro") && !estado.quadro.leitura;
-  const l = normalizarLeitura(estado.quadro.leitura) ?? (semFoto ? null : leituraVazia("manual"));
-  const d = $("quadro-desenho");
-  d.replaceChildren(desenharQuadroCliente(l, {
-    selecionado: quadroSel,
-    resumo: resumoLeitura(l),
-    vazio: leituraQ.aLer ? "A ler a foto…" : semFoto ? "Tire a foto do quadro: o desenho aparece aqui." : "Toque em + para juntar.",
-    aoTocar: (tipo, i) => { quadroSel = quadroSel?.tipo === tipo && quadroSel.i === i ? null : { tipo, i }; desenharPainelQuadro(); focar("quadro-sel-titulo"); },
-  }));
-  desenharEditarQuadro(l, semFoto);
-}
-
-/** O editor é refeito a cada mudança: o foco volta à escolha que o cliente tocou. */
-const focarNoEditar = (nome, v) => document.querySelector(`#quadro-editar input[name="${nome}"][value="${v}"]`)?.focus({ preventScroll: true });
-/** Por baixo do desenho: o componente tocado (amperes, mA, Apagar), "+" para juntar, módulos livres e estado. */
-function desenharEditarQuadro(l, semFoto) {
-  const caixa = $("quadro-editar");
-  caixa.replaceChildren();
-  if (semFoto || leituraQ.aLer) return;
-  const lista = (tipo) => (tipo === "diferencial" ? l.diferenciais : tipo === "disjuntor" ? l.disjuntores : null);
-  if (quadroSel && !(quadroSel.tipo === "geral" ? l.disjuntor_geral : lista(quadroSel.tipo)?.[quadroSel.i])) quadroSel = null;
-  const chips = (rotulo, nome, valores, atual, aoEscolher) => {
-    const f = el("fieldset", "escolhas qd-chips");
-    f.append(el("legend", null, rotulo));
-    const g = el("div", "escolhas-grelha");
-    const todos = [...new Set([...valores, ...(atual ? [atual] : [])])].sort((a, b) => a - b);
-    for (const v of todos) {
-      const c = escolha("radio", nome, String(v), String(v), null, (sim) => { if (sim) { aoEscolher(v); focarNoEditar(nome, v); } });
-      c.querySelector("input").checked = v === atual;
-      g.append(c);
-    }
-    f.append(g);
-    return f;
-  };
-  if (quadroSel) {
-    const { tipo, i } = quadroSel;
-    const sel = el("div", "qd-sel");
-    const titulo = el("p", "qd-sel-titulo", nomeComponente(l, tipo, i));
-    titulo.id = "quadro-sel-titulo";
-    titulo.tabIndex = -1;
-    sel.append(titulo);
-    const alvo = () => (tipo === "geral" ? null : lista(tipo)[i]);
-    if (tipo === "diferencial") {
-      sel.append(chips("Sensibilidade (mA)", "qd-ma", MA_DIFERENCIAL, alvo().sensibilidade_ma, (v) => mudarLeitura((x) => { x.diferenciais[i].sensibilidade_ma = v; })));
-    }
-    const amperes = tipo === "geral" ? AMPERES_GERAL : tipo === "diferencial" ? AMPERES_DIFERENCIAL : AMPERES_DISJUNTOR;
-    const atual = tipo === "geral" ? l.disjuntor_geral.amperes : alvo().amperes;
-    sel.append(chips("Amperes (A)", "qd-amperes", amperes, atual, (v) => mudarLeitura((x) => {
-      if (tipo === "geral") x.disjuntor_geral.amperes = v;
-      else (tipo === "diferencial" ? x.diferenciais : x.disjuntores)[i].amperes = v;
-    })));
-    const bs = el("div", "form-botoes");
-    const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
-    apagar.type = "button";
-    apagar.setAttribute("aria-label", `Apagar: ${nomeComponente(l, tipo, i)}`);
-    apagar.addEventListener("click", () => {
-      quadroSel = null;
-      mudarLeitura((x) => { if (tipo === "geral") x.disjuntor_geral = null; else (tipo === "diferencial" ? x.diferenciais : x.disjuntores).splice(i, 1); });
-      focar("quadro-mais-disjuntor");
-    });
-    const feito = el("button", "btn sec pequeno", "Feito");
-    feito.type = "button";
-    feito.addEventListener("click", () => { quadroSel = null; desenharPainelQuadro(); $("quadro-desenho-svg")?.focus({ preventScroll: true }); });
-    bs.append(apagar, feito);
-    sel.append(bs);
-    caixa.append(sel);
-  }
-  // Juntar: o novo fica logo tocado (para lhe dar os amperes).
-  const mais = el("div", "form-botoes qd-mais");
-  const botaoMais = (id, texto, pode, juntar) => {
-    const b = el("button", "btn sec pequeno", texto);
-    b.type = "button";
-    b.id = id;
-    b.disabled = !pode;
-    b.addEventListener("click", () => { quadroSel = juntar(); desenharPainelQuadro(); focar("quadro-sel-titulo"); });
-    mais.append(b);
-  };
-  if (!l.disjuntor_geral) botaoMais("quadro-mais-geral", "+ Geral", true, () => { mudarLeitura((x) => { x.disjuntor_geral = { amperes: null }; }); return { tipo: "geral", i: 0 }; });
-  botaoMais("quadro-mais-diferencial", "+ Diferencial", l.diferenciais.length < MAX_LEITURA.diferenciais, () => {
-    mudarLeitura((x) => { x.diferenciais.push({ sensibilidade_ma: 30, amperes: 40 }); });
-    return { tipo: "diferencial", i: l.diferenciais.length };
-  });
-  botaoMais("quadro-mais-disjuntor", "+ Disjuntor", l.disjuntores.length < MAX_LEITURA.disjuntores, () => {
-    mudarLeitura((x) => { x.disjuntores.push({ amperes: 16 }); });
-    return { tipo: "disjuntor", i: l.disjuntores.length };
-  });
-  caixa.append(mais);
-  // Módulos livres (− n +; "?" enquanto não se sabe) e o estado do quadro.
-  const livres = el("div", "qd-livres-linha");
-  livres.append(el("span", null, "Módulos livres"));
-  const grupo = el("div", "contador-caixa");
-  grupo.setAttribute("role", "group");
-  grupo.setAttribute("aria-label", "Módulos livres");
-  const n = l.modulos_livres;
-  const valor = el("output", "contador-valor", n === null ? "?" : String(n));
-  valor.setAttribute("aria-live", "polite");
-  const botaoN = (sinal, rot, dd) => {
-    const b = el("button", "btn sec", sinal);
-    b.type = "button";
-    b.id = `quadro-livres-${dd > 0 ? "mais" : "menos"}`;
-    b.setAttribute("aria-label", rot);
-    b.disabled = dd < 0 ? !n : (n ?? 0) >= MAX_LEITURA.modulos_livres;
-    b.addEventListener("click", () => {
-      mudarLeitura((x) => { x.modulos_livres = Math.max(0, Math.min(MAX_LEITURA.modulos_livres, (x.modulos_livres ?? 0) + dd)); });
-      const mesmo = $(b.id);
-      (mesmo && !mesmo.disabled ? mesmo : $(`quadro-livres-${dd > 0 ? "menos" : "mais"}`))?.focus();
-    });
-    return b;
-  };
-  grupo.append(botaoN("−", "Menos um módulo livre", -1), valor, botaoN("+", "Mais um módulo livre", 1));
-  livres.append(grupo);
-  caixa.append(livres);
-  const est = el("fieldset", "escolhas qd-chips");
-  est.append(el("legend", null, "Estado do quadro"));
-  const ge = el("div", "escolhas-grelha");
-  for (const [k, t] of Object.entries(ESTADOS_QUADRO).filter(([k]) => k !== "nao_se_ve")) {
-    const c = escolha("radio", "qd-estado", k, t, null, (sim) => { if (sim) { mudarLeitura((x) => { x.estado = k; }); focarNoEditar("qd-estado", k); } });
-    c.querySelector("input").checked = l.estado === k;
-    ge.append(c);
-  }
-  est.append(ge);
-  caixa.append(est);
-  const fus = escolha("checkbox", "qd-fusiveis", "sim", "Tem fusíveis (em vez de disjuntores)", null, (sim) => { mudarLeitura((x) => { x.fusiveis = sim; }); focarNoEditar("qd-fusiveis", "sim"); });
-  fus.querySelector("input").checked = l.fusiveis === true;
-  fus.classList.add("qd-fusiveis");
-  caixa.append(fus);
-}
-$("painel-trocar").addEventListener("click", () => {
-  painelQuadro = !painelQuadro;
-  desenharPainelQuadro();
-  $("painel-trocar").focus();
-});
-$("quadro-ver-desenho").addEventListener("click", (ev) => { painelQuadro = true; desenharPainelQuadro(); abrirPlanta(ev.currentTarget); });
 
 /** Falta a foto do quadro (obrigatória no funil que tem o passo Quadro)? */
 const faltaFotoQuadro = () => sequencia().includes(P.quadro) && !fotos.has("quadro");
@@ -3645,7 +3424,8 @@ function calcular() {
   if (!funilAvaria()) acertarMelhorias(estado, ordemPasso(visitado) >= ordemPasso(P.melhorias));
   const melhorias = funilAvaria() ? [] : calcularMelhorias(estado, catalogo ?? null, configOrc);
   const aceites = melhorias.filter((m) => m.aceite);
-  const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao(estado), ...aceites.flatMap((m) => m.linhas)];
+  // Ronda regras: os pontos novos com preço fechado contam-se na planta que conta (`plantaPontos`; preco.js).
+  const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao({ ...estado, plantaPontos: plantaParaContar() }), ...aceites.flatMap((m) => m.linhas)];
   const extra = aceites.reduce((t, m) => t + (m.margem ?? 0), 0);
   // Local da obra: a localidade do contacto (passo 7) — como em casaParaEnvio. `preco` (o que se envia) já leva a
   // deslocação; `semDesloc` é o do Resumo (passo 6), sem deslocação ("+ deslocação").
@@ -3730,6 +3510,12 @@ function listaInclui(pedidos) {
   add(qs("sensor_porta"), "1 aviso de porta ou janela trocado", "avisos de porta ou janela trocados");
   add(qs("troca_maquina"), "1 máquina trocada (só a ligação)", "máquinas trocadas (só a ligação)");
   add(qs("aparelho_normal"), "1 aparelho trocado por outro", "aparelhos trocados por outros");
+  // Ronda regras: os pontos novos com preço fechado (luz, tomadas, interruptores — com o tipo de comando) e a campainha.
+  add(q("ponto_luz"), "1 ponto de luz novo", "pontos de luz novos");
+  add(q("ponto_tomada"), "1 tomada nova", "tomadas novas");
+  const comandos = [[q("comutador_escada"), "de escada"], [q("inversor"), "inversor"], [q("botao_pressao") - q("campainha"), "de pressão"]].filter(([n]) => n > 0).map(([n, t]) => `${n} ${t}`);
+  add(q("ponto_interruptor"), `1 interruptor novo${comandos.length ? ` (${comandos.join(", ")})` : ""}`, `interruptores novos${comandos.length ? ` (${comandos.join(", ")})` : ""}`);
+  add(q("campainha"), "1 campainha com botão de pressão", "campainhas com botão de pressão");
   add(q("interruptor"), "1 interruptor inteligente (luzes pelo telemóvel)", "interruptores inteligentes (luzes pelo telemóvel)");
   add(q("estore"), "1 estore automático", "estores automáticos");
   add(q("sensor_movimento"), "1 sensor de movimento", "sensores de movimento");
@@ -3864,7 +3650,7 @@ function dadosRelatorio() {
       `Quadro de ${r.tamanho} módulos${r.quadros > 1 ? ` (${r.quadros} quadros)` : ""}${r.parciais ? `, com ${r.parciais} ${r.parciais === 1 ? "quadro parcial" : "quadros parciais"}` : ""}`,
     ],
     potencia: r.potencia.kva === null ? "Potência sugerida: acima de 41,4 kVA (contrato especial)."
-      : `Potência sugerida: ${kvaTexto(r.potencia.kva)}${r.potencia.trifasica ? " (trifásica)" : ""}.`,
+      : `Potência sugerida: ${kvaTexto(r.potencia.kva)}${r.potencia.trifasica ? " (trifásica)" : ""}${r.potencia.minimo_rtiebt ? " — mínimo RTIEBT" : ""}.`,
     planta: usaPlanta() ? estado.planta : null,
     pisos,
   };

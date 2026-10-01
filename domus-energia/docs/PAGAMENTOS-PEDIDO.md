@@ -28,6 +28,34 @@ Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €), relatório pormeno
 
 Sem compras antes, o sinal é 369 € (e o restante 861 € na mesma). O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)`; `pago_antes` = soma dos pagos nas fases `relatorio`, `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` e `avaria`; sinal = `calcularSinal(total, pago_antes)`; restante = total − tudo o que já foi pago − o sinal por pagar.
 
+## Relatório pormenorizado — conteúdo técnico
+
+Só o **relatório pormenorizado** (pago, revisto e libertado) leva a parte técnica; o relatório básico (grátis) nunca a tem (`relatorioBasico` escolhe os campos à mão). Decisões do dono 4, 5, 7, 8 e 12 (verificação dos manuais e da RTIEBT, 2026-10-01). **Os textos e os desenhos são nossos**, feitos de raiz: não se copiam figuras, páginas nem passagens dos manuais de formação nem da RTIEBT; a forma dos símbolos segue só a ideia geral dos esquemas arquiteturais e fica a confirmar pelo técnico.
+
+O módulo é **`web/simulador/simbolos.js`** (só depende de `planta-svg.js` para os pisos), copiado para `painel/public/vendor/simbolos.js` como o `planta-svg.js` (`cmp` tem de dar igual): o servidor do painel usa dele `esquemasDaPlanta` (puro, sem DOM) e o browser (conta e pré-visualização do painel) `seccaoTecnica`, que devolve os elementos DOM da secção. `relatorioCliente` (`painel/src/pagamentos-pedido.js`) junta ao relatório:
+
+| Campo | O que é |
+|---|---|
+| `planta` | A planta (§2.1) só com o que se desenha: divisões (com `pontos`), elementos com `tipo`, posição, `rot`, `piso`, `divisao`, `props` (`dupla`, `comando`, `modelo`, `entrada`, `estore`) e `nome` (nas máquinas sem nome, o do modelo). **Sem a imagem de fundo.** `null` na avaria rápida. |
+| `esquemas` | **Esquema por luz**, por divisão: `[{divisao, nome, piso, interruptores, luzes: [{nome, comando, texto}]}]`. O tipo de comando de cada ponto de luz é o da divisão, deduzido dos interruptores que lá estão (`props.comando`: simples, lustre, escada, inversor, botao; sem fios desenhados): inversor com um inversor ou 3+ comutadores de escada/inversor; escada com 2 (ou um de escada); senão lustre, botão de pressão ou simples. Sem interruptor na divisão: "simples (1 interruptor) — sem interruptor na planta, a confirmar na visita". `texto` = "Comando: escada (2 comutadores)", "Comando: inversor (4 sítios: 2 comutadores + 2 inversores)", "Comando: botão de pressão (3 botões + telerruptor)"… |
+| `terra_nota` | "Verificar terra (PE) nas tomadas na visita." (decisão 4: só no relatório completo, sem pergunta no simulador). |
+| `ensaios` | **Lista de ensaios** pela ordem da RTIEBT 612.1: `{introducao, lista: [{chave, nome, referencia, unidade, norma, medido}], notas, nota}`. Linhas: continuidade do PE e das equipotenciais (612.2, valor medido, sem limite); isolamento ≥ `ensaio_isolamento_mohm` MΩ a 500 V DC (612.3, Quadro 61A); terra < `ensaio_terra_ohm` Ω em habitação com disjuntor de entrada diferencial e RA × IΔn ≤ 50 V (801.5.6.1, 413.1.4.2); diferencial de 30 mA — dispara a uma corrente ≤ IΔn (Anexo B); o tempo ≤ `ensaio_diferencial_ms` ms vai marcado "referência EN 61008/61009; a RTIEBT só exige disparo ≤ IΔn". `nota` = "Valores de referência a confirmar pelo técnico." `medido` = `null` ("a medir na visita/obra") até o painel registar o valor. |
+| `esquema_quadro` | O "Esquema do quadro elétrico" desenhado pelo eletricista no painel (`orcamentos.esquema_quadro`, JSON no formato da leitura do quadro: `disjuntor_geral`, `diferenciais`, `disjuntores`, `modulos_livres`, `ordem`…), tal e qual, ou `null`. A conta desenha-o com `web/simulador/quadro-desenho.js` (`desenharQuadroCliente`, só leitura) e um resumo em texto; o painel com `vendor/quadro-desenho.js` quando existir. Não há leitura automática da foto do quadro no simulador: o cliente só envia a foto. |
+
+**Valores de referência dos ensaios** (migração 16, `INSERT OR IGNORE`; editáveis no painel em Catálogo → Configuração → "Ensaios (relatório pormenorizado)"; chaves em `CONFIG_ORCAMENTO`, **não públicas** — não saem no `GET /api/catalogo`): `ensaio_isolamento_mohm` 0,5 · `ensaio_diferencial_ms` 300 · `ensaio_terra_ohm` 100.
+
+**Ensaios medidos** (migração 16, coluna `orcamentos.ensaios`, JSON `{continuidade_pe, isolamento, terra, diferencial, notas, data}`): na ficha do pedido, o formulário "Ensaios medidos" (CEO e comercial; `POST /painel/api/orcamentos/:id/ensaios`, campos opcionais, em branco = apaga a medição, auditoria `ensaios_registados`). `GET orcamentos/:id` traz `ensaios`; o relatório pormenorizado (conta e pré-visualização) mostra o valor medido na coluna "Medido" em vez do espaço em branco.
+
+O que a conta (`web/conta.js` `desenharRelatorio` → `seccaoTecnica`) e a pré-visualização do painel ("Pré-visualizar versão do cliente") mostram, por esta ordem, depois do total:
+
+1. **Planta técnica (simbologia normalizada)**, um desenho por piso (`desenharPlantaTecnica`): paredes em contorno, nome e área de cada divisão, símbolos de traço nos aparelhos (rodados como na planta): ponto de luz (círculo com cruz), tomada com terra (semicírculo com haste e o traço do PE; a dupla com um traço a mais), interruptor simples / comutador de lustre / comutador de escada / inversor (círculo com alavanca; os traços na ponta dizem o tipo), botão de pressão (círculo com ponto), campainha (meio círculo com base), quadro (retângulo com o canto cheio), aparelho de utilização (retângulo **numerado**; a lista "1 — Termoacumulador (Cozinha)" por baixo), detetor, porta e janela. Com a **legenda** dos símbolos usados nesse piso (`legendaPlanta`, `desenharSimbolo`). Tudo em `currentColor`: funciona no tema escuro e a impressão força preto sobre branco (`@media print`).
+2. **Esquema por luz**: por divisão, uma linha por ponto de luz ("Ponto de luz 1 — Comando: escada (2 comutadores)") e, por tipo de comando usado, um **esquema funcional** fixo (`desenharEsquemaComando`, 5 desenhos: simples, lustre, escada, inversor, botão de pressão com telerruptor): a fase vai ao comando e volta ao recetor (retorno), o neutro vai direto ao recetor, o PE (tracejado) vai a todos os recetores.
+3. A **nota de terra**.
+4. A **lista de ensaios**: ensaio (com a referência da RTIEBT), valor de referência, "Medido (a medir na visita/obra)" com espaço em branco ou o valor registado; as notas do técnico; e o aviso "Valores de referência a confirmar pelo técnico".
+5. O **esquema do quadro elétrico**, quando o eletricista o desenhou.
+
+"Descarregar (imprimir / PDF)" na conta imprime o cartão com os SVG (CSS `imprimir-relatorio`; os desenhos a preto sobre branco, sem cortar um esquema a meio da página).
+
 ## Onde vive: no painel
 
 O pagamento vive no **painel** (`painel/src/pagamentos-pedido.js`). As rotas ficam em `/api/conta/…`, que o Caddy já encaminha para o painel, por isso não há rotas novas no Caddy nem no lançador local.

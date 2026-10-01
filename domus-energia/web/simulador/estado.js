@@ -10,9 +10,9 @@ import {
   comandoDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
-import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
+import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao } from "./casa.js";
-import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL, normalizarLeitura, sugestoesDaLeitura } from "./quadro.js";
+import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
 
 export const VERSAO = 1;
@@ -234,9 +234,9 @@ export function estadoNovo() {
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
-    // + pacote, proteções, pára-raios, quadro novo (quadro.js); `leitura` = o quadro do cliente (foto lida e corrigida, ou
-    // descrito à mão; quadro.js leituraVazia) e `sugestoes` = o que ela sugere (quadro.js sugestoesDaLeitura; para as Melhorias).
-    quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao(), leitura: null, sugestoes: null },
+    // + pacote, proteções, pára-raios, quadro novo (quadro.js). Ronda B: o esquema do quadro já não se faz no simulador
+    // (`leitura`/`sugestoes` dos estados antigos caem em normalizarEstado); fica só a foto.
+    quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
     divisoes: [],
     divisoesEditadas: false,  // o cliente mexeu na lista de divisões: não a refazemos sozinhos
@@ -568,8 +568,7 @@ export function normalizarEstado(v) {
     if (e.plantaBase === assinaturaCasa(casaAntes, velhas)) e.plantaBase = assinaturaCasa(e.casa, maquinasParaPlanta(e));
   }
   const q = v.quadro && typeof v.quadro === "object" ? v.quadro : {};
-  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q), leitura: normalizarLeitura(q.leitura) };
-  e.quadro.sugestoes = sugestoesDaLeitura(e.quadro.leitura);
+  e.quadro = { circuitos: lista(q.circuitos, 60).map(normalizarCircuito), disjuntor: q.disjuntor === SKU_SY1 ? SKU_SY1 : SKU_SY2, ...normalizarProtecoes(q) };
   e.quadroEditado = bool(v.quadroEditado);
   // "Fora das divisões" (elementos fora de todas) não é uma divisão: estados antigos traziam-na na lista.
   e.divisoes = lista(v.divisoes, MAX_DIVISOES + 1).map(normalizarDivisao).filter((d) => !ehFora(d));
@@ -767,6 +766,10 @@ export function quadroParaEnvio(estado, circuitos) {
     modulos: { tamanho: r.tamanho, quadros: r.quadros, parciais: r.parciais, tamanho_parcial: r.parciais ? TAMANHO_PARCIAL : null, pisos_quadros: [...r.pisos_quadros], ocupados: r.ocupados, livres: r.livres, cabe: r.cabe, novos: r.novos, linhas: r.linhas.map((l) => ({ nome: l.nome, qtd: l.qtd, modulos: l.modulos })) },
     potencia_sugerida_kva: r.potencia.kva,
     potencia_carga_w: r.potencia.carga_w,
+    // Ronda regras: o mínimo de dimensionamento da RTIEBT 801.5.2.2 (pelos compartimentos; null fora da habitação) e se
+    // foi ele que valeu na sugerida.
+    potencia_minima_kva: r.potencia.minimo_kva,
+    potencia_minima_rtiebt: r.potencia.minimo_rtiebt,
   };
 }
 
@@ -980,13 +983,14 @@ export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], obj
     item.qtd++;
     if (acao === "reparar") item.avarias.push(textoSeguro(e.avaria, MAX_AVARIA));
     if (acao === "substituir" && perguntaInteligente(e.tipo) && e.inteligente === true) item.inteligentes++;
-    const chave = pedidoDoElemento(e, acao, objetivos);
-    if (chave) {
+    // Ronda regras: no Novo, os pontos com preço fechado e a aparelhagem do comando (acoes.js pontosDoElemento) e o inteligente.
+    for (const chave of pedidosDoElemento(e, acao, objetivos)) {
       const a = linhaArtigo(chave, acao);
       const m = item.material.find((x) => x.sku === a.sku);
       if (m) m.qtd++; else item.material.push({ sku: a.sku, qtd: 1 });
       item.horas = Math.round((item.horas + (Number(a.horas) || 0)) * 100) / 100;
     }
+    if (e.tipo === "interruptor" && acao === "novo") (item.comandos ??= {})[comandoDe(e.props)] = ((item.comandos ??= {})[comandoDe(e.props)] ?? 0) + 1;
   }
   for (const g of out) {
     g.acoes.sort((a, b) => ORDEM_ACOES.indexOf(a.acao) - ORDEM_ACOES.indexOf(b.acao));
@@ -1103,7 +1107,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     quer: querParaEnvio(estado),
     planta: planta ? plantaParaEnvio(planta, servico) : null,
     // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
-    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria, leitura_cliente: normalizarLeitura(estado.quadro.leitura) },
+    quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
     trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? []),
     totais_acao: totais,
     // Lote 8 (passo Enviar): disponibilidade para a visita e urgência; null fora da área servida (não há visita).

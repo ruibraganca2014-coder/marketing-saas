@@ -123,7 +123,7 @@ export function verificarOrigemPublica(req, origens, siteOrigens = []) {
   return sfs === 'same-site' && origem !== undefined && siteOrigens.includes(origem);
 }
 
-const CORS_CABECALHOS = 'Content-Type, X-Fotos-Token, X-Foto-Chave, X-Foto-Legenda, X-Simulacao-Id';
+const CORS_CABECALHOS = 'Content-Type, X-Fotos-Token, X-Foto-Chave, X-Foto-Legenda';
 
 /**
  * CORS com credenciais para o site público noutra origem (SITE_ORIGENS). Só acrescenta cabeçalhos quando a

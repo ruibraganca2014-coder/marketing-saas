@@ -8,6 +8,8 @@
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 import { formatarEuroRedondo } from "./simulador/preco.js";
+import { seccaoTecnica } from "./simulador/simbolos.js";
+import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, texto) => {
@@ -413,6 +415,31 @@ function desenharRelatorio(r) {
   if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${String(r.mao_obra.horas).replace(".", ",")} h)` : ""}: ${euro(r.mao_obra.valor)}`));
   if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}`));
   out.push(el("p", "valor num", `Total estimado: ${euro(r.total)}`), el("p", "ajuda", r.nota));
+  // Conteúdo técnico (só no pormenorizado; web/simulador/simbolos.js): planta técnica com a simbologia normalizada e a
+  // legenda, esquema por luz, nota de terra e lista de ensaios (os valores medidos aparecem quando os registamos).
+  out.push(...seccaoTecnica(r, { titulo: "h5", subtitulo: "h6" }));
+  // "Esquema do quadro elétrico" desenhado pelo eletricista no painel (só no pormenorizado): o mesmo desenho do passo
+  // "Quadro elétrico" do simulador (geral, diferenciais, disjuntores e módulos livres pela ordem da calha), só leitura.
+  if (r.esquema_quadro && typeof r.esquema_quadro === "object") {
+    const q = el("div", "rel-quadro");
+    let svg = null;
+    try { svg = desenharQuadroCliente(r.esquema_quadro, { resumo: "esquema do quadro elétrico" }); } catch { svg = null; }
+    if (svg) {
+      svg.removeAttribute("id");
+      svg.setAttribute("role", "img");
+      for (const g of svg.querySelectorAll(".qd-item")) { g.removeAttribute("tabindex"); g.removeAttribute("role"); }
+      q.append(svg);
+    }
+    const eq = r.esquema_quadro;
+    const linhas = [];
+    if (eq.disjuntor_geral?.amperes) linhas.push(`Disjuntor geral: ${eq.disjuntor_geral.amperes} A`);
+    if (Array.isArray(eq.diferenciais) && eq.diferenciais.length) linhas.push(`${eq.diferenciais.length} ${eq.diferenciais.length === 1 ? "diferencial" : "diferenciais"} (${eq.diferenciais.map((d) => `${d?.sensibilidade_ma ?? "?"} mA / ${d?.amperes ?? "?"} A`).join(", ")})`);
+    if (Array.isArray(eq.disjuntores) && eq.disjuntores.length) linhas.push(`${eq.disjuntores.length} ${eq.disjuntores.length === 1 ? "disjuntor" : "disjuntores"} (${eq.disjuntores.map((d) => `${d?.amperes ?? "?"} A`).join(", ")})`);
+    if (Number.isFinite(Number(eq.modulos_livres))) linhas.push(`${eq.modulos_livres} ${Number(eq.modulos_livres) === 1 ? "módulo livre" : "módulos livres"}`);
+    if (eq.fusiveis === true) linhas.push("Quadro com fusíveis (sem disjuntores)");
+    if (linhas.length) q.append(el("p", "ajuda", linhas.join(" · ") + "."));
+    out.push(el("h5", null, "Esquema do quadro elétrico"), el("p", "ajuda", "Desenhado pelo nosso eletricista a partir do quadro atual (ou do previsto)."), q);
+  }
   return out;
 }
 

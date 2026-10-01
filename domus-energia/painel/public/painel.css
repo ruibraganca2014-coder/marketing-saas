@@ -301,6 +301,33 @@ a.linha:hover { border-color: var(--musgo); }
 .lista-simples { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .lista-simples a { display: inline-flex; align-items: center; min-height: 44px; }
 .sub-form:empty { display: none; }
+/* Pré-visualização da versão do cliente: conteúdo técnico do relatório pormenorizado (vendor/simbolos.js). */
+.relatorio-cliente-tecnico .rel-planta { display: block; width: 100%; height: auto; max-height: 60vh; border: 1px solid var(--borda); border-radius: 10px; color: var(--texto); background: var(--superficie); }
+.relatorio-cliente-tecnico .rel-legenda { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .9rem; }
+.relatorio-cliente-tecnico .rel-legenda li { display: flex; align-items: center; gap: 6px; }
+.relatorio-cliente-tecnico .rel-legenda svg { width: 28px; height: 28px; flex: none; color: var(--texto); }
+.relatorio-cliente-tecnico .rel-esquemas { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 6px 0 10px; }
+.relatorio-cliente-tecnico .rel-esquema { margin: 0; border: 1px solid var(--borda); border-radius: 10px; padding: 8px; }
+.relatorio-cliente-tecnico .rel-esquema svg { width: 100%; height: auto; display: block; color: var(--texto); }
+.relatorio-cliente-tecnico .rel-esquema figcaption { font-size: .85rem; color: var(--texto-suave); margin-top: 4px; }
+.relatorio-cliente-tecnico .rel-terra { font-weight: 700; }
+.relatorio-cliente-tecnico .rel-ensaios { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.relatorio-cliente-tecnico .rel-ensaios th, .relatorio-cliente-tecnico .rel-ensaios td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--borda); vertical-align: top; }
+.relatorio-cliente-tecnico .rel-ensaios td .ajuda { display: block; font-size: .82rem; }
+.relatorio-cliente-tecnico .rel-medido { font-weight: 700; white-space: nowrap; }
+.relatorio-cliente-tecnico .rel-aviso { font-weight: 700; }
+.relatorio-cliente-tecnico .rel-quadro .qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.relatorio-cliente-tecnico .rel-quadro .qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }
+.relatorio-cliente-tecnico .rel-quadro .qd-calha { fill: var(--borda); stroke: var(--texto-suave); stroke-width: 1; }
+.relatorio-cliente-tecnico .rel-quadro .qd-livre { fill: none; stroke: var(--texto-suave); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.relatorio-cliente-tecnico .rel-quadro .qd-livre-fundo { fill: transparent; stroke: none; }
+.relatorio-cliente-tecnico .rel-quadro .qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
+.relatorio-cliente-tecnico .rel-quadro .qd-alavanca { fill: var(--texto); }
+.relatorio-cliente-tecnico .rel-quadro .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
+.relatorio-cliente-tecnico .rel-quadro .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra, system-ui); }
+.relatorio-cliente-tecnico .rel-quadro .qd-txt { fill: var(--texto); font: 600 10px var(--letra, system-ui); }
+.relatorio-cliente-tecnico .rel-quadro .qd-txt.forte { font-weight: 800; font-size: 12px; }
+.relatorio-cliente-tecnico .rel-quadro .qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
 
 /* ---------- Janelas ---------- */
 .janela { width: min(560px, calc(100vw - 16px)); max-height: calc(100vh - 32px); margin: auto; padding: 0; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); color: var(--texto); box-shadow: 0 20px 60px rgba(0, 0, 0, .3); }
@@ -466,6 +493,49 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
   .relatorio-tecnico .foto-cliente img { max-height: 38mm; border-radius: 4px; }
   .relatorio-tecnico .leitura-quadro { grid-template-columns: 45mm minmax(0, 1fr); }
 }
+/* ---------- Ronda B: "Esquema do quadro" (ficha do pedido; vendor/quadro-desenho.js) e o desenho no relatório técnico ---------- */
+.esquema-quadro { margin-top: 14px; display: grid; gap: 10px; }
+.esquema-quadro > h3 { margin: 0; }
+.esquema-quadro-grelha { display: grid; gap: 12px; align-items: start; }
+@media (min-width: 720px) { .esquema-quadro-grelha { grid-template-columns: minmax(0, 220px) minmax(0, 1fr); } }
+.esquema-foto { margin: 0; }
+.esquema-quadro-editor { display: grid; gap: 10px; min-width: 0; }
+.esquema-quadro-editar { display: grid; gap: 10px; }
+.esquema-quadro-bloco { display: grid; gap: 10px; }
+.esquema-quadro-bloco .qd-svg { max-width: 420px; margin: 0; }
+.qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }
+.qd-calha { fill: var(--borda); stroke: var(--texto-suave); stroke-width: 1; }
+.qd-vazio { fill: var(--texto-suave); font: 600 11px var(--letra); }
+.qd-livre { fill: none; stroke: var(--texto-suave); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.qd-livre-fundo { fill: transparent; stroke: none; }
+.qd-item[role="button"] { cursor: pointer; outline: none; }
+.qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
+.qd-geral .qd-corpo { fill: var(--musgo-claro); }
+.qd-diferencial .qd-corpo { fill: var(--areia-suave); }
+.qd-alavanca { fill: var(--texto); }
+.qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
+.qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }
+.qd-txt { fill: var(--texto); font: 600 10px var(--letra); }
+.qd-txt.forte { font-weight: 800; font-size: 12px; }
+.qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
+.qd-item[role="button"]:hover .qd-corpo, .qd-item[role="button"]:hover .qd-livre { stroke: var(--argila); }
+.qd-item:focus-visible .qd-corpo, .qd-item:focus-visible .qd-livre-fundo { stroke: var(--argila); stroke-width: 3.5; }
+.qd-item.sel .qd-corpo { stroke: var(--argila); stroke-width: 3.5; }
+.qd-item.sel .qd-livre { stroke: var(--argila); stroke-width: 2.5; }
+.qd-sel { display: grid; gap: 8px; padding: 10px 12px; border: 2px solid var(--argila); border-radius: 14px; background: var(--superficie); }
+.qd-sel-titulo { margin: 0; font-weight: 800; }
+.qd-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.qd-chips-rotulo { flex: 0 0 100%; font-size: .9rem; font-weight: 700; }
+.qd-chip { min-width: 52px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--borda); }
+.qd-livres-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-weight: 700; }
+.qd-livres-linha .segmento { min-width: 44px; }
+.qd-livres-valor { min-width: 2.5ch; text-align: center; font-weight: 800; }
+.qd-fusiveis { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
+.esquema-quadro textarea { width: 100%; }
+.btn.sec.perigo { color: var(--alarme-texto); border-color: var(--alarme); }
+.btn.sec.perigo:hover { background: var(--alarme-suave); }
+.relatorio-tecnico .esquema-quadro-bloco { grid-template-columns: 90mm minmax(0, 1fr); }
 /* Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md) */
 .pagamentos-pedido .linhas-simples { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
 .pagamentos-pedido .linhas-simples li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

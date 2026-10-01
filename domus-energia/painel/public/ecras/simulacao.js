@@ -6,6 +6,8 @@ import { numero } from "../api.js";
 import { h, euros, num, selo, dados, data } from "../ui.js";
 // Importação em namespace: o módulo vem do simulador (web/simulador/planta-svg.js) e só se garante desenharPlanta.
 import * as desenho from "../vendor/planta-svg.js";
+// Esquema do quadro feito no painel (cópia de web/simulador/quadro-desenho.js): só para ver no relatório técnico.
+import { desenharEsquemaQuadro, resumoEsquema } from "../vendor/quadro-desenho.js";
 
 export const PLANOS_SIM = { base: "Base", conforto: "Conforto", premium: "Premium" };
 const TIPOS_CASA = {
@@ -36,10 +38,13 @@ const MODELOS = {
   camara: "Câmara", portao: "Portão automático", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
   terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
   carregador_baterias: "Carregador de baterias",
-  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha_video: "Campainha com vídeo",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
   carregador_bicicleta: "Carregador de bicicleta/trotinete", toalheiro: "Aquecedor de toalhas",
   outro: "Outra máquina",
 };
+// Tipos de comando do interruptor (ronda regras; web/simulador/regras.js COMANDOS): texto curto da ficha.
+const COMANDOS = { lustre: "lustre", escada: "escada (comutador)", inversor: "inversor", botao: "botão de pressão" };
+const comandoTxt = (p) => (COMANDOS[obj(p).comando] ? ` ${COMANDOS[obj(p).comando]}` : "");
 // Passo "A casa" e "Equipamentos" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
 const EXTRAS_CASA = { jardim: "jardim", exterior: "exterior", garagem: "garagem", arrecadacao: "arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
 const OBJETIVOS = {
@@ -470,7 +475,9 @@ function blocoQuadro(q, contratada) {
   if ((numero(m.parciais) ?? 0) > 0) linhas.push(["Quadros parciais", `Quadro geral (piso 0) + ${plural(numero(m.parciais), "quadro parcial", "quadros parciais")}${numero(m.tamanho_parcial) !== null ? ` de ${num(numero(m.tamanho_parcial))} módulos` : ""}`]);
   if (difs.length) linhas.push(["Grupos diferenciais", difs.slice(0, 20).map((d) => `${num(numero(d.n) ?? 0)}: ${arr(d.circuitos).filter((x) => numero(x) !== null).join(", ") || "—"}${d.carregador ? " (carregador)" : ""}`).join(" · ")]);
   if (kva !== null || carga !== null) {
-    linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num2(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""} `, curta ? selo("Contratada curta", "aviso") : null)]);
+    // Ronda regras: `potencia_minima_rtiebt` = a sugerida é o mínimo de dimensionamento da RTIEBT 801.5.2.2 (pelos compartimentos).
+    const minimo = q.potencia_minima_rtiebt === true ? " — mínimo RTIEBT (801.5.2.2)" : "";
+    linhas.push(["Potência sugerida", h("span", {}, `${kva !== null ? `${num2(kva)} kVA` : "acima de 41,4 kVA"}${carga !== null ? ` (cargas ≈ ${num(carga)} W)` : ""}${minimo} `, curta ? selo("Contratada curta", "aviso") : null)]);
   }
   const ml = arr(m.linhas).filter((l) => l && typeof l === "object").slice(0, 30);
   return h("div", { class: "sim-bloco", id: "sim-quadro" }, h("h4", { text: "Proteções e tamanho do quadro" }), dados(linhas),
@@ -680,8 +687,8 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
 
   // Pára-raios / linha aérea (descarregador tipo 2).
   const desc = obj(q.protecoes).descarregador === true;
-  if (q.para_raios === "sim") por("Pára-raios / linha aérea", `O cliente diz que SIM: o descarregador de sobretensões tipo 2 é obrigatório${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
-  else if (quadroNovo && q.para_raios !== "nao") por("Pára-raios / linha aérea", `O cliente NÃO SABE: verificar se há pára-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é obrigatório${desc ? " (já está incluído)" : " (não está incluído)"}.`);
+  if (q.para_raios === "sim") por("Pára-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões tipo 2 recomendado (RTIEBT 801.5.10 com linha aérea; com pára-raios ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
+  else if (quadroNovo && q.para_raios !== "nao") por("Pára-raios / linha aérea", `O cliente NÃO SABE: verificar se há pára-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é recomendado (RTIEBT 801.5.10)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
 
   // Quadro antigo / atual / novo.
   const antigo = q.quadro_antigo;
@@ -718,7 +725,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   if (carregadores.length || arr(obj(s.quer).maquinas).some(ehCarregador)) {
     const x = carregadores[0], c = x?.circuito;
     const difProprio = arr(q.diferenciais).some((g) => g && g.carregador);
-    por("Carregador do carro", `${x ? `${MODELOS[x.modelo] ?? "Carregador"} ${num(x.w)} W` : "Pedido pelo cliente"}${c ? ` — circuito ${c.n ?? "?"}${numero(c.amperes) !== null ? ` de ${num(numero(c.amperes))} A` : ""}${numero(c.seccao_mm2) !== null ? `, ${num(numero(c.seccao_mm2))} mm²` : ""}` : ""}: circuito próprio (40 A) e diferencial próprio tipo A ou B (RTIEBT secção 722)${difProprio ? " — previsto" : " — NÃO previsto"}; ver se o carregador já o traz, a distância ao quadro e o local.`);
+    por("Carregador do carro", `${x ? `${MODELOS[x.modelo] ?? "Carregador"} ${num(x.w)} W` : "Pedido pelo cliente"}${c ? ` — circuito ${c.n ?? "?"}${numero(c.amperes) !== null ? ` de ${num(numero(c.amperes))} A` : ""}${numero(c.seccao_mm2) !== null ? `, ${num(numero(c.seccao_mm2))} mm²` : ""}` : ""}: circuito próprio (40 A) e diferencial próprio, no mínimo tipo A — tipo A exigido (RTIEBT 722.531.2.101)${difProprio ? " — previsto (IDR tipo A)" : " — NÃO previsto"}; ver se o carregador já o traz, a distância ao quadro e o local.`);
   }
 
   // Pisos com quadro parcial e circuitos que atravessam pisos.
@@ -896,29 +903,18 @@ export function blocoLeituraQuadro(leitura, orcamentoId = null, fotoQuadro = nul
 }
 
 /**
- * O quadro como o cliente o deixou no simulador (`simulacao.quadro.leitura_cliente`: lido da foto no simulador e
- * corrigido por ele, ou desenhado à mão); null nos pedidos sem ele. Ao lado da leitura do servidor, para comparar.
+ * O esquema do quadro feito pelo eletricista no painel (`orcamentos.esquema_quadro`; ronda B, decisão do dono) no
+ * relatório técnico: o desenho (vendor/quadro-desenho.js) e o resumo; null sem esquema.
  */
-export function blocoLeituraCliente(sim) {
-  const l = obj(obj(obj(sim).quadro).leitura_cliente);
-  if (!Object.keys(l).length) return null;
-  const ou = (v, suf) => (numero(v) !== null ? `${num(numero(v))}${suf}` : "?");
-  const contar = (lista, fmt) => {
-    const m = new Map();
-    for (const d of arr(lista)) { const k = fmt(obj(d)); m.set(k, (m.get(k) ?? 0) + 1); }
-    return m.size ? [...m].map(([k, n]) => `${num(n)} × ${k}`).join(", ") : "nenhum";
-  };
-  const g = l.disjuntor_geral && typeof l.disjuntor_geral === "object" ? l.disjuntor_geral : null;
-  const origem = l.origem === "foto" ? (l.corrigida ? "lido da foto no simulador e corrigido pelo cliente" : "lido da foto no simulador (o cliente não mudou)") : "desenhado à mão pelo cliente";
-  return dados([
-    ["Origem", origem],
-    ["Geral", g ? ou(g.amperes, " A") : "sem geral"],
-    ["Diferenciais", contar(l.diferenciais, (d) => `${ou(d.sensibilidade_ma, " mA")} / ${ou(d.amperes, " A")}`)],
-    ["Disjuntores", `${num(arr(l.disjuntores).length)}${arr(l.disjuntores).length ? ` (${contar(l.disjuntores, (d) => ou(d.amperes, " A"))})` : ""}`],
-    ["Módulos livres", numero(l.modulos_livres) !== null ? num(numero(l.modulos_livres)) : "?"],
-    ["Estado", [ESTADOS_QUADRO_FOTO[l.estado] ?? "—", l.fusiveis === true ? "com fusíveis" : null, l.sinais_aquecimento === true ? "sinais de aquecimento" : null].filter(Boolean).join(" · ")],
-    ...(typeof l.notas === "string" && l.notas.trim() ? [["Notas da leitura", l.notas.trim()]] : []),
-  ]);
+export function blocoEsquemaQuadro(esquema) {
+  const svg = desenharEsquemaQuadro(esquema);
+  if (!svg) return null;
+  const e = obj(esquema);
+  const linhas = [["Resumo", resumoEsquema(e) || "—"],
+    ["Estado", [ESTADOS_QUADRO_FOTO[e.estado] ?? "—", e.fusiveis === true ? "com fusíveis" : null, e.sinais_aquecimento === true ? "sinais de aquecimento" : null].filter(Boolean).join(" · ")],
+    ...(typeof e.notas === "string" && e.notas.trim() ? [["Notas", e.notas.trim()]] : []),
+    ...(e.data ? [["Feito", `${data(e.data)}${e.por ? ` · ${String(e.por)}` : ""}`]] : [])];
+  return h("div", { class: "esquema-quadro-bloco" }, svg, dados(linhas));
 }
 
 /** "3 luzes (1 regulável) · 2 interruptores (1 + 2 bot.) · …" dos elementos da planta de uma divisão. */
@@ -929,7 +925,7 @@ function aparelhosTxt(els) {
   const luzes = de("luz");
   if (luzes.length) { const r = luzes.filter((e) => p(e).brilho).length; partes.push(`${plural(luzes.length, "luz", "luzes")}${r ? ` (${num(r)} ${r === 1 ? "regulável" : "reguláveis"})` : ""}`); }
   const ints = de("interruptor");
-  if (ints.length) partes.push(`${plural(ints.length, "interruptor", "interruptores")} (${ints.map((e) => Math.min(4, Math.max(1, numero(p(e).botoes) ?? 1))).join(" + ")} bot.)`);
+  if (ints.length) partes.push(`${plural(ints.length, "interruptor", "interruptores")} (${ints.map((e) => `${Math.min(4, Math.max(1, numero(p(e).botoes) ?? 1))} bot.${comandoTxt(p(e))}`).join(" + ")})`);
   const toms = de("tomada");
   if (toms.length) { const d = toms.filter((e) => p(e).dupla).length; partes.push(`${plural(toms.length, "tomada", "tomadas")}${d ? ` (${num(d)} ${d === 1 ? "dupla" : "duplas"})` : ""}`); }
   const jan = de("janela");
@@ -1121,7 +1117,7 @@ function blocoTrabalho(s, catalogo, fotos) {
  * "A VERIFICAR NA VISITA" e tudo o que a simulação calculou (o cliente só viu o preço e o plano).
  * `pedido`: {id, nome, telefone, email, localidade, criado, data_visita}.
  */
-export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitura = null } = {}) {
+export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitura = null, esquema = null } = {}) {
   const o = obj(pedido), s = obj(sim), casa = obj(s.casa), q = obj(s.quadro), mo = obj(s.mao_obra);
   const planta = s.planta && typeof s.planta === "object" ? limparPlanta(s.planta) : null;
   const temPlanta = !!planta && !!(planta.divisoes.length || planta.elementos.length || planta.fundo);
@@ -1198,8 +1194,8 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const estadoLeitura = obj(leitura).estado;
   const blocoLeitura = fotoQuadro || estadoLeitura === "feita" || estadoLeitura === "erro" ? blocoLeituraQuadro(leitura, o.id, fotoQuadro) : null;
   if (blocoLeitura) partes.push(h("section", { class: "rel-seccao", id: "rel-leitura-quadro" }, h("h3", { text: "Leitura automática da foto do quadro (confirmar na visita)" }), blocoLeitura));
-  const blocoCliente = blocoLeituraCliente(s);
-  if (blocoCliente) partes.push(h("section", { class: "rel-seccao", id: "rel-quadro-cliente" }, h("h3", { text: "Quadro descrito pelo cliente no simulador (confirmar na visita)" }), blocoCliente));
+  const blocoEsquema = blocoEsquemaQuadro(esquema);
+  if (blocoEsquema) partes.push(h("section", { class: "rel-seccao", id: "rel-esquema-quadro" }, h("h3", { text: "Esquema do quadro (feito no painel a partir da foto)" }), blocoEsquema));
   const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
   if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? (outrasFotos.length > 1 ? `Fotos da avaria (${outrasFotos.length})` : "Foto da avaria") : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {

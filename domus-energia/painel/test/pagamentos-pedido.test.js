@@ -509,6 +509,112 @@ describe('modo simulado', () => {
     assert.deepEqual(basico.acoes, rel.acoes);
   });
 
+  test('relatório pormenorizado — conteúdo técnico: planta (sem fundo), esquema por luz (comando por divisão), terra e ensaios (ordem 612.1, referência da configuração); o básico não os tem', async () => {
+    const c = await p.contaConfirmada();
+    const planta = {
+      escala_cm: 50, largura_cm: 1000, altura_cm: 600, fundo: { imagem: 'data:image/jpeg;base64,AAAA', x_cm: 0, y_cm: 0, largura_cm: 1000, opacidade: 0.5 },
+      divisoes: [
+        { id: 'd1', nome: 'Sala', piso: 0, x_cm: 0, y_cm: 0, largura_cm: 500, altura_cm: 400 },
+        { id: 'd2', nome: 'Quarto', piso: 0, x_cm: 500, y_cm: 0, largura_cm: 400, altura_cm: 400, pontos: [[500, 0], [900, 0], [900, 200], [700, 400], [500, 400]] },
+        { id: 'd3', nome: 'Corredor', piso: 1, x_cm: 0, y_cm: 400, largura_cm: 900, altura_cm: 150 },
+      ],
+      elementos: [
+        { id: 'e1', tipo: 'luz', x_cm: 250, y_cm: 200, rot: 0, piso: 0, divisao: 'd1', props: {} },
+        { id: 'e2', tipo: 'luz', x_cm: 150, y_cm: 200, rot: 0, piso: 0, divisao: 'd1', props: {}, nome: 'Luz do sofá' },
+        { id: 'e3', tipo: 'interruptor', x_cm: 60, y_cm: 390, rot: 0, piso: 0, divisao: 'd1', props: { botoes: 1, comando: 'escada' } },
+        { id: 'e4', tipo: 'interruptor', x_cm: 440, y_cm: 390, rot: 0, piso: 0, divisao: 'd1', props: { botoes: 1, comando: 'escada' } },
+        { id: 'e5', tipo: 'tomada', x_cm: 10, y_cm: 100, rot: 90, piso: 0, divisao: 'd1', props: { dupla: true } },
+        { id: 'e6', tipo: 'maquina', x_cm: 400, y_cm: 100, rot: 0, piso: 0, divisao: 'd1', props: { modelo: 'termoacumulador', potencia_w: 2000 } },
+        { id: 'e7', tipo: 'maquina', x_cm: 60, y_cm: 60, rot: 0, piso: 0, divisao: 'd1', props: { modelo: 'campainha', potencia_w: 10 } },
+        { id: 'e8', tipo: 'luz', x_cm: 700, y_cm: 200, rot: 0, piso: 0, divisao: 'd2', props: {} },
+        { id: 'e9', tipo: 'interruptor', x_cm: 520, y_cm: 390, rot: 0, piso: 0, divisao: 'd2', props: { botoes: 2 } },
+        { id: 'e10', tipo: 'luz', x_cm: 450, y_cm: 475, rot: 0, piso: 1, divisao: 'd3', props: {} },
+        { id: 'e11', tipo: 'quadro', x_cm: 20, y_cm: 420, rot: 0, piso: 1, divisao: 'd3', props: {} },
+      ],
+    };
+    const { pedido: id } = await enviar(c, { simulacao: { ...SIM, planta } });
+    const rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+    // Planta: só o que se desenha (sem a imagem de fundo), com o nome do modelo nas máquinas.
+    assert.equal(rel.planta.fundo, undefined);
+    assert.equal(rel.planta.elementos.length, 11);
+    assert.equal(rel.planta.elementos.find((e) => e.id === 'e6').nome, 'termoacumulador');
+    assert.deepEqual(rel.planta.elementos.find((e) => e.id === 'e3').props, { comando: 'escada' });
+    assert.deepEqual(rel.planta.divisoes[1].pontos, planta.divisoes[1].pontos);
+    // Esquema por luz: Sala com 2 comutadores de escada; Quarto simples; Corredor sem interruptor → a confirmar.
+    assert.deepEqual(rel.esquemas.map((d) => [d.nome, d.piso, d.interruptores, d.luzes.map((l) => [l.nome, l.comando])]), [
+      ['Sala', 0, 2, [['Ponto de luz 1', 'escada'], ['Luz do sofá', 'escada']]],
+      ['Quarto', 0, 1, [['Ponto de luz 1', 'simples']]],
+      ['Corredor', 1, 0, [['Ponto de luz 1', 'simples']]],
+    ]);
+    assert.equal(rel.esquemas[0].luzes[0].texto, 'Comando: escada (2 comutadores)');
+    assert.match(rel.esquemas[2].luzes[0].texto, /simples \(1 interruptor\) — sem interruptor na planta, a confirmar na visita/);
+    assert.equal(rel.terra_nota, 'Verificar terra (PE) nas tomadas na visita.');
+    // Ensaios pela ordem 612.1 com os valores de referência por omissão; nada medido ainda.
+    assert.deepEqual(rel.ensaios.lista.map((e) => [e.chave, e.referencia, e.medido]), [
+      ['continuidade_pe', 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', null],
+      ['isolamento', '≥ 0,5 MΩ, a 500 V DC', null],
+      ['terra', '< 100 Ω; e RA × IΔn ≤ 50 V', null],
+      ['diferencial', 'dispara a uma corrente ≤ IΔn; tempo ≤ 300 ms', null],
+    ]);
+    assert.match(rel.ensaios.lista[3].norma, /EN 61008\/61009/);
+    assert.equal(rel.ensaios.nota, 'Valores de referência a confirmar pelo técnico.');
+    // O básico (grátis) não leva nada disto.
+    const basico = (await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
+    for (const k of ['planta', 'esquemas', 'terra_nota', 'ensaios']) assert.equal(basico[k], undefined, `${k} só no pormenorizado`);
+    assert.doesNotMatch(JSON.stringify(basico), /\(PE\)|ensaio|Comando:/);
+    // Comprado e libertado: a conta vê o mesmo.
+    await comprado(c, id, 'relatorio_pormenorizado');
+    assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 200);
+    const conta = (await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie })).json.relatorio;
+    assert.deepEqual(conta.esquemas, rel.esquemas);
+    assert.deepEqual(conta.ensaios, rel.ensaios);
+    assert.equal(conta.planta.elementos.length, 11);
+    // A avaria rápida não tem planta nem esquemas (mas a lista de ensaios fica).
+    const refAv = await enviarAvaria(c);
+    await simular(c, refAv.ref, 'sucesso');
+    const idAv = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.compras?.avaria).id;
+    const relAv = (await painel('GET', `orcamentos/${idAv}/relatorio-cliente`)).json.relatorio;
+    assert.equal(relAv.planta, null);
+    assert.deepEqual(relAv.esquemas, []);
+    assert.equal(relAv.ensaios.lista.length, 4);
+  });
+
+  test('ensaios: referência configurável no painel (Catálogo → Configuração, não pública); valores medidos registados no painel (ida e volta) e mostrados ao cliente', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = await enviar(c);
+    // Configuração: a chave existe por omissão (migração 16), muda no painel e não sai no /api/catalogo.
+    const cfg = (await painel('GET', 'config-orcamento')).json;
+    assert.deepEqual([cfg.ensaio_isolamento_mohm, cfg.ensaio_diferencial_ms, cfg.ensaio_terra_ohm], [0.5, 300, 100]);
+    assert.equal((await p.pedir('GET', '/api/catalogo')).json.config.ensaio_terra_ohm, undefined, 'não é pública');
+    const m = await painel('POST', 'config-orcamento', 'ceo', { ensaio_isolamento_mohm: 1, ensaio_diferencial_ms: 200, ensaio_terra_ohm: 50 });
+    assert.equal(m.estado, 200, m.texto);
+    assert.equal((await painel('POST', 'config-orcamento', 'ceo', { ensaio_terra_ohm: -1 })).estado, 400);
+    try {
+      let rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+      assert.deepEqual(rel.ensaios.lista.map((e) => e.referencia), ['valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', '≥ 1 MΩ, a 500 V DC', '< 50 Ω; e RA × IΔn ≤ 50 V', 'dispara a uma corrente ≤ IΔn; tempo ≤ 200 ms']);
+      // Medidos: o comercial regista; a ficha e o relatório trazem-nos; um valor inválido dá 400; o técnico não pode (403).
+      assert.equal((await painel('GET', `orcamentos/${id}`)).json.ensaios, null);
+      assert.equal((await painel('POST', `orcamentos/${id}/ensaios`, 'tecnico', { terra: 12 })).estado, 403);
+      assert.equal((await painel('POST', `orcamentos/${id}/ensaios`, 'comercial', { terra: 'x' })).estado, 400);
+      assert.equal((await painel('POST', `orcamentos/${id}/ensaios`, 'comercial', { terra: 12, outra: 1 })).estado, 400, 'campo desconhecido');
+      const r = await painel('POST', `orcamentos/${id}/ensaios`, 'comercial', { continuidade_pe: 0.35, isolamento: 250, terra: 12.5, diferencial: 24, notas: 'Medido com o Fluke 1664' });
+      assert.equal(r.estado, 200, r.texto);
+      assert.deepEqual({ ...r.json.ensaios, data: null }, { continuidade_pe: 0.35, isolamento: 250, terra: 12.5, diferencial: 24, notas: 'Medido com o Fluke 1664', data: null });
+      assert.ok(r.json.ensaios.data);
+      assert.deepEqual((await painel('GET', `orcamentos/${id}`)).json.ensaios, r.json.ensaios, 'ida e volta');
+      rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
+      assert.deepEqual(rel.ensaios.lista.map((e) => e.medido), [0.35, 250, 12.5, 24]);
+      assert.equal(rel.ensaios.notas, 'Medido com o Fluke 1664');
+      // Em branco apaga a medição.
+      const r2 = await painel('POST', `orcamentos/${id}/ensaios`, 'ceo', { continuidade_pe: null, isolamento: 250 });
+      assert.deepEqual([r2.json.ensaios.continuidade_pe, r2.json.ensaios.isolamento, r2.json.ensaios.terra, r2.json.ensaios.notas], [null, 250, null, null]);
+      const aud = p.app.db.prepare("SELECT acao FROM auditoria WHERE acao = 'ensaios_registados'").all();
+      assert.equal(aud.length, 2);
+    } finally {
+      await painel('POST', 'config-orcamento', 'ceo', { ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100 });
+    }
+  });
+
   test('relatório do cliente (fase 2): secção Melhorias — material de cada pacote e instalação e configuração (margem pelo catálogo e pela configuração, não a do browser), total igual', async () => {
     const c = await p.contaConfirmada();
     const MEL = [

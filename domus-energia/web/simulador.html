@@ -144,18 +144,12 @@
         <!-- 5. Quadro elétrico -->
         <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
           <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
-          <!-- A foto do quadro primeiro (obrigatória): lida no servidor e desenhada à direita, para o cliente corrigir (app.js desenharFotoQuadro, lerFotoQuadro). -->
+          <!-- A foto do quadro primeiro (obrigatória; app.js desenharFotoQuadro). Ronda B: o passo é só a foto — o esquema do quadro é feito pelo eletricista no painel. -->
           <div class="cartao quadro-foto" id="quadro-foto">
             <h3 id="quadro-foto-titulo">Foto do quadro *</h3>
-            <p class="ajuda">Abra a porta do quadro e fotografe-o de frente.</p>
+            <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. A nossa equipa desenha o esquema a partir dela.</p>
             <div id="quadro-foto-corpo"></div>
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
-            <p class="msg" id="quadro-leitura-msg" role="status" aria-live="polite" hidden></p>
-            <div class="quadro-sugestoes" id="quadro-sugestoes" hidden>
-              <h4>Sugerido pela foto</h4>
-              <ul id="quadro-sugestoes-lista"></ul>
-            </div>
-            <button class="btn sec pequeno quadro-ver-desenho" id="quadro-ver-desenho" type="button" aria-haspopup="dialog" aria-controls="sim-planta" hidden>Ver e corrigir o desenho</button>
           </div>
           <p class="msg erro" id="quadro-msg" role="alert" hidden></p>
           <!-- Sem "Instalação nova" (lote 7): o quadro só entra no preço se o cliente o quiser melhorar. -->
@@ -388,16 +382,9 @@
             <div class="sim-planta-tamanho" id="planta-tamanho" role="group" aria-label="Tamanho da planta"></div>
             <p class="sim-planta-origem" id="planta-origem" hidden></p>
             <button class="btn sec pequeno" id="planta-refazer" type="button" aria-label="Refazer a planta a partir dos passos 2 e 3" title="Refazer a planta a partir dos passos 2 e 3" hidden>Refazer planta</button>
-            <!-- Passo "Quadro elétrico": o painel mostra o desenho do quadro; este botão troca para a planta e volta (app.js desenharPainelQuadro). -->
-            <button class="btn sec pequeno sim-painel-trocar" id="painel-trocar" type="button" hidden>Ver planta</button>
             <button class="btn sec pequeno sim-planta-fechar" id="planta-fechar" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Fechar</button>
           </div>
           <div id="editor"></div>
-          <!-- O quadro do cliente (passo "Quadro elétrico"): o desenho (quadro-desenho.js) e o que se pode mudar nele. -->
-          <div class="sim-quadro" id="sim-quadro" hidden>
-            <div class="sim-quadro-desenho" id="quadro-desenho"></div>
-            <div class="sim-quadro-editar" id="quadro-editar"></div>
-          </div>
           <!-- Lote 8: fora dos passos "A casa" e "Planta" as divisões estão presas (app.js mostrarDivisaoPresa). -->
           <p class="sim-planta-presa" id="planta-presa" role="status" hidden><span id="planta-presa-texto">Divisões: mude no passo Planta.</span> <button class="btn sec pequeno" id="planta-presa-ir" type="button">Ir ao passo Planta</button></p>
           <!-- Passo "Trocar e reparar" (lote 8): o que fazer com o aparelho tocado na planta (app.js desenharAcaoPlanta). -->

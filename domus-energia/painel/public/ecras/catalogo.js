@@ -108,6 +108,12 @@ export default function catalogo(el) {
           "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). O relatório, a visita e a avaria já são com IVA."),
         campoForm("Relatório pormenorizado (€, c/ IVA)", entrada("preco_relatorio_iva", campo(config, "preco_relatorio_iva") ?? 29, "1000"),
           "Enviar é grátis (relatório básico). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal.")),
+      h("fieldset", { class: "grupo" }, h("legend", { text: "Ensaios (relatório pormenorizado)" }),
+        h("p", { class: "ajuda", text: "Valores de referência da lista de ensaios do relatório pormenorizado, marcados \"a confirmar pelo técnico\". A continuidade do PE não tem limite (valor medido)." }),
+        h("div", { class: "tres" },
+          campoForm("Isolamento mínimo (MΩ)", entrada("ensaio_isolamento_mohm", campo(config, "ensaio_isolamento_mohm") ?? 0.5, "1000", "0.01"), "RTIEBT 612.3: ≥, a 500 V DC"),
+          campoForm("Terra máxima (Ω)", entrada("ensaio_terra_ohm", campo(config, "ensaio_terra_ohm") ?? 100, "100000", "1"), "RTIEBT 801.5.6.1: < com disjuntor de entrada diferencial"),
+          campoForm("Disparo do diferencial (ms)", entrada("ensaio_diferencial_ms", campo(config, "ensaio_diferencial_ms") ?? 300, "10000", "1"), "Referência EN 61008/61009 (a RTIEBT só exige disparo ≤ IΔn)"))),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar configuração" })), msg);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -115,7 +121,8 @@ export default function catalogo(el) {
       for (const [k, max, rot] of [["tarifa_hora_iva", 1000, "A tarifa por hora"], ["intervalo_menos_pct", 100, "O intervalo para baixo"], ["intervalo_mais_pct", 100, "O intervalo para cima"], ["deslocacao_iva", 10000, "O valor fixo da deslocação"],
         ["margem_pacotes_pct", 100, "A margem dos pacotes"],
         ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"],
-        ["iva_pct", 50, "A taxa de IVA"], ["preco_relatorio_iva", 1000, "O preço do relatório"]]) {
+        ["iva_pct", 50, "A taxa de IVA"], ["preco_relatorio_iva", 1000, "O preço do relatório"],
+        ["ensaio_isolamento_mohm", 1000, "O isolamento mínimo"], ["ensaio_terra_ohm", 100000, "A terra máxima"], ["ensaio_diferencial_ms", 10000, "O disparo do diferencial"]]) {
         const v = numero(f.elements[k].value);
         if (v === null || v < 0 || v > max) { mensagem(msg, `${rot} tem de ser um número entre 0 e ${num(max)}.`); f.elements[k].focus(); return; }
         corpo[k] = v;

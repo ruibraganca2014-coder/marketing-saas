@@ -115,6 +115,9 @@ export function simulacao(v) {
       for (const k of Object.keys(x)) pilha.push([x[k], prof + 1]);
     }
   }
+  // Ronda B: o simulador já não manda o quadro desenhado pelo cliente (`quadro.leitura_cliente`); se um simulador
+  // antigo o mandar, cai sem erro (o esquema do quadro faz-se no painel: esquemaQuadro).
+  if (v.quadro && typeof v.quadro === 'object' && !Array.isArray(v.quadro)) delete v.quadro.leitura_cliente;
   const json = JSON.stringify(v);       // depois da verificação da profundidade (stringify é recursivo)
   if (Buffer.byteLength(json) > MAX_SIMULACAO) throw new ErroApi(413, 'A simulação é demasiado grande (máx. 1 MB).');
   casaSimulacao(v.casa);
@@ -123,7 +126,6 @@ export function simulacao(v) {
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
   melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
-  leituraClienteSimulacao(v.quadro && typeof v.quadro === 'object' ? v.quadro.leitura_cliente : undefined);
   return json;
 }
 
@@ -169,23 +171,21 @@ function melhoriasSimulacao(l, margem) {
 }
 
 /**
- * Passo "Quadro elétrico": o quadro do cliente como ele o deixou (lido da foto no simulador e corrigido, ou descrito à
- * mão) em `quadro.leitura_cliente` (opcional) = {origem: foto|manual, corrigida, e_quadro_eletrico, disjuntor_geral:
- * {amperes} | null, diferenciais: [{sensibilidade_ma, amperes}] (≤ 30), disjuntores: [{amperes}] (≤ 80),
- * modulos_livres, estado, fusiveis, sinais_aquecimento, confianca, notas ≤ 300}; números null = não se sabe.
+ * Esquema do quadro elétrico feito pelo eletricista no painel (ronda B, decisão do dono; `orcamentos.esquema_quadro`,
+ * migração 17; web/simulador/quadro-desenho.js normalizarEsquema): {disjuntor_geral: {amperes} | null, diferenciais:
+ * [{sensibilidade_ma, amperes}] (≤ 30), disjuntores: [{amperes}] (≤ 80), modulos_livres (0–200), estado, fusiveis,
+ * sinais_aquecimento, notas ≤ 300, ordem: ["geral" | "diferencial:i" | "disjuntor:i" | "livre"] (≤ 150; a ordem na
+ * calha)}; números null = não se sabe. Só estes campos; 400 com a razão.
  */
-export const LEITURA_ESTADOS = ['bom', 'razoavel', 'antigo', 'mau', 'nao_se_ve'];
-const LEITURA_CAMPOS = ['origem', 'corrigida', 'e_quadro_eletrico', 'disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'sinais_aquecimento', 'confianca', 'notas'];
-function leituraClienteSimulacao(l) {
-  if (l === undefined || l === null) return;
-  const f = (m) => falha(`Quadro (leitura): ${m}.`);
-  if (typeof l !== 'object' || Array.isArray(l)) f('tem de ser um objeto');
-  for (const k of Object.keys(l)) if (!LEITURA_CAMPOS.includes(k)) f(`campo desconhecido (${k.slice(0, 40)})`);
+export const ESQUEMA_ESTADOS = ['bom', 'razoavel', 'antigo', 'mau', 'nao_se_ve'];
+const ESQUEMA_CAMPOS = ['disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'sinais_aquecimento', 'notas', 'ordem'];
+const RE_LUGAR_ORDEM = /^(geral|diferencial:\d{1,2}|disjuntor:\d{1,2}|livre)$/;
+export function esquemaQuadro(l) {
+  const f = (m) => falha(`Esquema do quadro: ${m}.`);
+  if (!l || typeof l !== 'object' || Array.isArray(l)) f('tem de ser um objeto');
+  for (const k of Object.keys(l)) if (!ESQUEMA_CAMPOS.includes(k)) f(`campo desconhecido (${k.slice(0, 40)})`);
   const numNulo = (v, min, max, rot) => { if (v !== undefined && v !== null && !(typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max)) f(`${rot} entre ${min} e ${max}`); };
   const boolNulo = (v, rot) => { if (v !== undefined && v !== null && typeof v !== 'boolean') f(`${rot} tem de ser true, false ou null`); };
-  if (!['foto', 'manual'].includes(l.origem)) f('origem inválida (use: foto, manual)');
-  boolNulo(l.corrigida, 'corrigida');
-  boolNulo(l.e_quadro_eletrico, 'e_quadro_eletrico');
   boolNulo(l.fusiveis, 'fusiveis');
   boolNulo(l.sinais_aquecimento, 'sinais_aquecimento');
   const g = l.disjuntor_geral;
@@ -204,9 +204,12 @@ function leituraClienteSimulacao(l) {
   lista(l.diferenciais, 30, ['sensibilidade_ma', 'amperes'], 'diferenciais', (x) => { numNulo(x.sensibilidade_ma, 1, 3000, 'mA do diferencial'); numNulo(x.amperes, 1, 1000, 'amperes do diferencial'); });
   lista(l.disjuntores, 80, ['amperes'], 'disjuntores', (x) => numNulo(x.amperes, 1, 1000, 'amperes do disjuntor'));
   if (l.modulos_livres !== undefined && l.modulos_livres !== null && !(Number.isInteger(l.modulos_livres) && l.modulos_livres >= 0 && l.modulos_livres <= 200)) f('módulos livres entre 0 e 200');
-  if (l.estado !== undefined && l.estado !== null && !LEITURA_ESTADOS.includes(l.estado)) f(`estado inválido (use: ${LEITURA_ESTADOS.join(', ')})`);
-  if (l.confianca !== undefined && l.confianca !== null && !['alta', 'media', 'baixa'].includes(l.confianca)) f('confiança inválida');
+  if (l.estado !== undefined && l.estado !== null && !ESQUEMA_ESTADOS.includes(l.estado)) f(`estado inválido (use: ${ESQUEMA_ESTADOS.join(', ')})`);
   if (l.notas !== undefined && l.notas !== null && (typeof l.notas !== 'string' || l.notas.length > 300 || CONTROLO_LINHA.test(l.notas))) f('notas até 300 caracteres');
+  if (l.ordem !== undefined && l.ordem !== null) {
+    if (!Array.isArray(l.ordem) || l.ordem.length > 150) f('ordem na calha: lista até 150 lugares');
+    for (const t of l.ordem) if (typeof t !== 'string' || !RE_LUGAR_ORDEM.test(t)) f('ordem na calha: lugar inválido (use geral, diferencial:N, disjuntor:N ou livre)');
+  }
 }
 
 /**

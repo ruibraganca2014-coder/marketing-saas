@@ -15,9 +15,9 @@ import { pdfDeImagens } from '../../web/simulador/pdf.js';
 import { blocosOrcamento, blocosRelatorio } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 import { aVerificarNaVisita, avariaTxt, ehAvaria, estimativaTxt } from '../public/ecras/simulacao.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
 const armazem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m }; };
 
 /** Apartamento T2 com a planta desenhada pela casa (a do passo Planta). */

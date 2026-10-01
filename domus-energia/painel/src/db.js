@@ -378,6 +378,11 @@ export const MIGRACOES = [
     db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
       ('ensaio_isolamento_mohm', 0.5), ('ensaio_diferencial_ms', 300), ('ensaio_terra_ohm', 100);`);
   },
+  // 17 — ronda B (decisão do dono; docs/PAINEL-EMPRESA.md "Esquema do quadro"): o esquema do quadro elétrico feito pelo
+  // eletricista no painel a partir da foto do cliente (`orcamentos.esquema_quadro`, JSON: geral, diferenciais,
+  // disjuntores, módulos livres pela ordem da calha, estado, fusíveis, notas; validar.js esquemaQuadro). Só no
+  // relatório pormenorizado do cliente.
+  (db) => { db.exec('ALTER TABLE orcamentos ADD COLUMN esquema_quadro TEXT'); },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

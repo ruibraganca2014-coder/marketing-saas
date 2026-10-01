@@ -817,6 +817,44 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .relatorio-cliente h6 { margin: 8px 0 2px; font-size: .95rem; }
 /* Fase 3: o intervalo do relatório básico e o total do pormenorizado em destaque. */
 .relatorio-cliente .valor { margin: 0; font-size: 1.4rem; font-weight: 800; }
+/* Relatório pormenorizado — conteúdo técnico (web/simulador/simbolos.js): planta técnica, legenda, esquemas, ensaios. */
+.relatorio-cliente .rel-planta { display: block; width: 100%; height: auto; max-height: 70vh; border: 1px solid var(--borda); border-radius: 12px; color: var(--texto); background: var(--superficie); }
+.relatorio-cliente .rel-legenda { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .9rem; }
+.relatorio-cliente .rel-legenda li { display: flex; align-items: center; gap: 6px; }
+.relatorio-cliente .rel-legenda svg { width: 28px; height: 28px; flex: none; color: var(--texto); }
+.relatorio-cliente .rel-aparelhos { margin: 2px 0 0; padding-left: 20px; font-size: .92rem; }
+.relatorio-cliente .rel-esquemas { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin: 6px 0 10px; }
+.relatorio-cliente .rel-esquema { margin: 0; border: 1px solid var(--borda); border-radius: 12px; padding: 8px; }
+.relatorio-cliente .rel-esquema svg { width: 100%; height: auto; display: block; color: var(--texto); }
+.relatorio-cliente .rel-esquema figcaption { font-size: .85rem; color: var(--texto-suave); margin-top: 4px; }
+.relatorio-cliente .rel-terra { font-weight: 700; color: var(--argila-texto); }
+.relatorio-cliente .rel-ensaios td .ajuda { display: block; font-size: .82rem; }
+.relatorio-cliente .rel-medir { color: var(--texto-suave); white-space: nowrap; }
+.relatorio-cliente .rel-medido { font-weight: 700; white-space: nowrap; }
+.relatorio-cliente .rel-aviso { font-weight: 700; }
+/* "Esquema do quadro elétrico" (web/simulador/quadro-desenho.js, só leitura): as classes .qd-* do desenho, como no simulador. */
+.relatorio-cliente .rel-quadro .qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.relatorio-cliente .rel-quadro .qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }
+.relatorio-cliente .rel-quadro .qd-calha { fill: var(--borda); stroke: var(--texto-suave); stroke-width: 1; }
+.relatorio-cliente .rel-quadro .qd-vazio { fill: var(--texto-suave); font: 600 11px var(--letra); }
+.relatorio-cliente .rel-quadro .qd-livre { fill: none; stroke: var(--texto-suave); stroke-width: 1.2; stroke-dasharray: 4 3; }
+.relatorio-cliente .rel-quadro .qd-livre-fundo { fill: transparent; stroke: none; }
+.relatorio-cliente .rel-quadro .qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
+.relatorio-cliente .rel-quadro .qd-geral .qd-corpo { fill: var(--musgo-claro); }
+.relatorio-cliente .rel-quadro .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
+.relatorio-cliente .rel-quadro .qd-alavanca { fill: var(--texto); }
+.relatorio-cliente .rel-quadro .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
+.relatorio-cliente .rel-quadro .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }
+.relatorio-cliente .rel-quadro .qd-txt { fill: var(--texto); font: 600 10px var(--letra); }
+.relatorio-cliente .rel-quadro .qd-txt.forte { font-weight: 800; font-size: 12px; }
+.relatorio-cliente .rel-quadro .qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
+@media print {
+  /* Em papel os desenhos saem sempre a preto sobre branco, mesmo no tema escuro. */
+  .relatorio-cliente .rel-quadro { --superficie: #fff; --fundo: #fff; --texto: #000; --texto-suave: #444; --borda: #ccc; --musgo-claro: #eef0d9; --areia-suave: #f7e5c6; }
+  .relatorio-cliente .rel-planta, .relatorio-cliente .rel-legenda svg, .relatorio-cliente .rel-esquema svg { color: #000; --superficie: #fff; background: #fff; }
+  .relatorio-cliente .rel-planta { max-height: none; }
+  .relatorio-cliente .rel-esquema, .relatorio-cliente .rel-planta-piso { break-inside: avoid; }
+}
 @media print {
   body.imprimir-relatorio > *:not(main), body.imprimir-relatorio #conta-cartao, body.imprimir-relatorio .conta-atalhos, body.imprimir-relatorio .conta-pedido:not(.a-imprimir), body.imprimir-relatorio .nao-imprimir { display: none !important; }
 }

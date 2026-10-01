@@ -36,7 +36,7 @@ export function descreverComando(comando, n = 1) {
   if (c === "escada") return "escada (2 comutadores)";
   if (c === "inversor") { const s = Math.max(3, k); return `inversor (${s} sítios: 2 comutadores + ${s - 2} ${s - 2 === 1 ? "inversor" : "inversores"})`; }
   if (c === "botao") return `botão de pressão (${k} ${k === 1 ? "botão" : "botões"} + telerruptor)`;
-  if (c === "lustre") return "lustre (1 comutador de lustre, 2 circuitos)";
+  if (c === "lustre") return "lustre (1 comutador de lustre, 2 saídas)";
   return "simples (1 interruptor)";
 }
 
@@ -112,7 +112,8 @@ export function simboloDe(e) {
     case "botao_pressao": case "botao": return "botao";
     case "campainha": return "campainha";
     case "quadro": return "quadro";
-    case "maquina": return "aparelho";
+    // A campainha normal é uma "máquina" do simulador (modelo `campainha`): leva o símbolo da campainha, sem número.
+    case "maquina": return p.modelo === "campainha" ? "campainha" : "aparelho";
     case "sensor_movimento": case "sensor_porta": return "detetor";
     case "porta": return "porta";
     case "janela": return "janela";
@@ -184,7 +185,7 @@ const soPiso = (planta, piso, lista) => (Array.isArray(planta?.[lista]) ? planta
 /** Aparelhos de utilização (máquinas) de um piso, numerados pela ordem da planta: [{n, nome, divisao}]. */
 export function aparelhosNumerados(planta, piso, nomesModelo = {}) {
   const nomes = new Map(soPiso(planta, piso, "divisoes").map((d) => [d.id, String(d.nome ?? "")]));
-  return soPiso(planta, piso, "elementos").filter((e) => e.tipo === "maquina").map((e, i) => ({
+  return soPiso(planta, piso, "elementos").filter((e) => simboloDe(e) === "aparelho").map((e, i) => ({
     n: i + 1,
     nome: (typeof e.nome === "string" && e.nome.trim()) || nomesModelo[e.props?.modelo] || String(e.props?.modelo ?? "aparelho").replace(/_/g, " "),
     divisao: nomes.get(e.divisao) ?? "",
@@ -219,15 +220,20 @@ export function desenharPlantaTecnica(svg, planta, { piso = 0 } = {}) {
   const gn = no("g", { "data-camada": "nomes", "aria-hidden": "true" });
   for (const d of divisoes) {
     const pts = cantos(d);
-    const [cx, cy] = centro(pts);
+    // O nome vai ao canto de cima à esquerda (retângulo) ou um pouco acima do centro (polígono): o ponto de luz fica
+    // normalmente no centro e não deve tapar o nome.
+    const ret = pts.length === 4 && !d.pontos;
+    const [cx0, cy0] = centro(pts);
     let area = 0;
     for (let i = 0; i < pts.length; i++) area += pts[i][0] * pts[(i + 1) % pts.length][1] - pts[(i + 1) % pts.length][0] * pts[i][1];
     gd.append(no("polygon", { points: pts.map((p) => `${p[0]},${p[1]}`).join(" ") }, { fill: "none", stroke: "currentColor", "stroke-width": "2.5px", "stroke-linejoin": "miter", "vector-effect": "non-scaling-stroke" }));
     const w = Math.max(...pts.map((p) => p[0])) - Math.min(...pts.map((p) => p[0]));
     const tam = Math.min(letra, Math.max(letra * 0.5, (w * 0.9) / (Math.max(4, String(d.nome ?? "").length) * 0.6)));
-    const nome = no("text", { x: cx, y: cy - tam * 0.2, "text-anchor": "middle", "font-size": tam }, { fill: "currentColor", "font-weight": "700", "font-family": "var(--letra, system-ui, sans-serif)" });
+    const x0 = Math.min(...pts.map((p) => p[0])), y0 = Math.min(...pts.map((p) => p[1]));
+    const [cx, cy, anc] = ret ? [x0 + raio * 1.2, y0 + raio * 1.2 + tam * 0.4, "start"] : [cx0, cy0 - raio * 1.6, "middle"];
+    const nome = no("text", { x: cx, y: cy - tam * 0.2, "text-anchor": anc, "font-size": tam }, { fill: "currentColor", "font-weight": "700", "font-family": "var(--letra, system-ui, sans-serif)", stroke: "var(--superficie, #fff)", "stroke-width": `${tam * 0.22}px`, "stroke-linejoin": "round", "paint-order": "stroke" });
     nome.textContent = String(d.nome ?? "");
-    const m2 = no("text", { x: cx, y: cy + tam * 0.9, "text-anchor": "middle", "font-size": tam * 0.75 }, { fill: "currentColor", opacity: "0.75", "font-family": "var(--letra, system-ui, sans-serif)" });
+    const m2 = no("text", { x: cx, y: cy + tam * 0.9, "text-anchor": anc, "font-size": tam * 0.75 }, { fill: "currentColor", opacity: "0.75", "font-family": "var(--letra, system-ui, sans-serif)" });
     m2.textContent = `${fmtM2(Math.abs(area / 2))} m²`;
     gn.append(nome, m2);
   }
@@ -261,11 +267,12 @@ export function desenharPlantaTecnica(svg, planta, { piso = 0 } = {}) {
 }
 
 // ------------------------------------------------------------------ esquemas funcionais dos comandos (5 desenhos fixos)
-// Caixa 0 0 240 120. À esquerda a chegada da alimentação (L fase, N neutro, PE proteção); ao meio o(s) aparelho(s) de
-// comando; à direita o(s) recetor(es). Regra desenhada: a fase vai ao comando e volta ("retorno") ao recetor; o neutro
-// vai DIRETO ao recetor; o PE (tracejado) vai a todos os recetores.
+// Caixa 0 0 240 150. Em cima a fase (L) e os aparelhos de comando; à direita o(s) recetor(es); em baixo o neutro (N) e
+// a proteção (PE), que vão direitos aos recetores. Regra desenhada: a fase vai ao comando e volta ("retorno") ao
+// recetor; o neutro vai DIRETO ao recetor; o PE (tracejado) vai a todos os recetores.
 const LT = { ...TRACO, "stroke-width": "1.4px" };
 const PE_TRACO = { ...LT, "stroke-dasharray": "4 3" };
+const Y_N = 112, Y_PE = 134;
 function etiqueta(g, x, y, texto, atrs = {}) {
   const t = no("text", { x, y, "font-size": 8, ...atrs }, { fill: "currentColor", "font-family": "system-ui, sans-serif" });
   t.textContent = texto;
@@ -273,50 +280,50 @@ function etiqueta(g, x, y, texto, atrs = {}) {
 }
 function caixa(g, x, y, w, nome) {
   g.append(no("rect", { x, y, width: w, height: 22, rx: 2 }, LT));
-  etiqueta(g, x + w / 2, y + 32, nome, { "text-anchor": "middle" });
+  etiqueta(g, x + w / 2, y + 33, nome, { "text-anchor": "middle", "font-size": 7.5 });
 }
 function lampada(g, x, y) {
   g.append(no("circle", { cx: x, cy: y, r: 8 }, LT));
   g.append(no("path", { d: `M${x - 5.7} ${y - 5.7}l11.4 11.4M${x + 5.7} ${y - 5.7}l-11.4 11.4` }, LT));
 }
 function alimentacao(g) {
-  for (const [y, nome] of [[20, "L"], [44, "N"], [68, "PE"]]) {
+  for (const [y, nome] of [[20, "L"], [Y_N, "N"], [Y_PE, "PE"]]) {
     etiqueta(g, 6, y + 3, nome, { "font-weight": "700" });
     g.append(no("path", { d: `M22 ${y}h12` }, nome === "PE" ? PE_TRACO : LT));
   }
 }
-/** Neutro direto e PE a cada recetor (ys = alturas das lâmpadas; x = 212). */
+/** Neutro direto e PE a cada recetor (ys = alturas das lâmpadas, em x = 212). */
 function neutroEPe(g, ys) {
-  const fim = Math.max(...ys);
-  g.append(no("path", { d: `M34 44H176V${fim}` }, LT));
-  g.append(no("path", { d: `M34 68H168V${fim + 12}H212V${fim + 8}` }, PE_TRACO));
+  const topo = Math.min(...ys);
+  g.append(no("path", { d: `M34 ${Y_N}H176V${topo}` }, LT));
+  g.append(no("path", { d: `M34 ${Y_PE}H224V${topo}` }, PE_TRACO));
   for (const y of ys) {
     g.append(no("path", { d: `M176 ${y}H204` }, LT));
-    if (y !== fim) g.append(no("path", { d: `M168 ${y + 12}H212V${y + 8}` }, PE_TRACO));
+    g.append(no("path", { d: `M224 ${y}H220` }, PE_TRACO));
   }
-  etiqueta(g, 100, 41, "neutro direto ao recetor");
-  etiqueta(g, 100, 65, "PE a todos os recetores");
+  etiqueta(g, 40, Y_N - 3, "neutro direto ao recetor");
+  etiqueta(g, 40, Y_PE - 3, "PE a todos os recetores");
 }
 const ESQUEMAS = {
   simples(g) {
     alimentacao(g);
     g.append(no("path", { d: "M34 20H60" }, LT));
     caixa(g, 60, 9, 44, "interruptor");
-    g.append(no("path", { d: "M104 20H212V52" }, LT));
+    g.append(no("path", { d: "M104 20H212V62" }, LT));
     etiqueta(g, 120, 17, "retorno");
-    lampada(g, 212, 60);
-    neutroEPe(g, [60]);
+    lampada(g, 212, 70);
+    neutroEPe(g, [70]);
   },
   lustre(g) {
     alimentacao(g);
     g.append(no("path", { d: "M34 20H56" }, LT));
     caixa(g, 56, 9, 50, "comutador de lustre");
-    g.append(no("path", { d: "M106 16H212V52M106 24H140V92H212V100" }, LT));
+    g.append(no("path", { d: "M106 16H212V52M106 24H200V84H212V92" }, LT));
     etiqueta(g, 112, 13, "retorno 1");
-    etiqueta(g, 112, 34, "retorno 2");
+    etiqueta(g, 150, 32, "retorno 2");
     lampada(g, 212, 60);
-    lampada(g, 212, 108);
-    neutroEPe(g, [60, 108]);
+    lampada(g, 212, 100);
+    neutroEPe(g, [60, 100]);
   },
   escada(g) {
     alimentacao(g);
@@ -324,11 +331,11 @@ const ESQUEMAS = {
     caixa(g, 52, 9, 40, "comutador");
     g.append(no("path", { d: "M92 15H112M92 25H112" }, LT));
     caixa(g, 112, 9, 40, "comutador");
-    g.append(no("path", { d: "M152 20H212V52" }, LT));
+    g.append(no("path", { d: "M152 20H212V62" }, LT));
     etiqueta(g, 160, 17, "retorno");
-    etiqueta(g, 62, 50, "2 fios entre os dois comutadores de escada", { "font-size": 7 });
-    lampada(g, 212, 60);
-    neutroEPe(g, [60]);
+    etiqueta(g, 40, 60, "2 fios entre os dois comutadores de escada", { "font-size": 7 });
+    lampada(g, 212, 70);
+    neutroEPe(g, [70]);
   },
   inversor(g) {
     alimentacao(g);
@@ -338,35 +345,35 @@ const ESQUEMAS = {
     caixa(g, 96, 9, 34, "inversor");
     g.append(no("path", { d: "M130 15H146M130 25H146" }, LT));
     caixa(g, 146, 9, 34, "comutador");
-    g.append(no("path", { d: "M180 20H212V52" }, LT));
-    etiqueta(g, 60, 50, "um inversor por cada sítio a mais (4 fios em cada inversor)", { "font-size": 7 });
-    lampada(g, 212, 60);
-    neutroEPe(g, [60]);
+    g.append(no("path", { d: "M180 20H212V62" }, LT));
+    etiqueta(g, 40, 60, "um inversor por cada sítio a mais (4 fios em cada inversor)", { "font-size": 7 });
+    lampada(g, 212, 70);
+    neutroEPe(g, [70]);
   },
   botao(g) {
     alimentacao(g);
-    g.append(no("path", { d: "M34 20H52M52 20V30M52 10V20" }, LT));
+    g.append(no("path", { d: "M34 20H52M52 10V30" }, LT));
     for (const y of [10, 30]) {
       g.append(no("path", { d: `M52 ${y}H60M68 ${y}H78` }, LT));
       g.append(no("circle", { cx: 64, cy: y, r: 4 }, LT));
       g.append(no("circle", { cx: 64, cy: y, r: 1.4 }, CHEIO));
     }
     g.append(no("path", { d: "M78 10V30M78 20H96" }, LT));
-    etiqueta(g, 46, 54, "botões em paralelo", { "font-size": 7 });
+    etiqueta(g, 40, 60, "botões em paralelo", { "font-size": 7 });
     caixa(g, 96, 9, 46, "telerruptor");
     g.append(no("path", { d: "M34 20V4H120V9" }, LT));
-    g.append(no("path", { d: "M142 20H212V52" }, LT));
+    g.append(no("path", { d: "M142 20H212V62" }, LT));
     etiqueta(g, 150, 17, "retorno");
-    lampada(g, 212, 60);
-    neutroEPe(g, [60]);
+    lampada(g, 212, 70);
+    neutroEPe(g, [70]);
   },
 };
 
-/** O esquema funcional de um tipo de comando num <svg> (0 0 240 120). */
+/** O esquema funcional de um tipo de comando num <svg> (0 0 240 150). */
 export function desenharEsquemaComando(svg, comando) {
   const c = COMANDOS[comando] ? comando : COMANDO_OMISSAO;
   svg.replaceChildren();
-  svg.setAttribute("viewBox", "0 0 240 120");
+  svg.setAttribute("viewBox", "0 0 240 150");
   svg.setAttribute("role", "img");
   const t = no("title");
   t.textContent = `${COMANDOS[c].titulo}: esquema funcional`;

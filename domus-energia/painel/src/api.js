@@ -8,7 +8,7 @@ import {
 } from './http.js';
 import {
   texto, numero, booleano, opcao, dia, diaHora, hora, idNum, simulacao as validarSimulacao,
-  RE_TELEFONE, falha,
+  RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
 import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
@@ -21,7 +21,7 @@ import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
-import { criarLeituraSimulador } from './leitura-simulador.js';
+import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -87,6 +87,7 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
+  ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -180,8 +181,6 @@ export function criarApi(ctx) {
   // Fotos do simulador e leitura automática da foto do quadro (fotos.js, leitura-quadro.js).
   const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
   const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
-  // Leitura da foto do quadro no simulador, antes do pedido (POST /api/simulador/ler-quadro; leitura-simulador.js).
-  const lerQuadroSimulador = criarLeituraSimulador({ config, registo, relogio, leitor: ctx.leitor ?? null });
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
@@ -208,6 +207,11 @@ export function criarApi(ctx) {
   const temFinanceiro = (u) => u.papel === 'ceo';
   /** `simulacao.urgencia` (validada ao receber: normal | semana | urgente) a partir do JSON guardado; null sem ela. */
   const urgenciaDaSimulacao = (json) => (typeof json === 'string' ? /"urgencia":"(normal|semana|urgente)"/.exec(json)?.[1] ?? null : null);
+  /** `orcamentos.esquema_quadro` (JSON; migração 17) como objeto {…esquema, data, por}, ou null. */
+  const esquemaQuadroDe = (o) => {
+    if (!o?.esquema_quadro) return null;
+    try { const e = JSON.parse(o.esquema_quadro); return e && typeof e === 'object' && !Array.isArray(e) ? e : null; } catch { return null; }
+  };
 
   function formatarOrcamento(o, completo = false) {
     const r = {
@@ -225,6 +229,10 @@ export function criarApi(ctx) {
       // Pagamentos do pedido: aceite pelo cliente mas o sinal ainda por pagar = "Aceite — a aguardar sinal".
       aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
+      // Ensaios medidos na visita/obra (migração 16; o relatório pormenorizado mostra-os), ou null.
+      ensaios: pagPed.ensaiosDe(o),
+      // Esquema do quadro feito pelo eletricista (migração 17; {…esquema, data, por}), ou null.
+      esquema_quadro: esquemaQuadroDe(o),
       pagamentos: pagPed.listarParaPainel(o.id),
       // Fase 3: o que o cliente comprou (relatório pormenorizado, visita) e os preços dele.
       compras: o.simulacao ? pagPed.compras(o) : null,
@@ -897,6 +905,43 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
+  // Ensaios medidos na visita/obra (relatório pormenorizado, lista de ensaios): continuidade do PE (Ω), isolamento (MΩ),
+  // terra (Ω) e disparo do diferencial (ms), mais notas. Um valor vazio apaga a medição; o cliente vê-os no relatório.
+  h.registarEnsaios = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, [...CHAVES_ENSAIOS, 'notas']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há lista de ensaios.');
+    const ROTULO = { continuidade_pe: 'a continuidade do PE (Ω)', isolamento: 'a resistência de isolamento (MΩ)', terra: 'a resistência de terra (Ω)', diferencial: 'o tempo de disparo do diferencial (ms)' };
+    const ens = {};
+    for (const k of CHAVES_ENSAIOS) ens[k] = numero(v[k], ROTULO[k], { min: 0, max: 1_000_000, casas: 3 });
+    ens.notas = texto(v.notas, 'as notas dos ensaios', { max: 1000, multilinha: true });
+    const agora = agoraIso();
+    ens.data = agora;
+    db.prepare('UPDATE orcamentos SET ensaios = ?, atualizado = ? WHERE id = ?').run(JSON.stringify(ens), agora, o.id);
+    auditar(u, 'ensaios_registados', `orcamento:${o.id}`, Object.fromEntries(CHAVES_ENSAIOS.map((k) => [k, ens[k]])), ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // Esquema do quadro elétrico feito pelo eletricista a partir da foto do cliente (ronda B; docs/PAINEL-EMPRESA.md
+  // "Esquema do quadro"): o corpo é o esquema (validar.js esquemaQuadro; normalizado como no editor), guardado em
+  // `orcamentos.esquema_quadro` com a data e quem o fez; `null`/`{}` apaga. Só no relatório pormenorizado do cliente.
+  h.guardarEsquemaQuadro = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['esquema'], 64 * 1024);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const agora = agoraIso();
+    let guardado = null;
+    if (v.esquema !== undefined && v.esquema !== null) {
+      validarEsquemaQuadro(v.esquema);
+      guardado = { ...normalizarEsquema(v.esquema), data: agora, por: u.email };
+    }
+    db.prepare('UPDATE orcamentos SET esquema_quadro = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
+    auditar(u, 'esquema_quadro_atualizado', `orcamento:${o.id}`, guardado ? {
+      geral: guardado.disjuntor_geral?.amperes ?? null, diferenciais: guardado.diferenciais.length, disjuntores: guardado.disjuntores.length,
+      modulos_livres: guardado.modulos_livres, estado: guardado.estado,
+    } : { apagado: true }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
   // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
   h.previaRelatorioCliente = ({ res, params }) => {
     const o = obterOrcamento(params.id);
@@ -1408,10 +1453,6 @@ export function criarApi(ctx) {
       if (caminho === '/api/orcamento/fotos') {
         if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
         return await fotoPublica(req, res, ip);
-      }
-      if (caminho === '/api/simulador/ler-quadro') {
-        if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
-        return await lerQuadroSimulador(req, res, ip);
       }
       if (caminho === '/api/catalogo') {
         if (req.method !== 'GET' && req.method !== 'HEAD') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET' });

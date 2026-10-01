@@ -18,9 +18,9 @@ import { pedidosQuadro, pacoteDoQuadro, protecoesDoPacote, afddExistentes, CHAVE
 import { blocosOrcamento } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 import { abrirDb, migrar, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
 const MAQUINAS = [{ modelo: 'termoacumulador', qtd: 1, piso: 0 }, { modelo: 'placa', qtd: 1, piso: 0 }, { modelo: 'maquina_lavar', qtd: 1, piso: 0 }];
 
 /** Apartamento T2 com a planta desenhada pela casa, as divisões e os circuitos do pedido (como app.js acertarPedido). */

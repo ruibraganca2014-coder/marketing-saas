@@ -319,7 +319,7 @@ export const comandoSugerido = (nome, portas = 1) => (portas >= 2 || PASSAGEM.in
 /**
  * Aparelhos por omissão de uma divisão retangular (nome → tipo; caixa em cm), em sítios plausíveis e
  * afastados uns dos outros (≥ 65 cm nas divisões de tamanho típico): porta na parede de baixo com o
- * interruptor ao lado, dentro da divisão (ronda regras: junto à porta, do lado de dentro); luz ao centro (com 2 ou
+ * interruptor ao lado, na face de dentro da parede (dentro da divisão, junto à porta); luz ao centro (com 2 ou
  * mais — uma por cada 20 m², até 8 — repartidas simetricamente à volta do centro ao longo do lado maior; a partir
  * de 5, em 2 filas) e tomadas nas paredes (esquerda, direita, baixo à direita, cima à direita). Corredor,
  * entrada/hall e escadas (comandoSugerido): 2.ª porta na parede de cima, com o seu interruptor, os 2 com comando
@@ -336,14 +336,15 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
   const passagem = PASSAGEM.includes(tipoDivisao(nome));
   const comando = comandoSugerido(nome, passagem ? 2 : 1);
   const porta = Math.max(60, Math.round(w * 0.3));
-  // Interruptor ao lado da porta (à esquerda; numa divisão estreita, à direita), 40 cm para dentro da parede.
+  // Interruptor ao lado da porta (à esquerda; numa divisão estreita, à direita), na face de dentro da parede (10 cm
+  // para dentro, como a porta): fica dentro da divisão, junto à porta.
   const ladoInt = (px) => (px - 70 >= 40 ? px - 70 : Math.min(px + 70, w - 30));
   add("porta", porta, h - 10);
-  add("interruptor", ladoInt(porta), h - 40, 0, { comando });
+  add("interruptor", ladoInt(porta), h - 10, 0, { comando });
   if (passagem) {
     const porta2 = Math.min(w - 60, Math.max(60, w - porta));
     add("porta", porta2, 10);
-    add("interruptor", ladoInt(porta2), 40, 0, { comando });
+    add("interruptor", ladoInt(porta2), 10, 0, { comando });
   }
   const luzes = Math.min(MAX_LUZES, Math.max(1, Math.round((w * h) / (M2_POR_LUZ * 1e4))));
   // Ao centro; várias: simétricas em relação ao centro ao longo do lado maior (2 filas a partir de 5).
@@ -516,18 +517,21 @@ export function plantaDaCasa(casa, maquinas = []) {
  * igual: fica o mais em baixo e à esquerda, "ao fundo da divisão"). Foge também do nome e das medidas desta
  * divisão e das `divisoes` (as do piso; zonaRotulo), mas sem nunca ficar mais colado a outro ícone por causa
  * disso: sem sítio livre, o ícone vai para baixo do texto (que se desenha por cima) e não para cima de outro ícone.
+ * Entre os sítios a pelo menos 50 cm dos outros ícones, um que não tape nenhum nome ganha sempre a um que tape.
  */
 export function lugarLivre(d, elementos, divisoes = [d]) {
   const perto = elementos.filter((q) => q.x_cm >= d.x_cm - 50 && q.x_cm <= d.x_cm + d.largura_cm + 50 && q.y_cm >= d.y_cm - 50 && q.y_cm <= d.y_cm + d.altura_cm + 50);
   const zonas = [d, ...divisoes.filter((q) => q !== d)].map(zonaRotulo).filter(Boolean);
-  let melhor = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2], nota = -Infinity;
+  const centro = [d.x_cm + d.largura_cm / 2, d.y_cm + d.altura_cm / 2];
+  let melhor = centro, nota = -Infinity, melhorLimpo = null, notaLimpa = -Infinity;
   for (let y = d.y_cm + d.altura_cm - 30; y >= d.y_cm + 30; y -= 25) {
     for (let x = d.x_cm + 30; x <= d.x_cm + d.largura_cm - 30; x += 25) {
       const n = Math.min(PASSO_MAQUINA, ...perto.map((q) => Math.hypot(q.x_cm - x, q.y_cm - y)), ...zonas.map((z) => Math.max(PASSO_MAQUINA / 2, distRotulo(z, x, y) + RAIO_ICONE)));
       if (n > nota) { nota = n; melhor = [x, y]; }
+      if (n > notaLimpa && !zonas.some((z) => tapaRotulo(z, x, y))) { notaLimpa = n; melhorLimpo = [x, y]; }
     }
   }
-  return melhor.map(Math.round);
+  return (melhorLimpo && notaLimpa >= PASSO_MAQUINA / 2 ? melhorLimpo : melhor).map(Math.round);
 }
 
 // Tamanhos do desenho da planta no editor (editor.js tamanhos: letra de 14 px e ícones de 15 px de raio), em cm,

@@ -675,26 +675,17 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-visita h3 { margin: 0; }
 .escolhas-grelha.visita-dias { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 
-/* ---------- Ronda B: passo "Quadro elétrico" — foto obrigatória, leitura e desenho do quadro (quadro-desenho.js) ---------- */
+/* ---------- Ronda B: passo "Quadro elétrico" — só a foto (obrigatória); o esquema do quadro faz-se no painel ---------- */
 .quadro-foto > .ajuda { font-size: .92rem; }
-.quadro-foto .msg[hidden], .quadro-sugestoes[hidden], .quadro-ver-desenho[hidden] { display: none; }
-.quadro-sugestoes { padding: 10px 14px; border-radius: 12px; background: var(--areia-suave); }
-.quadro-sugestoes h4 { margin: 0 0 4px; font-size: .95rem; }
-.quadro-sugestoes ul { margin: 0; padding-left: 1.2em; }
-.quadro-ver-desenho { justify-self: start; }
-@media (min-width: 1024px) { .quadro-ver-desenho { display: none; } }
+.quadro-foto .msg[hidden] { display: none; }
 #quadro-msg[hidden] { display: none; }
-/* O painel da direita mostra o quadro (e não a planta): app.js desenharPainelQuadro. */
-.sim-planta.com-quadro :is(#editor, #planta-tamanho, #planta-origem, #planta-presa, #planta-acao, #planta-vazia, #planta-refazer) { display: none; }
-.sim-painel-trocar[hidden], .sim-quadro[hidden] { display: none; }
-.sim-quadro { display: flex; flex-direction: column; gap: 10px; flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px; }
-.sim-quadro-desenho { flex: none; }
+/* Esquema do quadro no relatório pormenorizado (web/conta.js; quadro-desenho.js desenharEsquemaQuadro): só para ver. */
 .qd-svg { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
 .qd-caixa { fill: var(--superficie); stroke: var(--texto-suave); stroke-width: 2; }
 .qd-calha { fill: var(--borda); stroke: var(--texto-suave); stroke-width: 1; }
 .qd-vazio { fill: var(--texto-suave); font: 600 11px var(--letra); }
 .qd-livre { fill: none; stroke: var(--texto-suave); stroke-width: 1.2; stroke-dasharray: 4 3; }
-.qd-item { cursor: pointer; outline: none; }
+.qd-livre-fundo { fill: transparent; stroke: none; }
 .qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
 .qd-geral .qd-corpo { fill: var(--musgo-claro); }
 .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
@@ -704,19 +695,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .qd-txt { fill: var(--texto); font: 600 10px var(--letra); }
 .qd-txt.forte { font-weight: 800; font-size: 12px; }
 .qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
-.qd-item:hover .qd-corpo { stroke: var(--argila); }
-.qd-item:focus-visible .qd-corpo { stroke: var(--foco); stroke-width: 3.5; }
-.qd-item.sel .qd-corpo { stroke: var(--argila); stroke-width: 3.5; }
-.sim-quadro-editar { display: grid; gap: 10px; }
-.sim-quadro-editar .form-botoes { margin: 0; }
-.qd-sel { display: grid; gap: 8px; padding: 10px 12px; border: 2px solid var(--argila); border-radius: 14px; background: var(--superficie); }
-.qd-sel-titulo { margin: 0; font-weight: 800; }
-.qd-chips { margin: 0; padding: 0; border: 0; }
-.qd-chips legend { padding: 0; margin-bottom: 4px; font-size: .9rem; font-weight: 700; }
-.qd-chips .escolhas-grelha { display: flex; flex-wrap: wrap; gap: 6px; }
-.qd-chips .escolha { min-height: 44px; min-width: 52px; padding: 6px 10px; border-radius: 12px; }
-.qd-livres-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-weight: 700; }
-.escolha.qd-fusiveis { justify-content: flex-start; min-height: 48px; text-align: left; }
 
 /* ---------- Ronda B: "Equipamentos" — a máquina que está na planta fica acesa; "Tirar da planta?" por cima do cartão ---------- */
 .quer-item:has(> .escolha input:checked) > .escolha { box-shadow: inset 0 0 0 2px var(--musgo); }

@@ -56,12 +56,14 @@ const NOMES = {
   porta: "Porta", janela: "Janela", quadro: "Quadro elétrico", tomada: "Tomada", luz: "Ponto de luz",
   interruptor: "Interruptor", maquina: "Máquina", sensor_porta: "Sensor de porta/janela", sensor_movimento: "Sensor de movimento",
 };
+// Tipos de comando do interruptor (web/simulador/regras.js COMANDOS; "simples" não se escreve).
+const COMANDOS = { simples: "simples", lustre: "lustre", escada: "escada", inversor: "inversor", botao: "botão de pressão" };
 const MODELOS = {
   termoacumulador: "Termoacumulador", ar_condicionado: "Ar condicionado", placa: "Placa de cozinha", forno: "Forno",
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
   frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)",
   esquentador: "Esquentador elétrico instantâneo", radiador: "Aquecedor / radiador elétrico", hidromassagem: "Hidromassagem / jacuzzi",
-  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha_video: "Campainha com vídeo",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
   carregador_bicicleta: "Carregador de bicicleta / trotinete", toalheiro: "Aquecedor de toalhas",
   arca_frigorifica: "Arca / vitrine frigorífica", maquina_cafe: "Máquina de café profissional", servidor: "Servidor / bastidor", compressor: "Compressor",
   soldadura: "Máquina de soldar", maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador de carro elétrico 22 kW",
@@ -136,6 +138,8 @@ const ICONES = {
   maquina_torradeira: [["rect", { x: 9, y: 19, width: 30, height: 18, rx: 6 }, "t"], ["path", { d: "M15 19v-6.5h7V19M26 19v-6.5h7V19" }, "t"], ["circle", { cx: 33, cy: 29, r: 1.6 }, "c"]],
   maquina_cafe_expresso: [["path", { d: "M14 23h17v6a7 7 0 0 1-7 7h-3a7 7 0 0 1-7-7z" }, "t"], ["path", { d: "M31 25.5c4.5 0 4.5 6 0 6M10 39.5h25M19 11c-1.6 2.2 1.6 4.3 0 6.5M26 11c-1.6 2.2 1.6 4.3 0 6.5" }, "t"]],
   maquina_campainha_video: [["rect", { x: 16, y: 7, width: 16, height: 34, rx: 5 }, "t"], ["circle", { cx: 24, cy: 15, r: 3 }, "t"], ["circle", { cx: 24, cy: 30, r: 4.5 }, "t"], ["circle", { cx: 24, cy: 30, r: 1.6 }, "c"]],
+  // Campainha normal (ronda regras): sino com o botão de pressão por baixo.
+  maquina_campainha: [["path", { d: "M15 30a9 9 0 0 1 18 0v2H15z" }, "t"], ["path", { d: "M24 12v3M21 36h6" }, "t"], ["circle", { cx: 24, cy: 41, r: 2.2 }, "c"]],
   maquina_carregador_bicicleta: [["circle", { cx: 13, cy: 31, r: 6 }, "t"], ["circle", { cx: 35, cy: 31, r: 6 }, "t"], ["path", { d: "M13 31l6-10h11l5 10M19 21l5 10h-11M28 17h4.5" }, "t"], ["path", { d: "M24 6l-4 6.5h3.5l-1.5 5 5.5-7h-3.5z" }, "c"]],
   maquina_toalheiro: [["path", { d: "M13 8v32M35 8v32M13 13h22M13 20h22M13 27h22M13 34h22" }, "t"], ["rect", { x: 19, y: 13, width: 10, height: 12, rx: 1.5 }, "c"]],
   maquina_carregador_baterias: [["rect", { x: 9, y: 15, width: 25, height: 18, rx: 2 }, "t"], ["path", { d: "M34 20.5v7M14 24h6M17 21v6M25 24h5" }, "t"]],
@@ -270,7 +274,7 @@ function descrever(e, nomesDivisao) {
   if (e.tipo === "janela" && p.estore) t = p.motorizado ? "Janela com estore motorizado" : "Janela com estore";
   if (e.tipo === "tomada" && p.dupla) t = "Tomada dupla";
   if (e.tipo === "luz" && p.brilho) t = "Ponto de luz regulável";
-  if (e.tipo === "interruptor") t = `Interruptor de ${Math.min(4, Math.max(1, Math.round(numero(p.botoes, 1))))} ${numero(p.botoes, 1) > 1 ? "botões" : "botão"}`;
+  if (e.tipo === "interruptor") t = `Interruptor de ${Math.min(4, Math.max(1, Math.round(numero(p.botoes, 1))))} ${numero(p.botoes, 1) > 1 ? "botões" : "botão"}${COMANDOS[p.comando] && p.comando !== "simples" ? ` (${COMANDOS[p.comando]})` : ""}`;
   if (e.tipo === "maquina") t = `${MODELOS[p.modelo] || MODELOS.outro} (${Math.round(numero(p.potencia_w))} W)`;
   // Nome dado pelo cliente (opcional): "Interruptor da entrada — Interruptor de 1 botão".
   if (typeof e.nome === "string" && e.nome.trim()) t = `${e.nome.trim()} — ${t}`;

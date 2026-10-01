@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { painelComEquipa } from './ajuda.js';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, versaoEsquema, migrar, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
 import { diaLisboa, somarDiasCivil } from '../src/util.js';
 
 let p;
@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 12, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 15, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -71,12 +71,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
     tarifa_hora_iva: 45, margem_intervalo_pct: 15, deslocacao_iva: 12.5,
     deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20,
     intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29,
+    ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 11, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 14, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16)');
   db.close();
 });
 
@@ -145,7 +146,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
   const n = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
-  assert.equal(n, antes + SEMENTES_QUADRO.length - 1 + SEMENTES_ACOES.length, 'todos os novos menos o que já existia (e os das ações, migração 10)');
+  assert.equal(n, antes + SEMENTES_QUADRO.length - 1 + SEMENTES_ACOES.length + SEMENTES_PONTOS.length, 'todos os novos menos o que já existia (e os das ações, migração 10, e os pontos, migração 15)');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM (SELECT sku FROM catalogo GROUP BY sku HAVING COUNT(*) > 1)').get().n, 0, 'sem duplicados');
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TONGOU-SY2-JWT'").get().c, 4444, 'preço editado mantém-se');
   const idr = db.prepare("SELECT nome, preco_venda_iva_cent AS c, horas_instalacao AS h FROM catalogo WHERE sku = 'IDR-2P-40A-30MA'").get();
@@ -164,7 +165,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   db.close();
   // Base nova: sementes e artigos do quadro, cada SKU uma vez.
   const nova = abrirDb(':memory:');
-  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length);
+  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length);
   nova.close();
 });
 
