@@ -7,6 +7,7 @@ import {
   plantaVazia, plantaTemConteudo, atualizarDivisoes, avisosQuadro, divisaoVazia, circuitoVazio, validarPontos, definirPontos,
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
   TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO, FIM_AVISO_FORA,
+  comandoDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidoDoElemento, perguntaInteligente } from "./acoes.js";
@@ -36,7 +37,7 @@ export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, diviso
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
  * chegou" comparam-se por esta ordem, não pelo índice.
  */
-export const ORDEM_PASSOS = [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8, 9];
+export const ORDEM_PASSOS = [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8, 9];
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
@@ -46,7 +47,7 @@ export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordem
  * Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta". Ronda A: os dois relatórios.
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 4: 2, 5: 1, 3: 2, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 5: 1, 3: 2, 4: 2, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
   planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 12, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 0.5, 8: 1 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
@@ -132,10 +133,13 @@ export const FOTOS_AVARIA = [FOTO_AVARIA, "avaria:foto_2", "avaria:foto_3", "ava
  * - `ordem: 10` (11 passos, antes dos relatórios; a Planta a seguir aos Equipamentos): os mesmos índices, mas a ordem
  *   mudou — reordenar() (os relatórios ficam por ver; quem estava para lá do primeiro passo por ver volta a ele).
  */
-export const ORDEM = 11;
+export const ORDEM = 12;
 /** Até à ordem 10: a ordem dos passos e os passos de cada funil (antes dos relatórios; a Planta depois dos Equipamentos). */
 const ORDEM_10 = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9];
 const FUNIS_10 = { primeira: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], planta: [0, 6, 10, 7, 8], avaria: [0, 9, 8] };
+/** Ordem 11 (ronda A): o Quadro antes das Divisões e da Planta. */
+const ORDEM_11 = [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8, 9];
+const FUNIS_11 = { primeira: [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8], planta: [0, 6, 10, 12, 7, 8], avaria: [0, 9, 8] };
 /**
  * Ronda A: um estado de antes (ordem ≤ 10; `e.passo` e `e.visitado` com os índices de agora, pela ordem de então) passa
  * à ordem de agora. Vistos: os passos até ao mais adiantado de então. O mais adiantado passa a ser o último da
@@ -143,10 +147,10 @@ const FUNIS_10 = { primeira: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], planta: [0, 6, 10,
  * quem estava para lá do primeiro passo por ver (ex.: na Planta, que agora vem depois do Quadro e das Divisões) volta
  * a ele. Muda `e`.
  */
-function reordenar(e) {
+function reordenar(e, ordemAntes = ORDEM_10, funisAntes = FUNIS_10) {
   if (e.funil === "avaria" || !e.funil) return;
-  const lim = ORDEM_10.indexOf(e.visitado);
-  const vistos = new Set(FUNIS_10[e.funil].filter((i) => ORDEM_10.indexOf(i) <= lim));
+  const lim = ordemAntes.indexOf(e.visitado);
+  const vistos = new Set(funisAntes[e.funil].filter((i) => ordemAntes.indexOf(i) <= lim));
   const seq = passosDoFunil(e.funil);
   let k = 0;
   while (k + 1 < seq.length && (vistos.has(seq[k + 1]) || PASSOS_NOVOS.includes(seq[k + 1]))) k++;
@@ -376,6 +380,7 @@ export function normalizarProps(tipo, p) {
   const r = {};
   for (const k of Object.keys(o)) {
     if (k === "botoes") r.botoes = int(v.botoes, 1, 4, 1);
+    else if (k === "comando") r.comando = comandoDe(v);   // ronda regras: estados antigos sem `comando` ficam "simples"
     else if (k === "modelo") r.modelo = MODELOS[v.modelo] ? v.modelo : o.modelo;
     else if (k === "potencia_w") r.potencia_w = int(v.potencia_w, 0, 100_000, MODELOS[r.modelo]?.w ?? o.potencia_w);
     else r[k] = bool(v[k]);
@@ -450,7 +455,8 @@ export function normalizarEstado(v) {
   // `ordem: 9` (antes das Melhorias) e `ordem: 10` (antes dos relatórios) têm os mesmos índices: carregam-se como um
   // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
   const deAgora = v.ordem === ORDEM && v.passos === PASSOS.length;
-  const atual = deAgora || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
+  const de11 = v.ordem === 11 && v.passos === PASSOS.length;   // ronda A: o Quadro ainda antes das Divisões e da Planta
+  const atual = deAgora || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
   const migrar = atual ? null : v.ordem === 8 ? MIGRAR.ordem8 : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
@@ -469,7 +475,7 @@ export function normalizarEstado(v) {
     e.funil = FUNIS[v.funil] ? v.funil : null;
     let passo = int(v.passo, 0, PASSOS.length - 1);
     if (passo > 0 && !e.funil) e.funil = "primeira";
-    const seq = deAgora ? passosDoFunil(e.funil) : FUNIS_10[e.funil ?? "primeira"];
+    const seq = deAgora ? passosDoFunil(e.funil) : (de11 ? FUNIS_11 : FUNIS_10)[e.funil ?? "primeira"];
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
     if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
     if (!seq.includes(passo)) passo = 0;
@@ -478,7 +484,9 @@ export function normalizarEstado(v) {
     e.visitado = seq.includes(vis) && vis !== PASSO.enviar && seq.indexOf(vis) > seq.indexOf(passo) ? vis : passo;
   }
   e.caminho = CAMINHOS.includes(v.caminho) ? v.caminho : null;
-  if (!deAgora) reordenar(e);
+  // Ordem 11 já guardava os relatórios por ver: mantêm-se esses (só os que ficaram para trás).
+  if (de11) { reordenar(e, ORDEM_11, FUNIS_11); e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado)); }
+  else if (!deAgora) reordenar(e);
   else e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.

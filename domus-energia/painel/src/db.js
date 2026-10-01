@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -365,6 +365,19 @@ export const MIGRACOES = [
     db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
       ('intervalo_menos_pct', 10), ('intervalo_mais_pct', 20), ('preco_relatorio_iva', 29);`);
   }),
+  // 15 — ronda regras (docs/SIMULADOR-ORCAMENTO.md §0 "Ronda regras"): pontos novos com preço fechado (luz, tomada,
+  // tomada dupla, interruptor), aparelhagem dos tipos de comando (comutador de escada, inversor, botão de pressão),
+  // campainha e o diferencial tipo A do carregador VE. INSERT OR IGNORE: nunca mexe num artigo que o CEO já tenha.
+  (db) => semear(db, SEMENTES_PONTOS, true),
+  // 16 — relatório pormenorizado, conteúdo técnico (docs/PAGAMENTOS-PEDIDO.md): a lista de ensaios com os valores de
+  // referência editáveis no painel (`ensaio_isolamento_mohm` ≥ 0,5 MΩ a 500 V DC, RTIEBT 612.3; `ensaio_diferencial_ms`
+  // ≤ 300 ms a IΔn, referência EN 61008/61009; `ensaio_terra_ohm` < 100 Ω, 801.5.6.1) e a coluna `orcamentos.ensaios`
+  // (JSON com os valores medidos na visita/obra, registados no painel). INSERT OR IGNORE: nunca mexe num valor editado.
+  (db) => {
+    db.exec('ALTER TABLE orcamentos ADD COLUMN ensaios TEXT');
+    db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES
+      ('ensaio_isolamento_mohm', 0.5), ('ensaio_diferencial_ms', 300), ('ensaio_terra_ohm', 100);`);
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

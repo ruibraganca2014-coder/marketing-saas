@@ -307,29 +307,56 @@ function divisoesPorPiso(pp, tipologia) {
  */
 const TOMADAS_TIPO = { quarto: 2, sala: 3, sala_cozinha: 3, cozinha: 3, escritorio: 2, wc: 1, garagem: 1, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2 };
 
+/** Divisões de passagem (ronda regras): 2 portas e a luz comandada de 2 sítios (comando "escada" nos 2 interruptores). */
+const PASSAGEM = ["corredor", "entrada", "escadas"];
+/**
+ * Comando sugerido para os interruptores de uma divisão (ronda regras, decisão 3): "escada" (um comutador em cada
+ * porta) num corredor, hall/entrada ou escadas, ou numa divisão com 2 ou mais portas; senão "simples". O cliente
+ * muda-o na janela do interruptor.
+ */
+export const comandoSugerido = (nome, portas = 1) => (portas >= 2 || PASSAGEM.includes(tipoDivisao(nome)) ? "escada" : "simples");
+
 /**
  * Aparelhos por omissão de uma divisão retangular (nome → tipo; caixa em cm), em sítios plausíveis e
  * afastados uns dos outros (≥ 65 cm nas divisões de tamanho típico): porta na parede de baixo com o
- * interruptor ao lado, luz ao centro (divisões grandes: uma por cada 20 m², até 8, em grelha) e tomadas nas
- * paredes (esquerda, direita, baixo à direita, cima à direita). Os que têm pergunta (interruptor, luz, tomada)
- * nascem por responder (`por_responder`, passo 4).
+ * interruptor ao lado, dentro da divisão (ronda regras: junto à porta, do lado de dentro); luz ao centro (com 2 ou
+ * mais — uma por cada 20 m², até 8 — repartidas simetricamente à volta do centro ao longo do lado maior; a partir
+ * de 5, em 2 filas) e tomadas nas paredes (esquerda, direita, baixo à direita, cima à direita). Corredor,
+ * entrada/hall e escadas (comandoSugerido): 2.ª porta na parede de cima, com o seu interruptor, os 2 com comando
+ * "escada". Os que têm pergunta nascem por responder (`por_responder`, passo 4).
  * Ficam 10 cm para dentro das paredes: numa parede partilhada contam nesta divisão. Usada pelo editor
  * (botões por tipo) e por plantaDaCasa. Devolve elementos sem id.
  */
 export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura_cm: h }) {
   const r = [];
-  const add = (tipo, dx, dy, rot = 0) => {
-    const props = propsOmissao(tipo);
+  const add = (tipo, dx, dy, rot = 0, extra = {}) => {
+    const props = { ...propsOmissao(tipo), ...extra };
     r.push({ tipo, x_cm: Math.round(x + dx), y_cm: Math.round(y + dy), rot, divisao: null, props, ...(temPergunta(tipo, props) ? { por_responder: true } : {}) });
   };
+  const passagem = PASSAGEM.includes(tipoDivisao(nome));
+  const comando = comandoSugerido(nome, passagem ? 2 : 1);
   const porta = Math.max(60, Math.round(w * 0.3));
+  // Interruptor ao lado da porta (à esquerda; numa divisão estreita, à direita), 40 cm para dentro da parede.
+  const ladoInt = (px) => (px - 70 >= 40 ? px - 70 : Math.min(px + 70, w - 30));
   add("porta", porta, h - 10);
-  // Interruptor ao lado da porta, do lado de fora da divisão (a luz fica ao centro, longe dele).
-  add("interruptor", porta - 70 >= 40 ? porta - 70 : Math.min(porta + 70, w - 30), h - 10);
+  add("interruptor", ladoInt(porta), h - 40, 0, { comando });
+  if (passagem) {
+    const porta2 = Math.min(w - 60, Math.max(60, w - porta));
+    add("porta", porta2, 10);
+    add("interruptor", ladoInt(porta2), 40, 0, { comando });
+  }
   const luzes = Math.min(MAX_LUZES, Math.max(1, Math.round((w * h) / (M2_POR_LUZ * 1e4))));
-  const cols = Math.ceil(Math.sqrt((luzes * w) / h));
-  const linhas = Math.ceil(luzes / cols);
-  for (let i = 0; i < luzes; i++) add("luz", ((i % cols) + 0.5) * (w / cols), (Math.floor(i / cols) + 0.5) * (h / linhas));
+  // Ao centro; várias: simétricas em relação ao centro ao longo do lado maior (2 filas a partir de 5).
+  const filas = luzes > 4 ? 2 : 1;
+  const porFila = Math.ceil(luzes / filas);
+  const longoW = w >= h;
+  for (let i = 0; i < luzes; i++) {
+    const fila = Math.floor(i / porFila), col = i % porFila;
+    const n = Math.min(porFila, luzes - fila * porFila);
+    const ao = ((col + 0.5) / n) * (longoW ? w : h);
+    const curto = ((fila + 0.5) / filas) * (longoW ? h : w);
+    add("luz", longoW ? ao : curto, longoW ? curto : ao);
+  }
   const tomadas = [[10, h / 2, 90], [w - 10, h / 2, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.2), 10, 0]];
   for (const [dx, dy, rot] of tomadas.slice(0, TOMADAS_TIPO[tipoDivisao(nome)] ?? 0)) add("tomada", dx, dy, rot);
   return r;
@@ -383,6 +410,7 @@ const DESTINO = {
   consola: ["sala", "sala_cozinha", "quarto"],
   desumidificador: ["quarto", "lavandaria", "sala", "sala_cozinha"],
   aquecedor_portatil: ["quarto", "escritorio", "sala", "sala_cozinha", "loja"],
+  campainha: ["entrada", "corredor", "sala", "sala_cozinha"],
   campainha_video: ["entrada", "corredor", "sala", "sala_cozinha"],
   carregador_bicicleta: ["garagem", "entrada", "corredor", "varanda"],
   toalheiro: ["wc"],

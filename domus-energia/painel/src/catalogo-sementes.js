@@ -156,3 +156,38 @@ export const SEMENTES_ACOES = [
     fornecedor: null, preco_compra: null, preco_venda_iva: 0, horas_instalacao: 1, horas_troca: 0.5,
     especificacoes: { funcao: 'troca_maquina', nota: PROVISORIO } },
 ];
+
+// Ronda regras (docs/SIMULADOR-ORCAMENTO.md §0 "Ronda regras"; decisões do dono de 2026-10-01). Entram pela migração 15
+// (INSERT OR IGNORE; o CEO edita os preços no painel).
+// - Pontos novos normais com preço fechado (material médio + mão de obra incluída: horas 0): ponto de luz 45 €, tomada
+//   40 €, tomada dupla 55 €, interruptor 35 €. Um ponto inteligente = o ponto + o aparelho Wi-Fi (INT-VIDRO-N, TOMADA-WIFI).
+// - Tipos de comando do interruptor (web/simulador/regras.js COMANDOS): escada = o ponto + um comutador de escada por
+//   interruptor (2 interruptores = 2 comutadores); inversor = o ponto + um inversor; botão de pressão = o ponto + um botão;
+//   lustre = o ponto com 2 botões (sem artigo à parte). Horas de aparelhagem: 0,15 h por peça.
+// - Campainha normal (máquina "campainha" na planta): a campainha com transformador + um botão de pressão.
+// - Diferencial tipo A: o circuito do carregador VE usa-o sempre (RTIEBT 722.531.2.101: no mínimo tipo A).
+const ponto = (sku, nome, preco, funcao) => ({
+  sku, nome, categoria: 'outro', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: 0,
+  especificacoes: { funcao, nota: 'preço fechado por ponto: material e mão de obra incluídos' },
+});
+export const SEMENTES_PONTOS = [
+  ponto('PONTO-LUZ-NOVO', 'Ponto de luz novo (tubo, cabo, caixas, ligação e mão de obra)', 45, 'ponto_luz'),
+  ponto('TOMADA-NOVA', 'Tomada nova (tubo, cabo, caixa, tomada com terra e mão de obra)', 40, 'ponto_tomada'),
+  ponto('TOMADA-DUPLA-NOVA', 'Tomada dupla nova (2 tomadas na mesma caixa; material e mão de obra)', 55, 'ponto_tomada_dupla'),
+  ponto('INTERRUPTOR-NOVO', 'Interruptor novo (tubo, cabo, caixa, interruptor simples e mão de obra)', 35, 'ponto_interruptor'),
+  { sku: 'COMUTADOR-ESCADA', nome: 'Comutador de escada (luz comandada de 2 sítios; um por interruptor)', categoria: 'outro',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 14, horas_instalacao: 0.15,
+    especificacoes: { funcao: 'comutador_escada', nota: PROVISORIO } },
+  { sku: 'INVERSOR', nome: 'Inversor de grupo (luz comandada de 3 ou mais sítios; um por sítio a mais)', categoria: 'outro',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 18, horas_instalacao: 0.15,
+    especificacoes: { funcao: 'inversor', nota: PROVISORIO } },
+  { sku: 'BOTAO-PRESSAO', nome: 'Botão de pressão (campainha, telerruptor)', categoria: 'outro',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 12, horas_instalacao: 0.15,
+    especificacoes: { funcao: 'botao_pressao', nota: PROVISORIO } },
+  { sku: 'CAMPAINHA', nome: 'Campainha com transformador (ligação e mão de obra; o botão à parte)', categoria: 'outro',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 39, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'campainha', nota: PROVISORIO } },
+  { sku: 'IDR-2P-40A-30MA-A', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)', categoria: 'disjuntor',
+    fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
+];

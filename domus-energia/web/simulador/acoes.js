@@ -1,5 +1,7 @@
 // Simulador de orçamento — serviço pedido (passo 1) e ação por aparelho (passo "Trocar e reparar", lote 8): Manter,
-// Reparar, Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lotes 7 e 8). Só lógica, sem DOM e sem dependências.
+// Reparar, Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lotes 7 e 8). Só lógica, sem DOM.
+
+import { COMANDOS, comandoDe } from "./regras.js";
 
 /** Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos. */
 export const SERVICOS = {
@@ -137,6 +139,47 @@ export function pedidoDoElemento(e, acao, objetivos = []) {
     if (e.tipo === "sensor_porta") return "sensor_porta";
   }
   return null;
+}
+
+/**
+ * Ronda regras: os pedidos de um ponto NOVO normal (preço fechado por ponto, catálogo PONTO-LUZ-NOVO, TOMADA-NOVA,
+ * TOMADA-DUPLA-NOVA, INTERRUPTOR-NOVO) e a aparelhagem do tipo de comando (COMANDOS: comutador de escada, inversor,
+ * botão de pressão — uma peça por interruptor); a campainha normal (máquina "campainha") = a campainha + um botão de
+ * pressão. Um ponto inteligente = o ponto + o aparelho Wi-Fi (pedidoDoElemento): nunca se conta duas vezes o ponto.
+ * Lista vazia nos outros (máquinas, sensores, janelas: sem ponto fechado).
+ */
+export function pontosDoElemento(e) {
+  if (!e) return [];
+  const p = e.props ?? {};
+  if (e.tipo === "luz") return ["ponto_luz"];
+  if (e.tipo === "tomada") return [p.dupla ? "ponto_tomada_dupla" : "ponto_tomada"];
+  if (e.tipo === "interruptor") {
+    const artigo = COMANDOS[comandoDe(p)].artigo;
+    return artigo ? ["ponto_interruptor", artigo] : ["ponto_interruptor"];
+  }
+  if (e.tipo === "maquina" && p.modelo === "campainha") return ["campainha", "botao_pressao"];
+  return [];
+}
+
+/** Todos os pedidos de um elemento para a ação: no Novo, os pontos (pontosDoElemento) e o aparelho inteligente; no resto, pedidoDoElemento. */
+export function pedidosDoElemento(e, acao, objetivos = []) {
+  const r = acao === "novo" ? pontosDoElemento(e) : [];
+  const chave = pedidoDoElemento(e, acao, objetivos);
+  if (chave) r.push(chave);
+  return r;
+}
+
+/**
+ * Pedidos dos pontos novos (ronda regras): [{chave, qtd}] dos aparelhos com ação Novo na planta (pontosDoElemento);
+ * as linhas dos inteligentes continuam a sair das divisões (pedidosDaSelecao).
+ */
+export function pedidosPontosNovos(planta, servicos) {
+  const m = new Map();
+  for (const e of planta?.elementos ?? []) {
+    if (!temAcao(e.tipo, e.props) || acaoDe(e, servicos) !== "novo") continue;
+    for (const chave of pontosDoElemento(e)) m.set(chave, (m.get(chave) ?? 0) + 1);
+  }
+  return [...m].map(([chave, qtd]) => ({ chave, qtd }));
 }
 
 /**

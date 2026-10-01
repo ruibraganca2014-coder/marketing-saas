@@ -4,7 +4,7 @@
 
 import { disjuntoresInteligentes } from "./regras.js";
 import { pedidosQuadro, TAMANHOS_QUADRO } from "./quadro.js";
-import { pedidosAcoes } from "./acoes.js";
+import { pedidosAcoes, pedidosPontosNovos } from "./acoes.js";
 
 // margem_pacotes_pct (fase 2): margem dos pacotes do passo "Melhorias" (melhorias.js), sobre material + mão de obra.
 // Fase 3: o intervalo da estimativa é −intervalo_menos_pct / +intervalo_mais_pct (10 % / 20 %); um servidor antigo
@@ -47,7 +47,10 @@ export const PEDIDOS = {
     procura: (a) => a.categoria === "acessorio" && !funcao(a) && /quadro/i.test(a.nome) },
   // Quadro elétrico (§4.1): proteções, extras, disjuntores de um quadro novo e caixas.
   diferencial: { sku: "IDR-2P-40A-30MA", nome: "Interruptor diferencial 2P 40 A 30 mA tipo AC",
-    procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi },
+    procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi && a.especificacoes?.tipo !== "A" },
+  // Ronda regras: o circuito do carregador VE leva sempre um diferencial tipo A (RTIEBT 722.531.2.101), nunca o AC.
+  diferencial_tipo_a: { sku: "IDR-2P-40A-30MA-A", nome: "Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)",
+    procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi && a.especificacoes?.tipo === "A" },
   diferencial_wifi: { sku: "RCBO-WIFI-TOSMR1", nome: "Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1)",
     procura: (a) => funcao(a) === "diferencial" && !!a.especificacoes?.wifi },
   descarregador: { sku: "SPD-T2-1PN-40KA", nome: "Descarregador de sobretensões tipo 2", procura: comFuncao("descarregador") },
@@ -78,6 +81,15 @@ export const PEDIDOS = {
   diagnostico: { sku: "DIAG-AVARIA", nome: "Diagnóstico de avaria (por aparelho; a peça confirma-se na visita)", procura: comFuncao("diagnostico") },
   aparelho_normal: { sku: "APARELHO-NORMAL", nome: "Tomada, interruptor ou ponto de luz normal (troca)", procura: comFuncao("aparelho_normal") },
   troca_maquina: { sku: "TROCA-MAQUINA", nome: "Ligar uma máquina no lugar da antiga (troca)", procura: comFuncao("troca_maquina") },
+  // Ronda regras (acoes.js pontosDoElemento): pontos novos com preço fechado, aparelhagem dos comandos e a campainha.
+  ponto_luz: { sku: "PONTO-LUZ-NOVO", nome: "Ponto de luz novo", procura: comFuncao("ponto_luz") },
+  ponto_tomada: { sku: "TOMADA-NOVA", nome: "Tomada nova", procura: comFuncao("ponto_tomada") },
+  ponto_tomada_dupla: { sku: "TOMADA-DUPLA-NOVA", nome: "Tomada dupla nova", procura: comFuncao("ponto_tomada_dupla") },
+  ponto_interruptor: { sku: "INTERRUPTOR-NOVO", nome: "Interruptor novo", procura: comFuncao("ponto_interruptor") },
+  comutador_escada: { sku: "COMUTADOR-ESCADA", nome: "Comutador de escada", procura: comFuncao("comutador_escada") },
+  inversor: { sku: "INVERSOR", nome: "Inversor de grupo", procura: comFuncao("inversor") },
+  botao_pressao: { sku: "BOTAO-PRESSAO", nome: "Botão de pressão", procura: comFuncao("botao_pressao") },
+  campainha: { sku: "CAMPAINHA", nome: "Campainha com transformador", procura: comFuncao("campainha") },
 };
 
 /** Horas de troca de um artigo: `horas_troca` do catálogo ou, sem ela, FRACAO_TROCA das horas de instalação. */
@@ -131,6 +143,10 @@ export function pedidosDaSelecao(s) {
   add("termostato", Number(s.extras?.termostatos) || 0);
   add("central", s.extras?.central ? 1 : 0);
   if (s.planta) for (const p of pedidosAcoes(s.planta, s.servico)) r.push(p);
+  // Ronda regras: os pontos novos normais (luz, tomada, interruptor e a aparelhagem do comando) com preço fechado.
+  // `plantaPontos` (app.js): a planta que conta — a desenhada pela casa quando o cliente saltou a planta.
+  const pp = s.plantaPontos ?? s.planta;
+  if (pp) for (const p of pedidosPontosNovos(pp, s.servico)) add(p.chave, p.qtd);
   // Lote 8: o quadro com problemas ("Trocar e reparar") é mais um diagnóstico de avaria.
   if (typeof s.quadroAvaria === "string") {
     const d = r.find((p) => p.chave === "diagnostico" && p.acao === "reparar");

@@ -45,11 +45,16 @@ const CONFIG_ORCAMENTO = {
   deslocacao_max_km: { min: 0, max: 2000, rotulo: 'a distância máxima da deslocação' },
   // IVA dos pagamentos online (proposta sem IVA → pagamentos com IVA; docs/PAGAMENTOS-PEDIDO.md).
   iva_pct: { min: 0, max: 50, rotulo: 'a taxa de IVA (%)' },
+  // Relatório pormenorizado: valores de referência da lista de ensaios (migração 16; docs/PAGAMENTOS-PEDIDO.md).
+  ensaio_isolamento_mohm: { min: 0, max: 1000, rotulo: 'a resistência de isolamento mínima (MΩ)' },
+  ensaio_diferencial_ms: { min: 0, max: 10_000, rotulo: 'o tempo de disparo máximo do diferencial (ms)' },
+  ensaio_terra_ohm: { min: 0, max: 100_000, rotulo: 'a resistência de terra máxima (Ω)' },
 };
+const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial'];
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct'), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && !k.startsWith('ensaio_')), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -81,6 +86,7 @@ export const ROTAS = [
   ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
+  ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],

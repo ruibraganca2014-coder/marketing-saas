@@ -27,8 +27,8 @@ export const MODELOS_DEDICADOS = [
   // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
   "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
 ];
-// Placa e forno (RTIEBT C3): circuito de 25 A com cabo de 6 mm². A placa (7 200 W) nunca tira a potência
-// toda ao mesmo tempo (simultaneidade): não entra na conta dos 80 %.
+// Placa e forno (C3, critério Domus — a RTIEBT não fixa este calibre; a secção sai de 433.2): circuito de 25 A com
+// cabo de 6 mm². A placa (7 200 W) nunca tira a potência toda ao mesmo tempo (simultaneidade): não entra na conta dos 80 %.
 export const AMPERES_PLACA = 25;
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
@@ -110,7 +110,7 @@ export const MAQUINAS_PEQUENAS = {
   habitacao: [
     ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira", "air_fryer", "torradeira", "cafe_expresso"]],
     ["Sala e quartos", ["televisao", "computador", "consola", "aquecedor_portatil"]],
-    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro"]],
+    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro"]],
   ],
   servicos: [
     ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
@@ -171,7 +171,7 @@ export const ELEMENTOS = {
   tomada: { nome: "Tomada", props: { dupla: false, inteligente: false } },
   // Luz sem pergunta (decisão do dono): sempre não regulável; o `brilho` de um estado antigo sai ao carregar.
   luz: { nome: "Ponto de luz", props: {} },
-  interruptor: { nome: "Interruptor", props: { botoes: 1 } },
+  interruptor: { nome: "Interruptor", props: { botoes: 1, comando: "simples" } },
   maquina: { nome: "Máquina", props: { modelo: "termoacumulador", potencia_w: 2000 } },
   sensor_porta: { nome: "Sensor de porta/janela", props: {} },
   sensor_movimento: { nome: "Sensor de movimento", props: {} },
@@ -179,7 +179,24 @@ export const ELEMENTOS = {
 // As telecomunicações (telecom_*, "brevemente") saíram do simulador: os estados e as plantas antigas que as
 // tinham perdem-nas ao carregar (normalizarPlanta só aceita os tipos de ELEMENTOS).
 export const TIPOS_ELEMENTO = Object.keys(ELEMENTOS);
-export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "brilho", "botoes", "modelo", "potencia_w"];
+export const PROPS_PERMITIDAS = ["entrada", "estore", "motorizado", "dupla", "inteligente", "brilho", "botoes", "comando", "modelo", "potencia_w"];
+
+/**
+ * Tipos de comando do interruptor (ronda regras; `props.comando`, "simples" por omissão): o que o cliente escolhe na
+ * janela do interruptor, com uma linha de explicação. Material (preco.js PEDIDOS): cada interruptor novo leva o ponto
+ * (INTERRUPTOR-NOVO) e, pelo tipo, a peça — `artigo` (um por interruptor): comutador de escada, inversor ou botão de
+ * pressão; o lustre é o ponto com 2 botões (sem peça à parte). `botoes_min`: botões mínimos do tipo.
+ */
+export const COMANDOS = {
+  simples: { nome: "Simples", ajuda: "Acende uma luz de um sítio.", artigo: null, botoes_min: 1 },
+  lustre: { nome: "Lustre", ajuda: "2 circuitos de luz no mesmo interruptor (ex.: lustre e apliques).", artigo: null, botoes_min: 2 },
+  escada: { nome: "Escada", ajuda: "A luz acende de 2 sítios: ponha um interruptor em cada um, os dois com Escada (2 comutadores).", artigo: "comutador_escada", botoes_min: 1 },
+  inversor: { nome: "Inversor", ajuda: "De 3 ou mais sítios: 2 interruptores com Escada e os outros com Inversor.", artigo: "inversor", botoes_min: 1 },
+  botao: { nome: "Botão de pressão", ajuda: "Para campainha ou telerruptor (uma luz de muitos sítios).", artigo: "botao_pressao", botoes_min: 1 },
+};
+export const CHAVES_COMANDO = Object.keys(COMANDOS);
+/** Comando válido de um interruptor (estados e pedidos antigos sem `comando`: simples). */
+export const comandoDe = (props) => (COMANDOS[props?.comando] ? props.comando : "simples");
 
 /**
  * Detalhes obrigatórios do passo 4: o elemento tem uma pergunta que o cliente tem de responder? Interruptor (n.º de
@@ -212,7 +229,7 @@ export function porResponderAntigo(tipo, props = {}) {
  */
 export const PE_DIREITO_CM = 260;
 export const ALTURA_MAX_CM = 500;
-const ALTURA_MAQUINA = { ar_condicionado: 220, termoacumulador: 180, exaustor: 170, camara: 250, televisao: 110, micro_ondas: 90, box_router: 30, repetidor_wifi: 30, iluminacao_jardim: 30, esquentador: 180, campainha_video: 150, toalheiro: 100 };
+const ALTURA_MAQUINA = { ar_condicionado: 220, termoacumulador: 180, exaustor: 170, camara: 250, televisao: 110, micro_ondas: 90, box_router: 30, repetidor_wifi: 30, iluminacao_jardim: 30, esquentador: 180, campainha: 220, campainha_video: 150, toalheiro: 100 };
 export function alturaTipica(tipo, props = {}, tipoDiv = null) {
   switch (tipo) {
     case "interruptor": return 110;
@@ -275,6 +292,7 @@ export const MODELOS = {
   portao: { nome: "Portão automático", w: 300 },              // legado (portão, rega, repetidor e NAS já não estão na escolha das casas)
   rega: { nome: "Rega automática (programador)", w: 20 },
   iluminacao_jardim: { nome: "Iluminação exterior", w: 150 },
+  campainha: { nome: "Campainha (com botão de pressão)", w: 10 },   // ronda regras: campainha normal com transformador + botão
   campainha_video: { nome: "Campainha com vídeo", w: 10 },
   carregador_bicicleta: { nome: "Carregador de bicicleta / trotinete", w: 100 },
   toalheiro: { nome: "Aquecedor de toalhas", w: 500 },
@@ -707,8 +725,8 @@ export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
 const ehCarregador = (m) => m?.modelo === "carregador_ve" || m?.modelo === "carregador_ve_22";
 
 /**
- * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (RTIEBT C3,
- * cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %. Numa casa trifásica (`fases` "tri") uma máquina
+ * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (C3, critério
+ * Domus, cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %. Numa casa trifásica (`fases` "tri") uma máquina
  * trifásica (> 7,4 kW) reparte a potência pelas 3 fases: o disjuntor (tetrapolar) é o de um terço dela.
  */
 export function amperesMaquina(m, fases = null) {
@@ -720,10 +738,12 @@ export function amperesMaquina(m, fases = null) {
 }
 
 /**
- * Circuitos mínimos da RTIEBT (habitação; em serviços e industrial usamos o equivalente — §4):
- * C1 iluminação 10 A / 1,5 mm²; C2 tomadas 16 A / 2,5 mm²; C3 placa e forno 25 A / 6 mm²;
- * C4 máquinas de lavar e termoacumulador 16 A / 2,5 mm²; C5 tomadas das zonas húmidas (cozinha,
- * casas de banho, lavandaria) 16 A / 2,5 mm², sempre atrás de um diferencial de 30 mA.
+ * Circuitos tipo C1–C5 (critério Domus, inspirado no REBT espanhol; a RTIEBT não codifica circuitos mínimos — pede
+ * ≤ 8 pontos por circuito, 801.5.3, e secções ≥ 1,5 mm² na iluminação e ≥ 2,5 mm² nas tomadas, 801.5.8). Habitação;
+ * em serviços e industrial usamos o equivalente (§4): C1 iluminação 10 A / 1,5 mm²; C2 tomadas 16 A / 2,5 mm²;
+ * C3 placa e forno 25 A / 6 mm²; C4 máquinas de lavar e termoacumulador 16 A / 2,5 mm²; C5 tomadas das zonas húmidas
+ * (cozinha, casas de banho, lavandaria) 16 A / 2,5 mm², atrás de um diferencial de 30 mA (exigido nas casas de banho
+ * e no exterior, 701.53; na cozinha e lavandaria é critério Domus). O nome `RTIEBT` fica por compatibilidade.
  */
 export const RTIEBT = {
   C1: "Iluminação",
@@ -734,7 +754,7 @@ export const RTIEBT = {
 };
 const MODELOS_C3 = ["placa", "forno"];
 const MODELOS_C4 = ["maquina_lavar", "maquina_secar", "maquina_loica", "termoacumulador"];
-/** Código RTIEBT do circuito (C1–C5) pelo tipo, pela zona húmida e pelas máquinas; null para os outros (circuito próprio). */
+/** Código C1–C5 (critério Domus) do circuito pelo tipo, pela zona húmida e pelas máquinas; null para os outros (circuito próprio). */
 export function codigoCircuito(c) {
   if (c?.tipo === "iluminacao") return "C1";
   if (c?.tipo === "tomadas") return c.zona_humida ? "C5" : "C2";
@@ -813,8 +833,8 @@ function porZonas(lista, fazer, dividir, noite) {
 }
 
 /**
- * Circuitos sugeridos a partir da contagem da planta (§4), pelos circuitos mínimos da RTIEBT (C1–C5):
- * iluminação (até 8 pontos por circuito de 10 A), tomadas (até 8 por circuito de 16 A, com as máquinas
+ * Circuitos sugeridos a partir da contagem da planta (§4), pelos circuitos tipo C1–C5 (critério Domus):
+ * iluminação (até 8 pontos por circuito de 10 A — RTIEBT 801.5.3), tomadas (até 8 por circuito de 16 A, com as máquinas
  * pequenas até 80 %), tomadas das zonas húmidas à parte (C5), circuito próprio para cada máquina grande
  * (placa/forno C3 a 25 A, máquinas de lavar e termoacumulador C4).
  * @param {{fases?: "mono"|"tri"|null, humida?: (nome:string)=>boolean, noite?: (nome:string)=>boolean, dividir?: boolean}} [opcoes]
@@ -906,12 +926,12 @@ export function avisosCircuito(c, opcoes = {}) {
   }
   const luzes = c.itens?.luzes ?? 0;
   const tomadas = c.itens?.tomadas ?? 0;
-  if (luzes > MAX_PONTOS) r.push(aviso(c, `Tem ${luzes} pontos de luz: o recomendado é até ${MAX_PONTOS} por circuito.`));
-  if (tomadas > MAX_PONTOS) r.push(aviso(c, `Tem ${tomadas} tomadas: o recomendado é até ${MAX_PONTOS} por circuito.`));
+  if (luzes > MAX_PONTOS) r.push(aviso(c, `Tem ${luzes} pontos de luz: a RTIEBT (801.5.3) pede até ${MAX_PONTOS} por circuito.`));
+  if (tomadas > MAX_PONTOS) r.push(aviso(c, `Tem ${tomadas} tomadas: a RTIEBT (801.5.3) pede até ${MAX_PONTOS} por circuito.`));
   if (c.tipo === "iluminacao" && c.amperes !== 10) r.push(aviso(c, "Para iluminação sugerimos um disjuntor de 10 A."));
   if (c.tipo === "tomadas" && c.amperes !== 16) r.push(aviso(c, "Para tomadas sugerimos um disjuntor de 16 A."));
   if (codigoCircuito(c) === "C3" && Number.isFinite(amperes) && amperes < AMPERES_PLACA) {
-    r.push(aviso(c, `A RTIEBT pede para a placa e o forno um circuito de ${AMPERES_PLACA} A com cabo de ${formatarMm2(seccaoCabo(AMPERES_PLACA))}.`));
+    r.push(aviso(c, `Para a placa e o forno recomendamos um circuito de ${AMPERES_PLACA} A com cabo de ${formatarMm2(seccaoCabo(AMPERES_PLACA))} (critério Domus).`));
   }
   const proprias = maqs.filter(circuitoProprio);
   const partilhado = luzes + tomadas > 0 || maqs.length > 1;
@@ -963,7 +983,7 @@ export function avisosQuadro(circuitos, opcoes = {}) {
     const partes = [];
     if (d.sy2) partes.push("O disjuntor inteligente substitui o disjuntor do circuito; só o fazemos se o modelo tiver certificação europeia de proteção (EN 60898) — confirmamos na visita.");
     if (d.sy1) partes.push(`O disjuntor TONGOU-SY1-JWT não tem proteções: nunca substitui o disjuntor do circuito, que fica no quadro${d.sy2 ? " (nos circuitos só com medição)" : ""}.`);
-    partes.push("A instalação tem de ter diferencial de 30 mA.");
+    partes.push("A instalação tem de ter proteção diferencial (RTIEBT 801.5.9); recomendamos 30 mA.");
     r.push(`${partes.join(" ")}${FIM_AVISO}`);
   }
   return r;

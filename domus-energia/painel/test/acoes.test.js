@@ -161,7 +161,7 @@ test('estados antigos: 6 passos → 9 (cada passo no seu equivalente), sem servi
   delete velho.servico;
   const e = normalizarEstado(velho);
   assert.equal(e.passo, 5, 'Divisões (2) → 5');
-  assert.equal(e.visitado, 3, 'o quadro (3 → 4) também já foi visto; ronda A: a Planta (agora depois das Divisões) também');
+  assert.equal(e.visitado, 4, 'o quadro (3 → 4) também já foi visto; agora vem depois das Divisões e da Planta');
   const noResumo = normalizarEstado({ ...estadoNovo(), passos: 6, ordem: 4, passo: 4, visitado: 5 });
   assert.deepEqual([noResumo.passo, noResumo.visitado], [7, 7], 'Resumo (4) → Resumo (7); nunca volta direto ao Enviar');
   assert.deepEqual(e.servico, ['nova']);
@@ -178,7 +178,7 @@ test('estados antigos: 6 passos → 9 (cada passo no seu equivalente), sem servi
 
 test('lote 8: 7 passos (ordem 5) e 8 (ordem 6) → 9 com "Planta" e "Trocar e reparar"; ações e avarias mantêm-se; quadro com problemas, visita e urgência', () => {
   const ac = { e1: { acao: 'reparar', avaria: 'queimada' }, e3: { acao: 'substituir', inteligente: true } };
-  for (const [antes, depois] of [[0, 0], [2, 2], [3, 5], [4, 4], [5, 7], [6, 7]]) {
+  for (const [antes, depois] of [[0, 0], [2, 2], [3, 5], [4, 5], [5, 7], [6, 7]]) {
     const e = normalizarEstado({ ...estadoNovo(), passos: 7, ordem: 5, passo: antes, visitado: antes, servico: ['automatizar'], planta: planta(ac) });
     assert.equal(e.passo, depois, `passo ${antes} → ${depois}`);
     assert.equal(e.planta.elementos.find((x) => x.id === 'e1').avaria, 'queimada');
@@ -188,7 +188,7 @@ test('lote 8: 7 passos (ordem 5) e 8 (ordem 6) → 9 com "Planta" e "Trocar e re
     assert.equal(e.quadroAvaria, null);
   }
   assert.equal(normalizarEstado({ ...estadoNovo(), passos: 7, ordem: 5, passo: 5, visitado: 6 }).visitado, 7, 'do Enviar volta ao Resumo, como antes');
-  for (const [antes, depois] of [[3, 5], [4, 4], [5, 6], [6, 7], [7, 7]]) {
+  for (const [antes, depois] of [[3, 5], [4, 5], [5, 6], [6, 7], [7, 7]]) {
     assert.equal(normalizarEstado({ ...estadoNovo(), passos: 8, ordem: 6, passo: antes, visitado: antes }).passo, depois, `8 passos: ${antes} → ${depois}`);
   }
   const n = normalizarEstado({ ...estadoNovo(), visita: { dias: ['sex', 'seg', 'dom', 'seg'], periodo: 'noite' }, urgencia: 'ja', quadroAvaria: 'x'.repeat(300) });

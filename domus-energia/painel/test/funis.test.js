@@ -35,7 +35,7 @@ function casaT2() {
 
 test('funis: passos e tempos (primeira ~15 min, já tenho planta ~6, avaria ~2; Melhorias antes do Orçamento; ronda A: relatórios e Planta depois das Divisões)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
-  assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.quadro, PASSO.divisoes, PASSO.planta, PASSO.relatorio,
+  assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.relatorio,
     PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
@@ -51,8 +51,8 @@ test('migração: o passo "Serviço" passa a Início; estados de 9 passos ficam 
   assert.equal(temProgresso(semNada), false);
   const comServico = normalizarEstado(v9({ passo: 0, servico: ['automatizar'] }));
   assert.deepEqual([comServico.passo, comServico.funil, comServico.servico], [0, 'primeira', ['automatizar']]);
-  // (Ronda A: quem estava na Planta passa ao Quadro elétrico, que agora vem antes dela.)
-  for (const [antes, depois] of [[1, 1], [3, 4], [6, 6], [7, 7], [8, 7]]) {
+  // (Quem estava na Planta ou no Quadro volta às Divisões, que agora vêm antes deles.)
+  for (const [antes, depois] of [[1, 1], [3, 5], [4, 5], [6, 6], [7, 7], [8, 7]]) {
     const e = normalizarEstado(v9({ passo: antes, visitado: antes, servico: ['nova'] }));
     assert.deepEqual([e.passo, e.funil], [depois, 'primeira'], `passo ${antes} → ${depois}`);
   }
@@ -189,10 +189,15 @@ test('PDF do orçamento: blocos sem preços de compra e um PDF válido (uma pág
 test('ronda A: estados de antes dos relatórios (ordem 10 e 9) retomam com sentido na ordem nova', () => {
   const v10 = (x) => ({ ...estadoNovo(), passos: 11, ordem: 10, funil: 'primeira', servico: ['nova'], ...x });
   const r = (x) => { const e = normalizarEstado(x); return [e.passo, e.visitado, e.relatoriosPorVer]; };
-  // Na Planta (antes: a seguir aos Equipamentos): o Quadro e as Divisões ainda não foram vistos → volta ao Quadro.
-  assert.deepEqual(r(v10({ passo: PASSO.planta, visitado: PASSO.planta })), [PASSO.quadro, PASSO.quadro, []]);
-  // No Quadro: fica; a Planta (vista antes) fica para depois das Divisões.
-  assert.deepEqual(r(v10({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.quadro, PASSO.quadro, []]);
+  // Na Planta (antes: a seguir aos Equipamentos): as Divisões ainda não foram vistas → volta às Divisões.
+  assert.deepEqual(r(v10({ passo: PASSO.planta, visitado: PASSO.planta })), [PASSO.divisoes, PASSO.divisoes, []]);
+  // No Quadro (antes: a seguir à Planta): as Divisões por ver → volta às Divisões; Planta e Quadro ficam para depois.
+  assert.deepEqual(r(v10({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.divisoes, PASSO.divisoes, []]);
+  // Ordem 11 (ronda A: Quadro antes das Divisões): no Quadro → Divisões; na Planta com tudo visto fica na Planta.
+  const v11 = (x) => ({ ...estadoNovo(), passos: 13, ordem: 11, funil: 'primeira', servico: ['nova'], ...x });
+  assert.deepEqual(r(v11({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.divisoes, PASSO.divisoes, []]);
+  assert.deepEqual(r(v11({ passo: PASSO.planta, visitado: PASSO.planta })), [PASSO.planta, PASSO.quadro, []]);
+  assert.deepEqual(r(v11({ passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo] })), [PASSO.preco, PASSO.preco, [PASSO.completo]]);
   // Nas Divisões já tinha visto o Trocar: pode ir até ele pela barra; o Relatório básico fica por ver.
   assert.deepEqual(r(v10({ passo: PASSO.divisoes, visitado: PASSO.trocar })), [PASSO.divisoes, PASSO.trocar, [PASSO.relatorio]]);
   // No Orçamento: fica lá; os dois relatórios ficam por ver (a barra não os dá como feitos).
@@ -211,7 +216,7 @@ test('ronda A: estados de antes dos relatórios (ordem 10 e 9) retomam com senti
   const agora = normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo, 99] });
   assert.deepEqual(agora.relatoriosPorVer, [PASSO.completo]);
   assert.deepEqual(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.planta, visitado: PASSO.planta, relatoriosPorVer: [PASSO.completo] }).relatoriosPorVer, []);
-  assert.equal(maisAdiantado(PASSO.planta, PASSO.divisoes, PASSO.quadro), PASSO.planta, 'a Planta vem depois das Divisões');
+  assert.equal(maisAdiantado(PASSO.planta, PASSO.divisoes, PASSO.quadro), PASSO.quadro, 'o Quadro vem depois da Planta e das Divisões');
 });
 
 test('ronda A: "Já tenho a planta" → o que precisa (caminho) segue o funil; compras e avaria do Início guardam-se', () => {
