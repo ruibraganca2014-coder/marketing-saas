@@ -4,10 +4,10 @@
 
 import {
   TIPOS_CASA, MODELOS,
-  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, OBJETIVOS, tipologiaDeQuartos,
+  TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
   plantaTemConteudo, formatarW, FASES,
-  perfilCasa, maquinasGrandesDe, modelosDoPerfil, objetivosDe, tiposDivisaoPara,
+  perfilCasa, maquinasGrandesDe, modelosDoPerfil, tiposDivisaoPara,
   TIPOS_COM_PISOS, nomePiso, pisoDe,
 } from "./regras.js";
 import {
@@ -866,7 +866,7 @@ function sincronizarCasa() {
   desenharPisosCasa();
   if (!casaPorEscolher()) mensagemCasa(null);
   $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
-  desenharObjetivos();
+  for (const i of document.querySelectorAll("input[name=casa-para-raios]")) i.checked = i.value === (estado.quadro.para_raios ?? "");
 }
 /**
  * Separadores por piso do passo 1 (casas com 2 ou mais pisos; o mesmo estilo dos de "O que quer"): cada um
@@ -996,47 +996,9 @@ function ligarLocalidade(input) {
   });
 }
 
-// ------------------------------------------------------------ 2. Equipamentos (e "O que quer fazer", no fim do passo 1)
-const OBJETIVOS_AJUDA = {
-  poupar: "Ver quanto gasta cada parte da casa",
-  alarme: "Sensores de porta e de movimento",
-  estores: "Abrir e fechar pelo telemóvel ou a horas",
-  luzes: "Interruptores inteligentes",
-  distancia: "Ver e ligar a casa quando não está",
-  clima: "Termóstato Wi-Fi",
-  horarios: "Luzes e máquinas ligam e desligam a horas",
-  iluminacao_auto: "Sensores de movimento acendem as luzes",
-  energia: "Ver quanto gasta cada parte do espaço",
-  desligar: "Um toque desliga o que ficou ligado",
-};
-/** Desenhos simples dos objetivos (traço, como os da planta: viewBox 48, planta-svg.js desenharIcone). */
-const ICONES_OBJETIVO = {
-  poupar: ["M12 36C12 20 22 12 38 12c0 16-8 26-24 24z", "M12 36l14-14"],
-  alarme: ["M24 7l14 5v10c0 9-6 16-14 19-8-3-14-10-14-19V12z", "M24 18v8", "M24 31v.5"],
-  estores: ["M9 8h30", "M12 8v32h24V8", "M12 15h24M12 21h24M12 27h24", "M24 31v5"],
-  luzes: ["M18 30c-3-3-5-6-5-10a11 11 0 0 1 22 0c0 4-2 7-5 10v4H18z", "M19 39h10M21 43h6"],
-  distancia: ["M16 8h12a2 2 0 0 1 2 2v28a2 2 0 0 1-2 2H16a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z", "M20 35h4", "M35 17a7 7 0 0 1 0 10M39 13a13 13 0 0 1 0 18"],
-  clima: ["M20 28V10a3 3 0 0 1 6 0v18a6 6 0 1 1-6 0z", "M23 22v10", "M31 12h6M31 18h6M31 24h4"],
-  horarios: ["M24 9a15 15 0 1 1 0 30a15 15 0 1 1 0-30z", "M24 16v8l6 4"],
-  iluminacao_auto: ["M19 30c-2.5-2.5-4-5-4-8a9 9 0 0 1 18 0c0 3-1.5 5.5-4 8v4H19z", "M20 38h8", "M38 15a11 11 0 0 1 0 14M10 15a11 11 0 0 0 0 14"],
-  energia: ["M27 6L13 27h10l-2 15 14-21H25z"],
-  desligar: ["M24 8v14", "M15 13a14 14 0 1 0 18 0"],
-};
-function iconeObjetivo(k) {
-  const d = ICONES_OBJETIVO[k];
-  if (!d) return null;
-  const svg = svgNovo();
-  svg.setAttribute("viewBox", "0 0 48 48");
-  svg.setAttribute("aria-hidden", "true");
-  svg.setAttribute("focusable", "false");
-  for (const x of d) {
-    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    p.setAttribute("d", x);
-    for (const [a, v] of Object.entries({ fill: "none", stroke: "currentColor", "stroke-width": "2.4", "stroke-linecap": "round", "stroke-linejoin": "round" })) p.setAttribute(a, v);
-    svg.append(p);
-  }
-  return svg;
-}
+// ------------------------------------------------------------ 2. Equipamentos
+// B8 (decisão do dono): os cartões "O que quer fazer" (objetivos) saíram do Orçamento; `estado.quer.objetivos` fica
+// (estados antigos e o pedido): conta no plano sugerido (calcular) e nas dicas das Divisões (casa.js dicasObjetivos).
 const quer = (k) => estado.quer.objetivos.includes(k);
 let pisoQuer = 0;   // separador de "O que quer" à vista (casas com mais de um piso; 0 = r/c)
 
@@ -1102,27 +1064,6 @@ function desenharQuer() {
   for (const i of [...gm.querySelectorAll("input[type=checkbox]"), ...gp.querySelectorAll("input[type=checkbox]")]) i.checked = quantidadeNoPiso(estado.quer, i.value, pisoQuer) > 0;
   for (const c of document.querySelectorAll(`#passo-${P.quer} .quer-item`)) desenharExtraQuer(c.dataset.maquina);
   desenharPisosQuer();
-}
-
-/** "O que quer fazer" (no passo Resumo, decisão do dono; antes no fim do passo 1): os objetivos do perfil do imóvel, da casa toda; refeitos quando o perfil muda. */
-function desenharObjetivos() {
-  const go = $("quer-objetivos");
-  const perfil = perfilCasa(estado.casa.tipo);
-  if (go.dataset.perfil !== perfil) {
-    go.dataset.perfil = perfil;
-    const objs = objetivosDe(estado.casa.tipo);
-    const alternarObjetivo = (k) => (sim) => {
-      const s = new Set(estado.quer.objetivos);
-      if (sim) s.add(k); else s.delete(k);
-      estado.quer.objetivos = objs.filter((x) => s.has(x));   // sempre pela ordem da lista
-      // "Luzes pelo telemóvel" (interruptores novos inteligentes) e "Poupar energia" (medição) mudam o pedido.
-      if (visitado > P.quer) refazerDivisoes();
-      agendarGravacao();
-      if (estado.passo === P.preco) desenharPreco();   // o plano sugerido segue os objetivos
-    };
-    go.replaceChildren(...objs.map((k) => escolha("checkbox", `quer-objetivo-${k}`, k, OBJETIVOS[k], OBJETIVOS_AJUDA[k], alternarObjetivo(k), iconeObjetivo(k))));
-  }
-  for (const i of go.querySelectorAll("input[type=checkbox]")) i.checked = estado.quer.objetivos.includes(i.value);
 }
 
 /** "r/c", "piso 1"… (resumo de "O que quer"). */
@@ -1623,9 +1564,12 @@ function acertarPedido() {
 }
 
 // ------------------------------------------------------------ 5. Quadro
-// Para o cliente, só 3 perguntas simples (docs §4.1): que proteção quer, se a casa tem pára-raios e o seu quadro
-// elétrico (já tem / quer um novo / não sei; com "Já tenho", a foto do quadro — lote 5). Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados
-// sozinhos (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
+// Ronda de correções (B3, decisão do dono): o passo "Quadro elétrico" é SÓ a foto (obrigatória). O que fazer ao quadro
+// — Manter como está / Melhorar (com a proteção: Básica, Recomendada, Completa) / Quadro novo — é o cartão "Quadro
+// elétrico" do passo Melhorias (desenharQuadroMelhorias; os mesmos campos de sempre: estado.mexerQuadro,
+// estado.quadro.pacote/protecoes/quadro_novo); o pára-raios / linha aérea pergunta-se em "A casa" (estado.quadro.para_raios).
+// Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados sozinhos
+// (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
 const lerNum = (i, min, max) => Math.min(max, Math.max(min, Math.round(Number(i.value) || 0)));
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
 const PROTECAO_SIMPLES = {
@@ -1634,15 +1578,27 @@ const PROTECAO_SIMPLES = {
   completo: ["Completa", "+ AFDD nos quartos e sala e geral Wi-Fi."],
 };
 /**
- * "O seu quadro elétrico" (lote 5) → quadro_novo: Já tenho quadro = o atual serve; Quero um quadro novo = novo;
- * Não sei = null (novo por precaução). O preço é o mesmo do lote 4 ("É antigo?": Não / Sim / Não sei).
+ * O cartão "Quadro elétrico" (Melhorias): Manter como está = o quadro não entra no preço (mexerQuadro false; só sem
+ * "Instalação nova"); Melhorar = aproveita-se o quadro (quadro_novo "atual") com a proteção escolhida; Quadro novo =
+ * quadro novo (quadro_novo "novo") com a proteção escolhida. Um quadro_novo null (estados antigos, "não sei") conta
+ * como "Quadro novo" (incluído por precaução, como no preço: quadro.js levaQuadroNovo).
  */
-const QUADRO_RESPOSTAS = [["atual", "Já tenho quadro"], ["novo", "Quero um quadro novo"], ["", "Não sei"]];
+const QUADRO_OPCOES = [["manter", "Manter como está"], ["melhorar", "Melhorar"], ["novo", "Quadro novo"]];
 const PARA_RAIOS_SIMPLES = [["sim", "Sim"], ["nao", "Não"], ["", "Não sei"]];
+/** A opção do cartão a partir do estado. */
+const opcaoQuadro = () => (!quadroNoPedido({ ...estado, servico: servicos() }) ? "manter" : estado.quadro.quadro_novo === "atual" ? "melhorar" : "novo");
 
-/** Monta uma vez as 3 perguntas. */
-function montarQuadro() {
-  const g = $("quadro-pacotes");
+/** Monta uma vez o cartão "Quadro elétrico" das Melhorias (e a proteção). */
+function montarQuadroMelhorias() {
+  for (const [v, t] of QUADRO_OPCOES) {
+    $("melhorias-quadro-opcoes").append(escolha("radio", "melhorias-quadro", v, t, null, (sim) => {
+      if (!sim) return;
+      estado.mexerQuadro = v !== "manter";
+      if (v !== "manter") estado.quadro.quadro_novo = v === "melhorar" ? "atual" : "novo";
+      quadroMudou();
+    }));
+  }
+  const g = $("melhorias-quadro-protecao");
   for (const [k, [nome, ajuda]] of Object.entries(PROTECAO_SIMPLES)) {
     g.append(escolha("radio", "quadro-pacote", k, nome, ajuda, (sim) => {
       if (!sim) return;
@@ -1653,45 +1609,44 @@ function montarQuadro() {
       quadroMudou();
     }));
   }
-  const pergunta = (id, nome, opcoes, campo) => {
-    for (const [v, t] of opcoes) $(id).append(escolha("radio", nome, v, t, null, (sim) => { if (sim) { estado.quadro[campo] = v || null; quadroMudou(); } }));
-  };
-  pergunta("quadro-para-raios", "quadro-para-raios", PARA_RAIOS_SIMPLES, "para_raios");
-  pergunta("quadro-antigo", "quadro-novo", QUADRO_RESPOSTAS, "quadro_novo");
-  // Sem "Instalação nova" (lote 7): "Quer melhorar o quadro elétrico?" — Não (omissão: fica como está) / Sim.
-  for (const [v, t] of [["nao", "Não"], ["sim", "Sim"]]) {
-    $("quadro-mexer").append(escolha("radio", "quadro-mexer", v, t, null, (sim) => { if (sim) { estado.mexerQuadro = v === "sim"; quadroMudou(); } }));
+}
+/** Monta uma vez a pergunta do pára-raios (passo "A casa"). */
+function montarParaRaios() {
+  for (const [v, t] of PARA_RAIOS_SIMPLES) {
+    $("casa-para-raios").append(escolha("radio", "casa-para-raios", v, t, null, (sim) => { if (sim) { estado.quadro.para_raios = v || null; estado.quadro.pacote = pacoteDoQuadro(estado.quadro); agendarGravacao(); } }));
   }
 }
 
 function quadroMudou() {
   estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
   agendarGravacao();
-  desenharQuadro();
+  desenharMelhorias();
+  guardarNaConta();
 }
 
-/** As 3 respostas como estão no estado e uma frase simples com o que isso quer dizer. */
+/** O passo Quadro elétrico: só a foto. */
 function desenharQuadro() {
+  desenharFotoQuadro();
+}
+
+/** O cartão "Quadro elétrico" das Melhorias como está no estado e uma frase simples com o que isso quer dizer. */
+function desenharQuadroMelhorias() {
   const q = estado.quadro;
   // O descarregador obrigatório (pára-raios) não conta: "Básica" com pára-raios continua "Básica". Proteções
   // escolhidas uma a uma numa versão antiga ("personalizado"): nenhum botão marcado até escolher um.
   const pacote = pacoteDoQuadro(q);
   for (const i of document.querySelectorAll("input[name=quadro-pacote]")) i.checked = i.value === pacote;
-  for (const i of document.querySelectorAll("input[name=quadro-para-raios]")) i.checked = i.value === (q.para_raios ?? "");
-  for (const i of document.querySelectorAll("input[name=quadro-novo]")) i.checked = i.value === (q.quadro_novo ?? "");
-  // Lote 7: sem "Instalação nova" o quadro só entra se o cliente o quiser melhorar; senão fica como está (a foto ajuda).
+  // Com "Instalação nova" o quadro vai sempre no preço: sem "Manter como está".
   const comNova = servicos().includes("nova");
-  const noPedido = quadroNoPedido({ ...estado, servico: servicos() });
-  $("quadro-mexer-caixa").hidden = comNova;
-  for (const i of document.querySelectorAll("input[name=quadro-mexer]")) i.checked = i.value === (estado.mexerQuadro ? "sim" : "nao");
-  $("quadro-perguntas").hidden = !noPedido;
+  const opcao = opcaoQuadro();
+  for (const i of document.querySelectorAll("input[name=melhorias-quadro]")) { i.checked = i.value === opcao; i.parentElement.hidden = i.value === "manter" && comNova; }
+  $("melhorias-quadro-protecao-caixa").hidden = opcao === "manter";
   const nota = $("quadro-nota");
   // Fase 2: o "Quadro seguro" aceite nas Melhorias (melhorias.js PROTECOES_MAXIMAS).
   const seguro = estado.melhorias.aceites.includes(QUADRO_SEGURO) && !!estado.melhorias.quadroAnterior;
-  if (!noPedido) {
+  if (opcao === "manter") {
     nota.textContent = seguro ? "O quadro fica; a melhoria Quadro seguro junta-lhe as proteções." : "O quadro fica como está.";
     nota.hidden = false;
-    desenharFotoQuadro();
     return;
   }
   const partes = [];
@@ -1699,12 +1654,12 @@ function desenharQuadro() {
   if (q.para_raios === "sim") partes.push("Com pára-raios: descarregador de sobretensões incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
-    : q.quadro_novo === "novo" ? "Quadro novo incluído." : comVisita("Quadro novo incluído por precaução: sai se o seu servir.", "Quadro novo incluído por precaução: sai se o seu servir."));
+    : q.quadro_novo === "novo" ? "Quadro novo incluído." : "Quadro novo incluído por precaução: sai se o seu servir.");
   nota.textContent = partes.join(" ");
   nota.hidden = false;
-  desenharFotoQuadro();
 }
-montarQuadro();
+montarQuadroMelhorias();
+montarParaRaios();
 
 /**
  * Foto do quadro (obrigatória, sempre — também com "Melhorar o quadro? Não"): câmara ou galeria. Botão grande; depois,
@@ -3132,11 +3087,11 @@ function desenharQuadroTrocar() {
       estado.mexerQuadro = v === "sim";
       estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
     }));
-    if (estado.mexerQuadro && !funilPlanta()) {
-      const ir = el("button", "btn sec pequeno", "Perguntas do quadro (passo 5)");
+    if (estado.mexerQuadro) {
+      const ir = el("button", "btn sec pequeno", "Proteção do quadro (passo Melhorias)");
       ir.type = "button";
       ir.id = "trocar-quadro-perguntas";
-      ir.addEventListener("click", () => irPara(P.quadro));
+      ir.addEventListener("click", () => { if (!bloquearTrocar()) irPara(P.melhorias); });
       c.append(ir);
     }
   }
@@ -3336,6 +3291,7 @@ montarAvaria();
 // pacotes) e a escolha (sim/não). "Quadro seguro" com o quadro já no máximo: "Já incluído", sem escolha. Por baixo, o
 // plano mensal sugerido com os pacotes aceites.
 function desenharMelhorias() {
+  desenharQuadroMelhorias();   // o cartão "Quadro elétrico" (B3) antes dos pacotes: o "Quadro seguro" segue-o
   const { melhorias, plano } = calcular();
   if (avisoMelhorias && !faltaNasMelhorias()) mensagemMelhorias(null);
   const foco = document.activeElement?.closest?.("#melhorias") ? document.activeElement.value : null;
@@ -3432,8 +3388,10 @@ function calcular() {
   const deslocacao = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
   const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao, extra);
   const semDesloc = calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 }, extra);
-  // "Desligar tudo ao fechar" (serviços/industrial) também é controlar à distância.
-  return { pedidos, preco, semDesloc, melhorias, aceites, plano: planoSugerido(pedidos, { distancia: quer("distancia") || quer("desligar") }) };
+  // Plano sugerido: "controlar à distância" = o pacote Casa inteligente aceite (B8: os cartões "O que quer fazer" saíram
+  // do Orçamento; os objetivos de um estado antigo — "distância", "desligar tudo ao fechar" — continuam a contar).
+  const distancia = quer("distancia") || quer("desligar") || aceites.some((m) => m.id === "casa-inteligente");
+  return { pedidos, preco, semDesloc, melhorias, aceites, plano: planoSugerido(pedidos, { distancia }) };
 }
 
 /** "Casa inteligente: 12 interruptores, 6 tomadas — 450 €" (Orçamento e PDF). */
@@ -3536,7 +3494,6 @@ function listaInclui(pedidos) {
 }
 
 function desenharPreco() {
-  desenharObjetivos();   // "O que quer fazer" (neste passo; refeito se o tipo de imóvel mudou)
   desenharCasaResumo();
   const est = $("preco-estado");
   const { pedidos, preco, semDesloc, plano, aceites } = calcular();
@@ -3732,7 +3689,7 @@ function desenharCompleto() {
   caixa.replaceChildren();
   const traz = el("div", "cartao");
   const ul = el("ul", "sim-inclui");
-  ul.append(...["Lista de material, artigo a artigo.", "Preço por divisão.", "Planta técnica com os circuitos."].map((t) => el("li", null, t)));
+  ul.append(...["Lista de material, artigo a artigo.", "Preço por divisão.", "Planta técnica com símbolos e circuitos.", "Esquema por luz (comandos).", "Lista de ensaios a medir na visita.", "Esquema do quadro feito pelo eletricista."].map((t) => el("li", null, t)));
   traz.append(el("h3", null, "O que traz"), ul);
   // A amostra: as divisões desta casa com o material, sem quantidades nem preços (tapados e desfocados).
   const amostra = el("div", "cartao sim-amostra");
@@ -3940,7 +3897,7 @@ function desenharDeslocacao() {
     caixa.append(el("p", null, `${d.concelho}${km}: fora da área servida, sem deslocação.`),
       el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Sem visita técnica: contactamos para combinar."));
   }
-  else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita."));
+  else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita."));
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
   if (funilAvaria()) {
@@ -4023,18 +3980,23 @@ function valorConfig(k) {
 }
 /** Relatório pormenorizado (€ c/ IVA): `preco_relatorio_iva` (29 €). */
 const precoRelatorio = () => valorConfig("preco_relatorio_iva");
-/** Visita técnica (€ c/ IVA): a deslocação até à localidade + 0,5 h × tarifa; null fora da área ou sem a localidade. */
+/**
+ * Visita técnica (€ c/ IVA): a deslocação até à localidade + 0,5 h × tarifa; null fora da área, sem a localidade ou
+ * sem concelho reconhecido (B2: só se marca a visita com um concelho da lista; o servidor recusa da mesma forma).
+ */
 function precoVisita() {
   const d = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
-  if (d.estado === "fora_area" || d.estado === "sem_localidade") return null;
+  if (d.estado !== "estimada") return null;
   return cent((d.valor_iva ?? 0) + VISITA_HORAS * valorConfig("tarifa_hora_iva"));
 }
+/** A localidade escrita não é um concelho da lista (deslocação "visita"): sem visita técnica até escolher um. */
+const semConcelho = () => calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "visita";
 /** Compras no passo Enviar: com os pagamentos ligados e fora da avaria (lá o diagnóstico já inclui a visita). */
 const comprasAtivas = () => pagamentosAtivos && !funilAvaria();
-/** O que se compra de facto: estado.compras, sem a visita fora da área. */
+/** O que se compra de facto: estado.compras, sem a visita fora da área nem sem concelho reconhecido (B2). */
 function compraEfetiva() {
   if (!comprasAtivas()) return { relatorio: false, visita: false };
-  return { relatorio: estado.compras.relatorio, visita: estado.compras.visita && !foraDaArea() };
+  return { relatorio: estado.compras.relatorio, visita: estado.compras.visita && !foraDaArea() && !semConcelho() };
 }
 /** Chave da compra no pedido (`compra` do POST /api/orcamento). */
 const chaveCompra = (c) => (c.relatorio ? (c.visita ? "pormenorizado_visita" : "pormenorizado") : c.visita ? "visita" : "basico");
@@ -4095,13 +4057,16 @@ function desenharCompras() {
   const pr = formatarEuro(precoRelatorio());
   const v = precoVisita();
   const semLocal = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "sem_localidade";
+  // B2: localidade sem concelho reconhecido — as opções com visita ficam desligadas até escolher um da lista.
+  const semConc = semConcelho();
   const pv = v === null ? null : formatarEuro(v);
+  const semVisita = semConc ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade para ver o preço.";
   const TEXTOS = {
     basico: ["Só o relatório básico — grátis", "Estimativa e lista do trabalho, logo na conta."],
     pormenorizado: [`Relatório pormenorizado — ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
     pormenorizado_visita: [`Relatório pormenorizado e visita — ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
-      pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : "Escreva a localidade para ver o preço da visita."],
-    visita: [`Só a visita técnica${pv ? ` — ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : "Escreva a localidade para ver o preço."],
+      pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : semVisita],
+    visita: [`Só a visita técnica${pv ? ` — ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : semVisita],
   };
   const atual = chaveCompra(compraEfetiva());
   for (const l of $("enviar-compras-opcoes").children) {
@@ -4111,10 +4076,12 @@ function desenharCompras() {
     s.firstChild.textContent = t.replace(/ €/g, " €");   // o "€" nunca fica sozinho na linha
     s.querySelector("small").textContent = a;
     l.hidden = OPCOES_COMPRA[k].visita && foraDaArea();
+    l.querySelector("input").disabled = OPCOES_COMPRA[k].visita && semConc;
     l.querySelector("input").checked = k === atual;
   }
   $("enviar-compras-nota").textContent = foraDaArea() ? "Fora da área servida: sem visita técnica."
-    : `O que pagar agora é descontado na obra.${semLocal && estado.compras.visita ? " Para a visita, escreva a localidade." : ""}`;
+    : semConc ? "Escolha o concelho da lista para marcar a visita."
+      : `O que pagar agora é descontado na obra.${semLocal && estado.compras.visita ? " Para a visita, escreva a localidade." : ""}`;
 }
 const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "")
   ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
@@ -4206,7 +4173,7 @@ async function enviar() {
   }
   const compra = compraEfetiva();
   if (compra.visita && precoVisita() === null) {
-    mostrarEnvio("Escreva a localidade (concelho) para marcarmos a visita.", "erro");
+    mostrarEnvio(semConcelho() ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade (concelho) para marcarmos a visita.", "erro");
     const i = $("contacto-localidade");
     i.setAttribute("aria-invalid", "true");
     i.setAttribute("aria-describedby", "enviar-msg");
@@ -4370,7 +4337,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
-    : funilAvaria() ? `${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
+    : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
     : `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).
@@ -4433,7 +4400,6 @@ function recomecar({ manterFotos = false } = {}) {
   $("contacto-website").value = "";
   $("sim-guardado").textContent = "";
   $("quer-maquinas").dataset.perfil = "";   // "Equipamentos" refeito do zero
-  $("quer-objetivos").dataset.perfil = "";
 }
 
 /** Depois de recomeçar: o Início, com a barra dos passos (lote 8: já não há "Antes de começar"). */

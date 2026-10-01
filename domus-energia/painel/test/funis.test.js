@@ -33,13 +33,14 @@ function casaT2() {
   return e;
 }
 
-test('funis: passos e tempos (primeira ~15 min, já tenho planta ~6, avaria ~2; Melhorias antes do Orçamento; ronda A: relatórios e Planta depois das Divisões)', () => {
+test('funis: passos e tempos (primeira ~14 min (ronda de correções: o Quadro é só a foto, ~1 min), já tenho planta ~6, avaria ~2; Melhorias antes do Orçamento; ronda A: relatórios e Planta depois das Divisões)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
   assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.relatorio,
     PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
-  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [15, 6, 2]);
+  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [14, 6, 2]);
+  assert.equal(FUNIS.primeira.minutos[PASSO.quadro], 1, 'B3: o passo Quadro é só a foto');
   for (const f of ['primeira', 'planta']) assert.deepEqual(FUNIS[f].passos, [...FUNIS[f].passos].sort((a, b) => ordemPasso(a) - ordemPasso(b)), `${f}: pela ordem dos passos`);
   assert.deepEqual(passosDoFunil(null), FUNIS.primeira.passos, 'sem caso escolhido: os da primeira vez');
 });

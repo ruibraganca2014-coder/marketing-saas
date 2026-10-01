@@ -144,11 +144,14 @@ export function intervaloEstimativa(total, cfg) {
 }
 /** Preço do relatório pormenorizado (cêntimos, c/ IVA): `preco_relatorio_iva` (29 €). */
 export const precoRelatorioCent = (cfg) => Math.round(numCfg(cfg, 'preco_relatorio_iva', PRECO_RELATORIO_OMISSAO) * 100);
+/** A localidade é um dos 308 concelhos (como o simulador a reconhece)? Sem isso não se vende a visita (B2). */
+export const concelhoConhecido = (localidade) => concelho(localidade) !== null;
 /**
  * Visita técnica (cêntimos, c/ IVA): a deslocação até à localidade + 0,5 h × `tarifa_hora_iva`. Fora da área servida
- * → null (não há visita).
+ * ou concelho não reconhecido → null (não há visita: a deslocação não se sabe).
  */
 export function valorVisitaCent(localidade, cfg) {
+  if (!concelhoConhecido(localidade)) return null;
   const d = deslocacaoServidor(localidade, cfg);
   if (d === null) return null;
   return Math.round((d + VISITA_HORAS * numCfg(cfg, 'tarifa_hora_iva', 38)) * 100);
@@ -335,6 +338,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (inclui.relatorio) { valorCent += precoRelatorioCent(cfg); partes.push('relatório pormenorizado'); }
     if (inclui.visita) {
       const v = valorVisitaCent(localidadeDe(o), cfg);
+      if (v === null && !concelhoConhecido(localidadeDe(o))) throw new ErroApi(409, 'Não reconhecemos o concelho da localidade: não é possível marcar a visita técnica. Fale connosco.');
       if (v === null) throw new ErroApi(409, 'A sua localidade fica fora da área servida: não há visita técnica. Fale connosco por telefone ou WhatsApp.');
       valorCent += v;
       partes.push('visita técnica');
@@ -358,6 +362,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const avaria = simDe(o)?.funil === 'avaria';
     const cfg = lerConfigOrc();
     const visitaCent = valorVisitaCent(localidadeDe(o), cfg);
+    const semConcelho = !concelhoConhecido(localidadeDe(o));
     const pendente = (fases) => db.prepare(`SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ?
       AND fase IN (${marcas(fases)}) LIMIT 1`).get(o.id, relogio(), ...fases)?.ref ?? null;
     return {
@@ -365,7 +370,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       pode: podeComprar(o) && !avaria,
       avaria,
       relatorio: { valor: deCent(precoRelatorioCent(cfg)), comprado: temRelatorio(o), pendente: pendente(['relatorio_pormenorizado', 'pormenorizado_visita']) },
-      visita: { valor: visitaCent === null ? null : deCent(visitaCent), paga: temVisita(o), fora_area: visitaCent === null, pendente: pendente(['visita', 'pormenorizado_visita']) },
+      // `sem_concelho`: localidade sem concelho reconhecido — sem visita (B2); `fora_area`: concelho fora da área servida.
+      visita: { valor: visitaCent === null ? null : deCent(visitaCent), paga: temVisita(o), fora_area: visitaCent === null && !semConcelho, sem_concelho: semConcelho, pendente: pendente(['visita', 'pormenorizado_visita']) },
     };
   }
 
@@ -847,8 +853,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   /**
    * Relatório BÁSICO (fase 3; grátis, logo ao enviar, sem revisão): o intervalo de preço (−`intervalo_menos_pct` /
-   * +`intervalo_mais_pct` do total do relatório do servidor, com a deslocação) e a lista de trabalho por divisão e ação,
-   * com os pacotes das Melhorias aceites. SEM material, sem preços por linha e sem plano técnico: isso é o pormenorizado.
+   * +`intervalo_mais_pct` do total do relatório do servidor SEM a deslocação, que vai à parte em `deslocacao`, como no
+   * Orçamento do simulador: "min – max + deslocação X €") e a lista de trabalho por divisão e ação, com os pacotes das
+   * Melhorias aceites. SEM material, sem preços por linha e sem plano técnico: isso é o pormenorizado.
    */
   function relatorioBasico(o) {
     const r = relatorioCliente(o);
@@ -856,11 +863,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const avaria = simDe(o)?.funil === 'avaria';
     const divisoes = r.divisoes.filter((d) => d.trabalho.length).map((d) => ({ nome: d.nome, trabalho: d.trabalho }));
     if (r.geral.material.length) divisoes.push({ nome: 'Quadro elétrico e geral', trabalho: ['Trabalho no quadro elétrico (o material está no relatório pormenorizado).'] });
+    const semDesloc = Math.round((r.total - (r.deslocacao ?? 0)) * 100) / 100;
     return {
       pedido: o.id, acoes: r.acoes, divisoes,
       melhorias: r.melhorias ? r.melhorias.pacotes.map((x) => x.nome) : [],
       // Na avaria o preço é o do diagnóstico (pago ao enviar), sem intervalo.
-      intervalo: avaria || !(r.total > 0) ? null : intervaloEstimativa(r.total, lerConfigOrc()),
+      intervalo: avaria || !(semDesloc > 0) ? null : intervaloEstimativa(semDesloc, lerConfigOrc()),
+      // A deslocação à parte (€ c/ IVA); null fora da área servida (não há deslocação) ou sem trabalho.
+      deslocacao: avaria ? null : r.deslocacao,
       com_deslocacao: r.deslocacao !== null,
       nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório pormenorizado tem o material e o preço de cada divisão.',
     };

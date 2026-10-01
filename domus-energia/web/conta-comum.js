@@ -38,12 +38,35 @@ export async function pedirConta(caminho, { corpo, bruto, cabecalhos = {}, sinal
   let j = null;
   try { j = await r.json(); } catch { j = null; }
   if (!r.ok) throw new ErroConta(r.status, typeof j?.erro === "string" ? j.erro : `Não foi possível (erro ${r.status}). Tente de novo.`);
+  // A sessão abre ao entrar, confirmar o código ou repor a palavra-passe, e fecha ao sair (B10: marca para /eu).
+  if (["entrar", "confirmar", "repor"].includes(caminho)) marcarSessao(true);
+  else if (caminho === "sair") marcarSessao(false);
   return j;
 }
 
+/**
+ * B10: o cookie da sessão é HttpOnly (não se vê daqui); para não pedir /api/conta/eu sem sessão (401 na consola em
+ * todas as páginas) fica uma marca no localStorage, posta ao entrar/confirmar/repor e tirada ao sair ou com um 401.
+ * Sem localStorage (modo privado, bloqueado) pede-se como antes.
+ */
+const MARCA_SESSAO = "domus_conta_sessao";
+const armazem = (() => { try { return window.localStorage; } catch { return null; } })();
+export function marcarSessao(tem) {
+  try { if (tem) armazem?.setItem(MARCA_SESSAO, "1"); else armazem?.removeItem(MARCA_SESSAO); } catch { /* sem armazenamento */ }
+}
+const temMarcaSessao = () => { try { return !armazem || armazem.getItem(MARCA_SESSAO) === "1"; } catch { return true; } };
+
 /** Conta da sessão ({conta, simulacao_atualizada, tem_casa}) ou null (sem sessão / sem ligação). */
 export async function contaAtual() {
-  try { return await pedirConta("eu"); } catch { return null; }
+  if (!temMarcaSessao()) return null;
+  try {
+    const eu = await pedirConta("eu");
+    marcarSessao(true);
+    return eu;
+  } catch (e) {
+    if (e?.estado === 401) marcarSessao(false);
+    return null;
+  }
 }
 
 /**

@@ -71,7 +71,8 @@ test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes;
   const cd = { ...cfg, deslocacao_iva: 5, deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, tarifa_hora_iva: 40 };
   assert.equal(deslocacaoServidor('Sintra', cd), 8.6, '5 + (29 − 20) × 0,40');
   assert.equal(valorVisitaCent('Sintra', cd), 2860, 'deslocação 8,60 + 0,5 h × 40');
-  assert.equal(valorVisitaCent('uma aldeia qualquer', cd), 2500, 'só o fixo + 0,5 h');
+  assert.equal(valorVisitaCent('uma aldeia qualquer', cd), null, 'B2: sem concelho reconhecido não há visita');
+  assert.equal(valorVisitaCent('', cd), null, 'sem localidade não há visita');
   assert.equal(valorVisitaCent('Funchal', cd), null, 'fora da área: não há visita');
   assert.equal(precoRelatorioCent({}), 2900);
   assert.equal(precoRelatorioCent({ preco_relatorio_iva: 35 }), 3500);
@@ -140,8 +141,11 @@ describe('modo simulado', () => {
     const b = await p.pedir('GET', `/api/conta/pedidos/${r.pedido}/relatorio-basico`, { cookie: c.cookie });
     assert.equal(b.estado, 200, b.texto);
     const rel = b.json.relatorio;
-    const total = (await painel('GET', `orcamentos/${r.pedido}/relatorio-cliente`)).json.relatorio.total;
-    assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.9) / 5) * 5, max: Math.round((total * 1.2) / 5) * 5 }, 'do total do servidor, −10 % / +20 %');
+    const rc = (await painel('GET', `orcamentos/${r.pedido}/relatorio-cliente`)).json.relatorio;
+    // Ronda de correções (B4): o intervalo é do total SEM a deslocação; a deslocação vai à parte ("+ deslocação X €").
+    const total = Math.round((rc.total - rc.deslocacao) * 100) / 100;
+    assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.9) / 5) * 5, max: Math.round((total * 1.2) / 5) * 5 }, 'do total do servidor sem deslocação, −10 % / +20 %');
+    assert.equal(rel.deslocacao, DESLOC_SINTRA, 'a deslocação à parte');
     assert.equal(rel.com_deslocacao, true);
     assert.deepEqual(rel.divisoes.map((d) => d.nome), ['Sala', 'Quarto', 'Quadro elétrico e geral']);
     assert.ok(rel.divisoes[0].trabalho.some((t) => /Novo: 2 interruptores/.test(t)));
@@ -157,7 +161,8 @@ describe('modo simulado', () => {
     const { pedido } = await enviar(c);
     assert.equal((await painel('POST', 'config-orcamento', 'ceo', { intervalo_menos_pct: 5, intervalo_mais_pct: 30 })).estado, 200);
     try {
-      const total = (await painel('GET', `orcamentos/${pedido}/relatorio-cliente`)).json.relatorio.total;
+      const rc = (await painel('GET', `orcamentos/${pedido}/relatorio-cliente`)).json.relatorio;
+      const total = Math.round((rc.total - rc.deslocacao) * 100) / 100;
       const rel = (await p.pedir('GET', `/api/conta/pedidos/${pedido}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
       assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.95) / 5) * 5, max: Math.round((total * 1.3) / 5) * 5 });
       assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config.intervalo_mais_pct, 30, 'o simulador recebe-o');
@@ -242,6 +247,18 @@ describe('modo simulado', () => {
     assert.equal(rf.estado, 409);
     assert.match(rf.json.erro, /fora da área servida/);
     assert.equal((await comprar(d, longe, 'relatorio_pormenorizado')).estado, 200, 'o relatório compra-se na mesma');
+    // B2: concelho não reconhecido — também não há visita (409), nem no passo Enviar nem na conta; o relatório sim.
+    const e = await p.contaConfirmada();
+    const rx = await enviar(e, { localidade: 'Xyzlândia', compra: 'pormenorizado_visita' });
+    assert.equal(rx.pagamento, undefined, 'sem pagamento aberto');
+    assert.match(rx.pagamento_erro, /Não reconhecemos o concelho/);
+    const lx = await pedidoConta(e, rx.pedido);
+    assert.deepEqual([lx.compras.visita.valor, lx.compras.visita.fora_area, lx.compras.visita.sem_concelho], [null, false, true]);
+    const rvx = await comprar(e, rx.pedido, 'visita');
+    assert.equal(rvx.estado, 409);
+    assert.match(rvx.json.erro, /Não reconhecemos o concelho/);
+    assert.equal((await comprar(e, rx.pedido, 'pormenorizado_visita')).estado, 409);
+    assert.equal((await comprar(e, rx.pedido, 'relatorio_pormenorizado')).estado, 200, 'o relatório compra-se na mesma');
   });
 
   test('passo Enviar: "relatório pormenorizado e visita" = um só pagamento (29 € + visita) sobre o pedido já criado; fora da área o pedido fica e diz porquê', async () => {

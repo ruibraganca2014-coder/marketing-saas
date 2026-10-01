@@ -107,6 +107,11 @@
             <label>Potência contratada<select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9" selected>6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option></select></label>
             <label>Ligação<select id="casa-fases"><option value="mono">Monofásica</option><option value="tri">Trifásica</option></select></label>
           </div>
+          <!-- Ronda de correções (B3): o pára-raios / linha aérea é da casa (estado.quadro.para_raios; saiu do passo Quadro). -->
+          <fieldset class="escolhas" id="casa-para-raios-caixa">
+            <legend>Pára-raios ou linha aérea (postes)?</legend>
+            <div class="escolhas-grelha tres-curtas" id="casa-para-raios"></div>
+          </fieldset>
         </section>
 
         <!-- 3. Equipamentos (saltado com só "Reparações / avarias") -->
@@ -144,7 +149,9 @@
         <!-- 5. Quadro elétrico -->
         <section class="sim-passo" id="passo-4" aria-labelledby="titulo-4" data-passo="4" hidden>
           <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
-          <!-- A foto do quadro primeiro (obrigatória; app.js desenharFotoQuadro). Ronda B: o passo é só a foto — o esquema do quadro é feito pelo eletricista no painel. -->
+          <!-- A foto do quadro (obrigatória; app.js desenharFotoQuadro). Ronda B: o passo é só a foto — o esquema do quadro é feito pelo
+               eletricista no painel. Ronda de correções (B3): as perguntas do quadro (manter / melhorar com a proteção / quadro novo) estão
+               no cartão "Quadro elétrico" do passo Melhorias; o pára-raios em "A casa". -->
           <div class="cartao quadro-foto" id="quadro-foto">
             <h3 id="quadro-foto-titulo">Foto do quadro *</h3>
             <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. A nossa equipa desenha o esquema a partir dela.</p>
@@ -152,26 +159,6 @@
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
           </div>
           <p class="msg erro" id="quadro-msg" role="alert" hidden></p>
-          <!-- Sem "Instalação nova" (lote 7): o quadro só entra no preço se o cliente o quiser melhorar. -->
-          <fieldset class="escolhas" id="quadro-mexer-caixa" hidden>
-            <legend>Melhorar o quadro?</legend>
-            <div class="escolhas-grelha tres-curtas" id="quadro-mexer"></div>
-          </fieldset>
-          <div id="quadro-perguntas">
-            <fieldset class="escolhas">
-              <legend>Que proteção quer?</legend>
-              <div class="escolhas-grelha tres-pacotes" id="quadro-pacotes"></div>
-            </fieldset>
-            <fieldset class="escolhas">
-              <legend>Pára-raios ou linha aérea (postes)?</legend>
-              <div class="escolhas-grelha tres-curtas" id="quadro-para-raios"></div>
-            </fieldset>
-            <fieldset class="escolhas">
-              <legend>O seu quadro elétrico</legend>
-              <div class="escolhas-grelha tres-quadro" id="quadro-antigo"></div>
-            </fieldset>
-          </div>
-          <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
         </section>
 
         <!-- 6. Divisões: só contar o que existe (decisão do dono): separadores, um cartão por divisão com os aparelhos da planta (− n +) e "Acrescentar outro aparelho"; sem fotos, perguntas obrigatórias nem "Divisão verificada" (o que fazer a cada um e as fotos: passo 7) -->
@@ -215,6 +202,18 @@
           <p class="sub-passo">Opcional. Preço para esta casa; valor final após a visita.</p>
           <div class="msg info" id="melhorias-estado" role="status" hidden></div>
           <p class="msg erro" id="melhorias-msg" role="status" hidden></p>
+          <!-- Ronda de correções (B3): o quadro elétrico — Manter como está / Melhorar (com a proteção) / Quadro novo (app.js
+               desenharQuadroMelhorias; estado.mexerQuadro, estado.quadro.pacote/protecoes/quadro_novo como antes). O pacote
+               "Quadro seguro" (cartão abaixo) = Completa + diferenciais Wi-Fi (melhorias.js). -->
+          <fieldset class="cartao escolhas melhorias-quadro" id="melhorias-quadro">
+            <legend>Quadro elétrico</legend>
+            <div class="escolhas-grelha tres-quadro" id="melhorias-quadro-opcoes"></div>
+            <fieldset class="escolhas" id="melhorias-quadro-protecao-caixa" hidden>
+              <legend>Que proteção quer?</legend>
+              <div class="escolhas-grelha tres-pacotes" id="melhorias-quadro-protecao"></div>
+            </fieldset>
+            <p class="msg info" id="quadro-nota" aria-live="polite" hidden></p>
+          </fieldset>
           <fieldset class="escolhas">
             <legend class="so-leitor">Melhorias a juntar ao orçamento</legend>
             <div class="escolhas-grelha melhorias-grelha" id="melhorias"></div>
@@ -250,11 +249,7 @@
           <!-- Fase 1: o orçamento em PDF, feito no navegador (imprimir.js guardarPdfOrcamento). -->
           <div class="form-botoes"><button class="btn sec" id="preco-pdf" type="button">Descarregar orçamento (PDF)</button></div>
           <p class="msg" id="preco-pdf-msg" role="status" hidden></p>
-          <!-- "O que quer fazer" (decisão do dono: saiu do passo 1): só dicas no passo Divisões e o plano sugerido. -->
-          <fieldset class="escolhas">
-            <legend>O que quer fazer?</legend>
-            <div class="escolhas-grelha" id="quer-objetivos"></div>
-          </fieldset>
+          <!-- Ronda de correções (B8, decisão do dono): os cartões "O que quer fazer?" saíram; o plano sugerido segue as Melhorias (app.js calcular). -->
           <h3>Plano mensal sugerido</h3>
           <div class="sim-planos" id="preco-planos"></div>
         </section>
@@ -360,7 +355,7 @@
         <!-- "Como fazer a simulação" (fase 1): só no Início, por baixo dos cartões — duas linhas curtas (os passos do funil
              escolhido e o que ter à mão; app.js desenharComo). O mesmo, para os 3 casos, no site (index.html #como-simular). -->
         <section class="sim-como" id="sim-como" aria-labelledby="sim-como-titulo">
-          <h2 id="sim-como-titulo">Como fazer a simulação · ~15 min</h2>
+          <h2 id="sim-como-titulo">Como fazer a simulação · ~14 min</h2>
           <p id="sim-como-passos">1 Início · 2 A casa · 3 Equipamentos · 4 Divisões · 5 Planta · 6 Quadro elétrico · 7 Relatório básico · 8 Trocar e reparar · 9 Melhorias · 10 Relatório completo · 11 Orçamento · 12 Enviar</p>
           <p>Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>
         </section>

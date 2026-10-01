@@ -136,6 +136,12 @@ input, select { min-height: 44px; }
 /* "Mais…" fixo no fim da linha (a linha desliza por baixo dele): sempre à vista, qualquer que seja a largura. */
 .editor-ferramentas > .ferramentas-mais { position: sticky; right: 0; z-index: 1; margin-left: auto; box-shadow: -8px 0 0 var(--fundo); }
 .editor-ferramentas { scroll-padding-right: 100px; }
+/* B11 — telemóvel: a linha dobra em vez de deslizar; "Mais…" é só o último botão (não tapa a 3.ª ferramenta). */
+@media (max-width: 599px) {
+  .editor-ferramentas { flex-wrap: wrap; overflow-x: visible; }
+  .editor-barra { flex: 0 1 auto; flex-wrap: wrap; }
+  .editor-ferramentas > .ferramentas-mais { position: static; margin-left: 4px; box-shadow: none; }
+}
 .ferramentas-mais-icone { font-size: 1.1rem; line-height: 1; }
 /* Janela "Mais…": a lista completa, agrupada (divisões, elementos, máquinas), em grelha. */
 .editor-dialogo.editor-mais { width: min(720px, calc(100vw - 24px)); }
@@ -364,6 +370,10 @@ input, select { min-height: 44px; }
 .escolhas-grelha.tres-quadro { grid-template-columns: 1fr; }
 @media (min-width: 560px) { .escolhas-grelha.tres-quadro { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 #quadro-nota { margin: 0; }
+/* B3: o cartão "Quadro elétrico" nas Melhorias (Manter / Melhorar com a proteção / Quadro novo), por cima dos pacotes. */
+.melhorias-quadro { margin-bottom: 4px; }
+.melhorias-quadro > fieldset { border: 0; padding: 0; }
+.melhorias-quadro > fieldset[hidden] { display: none; }
 /* Foto do quadro (lote 5): botão grande; depois, a miniatura com Trocar e Apagar. */
 .quadro-foto { display: grid; gap: 10px; margin-top: 16px; padding: 16px; }
 .quadro-foto[hidden] { display: none; }
@@ -671,6 +681,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .escolhas-grelha.compras-grelha { grid-template-columns: 1fr; }
 @media (min-width: 600px) { .escolhas-grelha.compras-grelha { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .compras-grelha .escolha { justify-content: flex-start; text-align: left; }
+/* B2: sem concelho reconhecido as opções com visita ficam desligadas (até escolher um da lista). */
+.compras-grelha .escolha:has(input:disabled) { opacity: .55; cursor: default; }
 .sim-compras .ajuda { margin: 0; }
 .sim-visita h3 { margin: 0; }
 .escolhas-grelha.visita-dias { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }

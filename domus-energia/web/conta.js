@@ -325,8 +325,9 @@ function blocoBasico(p) {
 
 function desenharBasico(r) {
   const out = [];
-  if (r.intervalo) out.push(el("p", "valor num", `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`),
-    el("p", "ajuda", `Com IVA${r.com_deslocacao ? " e deslocação" : ", sem deslocação"}.`));
+  // Como no Orçamento do simulador: o intervalo sem a deslocação e "+ deslocação X €" (fora da área: sem deslocação).
+  if (r.intervalo) out.push(el("p", "valor num", `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}${r.deslocacao != null ? ` + deslocação ${euro(r.deslocacao)}` : ""}`),
+    el("p", "ajuda", r.deslocacao != null ? "Com IVA." : "Com IVA, sem deslocação."));
   const a = r.acoes ?? {};
   const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]
     .filter(([k]) => a[k] > 0).map(([k, t]) => `${a[k]} ${a[k] === 1 ? "aparelho" : "aparelhos"} ${t}`);
@@ -360,6 +361,7 @@ function blocoVisita(p) {
   }
   if (!cp.pode) return null;
   if (v.fora_area) b.append(el("p", null, "Fora da área servida: sem visita técnica. Fale connosco."));
+  else if (v.sem_concelho) b.append(el("p", null, "Não reconhecemos o concelho da localidade: fale connosco para marcar a visita."));
   else if (!cp.ativas) b.append(el("p", null, "Um técnico vê a casa e confirma o trabalho. Descontada na obra."), el("p", "ajuda", SEM_COMPRAS));
   else {
     const msg = msgPequena();

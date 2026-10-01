@@ -12,19 +12,19 @@ export const SERVICOS = {
 export const CHAVES_SERVICO = Object.keys(SERVICOS);
 
 /**
- * Ações de cada aparelho (botões curtos no passo "Trocar e reparar"; letra da marca na planta). Lote 8: os nomes que o
- * cliente vê são simples ("Trocar", "Avariado (reparar)"…); as chaves (manter, reparar, substituir, novo) e o pedido
- * (§6) não mudam.
+ * Ações de cada aparelho (botões curtos no passo "Trocar e reparar"; letra da marca na planta). Ronda de correções
+ * (pedido #84): Manter · Reparar · Substituir · Novo; as chaves (manter, reparar, substituir, novo) e o pedido (§6)
+ * não mudam.
  */
 export const ACOES = {
   manter: { nome: "Manter", letra: "M", ajuda: "Fica como está" },
-  reparar: { nome: "Avariado (reparar)", letra: "R", ajuda: "Está avariado: arranjamos" },
-  substituir: { nome: "Trocar", letra: "S", ajuda: "Trocar por outro" },
-  novo: { nome: "Novo / acrescentar", letra: "N", ajuda: "Pôr um novo" },
+  reparar: { nome: "Reparar", letra: "R", ajuda: "Está avariado: arranjamos" },
+  substituir: { nome: "Substituir", letra: "S", ajuda: "Trocar por outro" },
+  novo: { nome: "Novo", letra: "N", ajuda: "Pôr um novo" },
 };
 export const CHAVES_ACAO = Object.keys(ACOES);
-/** Ordem dos botões para o cliente (lote 8): Manter · Trocar · Avariado (reparar) · Novo / acrescentar. */
-export const ORDEM_BOTOES = ["manter", "substituir", "reparar", "novo"];
+/** Ordem dos botões para o cliente: Manter · Reparar · Substituir · Novo. */
+export const ORDEM_BOTOES = ["manter", "reparar", "substituir", "novo"];
 export const MAX_AVARIA = 200;
 
 /** Só as chaves conhecidas, sem repetidos, pela ordem de SERVICOS; `null` se não for uma lista. */

@@ -43,11 +43,11 @@ export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
 /**
  * Funis (fase 1, decisões do dono): o caso escolhido no Início. `passos` pela ordem da barra; `minutos` de cada passo
- * (só para o cliente saber quanto falta). Primeira vez ~15 min; já tenho planta ~6 min; avaria ~2 min. Fase 2: as
+ * (só para o cliente saber quanto falta). Primeira vez ~14 min (o Quadro é só a foto: ~1 min); já tenho planta ~6 min; avaria ~2 min. Fase 2: as
  * Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta". Ronda A: os dois relatórios.
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 5: 1, 3: 2, 4: 2, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 5: 1, 3: 2, 4: 1, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
   planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 12, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 0.5, 8: 1 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };

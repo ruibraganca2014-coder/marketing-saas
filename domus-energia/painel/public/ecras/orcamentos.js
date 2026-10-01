@@ -175,8 +175,9 @@ export default function orcamentos(el, ctx) {
     if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
     else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
     partes.push(...blocoPagamentos(j, o, arquivado));
-    // Ensaios medidos (relatório pormenorizado): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`.
-    if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && campo(o, "ensaios") !== undefined) partes.push(formEnsaios(j, o));
+    // Ensaios medidos (relatório pormenorizado): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
+    // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
+    if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
