@@ -563,6 +563,11 @@ arrancar() {
   passo "Serviços (docker compose up -d --build) — a 1.ª vez demora alguns minutos"
   correr docker compose pull --quiet --ignore-buildable || aviso "não foi possível atualizar as imagens (continua com as que há)"
   correr docker compose up -d --build --remove-orphans || erro "docker compose up falhou (ver as mensagens acima)"
+  # O Caddyfile é um bind mount só de leitura: o git pull substitui o ficheiro (inode novo) e o contentor fica com o
+  # antigo. Ao atualizar, recria-se o caddy para ler a configuração nova (uns segundos sem resposta).
+  if (( ATUALIZAR )); then
+    correr docker compose up -d --force-recreate caddy || aviso "não foi possível recriar o caddy (configuração nova pode não estar ativa)"
+  fi
   # shellcheck disable=SC2086
   esperar_servicos 180 $SERVICOS || true
   if (( ! SIMULAR )); then
