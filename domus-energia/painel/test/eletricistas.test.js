@@ -761,9 +761,12 @@ describe('interruptor ELETRICISTAS: desligado por omissão (o módulo ainda não
     const desconhecida = await p.pedir('GET', '/api/outra');
     assert.deepEqual([desconhecida.estado, desconhecida.json], [404, DESCONHECIDO]);
     for (const r of p.app.api.eletricistas.ROTAS_ELETRICISTA) {
-      const caminho = `/api/eletricista/${r.caminho.replace(':id', '1')}`;
+      // (Ronda 2: também o material, os ensaios, o diagnóstico, as fotos e "concluir".)
+      const caminho = `/api/eletricista/${r.caminho.replace(':id', '1').replace(':foto', r.nome === 'receberFoto' ? 'quadro_antes' : '0123456789abcdef01234567')}`;
       for (const cookie of [undefined, p.cookies.ceo, c.cookie, `${COOKIE_ELETRICISTA}=${'a'.repeat(43)}`]) {
-        const x = await p.pedir(r.metodo, caminho, { cookie, corpo: r.metodo === 'POST' ? {} : undefined });
+        const x = r.nome === 'receberFoto'
+          ? await p.pedir('POST', caminho, { cookie, corpo: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), tipo: 'image/jpeg' })
+          : await p.pedir(r.metodo, caminho, { cookie, corpo: r.metodo === 'POST' ? {} : undefined });
         assert.deepEqual([x.estado, x.json], [404, DESCONHECIDO], `${r.metodo} ${caminho}`);
         assert.equal(x.cabecalhos['set-cookie'], undefined);
       }
@@ -776,15 +779,17 @@ describe('interruptor ELETRICISTAS: desligado por omissão (o módulo ainda não
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM eletricistas').get().n, 0);
     assert.equal(p.emails.filter((m) => /candidatura|eletricista/i.test(m.assunto)).length, 0);
     assert.equal(existsSync(p.config.eletricistasDir), false);
+    assert.ok(p.app.api.eletricistas.ROTAS_ELETRICISTA.length >= 20, 'inclui as rotas da ficha de obra');
   });
 
   test('desligado: as rotas do painel dos eletricistas dão 404 (anónimo e CEO), o "eu" diz que não há módulo e nada sai no catálogo', async () => {
-    const nomes = ['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista'];
+    const nomes = ['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
+      'apagarEletricista', 'fotoTrabalhoEletricista'];   // as duas últimas são da ronda 2
     const rotas = ROTAS.filter((r) => nomes.includes(r.nome));
-    assert.equal(rotas.length, 6);
-    assert.equal(ROTAS.filter((r) => /eletricista/i.test(r.caminho)).length, 6, 'todas as rotas dos eletricistas estão atrás do interruptor');
+    assert.equal(rotas.length, 8);
+    assert.equal(ROTAS.filter((r) => /eletricista/i.test(r.caminho)).length, 8, 'todas as rotas dos eletricistas estão atrás do interruptor');
     for (const r of rotas) {
-      const caminho = `/painel/api/${r.caminho.replace(':id', '1')}`;
+      const caminho = `/painel/api/${r.caminho.replace(':id', '1').replace(':foto', '0123456789abcdef01234567')}`;
       for (const papel of [null, 'ceo', 'comercial', 'tecnico']) {
         const x = await p.pedir(r.metodo, caminho, { cookie: papel ? p.cookies[papel] : undefined, corpo: r.metodo === 'POST' ? { acao: 'bolsa' } : undefined });
         assert.deepEqual([x.estado, x.json], [404, DESCONHECIDO], `${r.metodo} ${caminho} (${papel ?? 'anónimo'})`);

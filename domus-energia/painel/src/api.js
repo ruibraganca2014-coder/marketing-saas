@@ -136,6 +136,8 @@ export const ROTAS = [
   ['GET', 'eletricistas/:id/seguro', ['ceo'], 'seguroEletricista'],
   ['GET', 'orcamentos/:id/eletricista', ['ceo'], 'atribuicaoEletricista'],
   ['POST', 'orcamentos/:id/eletricista', ['ceo'], 'atribuirEletricista'],
+  ['POST', 'eletricistas/:id/apagar', ['ceo'], 'apagarEletricista'],
+  ['GET', 'trabalhos-eletricista/:id/fotos/:foto', ['ceo'], 'fotoTrabalhoEletricista'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -145,7 +147,8 @@ export const ROTAS = [
  * Rotas do módulo dos eletricistas externos (docs/ELETRICISTAS.md): só existem com `config.eletricistas`
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
-const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista']);
+const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
+  'apagarEletricista', 'fotoTrabalhoEletricista']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -222,7 +225,9 @@ export function criarApi(ctx) {
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
   // Pagamentos do pedido (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
   let pagPed = null;
-  const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed });
+  let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
+  const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
+    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id) });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
@@ -232,7 +237,7 @@ export function criarApi(ctx) {
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
   // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
-  const eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed });
+  eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
   const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
@@ -1617,6 +1622,26 @@ export function criarApi(ctx) {
       'Cache-Control': 'private, no-store',
     });
     res.end(d.corpo);
+  };
+
+  // Apagar (RGPD): irreversível, por isso o CEO escreve o email do eletricista para confirmar (como nas contas de cliente).
+  h.apagarEletricista = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['email']);
+    const alvo = eletricistas.obter(params.id);
+    if (typeof v.email !== 'string' || v.email.trim().toLowerCase() !== String(alvo.email).toLowerCase()) falha('Para confirmar, escreva o email do eletricista que quer apagar.');
+    const r = await eletricistas.apagar(params.id, u, ip);
+    responder(res, 200, { ...r, ...eletricistas.listar() });
+  };
+
+  // Foto que o eletricista tirou na obra (antes / depois): só o CEO, com o tipo certo e sem que o navegador a interprete.
+  h.fotoTrabalhoEletricista = async ({ res, params }) => {
+    const f = await eletricistas.fotoParaPainel(params.id, params.foto);
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Type': f.tipo, 'Content-Length': f.corpo.length,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(f.corpo);
   };
 
   h.atribuicaoEletricista = ({ res, params }) => responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));

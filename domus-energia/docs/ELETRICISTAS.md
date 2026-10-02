@@ -1,8 +1,8 @@
 # Eletricistas externos (fase 4)
 
-Eletricistas habilitados que trabalham para a Domus Energia com as condições da Domus: o cliente continua a ser da Domus e o contacto com ele é sempre em nome da Domus. Esta página descreve a **ronda 1**: candidatura, aprovação no painel, atribuição e bolsa, e a área do eletricista até "Marcar visita". As rondas 2 e 3 (fotos, ensaios, obra concluída, confirmação e avaliação do cliente, pagamento ao eletricista, fatura-recibo) estão no fim.
+Eletricistas habilitados que trabalham para a Domus Energia com as condições da Domus: o cliente continua a ser da Domus e o contacto com ele é sempre em nome da Domus. Esta página descreve as **rondas 1 e 2**: candidatura, aprovação no painel, atribuição e bolsa (com aviso por email), a área do eletricista com a ficha de obra (material, fotos antes e depois, ensaios, diagnóstico) até "Obra concluída", e apagar um eletricista (RGPD). A ronda 3 (confirmação e avaliação do cliente, aprovação do CEO, pagamento ao eletricista, fatura-recibo) está no fim.
 
-Código: `painel/src/eletricistas.js` (rotas `/api/eletricista/*` e a lógica), `painel/src/api.js` (rotas do painel), `painel/src/db.js` (migrações 27 e 28), `web/trabalhe-connosco.*`, `web/eletricista.*`, `painel/public/ecras/eletricistas.js` e `painel/public/ecras/atribuicao.js`. Testes: `painel/test/eletricistas.test.js`.
+Código: `painel/src/eletricistas.js` (rotas `/api/eletricista/*` e a lógica), `painel/src/api.js` (rotas do painel), `painel/src/db.js` (migrações 27, 28 e 29), `web/trabalhe-connosco.*`, `web/eletricista.*`, `painel/public/ecras/eletricistas.js` e `painel/public/ecras/atribuicao.js`. Testes: `painel/test/eletricistas.test.js` (ronda 1 e interruptor) e `painel/test/eletricistas-obra.test.js` (ronda 2).
 
 ## Interruptor: o módulo ainda não está publicado
 
@@ -43,7 +43,36 @@ Um trabalho por pedido e por tipo:
 
 O concelho é o da localidade do pedido. Se a localidade não for um dos 308 concelhos, o painel pede para a corrigir antes de atribuir. Com os pagamentos online desligados não há visita nem diagnóstico pagos, por isso só se atribuem obras.
 
-Fechado o trabalho, o eletricista continua a vê-lo na lista como "Fechado", mas sem nome, morada, telefone, relatório ou material.
+Fechado o trabalho, o eletricista continua a vê-lo na lista como "Fechado", mas sem nome, morada, telefone, relatório, material ou fotos.
+
+### Aviso da bolsa
+
+Quando um trabalho entra na bolsa, cada eletricista **aprovado** com o concelho do trabalho recebe um email: "Novo trabalho em <concelho>", o tipo de trabalho e a ligação para a área. O email não leva nada do cliente, nem valores, nem o número do pedido. Sai **um email por trabalho e por eletricista** (tabela `trabalhos_eletricista_avisos`): se o trabalho voltar à bolsa (alguém o largou ou deixou caducar), só recebe o aviso quem ainda não o tinha recebido — por exemplo, um eletricista aprovado entretanto. Quem o largou não recebe (também já não o vê). Uma atribuição direta não gera aviso da bolsa (o eletricista escolhido recebe o email "Tem um trabalho novo").
+
+### Ficha de obra (ronda 2)
+
+Na área do eletricista, a ficha de um trabalho tem quatro separadores:
+
+- **Cliente:** nome, morada e telefone, e a visita (contagem das 48 h, marcar, alterar).
+- **Trabalho:** o relatório técnico sem preços (lista de trabalho, planta técnica, esquemas, esquema do quadro — os mesmos desenhos do relatório do cliente) e a **lista do material** com uma caixa por artigo, "levantado ou recebido" (`trabalhos_eletricista.material_recebido`, por trabalho; não mexe na lista de material da obra do painel).
+- **Ensaios:** continuidade do PE, isolamento, terra e disparo do diferencial. Ficam em `orcamentos.ensaios` (migração 16), os mesmos que o painel regista e que o relatório completo do cliente mostra. Os limites são os da configuração: isolamento ≥ `ensaio_isolamento_mohm` (0,5 MΩ), diferencial ≤ `ensaio_diferencial_ms` (300 ms), terra ≤ `ensaio_terra_ohm` (100 Ω). Um valor **fora do limite não é recusado**, mas só se guarda com uma **nota** a explicar; fica assinalado na ficha e no painel. Nos trabalhos de avaria aparece também o **diagnóstico** (a lista de verificação de `diagnostico-conteudo.js`, o tipo de avaria e a conclusão; fica em `orcamentos.diagnostico`, com a mesma validação do painel).
+- **Fotos:** quatro grupos — quadro antes, pontos antes, quadro depois, pontos depois — até 4 fotos por grupo. O telemóvel reduz a foto (como no simulador) e envia os bytes; o servidor aceita só JPEG ou PNG verdadeiros (pelos primeiros bytes), até 1 MB.
+
+**"Obra concluída"** (nas visitas e avarias, "Trabalho concluído") só fica ligado quando não falta nada (`falta` na ficha):
+
+| Tipo | Condições |
+|---|---|
+| `obra` | visita marcada, uma foto de antes, uma foto de depois, e os três ensaios (isolamento, diferencial, terra) |
+| `avaria` | visita marcada, uma foto de antes e a conclusão do diagnóstico |
+| `visita` | visita marcada e uma foto de antes |
+
+Ao concluir, o trabalho passa a `concluida_eletricista` com a data (`concluida`), os CEO recebem um email e o cliente recebe outro, em nome da Domus Energia, a pedir que confirme na conta. A partir daí a ficha fica **só de leitura** (não se mexe em fotos, ensaios, material nem visita, e já não se pode largar) e mostra "A aguardar confirmação do cliente". O pedido e a obra do painel ficam como estavam: a confirmação e a avaliação do cliente, a aprovação do CEO e o pagamento são da ronda 3. O CEO continua a poder retirar o trabalho.
+
+### No painel
+
+- **Ficha do pedido e da obra**, bloco "Eletricista externo": o estado (incluindo "Concluída pelo eletricista — a aguardar confirmação do cliente"), o que ainda falta ao eletricista, o material recebido, os ensaios (os que estão fora do limite a vermelho, com a nota) e as fotos antes e depois.
+- **Suspender** um eletricista com trabalhos em curso abre um aviso com a lista deles; o CEO pode retirar cada um (volta a ficar por atribuir) ou suspender mesmo assim.
+- **Apagar (RGPD)** na ficha do eletricista, com confirmação (escrever o email): ver "Privacidade".
 
 ## Estados do trabalho
 
@@ -52,9 +81,9 @@ Tabela `trabalhos_eletricista` (migração 28), coluna `estado`:
 ```
                  Pôr na bolsa                 Aceitar (atómico)              Marcar visita
 (por atribuir) ───────────────▶ na_bolsa ───────────────────────▶ aceite ───────────────────▶ visita_marcada
-       │                           ▲                                │  ▲                          │
-       │        Atribuir a…        │      48 h sem visita, ou       │  │      Alterar data        │
-       └───────────────────────────┼──────── Largar trabalho ◀──────┘  └──────────────────────────┘
+       │                           ▲                                │  ▲                          │ Obra concluída
+       │        Atribuir a…        │      48 h sem visita, ou       │  │      Alterar data        ├──────────────▶ concluida_eletricista
+       └───────────────────────────┼──────── Largar trabalho ◀──────┘  └──────────────────────────┘   (a aguardar o cliente: ronda 3)
           (entra logo em "aceite") │      (modo bolsa: volta à bolsa; atribuição direta: fica "retirado")
                                    └─── Largar trabalho (com a visita marcada) também volta
 Retirar (CEO), em qualquer estado ──▶ retirado
@@ -64,7 +93,8 @@ Retirar (CEO), em qualquer estado ──▶ retirado
 - **Aceitar é atómico:** `UPDATE … WHERE id = ? AND estado = 'na_bolsa'`. O segundo a chegar não muda nenhuma linha e recebe `409 Outro eletricista aceitou este trabalho primeiro.`
 - **48 horas:** contam de `aceite_em`. A verificação corre em cada leitura (bolsa, trabalhos, bloco do painel) e de 15 em 15 minutos no temporizador do módulo (`iniciar()`, como os outros módulos). Com a visita marcada o prazo deixa de contar.
 - **Percentagem:** fica gravada no trabalho quando é aceite ou atribuído; mudar depois a percentagem do eletricista não mexe nos trabalhos que já tem.
-- **Quem largou:** `trabalhos_eletricista_eventos` guarda cada passo (`posto_na_bolsa`, `atribuido`, `aceite`, `visita_marcada`, `largou`, `expirou`, `retirado`) com o eletricista, a data e quem o fez. Quem largou um trabalho ou o deixou caducar não o volta a ver na bolsa. O painel mostra a contagem ("N largados") em cada eletricista.
+- **Concluído pelo eletricista** (`concluida_eletricista`, migração 29): continua a ser o trabalho ativo do pedido (não se atribui a outro sem o retirar), não caduca e não se pode largar.
+- **Quem largou:** `trabalhos_eletricista_eventos` guarda cada passo (`posto_na_bolsa`, `atribuido`, `aceite`, `visita_marcada`, `largou`, `expirou`, `retirado`, `concluida`) com o eletricista, a data e quem o fez. Quem largou um trabalho ou o deixou caducar não o volta a ver na bolsa. O painel mostra a contagem ("N largados") em cada eletricista.
 - **Marcar visita:** na `visita` e na `avaria` a data fica em `orcamentos.data_visita` (o pedido passa a "visita marcada" e o cliente vê-a na conta); na `obra` fica em `obras.data` e `obras.hora` e a obra deixa de estar "por agendar". Se o eletricista largar o trabalho depois de marcar, a data sai, o cliente recebe um email a dizer que a visita vai ter nova data e os CEO são avisados.
 
 ## O que o eletricista recebe (estimativa)
@@ -88,7 +118,9 @@ Numa obra cuja proposta não tem as três partes, usa-se o que a simulação sug
 - **O relatório técnico leva os nomes das divisões e a descrição da avaria escritos pelo cliente**, porque são necessários para decidir aceitar o trabalho.
 - **Emails ao cliente** saem em nome da Domus Energia, sem o nome do eletricista.
 - **Documento do seguro:** guardado em `ELETRICISTAS_DIR` (por omissão `DADOS/painel/eletricistas/<id>/<24 hex>.pdf|jpg|png`), fora da pasta pública. Só o CEO o vê, por `GET /painel/api/eletricistas/:id/seguro`, com `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox` e, no PDF, `Content-Disposition: attachment`.
+- **Fotos da obra:** em `ELETRICISTAS_DIR/trabalhos/<trabalho>/<24 hex>.jpg|png`, fora da pasta pública. Só as veem o eletricista do trabalho (enquanto o trabalho está aberto) e o CEO (`GET /painel/api/trabalhos-eletricista/:id/fotos/:foto`), sempre com `nosniff` e `Content-Security-Policy: default-src 'none'; sandbox`. Saem com o pedido quando a conta do cliente é apagada (RGPD), como as fotos do pedido.
 - **Retenção:** uma candidatura recusada é apagada, com o documento, 12 meses depois da decisão (`limpar()`). Uma candidatura por decidir fica até ser decidida. Um eletricista aprovado ou suspenso fica enquanto existir.
+- **Apagar um eletricista (RGPD):** `POST /painel/api/eletricistas/:id/apagar` (só CEO; confirma-se com o email). Saem as sessões, os códigos, os avisos da bolsa, o documento do seguro e o histórico dele na auditoria. Sem trabalhos nenhuns, a linha é apagada. Com histórico de trabalhos (necessário para a contabilidade e para a regra "quem larga não recebe"), a linha fica **anonimizada**: nome "Eletricista apagado (RGPD)", sem email, telefone, NIF, habilitação, concelhos, experiência nem notas, e nunca mais entra. Com trabalhos em curso o pedido é recusado: o CEO retira-os primeiro. O email fica livre para uma candidatura nova.
 - **Auditoria:** as ações do eletricista ficam como `eletricista:<id>` (sem o email); as do CEO com o utilizador do painel.
 
 ## Endpoints
@@ -112,6 +144,15 @@ Os POST exigem a `Origin` do site (CSRF) e `Content-Type: application/json`.
 | `GET trabalhos/:id` | sim | a ficha: `cliente`, `relatorio`, `material`, `prazo`, `visita`, `recebe`; `404` se não é dele. |
 | `POST trabalhos/:id/visita` | sim | `{data_visita: "AAAA-MM-DDTHH:MM"}` (hora de Lisboa, no futuro). |
 | `POST trabalhos/:id/largar` | sim | devolve o trabalho; fica registado. |
+| `POST trabalhos/:id/material` | sim | `{recebido: ["nome do artigo", …]}`: a lista toda do que já foi levantado ou recebido. |
+| `POST trabalhos/:id/ensaios` | sim | `{continuidade_pe, isolamento, terra, diferencial, notas}`; fora do limite sem `notas` → `400`. |
+| `POST trabalhos/:id/diagnostico` | sim | `{diagnostico: {verificacoes, valores, tipo, conclusao} \| null}`; só nos trabalhos de avaria (`409` nos outros). |
+| `POST trabalhos/:id/fotos/:grupo` | sim | o corpo são os bytes (`Content-Type: image/jpeg` ou `image/png`, até 1 MB); `grupo`: `quadro_antes`, `pontos_antes`, `quadro_depois`, `pontos_depois`; `409` com 4 no grupo. |
+| `GET trabalhos/:id/fotos/:foto` | sim | a foto; `404` para quem não é o eletricista do trabalho. |
+| `POST trabalhos/:id/fotos/:foto/apagar` | sim | apaga a foto. |
+| `POST trabalhos/:id/concluir` | sim | "Obra concluída"; `409 Ainda falta: …` enquanto faltar alguma coisa. |
+
+A ficha (`GET trabalhos/:id`) leva também `editavel`, `material[].recebido`, `fotos`, `grupos_fotos`, `fotos_max`, `ensaios` (com `limites` e `fora`), `diagnostico` (`{modelo, atual}`, só na avaria), `falta` e `concluida`. Depois de concluído, as rotas que alteram respondem `409`.
 
 `recebe`: `{percentagem, mao_obra, parte_mao_obra, deslocacao, total, provisoria}` ou `null`.
 
@@ -125,6 +166,10 @@ Os POST exigem a `Origin` do site (CSRF) e `Content-Type: application/json`.
 | `GET eletricistas/:id/seguro` | o documento do seguro |
 | `GET orcamentos/:id/eletricista` | `{pode, tipo, concelho, motivo, trabalho, candidatos, historico}` |
 | `POST orcamentos/:id/eletricista` | `{acao: atribuir \| bolsa \| retirar, eletricista_id?}` |
+| `POST eletricistas/:id/apagar` | `{email}`: apagar (RGPD) → `{modo: "apagado" \| "anonimizado", …}` |
+| `GET trabalhos-eletricista/:id/fotos/:foto` | uma foto da obra (`:id` é o trabalho) |
+
+`GET orcamentos/:id/eletricista` → `trabalho` leva também `concluida`, `material`, `fotos`, `ensaios`, `diagnostico` (avaria) e `falta`. `GET eletricistas` → cada eletricista leva `trabalhos` (os que tem em curso) e `anonimizado`.
 | `POST config-orcamento` | `{eletricista_pct}`: a percentagem por omissão (não sai no `/api/catalogo` público) |
 
 Transições: aprovar (de pendente ou recusado), recusar (só de pendente), suspender (de aprovado), reativar (de suspenso). Suspender fecha logo as sessões do eletricista.
@@ -154,7 +199,6 @@ O botão "Eletricista de teste" (`POST /api/eletricista/dev/entrar {n: 1}`) cria
 
 ## Rondas seguintes
 
-- **Ronda 2:** fotos antes e depois, ensaios medidos e diagnóstico preenchidos pelo eletricista, "Obra concluída", ajuda técnica, levantamento do material.
-- **Ronda 3:** confirmação e avaliação do cliente na conta (1 a 5 estrelas, comentário), aprovação pelo CEO, pagamento até 7 dias contra fatura-recibo carregada na área do eletricista, média por eletricista no painel, e a regra "quem larga não recebe".
+- **Ronda 3:** confirmação e avaliação do cliente na conta (1 a 5 estrelas, comentário; "Não" devolve a obra ao eletricista), aprovação pelo CEO ("Devolver ao eletricista" ou aprovar), pagamento até 7 dias contra fatura-recibo carregada na área do eletricista, média por eletricista no painel, e a regra "quem larga não recebe".
 
-Na área do eletricista estas partes aparecem desligadas, com "em breve".
+Na área do eletricista o separador "Pagamentos" aparece desligado, com "em breve". O email ao cliente de "trabalho concluído" já pede a confirmação na conta, mas o botão de confirmar só chega com a ronda 3 (o módulo está desligado em produção até lá).

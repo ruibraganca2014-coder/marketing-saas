@@ -1,13 +1,40 @@
 // "Eletricista externo" (CEO; docs/ELETRICISTAS.md): o bloco da ficha do pedido e da ficha da obra para atribuir o
 // trabalho a um eletricista aprovado ("Atribuir a…"), pô-lo na bolsa ("Pôr na bolsa") ou retirá-lo. Carrega-se sozinho
 // (GET orcamentos/:id/eletricista) e volta a desenhar-se depois de cada ação (POST orcamentos/:id/eletricista).
+// Ronda 2: com o trabalho atribuído mostra a ficha de obra do eletricista — estado ("Concluída pelo eletricista"), o que
+// falta, o material já recebido, os ensaios (fora do limite assinalados) e as fotos antes e depois.
 import { pedir } from "../api.js";
 import { h, euros, data, selo, dados, avisar, botaoConfirmar } from "../ui.js";
 
 const EVENTOS = {
   posto_na_bolsa: "Posto na bolsa", atribuido: "Atribuído", aceite: "Aceite na bolsa", visita_marcada: "Visita marcada",
   largou: "Largou o trabalho", expirou: "48 h sem visita marcada: voltou", retirado: "Retirado pelo CEO",
+  concluida: "Dado por concluído pelo eletricista",
 };
+const NOME_ENSAIO = { continuidade_pe: ["Continuidade do PE", "Ω"], isolamento: ["Isolamento", "MΩ"], terra: ["Terra", "Ω"], diferencial: ["Diferencial", "ms"] };
+const numTxt = (v) => String(v).replace(".", ",");
+
+/** A ficha de obra do eletricista (só leitura): o que falta, material, ensaios e fotos. */
+function fichaDeObra(t) {
+  const partes = [];
+  const mat = t.material ?? [];
+  if (t.falta?.length) partes.push(h("p", { class: "ajuda", id: "eletricista-falta", text: `Falta ao eletricista: ${t.falta.join("; ")}.` }));
+  if (mat.length) partes.push(h("p", { id: "eletricista-material", text: `Material: ${mat.filter((m) => m.recebido).length} de ${mat.length} recebido${mat.some((m) => !m.recebido) ? ` (falta: ${mat.filter((m) => !m.recebido).map((m) => m.nome).join("; ")})` : ""}.` }));
+  const e = t.ensaios;
+  if (e && Object.keys(NOME_ENSAIO).some((k) => e[k] != null)) {
+    partes.push(h("div", { class: "linha-selos", id: "eletricista-ensaios" }, h("strong", { text: "Ensaios:" }),
+      ...Object.entries(NOME_ENSAIO).filter(([k]) => e[k] != null).map(([k, [nome, un]]) => selo(`${nome} ${numTxt(e[k])} ${un}${e.fora?.includes(k) ? " — fora do limite" : ""}`, e.fora?.includes(k) ? "estado-suspenso" : "info"))));
+    if (e.notas) partes.push(h("p", { class: "ajuda", text: `Nota dos ensaios: ${e.notas}` }));
+  }
+  if (t.diagnostico !== null && t.diagnostico !== undefined) partes.push(h("p", { class: "ajuda", text: t.diagnostico ? "Diagnóstico da avaria preenchido (ver a secção Diagnóstico)." : "Diagnóstico da avaria por preencher." }));
+  const fotos = t.fotos ?? [];
+  if (fotos.length) {
+    partes.push(h("div", { class: "fotos-grelha", id: "eletricista-fotos" }, ...fotos.map((f) => h("figure", { class: "foto-cliente" },
+      h("a", { href: f.url, target: "_blank", rel: "noopener", title: "Abrir a foto inteira" }, h("img", { src: f.url, alt: f.grupo_nome, loading: "lazy", decoding: "async" })),
+      h("figcaption", {}, h("strong", { text: f.grupo_nome }))))));
+  } else partes.push(h("p", { class: "ajuda", text: "Ainda sem fotos da obra." }));
+  return partes;
+}
 /** "AAAA-MM-DDTHH:MM" (hora de Lisboa) → "09/10/2026 10:00". */
 const visitaTxt = (v) => (v ? `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)} ${v.slice(11, 16)}` : "Por marcar");
 const veem = (n) => `${n} ${n === 1 ? "eletricista vê" : "eletricistas veem"}`;
@@ -53,13 +80,16 @@ export function blocoEletricista(orcamentoId) {
     } else {
       const r = t.recebe;
       partes.push(
-        h("p", { class: "linha-selos" }, t.estado === "visita_marcada" ? selo("Visita marcada", "estado-ativo") : selo("Atribuído — marcar visita", "aviso"), t.aberto ? null : selo("Fechado", "info")),
+        h("p", { class: "linha-selos" }, t.estado === "concluida_eletricista" ? selo("Concluída pelo eletricista — a aguardar confirmação do cliente", "estado-ativo")
+          : t.estado === "visita_marcada" ? selo("Visita marcada", "estado-ativo") : selo("Atribuído — marcar visita", "aviso"), t.aberto ? null : selo("Fechado", "info")),
         dados([
           ["Eletricista", t.eletricista ? h("a", { href: "#/eletricistas", text: t.eletricista.nome }) : "—"],
           ["Como", t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
           ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total)} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
+          ...(t.concluida ? [["Concluída pelo eletricista", data(t.concluida)]] : []),
           ["Visita", t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],
         ]),
+        ...fichaDeObra(t),
         h("div", { class: "form-botoes" }, botaoConfirmar("Retirar atribuição", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Atribuição retirada: o eletricista deixa de ver o cliente."))));
     }
     if (a.historico.length) {

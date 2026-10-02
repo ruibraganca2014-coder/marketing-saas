@@ -14,19 +14,25 @@
 // - depois de aceite (ou atribuído pelo CEO): nome, morada e telefone do cliente enquanto o trabalho está aberto, 48 h
 //   para marcar a visita (senão volta à bolsa, e fica registado quem o deixou caducar), "Marcar visita" (avisa o
 //   cliente por email, em nome da Domus Energia) e "Largar trabalho" (fica registado: ronda 3, quem larga não recebe).
-// Pagamentos, fatura-recibo, fotos, ensaios, obra concluída e avaliação do cliente são das rondas 2 e 3.
+// Ronda 2 — a ficha de obra: lista do material (levantado / recebido), fotos antes e depois (JPEG/PNG até 1 MB, pelos
+// bytes; em ELETRICISTAS_DIR/trabalhos/<trabalho>/, só para esse eletricista e para o CEO), ensaios medidos (os do
+// pedido, `orcamentos.ensaios`; fora do limite pede uma nota), diagnóstico da avaria (`orcamentos.diagnostico`) e "Obra
+// concluída" (`concluida_eletricista`: avisa os CEO e o cliente e fica à espera da confirmação do cliente). A bolsa
+// avisa por email os eletricistas do concelho (um email por trabalho e eletricista). Apagar um eletricista (RGPD).
+// A confirmação e a avaliação do cliente, a aprovação do CEO e o pagamento (fatura-recibo) são da ronda 3.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ErroApi, responder, lerJson, verificarOrigemPublica, tipoJson, lerCookies } from './http.js';
-import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE } from './validar.js';
+import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson, lerCookies } from './http.js';
+import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE, diagnostico as validarDiagnostico } from './validar.js';
 import { RE_EMAIL } from './pedidos.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, deCent, escreverAtomico } from './util.js';
 import { CODIGO_MS, CODIGO_TENTATIVAS } from './conta.js';
-import { bytesDeImagem } from './fotos.js';
-import { ESTADO_ARQUIVADO } from './db.js';
+import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO } from './fotos.js';
+import { ESTADO_ARQUIVADO, GRUPOS_FOTO_TRABALHO } from './db.js';
+import { CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { concelho as concelhoDe, deslocacaoServidor, diasDeObra, partirIva, VISITA_HORAS } from './pagamentos-pedido.js';
 
@@ -39,6 +45,12 @@ export const MAX_CONCELHOS = 40;
 export const RETENCAO_RECUSADA_MS = 365 * 24 * 3600_000;   // candidatura não aceite: apagada ao fim de 12 meses
 export const EXPERIENCIAS = { menos_2: 'Menos de 2 anos', '2_5': '2 a 5 anos', '5_10': '5 a 10 anos', mais_10: 'Mais de 10 anos' };
 export const NOME_TIPO_TRABALHO = { obra: 'Obra', visita: 'Visita técnica', avaria: 'Diagnóstico de avaria' };
+export const FOTOS_POR_GRUPO = 4;                     // fotos por grupo (quadro/pontos, antes/depois)
+export const NOME_GRUPO_FOTO = { quadro_antes: 'Quadro — antes', pontos_antes: 'Pontos — antes', quadro_depois: 'Quadro — depois', pontos_depois: 'Pontos — depois' };
+export const ENSAIOS_OBRIGATORIOS = ['isolamento', 'diferencial', 'terra'];   // para dar a obra por concluída
+const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial'];
+const NOME_ENSAIO = { continuidade_pe: 'continuidade do PE', isolamento: 'resistência de isolamento', terra: 'resistência de terra', diferencial: 'disparo do diferencial' };
+const EXTENSAO_FOTO = { 'image/jpeg': 'jpg', 'image/png': 'png' };
 
 const RE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RE_CODIGO = /^\d{6}$/;
@@ -47,7 +59,8 @@ const RENOVAR_MS = 60_000;
 const EXTENSAO = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 const TIPOS_CASA = { apartamento: 'Apartamento', moradia: 'Moradia', alojamento_local: 'Alojamento local', servicos: 'Serviços', industrial: 'Industrial' };
-const ATIVOS = "('na_bolsa', 'aceite', 'visita_marcada')";
+const ATIVOS = "('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista')";
+const DO_ELETRICISTA = "('aceite', 'visita_marcada', 'concluida_eletricista')";   // o trabalho é de alguém
 
 const sha = (t) => createHash('sha256').update(t).digest('hex');
 const hashCodigo = (id, codigo) => sha(`eletricista:${id}:${codigo}`);
@@ -85,6 +98,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     candidaturaIp: lim(5, 3600_000), candidaturaGlobal: lim(100, 3600_000),
     pedirCodigoIp: lim(10, 3600_000), emailEnvio: lim(3, 3600_000), codigoIp: lim(20, 3600_000),
     acoes: lim(120, 3600_000),   // aceitar, marcar visita e largar, por eletricista
+    ficha: lim(600, 3600_000),   // material, ensaios e diagnóstico, por eletricista
+    fotos: lim(config.limiteFotosHora, 3600_000),   // fotos da obra, por eletricista
   };
   function esperar(pares) {
     const s = Math.max(...pares.map(([l, k]) => l.espera(k)));
@@ -409,13 +424,82 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       recebe: estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()),
       aceite: t.aceite_em ? iso(t.aceite_em) : null,
       prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null,
-      visita: t.visita ?? null,
+      visita: t.visita ?? null, concluida: t.concluida ?? null,
     };
     if (!completo) return r;
     r.cliente = estaAberto ? { nome: o.nome, telefone: o.telefone ?? null, morada: o.morada ?? null, localidade: o.localidade ?? null } : null;
     r.relatorio = estaAberto ? relatorioTecnico(rel, true) : null;
-    r.material = estaAberto ? materialDe(o, t.tipo, rel) : [];
+    r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
+    // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
+    r.editavel = estaAberto && ['aceite', 'visita_marcada'].includes(t.estado);
+    r.fotos = estaAberto ? fotosDe(t.id).map((f) => fotoPublica(f, `/api/eletricista/trabalhos/${t.id}/fotos/`)) : [];
+    r.grupos_fotos = GRUPOS_FOTO_TRABALHO.map((g) => ({ grupo: g, nome: NOME_GRUPO_FOTO[g] }));
+    r.fotos_max = FOTOS_POR_GRUPO;
+    r.ensaios = estaAberto ? ensaiosDoPedido(o) : null;
+    r.diagnostico = estaAberto && t.tipo === 'avaria' ? { modelo: MODELO_DIAGNOSTICO, atual: diagnosticoDoPedido(o) } : null;
+    r.falta = estaAberto && t.estado !== 'concluida_eletricista' ? faltaParaConcluir(t, o) : [];
     return r;
+  }
+
+  // ---- material: a lista do pedido com o que o eletricista já levantou ou recebeu (por trabalho)
+  const recebidoDe = (t) => { try { const v = JSON.parse(t.material_recebido ?? '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; } };
+  function materialDoTrabalho(t, o, rel = relatorioDe(o)) {
+    const recebido = new Set(recebidoDe(t));
+    return materialDe(o, t.tipo, rel).map((m) => ({ ...m, recebido: recebido.has(m.nome) }));
+  }
+
+  // ---- fotos da obra (antes / depois): ELETRICISTAS_DIR/trabalhos/<trabalho>/<id>.jpg|png
+  const pastaFotos = (trabalhoId) => join(config.eletricistasDir, 'trabalhos', String(trabalhoId));
+  const ficheiroFoto = (f) => join(pastaFotos(f.trabalho_id), `${f.id}.${EXTENSAO_FOTO[f.tipo_mime]}`);
+  const fotosDe = (trabalhoId) => db.prepare('SELECT * FROM trabalhos_eletricista_fotos WHERE trabalho_id = ? ORDER BY rowid').all(trabalhoId);
+  const fotoPublica = (f, base) => ({ id: f.id, grupo: f.grupo, url: `${base}${f.id}`, bytes: f.bytes, criado: f.criado });
+
+  // ---- ensaios: os do pedido (`orcamentos.ensaios`, migração 16), com os limites da configuração
+  function limitesEnsaios() {
+    const cfg = lerCfg();
+    const n = (k, omissao) => (Number.isFinite(Number(cfg[k])) && Number(cfg[k]) >= 0 ? Number(cfg[k]) : omissao);
+    return { isolamento_min: n('ensaio_isolamento_mohm', 0.5), diferencial_max: n('ensaio_diferencial_ms', 300), terra_max: n('ensaio_terra_ohm', 100) };
+  }
+  /** Os ensaios fora do limite: isolamento abaixo do mínimo, diferencial ou terra acima do máximo. */
+  function ensaiosFora(e, lim = limitesEnsaios()) {
+    const fora = [];
+    if (e.isolamento !== null && e.isolamento !== undefined && e.isolamento < lim.isolamento_min) fora.push('isolamento');
+    if (e.diferencial !== null && e.diferencial !== undefined && e.diferencial > lim.diferencial_max) fora.push('diferencial');
+    if (e.terra !== null && e.terra !== undefined && e.terra > lim.terra_max) fora.push('terra');
+    return fora;
+  }
+  function ensaiosDoPedido(o) {
+    const e = pagamentos().ensaiosDe(o) ?? { continuidade_pe: null, isolamento: null, terra: null, diferencial: null, notas: null, data: null };
+    const limites = limitesEnsaios();
+    return { ...e, limites, fora: ensaiosFora(e, limites) };
+  }
+
+  // ---- diagnóstico da avaria: a lista de verificação do painel (diagnostico-conteudo.js), sem quem o fez
+  const MODELO_DIAGNOSTICO = {
+    checklist: CHECKLIST.map((c) => ({ chave: c.chave, nome: c.nome, unidade: c.valor?.unidade ?? null, referencia: c.referencia ?? null })),
+    tipos: NOME_TIPO_AVARIA, max_conclusao: MAX_CONCLUSAO,
+  };
+  function diagnosticoDoPedido(o) {
+    const d = pagamentos().diagnosticoDe(o);
+    return d ? { verificacoes: d.verificacoes, valores: d.valores, tipo: d.tipo, conclusao: d.conclusao, data: d.data } : null;
+  }
+
+  /**
+   * O que falta para "Obra concluída" (lista vazia = pode): a visita marcada e pelo menos uma foto de antes; na obra,
+   * também uma foto de depois e os três ensaios (isolamento, diferencial e terra); na avaria, a conclusão do diagnóstico.
+   */
+  function faltaParaConcluir(t, o) {
+    const falta = [];
+    if (t.estado === 'aceite') falta.push('marcar a visita');
+    const n = (grupos) => db.prepare(`SELECT COUNT(*) AS n FROM trabalhos_eletricista_fotos WHERE trabalho_id = ? AND grupo IN (${grupos.map(() => '?').join(', ')})`).get(t.id, ...grupos).n;
+    if (!n(['quadro_antes', 'pontos_antes'])) falta.push('uma foto de antes');
+    if (t.tipo === 'obra') {
+      if (!n(['quadro_depois', 'pontos_depois'])) falta.push('uma foto de depois');
+      const e = pagamentos().ensaiosDe(o) ?? {};
+      for (const k of ENSAIOS_OBRIGATORIOS) if (e[k] === null || e[k] === undefined) falta.push(`ensaio: ${NOME_ENSAIO[k]}`);
+    }
+    if (t.tipo === 'avaria' && !diagnosticoDoPedido(o)?.conclusao) falta.push('a conclusão do diagnóstico');
+    return falta;
   }
 
   /** Lista de material: a da obra (painel); senão a do relatório. Só nome e quantidade. */
@@ -468,7 +552,29 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     avisarEmpresa('Domus Energia: um eletricista deixou um trabalho', [
       `${nomeEvento === 'expirou' ? 'Passaram 48 h sem visita marcada' : 'O eletricista largou o trabalho'} do pedido n.º ${t.orcamento_id}.`,
       t.modo === 'bolsa' ? 'O trabalho voltou à bolsa.' : 'O trabalho voltou a ficar por atribuir.']);
+    // De volta à bolsa: quem ainda não foi avisado deste trabalho (ex.: aprovado entretanto) recebe o email.
+    if (t.modo === 'bolsa') avisarBolsa(trabalho(t.id));
     return true;
+  }
+
+  /**
+   * Aviso da bolsa: um email a cada eletricista aprovado com o concelho do trabalho — "Novo trabalho em <concelho>" e a
+   * ligação para a área, sem nada do cliente nem valores. UM email por trabalho e por eletricista
+   * (`trabalhos_eletricista_avisos`): se o trabalho voltar à bolsa, quem já foi avisado (incluindo quem o largou) não
+   * recebe outro. Devolve quantos emails saíram.
+   */
+  function avisarBolsa(t) {
+    if (!t || t.estado !== 'na_bolsa') return 0;
+    const ins = db.prepare('INSERT OR IGNORE INTO trabalhos_eletricista_avisos (trabalho_id, eletricista_id, quando) VALUES (?, ?, ?)');
+    let n = 0;
+    for (const e of aprovadosEm(t.concelho).slice(0, 500)) {
+      if (!ins.run(t.id, e.id, agoraIso()).changes) continue;
+      n += 1;
+      correio.enviar({ para: e.email, assunto: `Domus Energia: novo trabalho em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
+        texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
+          'Veja o relatório técnico e o valor que recebe na área do eletricista. O primeiro a aceitar fica com o trabalho.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    }
+    return n;
   }
 
   /** 48 h depois de aceite sem visita marcada: o trabalho volta (corre em cada leitura e de 15 em 15 minutos). */
@@ -494,7 +600,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const t = trabalho(idNum(idTexto));
     const o = t ? pedidoDe(t.orcamento_id) : null;
     if (!t || !o || !concelhosDe(e).includes(t.concelho)) throw new ErroApi(404, 'Trabalho não encontrado.');
-    if (['aceite', 'visita_marcada'].includes(t.estado) && t.eletricista_id !== e.id && t.modo === 'bolsa') throw new ErroApi(409, 'Outro eletricista aceitou este trabalho primeiro.');
+    if (['aceite', 'visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.eletricista_id !== e.id && t.modo === 'bolsa') throw new ErroApi(409, 'Outro eletricista aceitou este trabalho primeiro.');
     if (!visivelNaBolsa(t, e, o)) throw new ErroApi(404, 'Trabalho não encontrado.');
     return { t, o };
   }
@@ -523,7 +629,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   h.trabalhos = ({ res, e }) => {
     expirar();
-    const lista = db.prepare("SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ('aceite', 'visita_marcada') ORDER BY id DESC LIMIT 200").all(e.id)
+    const lista = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${DO_ELETRICISTA} ORDER BY id DESC LIMIT 200`).all(e.id)
       .map((t) => [t, pedidoDe(t.orcamento_id)]).filter(([, o]) => o).map(([t, o]) => paraEletricista(t, o));
     responder(res, 200, { trabalhos: lista });
   };
@@ -532,9 +638,17 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function meu(e, idTexto) {
     const t = trabalho(idNum(idTexto));
     const o = t ? pedidoDe(t.orcamento_id) : null;
-    if (!t || !o || t.eletricista_id !== e.id || !['aceite', 'visita_marcada'].includes(t.estado)) throw new ErroApi(404, 'Trabalho não encontrado.');
+    if (!t || !o || t.eletricista_id !== e.id || !['aceite', 'visita_marcada', 'concluida_eletricista'].includes(t.estado)) throw new ErroApi(404, 'Trabalho não encontrado.');
     return { t, o };
   }
+  /** … e que ainda se pode mexer: aberto e ainda não dado por concluído. */
+  function meuEditavel(e, idTexto) {
+    const { t, o } = meu(e, idTexto);
+    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, 'Já deu este trabalho por concluído: está a aguardar a confirmação do cliente.');
+    if (!aberto(t, o)) throw new ErroApi(409, 'Este trabalho já está fechado.');
+    return { t, o };
+  }
+  const fichaAtual = (t) => ({ trabalho: paraEletricista(trabalho(t.id), pedidoDe(t.orcamento_id), true) });
 
   h.trabalho = ({ res, e, params }) => {
     expirar();
@@ -550,8 +664,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     esperar([[L.acoes, String(e.id)]]);
     contar([[L.acoes, String(e.id)]]);
     expirar();
-    const { t, o } = meu(e, params.id);
-    if (!aberto(t, o)) throw new ErroApi(409, 'Este trabalho já está fechado.');
+    const { t, o } = meuEditavel(e, params.id);
     const quando = diaHora(v.data_visita, 'a data da visita');
     if (!quando || !/T\d{2}:\d{2}$/.test(quando)) falha('Indique o dia e a hora da visita.');
     if (quando <= agoraLisboa()) falha('Escolha um dia e uma hora no futuro.');
@@ -578,8 +691,147 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     contar([[L.acoes, String(e.id)]]);
     expirar();
     const { t } = meu(e, params.id);
+    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, 'Já deu este trabalho por concluído: está a aguardar a confirmação do cliente.');
     if (!devolver(t, 'largou', `eletricista:${e.id}`)) throw new ErroApi(409, 'Este trabalho já não é seu.');
     responder(res, 200, { ok: true });
+  };
+
+  // ------------------------------------------------------------ ficha de obra (ronda 2)
+  // Material: a lista toda do que já foi levantado ou recebido (nomes da lista do trabalho).
+  h.material = async ({ req, res, e, params }) => {
+    const v = await lerJson(req, ['recebido']);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const nomes = new Set(materialDe(o, t.tipo, relatorioDe(o)).map((m) => m.nome));
+    if (!Array.isArray(v.recebido) || v.recebido.length > 500 || v.recebido.some((x) => typeof x !== 'string' || !nomes.has(x))) falha('Material: indique os artigos da lista deste trabalho.');
+    db.prepare('UPDATE trabalhos_eletricista SET material_recebido = ?, atualizado = ? WHERE id = ?').run(JSON.stringify([...new Set(v.recebido)]), agoraIso(), t.id);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // Ensaios medidos (continuidade do PE, isolamento, terra, diferencial): ficam no pedido, como os do painel. Um valor
+  // fora do limite não é recusado, mas pede uma nota a explicar.
+  h.ensaios = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, [...CHAVES_ENSAIOS, 'notas']);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const ens = {};
+    for (const k of CHAVES_ENSAIOS) ens[k] = numero(v[k], `a ${NOME_ENSAIO[k]}`, { min: 0, max: 1_000_000, casas: 3 });
+    ens.notas = texto(v.notas, 'a nota dos ensaios', { max: 1000, multilinha: true });
+    const fora = ensaiosFora(ens);
+    if (fora.length && !ens.notas) falha(`Valor fora do limite (${fora.map((k) => NOME_ENSAIO[k]).join(', ')}): escreva uma nota a explicar.`);
+    const agora = agoraIso();
+    ens.data = agora;
+    ens.por = `eletricista:${e.id}`;
+    db.prepare('UPDATE orcamentos SET ensaios = ?, atualizado = ? WHERE id = ?').run(JSON.stringify(ens), agora, o.id);
+    auditar(quem(e), 'ensaios_registados', `orcamento:${o.id}`, { ...Object.fromEntries(CHAVES_ENSAIOS.map((k) => [k, ens[k]])), fora, trabalho: t.id }, ip);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // Diagnóstico da avaria (só nos trabalhos de avaria): a mesma validação do painel; `null` apaga.
+  h.diagnostico = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['diagnostico']);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    if (t.tipo !== 'avaria') throw new ErroApi(409, 'Só os trabalhos de avaria têm diagnóstico.');
+    const agora = agoraIso();
+    const guardado = v.diagnostico === undefined || v.diagnostico === null ? null : { ...validarDiagnostico(v.diagnostico), data: agora, por: `eletricista:${e.id}` };
+    db.prepare('UPDATE orcamentos SET diagnostico = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
+    auditar(quem(e), 'diagnostico_atualizado', `orcamento:${o.id}`, guardado ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao), trabalho: t.id } : { apagado: true, trabalho: t.id }, ip);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // Foto da obra: os bytes (JPEG ou PNG, até 1 MB, verificados pelos primeiros bytes) no corpo; o grupo no endereço.
+  h.receberFoto = async ({ req, res, e, params }) => {
+    const tipo = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    if (!EXTENSAO_FOTO[tipo]) throw new ErroApi(415, 'A foto tem de ser JPEG ou PNG (Content-Type: image/jpeg ou image/png).');
+    if (!GRUPOS_FOTO_TRABALHO.includes(params.foto)) throw new ErroApi(404, 'Grupo de fotos desconhecido.');
+    esperar([[L.fotos, String(e.id)]]);
+    contar([[L.fotos, String(e.id)]]);
+    expirar();
+    const { t } = meuEditavel(e, params.id);
+    if (db.prepare('SELECT COUNT(*) AS n FROM trabalhos_eletricista_fotos WHERE trabalho_id = ? AND grupo = ?').get(t.id, params.foto).n >= FOTOS_POR_GRUPO) {
+      throw new ErroApi(409, `Este grupo já tem o máximo de ${FOTOS_POR_GRUPO} fotos. Apague uma para pôr outra.`);
+    }
+    const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((erro) => {
+      if (erro instanceof ErroApi && erro.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
+      throw erro;
+    });
+    if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
+    if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+    const f = { id: randomBytes(12).toString('hex'), trabalho_id: t.id, grupo: params.foto, tipo_mime: tipo };
+    await escreverAtomico(ficheiroFoto(f), corpo);
+    try {
+      db.prepare('INSERT INTO trabalhos_eletricista_fotos (id, trabalho_id, grupo, tipo_mime, bytes, eletricista_id, criado) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(f.id, t.id, f.grupo, tipo, corpo.length, e.id, agoraIso());
+    } catch (erro) {
+      await unlink(ficheiroFoto(f)).catch(() => {});
+      throw erro;
+    }
+    responder(res, 201, { ok: true, id: f.id, ...fichaAtual(t) });
+  };
+
+  const fotoDoTrabalho = (t, id) => (RE_ID_FOTO.test(id) ? db.prepare('SELECT * FROM trabalhos_eletricista_fotos WHERE id = ? AND trabalho_id = ?').get(id, t.id) ?? null : null);
+  async function enviarFoto(res, f) {
+    let corpo;
+    try { corpo = await readFile(ficheiroFoto(f)); } catch { throw new ErroApi(404, 'Foto não encontrada.'); }
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Type': f.tipo_mime, 'Content-Length': corpo.length,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(corpo);
+  }
+
+  // A foto só sai para o eletricista do trabalho, e só enquanto o trabalho está aberto.
+  h.foto = async ({ res, e, params }) => {
+    const { t, o } = meu(e, params.id);
+    const f = aberto(t, o) ? fotoDoTrabalho(t, params.foto) : null;
+    if (!f) throw new ErroApi(404, 'Foto não encontrada.');
+    await enviarFoto(res, f);
+  };
+
+  h.apagarFoto = async ({ req, res, e, params }) => {
+    await lerJson(req, []);
+    const { t } = meuEditavel(e, params.id);
+    const f = fotoDoTrabalho(t, params.foto);
+    if (!f) throw new ErroApi(404, 'Foto não encontrada.');
+    db.prepare('DELETE FROM trabalhos_eletricista_fotos WHERE id = ?').run(f.id);
+    await unlink(ficheiroFoto(f)).catch(() => {});
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // "Obra concluída": só com a visita marcada, as fotos e os ensaios (faltaParaConcluir). O trabalho fica
+  // `concluida_eletricista`, os CEO e o cliente são avisados e fica a aguardar a confirmação do cliente (ronda 3).
+  h.concluir = async ({ req, res, e, params, ip }) => {
+    await lerJson(req, []);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const falta = faltaParaConcluir(t, o);
+    if (falta.length) throw new ErroApi(409, `Ainda falta: ${falta.join('; ')}.`);
+    const agora = agoraIso();
+    const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'concluida_eletricista', concluida = ?, atualizado = ?
+      WHERE id = ? AND eletricista_id = ? AND estado = 'visita_marcada'`).run(agora, agora, t.id, e.id);
+    if (!r.changes) throw new ErroApi(409, 'Este trabalho já não é seu.');
+    evento(t, 'concluida', e.id, `eletricista:${e.id}`);
+    auditar(quem(e), 'trabalho_concluido_eletricista', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, fotos: fotosDe(t.id).length }, ip);
+    avisarEmpresa('Domus Energia: um eletricista deu um trabalho por concluído', [
+      `O eletricista deu por concluído o trabalho do pedido n.º ${o.id} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}, ${t.concelho}).`,
+      'Veja as fotos e os ensaios na ficha do pedido. Falta a confirmação do cliente.']);
+    const email = emailCliente(o);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: o trabalho em sua casa está concluído', resumo: `trabalho do pedido ${o.id} concluído pelo técnico`,
+        texto: ['Olá,', '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id}.`,
+          'Pedimos-lhe que confirme na sua conta que ficou tudo bem. Se faltar alguma coisa, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, fichaAtual(t));
   };
 
   // ------------------------------------------------------------ painel (só CEO; rotas em api.js)
@@ -590,15 +842,20 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       percentagem: Number.isFinite(e.percentagem) ? e.percentagem : null, percentagem_efetiva: percentagemDe(e),
       seguro: e.seguro_id ? { tipo: e.seguro_tipo, bytes: e.seguro_bytes, url: `/painel/api/eletricistas/${e.id}/seguro` } : null,
       consentimento: e.consentimento, criado: e.criado, decidido: e.decidido ?? null, ultimo_acesso: e.ultimo_acesso ?? null,
-      trabalhos_em_curso: db.prepare("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ('aceite', 'visita_marcada')").get(e.id).n,
+      anonimizado: e.anonimizado ?? null,
+      // Trabalhos em curso (aceites, com visita marcada ou concluídos à espera do cliente): o painel lista-os ao suspender.
+      trabalhos: emCurso(e.id).map((t) => ({ id: t.id, orcamento_id: t.orcamento_id, tipo: t.tipo, tipo_nome: NOME_TIPO_TRABALHO[t.tipo], estado: t.estado, concelho: t.concelho, visita: t.visita ?? null })),
+      trabalhos_em_curso: emCurso(e.id).length,
       trabalhos_largados: db.prepare("SELECT COUNT(*) AS n FROM trabalhos_eletricista_eventos WHERE eletricista_id = ? AND evento IN ('largou', 'expirou')").get(e.id).n,
     };
   }
 
+  const emCurso = (id) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${DO_ELETRICISTA} ORDER BY id`).all(id);
+
   function listar() {
     expirar();
     return {
-      eletricistas: db.prepare("SELECT * FROM eletricistas ORDER BY estado = 'pendente' DESC, nome COLLATE NOCASE LIMIT 2000").all().map(paraPainel),
+      eletricistas: db.prepare("SELECT * FROM eletricistas ORDER BY anonimizado IS NOT NULL, estado = 'pendente' DESC, nome COLLATE NOCASE LIMIT 2000").all().map(paraPainel),
       percentagem_omissao: percentagemOmissao(),
     };
   }
@@ -614,6 +871,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** Aprovar / recusar / suspender / reativar, os concelhos e a percentagem da mão de obra (null = a da configuração). */
   function atualizar(idTexto, v, u, ip) {
     const e = obter(idTexto);
+    if (e.anonimizado) throw new ErroApi(409, 'Este eletricista foi apagado (RGPD): não se pode alterar.');
     const mud = {};
     let acao = null;
     if (v.acao !== undefined) {
@@ -658,6 +916,57 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
   }
 
+  /**
+   * Apagar um eletricista (RGPD; só o CEO): saem as sessões, os códigos, os avisos da bolsa, o documento do seguro e o
+   * histórico dele na auditoria. Sem trabalhos nenhuns, a linha é apagada; com histórico de trabalhos (necessário para
+   * a contabilidade e para a regra "quem larga não recebe") fica ANONIMIZADA: sem nome, email, telefone, NIF, DGEG,
+   * concelhos, experiência nem notas. Com trabalhos em curso recusa (o CEO retira-os primeiro).
+   */
+  async function apagar(idTexto, u, ip) {
+    const e = obter(idTexto);
+    if (e.anonimizado) throw new ErroApi(409, 'Este eletricista já foi apagado (RGPD).');
+    if (emCurso(e.id).length) throw new ErroApi(409, 'Este eletricista tem trabalhos em curso: retire-os primeiro.');
+    const historico = Boolean(db.prepare(`SELECT 1 FROM trabalhos_eletricista WHERE eletricista_id = ?1 UNION ALL SELECT 1 FROM trabalhos_eletricista_eventos WHERE eletricista_id = ?1
+      UNION ALL SELECT 1 FROM trabalhos_eletricista_fotos WHERE eletricista_id = ?1 LIMIT 1`).get(e.id));
+    const agora = agoraIso();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('DELETE FROM eletricistas_sessoes WHERE eletricista_id = ?').run(e.id);
+      db.prepare('DELETE FROM eletricistas_codigos WHERE eletricista_id = ?').run(e.id);
+      db.prepare('DELETE FROM trabalhos_eletricista_avisos WHERE eletricista_id = ?').run(e.id);
+      db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`eletricista:${e.id}`);
+      db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`eletricista:${e.id}`);
+      if (historico) {
+        db.prepare(`UPDATE eletricistas SET email = ?, nome = 'Eletricista apagado (RGPD)', telefone = '', nif = '', dgeg = '', concelhos = '[]', experiencia = NULL, notas = NULL,
+          estado = 'suspenso', percentagem = NULL, seguro_id = NULL, seguro_tipo = NULL, seguro_bytes = NULL, ultimo_acesso = NULL, anonimizado = ?, atualizado = ? WHERE id = ?`)
+          .run(`apagado-${e.id}@anonimizado.invalid`, agora, agora, e.id);
+      } else db.prepare('DELETE FROM eletricistas WHERE id = ?').run(e.id);
+      db.exec('COMMIT');
+    } catch (erro) {
+      db.exec('ROLLBACK');
+      throw erro;
+    }
+    await rm(pasta(e.id), { recursive: true, force: true });
+    auditar(u, 'eletricista_apagado', `eletricista:${e.id}`, { modo: historico ? 'anonimizado (fica o histórico de trabalhos)' : 'apagado' }, ip);
+    return { eletricista: e.id, modo: historico ? 'anonimizado' : 'apagado' };
+  }
+
+  /** Foto de um trabalho, para o painel (só CEO; a rota é verificada em api.js). */
+  async function fotoParaPainel(trabalhoTexto, fotoId) {
+    const t = trabalho(idNum(trabalhoTexto));
+    const f = t ? fotoDoTrabalho(t, fotoId) : null;
+    if (!f) throw new ErroApi(404, 'Foto não encontrada.');
+    try { return { tipo: f.tipo_mime, corpo: await readFile(ficheiroFoto(f)) }; } catch { throw new ErroApi(404, 'Foto não encontrada.'); }
+  }
+
+  /** As fotos tiradas pelos eletricistas num pedido saem com ele (conta de cliente apagada, RGPD). */
+  async function apagarFotosDoPedido(orcamentoId) {
+    for (const { id } of db.prepare('SELECT id FROM trabalhos_eletricista WHERE orcamento_id = ?').all(orcamentoId)) {
+      db.prepare('DELETE FROM trabalhos_eletricista_fotos WHERE trabalho_id = ?').run(id);
+      await rm(pastaFotos(id), { recursive: true, force: true });
+    }
+  }
+
   // ---- atribuição (ficha do pedido e da obra)
   const ativoDoPedido = (orcamentoId) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado IN ${ATIVOS} ORDER BY id DESC LIMIT 1`).get(orcamentoId) ?? null;
   const aprovadosEm = (nomeConcelho) => db.prepare("SELECT * FROM eletricistas WHERE estado = 'aprovado' ORDER BY nome COLLATE NOCASE").all().filter((e) => concelhosDe(e).includes(nomeConcelho));
@@ -680,6 +989,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
         prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null, visita: t.visita ?? null,
         recebe: e ? estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) : null,
+        // Ficha de obra do eletricista (ronda 2): estado, material recebido, fotos, ensaios e o que falta para concluir.
+        concluida: t.concluida ?? null,
+        material: materialDoTrabalho(t, o),
+        fotos: fotosDe(t.id).map((f) => ({ ...fotoPublica(f, `/painel/api/trabalhos-eletricista/${t.id}/fotos/`), grupo_nome: NOME_GRUPO_FOTO[f.grupo] })),
+        ensaios: ensaiosDoPedido(o),
+        diagnostico: t.tipo === 'avaria' ? Boolean(diagnosticoDoPedido(o)?.conclusao) : null,
+        falta: e && t.estado !== 'concluida_eletricista' ? faltaParaConcluir(t, o) : [],
       } : null,
       candidatos: candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
       historico: db.prepare(`SELECT v.evento, v.quando, v.por, e.nome FROM trabalhos_eletricista_eventos v JOIN trabalhos_eletricista t ON t.id = v.trabalho_id
@@ -719,7 +1035,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function porNaBolsa(o, u, ip) {
     const t = novoTrabalho(o, 'bolsa', null);
     evento(t, 'posto_na_bolsa', null, u.email);
-    auditar(u, 'trabalho_na_bolsa', `orcamento:${o.id}`, { trabalho: t.id, tipo: t.tipo, concelho: t.concelho, eletricistas: aprovadosEm(t.concelho).length }, ip);
+    const avisados = avisarBolsa(t);
+    auditar(u, 'trabalho_na_bolsa', `orcamento:${o.id}`, { trabalho: t.id, tipo: t.tipo, concelho: t.concelho, eletricistas: aprovadosEm(t.concelho).length, avisados }, ip);
     return t;
   }
 
@@ -781,6 +1098,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['GET', 'trabalhos/:id', true, 'trabalho'],
     ['POST', 'trabalhos/:id/visita', true, 'marcarVisita'],
     ['POST', 'trabalhos/:id/largar', true, 'largar'],
+    ['POST', 'trabalhos/:id/material', true, 'material'],
+    ['POST', 'trabalhos/:id/ensaios', true, 'ensaios'],
+    ['POST', 'trabalhos/:id/diagnostico', true, 'diagnostico'],
+    ['POST', 'trabalhos/:id/concluir', true, 'concluir'],
+    ['GET', 'trabalhos/:id/fotos/:foto', true, 'foto'],
+    ['POST', 'trabalhos/:id/fotos/:foto', true, 'receberFoto'],   // :foto = o grupo (quadro_antes…); o corpo são os bytes
+    ['POST', 'trabalhos/:id/fotos/:foto/apagar', true, 'apagarFoto'],
   ].map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
   // As páginas perguntam se o módulo existe (com ELETRICISTAS desligado isto dá 404 e elas mostram só uma linha).
@@ -801,7 +1125,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!rota) return responder(res, existe ? 405 : 404, { erro: existe ? 'Método não permitido.' : 'Endereço desconhecido.' });
     if (rota.metodo === 'POST') {
       if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
-      if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
+      if (rota.nome !== 'receberFoto' && !tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     }
     let e = null;
     if (rota.sessao) {
@@ -813,6 +1137,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   return {
     tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, expirar, limpar,
+    apagar, fotoParaPainel, apagarFotosDoPedido,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };

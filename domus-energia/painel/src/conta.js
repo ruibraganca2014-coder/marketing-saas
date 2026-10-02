@@ -161,7 +161,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {} }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -756,7 +756,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const anonimizar = semObra.filter((id) => pago.get(id));
     const alvos = semObra.filter((id) => !anonimizar.includes(id));
     const mantidos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE conta_id = ?').get(c.id).n - semObra.length;
-    for (const id of semObra) await fotos.apagarTodas(id);
+    // … com as fotos do pedido saem as que o eletricista externo tirou na casa (docs/ELETRICISTAS.md).
+    for (const id of semObra) { await fotos.apagarTodas(id); await aoApagarPedido(id); }
     db.exec('BEGIN IMMEDIATE');
     try {
       // Auditoria: o histórico dos pedidos apagados/anonimizados e da conta sai (com os IPs e os detalhes); de cada

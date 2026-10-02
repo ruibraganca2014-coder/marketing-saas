@@ -31,8 +31,10 @@ export const MOTIVOS_STOCK = ['entrada', 'reserva', 'libertacao', 'saida', 'acer
 /** Eletricistas externos (fase 4, migrações 27 e 28; docs/ELETRICISTAS.md). */
 export const ESTADOS_ELETRICISTA = ['pendente', 'aprovado', 'recusado', 'suspenso'];
 export const TIPOS_TRABALHO = ['obra', 'visita', 'avaria'];
-export const ESTADOS_TRABALHO = ['na_bolsa', 'aceite', 'visita_marcada', 'retirado'];
-export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visita_marcada', 'largou', 'expirou', 'retirado'];
+export const ESTADOS_TRABALHO = ['na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'retirado'];
+export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visita_marcada', 'largou', 'expirou', 'retirado', 'concluida'];
+/** Grupos das fotos que o eletricista tira na obra (migração 29): quadro e pontos, antes e depois. */
+export const GRUPOS_FOTO_TRABALHO = ['quadro_antes', 'pontos_antes', 'quadro_depois', 'pontos_depois'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -627,6 +629,51 @@ export const MIGRACOES = [
     CREATE INDEX trabalhos_eletricista_eventos_trabalho ON trabalhos_eletricista_eventos(trabalho_id);
     CREATE INDEX trabalhos_eletricista_eventos_eletricista ON trabalhos_eletricista_eventos(eletricista_id, evento);
   `),
+  // 29 — fase 4, ronda 2 (docs/ELETRICISTAS.md): a ficha de obra do eletricista. O trabalho ganha o estado
+  // `concluida_eletricista` ("Obra concluída": fica à espera da confirmação do cliente, ronda 3) e o evento `concluida`
+  // (recria as duas tabelas pelo procedimento da migração 21: mesmas colunas, dados, índices e sequência), a lista do
+  // material já recebido (`material_recebido`, JSON) e quando foi concluído (`concluida`). Tabelas novas: as fotos antes
+  // e depois (os bytes ficam em ELETRICISTAS_DIR/trabalhos/<trabalho>/) e os avisos por email da bolsa (um por trabalho
+  // e eletricista). `eletricistas.anonimizado`: quando o CEO apagou o eletricista (RGPD) e ficou só o histórico.
+  semChaves((db) => {
+    const recriar = (tabela, de, para) => {
+      const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tabela).sql;
+      const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, `CREATE TABLE ${tabela}_novo`).replace(de, para);
+      if (!novo.includes(para)) throw new Error(`migração 29: não foi possível ler o esquema de ${tabela}`);
+      const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(tabela).map((x) => x.sql);
+      const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(tabela)?.seq ?? null;
+      db.exec(novo);
+      db.exec(`INSERT INTO ${tabela}_novo SELECT * FROM ${tabela}`);
+      db.exec(`DROP TABLE ${tabela}`);
+      db.exec(`ALTER TABLE ${tabela}_novo RENAME TO ${tabela}`);
+      for (const i of indices) db.exec(i);
+      db.prepare('DELETE FROM sqlite_sequence WHERE name IN (?, ?)').run(tabela, `${tabela}_novo`);
+      if (seq !== null) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
+    };
+    recriar('trabalhos_eletricista', /estado TEXT NOT NULL CHECK \(estado IN \([^)]*\)\)/i, `estado TEXT NOT NULL CHECK (estado IN (${lista(ESTADOS_TRABALHO)}))`);
+    recriar('trabalhos_eletricista_eventos', /evento TEXT NOT NULL CHECK \(evento IN \([^)]*\)\)/i, `evento TEXT NOT NULL CHECK (evento IN (${lista(EVENTOS_TRABALHO)}))`);
+    db.exec(`
+      ALTER TABLE trabalhos_eletricista ADD COLUMN material_recebido TEXT NOT NULL DEFAULT '[]';   -- JSON: nomes do material já levantado ou recebido
+      ALTER TABLE trabalhos_eletricista ADD COLUMN concluida TEXT;                                  -- quando o eletricista deu a obra por concluída (ISO)
+      ALTER TABLE eletricistas ADD COLUMN anonimizado TEXT;                                         -- quando foi apagado (RGPD) e ficou só o histórico
+      CREATE TABLE trabalhos_eletricista_fotos (
+        id TEXT PRIMARY KEY,                      -- 24 hex aleatórios (também o nome do ficheiro)
+        trabalho_id INTEGER NOT NULL REFERENCES trabalhos_eletricista(id) ON DELETE CASCADE,
+        grupo TEXT NOT NULL CHECK (grupo IN (${lista(GRUPOS_FOTO_TRABALHO)})),
+        tipo_mime TEXT NOT NULL CHECK (tipo_mime IN ('image/jpeg', 'image/png')),
+        bytes INTEGER NOT NULL,
+        eletricista_id INTEGER REFERENCES eletricistas(id),
+        criado TEXT NOT NULL
+      );
+      CREATE INDEX trabalhos_eletricista_fotos_trabalho ON trabalhos_eletricista_fotos(trabalho_id);
+      CREATE TABLE trabalhos_eletricista_avisos (
+        trabalho_id INTEGER NOT NULL REFERENCES trabalhos_eletricista(id) ON DELETE CASCADE,
+        eletricista_id INTEGER NOT NULL REFERENCES eletricistas(id) ON DELETE CASCADE,
+        quando TEXT NOT NULL,
+        PRIMARY KEY (trabalho_id, eletricista_id)
+      );
+    `);
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
