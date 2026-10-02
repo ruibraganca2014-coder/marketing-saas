@@ -473,7 +473,7 @@ function blocoQuadro(q, contratada) {
   const linhas = [
     ["Pacote", PACOTES[q.pacote] ?? (typeof q.pacote === "string" ? q.pacote : "—")],
     ["Proteções", ["Diferenciais 30 mA", ...ligadas].join(", ")],
-    ["Pára-raios / linha aérea", SIM_NAO[q.para_raios] ?? "Não sabe"],
+    ["Para-raios / linha aérea", SIM_NAO[q.para_raios] ?? "Não sabe"],
     ["Quadro", `${QUADRO_NOVO[q.quadro_novo] ?? "Não sabe"}${q.quadro_novo_no_preco === true ? " (quadro novo no preço)" : ""}`],
   ];
   if (numero(m.tamanho) !== null) {
@@ -693,10 +693,10 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   else if (d.estado === "sem_localidade") por("Localidade", "O cliente não indicou a localidade: confirmar a morada e o valor da deslocação.");
   else if (d.estado === "fora_area") por("Localidade", `${d.concelho ?? d.localidade ?? "A localidade"}${numero(d.distancia_km) !== null ? ` (${num(numero(d.distancia_km))} km estimados)` : ""} fica fora da área servida: decidir se se faz a obra e o preço da deslocação (não está no total).`);
 
-  // Pára-raios / linha aérea (descarregador tipo 2).
+  // Para-raios / linha aérea (descarregador tipo 2).
   const desc = obj(q.protecoes).descarregador === true;
-  if (q.para_raios === "sim") por("Pára-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões tipo 2 recomendado (RTIEBT 801.5.10 com linha aérea; com pára-raios ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
-  else if (quadroNovo && q.para_raios !== "nao") por("Pára-raios / linha aérea", `O cliente NÃO SABE: verificar se há pára-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é recomendado (RTIEBT 801.5.10)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
+  if (q.para_raios === "sim") por("Para-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões tipo 2 recomendado (RTIEBT 801.5.10 com linha aérea; com para-raios ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
+  else if (quadroNovo && q.para_raios !== "nao") por("Para-raios / linha aérea", `O cliente NÃO SABE: verificar se há para-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é recomendado (RTIEBT 801.5.10)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
 
   // Quadro antigo / atual / novo.
   const antigo = q.quadro_antigo;
@@ -706,7 +706,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   else if (q.quadro_novo === "atual") por("Quadro elétrico", `O cliente diz que o quadro atual serve: confirmar o estado e se há espaço para ${novos !== null ? `${num(novos)} módulos novos` : "os módulos novos"}${novos !== null && novos > 12 ? " (acima de 12: ampliação incluída)" : ""}.`);
   else if (quadroNovo) por("Quadro elétrico", `O cliente NÃO SABE se o quadro ${antigo === undefined ? "atual serve" : "é antigo"}: verificar o estado; ${q.quadro_novo_no_preco === false ? "o quadro novo não está no preço" : "o preço inclui quadro novo por precaução — sai se o atual servir"}${novos !== null ? ` (no atual seriam ${num(novos)} módulos novos)` : ""}.`);
   if ((numero(m.quadros) ?? 1) > 1 || m.cabe === false) por("Quadro elétrico", `Nem um quadro de 48 módulos deixa 25 % livres (${num(numero(m.ocupados) ?? 0)} módulos ocupados): ${plural(numero(m.quadros) ?? 1, "quadro", "quadros")} — confirmar o espaço e a organização.`);
-  if (!quadroNovo && arr(q.circuitos).length) por("Quadro elétrico", "Simulação antiga, sem as perguntas do quadro (pára-raios, quadro atual, proteções): verificar tudo na visita.");
+  if (!quadroNovo && arr(q.circuitos).length) por("Quadro elétrico", "Simulação antiga, sem as perguntas do quadro (para-raios, quadro atual, proteções): verificar tudo na visita.");
 
   // Potência contratada e ligação.
   const kva = numero(casa.potencia_contratada_kva), sug = numero(q.potencia_sugerida_kva), carga = numero(q.potencia_carga_w);

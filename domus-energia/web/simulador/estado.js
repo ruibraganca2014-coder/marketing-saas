@@ -235,7 +235,7 @@ export function estadoNovo() {
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
-    // + pacote, proteções, pára-raios, quadro novo (quadro.js). Ronda B: o esquema do quadro já não se faz no simulador
+    // + pacote, proteções, para-raios, quadro novo (quadro.js). Ronda B: o esquema do quadro já não se faz no simulador
     // (`leitura`/`sugestoes` dos estados antigos caem em normalizarEstado); fica só a foto.
     quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },
     quadroEditado: false,     // o cliente mexeu no quadro: não recalcular sozinho
@@ -752,7 +752,7 @@ export const avisosEstado = (estado, circuitos = estado.quadro.circuitos, foraAr
 
 /**
  * `simulacao.quadro` (§6): circuitos (com o código RTIEBT, a secção do cabo, o grupo diferencial e o AFDD),
- * pacote e proteções, respostas (pára-raios, quadro novo), grupos diferenciais, módulos e potência sugerida.
+ * pacote e proteções, respostas (para-raios, quadro novo), grupos diferenciais, módulos e potência sugerida.
  */
 export function quadroParaEnvio(estado, circuitos) {
   const q = { ...estado.quadro, circuitos };

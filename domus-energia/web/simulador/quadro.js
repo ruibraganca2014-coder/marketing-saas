@@ -70,7 +70,7 @@ export function protecoesDoPacote(pacote, idrWifi = false) {
 
 /**
  * Pacote que corresponde às proteções escolhidas, ou "personalizado". `ignorar`: proteções que não contam
- * (o descarregador incluído com pára-raios/linha aérea não é uma personalização: pacoteDoQuadro).
+ * (o descarregador incluído com para-raios/linha aérea não é uma personalização: pacoteDoQuadro).
  */
 export function pacoteDe(p, ignorar = []) {
   const conta = DOS_PACOTES.filter((x) => !ignorar.includes(x));
@@ -79,13 +79,13 @@ export function pacoteDe(p, ignorar = []) {
 }
 
 /**
- * Pacote do quadro pelas proteções que o cliente escolheu: com pára-raios ou linha aérea o descarregador vai sempre
- * (recomendado pela RTIEBT 801.5.10 com linha aérea; critério Domus com pára-raios — fica ligado e bloqueado) e não
- * conta — "Essencial" com pára-raios continua "Essencial".
+ * Pacote do quadro pelas proteções que o cliente escolheu: com para-raios ou linha aérea o descarregador vai sempre
+ * (recomendado pela RTIEBT 801.5.10 com linha aérea; critério Domus com para-raios — fica ligado e bloqueado) e não
+ * conta — "Essencial" com para-raios continua "Essencial".
  */
 export const pacoteDoQuadro = (q) => pacoteDe(q?.protecoes, q?.para_raios === "sim" ? ["descarregador"] : []);
 
-/** Respostas à pergunta "A casa tem pára-raios ou é alimentada por linha aérea?" e "O quadro atual serve?". */
+/** Respostas à pergunta "A casa tem para-raios ou é alimentada por linha aérea?" e "O quadro atual serve?". */
 export const PARA_RAIOS = { sim: "Sim", nao: "Não" };                 // null = "Não sei"
 export const QUADRO_NOVO = { atual: "O atual serve", novo: "Quero quadro novo" };   // null = "Não sei"
 
@@ -107,7 +107,7 @@ export function normalizarProtecoes(q) {
   };
 }
 
-/** Proteções que valem: com pára-raios ou linha aérea o descarregador vai sempre (recomendado, RTIEBT 801.5.10). */
+/** Proteções que valem: com para-raios ou linha aérea o descarregador vai sempre (recomendado, RTIEBT 801.5.10). */
 export function protecoesEfetivas(q) {
   const p = { ...normalizarProtecoes(q).protecoes };
   if (q?.para_raios === "sim") p.descarregador = true;
@@ -468,8 +468,8 @@ export function avisosProtecoes(estado) {
   const casa = estado.casa ?? {};
   const out = [];
   const a = (t) => out.push(`${t}${FIM_AVISO}`);
-  if (q.para_raios === "sim") a("Com pára-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea).");
-  else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver pára-raios ou for alimentada por linha aérea, o descarregador de sobretensões é recomendado (RTIEBT 801.5.10).");
+  if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea).");
+  else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver para-raios ou for alimentada por linha aérea, o descarregador de sobretensões é recomendado (RTIEBT 801.5.10).");
   if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio tipo A — tipo A exigido (RTIEBT 722); se o carregador já o trouxer, sai do preço.");
   if (r.circuitos_existentes) a(`Quadro novo com os circuitos que a casa já tem: contámos ${r.circuitos_existentes} (1 de iluminação por piso, 1 de tomadas por cada 2 divisões, a cozinha e as casas de banho à parte), cada um com um disjuntor 1P+N — o n.º de circuitos a confirmar na visita.`);
   if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos deixa 25 % livres — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);

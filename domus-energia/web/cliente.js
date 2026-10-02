@@ -604,7 +604,7 @@ function desenhar() {
   cartoes = {};
 
   if (aparelhos.length === 0) {
-    lista.appendChild(el("div", "cartao vazio", "Ainda não tem aparelhos associados. Contacte a Domus Energia."));
+    lista.appendChild(el("div", "cartao vazio", "A sua casa ainda não tem aparelhos ligados. Isto fica pronto no dia da instalação; se já passou, fale connosco."));
   }
 
   for (const g of E.agruparPorDivisao(aparelhos)) {

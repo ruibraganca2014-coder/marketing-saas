@@ -41,7 +41,7 @@ import { guardarPdfOrcamento, guardarPdfRelatorio } from "./imprimir.js";
 import { desenharIcone, desenharPlanta } from "./planta-svg.js";
 import { resumoQuadro as resumoDoQuadro } from "./quadro.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
-import { sugerirConcelhos, calcularDeslocacao } from "./deslocacao.js";
+import { sugerirConcelhos, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
 import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
@@ -432,7 +432,7 @@ const ICONES_FUNIL = {
 };
 const AJUDA_FUNIL = {
   primeira: "Desenhamos a casa e o que quer instalar.",
-  avaria: "Diga o que falhou e mande uma foto.",
+  avaria: "Diagnóstico + deslocação, descontado na reparação.",   // com o catálogo leva o valor (ajudaAvaria)
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
 let casaGuardada = null;   // estado `soCasa` (estado.js carregarCasa), ou null
@@ -475,12 +475,13 @@ function montarServico() {
     return l;
   }));
   $("planta-ficheiro").addEventListener("change", carregarPlanta);
+  ajudaAvaria();
 }
 const TEXTOS_CAMINHO = {
   automatizar: ["Automatizar o que já tenho", "Tornamos inteligente o que existe."],
   reparar: ["Reparações", "Trocar ou arranjar o que não funciona."],
   obras: ["Obras na casa", "Mudou divisões ou quer acrescentar."],
-  carregar: ["Carregar a planta", "PDF ou foto."],
+  carregar: ["Tenho a planta em PDF ou foto", "Carregue-a e marque os aparelhos por cima."],
 };
 const ICONES_CAMINHO = {
   automatizar: ICONES_SERVICO.automatizar,
@@ -628,7 +629,7 @@ function mudarServico(lista) {
 function desenharInicio() {
   const c = casaParaPlanta();
   const cartao = $("funil-planta");
-  cartao.querySelector("small").textContent = c ? `A sua casa: ${resumoCasa(c)}` : "Carregue a planta: PDF ou foto.";
+  cartao.querySelector("small").textContent = c ? `A sua casa: ${resumoCasa(c)}` : "Em PDF ou foto: marcamos os aparelhos por cima.";
   cartao.classList.toggle("destaque-casa", !!c && !estado.funil);
   // Obras e "Carregar a planta" seguem no funil da primeira vez, mas foram escolhidos em "Já tenho a planta".
   const caso = ["obras", "carregar"].includes(estado.caminho) ? "planta" : estado.funil;
@@ -1665,7 +1666,7 @@ function acertarPedido() {
 // Ronda de correções (B3, decisão do dono): o passo "Quadro elétrico" é SÓ a foto (obrigatória). O que fazer ao quadro
 // — Manter como está / Melhorar (com a proteção: Básica, Recomendada, Completa) / Quadro novo — é o cartão "Quadro
 // elétrico" do passo Melhorias (desenharQuadroMelhorias; os mesmos campos de sempre: estado.mexerQuadro,
-// estado.quadro.pacote/protecoes/quadro_novo); o pára-raios / linha aérea pergunta-se em "A casa" (estado.quadro.para_raios).
+// estado.quadro.pacote/protecoes/quadro_novo); o para-raios / linha aérea pergunta-se em "A casa" (estado.quadro.para_raios).
 // Os circuitos, os disjuntores, os diferenciais, os módulos, a caixa e a potência continuam a ser calculados sozinhos
 // (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
@@ -1707,7 +1708,7 @@ function montarQuadroMelhorias() {
     }));
   }
 }
-/** Monta uma vez a pergunta do pára-raios (passo "A casa"). */
+/** Monta uma vez a pergunta do para-raios (passo "A casa"). */
 function montarParaRaios() {
   for (const [v, t] of PARA_RAIOS_SIMPLES) {
     $("casa-para-raios").append(escolha("radio", "casa-para-raios", v, t, null, (sim) => { if (sim) { estado.quadro.para_raios = v || null; estado.quadro.pacote = pacoteDoQuadro(estado.quadro); agendarGravacao(); } }));
@@ -1729,7 +1730,7 @@ function desenharQuadro() {
 /** O cartão "Quadro elétrico" das Melhorias como está no estado e uma frase simples com o que isso quer dizer. */
 function desenharQuadroMelhorias() {
   const q = estado.quadro;
-  // O descarregador obrigatório (pára-raios) não conta: "Básica" com pára-raios continua "Básica". Proteções
+  // O descarregador obrigatório (para-raios) não conta: "Básica" com para-raios continua "Básica". Proteções
   // escolhidas uma a uma numa versão antiga ("personalizado"): nenhum botão marcado até escolher um.
   const pacote = pacoteDoQuadro(q);
   for (const i of document.querySelectorAll("input[name=quadro-pacote]")) i.checked = i.value === pacote;
@@ -1748,10 +1749,10 @@ function desenharQuadroMelhorias() {
   }
   const partes = [];
   if (seguro) partes.push("Com o Quadro seguro: Completa e diferenciais Wi-Fi. Escolher outra proteção tira o Quadro seguro.");
-  if (q.para_raios === "sim") partes.push("Com pára-raios: descarregador de sobretensões incluído.");
+  if (q.para_raios === "sim") partes.push("Com para-raios: descarregador de sobretensões incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
-    : q.quadro_novo === "novo" ? "Quadro novo incluído." : "Quadro novo incluído por precaução: sai se o seu servir.");
+    : q.quadro_novo === "novo" ? "Quadro novo incluído." : "Só na visita sabemos se o seu quadro serve. Se servir, tiramos este valor.");
   nota.textContent = partes.join(" ");
   nota.hidden = false;
 }
@@ -3307,7 +3308,7 @@ function desenharAvaria() {
   const { preco, semDesloc } = calcular();
   ultimoPreco = { preco, plano: null };
   pr.hidden = semDesloc.total === null;
-  pr.textContent = semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}. A reparação orça-se na visita.`;
+  pr.textContent = semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}, descontado na reparação. A reparação orça-se na visita.`;
 }
 /** As fotos da avaria já tiradas (chaves FOTOS_AVARIA, pela ordem). */
 const fotosAvaria = () => FOTOS_AVARIA.filter((k) => fotos.has(k));
@@ -3444,6 +3445,7 @@ async function carregarCatalogo() {
     faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
     pagamentosAtivos = !(j.pagamentos && j.pagamentos.ativo === false);
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
+    ajudaAvaria();       // o preço do diagnóstico no cartão "Tenho uma avaria" do Início
   } catch {
     catalogo = null;
     configOrc = null;
@@ -3977,7 +3979,7 @@ function desenharDeslocacao() {
   if (d.estado === "sem_localidade") { caixa.hidden = true; textosPagamento(); return; }
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
-    caixa.append(el("p", null, `${d.concelho}${km}: fora da área servida, sem deslocação.`),
+    caixa.append(el("p", null, `${d.concelho}${km}: ${foraAreaTexto()}, sem deslocação.`),
       el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Sem visita técnica: contactamos para combinar."));
   }
   else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita."));
@@ -4050,12 +4052,23 @@ let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamen
 let pagamentosAtivos = true;          // GET /api/catalogo `pagamentos.ativo`: desligados, não se compra nada
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
 function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
+/** A área servida como se diz ao cliente: "até 100 km de Lisboa" (`deslocacao_max_km` e `deslocacao_base` da configuração). */
+function kmMaximo() { const v = Number(configOrc?.deslocacao_max_km); return Number.isFinite(v) && v > 0 ? v : DESLOCACAO_OMISSAO.deslocacao_max_km; }
+const baseDeslocacao = () => String(configOrc?.deslocacao_base ?? "").trim() || DESLOCACAO_OMISSAO.deslocacao_base;
+const foraAreaTexto = () => `fora da área servida (até ${kmMaximo()} km de ${baseDeslocacao()})`;
 /** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 42,50 € + deslocação". */
 const textoDiagnostico = (valor) => `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`;
+/** O cartão "Tenho uma avaria" do Início diz o preço do diagnóstico (DIAG-AVARIA + 0,5 h × tarifa) assim que o catálogo chega; sem ele, sem valor. */
+function ajudaAvaria() {
+  const ajuda = $("funil-avaria")?.querySelector("small");
+  if (!ajuda) return;
+  const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo ?? null, configOrc, { valor_iva: 0 });
+  ajuda.textContent = total === null ? AJUDA_FUNIL.avaria : `Diagnóstico ${formatarEuro(total)} + deslocação, descontado na reparação.`;
+}
 /** Número ≥ 0 da configuração do servidor, ou o de omissão (preco.js). */
 function valorConfig(k) {
   const v = configOrc?.[k];
@@ -4102,7 +4115,7 @@ function textosPagamento() {
   $("enviar-visita").hidden = fora;
   desenharCompras();
   $("enviar-texto").textContent = funilAvaria() && pagamentosAtivos
-    ? `${fora ? "Fora da área servida: fale connosco." : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
+    ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
     : `Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório`;
   TEXTO_ENVIAR = textoBotaoEnviar();
   if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
@@ -4162,7 +4175,7 @@ function desenharCompras() {
     l.querySelector("input").disabled = OPCOES_COMPRA[k].visita && semConc;
     l.querySelector("input").checked = k === atual;
   }
-  $("enviar-compras-nota").textContent = foraDaArea() ? "Fora da área servida: sem visita técnica."
+  $("enviar-compras-nota").textContent = foraDaArea() ? `${foraAreaTexto()}: sem visita técnica.`
     : semConc ? "Escolha o concelho da lista para marcar a visita."
       : `O que pagar agora é descontado na obra.${semLocal && estado.compras.visita ? " Para a visita, escreva a localidade." : ""}`;
 }
@@ -4246,7 +4259,7 @@ async function enviar() {
   }
   // Fase 3: a avaria paga-se ao enviar — fora da área não se envia (fale connosco); a visita precisa da localidade.
   if (funilAvaria() && pagamentosAtivos && foraDaArea()) {
-    mostrarEnvio("A sua localidade fica fora da área servida: não enviamos técnico. Fale connosco.", "erro", true);
+    mostrarEnvio(`A sua localidade fica a mais de ${kmMaximo()} km de ${baseDeslocacao()}, fora da área servida: não enviamos técnico. Fale connosco.`, "erro", true);
     return;
   }
   const compra = compraEfetiva();

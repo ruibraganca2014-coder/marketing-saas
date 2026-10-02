@@ -129,9 +129,9 @@
             <label>Potência contratada<select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9" selected>6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option></select></label>
             <label>Ligação<select id="casa-fases"><option value="mono">Monofásica</option><option value="tri">Trifásica</option></select></label>
           </div>
-          <!-- Ronda de correções (B3): o pára-raios / linha aérea é da casa (estado.quadro.para_raios; saiu do passo Quadro). -->
+          <!-- Ronda de correções (B3): o para-raios / linha aérea é da casa (estado.quadro.para_raios; saiu do passo Quadro). -->
           <fieldset class="escolhas" id="casa-para-raios-caixa">
-            <legend>Pára-raios ou linha aérea (postes)?</legend>
+            <legend>Para-raios ou linha aérea (postes)?</legend>
             <div class="escolhas-grelha tres-curtas" id="casa-para-raios"></div>
           </fieldset>
         </section>
@@ -173,7 +173,7 @@
           <h2 id="titulo-4" tabindex="-1">5. Quadro elétrico</h2>
           <!-- A foto do quadro (obrigatória; app.js desenharFotoQuadro). Ronda B: o passo é só a foto — o esquema do quadro é feito pelo
                eletricista no painel. Ronda de correções (B3): as perguntas do quadro (manter / melhorar com a proteção / quadro novo) estão
-               no cartão "Quadro elétrico" do passo Melhorias; o pára-raios em "A casa". -->
+               no cartão "Quadro elétrico" do passo Melhorias; o para-raios em "A casa". -->
           <div class="cartao quadro-foto" id="quadro-foto">
             <h3 id="quadro-foto-titulo">Foto do quadro *</h3>
             <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. A nossa equipa desenha o esquema a partir dela. As fotos são usadas só para preparar o orçamento e a visita.</p>

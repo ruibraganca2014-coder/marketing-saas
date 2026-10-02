@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Domus Energia — Eletricidade e automação</title>
-  <meta name="description" content="Instalações elétricas, quadros inteligentes e casa inteligente em todo o país. Controle a eletricidade da sua casa a partir do telemóvel.">
+  <meta name="description" content="Instalações elétricas, quadros inteligentes e casa inteligente na Grande Lisboa e até 100 km. Controle a eletricidade da sua casa a partir do telemóvel.">
   <link rel="canonical" href="https://opancas.pt/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="pt_PT">
   <meta property="og:site_name" content="Domus Energia">
   <meta property="og:title" content="Domus Energia — Eletricidade e automação">
-  <meta property="og:description" content="Instalações elétricas, quadros inteligentes e casa inteligente em todo o país. Controle a eletricidade da sua casa a partir do telemóvel.">
+  <meta property="og:description" content="Instalações elétricas, quadros inteligentes e casa inteligente na Grande Lisboa e até 100 km. Controle a eletricidade da sua casa a partir do telemóvel.">
   <meta property="og:url" content="https://opancas.pt/">
   <meta name="twitter:card" content="summary">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
@@ -28,10 +28,12 @@
   "name": "Domus Energia",
   "url": "https://opancas.pt/",
   "image": "https://opancas.pt/favicon.svg",
-  "description": "Instalações elétricas, quadros inteligentes e casa inteligente em todo o país. Controle a eletricidade da sua casa a partir do telemóvel.",
+  "description": "Instalações elétricas, quadros inteligentes e casa inteligente na Grande Lisboa e até 100 km. Controle a eletricidade da sua casa a partir do telemóvel.",
   "areaServed": {
-    "@type": "City",
-    "name": "Lisboa"
+    "@type": "GeoCircle",
+    "name": "Grande Lisboa e até 100 km",
+    "geoMidpoint": { "@type": "GeoCoordinates", "latitude": 38.7223, "longitude": -9.1393 },
+    "geoRadius": "100000"
   },
   "priceRange": "€€",
   "makesOffer": [
@@ -98,7 +100,7 @@
         <li><a href="#como-funciona">Como funciona</a></li>
         <li><a href="#planos">Planos e preços</a></li>
         <li><a href="#contactos">Contactos</a></li>
-        <li><a href="#orcamento">Pedir orçamento</a></li>
+        <li><a href="#orcamento">Pedir contacto</a></li>
         <li><a href="simulador.html">Simular orçamento</a></li>
         <li><a href="cliente.html">Área de cliente</a></li>
         <li><a href="conta.html">A minha conta</a></li>
@@ -110,14 +112,14 @@
     <div class="hero">
       <div class="wrap">
         <div>
-          <div class="selo">A trabalhar em todo o país</div>
+          <div class="selo">Grande Lisboa e até 100 km (deslocação incluída no orçamento)</div>
           <h1>A eletricidade da sua casa,<br><em>na palma da mão.</em></h1>
-          <p>Instalações elétricas certificadas e quadros inteligentes: ligue e desligue circuitos, veja o consumo em tempo real e poupe na fatura a partir do telemóvel.</p>
+          <p>Instalações elétricas certificadas: quadros, carregadores de carro e casa inteligente. Depois, controla tudo no telemóvel: circuitos, consumo e alertas.</p>
           <div class="acoes">
-            <a class="btn" href="#orcamento">Pedir contacto grátis</a>
-            <a class="btn sec" id="hero-simular" href="simulador.html">Simular orçamento</a>
-            <a class="btn sec js-whatsapp" href="#">Falar no WhatsApp</a>
+            <a class="btn" id="hero-simular" href="simulador.html">Ver o preço da minha casa</a>
           </div>
+          <!-- Telefone e WhatsApp escondidos pelo site.js enquanto o config.js tiver números de exemplo: fica o email. -->
+          <p class="hero-ou"><span class="js-ou-ligar">ou ligue: <a class="js-telefone" href="#"><span class="js-telefone-texto">Telefone</span></a><span class="js-ou-sep"> · </span><a class="js-whatsapp" href="#">WhatsApp</a></span><span class="js-ou-email" hidden>ou escreva-nos: <a class="js-email" href="#"><span class="js-email-texto">Email</span></a></span></p>
         </div>
         <!-- Casa em traço, desenhada à mão; janelas acesas a areia. -->
         <svg class="casa" viewBox="0 0 360 300" role="img" aria-label="Desenho de uma casa com as janelas acesas">
@@ -150,7 +152,7 @@
     <section id="servicos">
       <div class="wrap">
         <h2>Serviços</h2>
-        <p class="sub">Da instalação elétrica à casa totalmente automatizada, com um só contacto.</p>
+        <p class="sub">Fazemos a parte elétrica e deixamos a casa a responder ao telemóvel. Um só técnico, do quadro à app.</p>
         <div class="grelha">
           <div class="cartao">
             <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="6" y="5" width="24" height="26" rx="3"/><path d="M11 11v6M16 11v6M21 11v6M26 11v6M10 23h16"/><rect class="cheio" x="14.6" y="12.4" width="2.8" height="3.4" rx=".6"/></svg></div>
@@ -179,12 +181,12 @@
     <section id="como-funciona" class="alt">
       <div class="wrap">
         <h2>Como funciona</h2>
-        <p class="sub">Simples, rápido e sem obras de grande dimensão.</p>
+        <p class="sub">Quatro passos. A obra fica normalmente feita num dia.</p>
         <div class="grelha passos">
-          <div class="cartao"><h3>Simulação e visita</h3><p>Simule no site e envie o pedido grátis: recebe logo o relatório básico. O relatório completo (29 €) e a visita técnica pagam-se à parte e são descontados na obra. A proposta final é sem compromisso.</p></div>
+          <div class="cartao"><h3>Simule e peça</h3><p>Em poucos minutos tem uma estimativa e o relatório básico da sua casa. Enviar o pedido é grátis.</p><ul class="passo-lista"><li>Relatório completo: 29 €</li><li>Visita técnica: deslocação + 30 min</li><li>Os dois descontam na obra</li></ul></div>
           <div class="cartao"><h3>Instalação</h3><p>Instalamos disjuntores e sensores inteligentes certificados, normalmente num só dia.</p></div>
           <div class="cartao"><h3>Configuração da app</h3><p>Damos-lhe o acesso à app e à área de cliente, com os circuitos já identificados.</p></div>
-          <div class="cartao"><h3>Controlo total</h3><p>Controle tudo à distância e receba alertas no telemóvel. Estamos sempre disponíveis para apoio.</p></div>
+          <div class="cartao"><h3>Controlo total</h3><p>Luzes, estores e alarme no bolso. Se algo falhar, fale connosco: é a mesma equipa que esteve em sua casa.</p></div>
         </div>
       </div>
     </section>
@@ -206,6 +208,8 @@
           <div class="cartao como-bloco">
             <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 6 13.5h5L9.5 21 18 10h-5.5z"/></svg></span>Tenho uma avaria · ~2 min</h3>
             <p>1 Início · 2 Avaria · 3 Enviar</p>
+            <!-- O mesmo valor que o simulador calcula (DIAG-AVARIA + 0,5 h × tarifa): atualizar aqui se o catálogo mudar. -->
+            <p class="como-preco">Diagnóstico 42,50 € + deslocação, descontado na reparação.</p>
           </div>
         </div>
         <p class="sub">Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>
@@ -270,17 +274,18 @@
     <section id="contactos">
       <div class="wrap">
         <h2>Contactos</h2>
-        <p class="sub">Fale connosco da forma que preferir. Respondemos rapidamente.</p>
+        <p class="sub">Ligue, mande WhatsApp ou escreva. Respondemos em dia útil.</p>
         <div class="contactos">
           <div class="lista-contactos">
             <a class="js-whatsapp" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 19.5l1.2-3.6A8 8 0 1 1 8.6 18.6z"/></svg></span><span><b>WhatsApp</b><small>Resposta mais rápida</small></span></a>
             <a class="js-telefone" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 3.8 9 4.3l1.3 4-1.8 1.4a11 11 0 0 0 5.8 5.8l1.4-1.8 4 1.3.5 2.4c.2 1-.6 2-1.7 2A15.9 15.9 0 0 1 4.6 5.5c0-1.1 1-1.9 2-1.7z"/></svg></span><span><b class="js-telefone-texto">Telefone</b><small>Ligar agora</small></span></a>
             <a class="js-email" href="#"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="m4.5 7 7.5 6 7.5-6"/></svg></span><span><b class="js-email-texto">Email</b><small>Enviar email</small></span></a>
+            <a class="pedir-contacto" href="#orcamento"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14v11H9l-4 3.5z"/><path d="M8.5 8.5h7M8.5 11.5h4"/></svg></span><span><b>Pedir contacto</b><small>Deixe o pedido no formulário</small></span></a>
           </div>
 
           <div class="cartao" id="orcamento">
             <h3>Pedir contacto</h3>
-            <p class="ajuda-form">O contacto é grátis e sem compromisso (a estimativa no simulador também). A visita técnica paga-se à parte (deslocação e 30 min) e é descontada na obra. Deixe pelo menos um contacto (telefone ou email). * obrigatório</p>
+            <p class="ajuda-form">Sem compromisso. Trabalhamos na Grande Lisboa e até 100 km (deslocação incluída no orçamento). A visita técnica (deslocação e 30 min) paga-se à parte e desconta na obra. Deixe pelo menos um contacto (telefone ou email). * obrigatório</p>
             <form id="form-orcamento">
               <div class="duas">
                 <label>Nome *<input name="nome" required maxlength="120" autocomplete="name"></label>
@@ -331,6 +336,7 @@
         <a href="termos.html">Termos</a>
         <a href="cookies.html">Cookies</a>
       </nav>
+      <a href="#orcamento">Pedir contacto</a>
       <a href="conta.html">A minha conta</a>
       <a href="cliente.html">Área de cliente</a>
     </div>

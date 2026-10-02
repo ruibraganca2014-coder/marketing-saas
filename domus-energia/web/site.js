@@ -17,6 +17,12 @@ document.querySelectorAll(".js-telefone").forEach((a) => { if (temTelefone) a.hr
 document.querySelectorAll(".js-telefone-texto").forEach((el) => (el.textContent = cfg.telefoneVisivel));
 document.querySelectorAll(".js-email").forEach((a) => (a.href = `mailto:${cfg.email}`));
 document.querySelectorAll(".js-email-texto").forEach((el) => (el.textContent = cfg.email));
+// Hero (index.html): "ou ligue: telefone · WhatsApp"; sem nenhum dos dois (números de exemplo), "ou escreva-nos: email".
+const ouLigar = document.querySelector(".js-ou-ligar");
+if (ouLigar) {
+  if (!temTelefone && !temWhatsapp) { ouLigar.hidden = true; document.querySelector(".js-ou-email").hidden = false; }
+  else if (!temTelefone || !temWhatsapp) ouLigar.querySelector(".js-ou-sep").hidden = true;
+}
 document.getElementById("ano").textContent = new Date().getFullYear();
 
 // ---------- Menu para telemóvel ----------
@@ -124,7 +130,7 @@ form?.addEventListener("submit", async (e) => {   // as páginas de anúncio nã
 
   if (estado >= 200 && estado < 300) {
     form.reset();
-    mostrar("Pedido enviado! Entraremos em contacto muito em breve.", true);
+    mostrar(`Pedido recebido. Respondemos em dia útil.${temTelefone ? ` Se for urgente, ligue ${cfg.telefoneVisivel}.` : ""}`, true);
   } else if (estado === 429) {
     mostrar("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
   } else if (estado === 400) {

@@ -8,14 +8,14 @@ import { aVerificarNaVisita } from '../public/ecras/simulacao.js';
 const temas = (l) => l.map((x) => x.tema);
 const texto = (l, tema) => l.filter((x) => x.tema === tema).map((x) => x.texto).join(' | ');
 
-test('"Não sei" (pára-raios, quadro, potência, ligação), localidade não reconhecida e avisos', () => {
+test('"Não sei" (para-raios, quadro, potência, ligação), localidade não reconhecida e avisos', () => {
   const l = aVerificarNaVisita({
     casa: { potencia_contratada_kva: null, fases: null },
     quadro: { circuitos: [], pacote: 'recomendado', protecoes: { descarregador: true }, para_raios: null, quadro_novo: null, quadro_novo_no_preco: true, modulos: { tamanho: 18, novos: 6 }, potencia_sugerida_kva: 6.9, potencia_carga_w: 5400 },
     deslocacao: { estado: 'visita', localidade: 'Aldeia X', valor_iva: 10 },
     avisos: ['Este circuito pode não aguentar. (orientativo — confirmamos na visita)'],
   });
-  assert.match(texto(l, 'Pára-raios / linha aérea'), /NÃO SABE.*recomendado \(RTIEBT 801\.5\.10\) \(já está incluído\)/);
+  assert.match(texto(l, 'Para-raios / linha aérea'), /NÃO SABE.*recomendado \(RTIEBT 801\.5\.10\) \(já está incluído\)/);
   assert.match(texto(l, 'Quadro elétrico'), /NÃO SABE se o quadro atual serve.*quadro novo por precaução.*6 módulos novos/);
   assert.match(texto(l, 'Potência contratada'), /NÃO SABE.*sugerida 6,9 kVA/);
   assert.match(texto(l, 'Ligação'), /NÃO SABE se a ligação é monofásica ou trifásica/);
@@ -23,7 +23,7 @@ test('"Não sei" (pára-raios, quadro, potência, ligação), localidade não re
   assert.equal(texto(l, 'Aviso da simulação'), 'Este circuito pode não aguentar.', 'sem o "(orientativo…)"');
 });
 
-test('pára-raios "sim", potência curta, trifásica, máquinas ≥ 2000 W, carregador e quadros parciais', () => {
+test('para-raios "sim", potência curta, trifásica, máquinas ≥ 2000 W, carregador e quadros parciais', () => {
   const planta = {
     divisoes: [
       { id: 'd1', nome: 'Cozinha', piso: 0, x_cm: 0, y_cm: 0, largura_cm: 400, altura_cm: 400, pontos: [[0, 0], [400, 0], [400, 200], [200, 400], [0, 400]] },
@@ -49,7 +49,7 @@ test('pára-raios "sim", potência curta, trifásica, máquinas ≥ 2000 W, carr
       modulos: { tamanho: 24, quadros: 1, parciais: 1, tamanho_parcial: 12, novos: 14, cabe: true }, potencia_sugerida_kva: 10.35, potencia_carga_w: 9000,
     },
   });
-  assert.match(texto(l, 'Pára-raios / linha aérea'), /SIM.*NÃO está incluído/);
+  assert.match(texto(l, 'Para-raios / linha aérea'), /SIM.*NÃO está incluído/);
   assert.match(texto(l, 'Quadro elétrico'), /atual serve.*14 módulos novos \(acima de 12: ampliação incluída\)/);
   assert.match(texto(l, 'Potência contratada'), /6,9 kVA pode ser CURTA: sugerida 10,35 kVA/);
   assert.match(texto(l, 'Ligação'), /^Trifásica/);

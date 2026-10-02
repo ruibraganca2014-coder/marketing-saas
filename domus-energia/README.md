@@ -1,6 +1,6 @@
 # ⚡ Domus Energia
 
-Eletricidade e automação para casas em todo o país. A Domus Energia instala disjuntores, interruptores e sensores Wi-Fi e o cliente controla a casa na **app Android** e na **área de cliente** do site: circuitos, consumo, alarme, cenas, automações e notificações. Cada cliente paga um plano mensal (Base, Conforto ou Premium), e a equipa trabalha num **painel da empresa**.
+Eletricidade e automação para casas na Grande Lisboa e até 100 km (deslocação incluída no orçamento). A Domus Energia instala disjuntores, interruptores e sensores Wi-Fi e o cliente controla a casa na **app Android** e na **área de cliente** do site: circuitos, consumo, alarme, cenas, automações e notificações. Cada cliente paga um plano mensal (Base, Conforto ou Premium), e a equipa trabalha num **painel da empresa**.
 
 Tudo corre num **servidor próprio**, sem clouds de terceiros. Os aparelhos (Chayo/Tongou e outros Tuya reprogramados com **OpenBeken**, e **Shelly**) falam MQTT diretamente com o nosso servidor.
 

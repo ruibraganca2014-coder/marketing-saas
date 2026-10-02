@@ -105,7 +105,7 @@ async function carregar() {
   if (regresso) await mostrarRegresso(); else if ($("conta-msg").classList.contains("erro")) mensagem(null);
   const pedidos = Array.isArray(r?.pedidos) ? r.pedidos : [];
   if (!pedidos.length) {
-    const p = el("p", "vazio", "Ainda não enviou nenhum pedido. ");
+    const p = el("p", "vazio", "Ainda não há pedidos nesta conta. Quando simular e enviar, aparecem aqui com o relatório e o andamento. ");
     const a = el("a", null, "Simular orçamento");
     a.href = "simulador.html";
     p.append(a);
@@ -361,7 +361,8 @@ function blocoVisita(p) {
     return b;
   }
   if (!cp.pode) return null;
-  if (v.fora_area) b.append(el("p", null, "Fora da área servida: sem visita técnica. Fale connosco."));
+  // A área servida (deslocacao_max_km, 100 km de Lisboa) não chega à conta: o texto diz o valor da configuração de omissão.
+  if (v.fora_area) b.append(el("p", null, "Fora da área servida (até 100 km de Lisboa): sem visita técnica. Fale connosco."));
   else if (v.sem_concelho) b.append(el("p", null, "Não reconhecemos o concelho da localidade: fale connosco para marcar a visita."));
   else if (!cp.ativas) b.append(el("p", null, "Um técnico vê a casa e confirma o trabalho. Descontada na obra."), el("p", "ajuda", SEM_COMPRAS));
   else {

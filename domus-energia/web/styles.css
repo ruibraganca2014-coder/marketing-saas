@@ -136,8 +136,11 @@ nav .link { display: none; }
 .hero h1 em { font-style: normal; color: var(--musgo-texto); }
 .hero p { font-size: 1.15rem; color: var(--texto-suave); max-width: 600px; margin: 0 0 28px; }
 .hero .acoes { display: flex; flex-wrap: wrap; gap: 12px; }
-.selo { display: inline-flex; align-items: center; gap: 8px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 999px; padding: 6px 14px; font-size: .9rem; font-weight: 600; color: var(--texto-suave); margin-bottom: 18px; }
-.selo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--areia); }
+/* Por baixo do botão do hero: "ou ligue: … · WhatsApp" (ou o email, enquanto os números são de exemplo); nos anúncios, o que é grátis. */
+.hero .hero-ou { margin: 14px 0 0; font-size: 1rem; color: var(--texto-suave); }
+.hero .hero-ou a { color: var(--musgo-texto); font-weight: 700; }
+.selo { display: inline-flex; align-items: center; gap: 8px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 999px; padding: 6px 14px; font-size: .9rem; font-weight: 600; color: var(--texto-suave); margin-bottom: 18px; text-wrap: balance; }
+.selo::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--areia); flex: none; }
 .casa { width: 100%; max-width: 440px; justify-self: center; height: auto; }
 .casa .traco { fill: none; stroke: var(--musgo); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 .casa .fino { stroke-width: 2; }
@@ -162,6 +165,9 @@ h2 { font-size: clamp(1.7rem, 3.8vw, 2.4rem); margin: 0 0 10px; }
 .cartao p { margin: 0; color: var(--texto-suave); }
 
 .passos { counter-reset: passo; }
+/* "Simule e peça": os valores em linhas curtas, não numa frase. */
+.passos .passo-lista { margin: 10px 0 0; padding-left: 1.2em; color: var(--texto-suave); display: grid; gap: 4px; }
+.como-bloco .como-preco { color: var(--texto); font-weight: 600; }
 /* Como funciona a simulação (site #como-simular e simulador #sim-antes). */
 .como-simular { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
 .como-bloco h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; font-size: 1.2rem; }
@@ -875,6 +881,14 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .hero .anuncio-preco-texto { font-size: clamp(1.6rem, 5vw, 2rem); }
 .hero .anuncio-preco-nota { margin: 0; font-size: .95rem; color: var(--texto-suave); }
 @media (min-width: 760px) { .anuncio-tres { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* A secção própria de cada anúncio (ronda copy): potências do carregador, sinais do quadro, cenários, para onde vai a energia. */
+.anuncio-destaque { margin: 0 0 6px; font: 800 clamp(1.7rem, 4vw, 2rem)/1.1 var(--letra-titulos); color: var(--musgo-texto); }
+.anuncio-lista { margin: 24px 0 0; padding-left: 1.3em; max-width: 760px; display: grid; gap: 10px; color: var(--texto-suave); }
+.anuncio-lista li b { color: var(--texto); }
+.anuncio-sinais { margin-top: 0; font-size: 1.05rem; }
+.anuncio-sinais li::marker { font-weight: 800; color: var(--musgo-texto); }
+.anuncio-nota-lista { margin: 24px 0 0; max-width: 760px; color: var(--texto-suave); }
+.anuncio-nota-lista b { color: var(--texto); }
 .anuncio-faq { display: grid; gap: 12px; max-width: 760px; }
 .anuncio-faq details { padding: 0; }
 .anuncio-faq summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 12px 20px; cursor: pointer; font-weight: 700; list-style: none; border-radius: var(--raio); }

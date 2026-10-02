@@ -45,7 +45,7 @@ export function normalizarMelhorias(v) {
   return { aceites, quadroAnterior };
 }
 
-/** O quadro já tem a proteção máxima? (com pára-raios o descarregador já é obrigatório: quadro.js protecoesEfetivas) */
+/** O quadro já tem a proteção máxima? (com para-raios o descarregador já é obrigatório: quadro.js protecoesEfetivas) */
 export const quadroNoMaximo = (q) => { const p = protecoesEfetivas(q); return PROTECOES_MAXIMAS.every((k) => p[k]); };
 
 /**

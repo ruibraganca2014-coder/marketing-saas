@@ -37,7 +37,7 @@ function mostrar(fase) {
 
 /** Sem câmara nem foto: a página fica só com a mensagem. */
 function terminar(texto) {
-  $("foto-rotulo").textContent = "Tirar foto";
+  $("foto-rotulo").textContent = "";   // o h1 já diz "Foto para o simulador"
   mostrar("fim");
   $("foto-seguintes-caixa").hidden = true;
   msg(texto, "erro");

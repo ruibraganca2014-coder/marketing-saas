@@ -204,7 +204,7 @@ export function erroEcra(erro, tentar) {
 export function semAcesso() {
   return h("div", { class: "cartao sem-acesso", role: "alert" },
     h("h2", { text: "Sem acesso" }),
-    h("p", { text: "A sua conta não tem acesso a esta área. Se precisar dela, fale com o CEO." }),
+    h("p", { text: "Esta área é só para o CEO. Se precisar dela, peça-lhe acesso." }),
     h("a", { class: "btn sec pequeno", href: "#/inicio", text: "Voltar ao início" }));
 }
 
