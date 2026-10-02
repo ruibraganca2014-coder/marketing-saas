@@ -426,11 +426,10 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
     svg.append(gs);
   }
 
-  // Elementos: ícone num disco, rodado quando faz sentido.
+  // Elementos: ícone num disco.
   const ge = no("g", { "data-camada": "elementos" });
   for (const e of elementos) {
     const x = numero(e.x_cm), y = numero(e.y_cm);
-    const rot = [0, 90, 180, 270].includes(e.rot) ? e.rot : 0;
     const sel = !soLeitura && selecionado === e.id;
     const nitido = !haSel || sel || (selDiv && e.divisao === selDiv.id);
     const g = no("g", { "data-elemento": e.id, "data-tipo": String(e.tipo), transform: `translate(${x} ${y})` }, nitido ? null : { opacity: ESBATIDO });
@@ -449,18 +448,12 @@ export function desenharPlanta(svg, planta, opcoes = {}) {
       stroke: e.tipo === "porta" && e.props?.entrada ? COR.argila : COR.musgo, "stroke-width": "2px", "vector-effect": "non-scaling-stroke",
     }));
     const s = (raio * 1.5) / 48;
-    const gi = no("g", { transform: `rotate(${rot}) scale(${s}) translate(-24 -24)` }, { "pointer-events": "none" });
+    const gi = no("g", { transform: `scale(${s}) translate(-24 -24)` }, { "pointer-events": "none" });   // sempre direito: os aparelhos não rodam (decisão do dono)
     const partes = e.tipo === "maquina" && numero(e.props?.potencia_w) >= 2000 ? [...icone(e), ...ICONE_RAIO.map(([tg, a]) => [tg, { ...a, transform: "translate(12 -8) scale(.5)" }, "a"])] : icone(e);
     for (const [tag, a, papel] of partes) {
       gi.append(no(tag, a, papel === "t"
         ? { fill: "none", stroke: COR.texto, "stroke-width": "1.6px", "stroke-linecap": "round", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" }
         : { fill: papel === "a" ? COR.argila : COR.areia, stroke: "none" }));
-    }
-    // Sentido (porta: para onde abre; janela/tomada/interruptor: a parede) — um traço na borda.
-    if (e.tipo === "porta" || e.tipo === "janela" || e.tipo === "tomada" || e.tipo === "interruptor") {
-      g.append(no("path", { d: `M${-raio * 0.7} ${-raio}H${raio * 0.7}`, transform: `rotate(${rot})` }, {
-        fill: "none", stroke: COR.argila, "stroke-width": "4px", "stroke-linecap": "round", "vector-effect": "non-scaling-stroke", "pointer-events": "none",
-      }));
     }
     g.append(gi);
     // Selo da ação (só as que não são a do serviço): disco pequeno com a letra, por cima à direita.

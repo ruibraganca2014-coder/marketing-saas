@@ -426,7 +426,7 @@ $("sim-seguinte").addEventListener("click", () => {
   // Do Início só com o caso (e, na primeira vez, um serviço); de "Trocar e reparar" só com o que fazer a cada aparelho
   // respondido (as Divisões são só contar: seguem logo); da Avaria com onde, o que se passa e a foto.
   if (estado.passo === P.inicio && bloquearInicio()) return;
-  if (estado.passo === P.casa && bloquearCasa()) return;
+  if (estado.passo === P.casa && confirmarCasa()) return;
   if (estado.passo === P.quadro && bloquearQuadro()) return;   // a foto do quadro é obrigatória
   // Divisões e "Trocar e reparar": primeiro a divisão seguinte ainda por ver (divisão a divisão).
   if (verSeguinteDivisao()) return;
@@ -719,6 +719,68 @@ function bloquearCasa() {
   if (estado.passo !== P.casa) irPara(P.casa, { foco: false });
   if (estado.casa.tipo) assinalar($("casa-tipologia-caixa"), "Escolha a tipologia.");
   else assinalar($("casa-tipos").closest("fieldset"), "Escolha o tipo de casa.");
+  return true;
+}
+/*
+ * "Seguinte" em "A casa" (decisão do dono): não se avança sem a casa configurada. Uma janela (<dialog> modal) diz o
+ * que falta preencher; com tudo preenchido, pergunta se a planta ao lado está parecida com a casa — só o "Sim,
+ * continuar" avança. A resposta vale enquanto as divisões não mudarem (mudar a casa ou a planta volta a perguntar).
+ */
+let plantaConfirmada = null;   // as divisões (JSON) a que o cliente disse "Sim, continuar"
+let janelaCasa = null;
+const assinaturaPlanta = () => JSON.stringify(estado.planta?.divisoes ?? []);
+function confirmarCasa() {
+  if (codigoCliente) return false;
+  const falta = casaPorEscolher();
+  if (!falta && plantaConfirmada === assinaturaPlanta()) return false;
+  const dlg = janelaCasa ?? (() => {
+    const j = el("dialog", "editor-dialogo editor-mais janela-casa");
+    j.id = "casa-janela";
+    j.setAttribute("aria-labelledby", "casa-janela-titulo");
+    const t = el("h2");
+    t.id = "casa-janela-titulo";
+    const corpo = el("div", "editor-mais-corpo");
+    corpo.id = "casa-janela-corpo";
+    const bs = el("div", "form-botoes");
+    bs.id = "casa-janela-botoes";
+    j.append(t, corpo, bs);
+    document.body.append(j);
+    janelaCasa = j;
+    return j;
+  })();
+  const corpo = $("casa-janela-corpo"), bs = $("casa-janela-botoes");
+  const botao = (classe, texto, id, acao) => {
+    const b = el("button", classe, texto);
+    b.type = "button";
+    b.id = id;
+    b.addEventListener("click", () => { dlg.close(); acao(); });
+    return b;
+  };
+  const passos = el("ul", "janela-casa-lista");
+  if (falta) {
+    $("casa-janela-titulo").textContent = "Falta configurar a casa";
+    passos.append(
+      el("li", null, estado.casa.tipo ? "Escolha a tipologia (T0, T1, T2…)." : "Escolha o tipo de imóvel e a tipologia."),
+      el("li", null, "Acerte os quartos, as casas de banho, as salas e o que a casa tem."),
+      el("li", null, "Arrume a planta ao lado: arraste cada divisão para o sítio e puxe os cantos para o tamanho."),
+    );
+    corpo.replaceChildren(el("p", null, "Antes de continuar, preencha os campos e desenhe a planta da sua casa:"), passos);
+    bs.replaceChildren(botao("btn", "Preencher", "casa-janela-preencher", () => bloquearCasa()));
+  } else {
+    $("casa-janela-titulo").textContent = "A planta está parecida com a sua casa?";
+    passos.append(
+      el("li", null, "As divisões são as da sua casa (quartos, casas de banho, salas…)."),
+      el("li", null, "Cada divisão está no sítio certo: arraste-a na planta para a mudar."),
+      el("li", null, "O tamanho está perto do real: puxe os cantos da divisão."),
+    );
+    corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório e o orçamento. Confirme:"), passos);
+    bs.replaceChildren(
+      botao("btn sec", "Ainda não, vou ajustar", "casa-janela-ajustar", () => focar("titulo-1")),
+      botao("btn", "Sim, continuar", "casa-janela-sim", () => { plantaConfirmada = assinaturaPlanta(); irPara(passoAo(estado.passo, 1)); }),
+    );
+  }
+  dlg.showModal();
+  bs.querySelector("button:last-child")?.focus();
   return true;
 }
 /** Botão de escolha (rádio ou sim/não) no estilo .escolha, com texto de ajuda e desenho (por cima do nome) opcionais. */
