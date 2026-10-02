@@ -1165,69 +1165,17 @@ function acertarQuer() {
  * Os objetivos são da casa toda.
  */
 /**
- * Fase 3 da auditoria — as 8 máquinas principais de uma casa e as habituais por tipologia, pré-marcadas (uma vez, no
- * r/c) quando o passo aparece sem nada escolhido: T0/T1 placa, frigorífico, TV e máquina de lavar roupa; T2+ também
- * forno, lavar loiça e termoacumulador; moradia ou T3+ também ar condicionado. São sugestões: o cliente desmarca
- * ("Marcámos o habitual para um T2. Ajuste."). "Mais máquinas" abre a grelha completa; uma máquina já escolhida (estado
- * guardado, página de anúncio) fica sempre à vista.
+ * Todas as máquinas do perfil ficam à vista, por grupos, e o passo abre sem nada marcado: o cliente marca só o que tem.
  */
-const MAQUINAS_PRINCIPAIS = ["placa", "forno", "maquina_lavar", "maquina_loica", "termoacumulador", "frigorifico", "televisao", "ar_condicionado"];
-function maquinasHabituais(casa) {
-  const t = casa.tipologia;
-  const n = t && /^T(\d+)/.test(t) ? Number(t.slice(1)) : null;
-  const l = ["placa", "frigorifico", "televisao", "maquina_lavar"];
-  if (n === null || n >= 2) l.push("forno", "maquina_loica", "termoacumulador");
-  if (casa.tipo === "moradia" || (n !== null && n >= 3)) l.push("ar_condicionado");
-  return l;
-}
-let maisMaquinas = false;   // "Mais máquinas": a grelha completa à vista (só nas casas; serviços e industrial veem tudo)
-let sugestaoFeita = false;  // a linha "Marcámos o habitual…" só nesta visita, depois de as marcar (um estado guardado não a repete)
-function sugerirMaquinas() {
-  if (estado.querSugerido || codigoCliente || perfilCasa(estado.casa.tipo) !== "habitacao" || maquinasEscolhidas(estado.quer).length) return;
-  sugestaoFeita = true;
-  const porPiso = { ...estado.quer.porPiso };
-  for (const k of maquinasHabituais(estado.casa)) porPiso[k] = { 0: 1 };
-  estado.quer = normalizarQuer({ ...estado.quer, porPiso }, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
-  estado.querSugerido = true;
-  acertarQuer();
-  sugerirLigacao();
-  agendarGravacao();
-}
-/** Esconde as máquinas fora das 8 principais (e não escolhidas) até "Mais máquinas"; grupos vazios saem; a linha da sugestão. */
-function filtrarMaquinas() {
-  const casa = perfilCasa(estado.casa.tipo) === "habitacao";
-  for (const c of document.querySelectorAll(`#passo-${P.quer} .quer-item`)) {
-    const k = c.dataset.maquina;
-    c.hidden = casa && !maisMaquinas && !MAQUINAS_PRINCIPAIS.includes(k) && !(estado.quer.quantidades[k] > 0);
-  }
-  for (const g of document.querySelectorAll(`#passo-${P.quer} .quer-grupo`)) g.hidden = ![...g.querySelectorAll(".quer-item")].some((c) => !c.hidden);
-  $("quer-pequenas").closest("fieldset").hidden = ![...$("quer-pequenas").querySelectorAll(".quer-item")].some((c) => !c.hidden);
-  const b = $("quer-mais");
-  b.hidden = !casa;
-  b.textContent = maisMaquinas ? "Menos máquinas" : "Mais máquinas";
-  b.setAttribute("aria-expanded", String(maisMaquinas));
-  const s = $("quer-sugestao");
-  s.hidden = !(casa && sugestaoFeita);
-  s.textContent = `Marcámos o habitual para ${estado.casa.tipo === "moradia" ? "uma moradia" : "um"}${estado.casa.tipo === "moradia" ? "" : ` ${estado.casa.tipologia ?? "apartamento"}`}. Ajuste.`;
-}
-$("quer-mais").addEventListener("click", () => { maisMaquinas = !maisMaquinas; filtrarMaquinas(); });
 function desenharQuer() {
   const gm = $("quer-maquinas"), gp = $("quer-pequenas");
   const perfil = perfilCasa(estado.casa.tipo);
   const n = pisosDaCasa(estado.casa);
   if (pisoQuer >= n) pisoQuer = 0;
-  sugerirMaquinas();
   if (gm.dataset.perfil !== perfil) {
     gm.dataset.perfil = perfil;
     // Marcada no piso à vista: 1 (o cliente muda no contador); desmarcada: sai desse piso.
     const alternarMaquina = (k) => (sim) => {
-      // Desmarcar tira-a da planta: pergunta primeiro (o cartão fica aceso até dizer que sim).
-      if (!sim && quantidadeNoPiso(estado.quer, k, pisoQuer) > 0) {
-        const i = $(`quer-extra-${k}`)?.parentElement.querySelector("input");
-        if (i) i.checked = true;
-        pedirTirarMaquina(k);
-        return;
-      }
       const m = { ...(estado.quer.porPiso[k] ?? {}) };
       if (sim) m[pisoQuer] = m[pisoQuer] || 1; else delete m[pisoQuer];
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
@@ -1260,7 +1208,6 @@ function desenharQuer() {
   }
   for (const i of [...gm.querySelectorAll("input[type=checkbox]"), ...gp.querySelectorAll("input[type=checkbox]")]) i.checked = quantidadeNoPiso(estado.quer, i.value, pisoQuer) > 0;
   for (const c of document.querySelectorAll(`#passo-${P.quer} .quer-item`)) desenharExtraQuer(c.dataset.maquina);
-  filtrarMaquinas();
   desenharPisosQuer();
 }
 
@@ -1345,7 +1292,17 @@ function desenharExtraQuer(k) {
     b.disabled = d > 0 && qtd >= MAX_QUANTIDADE;
     b.addEventListener("click", (ev) => {
       ev.stopPropagation();   // o − e o + não escolhem nem retiram a máquina (o cartão é o <label> ao lado)
-      if (d < 0 && qtd <= 1) { pedirTirarMaquina(k); return; }   // a última: "Tirar da planta?"
+      if (d < 0 && qtd <= 1) {   // a última: sai da planta (sem perguntar) e o cartão apaga-se
+        const m = { ...(estado.quer.porPiso[k] ?? {}) };
+        delete m[pisoQuer];
+        estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
+        acertarQuer();
+        sugerirLigacao();
+        agendarGravacao();
+        desenharQuer();
+        $(`quer-extra-${k}`)?.parentElement.querySelector("input")?.focus();
+        return;
+      }
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: { ...estado.quer.porPiso[k], [pisoQuer]: Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d)) } };
       acertarQuer();
       agendarGravacao();
@@ -1359,41 +1316,6 @@ function desenharExtraQuer(k) {
   };
   grupo.append(botaoQ("−", "Menos uma", -1), valor, botaoQ("+", "Mais uma", 1));
   extra.append(grupo);
-}
-
-/** "Tirar da planta?" por cima do cartão da máquina (a última desse piso): Sim tira-a da planta e apaga o cartão. */
-function pedirTirarMaquina(k) {
-  const extra = $(`quer-extra-${k}`);
-  const caixa = extra?.parentElement;
-  if (!caixa) return;
-  caixa.querySelector(".quer-tirar")?.remove();
-  const nome = MODELOS[k].nome;
-  const c = el("div", "confirmar quer-tirar");
-  c.setAttribute("role", "alert");
-  c.append(el("p", null, "Tirar da planta?"));
-  const bs = el("div", "botoes");
-  const sim = el("button", "btn pequeno", "Sim, tirar");
-  sim.type = "button";
-  sim.setAttribute("aria-label", `Sim, tirar da planta: ${nome}`);
-  const nao = el("button", "btn sec pequeno", "Cancelar");
-  nao.type = "button";
-  sim.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    c.remove();
-    const m = { ...(estado.quer.porPiso[k] ?? {}) };
-    delete m[pisoQuer];
-    estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
-    acertarQuer();
-    sugerirLigacao();
-    agendarGravacao();
-    desenharQuer();
-    caixa.querySelector("input")?.focus();
-  });
-  nao.addEventListener("click", (ev) => { ev.stopPropagation(); c.remove(); (extra.querySelector("button") ?? caixa.querySelector("input"))?.focus(); });
-  bs.append(sim, nao);
-  c.append(bs);
-  caixa.append(c);
-  sim.focus();
 }
 
 /**
@@ -4569,8 +4491,6 @@ function recomecar({ manterFotos = false } = {}) {
   visitado = PASSO_INICIAL;
   ultimoPreco = null;
   pisoQuer = 0;
-  maisMaquinas = false;
-  sugestaoFeita = false;
   pisoCasa = 0;
   divisaoTocada = null;
   aparelhoTocado = null;

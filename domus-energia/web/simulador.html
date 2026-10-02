@@ -136,10 +136,9 @@
         <!-- 3. Equipamentos (saltado com só "Reparações / avarias") -->
         <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
           <h2 id="titulo-2" tabindex="-1">3. Equipamentos</h2>
+          <p class="sub-passo">Marque o que tem hoje em casa, antes da obra. O que quer instalar de novo escolhe mais à frente.</p>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
-          <!-- Fase 3 da auditoria: as 8 principais pré-marcadas pela tipologia; "Mais máquinas" abre a grelha completa (app.js filtrarMaquinas) -->
-          <p class="msg info quer-sugestao" id="quer-sugestao" hidden></p>
           <div class="quer-painel" id="quer-painel">
             <fieldset class="escolhas">
               <legend>Máquinas grandes</legend>
@@ -150,7 +149,6 @@
               <div class="quer-grupos" id="quer-pequenas"></div>
             </fieldset>
           </div>
-          <div class="form-botoes"><button class="btn sec" id="quer-mais" type="button" aria-expanded="false" aria-controls="quer-painel">Mais máquinas</button></div>
           <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
         </section>
 

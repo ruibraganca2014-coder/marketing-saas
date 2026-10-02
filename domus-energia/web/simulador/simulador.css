@@ -470,8 +470,6 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 /* Estimativa provisória por baixo da barra dos passos (fase 3 da auditoria; app.js desenharEstimativaProvisoria). */
 .sim-estimativa { grid-column: 1 / -1; margin: 8px 0 0; font-size: .95rem; font-weight: 800; color: var(--musgo-texto); overflow-wrap: anywhere; }
 .sim-estimativa[hidden] { display: none; }
-.quer-sugestao { margin: 0 0 12px; }
-.quer-sugestao[hidden] { display: none; }
 .sim-completo-titulo { margin: 24px 0 12px; font-size: 1.2rem; display: grid; gap: 2px; }
 .sim-completo-titulo .ajuda { font-size: .9rem; font-weight: 400; }
 @media (max-width: 479px) { .sim-falta { font-size: .78rem; } }
@@ -729,11 +727,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .qd-txt.forte { font-weight: 800; font-size: 12px; }
 .qd-txt.mini { font-size: 8px; fill: var(--texto-suave); }
 
-/* ---------- Ronda B: "Equipamentos" — a máquina que está na planta fica acesa; "Tirar da planta?" por cima do cartão ---------- */
+/* ---------- Ronda B: "Equipamentos" — a máquina que está na planta fica acesa ---------- */
 .quer-item:has(> .escolha input:checked) > .escolha { box-shadow: inset 0 0 0 2px var(--musgo); }
 .quer-item:has(> .escolha input:checked) .escolha-icone { color: var(--musgo-texto); }
-.quer-item > .quer-tirar { position: absolute; inset: 0; z-index: 2; margin: 0; align-content: center; justify-items: center; text-align: center; border: 2px solid var(--alarme); border-radius: 16px; }
-.quer-item > .quer-tirar .botoes { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 
 /* ---------- Ronda B: passo "Avaria" ---------- */
 .avaria-problema-escolhido { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 12px; }
