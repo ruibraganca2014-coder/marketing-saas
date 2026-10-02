@@ -5,6 +5,11 @@
 .saltar:focus { top: 10px; }
 
 .simulador { padding: 24px 0 40px; }
+/* Antes de o app.js preencher a página: a barra dos passos e o formulário não se veem (o espaço fica reservado, o
+   rodapé não salta); sem JavaScript ou com um módulo a falhar, aparecem na mesma ao fim de 4 s. */
+.simulador { min-height: calc(100vh - 160px); }
+.simulador.a-carregar :is(.sim-progresso, #sim-form, .sim-falta) { visibility: hidden; animation: sim-mostrar 0s 4s forwards; }
+@keyframes sim-mostrar { to { visibility: visible; } }
 /* Sem "duplo toque para aproximar" na página: os toques seguidos (ferramenta → planta) não se perdem. */
 .pagina-simulador { touch-action: manipulation; }
 /* Cabeçalho compacto: o título e "Faltam cerca de N min." na mesma linha (o tempo à direita). */

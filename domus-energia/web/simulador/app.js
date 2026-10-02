@@ -4723,4 +4723,6 @@ function iniciar() {
 // Exposto só para os testes automáticos (não é usado pela página).
 window.__simulador = { get estado() { return estado; }, get editor() { return editor; }, normalizarEstado, entradaFoto, fotos };
 
-iniciar();
+// A página nasce com a barra dos passos e o formulário escondidos (simulador.html `.a-carregar`): só aparecem já
+// preenchidos, de uma vez, para não se ver a página vazia a passar. Se algo falhar, mostra-se na mesma.
+try { iniciar(); } finally { $("conteudo")?.classList.remove("a-carregar"); }
