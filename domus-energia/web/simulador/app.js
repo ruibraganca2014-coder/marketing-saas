@@ -1484,6 +1484,7 @@ function atualizarPlanta() {
   editor.definirPermissoes({
     divisoes: estado.passo === P.casa || estado.passo === P.planta,
     aparelhos: estado.passo !== P.casa && (estado.passo !== P.inicio || fasePlanta() === "tudo"),
+    vista: estado.passo !== P.casa,   // "A casa": a vista não se arrasta; as divisões arrastam-se logo
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
