@@ -563,7 +563,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
   let podeDivisoes = true;
   let podeAparelhos = true;
-  let podeVista = true;      // false ("A casa"): o rato e os dedos não deslocam nem aproximam a vista (só os botões); as divisões arrastam-se logo
   /** Tentou mudar uma divisão presa: a dica (e quem usa o editor mostra onde se mudam, `aoDivisaoPresa`). */
   function divisaoPresa() {
     avisar("Divisões presas neste passo.");
@@ -1260,7 +1259,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (ev.isPrimary) { ponteiros.clear(); pinca = null; }
     ponteiros.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
     pararToqueLongo();
-    if (ponteiros.size === 2 && !podeVista) { if (arrasto?.mexeu) terminarArrasto(); else arrasto = null; return; }
     if (ponteiros.size === 2) {
       ajusteAuto = false;   // pinça: o cliente escolheu a vista
       // Dois dedos: aproximar/deslocar; cancela o arrasto (o que já mexeu fica memorizado).
@@ -1313,15 +1311,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro: elementosDentro(d) };
       return;
     }
-    // Vista presa: arrastar uma divisão (mesmo sem a selecionar antes) move-a logo; no vazio, arrastar não faz nada.
-    if (!podeVista && idDiv && podeDivisoes) {
-      const d = obterDivisao(idDiv);
-      if (d) {
-        if (selecionado !== d.id) { selecionado = d.id; desenharTudo(); }
-        arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro: elementosDentro(d) };
-        return;
-      }
-    }
     // Divisão não selecionada ou vazio: arrastar desloca a vista; tocar seleciona.
     arrasto = { ...base, tipo: "deslocar", alvo: idDiv };
   });
@@ -1346,7 +1335,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const dx = p.x - arrasto.p0.x, dy = p.y - arrasto.p0.y;
     switch (arrasto.tipo) {
       case "deslocar":
-        if (!podeVista) break;
         if (arrasto.presa && !arrasto.avisou) { arrasto.avisou = true; divisaoPresa(); }
         ajusteAuto = false;   // deslocou a vista à mão
         fixarPonto(arrasto.p0, ev.clientX, ev.clientY);
@@ -1460,7 +1448,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // A roda do rato faz scroll à página (não aproxima a planta); Ctrl + roda (e a pinça do touchpad,
   // que chega como Ctrl + roda) continua a aproximar. Zoom também pelos botões − / +.
   svg.addEventListener("wheel", (ev) => {
-    if (!ev.ctrlKey || !podeVista) return;
+    if (!ev.ctrlKey) return;
     ev.preventDefault();
     const f = Math.exp(limitar(ev.deltaY, -300, 300) * (ev.deltaMode === 1 ? 0.05 : 0.0015));
     zoom(f, ev.clientX, ev.clientY);
@@ -2231,11 +2219,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * Lote 8: o que o passo deixa mudar na planta. `divisoes` false: as divisões selecionam-se mas não se movem, não
      * mudam de forma nem de tamanho, não se apagam nem duplicam, e as ferramentas das divisões escondem-se. `aparelhos`
      * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
-     * anular/refazer (cada passo só anula o que ele próprio deixa fazer). `vista` false: o rato e os dedos não deslocam
-     * nem aproximam a vista (ficam os botões) e arrastar uma divisão move-a logo, sem a selecionar primeiro.
+     * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
      */
-    definirPermissoes({ divisoes = true, aparelhos = true, vista = true } = {}) {
-      podeVista = vista;
+    definirPermissoes({ divisoes = true, aparelhos = true } = {}) {
       if (divisoes === podeDivisoes && aparelhos === podeAparelhos) return;
       const voltarAoInicio = divisoes && !podeDivisoes;   // QA N2: o grupo das divisões reaparece à esquerda
       podeDivisoes = divisoes;
