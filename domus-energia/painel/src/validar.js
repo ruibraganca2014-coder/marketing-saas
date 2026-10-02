@@ -216,7 +216,8 @@ export function esquemaQuadro(l) {
 /**
  * Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"; ecras/diagnostico-conteudo.js CHECKLIST):
  * `{verificacoes: [chaves feitas], valores: {chave: número}, tipo: chave de TIPOS_AVARIA | "outro" | null,
- * conclusao: texto ≤ 2000 | null}`. Devolve o objeto limpo; 400 com a razão.
+ * conclusao: texto ≤ 2000 | null}`. Um valor medido assinala a verificação respetiva (o cliente só vê os valores das
+ * verificações feitas). Devolve o objeto limpo; 400 com a razão.
  */
 export function diagnostico(d) {
   const f = (m) => falha(`Diagnóstico: ${m}.`);
@@ -236,7 +237,7 @@ export function diagnostico(d) {
   const tipo = d.tipo === undefined || d.tipo === null || d.tipo === '' ? null : d.tipo;
   if (tipo !== null && !Object.keys(NOME_TIPO).includes(tipo)) f(`tipo de avaria inválido (use: ${Object.keys(NOME_TIPO).join(', ')})`);
   const conclusao = texto(d.conclusao, 'a conclusão do diagnóstico', { max: MAX_CONCLUSAO, multilinha: true });
-  return { verificacoes: CHAVES_CHECKLIST.filter((k) => v.includes(k)), valores, tipo, conclusao };
+  return { verificacoes: CHAVES_CHECKLIST.filter((k) => v.includes(k) || k in valores), valores, tipo, conclusao };
 }
 
 /**

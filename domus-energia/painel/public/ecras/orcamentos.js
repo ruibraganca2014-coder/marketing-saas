@@ -4,8 +4,8 @@
 // Fotos do cliente (simulador): galeria na ficha (CEO/comercial podem apagar) e no relatório.
 // Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): nos pedidos de avaria/reparação, a secção
 // "Diagnóstico" (o que o cliente descreveu → tipos prováveis e primeiras verificações; lista de verificação com medições;
-// tipo encontrado; conclusão) → POST orcamentos/:id/diagnostico; aparece no relatório técnico e no pormenorizado do cliente.
-// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): relatório pormenorizado, visita, avaria, sinal e restante com o
+// tipo encontrado; conclusão) → POST orcamentos/:id/diagnostico; aparece no relatório técnico e no relatório completo do cliente.
+// Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): relatório completo, visita, avaria, sinal e restante com o
 // estado; "Libertar relatório ao cliente" (CEO, depois de o cliente o comprar); "Marcar visita" (data e hora, com a
 // disponibilidade do cliente); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída".
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
@@ -13,7 +13,7 @@ import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, e
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
 import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, blocoDiagnostico } from "./simulacao.js";
 import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from "./diagnostico-conteudo.js";
-// Conteúdo técnico do relatório pormenorizado (cópia de web/simulador/simbolos.js): planta técnica, esquemas, ensaios.
+// Conteúdo técnico do relatório completo (cópia de web/simulador/simbolos.js): planta técnica, esquemas, ensaios.
 import { seccaoTecnica } from "../vendor/simbolos.js";
 // Esquema do quadro feito pelo eletricista (ronda B; cópia de web/simulador/quadro-desenho.js): desenho e modelo.
 import {
@@ -181,7 +181,7 @@ export default function orcamentos(el, ctx) {
     if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
     else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
     partes.push(...blocoPagamentos(j, o, arquivado));
-    // Ensaios medidos (relatório pormenorizado): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
+    // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
     if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
     if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
@@ -293,11 +293,11 @@ export default function orcamentos(el, ctx) {
       // (com os pagamentos desligados não se compra: o CEO decide).
       const cp = campo(o, "compras");
       const comprado = !cp || cp.relatorio?.comprado || cp.ativas === false;
-      if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório pormenorizado libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
-      else if (!comprado) out.push(h("p", { class: "ajuda", id: "relatorio-por-comprar", text: cp?.avaria ? "Avaria: sem relatório pormenorizado (o cliente tem o básico)." : "O cliente tem o relatório básico; o pormenorizado ainda não foi comprado." }));
+      if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório completo libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
+      else if (!comprado) out.push(h("p", { class: "ajuda", id: "relatorio-por-comprar", text: cp?.avaria ? "Avaria: sem relatório completo (o cliente tem o básico)." : "O cliente tem o relatório básico; o completo ainda não foi comprado." }));
       else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
         onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
-      else out.push(h("p", { class: "ajuda", text: "Relatório pormenorizado em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
+      else out.push(h("p", { class: "ajuda", text: "Relatório completo em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
       out.push(...blocoVisitaPainel(j, o, acao));
     }
     // Proposta sem IVA → o que o cliente paga online (com IVA): total, sinal e restante.
@@ -422,7 +422,7 @@ export default function orcamentos(el, ctx) {
 
   /**
    * Ensaios medidos na visita/obra (POST orcamentos/:id/ensaios): continuidade do PE, isolamento, terra e disparo do
-   * diferencial, mais notas. O cliente vê-os na lista de ensaios do relatório pormenorizado; vazio = "a medir".
+   * diferencial, mais notas. O cliente vê-os na lista de ensaios do relatório completo; vazio = "a medir".
    */
   function formEnsaios(j, o) {
     const id = String(campo(o, "id"));
@@ -431,7 +431,7 @@ export default function orcamentos(el, ctx) {
     const entrada = (nome, rotulo, ajuda) => campoForm(rotulo, h("input", { name: nome, type: "number", min: "0", max: "1000000", step: "0.001", inputmode: "decimal", value: campo(e, nome) ?? "" }), ajuda);
     const f = h("form", { class: "form-grelha", id: "form-ensaios", novalidate: true },
       h("h3", { text: "Ensaios medidos" }),
-      h("p", { class: "ajuda", text: "Valores medidos na visita ou no fim da obra (ordem RTIEBT 612.1). Aparecem na lista de ensaios do relatório pormenorizado do cliente; em branco = a medir." }),
+      h("p", { class: "ajuda", text: "Valores medidos na visita ou no fim da obra (ordem RTIEBT 612.1). Aparecem na lista de ensaios do relatório completo do cliente; em branco = a medir." }),
       h("div", { class: "duas" },
         entrada("continuidade_pe", "Continuidade do PE (Ω)", "612.2: valor medido"),
         entrada("isolamento", "Isolamento (MΩ)", "612.3: ≥ referência, a 500 V DC")),
@@ -458,7 +458,7 @@ export default function orcamentos(el, ctx) {
         const r = await pedir(`orcamentos/${encodeURIComponent(id)}/ensaios`, { corpo });
         const novo = campo(r, "orcamento") ?? r;
         substituir(novo);
-        avisar("Ensaios guardados: o cliente vê-os no relatório pormenorizado.");
+        avisar("Ensaios guardados: o cliente vê-os no relatório completo.");
         if (ficha?.j === j) desenharFicha(j, novo);
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
     });
@@ -470,7 +470,7 @@ export default function orcamentos(el, ctx) {
    * (vendor/quadro-desenho.js): o geral, os diferenciais, os disjuntores e os módulos livres pela ordem da calha
    * (`ordem`); tocar num componente dá os amperes/mA e "Apagar"; tocar num módulo livre deixa pôr aí um disjuntor ou
    * diferencial; "+ Geral/Diferencial/Disjuntor" juntam no fim; "Módulos livres" − n +; estado e fusíveis. "Guardar
-   * esquema" → POST orcamentos/:id/esquema-quadro (CEO e comercial). O cliente vê-o só no relatório pormenorizado.
+   * esquema" → POST orcamentos/:id/esquema-quadro (CEO e comercial). O cliente vê-o só no relatório completo.
    */
   function seccaoEsquemaQuadro(j, o, fotos, arquivado) {
     const id = String(campo(o, "id"));
@@ -478,7 +478,7 @@ export default function orcamentos(el, ctx) {
     const fotoQuadro = fotos.find((f) => campo(f, "chave") === "quadro") ?? null;
     const sec = h("section", { class: "esquema-quadro", id: "esquema-quadro" });
     sec.append(h("h3", { text: "Esquema do quadro" }),
-      h("p", { class: "ajuda", text: "Desenhe o quadro do cliente a partir da foto: toque em + para juntar, num componente para mudar ou apagar, num módulo livre para pôr aí um disjuntor. O cliente vê o esquema no relatório pormenorizado." }));
+      h("p", { class: "ajuda", text: "Desenhe o quadro do cliente a partir da foto: toque em + para juntar, num componente para mudar ou apagar, num módulo livre para pôr aí um disjuntor. O cliente vê o esquema no relatório completo." }));
     const foto = fotoQuadro
       ? h("figure", { class: "foto-cliente esquema-foto" }, h("a", { href: urlFoto(id, campo(fotoQuadro, "id")), target: "_blank", rel: "noopener", title: "Abrir a foto inteira" },
         h("img", { src: urlFoto(id, campo(fotoQuadro, "id")), alt: "Foto do quadro elétrico do cliente", loading: "lazy", decoding: "async" })), h("figcaption", { text: "Foto do quadro (cliente)" }))
@@ -605,7 +605,7 @@ export default function orcamentos(el, ctx) {
         const r = await pedir(`orcamentos/${encodeURIComponent(id)}/esquema-quadro`, { corpo: { esquema: normalizarEsquema(l) } });
         const novo = campo(r, "orcamento") ?? r;
         substituir(novo, false);
-        avisar("Esquema do quadro guardado: o cliente vê-o no relatório pormenorizado.");
+        avisar("Esquema do quadro guardado: o cliente vê-o no relatório completo.");
         if (ficha?.j === j) { desenharFicha(j, novo); document.getElementById("esquema-guardar")?.focus({ preventScroll: true }); }
       } catch (erro) { guardar.disabled = false; mensagem(msg, erro.message); }
     });
@@ -627,7 +627,7 @@ export default function orcamentos(el, ctx) {
     const sec = h("section", { class: "diagnostico-pedido", id: "diagnostico-pedido" });
     sec.append(h("h3", { text: "Diagnóstico" }),
       h("p", { class: "ajuda" }, "Lista de verificação da avaria, com as medições e a causa encontrada. O guia completo está em ",
-        h("a", { href: "#/ajuda/diagnostico", text: "Ajuda técnica → Diagnóstico de avarias" }), ". O cliente vê o resultado só no relatório pormenorizado."));
+        h("a", { href: "#/ajuda/diagnostico", text: "Ajuda técnica → Diagnóstico de avarias" }), ". O cliente vê o resultado só no relatório completo."));
     const problemas = sim && sim.avaria && typeof sim.avaria === "object" ? sim.avaria.problema : null;
     const sug = sugestoesPara(Array.isArray(problemas) ? problemas : problemas ? [problemas] : []);
     const quadroAvaria = sim && sim.quadro && typeof sim.quadro.avaria === "string" ? sim.quadro.avaria.trim() : null;
@@ -673,7 +673,7 @@ export default function orcamentos(el, ctx) {
         const r = await pedir(`orcamentos/${encodeURIComponent(id)}/diagnostico`, { corpo: { diagnostico: vazio ? null : corpo } });
         const novo = campo(r, "orcamento") ?? r;
         substituir(novo, false);
-        avisar(vazio ? "Diagnóstico apagado." : "Diagnóstico guardado: aparece no relatório técnico e no pormenorizado do cliente.");
+        avisar(vazio ? "Diagnóstico apagado." : "Diagnóstico guardado: aparece no relatório técnico e no relatório completo do cliente.");
         if (ficha?.j === j) { desenharFicha(j, novo); document.getElementById("diagnostico-guardar")?.focus({ preventScroll: true }); }
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
     });
@@ -854,7 +854,7 @@ function textoHistorico(x, sim) {
     if (d.data_visita) partes.push(`visita: ${data(d.data_visita)}`);
     if (d.valor_proposta != null) partes.push(`proposta: ${euros(d.valor_proposta)}`);
     if (d.cliente) partes.push(`cliente: ${d.cliente}`);
-    if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante", relatorio_pormenorizado: "relatório pormenorizado", visita: "visita técnica", pormenorizado_visita: "relatório e visita", avaria: "diagnóstico da avaria" }[d.fase] ?? d.fase);
+    if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante", relatorio_pormenorizado: "relatório completo", visita: "visita técnica", pormenorizado_visita: "relatório e visita", avaria: "diagnóstico da avaria" }[d.fase] ?? d.fase);
     if (d.valor != null) partes.push(euros(d.valor));
     if (d.sinal != null) partes.push(`sinal: ${euros(d.sinal)}`);
     if (d.modo === "simulado" || d.resultado) partes.push(d.resultado ? `simulado: ${d.resultado}` : "simulado");

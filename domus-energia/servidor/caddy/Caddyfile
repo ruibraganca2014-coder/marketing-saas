@@ -82,10 +82,27 @@
 		file_server
 	}
 
+	# Site estático. Sem build nem nomes com hash, o HTML, o JS (módulos ES que se importam uns aos outros) e o CSS
+	# revalidam-se sempre (no-cache + ETag → 304 baratos): depois de publicar, ninguém fica com um módulo antigo e
+	# outro novo. O que tem nome estável (ícones, imagens, fontes) fica uma semana em cache.
 	handle {
 		root * /srv/web
 		encode zstd gzip
+		@revalidar path / *.html *.js *.mjs *.css *.txt *.xml
+		header @revalidar Cache-Control "no-cache"
+		@estavel path *.svg *.ico *.png *.jpg *.jpeg *.webp *.woff2
+		header @estavel Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
 		file_server
+	}
+
+	# Página 404 do site (web/404.html) em vez do corpo vazio; os outros erros ficam como o Caddy os dá.
+	handle_errors {
+		@404 expression {http.error.status_code} == 404
+		handle @404 {
+			root * /srv/web
+			rewrite * /404.html
+			file_server
+		}
 	}
 
 	# Segurança do site e da área de cliente:
@@ -108,10 +125,26 @@
 		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 	}
 
+	# Registo de acessos sem os cabeçalhos sensíveis: os tokens das fotos (X-Foto-Token, 24 h, fotos pelo
+	# telemóvel; X-Fotos-Token, 30 min, fotos do pedido), o Cookie (sessões do painel e da conta) e o Authorization.
+	# O resto do pedido fica registado como antes.
 	log {
 		output stdout
-		format console
+		format filter {
+			wrap console
+			fields {
+				request>headers>X-Foto-Token delete
+				request>headers>X-Fotos-Token delete
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+			}
+		}
 	}
+}
+
+# www.HOST → HOST (308, mantém o caminho). O Caddy emite o certificado sozinho; o registo DNS "www" tem de existir.
+www.{$DOMUS_HOST} {
+	redir https://{$DOMUS_HOST}{uri} 308
 }
 
 ntfy.{$DOMUS_HOST} {

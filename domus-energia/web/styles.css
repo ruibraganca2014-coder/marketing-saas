@@ -42,7 +42,7 @@
     --argila: #d9853b;
     --alarme: #e0705f;
     --musgo-texto: #b0bf78;
-    --argila-texto: #e89048;
+    --argila-texto: #f0a05a;
     --foco: #dda15e;
     --alarme-texto: #ee9486;
     --sobre-musgo: #1a2310;
@@ -66,7 +66,7 @@
   --argila: #d9853b;
   --alarme: #e0705f;
   --musgo-texto: #b0bf78;
-  --argila-texto: #e89048;
+  --argila-texto: #f0a05a;
   --foco: #dda15e;
   --alarme-texto: #ee9486;
   --sobre-musgo: #1a2310;
@@ -200,6 +200,8 @@ input[type=time] { padding-left: 10px; padding-right: 8px; font-variant-numeric:
 
 footer { border-top: 1px solid var(--borda); padding: 28px 0 96px; color: var(--texto-suave); font-size: .9rem; }
 footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+/* Ligações soltas do rodapé ("Site", "A minha conta"…): alvo com pelo menos 24 px de altura (WCAG 2.5.8). */
+footer .wrap > a { display: inline-flex; align-items: center; min-height: 24px; padding: 4px 0; }
 
 /* Botão flutuante do WhatsApp — mantém o verde oficial. */
 .whatsapp-flutuante { position: fixed; right: 16px; bottom: 16px; width: 58px; height: 58px; border-radius: 50%; background: #25d366; color: #fff; display: grid; place-items: center; text-decoration: none; box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 20; }
@@ -790,8 +792,8 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-resumo summary { cursor: pointer; font-weight: 700; min-height: 44px; display: flex; align-items: center; }
 .conta-resumo dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
 .conta-resumo dd { margin: 0; }
-.pagina-conta .saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
-.pagina-conta .saltar:focus { top: 10px; }
+.saltar { position: absolute; left: 12px; top: -60px; z-index: 30; padding: 10px 16px; border-radius: 999px; background: var(--musgo); color: var(--sobre-musgo); font-weight: 700; }
+.saltar:focus { top: 10px; }
 /* Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): página simulada, pagamentos e relatório na conta */
 .pag-simulacao { margin: 0 0 14px; padding: 12px 14px; border-radius: 12px; border: 2px dashed var(--argila-texto); background: var(--areia-suave); color: var(--texto); font-weight: 600; }
 .pag-simulacao strong { color: var(--argila-texto); letter-spacing: .04em; }
@@ -890,3 +892,45 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .rodape-servicos a { display: inline-block; padding: 4px 0; color: var(--musgo-texto); font-weight: 400; }
 .rodape-servicos a[aria-current="page"] { color: var(--texto); font-weight: 700; text-decoration: none; }
 /* =================== fim: páginas de anúncio =================== */
+
+/* =================== Páginas legais (privacidade, termos, cookies; web/legal.js) =================== */
+.legal main > section { padding: 32px 0 48px; }
+.legal .wrap.estreito { max-width: 760px; }
+.legal h1 { margin: 0 0 6px; font-size: clamp(2rem, 5.5vw, 2.8rem); }
+.legal .legal-data { margin: 0 0 20px; color: var(--texto-suave); }
+.legal h2 { font-size: 1.45rem; margin: 32px 0 8px; }
+.legal h3 { font-size: 1.1rem; margin: 18px 0 6px; }
+.legal p, .legal li { color: var(--texto); overflow-wrap: anywhere; }
+.legal ul { padding-left: 22px; }
+.legal li { margin: 4px 0; }
+.legal .cartao { margin: 16px 0; }
+.legal .cartao p { color: var(--texto); }
+.legal .cartao dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.legal .cartao dt { font-weight: 700; }
+.legal .cartao dd { margin: 0; }
+.legal .tabela { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.legal .tabela th, .legal .tabela td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--borda); vertical-align: top; }
+.legal .tabela th { color: var(--texto-suave); font-weight: 700; }
+.legal .tabela-caixa { overflow-x: auto; }
+.legal .por-preencher, .legal mark { background: var(--areia-suave); color: var(--argila-texto); font-weight: 800; padding: 1px 6px; border-radius: 6px; border: 1px dashed var(--argila); }
+.legal .legal-nav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 8px; padding: 0; list-style: none; }
+.legal .legal-nav a { color: var(--musgo-texto); font-weight: 700; }
+.legal .legal-nav a[aria-current="page"] { color: var(--texto); text-decoration: none; }
+/* Rodapé de todas as páginas: Privacidade · Termos · Cookies. */
+.rodape-legal { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.rodape-legal a { color: var(--musgo-texto); }
+.rodape-legal a[aria-current="page"] { color: var(--texto); font-weight: 700; text-decoration: none; }
+/* Linha de consentimento junto aos campos de contacto (simulador) e ao "Criar conta" (conta-comum.js). */
+.consentimento { margin: 0; font-size: .9rem; color: var(--texto-suave); }
+.consentimento a { color: var(--musgo-texto); font-weight: 700; }
+/* Apagar a minha conta (conta.html, conta.js). */
+.conta-apagar { display: grid; gap: 12px; }
+.conta-apagar p { margin: 0; color: var(--texto-suave); }
+.conta-apagar .msg, .conta-apagar h2 { margin: 0; }
+/* Telemóvel: cada linha das tabelas legais vira um bloco "Cabeçalho: valor" (legal.js põe data-r com o cabeçalho). */
+@media (max-width: 599px) {
+  .legal .tabela thead { display: none; }
+  .legal .tabela tr { display: block; padding: 10px 0; border-bottom: 1px solid var(--borda); }
+  .legal .tabela td { display: block; padding: 2px 0; border: 0; }
+  .legal .tabela td::before { content: attr(data-r) ": "; font-weight: 700; color: var(--texto-suave); }
+}

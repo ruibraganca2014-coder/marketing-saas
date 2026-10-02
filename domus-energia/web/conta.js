@@ -5,7 +5,7 @@
 // Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: o relatório básico (grátis, logo ao enviar); comprar o relatório
 // pormenorizado (revisto antes de o vermos) e a visita técnica (a data aparece quando a marcarmos); estado e recibo de
 // cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
-import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao } from "./conta-comum.js";
+import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao, marcarSessao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 import { formatarEuroRedondo } from "./simulador/preco.js";
 import { seccaoTecnica } from "./simulador/simbolos.js";
@@ -44,6 +44,7 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     $("conta-dentro").hidden = !dentro;
     if (!dentro) { $("conta-pedidos").replaceChildren(); mensagem(null); return; }
     $("conta-casa").hidden = !eu.tem_casa;
+    $("conta-apagar-email").textContent = eu.conta.email;
     const r = $("conta-retomar");
     r.replaceChildren();
     r.hidden = !eu.simulacao_atualizada;
@@ -249,8 +250,8 @@ const SEM_COMPRAS = "Pagamentos online desligados: fale connosco para pedir.";
 
 function blocoRelatorio(p) {
   const b = el("section", "conta-relatorio");
-  b.setAttribute("aria-label", "Relatório pormenorizado");
-  b.append(el("h4", null, "Relatório pormenorizado"));
+  b.setAttribute("aria-label", "Relatório completo");
+  b.append(el("h4", null, "Relatório completo"));
   if (p.relatorio === "por_comprar") {
     const cp = p.compras;
     b.append(el("p", null, "Material e preço de cada divisão, revisto pela nossa equipa (até 24 h). Descontado na obra."));
@@ -258,7 +259,7 @@ function blocoRelatorio(p) {
     else if (!cp.ativas) b.append(el("p", "ajuda", SEM_COMPRAS));
     else {
       const msg = msgPequena();
-      b.append(botaoPagar(p, "relatorio_pormenorizado", `Comprar relatório pormenorizado (${euro(cp.relatorio.valor)})`, msg), msg);
+      b.append(botaoPagar(p, "relatorio_pormenorizado", `Comprar relatório completo (${euro(cp.relatorio.valor)})`, msg), msg);
     }
     return b;
   }
@@ -267,7 +268,7 @@ function blocoRelatorio(p) {
     return b;
   }
   const zona = el("div", "relatorio-cliente");
-  const ver = el("button", "btn sec pequeno nao-imprimir", "Ver o relatório pormenorizado");
+  const ver = el("button", "btn sec pequeno nao-imprimir", "Ver o relatório completo");
   ver.type = "button";
   ver.id = `relatorio-${p.id}`;
   const imprimir = el("button", "btn sec pequeno nao-imprimir", "Descarregar (imprimir / PDF)");
@@ -278,7 +279,7 @@ function blocoRelatorio(p) {
     cartao?.classList.add("a-imprimir");
     document.body.classList.add("imprimir-relatorio");
     const antes = document.title;
-    document.title = `Relatório pormenorizado — pedido ${p.id}`;
+    document.title = `Relatório completo — pedido ${p.id}`;
     const fim = () => { document.body.classList.remove("imprimir-relatorio"); cartao?.classList.remove("a-imprimir"); document.title = antes; };
     addEventListener("afterprint", fim, { once: true });
     window.print();
@@ -598,6 +599,50 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
     aviso(e.message);
   }
 }
+
+// ---- Apagar a minha conta (RGPD): confirmação na página com a palavra-passe → POST /api/conta/apagar; a sessão acaba.
+const apagarMsg = (t, tipo = "erro") => {
+  const m = $("conta-apagar-msg");
+  m.textContent = t ?? "";
+  m.className = `msg ${tipo}`;
+  m.hidden = !t;
+};
+$("conta-apagar-abrir").addEventListener("click", () => {
+  $("conta-apagar-confirmar").hidden = false;
+  $("conta-apagar-abrir").hidden = true;
+  $("conta-apagar-senha").focus();
+});
+$("conta-apagar-nao").addEventListener("click", () => {
+  $("conta-apagar-confirmar").hidden = true;
+  $("conta-apagar-abrir").hidden = false;
+  $("conta-apagar-senha").value = "";
+  apagarMsg(null);
+});
+$("conta-apagar-senha").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("conta-apagar-sim").click(); } });
+$("conta-apagar-sim").addEventListener("click", async () => {
+  const b = $("conta-apagar-sim");
+  const senha = $("conta-apagar-senha").value;
+  if (!senha) { apagarMsg("Escreva a palavra-passe para confirmar."); $("conta-apagar-senha").focus(); return; }
+  if (b.disabled) return;
+  b.disabled = true;
+  apagarMsg("A apagar a conta…", "info");
+  try {
+    await pedirConta("apagar", { corpo: { password: senha } });
+  } catch (e) {
+    b.disabled = false;
+    apagarMsg(e.message);
+    return;
+  }
+  marcarSessao(false);
+  $("conta-apagar-senha").value = "";
+  $("conta-apagar-confirmar").hidden = true;
+  $("conta-apagar-abrir").hidden = false;
+  b.disabled = false;
+  apagarMsg(null);
+  // Sem sessão o bloco volta a "Entrar" (e #conta-dentro esconde-se): a confirmação vai na mensagem do próprio bloco.
+  await bloco.atualizar();
+  bloco.mensagem("A sua conta foi apagada. Obrigado por ter usado a Domus Energia.", "ok");
+});
 
 $("ano").textContent = String(new Date().getFullYear());
 bloco.atualizar();

@@ -23,11 +23,12 @@ const ROTULO_MAX = 120;
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 /**
- * @param {{db, config, registo, relogio: () => number, limiteFotos, limiteConsultas}} ctx
+ * @param {{db, config, registo, relogio: () => number, limiteFotos, limiteConsultas, limiteTokens}} ctx
  *   limiteFotos: LimiteTaxa por IP dos envios (o mesmo de /api/orcamento/fotos); limiteConsultas: por IP, das
- *   sondagens do computador e dos pedidos de token.
+ *   sondagens do computador e dos pedidos de token; limiteTokens: por IP, dos tokens NOVOS (cada um é uma linha na
+ *   base durante 24 h; reutilizar o token da mesma simulação não conta).
  */
-export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, limiteConsultas }) {
+export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, limiteConsultas, limiteTokens }) {
   const pasta = (hash) => join(config.fotosDir, 'remotas', hash.slice(0, 16));
   const ficheiro = (f) => join(pasta(f.token_hash), `${f.id}.${EXTENSAO[f.tipo_mime]}`);
 
@@ -47,9 +48,10 @@ export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, l
 
   /**
    * POST /api/fotos-remotas {sim, chave, rotulo?} (+ X-Foto-Token opcional): regista a chave pedida; cria o token
-   * se não vier um válido para a mesma simulação. Devolve {token?, expira, chaves}.
+   * se não vier um válido para a mesma simulação (limite próprio por IP, LIMITE_FOTOS_TOKENS_HORA → 429). Devolve
+   * {token?, expira, chaves}.
    */
-  async function pedir(req, res) {
+  async function pedir(req, res, ip) {
     const v = await lerJson(req, ['sim', 'chave', 'rotulo']);
     if (typeof v.sim !== 'string' || !RE_SIM.test(v.sim)) throw new ErroApi(400, 'Identificação da simulação inválida (sim).');
     if (typeof v.chave !== 'string' || !RE_CHAVE_FOTO.test(v.chave)) throw new ErroApi(400, 'Identificação da foto inválida (chave).');
@@ -60,6 +62,12 @@ export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, l
     let t = tokenDe(req);
     let token = null;
     if (!t || t.sim !== v.sim) {
+      const espera = limiteTokens.espera(ip);
+      if (espera) {
+        registo.aviso(`fotos pelo telemóvel: limite de tokens novos atingido (ip ${ip})`);
+        throw new ErroApi(429, 'Demasiados códigos pedidos deste endereço. Tente mais tarde.', { 'Retry-After': String(espera) });
+      }
+      limiteTokens.registar(ip);
       token = randomBytes(32).toString('base64url');
       t = { hash: sha256(token), sim: v.sim, expira: agora + TOKEN_REMOTO_MS, criado: iso(agora) };
       db.prepare('INSERT INTO fotos_remotas_tokens (hash, sim, expira, seq, criado) VALUES (?, ?, ?, 0, ?)').run(t.hash, t.sim, t.expira, t.criado);
@@ -192,7 +200,7 @@ export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, l
     }
     limite.registar(ip);
     if (!chave) {
-      if (post) { await pedir(req, res); return true; }
+      if (post) { await pedir(req, res, ip); return true; }
       if (get) { estado(req, res, url); return true; }
       return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET, POST' }), true;
     }

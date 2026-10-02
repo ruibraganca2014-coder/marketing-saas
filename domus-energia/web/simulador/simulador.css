@@ -159,8 +159,8 @@ input, select { min-height: 44px; }
 .editor-mais-grelha { display: grid; align-content: start; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
 .editor-mais-grelha .ferramenta { white-space: normal; overflow-wrap: anywhere; hyphens: auto; }
 .editor-mais > .form-botoes { position: sticky; bottom: 0; padding: 10px 16px 16px; background: var(--superficie); border-top: 1px solid var(--borda); }
-/* "Acrescentar outro aparelho" (app.js abrirAparelhos): a grelha de "Mais…", com duas colunas já no telemóvel. */
-.janela-aparelhos .editor-mais-grelha { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
+/* "Acrescentar outro aparelho" (app.js abrirAparelhos) e "Outra divisão" (editor.js): a grelha de "Mais…", com duas colunas já no telemóvel. */
+.janela-aparelhos .editor-mais-grelha, .janela-divisoes .editor-mais-grelha { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); }
 /* Barra única das ações, centrada por cima da planta (editor.js `acoes`): grupos separados por um pequeno
    espaço; os botões que não se aplicam ficam desativados (a barra não muda de tamanho). No computador uma só
    fila (as duas linhas do DOM desfazem-se: display contents; quebra se não couber); no telemóvel duas filas —

@@ -175,6 +175,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
+    apagarIp: lim(5, 3600_000),   // apagar a própria conta (palavra-passe errada conta)
   };
   // Falhas seguidas a entrar, por par email+IP → atraso progressivo curto (1 s, 2 s, 4 s… até 60 s) a partir da 3.ª.
   const falhasEntrar = new Map();   // "email|ip" → {n, ate, ultima}
@@ -748,6 +749,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
+          ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL,
           conta_id = NULL, anonimizado = ?, estado = ?, atualizado = ? WHERE id = ?`).run(agora, ESTADO_ARQUIVADO, agora, id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { estado: ESTADO_ARQUIVADO, pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
@@ -762,6 +764,21 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     }
     return { conta: c.id, pedidos_apagados: alvos.length, pedidos_anonimizados: anonimizar.length, pedidos_mantidos: mantidos };
   }
+
+  // O cliente apaga a própria conta (RGPD, "Apagar a minha conta" em conta.html): confirma com a palavra-passe atual;
+  // qualquer sessão (também por confirmar). O rasto fica como 'conta_apagada' pelo próprio (sem email: sai com a conta);
+  // a sessão acaba (todas as sessões saem com a conta) e o cookie é apagado.
+  h.apagarConta = async ({ req, res, c, ip }) => {
+    const v = await lerJson(req, ['password']);
+    if (typeof v.password !== 'string' || !v.password) falha('Escreva a palavra-passe para confirmar.');
+    esperar([[L.apagarIp, ip]]);
+    contar([[L.apagarIp, ip]]);
+    const linha = db.prepare('SELECT hash FROM contas WHERE id = ?').get(c.id);
+    if (v.password.length > 200 || !(await verificarSenha(v.password, linha?.hash))) throw new ErroApi(403, 'Palavra-passe errada.');
+    const r = await apagar(String(c.id));
+    auditar(null, 'conta_apagada', `conta:${r.conta}`, { por: 'cliente', pedidos_apagados: r.pedidos_apagados, pedidos_anonimizados: r.pedidos_anonimizados, pedidos_mantidos: r.pedidos_mantidos });
+    responder(res, 200, { ok: true, pedidos_apagados: r.pedidos_apagados, pedidos_anonimizados: r.pedidos_anonimizados, pedidos_mantidos: r.pedidos_mantidos }, { 'Set-Cookie': cookieApagar(req) });
+  };
 
   // ------------------------------------------------------------ retenção (coerente com a das fotos)
   async function apagarRetidas() {
@@ -831,6 +848,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'pedidos/:id/fotos', 'confirmada', 'acrescentarFoto'],
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],
     ['GET', 'casa', 'confirmada', 'casa'],
+    ['POST', 'apagar', 'sessao', 'apagarConta'],
   ].map(([metodo, caminho, sessao, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao, nome }));
 
   async function tratar(req, res, url, ip) {

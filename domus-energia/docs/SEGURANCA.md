@@ -14,11 +14,11 @@ Revisão autorizada, feita localmente (Mosquitto 2.0.18 real, motor real, site c
 ## A corrigir
 | Nível | Problema | Estado |
 |---|---|---|
-| Alto | Porta 1883 sem cifra na internet: credenciais e comandos dos aparelhos em claro | Risco aceite (OpenBeken/BK7231 sem TLS fiável); acrescentar porta TLS 8883 opcional para Shelly e documentar — em curso |
-| Médio | Site sem proteção contra *clickjacking* nem CSP (pode ser posto numa moldura para enganar o cliente a desarmar o alarme) | Cabeçalhos no Caddy — em curso |
+| Alto | Porta 1883 sem cifra na internet: credenciais e comandos dos aparelhos em claro | Risco aceite (OpenBeken/BK7231 sem TLS fiável); porta TLS 8883 opcional documentada (`mosquitto/conf.d/tls.conf.exemplo`, README "MQTT com TLS") |
+| Médio | Site sem proteção contra *clickjacking* nem CSP (pode ser posto numa moldura para enganar o cliente a desarmar o alarme) | Feito: `X-Frame-Options: DENY` e `Content-Security-Policy` no Caddy (`servidor/README.md` §14) |
 | Médio | Executar cenas sem limite → excesso de notificações e carga no motor partilhado | Limite como nas automações + limite de notificações por cliente — em curso |
 | Médio | App Android guarda a palavra-passe sem cifra (SharedPreferences) | EncryptedSharedPreferences / Keystore — próxima ronda da app |
-| Médio | Mosquitto sem `max_connections` | Em curso |
+| Médio | Mosquitto sem `max_connections` | Feito: `max_connections 2000` (`mosquitto/mosquitto.conf`) |
 | Baixo | Cliente pode publicar comandos retidos na própria casa | Só afeta a própria casa; app e site nunca usam retain |
-| Baixo | Palavra-passe do admin como argumento do `domus.sh` | Ler por prompt — em curso |
+| Baixo | Palavra-passe do admin como argumento do `domus.sh` | Feito: sem argumento, o `domus.sh` pede-a no terminal ou lê-a do stdin |
 | Baixo | Notificações ntfy protegidas só pelo segredo do tópico (~103 bits) | Informativo |

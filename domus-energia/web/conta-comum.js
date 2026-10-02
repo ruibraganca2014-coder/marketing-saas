@@ -80,7 +80,8 @@ export function faixaDemonstracao(ligada) {
   const f = document.createElement("div");
   f.id = "faixa-demonstracao";
   f.className = "faixa-demonstracao";
-  f.setAttribute("role", "note");
+  f.setAttribute("role", "region");
+  f.setAttribute("aria-label", "Aviso: modo de demonstração");
   f.textContent = "Modo de demonstração — pagamentos simulados: não é cobrado nada.";
   const topo = document.querySelector("header.topo");
   if (topo) topo.after(f); else document.body.prepend(f);
@@ -208,8 +209,12 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         document.getElementById(id("codigo"))?.focus();
       }));
       comEnter([email, s1, s2], criar);
+      // Consentimento (RGPD): a conta e o pedido são necessários ao contrato, por isso basta a frase com as ligações.
+      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao enviar, aceita os ",
+        el("a", { href: "termos.html", target: "_blank", rel: "noopener", texto: "Termos" }), " e a ",
+        el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
       caixa.append(el("p", { texto: texto.fora ?? "Crie uma conta para enviar o pedido e acompanhá-lo depois." }), msg,
-        email.l, el("div", { classe: "duas" }, s1.l, s2.l),
+        email.l, el("div", { classe: "duas" }, s1.l, s2.l), consentimento,
         el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta — entrar", "ir-entrar", () => { modo = "entrar"; mensagem(null); desenhar(); focar(); })));
     } else if (modo === "codigo" && pendente) {
       // Código depois de "Criar conta": confirma com o email e a palavra-passe e abre a sessão.

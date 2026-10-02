@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cookies — Domus Energia</title>
+  <meta name="description" content="Que cookies e dados guardados no browser usa o site da Domus Energia: só a sessão da conta e a simulação guardada; sem publicidade nem analytics.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="anuncio legal">
+  <!-- Página legal: o mesmo cabeçalho e rodapé das páginas de anúncio (site.js). A identificação da empresa vem de config.js (legal.js). -->
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <a class="link" href="index.html#servicos">Serviços</a>
+        <a class="link" href="index.html#planos">Planos e preços</a>
+        <a class="link" href="simulador.html">Simular orçamento</a>
+        <a class="link" href="index.html#contactos">Contactos</a>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno anuncio-cliente" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
+        <button class="menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="menu-movel" aria-label="Menu"><svg class="abrir" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="fechar" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </nav>
+    </div>
+    <nav class="menu-movel" id="menu-movel" aria-label="Secções do site" hidden>
+      <ul>
+        <li><a href="index.html#servicos">Serviços</a></li>
+        <li><a href="index.html#planos">Planos e preços</a></li>
+        <li><a href="index.html#contactos">Contactos</a></li>
+        <li><a href="simulador.html">Simular orçamento</a></li>
+        <li><a href="cliente.html">Área de cliente</a></li>
+        <li><a href="conta.html">A minha conta</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <section>
+      <div class="wrap estreito">
+        <ul class="legal-nav" aria-label="Páginas legais">
+          <li><a href="privacidade.html">Política de Privacidade</a></li>
+          <li><a href="termos.html">Termos e Condições</a></li>
+          <li><a href="cookies.html" aria-current="page">Cookies</a></li>
+        </ul>
+        <h1>Cookies</h1>
+        <p class="legal-data">Última atualização: <span id="legal-data" data-atualizado="2026-10-02">2 de outubro de 2026</span></p>
+        <p class="msg info" id="legal-aviso" role="note" hidden>Há dados da empresa por preencher (assinalados). O dono preenche-os uma vez em <code>web/config.js</code> (<code>empresa</code>) e as três páginas legais atualizam-se.</p>
+
+        <p>Esta página explica o que o site da Domus Energia guarda no seu browser. A resposta curta: <strong>só o necessário para o site funcionar</strong>. Não há cookies de publicidade nem de análise de tráfego (analytics), por isso <strong>não precisamos de lhe pedir consentimento nem de mostrar um aviso de cookies</strong> (os cookies estritamente necessários estão dispensados de consentimento pela Lei n.º 41/2004).</p>
+
+        <h2 id="cookies">Cookies</h2>
+        <div class="tabela-caixa">
+          <table class="tabela">
+            <thead><tr><th>Nome</th><th>Para quê</th><th>Duração</th><th>Tipo</th></tr></thead>
+            <tbody>
+              <tr><td><code>domus_conta</code></td><td>A sessão da sua conta de cliente (conta, simulador e área de cliente). É HttpOnly (o código da página não lhe chega), SameSite=Lax e Secure. No servidor fica só a impressão digital (SHA-256) do código.</td><td>renovada enquanto usar o site; expira por inatividade e tem um limite máximo de duração; sai ao carregar em "Sair"</td><td>necessário</td></tr>
+              <tr><td><code>domus_painel</code></td><td>A sessão do painel da empresa (só para a equipa da Domus Energia, em <code>/painel/</code>). Nunca é criado a quem visita o site.</td><td>sessão</td><td>necessário</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Os pagamentos abrem no site da Stripe (checkout.stripe.com), que usa os seus próprios cookies: ver a <a href="https://stripe.com/pt/privacy" rel="noopener" target="_blank">política da Stripe</a>.</p>
+
+        <h2 id="armazenamento">Dados guardados no browser (localStorage e sessionStorage)</h2>
+        <p>Não são cookies: ficam só no seu aparelho, nunca são enviados automaticamente para o servidor e pode apagá-los nas definições do browser ("limpar dados do site").</p>
+        <div class="tabela-caixa">
+          <table class="tabela">
+            <thead><tr><th>Chave</th><th>Para quê</th><th>Até quando</th></tr></thead>
+            <tbody>
+              <tr><td><code>domus.simulador</code></td><td>A simulação em curso (respostas, planta, escolhas), para a retomar quando voltar a abrir o simulador neste browser. As fotos que ainda não enviou ficam também aqui.</td><td>até a enviar, "Começar de novo" ou limpar os dados do site</td></tr>
+              <tr><td><code>domus.simulador.casa</code></td><td>A planta e os dados da sua casa, para não os desenhar de novo numa simulação seguinte.</td><td>até limpar os dados do site</td></tr>
+              <tr><td><code>domus.simulador.codigo</code> (sessionStorage)</td><td>O código de cliente, quando abre o simulador a partir da área de cliente.</td><td>até fechar o separador</td></tr>
+              <tr><td><code>domus.tema</code></td><td>O tema que escolheu (claro, escuro ou automático).</td><td>até voltar a "automático"</td></tr>
+              <tr><td><code>domus_conta_sessao</code></td><td>Uma marca (sim/não) de que tem sessão aberta, para a página não perguntar ao servidor quando não há sessão. Não contém dados pessoais.</td><td>até sair ou a sessão expirar</td></tr>
+              <tr><td>Área de cliente da casa</td><td>Preferências de visualização da sua casa e as credenciais da casa enquanto a sessão estiver aberta.</td><td>até sair</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="terceiros">Pedidos a terceiros</h2>
+        <p>Ao abrir o site, o seu browser descarrega os tipos de letra da Google Fonts e, só quando carrega uma planta em PDF ou entra na área de cliente, uma biblioteca do CDN jsDelivr. Esses serviços recebem o seu endereço IP, mas não colocam cookies no nosso domínio. Mais em <a href="privacidade.html#subcontratantes">Política de Privacidade — subcontratantes</a>.</p>
+
+        <h2 id="futuro">Se um dia juntarmos análise de tráfego ou publicidade</h2>
+        <p class="msg info" role="note">Hoje não há analytics nem anúncios. Se a Domus Energia passar a usar ferramentas de análise de tráfego (ex.: Google Analytics, Plausible) ou de publicidade, <strong>é obrigatório</strong> mostrar um aviso de cookies que peça o consentimento <em>antes</em> de os ativar, com a opção de recusar tão fácil como a de aceitar, e atualizar esta página e a Política de Privacidade.</p>
+
+        <h2 id="gerir">Como gerir os cookies</h2>
+        <p>Pode bloquear ou apagar cookies nas definições do browser. Sem o cookie <code>domus_conta</code> não consegue manter a sessão da conta; o resto do site continua a funcionar.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <nav class="rodape-servicos" aria-label="Serviços">
+        <span>Serviços</span>
+        <ul>
+          <li><a href="carregador-carro.html">Carregador de carro em casa</a></li>
+          <li><a href="quadro-eletrico.html">Quadro elétrico antigo</a></li>
+          <li><a href="casa-inteligente.html">Casa inteligente</a></li>
+          <li><a href="poupar-energia.html">Poupar energia</a></li>
+        </ul>
+      </nav>
+      <nav class="rodape-legal" aria-label="Legal">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="termos.html">Termos</a>
+        <a href="cookies.html" aria-current="page">Cookies</a>
+      </nav>
+      <a href="conta.html">A minha conta</a>
+      <a href="cliente.html">Área de cliente</a>
+    </div>
+  </footer>
+
+  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4.5A11.5 11.5 0 0 0 6.2 22l-1.6 5.6 5.8-1.5A11.5 11.5 0 1 0 16 4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12.2 10.6c.4-.4 1-.3 1.2.2l1 2.2c.2.4 0 .8-.3 1.1l-.6.6c.8 1.7 2.1 3 3.8 3.8l.6-.6c.3-.3.8-.4 1.1-.2l2.2 1c.5.2.6.9.2 1.2-2.4 2.6-6 1-8.2-1.2s-3.9-5.7-1-8.1z" fill="currentColor"/></svg></a>
+
+  <script src="config.js"></script>
+  <script type="module" src="site.js"></script>
+  <script type="module" src="legal.js"></script>
+</body>
+</html>

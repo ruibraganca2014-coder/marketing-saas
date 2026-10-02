@@ -20,4 +20,13 @@ window.DOMUS = {
   telefone: "+351900000000",
   telefoneVisivel: "900 000 000",
   email: "geral@domusenergia.pt",
+
+  // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
+  // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
+  empresa: {
+    nome: "[A PREENCHER]",       // nome legal (ex.: Domus Energia, Unipessoal Lda.)
+    nif: "[A PREENCHER]",        // NIF / NIPC
+    morada: "[A PREENCHER]",     // sede (rua, código postal, localidade)
+    ral: "[A PREENCHER]",        // entidade de resolução alternativa de litígios (RAL) e o seu site
+  },
 };

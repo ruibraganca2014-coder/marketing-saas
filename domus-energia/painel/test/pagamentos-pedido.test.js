@@ -1,6 +1,6 @@
 // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md), fase 3 (monetização): enviar é GRÁTIS (o pedido passa logo a
 // orçamento e o cliente tem o relatório básico: intervalo −10/+20 % e lista de trabalho, sem material nem preços);
-// compram-se à parte o relatório pormenorizado (29 €, revisto e libertado pelo CEO) e a visita técnica (deslocação +
+// compram-se à parte o relatório completo (29 €, revisto e libertado pelo CEO) e a visita técnica (deslocação +
 // 0,5 h × tarifa; fora da área não há), no passo Enviar (os dois juntos) ou na conta; o CEO marca a visita (data na
 // conta e no email); a avaria rápida paga o diagnóstico e a deslocação ao enviar. Sinal = 30 % − tudo o que já foi pago.
 // Também: sucesso/falha/cancelar simulados, idempotência, valores do servidor, acesso cruzado, expiração, RGPD e o
@@ -172,7 +172,7 @@ describe('modo simulado', () => {
     }
   });
 
-  test('relatório pormenorizado (29 €, do servidor): falhar não mexe no pedido; pago → em revisão; o CEO só liberta depois de comprado', async () => {
+  test('relatório completo (29 €, do servidor): falhar não mexe no pedido; pago → em revisão; o CEO só liberta depois de comprado', async () => {
     const c = await p.contaConfirmada();
     const { pedido: id } = await enviar(c);
     assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 409, 'ainda não foi comprado');
@@ -181,7 +181,7 @@ describe('modo simulado', () => {
     const pg = r.json.pagamento;
     assert.deepEqual([pg.fase, pg.valor, pg.estado, pg.modo, pg.orcamento_id], ['relatorio_pormenorizado', 29, 'pendente', 'simulado', id]);
     assert.equal(pg.url, `pagamento-simulado.html?ref=${pg.ref}`);
-    assert.match(pg.descricao, /^Relatório pormenorizado do pedido n\.º \d+ \(descontado na obra\)$/);
+    assert.match(pg.descricao, /^Relatório completo do pedido n\.º \d+ \(descontado na obra\)$/);
     assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).json.pagamento.ref, pg.ref, 'clicar outra vez: o mesmo pagamento');
     // Falha: o pedido continua igual (não se perde nada) e volta-se à conta.
     const f = await simular(c, pg.ref, 'falha');
@@ -194,14 +194,14 @@ describe('modo simulado', () => {
     const pago = await comprado(c, id, 'relatorio_pormenorizado');
     assert.deepEqual([pago.recibo.valor, pago.recibo.base, pago.recibo.iva], [29, 23.58, 5.42]);
     assert.match(p.emails.at(-1).texto, /Recebemos o seu pagamento \(SIMULAÇÃO/);
-    assert.match(p.emails.at(-1).texto, /relatório pormenorizado fica pronto na sua conta depois de revisto/);
+    assert.match(p.emails.at(-1).texto, /relatório completo fica pronto na sua conta depois de revisto/);
     let l = await pedidoConta(c, id);
     assert.equal(l.relatorio, 'em_revisao');
     assert.equal(l.compras.relatorio.comprado, true);
     assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).estado, 409, 'já comprado');
     assert.equal((await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie })).json.erro, 'O relatório está em revisão (até 24 h).');
     const o = (await painel('GET', `orcamentos/${id}`)).json;
-    assert.deepEqual(o.pagamentos.map((x) => [x.fase, x.fase_texto, x.valor, x.estado]), [['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 'falhado'], ['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 'pago']]);
+    assert.deepEqual(o.pagamentos.map((x) => [x.fase, x.fase_texto, x.valor, x.estado]), [['relatorio_pormenorizado', 'Relatório completo', 29, 'falhado'], ['relatorio_pormenorizado', 'Relatório completo', 29, 'pago']]);
     const lib = await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {});
     assert.equal(lib.estado, 200, lib.texto);
     l = await pedidoConta(c, id);
@@ -261,20 +261,20 @@ describe('modo simulado', () => {
     assert.equal((await comprar(e, rx.pedido, 'relatorio_pormenorizado')).estado, 200, 'o relatório compra-se na mesma');
   });
 
-  test('passo Enviar: "relatório pormenorizado e visita" = um só pagamento (29 € + visita) sobre o pedido já criado; fora da área o pedido fica e diz porquê', async () => {
+  test('passo Enviar: "relatório completo e visita" = um só pagamento (29 € + visita) sobre o pedido já criado; fora da área o pedido fica e diz porquê', async () => {
     const c = await p.contaConfirmada();
     const antes = nOrc();
     const r = await enviar(c, { compra: 'pormenorizado_visita' });
     assert.equal(nOrc(), antes + 1, 'o pedido existe antes de pagar');
     const pg = r.pagamento;
     assert.deepEqual([pg.fase, pg.valor, pg.orcamento_id], ['pormenorizado_visita', centSim(29 + VISITA_SINTRA), r.pedido]);
-    assert.match(pg.descricao, /^Relatório pormenorizado e visita técnica do pedido/);
+    assert.match(pg.descricao, /^Relatório completo e visita técnica do pedido/);
     // Comprar só o relatório na conta, com o combinado por pagar: o combinado sai (não se paga duas vezes).
     const so = await comprar(c, r.pedido, 'relatorio_pormenorizado');
     assert.equal((await ver(c, pg.ref)).json.pagamento.estado, 'cancelado');
     await simular(c, so.json.pagamento.ref, 'cancelar');
     const pago = await comprado(c, r.pedido, 'pormenorizado_visita');
-    assert.equal(pago.fase_texto, 'Relatório pormenorizado e visita técnica');
+    assert.equal(pago.fase_texto, 'Relatório completo e visita técnica');
     const l = await pedidoConta(c, r.pedido);
     assert.deepEqual([l.relatorio, l.compras.visita.paga], ['em_revisao', true]);
     // Só o pormenorizado no Enviar.
@@ -452,14 +452,14 @@ describe('modo simulado', () => {
     return troca ? (a.horas_troca ?? a.horas_instalacao * 0.5) : a.horas_instalacao;
   };
   const cent = (x) => Math.round(x * 100) / 100;
-  /** Pedido enviado com o relatório pormenorizado já pago; devolve o id. */
+  /** Pedido enviado com o relatório completo já pago; devolve o id. */
   async function comRelatorio(c, simulacao) {
     const { pedido } = await enviar(c, simulacao ? { simulacao } : {});
     await comprado(c, pedido, 'relatorio_pormenorizado');
     return pedido;
   }
 
-  test('relatório pormenorizado: em revisão até o CEO o libertar (com pré-visualização); versão do cliente sem dados internos e com os preços do CATÁLOGO', async () => {
+  test('relatório completo: em revisão até o CEO o libertar (com pré-visualização); versão do cliente sem dados internos e com os preços do CATÁLOGO', async () => {
     const c = await p.contaConfirmada();
     // O browser manda preços absurdos: o relatório usa os do catálogo do servidor.
     const barato = { ...SIM, itens: SIM.itens.map((i) => ({ ...i, preco_iva: 1 })), mao_obra: { horas: 1, valor_iva: 1 }, deslocacao: { estado: 'estimada', valor_iva: 1 } };
@@ -526,7 +526,7 @@ describe('modo simulado', () => {
     assert.deepEqual(basico.acoes, rel.acoes);
   });
 
-  test('relatório pormenorizado — conteúdo técnico: planta (sem fundo), esquema por luz (comando por divisão), terra e ensaios (ordem 612.1, referência da configuração); o básico não os tem', async () => {
+  test('relatório completo — conteúdo técnico: planta (sem fundo), esquema por luz (comando por divisão), terra e ensaios (ordem 612.1, referência da configuração); o básico não os tem', async () => {
     const c = await p.contaConfirmada();
     const planta = {
       escala_cm: 50, largura_cm: 1000, altura_cm: 600, fundo: { imagem: 'data:image/jpeg;base64,AAAA', x_cm: 0, y_cm: 0, largura_cm: 1000, opacidade: 0.5 },
@@ -594,6 +594,33 @@ describe('modo simulado', () => {
     assert.equal(relAv.planta, null);
     assert.deepEqual(relAv.esquemas, []);
     assert.equal(relAv.ensaios.lista.length, 4);
+  });
+
+  test('relatório completo — esquema do quadro: o cliente recebe só o desenho (sem o email de quem o fez nem as notas de trabalho)', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = await enviar(c);
+    assert.equal((await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio.esquema_quadro, null, 'sem esquema: null');
+    const esquema = {
+      disjuntor_geral: { amperes: 40 }, diferenciais: [{ sensibilidade_ma: 30, amperes: 40 }], disjuntores: [{ amperes: 16 }, { amperes: 10 }],
+      modulos_livres: 2, estado: 'razoavel', fusiveis: false, sinais_aquecimento: null, notas: 'Marca Hager; confirmar o neutro na visita.',
+      ordem: ['geral', 'diferencial:0', 'disjuntor:0', 'livre', 'disjuntor:1', 'livre'],
+    };
+    const r = await painel('POST', `orcamentos/${id}/esquema-quadro`, 'comercial', { esquema });
+    assert.equal(r.estado, 200, r.texto);
+    assert.equal(r.json.esquema_quadro.por, p.u.comercial.email, 'o painel vê quem o fez');
+    const eq = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio.esquema_quadro;
+    assert.deepEqual(Object.keys(eq).sort(), ['data', 'diferenciais', 'disjuntor_geral', 'disjuntores', 'estado', 'fusiveis', 'modulos_livres', 'ordem']);
+    assert.deepEqual(eq.ordem, esquema.ordem);
+    assert.equal(eq.disjuntor_geral.amperes, 40);
+    assert.equal(eq.por, undefined, 'sem o email do eletricista');
+    assert.equal(eq.notas, undefined, 'sem as notas de trabalho');
+    // Comprado e libertado: a conta recebe o mesmo JSON, sem rasto do email nem das notas.
+    await comprado(c, id, 'relatorio_pormenorizado');
+    assert.equal((await painel('POST', `orcamentos/${id}/libertar-relatorio`, 'ceo', {})).estado, 200);
+    const conta = await p.pedir('GET', `/api/conta/pedidos/${id}/relatorio`, { cookie: c.cookie });
+    assert.equal(conta.estado, 200, conta.texto);
+    assert.deepEqual(conta.json.relatorio.esquema_quadro, eq);
+    assert.doesNotMatch(conta.texto, /domus\.teste|Hager/);
   });
 
   test('ensaios: referência configurável no painel (Catálogo → Configuração, não pública); valores medidos registados no painel (ida e volta) e mostrados ao cliente', async () => {
@@ -725,6 +752,10 @@ describe('modo simulado', () => {
     const rs = await comprar(c, id, 'restante');
     await simular(c, rs.json.pagamento.ref, 'sucesso');
     const pend = await enviarAvaria(c);
+    // Texto livre sobre a casa, registado no painel (migrações 16–18): também sai na anonimização.
+    p.app.db.prepare('UPDATE orcamentos SET ensaios = ?, esquema_quadro = ?, diagnostico = ? WHERE id = ?').run(
+      JSON.stringify({ isolamento: 1.5, notas: 'Ensaios na casa do Bruno' }), JSON.stringify({ disjuntor_geral: { amperes: 40 }, notas: 'Casa do Bruno, portão azul', por: 'x@domus.teste' }),
+      JSON.stringify({ verificacoes: ['visual'], valores: {}, tipo: 'aberto', conclusao: 'Conclusão com dados do Bruno', por: 'x@domus.teste' }), id);
     const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(c.email).id;
     const r = await painel('POST', `contas/${contaId}/apagar`, 'ceo', { email: c.email });
     assert.equal(r.estado, 200, r.texto);
@@ -733,7 +764,8 @@ describe('modo simulado', () => {
     const o = p.app.db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(id);
     assert.ok(o.anonimizado);
     assert.equal(o.nome, 'Anonimizado (RGPD)');
-    for (const k of ['telefone', 'email', 'localidade', 'morada', 'mensagem', 'notas', 'simulacao', 'conta_id']) assert.equal(o[k], null, k);
+    for (const k of ['telefone', 'email', 'localidade', 'morada', 'mensagem', 'notas', 'simulacao', 'conta_id', 'ensaios', 'esquema_quadro', 'diagnostico']) assert.equal(o[k], null, k);
+    assert.doesNotMatch(JSON.stringify(o), /Bruno/);
     assert.equal(o.valor_proposta_cent, 100_000, 'os valores ficam');
     const pagos = p.app.db.prepare('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\' ORDER BY id').all(id);
     assert.deepEqual(pagos.map((x) => [x.fase, x.conta_id, x.pedido]), [['relatorio_pormenorizado', null, null], ['sinal', null, null], ['restante', null, null]]);
@@ -741,7 +773,7 @@ describe('modo simulado', () => {
     const g = await painel('GET', 'pagamentos-pedido?estado=pago');
     const doPedido = g.json.pagamentos.filter((x) => x.orcamento_id === id);
     assert.deepEqual(doPedido.map((x) => [x.fase, x.fase_texto, x.valor, x.base, x.iva]).sort(),
-      [['relatorio_pormenorizado', 'Relatório pormenorizado', 29, 23.58, 5.42], ['restante', 'Restante', 861, 700, 161], ['sinal', 'Sinal', 340, 276.42, 63.58]]);
+      [['relatorio_pormenorizado', 'Relatório completo', 29, 23.58, 5.42], ['restante', 'Restante', 861, 700, 161], ['sinal', 'Sinal', 340, 276.42, 63.58]]);
     assert.equal((await painel('GET', 'pagamentos-pedido', 'comercial')).estado, 403);
     const csv = await painel('GET', 'pagamentos-pedido?formato=csv');
     const linhas = csv.texto.replace(/^﻿/, '').trim().split('\r\n');

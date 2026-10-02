@@ -433,6 +433,39 @@ describe('conta de cliente', () => {
     assert.equal((await conta('POST', `pedidos/${id}/fotos`, { cookie: a.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'quadro' } })).estado, 409);
   });
 
+  test('apagar a minha conta (cliente): exige sessão e a palavra-passe certa; apaga pedidos sem seguimento e anonimiza os pagos; sessão acaba; auditoria', async () => {
+    const a = await p.contaConfirmada(email());
+    const { id } = await pedidoComConta(a);
+    await conta('POST', `pedidos/${id}/fotos`, { cookie: a.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'quadro' } });
+    const contaId = p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(a.email).id;
+    // Um segundo pedido com um pagamento pago: fica anonimizado, com o pagamento.
+    const { id: pago } = await pedidoComConta(a);
+    const agoraIso = new Date().toISOString();
+    p.app.db.prepare("INSERT INTO pagamentos_pedido (ref, orcamento_id, conta_id, fase, valor_cent, descricao, estado, modo, retorno, criado, atualizado, pago, expira) VALUES ('pp_teste_apagar_cliente_01', ?, ?, 'relatorio_pormenorizado', 2900, 'Relatório pormenorizado', 'pago', 'simulado', 'conta', ?, ?, ?, ?)").run(pago, contaId, agoraIso, agoraIso, agoraIso, Date.now() + 3600_000);
+    // Sem sessão → 401; sem palavra-passe → 400; palavra-passe errada → 403 e a conta fica.
+    assert.equal((await conta('POST', 'apagar', { corpo: { password: SENHA } })).estado, 401);
+    assert.equal((await conta('POST', 'apagar', { cookie: a.cookie, corpo: {} })).estado, 400);
+    const errada = await conta('POST', 'apagar', { cookie: a.cookie, corpo: { password: 'nao-e-esta-1' } });
+    assert.equal(errada.estado, 403, errada.texto);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas WHERE id = ?').get(contaId).n, 1);
+    assert.equal((await conta('POST', 'apagar', { cookie: a.cookie, corpo: { password: SENHA, extra: 1 } })).estado, 400);
+    // Certa: 200, cookie apagado, conta e pedido sem seguimento fora, pedido pago anonimizado com o pagamento.
+    const r = await conta('POST', 'apagar', { cookie: a.cookie, corpo: { password: SENHA } });
+    assert.equal(r.estado, 200, r.texto);
+    assert.deepEqual({ ...r.json }, { ok: true, pedidos_apagados: 1, pedidos_anonimizados: 1, pedidos_mantidos: 0 });
+    assert.match(r.cabecalhos['set-cookie'][0], /^domus_conta=;.*Max-Age=0/);
+    assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).estado, 401, 'a sessão acabou');
+    assert.equal((await conta('POST', 'entrar', { corpo: { email: a.email, password: SENHA } })).estado, 401);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas WHERE id = ?').get(contaId).n, 0);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE id = ?').get(id).n, 0);
+    const o = p.app.db.prepare('SELECT nome, telefone, email, simulacao, conta_id, anonimizado FROM orcamentos WHERE id = ?').get(pago);
+    assert.deepEqual({ ...o, anonimizado: Boolean(o.anonimizado) }, { nome: 'Anonimizado (RGPD)', telefone: null, email: null, simulacao: null, conta_id: null, anonimizado: true });
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(pago).n, 1, 'o pagamento pago fica (contabilidade)');
+    const aud = p.app.db.prepare('SELECT acao, detalhes, ip FROM auditoria WHERE alvo = ?').all(`conta:${contaId}`);
+    assert.deepEqual(aud.map((x) => [x.acao, JSON.parse(x.detalhes).por, x.ip]), [['conta_apagada', 'cliente', null]]);
+    assert.ok(!JSON.stringify(p.app.db.prepare('SELECT * FROM auditoria').all()).includes(a.email), 'o email não fica na auditoria');
+  });
+
   test('painel (só CEO): lista de contas, desativar (fecha sessões), apagar com os dados pessoais (RGPD)', async () => {
     const a = await p.contaConfirmada(email());
     const { id } = await pedidoComConta(a);

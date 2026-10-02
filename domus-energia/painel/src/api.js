@@ -36,8 +36,8 @@ const CONFIG_ORCAMENTO = {
   // base mas já não se usa nem se edita.
   intervalo_menos_pct: { min: 0, max: 100, rotulo: 'o intervalo para baixo (%)' },
   intervalo_mais_pct: { min: 0, max: 100, rotulo: 'o intervalo para cima (%)' },
-  // Fase 3: preço do relatório pormenorizado (com IVA; docs/PAGAMENTOS-PEDIDO.md).
-  preco_relatorio_iva: { min: 0, max: 1000, rotulo: 'o preço do relatório pormenorizado' },
+  // Fase 3: preço do relatório completo (com IVA; docs/PAGAMENTOS-PEDIDO.md).
+  preco_relatorio_iva: { min: 0, max: 1000, rotulo: 'o preço do relatório completo' },
   // Fase 2: margem dos pacotes do passo "Melhorias" (sobre material + mão de obra; web/simulador/melhorias.js).
   margem_pacotes_pct: { min: 0, max: 100, rotulo: 'a margem dos pacotes (%)' },
   deslocacao_iva: { min: 0, max: 10_000, rotulo: 'o valor fixo da deslocação' },          // valor fixo (mínimo) de cada deslocação
@@ -46,7 +46,7 @@ const CONFIG_ORCAMENTO = {
   deslocacao_max_km: { min: 0, max: 2000, rotulo: 'a distância máxima da deslocação' },
   // IVA dos pagamentos online (proposta sem IVA → pagamentos com IVA; docs/PAGAMENTOS-PEDIDO.md).
   iva_pct: { min: 0, max: 50, rotulo: 'a taxa de IVA (%)' },
-  // Relatório pormenorizado: valores de referência da lista de ensaios (migração 16; docs/PAGAMENTOS-PEDIDO.md).
+  // Relatório completo: valores de referência da lista de ensaios (migração 16; docs/PAGAMENTOS-PEDIDO.md).
   ensaio_isolamento_mohm: { min: 0, max: 1000, rotulo: 'a resistência de isolamento mínima (MΩ)' },
   ensaio_diferencial_ms: { min: 0, max: 10_000, rotulo: 'o tempo de disparo máximo do diferencial (ms)' },
   ensaio_terra_ohm: { min: 0, max: 100_000, rotulo: 'a resistência de terra máxima (Ω)' },
@@ -184,8 +184,9 @@ export function criarApi(ctx) {
   const fotos = criarFotos({ db, config, registo, relogio, leitor: ctx.leitor ?? null, auditar });
   const porIpFotos = new LimiteTaxa(config.limiteFotosHora, 3600_000, relogio);
   // Fotos pelo telemóvel (QR; fotos-remotas.js): os envios contam no mesmo limite por IP; as sondagens do computador
-  // (de 3 em 3 s) e os pedidos de token têm o seu.
-  const fotosRemotas = criarFotosRemotas({ db, config, registo, relogio, limiteFotos: porIpFotos, limiteConsultas: new LimiteTaxa(config.limiteFotosConsultasHora, 3600_000, relogio) });
+  // (de 3 em 3 s) e os pedidos de token têm o seu; a criação de tokens NOVOS (uma linha na base por 24 h) tem outro, mais baixo.
+  const fotosRemotas = criarFotosRemotas({ db, config, registo, relogio, limiteFotos: porIpFotos,
+    limiteConsultas: new LimiteTaxa(config.limiteFotosConsultasHora, 3600_000, relogio), limiteTokens: new LimiteTaxa(config.limiteFotosTokensHora, 3600_000, relogio) });
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
   const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
@@ -234,14 +235,14 @@ export function criarApi(ctx) {
       // Pagamentos do pedido: aceite pelo cliente mas o sinal ainda por pagar = "Aceite — a aguardar sinal".
       aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
-      // Ensaios medidos na visita/obra (migração 16; o relatório pormenorizado mostra-os), ou null.
+      // Ensaios medidos na visita/obra (migração 16; o relatório completo mostra-os), ou null.
       ensaios: pagPed.ensaiosDe(o),
       // Esquema do quadro feito pelo eletricista (migração 17; {…esquema, data, por}), ou null.
       esquema_quadro: esquemaQuadroDe(o),
       // Diagnóstico da avaria feito pelo eletricista (migração 18; {verificacoes, valores, tipo, conclusao, data, por}), ou null.
       diagnostico: pagPed.diagnosticoDe(o),
       pagamentos: pagPed.listarParaPainel(o.id),
-      // Fase 3: o que o cliente comprou (relatório pormenorizado, visita) e os preços dele.
+      // Fase 3: o que o cliente comprou (relatório completo, visita) e os preços dele.
       compras: o.simulacao ? pagPed.compras(o) : null,
       // Proposta (sem IVA) → total com IVA, sinal e restante (o que o cliente paga online).
       valores_pagamento: pagPed.resumoValores(o),
@@ -877,7 +878,7 @@ export function criarApi(ctx) {
     if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há relatório para libertar.');
     if (o.relatorio_libertado) throw new ErroApi(409, 'O relatório já foi libertado ao cliente.');
     // Fase 3: só depois de o cliente o comprar (com os pagamentos desligados não se compra: o CEO decide).
-    if (pagPed.ativo && !pagPed.temRelatorio(o)) throw new ErroApi(409, 'O cliente ainda não comprou o relatório pormenorizado.');
+    if (pagPed.ativo && !pagPed.temRelatorio(o)) throw new ErroApi(409, 'O cliente ainda não comprou o relatório completo.');
     const agora = agoraIso();
     db.prepare('UPDATE orcamentos SET relatorio_libertado = ?, atualizado = ? WHERE id = ? AND relatorio_libertado IS NULL').run(agora, agora, o.id);
     auditar(u, 'relatorio_libertado', `orcamento:${o.id}`, null, ip);
@@ -912,7 +913,7 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
-  // Ensaios medidos na visita/obra (relatório pormenorizado, lista de ensaios): continuidade do PE (Ω), isolamento (MΩ),
+  // Ensaios medidos na visita/obra (relatório completo, lista de ensaios): continuidade do PE (Ω), isolamento (MΩ),
   // terra (Ω) e disparo do diferencial (ms), mais notas. Um valor vazio apaga a medição; o cliente vê-os no relatório.
   h.registarEnsaios = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, [...CHAVES_ENSAIOS, 'notas']);
@@ -931,7 +932,7 @@ export function criarApi(ctx) {
 
   // Esquema do quadro elétrico feito pelo eletricista a partir da foto do cliente (ronda B; docs/PAINEL-EMPRESA.md
   // "Esquema do quadro"): o corpo é o esquema (validar.js esquemaQuadro; normalizado como no editor), guardado em
-  // `orcamentos.esquema_quadro` com a data e quem o fez; `null`/`{}` apaga. Só no relatório pormenorizado do cliente.
+  // `orcamentos.esquema_quadro` com a data e quem o fez; `null`/`{}` apaga. Só no relatório completo do cliente.
   h.guardarEsquemaQuadro = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, ['esquema'], 64 * 1024);
     const o = naoArquivado(obterOrcamento(params.id));
@@ -951,7 +952,7 @@ export function criarApi(ctx) {
 
   // Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): a lista de verificação, as medições, o tipo
   // de avaria encontrado e a conclusão (validar.js diagnostico), guardados em `orcamentos.diagnostico` com a data e quem
-  // o fez; `null` apaga. O relatório técnico mostra-o; o cliente vê-o só no relatório pormenorizado.
+  // o fez; `null` apaga. O relatório técnico mostra-o; o cliente vê-o só no relatório completo.
   h.guardarDiagnostico = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, ['diagnostico']);
     const o = naoArquivado(obterOrcamento(params.id));
@@ -1385,7 +1386,7 @@ export function criarApi(ctx) {
     const codigoCli = texto(v.codigo_cliente, 'o código de cliente', { max: 32, re: RE_ID, reMsg: 'Código de cliente inválido.' });
     const sim = validarSimulacao(v.simulacao);
     // Fase 3 (docs/PAGAMENTOS-PEDIDO.md): o que o cliente compra no passo Enviar — só o relatório básico (grátis), o
-    // relatório pormenorizado, a visita técnica, ou os dois. O valor é sempre o do servidor.
+    // relatório completo, a visita técnica, ou os dois. O valor é sempre o do servidor.
     const COMPRA = { basico: null, pormenorizado: 'relatorio_pormenorizado', visita: 'visita', pormenorizado_visita: 'pormenorizado_visita' };
     const compra = v.compra === undefined || v.compra === null ? 'basico' : opcao(v.compra, 'compra', Object.keys(COMPRA));
     if (compra !== 'basico' && !(conta && sim)) falha('Só se compra o relatório com a simulação.');

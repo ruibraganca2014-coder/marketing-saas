@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Termos e Condições — Domus Energia</title>
+  <meta name="description" content="Condições do simulador de orçamento, do relatório completo, da visita técnica, da obra e da subscrição mensal da Domus Energia; pagamentos, reembolsos e reclamações.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="anuncio legal">
+  <!-- Página legal: o mesmo cabeçalho e rodapé das páginas de anúncio (site.js). A identificação da empresa vem de config.js (legal.js). -->
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <a class="link" href="index.html#servicos">Serviços</a>
+        <a class="link" href="index.html#planos">Planos e preços</a>
+        <a class="link" href="simulador.html">Simular orçamento</a>
+        <a class="link" href="index.html#contactos">Contactos</a>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno anuncio-cliente" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
+        <button class="menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="menu-movel" aria-label="Menu"><svg class="abrir" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="fechar" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </nav>
+    </div>
+    <nav class="menu-movel" id="menu-movel" aria-label="Secções do site" hidden>
+      <ul>
+        <li><a href="index.html#servicos">Serviços</a></li>
+        <li><a href="index.html#planos">Planos e preços</a></li>
+        <li><a href="index.html#contactos">Contactos</a></li>
+        <li><a href="simulador.html">Simular orçamento</a></li>
+        <li><a href="cliente.html">Área de cliente</a></li>
+        <li><a href="conta.html">A minha conta</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <section>
+      <div class="wrap estreito">
+        <ul class="legal-nav" aria-label="Páginas legais">
+          <li><a href="privacidade.html">Política de Privacidade</a></li>
+          <li><a href="termos.html" aria-current="page">Termos e Condições</a></li>
+          <li><a href="cookies.html">Cookies</a></li>
+        </ul>
+        <h1>Termos e Condições</h1>
+        <p class="legal-data">Última atualização: <span id="legal-data" data-atualizado="2026-10-02">2 de outubro de 2026</span></p>
+        <p class="msg info" id="legal-aviso" role="note" hidden>Há dados da empresa por preencher (assinalados). O dono preenche-os uma vez em <code>web/config.js</code> (<code>empresa</code>) e as três páginas legais atualizam-se.</p>
+
+        <p>Estes termos regulam o uso do site, do simulador de orçamento, da conta de cliente e dos serviços da Domus Energia. Ao enviar um pedido, criar conta ou pagar um serviço, aceita-os. Leia também a <a href="privacidade.html">Política de Privacidade</a>.</p>
+        <div class="cartao" id="responsavel">
+          <h2 style="margin-top:0">Quem somos</h2>
+          <dl>
+            <dt>Empresa</dt><dd><span data-empresa="nome">[A PREENCHER]</span></dd>
+            <dt>NIF</dt><dd><span data-empresa="nif">[A PREENCHER]</span></dd>
+            <dt>Morada</dt><dd><span data-empresa="morada">[A PREENCHER]</span></dd>
+            <dt>Email</dt><dd><span data-empresa="email">geral@domusenergia.pt</span></dd>
+            <dt>Telefone</dt><dd><span data-empresa="telefone">900 000 000</span></dd>
+          </dl>
+        </div>
+
+        <h2 id="servico">O serviço</h2>
+        <ul>
+          <li><strong>Simulador de orçamento.</strong> É orientativo: a estimativa (um intervalo de–até, com IVA) é calculada a partir do que indica e dos preços do nosso catálogo e <strong>não é uma proposta vinculativa</strong>. O preço final depende da visita técnica e da proposta que lhe enviamos depois.</li>
+          <li><strong>Relatório básico — grátis.</strong> Ao enviar o pedido recebe na conta o intervalo de preço e a lista de trabalho por divisão.</li>
+          <li><strong>Relatório completo — 29 € (com IVA).</strong> Lista de trabalho, material e preço por divisão, quadro elétrico, mão de obra e deslocação, revisto pela nossa equipa antes de o ver (normalmente em 24 horas).</li>
+          <li><strong>Visita técnica — valor indicado no simulador</strong> (deslocação + 30 minutos no local, com IVA; depende do concelho). Fora da área servida não há visita.</li>
+          <li><strong>Diagnóstico de avaria</strong> ("Tenho uma avaria"): diagnóstico + deslocação, pagos ao enviar.</li>
+          <li><strong>Desconto na obra.</strong> Tudo o que pagou antes (relatório, visita, avaria) é descontado no sinal se a obra avançar.</li>
+          <li><strong>Proposta, sinal e obra.</strong> Aceitar a proposta na conta implica pagar um <strong>sinal de 30 %</strong> do valor com IVA (menos o que já pagou). O restante paga-se no fim da obra. Os valores da proposta são válidos 30 dias, salvo indicação diferente na própria proposta.</li>
+          <li><strong>Subscrição mensal da casa ligada.</strong> App e área de cliente, nos planos Base (4,99 €), Conforto (9,99 €) e Premium (19,99 €) por mês, com IVA, 1.º mês grátis, sem fidelização: pode mudar de plano ou cancelar a qualquer momento, com efeito no fim do período pago. Os interruptores da casa funcionam sempre, com ou sem subscrição; sem subscrição deixa de ter o controlo à distância, as automações e os relatórios.</li>
+        </ul>
+
+        <h2 id="pagamentos">Pagamentos e reembolsos</h2>
+        <ul>
+          <li>Os pagamentos online são feitos pela Stripe (cartão, MB WAY ou Multibanco, conforme disponível). Os preços incluem IVA à taxa legal. Por cada pagamento é emitida fatura; indique o NIF se o quiser nela.</li>
+          <li><strong>Relatório completo:</strong> é entregue na sua conta depois de revisto, normalmente até 24 horas depois do pagamento. Se não o conseguirmos entregar (por exemplo, a simulação não dá para orçamentar), devolvemos o valor.</li>
+          <li><strong>Visita técnica:</strong> se cancelar antes da visita, ou se formos nós a não a poder fazer, devolvemos o valor. Se o técnico se deslocar e não puder entrar por motivo seu, a deslocação não é devolvida.</li>
+          <li><strong>Sinal:</strong> se a obra não se fizer por motivo nosso, é devolvido na totalidade. Se desistir depois de aceitar a proposta, devolvemos o sinal menos o material já encomendado à sua medida e os serviços já prestados.</li>
+          <li><strong>Direito de livre resolução (14 dias).</strong> Como consumidor que contrata à distância, pode desistir no prazo de 14 dias sem indicar motivo (Decreto-Lei n.º 24/2014). Basta escrever para <span data-empresa="email">geral@domusenergia.pt</span>. <strong>Exceção:</strong> se pediu que o serviço começasse dentro desses 14 dias e ele já foi totalmente prestado (relatório entregue, visita feita, avaria diagnosticada), o direito de livre resolução deixa de se aplicar a esse serviço; se foi prestado em parte, paga a parte proporcional.</li>
+          <li>Os reembolsos são feitos para o mesmo meio de pagamento, no prazo de 14 dias.</li>
+        </ul>
+
+        <h2 id="responsabilidade">Responsabilidade</h2>
+        <ul>
+          <li>As instalações são feitas por técnicos habilitados, de acordo com as Regras Técnicas das Instalações Elétricas de Baixa Tensão (RTIEBT), e com os certificados exigidos por lei.</li>
+          <li>A estimativa do simulador e o relatório baseiam-se no que indicou (planta, fotos, aparelhos). Os valores finais são fixados depois da visita técnica. Trabalhos imprevistos (ex.: cabos degradados que só se veem ao abrir) são orçamentados à parte e só feitos com a sua aprovação.</li>
+          <li>Não nos responsabilizamos por danos causados por informação errada que nos tenha dado, por intervenções de terceiros na instalação, por falta de internet ou de energia que impeça o controlo à distância, nem por decisões tomadas só com base na estimativa orientativa.</li>
+          <li>A garantia dos trabalhos e dos equipamentos é a prevista na lei (Decreto-Lei n.º 84/2021), sem prejuízo de garantias mais longas do fabricante.</li>
+        </ul>
+
+        <h2 id="conta">A sua conta</h2>
+        <ul>
+          <li>A conta é pessoal: uma por email, para acompanhar os seus pedidos e a sua casa. Não a partilhe.</li>
+          <li>É responsável por manter a palavra-passe segura (pelo menos 10 caracteres) e por tudo o que for feito com a sua sessão. Se suspeitar de uso indevido, mude a palavra-passe ("Esqueci a palavra-passe") e avise-nos.</li>
+          <li>Pode apagar a conta a qualquer momento em <a href="conta.html">A minha conta</a>. O que acontece aos dados está na <a href="privacidade.html#prazos">Política de Privacidade</a>.</li>
+          <li>Podemos suspender uma conta usada para fins ilícitos, para atacar o serviço ou para enviar pedidos falsos.</li>
+        </ul>
+
+        <h2 id="conteudos">Conteúdos do site</h2>
+        <p>Os textos, desenhos, símbolos e o código do site e do simulador são nossos. Pode usar o simulador e guardar ou imprimir o seu relatório para uso pessoal; não pode copiar o site nem usar o simulador para fins comerciais sem autorização.</p>
+
+        <h2 id="lei">Lei aplicável, reclamações e litígios</h2>
+        <ul>
+          <li>Aplica-se a lei portuguesa. Nos litígios com consumidores é competente o tribunal do domicílio do consumidor.</li>
+          <li><strong>Livro de Reclamações eletrónico:</strong> <a href="https://www.livroreclamacoes.pt" rel="noopener" target="_blank">www.livroreclamacoes.pt</a>.</li>
+          <li><strong>Resolução alternativa de litígios (Lei n.º 144/2015):</strong> em caso de litígio de consumo, pode recorrer à entidade RAL competente: <span data-empresa="ral">[A PREENCHER]</span>. A lista completa está no Portal do Consumidor, <a href="https://www.consumidor.gov.pt" rel="noopener" target="_blank">www.consumidor.gov.pt</a>.</li>
+        </ul>
+
+        <h2 id="alteracoes">Alterações</h2>
+        <p>Podemos atualizar estes termos; a data no topo indica a última versão. Aos pedidos e pagamentos já feitos aplicam-se os termos em vigor nessa data.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <nav class="rodape-servicos" aria-label="Serviços">
+        <span>Serviços</span>
+        <ul>
+          <li><a href="carregador-carro.html">Carregador de carro em casa</a></li>
+          <li><a href="quadro-eletrico.html">Quadro elétrico antigo</a></li>
+          <li><a href="casa-inteligente.html">Casa inteligente</a></li>
+          <li><a href="poupar-energia.html">Poupar energia</a></li>
+        </ul>
+      </nav>
+      <nav class="rodape-legal" aria-label="Legal">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="termos.html" aria-current="page">Termos</a>
+        <a href="cookies.html">Cookies</a>
+      </nav>
+      <a href="conta.html">A minha conta</a>
+      <a href="cliente.html">Área de cliente</a>
+    </div>
+  </footer>
+
+  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4.5A11.5 11.5 0 0 0 6.2 22l-1.6 5.6 5.8-1.5A11.5 11.5 0 1 0 16 4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12.2 10.6c.4-.4 1-.3 1.2.2l1 2.2c.2.4 0 .8-.3 1.1l-.6.6c.8 1.7 2.1 3 3.8 3.8l.6-.6c.3-.3.8-.4 1.1-.2l2.2 1c.5.2.6.9.2 1.2-2.4 2.6-6 1-8.2-1.2s-3.9-5.7-1-8.1z" fill="currentColor"/></svg></a>
+
+  <script src="config.js"></script>
+  <script type="module" src="site.js"></script>
+  <script type="module" src="legal.js"></script>
+</body>
+</html>

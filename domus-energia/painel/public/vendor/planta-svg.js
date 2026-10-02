@@ -277,7 +277,7 @@ function descrever(e, nomesDivisao) {
   let t = NOMES[e.tipo] || "Elemento";
   if (e.tipo === "porta" && p.entrada) t = "Porta da rua";
   if (e.tipo === "janela" && p.estore) t = p.motorizado ? "Janela com estore motorizado" : "Janela com estore";
-  if (e.tipo === "tomada" && caixasDe(p) === 3) t = "Tomada tripla"; else if (e.tipo === "tomada" && caixasDe(p) === 2) t = "Tomada dupla";
+  if (e.tipo === "tomada") t = `Tomada${caixasDe(p) === 3 ? " tripla" : caixasDe(p) === 2 ? " dupla" : ""}${p.inteligente ? " inteligente" : ""}`;
   if (e.tipo === "luz" && p.brilho) t = "Ponto de luz regulável";
   if (e.tipo === "interruptor") t = `Interruptor de ${Math.min(4, Math.max(1, Math.round(numero(p.botoes, 1))))} ${numero(p.botoes, 1) > 1 ? "botões" : "botão"}${COMANDOS[p.comando] && p.comando !== "simples" ? ` (${COMANDOS[p.comando]})` : ""}`;
   if (e.tipo === "maquina") t = `${MODELOS[p.modelo] || MODELOS.outro} (${Math.round(numero(p.potencia_w))} W)`;

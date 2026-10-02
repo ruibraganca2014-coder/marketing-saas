@@ -36,7 +36,7 @@ import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
 
 export const SINAL_PCT = 30;
-export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório pormenorizado (config `preco_relatorio_iva`)
+export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório completo (config `preco_relatorio_iva`)
 export const VISITA_HORAS = 0.5;                  // visita técnica = deslocação + 0,5 h × tarifa
 export const VALIDADE_MS = 24 * 3600_000;         // um pagamento por pagar expira (e o pedido guardado sai) ao fim de 24 h
 const FOTOS_DEPOIS_MS = 2 * 3600_000;             // token das fotos só nas 2 h a seguir ao pagamento da avaria
@@ -46,8 +46,8 @@ export const PLANOS_MENSAIS = ['base', 'conforto', 'premium'];
 const NOME_PLANO = { base: 'Base', conforto: 'Conforto', premium: 'Premium' };
 export const NOME_FASE = {
   relatorio: 'Relatório técnico e visita (19 €)', sinal: 'Sinal', restante: 'Restante',
-  relatorio_pormenorizado: 'Relatório pormenorizado', visita: 'Visita técnica',
-  pormenorizado_visita: 'Relatório pormenorizado e visita técnica', avaria: 'Diagnóstico da avaria e deslocação',
+  relatorio_pormenorizado: 'Relatório completo', visita: 'Visita técnica',
+  pormenorizado_visita: 'Relatório completo e visita técnica', avaria: 'Diagnóstico da avaria e deslocação',
 };
 /** Fases pagas antes da obra: descontadas no sinal. */
 const FASES_ANTES = ['relatorio', 'relatorio_pormenorizado', 'visita', 'pormenorizado_visita', 'avaria'];
@@ -56,7 +56,7 @@ export const COMPRAS = { relatorio_pormenorizado: { relatorio: true, visita: fal
 const FASES_RELATORIO = ['relatorio', 'relatorio_pormenorizado', 'pormenorizado_visita'];
 const FASES_VISITA = ['visita', 'pormenorizado_visita', 'avaria'];
 // O que o email "pagamento recebido" diz a seguir, por fase (os 19 € antigos: `relatorio`, com ou sem visita).
-const RELATORIO_PRONTO = 'O relatório pormenorizado fica pronto na sua conta depois de revisto pela nossa equipa (até 24 h).';
+const RELATORIO_PRONTO = 'O relatório completo fica pronto na sua conta depois de revisto pela nossa equipa (até 24 h).';
 const MARCAR_VISITA = 'Vamos marcar a visita técnica: enviamos a data e a hora por email e ficam na sua conta.';
 const TEXTO_PAGO = {
   relatorio_pormenorizado: RELATORIO_PRONTO, visita: MARCAR_VISITA, pormenorizado_visita: `${RELATORIO_PRONTO} ${MARCAR_VISITA}`,
@@ -143,7 +143,7 @@ export function intervaloEstimativa(total, cfg) {
   const mais = numCfg(cfg, 'intervalo_mais_pct', antiga ?? 20) / 100;
   return { min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)) };
 }
-/** Preço do relatório pormenorizado (cêntimos, c/ IVA): `preco_relatorio_iva` (29 €). */
+/** Preço do relatório completo (cêntimos, c/ IVA): `preco_relatorio_iva` (29 €). */
 export const precoRelatorioCent = (cfg) => Math.round(numCfg(cfg, 'preco_relatorio_iva', PRECO_RELATORIO_OMISSAO) * 100);
 /** A localidade é um dos 308 concelhos (como o simulador a reconhece)? Sem isso não se vende a visita (B2). */
 export const concelhoConhecido = (localidade) => concelho(localidade) !== null;
@@ -308,7 +308,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const totalPago = (orcamentoId) => db.prepare('SELECT COALESCE(SUM(valor_cent), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(orcamentoId).s;
   const pagoAntes = (orcamentoId) => db.prepare(`SELECT COALESCE(SUM(valor_cent), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago'
     AND fase IN (${marcas(FASES_ANTES)})`).get(orcamentoId, ...FASES_ANTES).s;
-  /** O cliente já pagou o relatório pormenorizado (ou os 19 € antigos)? */
+  /** O cliente já pagou o relatório completo (ou os 19 € antigos)? */
   const temRelatorio = (o) => Boolean(pagoEm(o.id, FASES_RELATORIO));
   /** A visita técnica já está paga (visita, relatório + visita, avaria, ou os 19 € antigos com visita)? */
   const temVisita = (o) => Boolean(pagoEm(o.id, FASES_VISITA))
@@ -319,7 +319,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const podeComprar = (o) => Boolean(o.simulacao) && ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.obra_id;
 
   /**
-   * Comprar o relatório pormenorizado, a visita técnica ou os dois (`fase`: relatorio_pormenorizado | visita |
+   * Comprar o relatório completo, a visita técnica ou os dois (`fase`: relatorio_pormenorizado | visita |
    * pormenorizado_visita) para um pedido que já existe (enviado grátis). Valores do servidor: o relatório pela
    * configuração, a visita pela localidade do pedido. Um pagamento por pagar igual é reaproveitado; um que se sobrepõe
    * (ex.: os dois juntos e depois só o relatório) é cancelado. Falhar ou cancelar nunca mexe no pedido.
@@ -331,12 +331,12 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!config.pagamentoPedido) throw new ErroApi(409, 'Os pagamentos online estão desligados. Fale connosco para pedir o relatório ou a visita.');
     if (simDe(o)?.funil === 'avaria') throw new ErroApi(409, 'Na avaria, o diagnóstico já inclui a visita.');
     if (!podeComprar(o)) throw new ErroApi(409, 'Este pedido já não aceita esta compra.');
-    if (inclui.relatorio && temRelatorio(o)) throw new ErroApi(409, 'Já comprou o relatório pormenorizado.');
+    if (inclui.relatorio && temRelatorio(o)) throw new ErroApi(409, 'Já comprou o relatório completo.');
     if (inclui.visita && temVisita(o)) throw new ErroApi(409, 'A visita técnica já está paga.');
     const cfg = lerConfigOrc();
     let valorCent = 0;
     const partes = [];
-    if (inclui.relatorio) { valorCent += precoRelatorioCent(cfg); partes.push('relatório pormenorizado'); }
+    if (inclui.relatorio) { valorCent += precoRelatorioCent(cfg); partes.push('relatório completo'); }
     if (inclui.visita) {
       const v = valorVisitaCent(localidadeDe(o), cfg);
       if (v === null && !concelhoConhecido(localidadeDe(o))) throw new ErroApi(409, 'Não reconhecemos o concelho da localidade: não é possível marcar a visita técnica. Fale connosco.');
@@ -620,6 +620,19 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return e && typeof e === 'object' && !Array.isArray(e) ? e : null;
   }
 
+  /**
+   * O esquema do quadro na versão do cliente: só o que se desenha (geral, diferenciais, disjuntores, módulos livres,
+   * ordem na calha, estado, fusíveis) e a data; sem `por` (email de quem o fez) nem `notas` (notas de trabalho do
+   * eletricista). null sem esquema.
+   */
+  function esquemaQuadroCliente(o) {
+    const e = esquemaQuadroDe(o);
+    if (!e) return null;
+    const r = {};
+    for (const k of ['disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'ordem', 'data']) if (e[k] !== undefined) r[k] = e[k];
+    return r;
+  }
+
   /** Diagnóstico da avaria feito no painel (`orcamentos.diagnostico`, JSON; migração 18), ou null. */
   function diagnosticoDe(o) {
     if (!o?.diagnostico) return null;
@@ -637,7 +650,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   }
 
   /**
-   * O diagnóstico na versão do cliente (só no relatório pormenorizado, nunca no básico): o que foi verificado (nomes, com
+   * O diagnóstico na versão do cliente (só no relatório completo, nunca no básico): o que foi verificado (nomes, com
    * o valor medido), o tipo de avaria encontrado e a conclusão; sem o email de quem o fez. null sem diagnóstico.
    */
   function diagnosticoCliente(o) {
@@ -660,7 +673,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   }
 
   /**
-   * Lista de ensaios do relatório pormenorizado (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem da RTIEBT
+   * Lista de ensaios do relatório completo (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem da RTIEBT
    * 612.1: continuidade do PE (612.2, valor medido), isolamento (612.3, ≥ `ensaio_isolamento_mohm` a 500 V DC), terra
    * (801.5.6.1, < `ensaio_terra_ohm` em habitação com disjuntor de entrada diferencial; RA × IΔn ≤ 50 V, 413.1.4.2) e o
    * diferencial (Anexo B: disparo ≤ IΔn; os ≤ `ensaio_diferencial_ms` são só referência EN 61008/61009). Os valores de
@@ -875,9 +888,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       terra_nota: 'Verificar terra (PE) nas tomadas na visita.',
       ensaios: listaEnsaios(cfg, ensaiosDe(o)),
       // "Esquema do quadro elétrico" desenhado pelo eletricista no painel (`orcamentos.esquema_quadro`, migração 17;
-      // formato da leitura do quadro: disjuntor_geral, diferenciais, disjuntores, modulos_livres, ordem). Passa tal e
-      // qual (null sem esquema); a conta desenha-o com web/simulador/quadro-desenho.js.
-      esquema_quadro: esquemaQuadroDe(o),
+      // formato da leitura do quadro: disjuntor_geral, diferenciais, disjuntores, modulos_livres, ordem). Só o desenho
+      // (sem `por` nem `notas`; null sem esquema); a conta desenha-o com web/simulador/quadro-desenho.js.
+      esquema_quadro: esquemaQuadroCliente(o),
       // Diagnóstico da avaria feito no painel (`orcamentos.diagnostico`, migração 18): só aqui, nunca no básico.
       diagnostico: diagnosticoCliente(o),
     };
@@ -894,7 +907,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!r) return null;
     const avaria = simDe(o)?.funil === 'avaria';
     const divisoes = r.divisoes.filter((d) => d.trabalho.length).map((d) => ({ nome: d.nome, trabalho: d.trabalho }));
-    if (r.geral.material.length) divisoes.push({ nome: 'Quadro elétrico e geral', trabalho: ['Trabalho no quadro elétrico (o material está no relatório pormenorizado).'] });
+    if (r.geral.material.length) divisoes.push({ nome: 'Quadro elétrico e geral', trabalho: ['Trabalho no quadro elétrico (o material está no relatório completo).'] });
     const semDesloc = Math.round((r.total - (r.deslocacao ?? 0)) * 100) / 100;
     return {
       pedido: o.id, acoes: r.acoes, divisoes,
@@ -904,7 +917,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // A deslocação à parte (€ c/ IVA); null fora da área servida (não há deslocação) ou sem trabalho.
       deslocacao: avaria ? null : r.deslocacao,
       com_deslocacao: r.deslocacao !== null,
-      nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório pormenorizado tem o material e o preço de cada divisão.',
+      nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
     };
   }
 
@@ -1060,7 +1073,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     responder(res, 200, { pagamento: publico(depois), voltar: voltar(depois) });
   };
 
-  // Sinal, restante e (fase 3) as compras do pedido: relatório pormenorizado, visita técnica ou os dois.
+  // Sinal, restante e (fase 3) as compras do pedido: relatório completo, visita técnica ou os dois.
   h.pagar = async ({ req, res, c, m }) => {
     if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
     const v = await lerJson(req, ['fase']);
@@ -1073,7 +1086,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const o = pedidoDaConta(c, m[1]);
     if (!o.simulacao) throw new ErroApi(404, 'Este pedido não tem relatório técnico.');
     if (!o.relatorio_libertado) {
-      throw new ErroApi(409, temRelatorio(o) ? 'O relatório está em revisão (até 24 h).' : 'O relatório pormenorizado ainda não foi comprado.');
+      throw new ErroApi(409, temRelatorio(o) ? 'O relatório está em revisão (até 24 h).' : 'O relatório completo ainda não foi comprado.');
     }
     responder(res, 200, { relatorio: relatorioCliente(o) });
   };

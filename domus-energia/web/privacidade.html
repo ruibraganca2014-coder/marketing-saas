@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de Privacidade — Domus Energia</title>
+  <meta name="description" content="Como a Domus Energia trata os seus dados pessoais: o que recolhemos no simulador, na conta e nos pagamentos, para quê, por quanto tempo e os seus direitos.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="anuncio legal">
+  <!-- Página legal: o mesmo cabeçalho e rodapé das páginas de anúncio (site.js). A identificação da empresa vem de config.js (legal.js). -->
+  <header class="topo">
+    <div class="wrap">
+      <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
+      <nav>
+        <a class="link" href="index.html#servicos">Serviços</a>
+        <a class="link" href="index.html#planos">Planos e preços</a>
+        <a class="link" href="simulador.html">Simular orçamento</a>
+        <a class="link" href="index.html#contactos">Contactos</a>
+        <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <a class="btn sec pequeno anuncio-cliente" href="cliente.html" aria-label="Área de cliente"><span class="so-largo">Área de cliente</span><span class="so-curto">Cliente</span></a>
+        <button class="menu-botao" id="menu-botao" type="button" aria-expanded="false" aria-controls="menu-movel" aria-label="Menu"><svg class="abrir" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg><svg class="fechar" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </nav>
+    </div>
+    <nav class="menu-movel" id="menu-movel" aria-label="Secções do site" hidden>
+      <ul>
+        <li><a href="index.html#servicos">Serviços</a></li>
+        <li><a href="index.html#planos">Planos e preços</a></li>
+        <li><a href="index.html#contactos">Contactos</a></li>
+        <li><a href="simulador.html">Simular orçamento</a></li>
+        <li><a href="cliente.html">Área de cliente</a></li>
+        <li><a href="conta.html">A minha conta</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="conteudo">
+    <section>
+      <div class="wrap estreito">
+        <ul class="legal-nav" aria-label="Páginas legais">
+          <li><a href="privacidade.html" aria-current="page">Política de Privacidade</a></li>
+          <li><a href="termos.html">Termos e Condições</a></li>
+          <li><a href="cookies.html">Cookies</a></li>
+        </ul>
+        <h1>Política de Privacidade</h1>
+        <p class="legal-data">Última atualização: <span id="legal-data" data-atualizado="2026-10-02">2 de outubro de 2026</span></p>
+        <p class="msg info" id="legal-aviso" role="note" hidden>Há dados da empresa por preencher (assinalados). O dono preenche-os uma vez em <code>web/config.js</code> (<code>empresa</code>) e as três páginas legais atualizam-se.</p>
+        <div class="cartao" id="responsavel">
+          <h2 style="margin-top:0">Quem é responsável pelos seus dados</h2>
+          <dl>
+            <dt>Empresa</dt><dd><span data-empresa="nome">[A PREENCHER]</span></dd>
+            <dt>NIF</dt><dd><span data-empresa="nif">[A PREENCHER]</span></dd>
+            <dt>Morada</dt><dd><span data-empresa="morada">[A PREENCHER]</span></dd>
+            <dt>Email</dt><dd><span data-empresa="email">geral@domusenergia.pt</span></dd>
+            <dt>Telefone</dt><dd><span data-empresa="telefone">900 000 000</span></dd>
+          </dl>
+        </div>
+
+        <p>A Domus Energia (a seguir "nós") trata os dados pessoais de quem usa o site, o simulador de orçamento, a conta de cliente e a área de cliente da casa. Esta política explica, em linguagem simples, que dados recolhemos, para quê, durante quanto tempo e quais são os seus direitos. Aplica-se o Regulamento Geral sobre a Proteção de Dados (RGPD) e a Lei n.º 58/2019.</p>
+
+        <h2 id="dados">Que dados recolhemos</h2>
+        <h3>Conta de cliente</h3>
+        <ul>
+          <li>Email e palavra-passe. A palavra-passe nunca fica guardada em texto: guardamos só uma versão cifrada (scrypt), que não permite recuperá-la.</li>
+          <li>Código de 6 algarismos enviado por email para confirmar o endereço (vale 15 minutos) e para repor a palavra-passe.</li>
+          <li>Data do último acesso e as sessões abertas (identificadas por um cookie, ver <a href="cookies.html">Cookies</a>).</li>
+        </ul>
+        <h3>Pedido de orçamento (simulador e formulário de contacto)</h3>
+        <ul>
+          <li>Nome, telefone, email, localidade (concelho) e, se a indicar, a morada da obra.</li>
+          <li>A simulação: tipo de casa, divisões, planta desenhada no simulador (e a imagem ou PDF que carregou como fundo da planta), aparelhos, trabalhos escolhidos, disponibilidade para a visita e a mensagem que escrever.</li>
+          <li>Fotos do quadro elétrico, das avarias e dos aparelhos, com a legenda que lhes der. Nas fotos pode aparecer o interior da sua casa: fotografe só o necessário.</li>
+          <li>Depois da visita e da obra: o relatório técnico, a proposta, o esquema do quadro e o diagnóstico da avaria, feitos pela nossa equipa.</li>
+        </ul>
+        <h3>Fotos pelo telemóvel (código QR)</h3>
+        <p>No computador, "Tirar foto" mostra um código QR. O telemóvel abre uma ligação temporária, única para essa simulação, que vale <strong>24 horas</strong>; a foto fica no nosso servidor só até o computador a receber (ou até a ligação expirar) e passa a fazer parte da simulação como se tivesse sido carregada no computador. Nada mais da simulação passa pelo telemóvel.</p>
+        <h3>Pagamentos</h3>
+        <p>Os pagamentos online (relatório completo, visita técnica, diagnóstico de avaria, sinal, restante da obra e a subscrição mensal) são feitos pela <strong>Stripe</strong>. <strong>Nunca vemos nem guardamos os dados do seu cartão</strong>: ficam na Stripe. Guardamos a referência do pagamento, o valor, a data, o estado e o recibo, e o nome e NIF que indicar para a fatura.</p>
+        <h3>Área de cliente da casa</h3>
+        <p>Depois da instalação, a área de cliente mostra o estado dos circuitos, sensores e consumos da sua casa, que os aparelhos instalados enviam para o nosso servidor. Esses dados servem para lhe mostrar a casa, enviar os avisos que pedir e fazer os relatórios da casa.</p>
+        <h3>Dados técnicos</h3>
+        <p>O servidor regista o endereço IP, a data e hora e a página pedida (registo de acessos, para segurança e para resolver problemas), e limita o número de pedidos por IP. Alguns atos ficam registados com o IP (ex.: criar a conta, aceitar a proposta); ao apagar a conta, esse IP é removido.</p>
+
+        <h2 id="finalidades">Para que usamos os dados e com que base legal</h2>
+        <div class="tabela-caixa">
+          <table class="tabela">
+            <thead><tr><th>Finalidade</th><th>Dados</th><th>Base legal</th></tr></thead>
+            <tbody>
+              <tr><td>Fazer a estimativa, o relatório básico, o relatório completo e a proposta</td><td>contacto, simulação, planta, fotos</td><td>diligências pré-contratuais a seu pedido (art. 6.º, n.º 1, b) do RGPD)</td></tr>
+              <tr><td>Marcar e fazer a visita técnica e a obra</td><td>contacto, morada, disponibilidade, fotos</td><td>execução do contrato</td></tr>
+              <tr><td>Fotos do quadro, das avarias e dos aparelhos</td><td>fotos e legendas</td><td>consentimento, dado ao tirar ou carregar a foto; pode retirá-lo apagando a foto ou a conta</td></tr>
+              <tr><td>Conta de cliente: acompanhar o pedido, retomar a simulação noutro aparelho, área da casa</td><td>email, palavra-passe cifrada, sessões, simulação guardada</td><td>execução do contrato</td></tr>
+              <tr><td>Subscrição mensal da casa ligada (app e área de cliente)</td><td>conta, plano, pagamentos</td><td>execução do contrato</td></tr>
+              <tr><td>Faturação e contabilidade</td><td>nome, NIF, morada, pagamentos</td><td>obrigação legal (Código do IVA; art. 123.º do CIRC)</td></tr>
+              <tr><td>Segurança do site e limites de uso</td><td>IP, registos de acesso</td><td>interesse legítimo (proteger o serviço e os clientes)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Não fazemos publicidade por email nem vendemos dados. Só lhe escrevemos sobre o seu pedido, a sua conta ou a sua casa.</p>
+
+        <h2 id="prazos">Durante quanto tempo guardamos</h2>
+        <ul>
+          <li><strong>Conta e pedidos sem obra:</strong> enquanto a conta existir. Ao apagar a conta (ver abaixo), a conta, as sessões, os códigos, a simulação guardada e os pedidos sem seguimento são apagados; os pedidos com pagamentos feitos são <strong>anonimizados</strong> (saem o nome, os contactos, a morada, a mensagem, a simulação e as fotos; ficam só as datas, os valores e a descrição do serviço, por causa das faturas).</li>
+          <li><strong>Contas inativas:</strong> uma conta sem email confirmado é apagada ao fim de 30 dias; uma conta sem acesso há 12 meses, sem casa ligada e com os pedidos sem seguimento há 12 meses é apagada automaticamente, com os seus pedidos e fotos.</li>
+          <li><strong>Fotos pelo telemóvel (QR):</strong> a ligação e as fotos ainda não recebidas são apagadas ao fim de 24 horas.</li>
+          <li><strong>Pedidos que deram obra:</strong> enquanto durar a relação (garantia, assistência, subscrição) e depois pelos prazos legais.</li>
+          <li><strong>Faturas e pagamentos:</strong> 10 anos (obrigação fiscal e contabilística). Os pedidos anonimizados são apagados 10 anos depois do último pagamento.</li>
+          <li><strong>Registos de acesso do servidor:</strong> <mark>[A CONFIRMAR]</mark> dias.</li>
+        </ul>
+
+        <h2 id="subcontratantes">Quem mais trata os dados (subcontratantes)</h2>
+        <p>Usamos estes serviços, que tratam dados por nossa conta e com contrato de subcontratação (art. 28.º do RGPD):</p>
+        <div class="tabela-caixa">
+          <table class="tabela">
+            <thead><tr><th>Serviço</th><th>Para quê</th><th>Onde</th></tr></thead>
+            <tbody>
+              <tr><td>Hostinger (servidor virtual)</td><td>alojamento do site, da conta de cliente, do painel e da base de dados</td><td>Lisboa, Portugal (UE) <mark>[A CONFIRMAR]</mark></td></tr>
+              <tr><td>Stripe Payments Europe, Ltd.</td><td>pagamentos online e subscrição mensal; os dados do cartão ficam só na Stripe</td><td>Irlanda (UE); a Stripe pode transferir dados para os EUA ao abrigo das cláusulas contratuais-tipo</td></tr>
+              <tr><td>Serviço de envio de email por SMTP (ex.: Brevo ou Resend) <mark>[A CONFIRMAR]</mark></td><td>códigos de confirmação, avisos sobre o pedido e recibos</td><td>UE <mark>[A CONFIRMAR]</mark></td></tr>
+              <tr><td>Google Fonts</td><td>os tipos de letra do site; o browser pede-os à Google e envia-lhe o seu IP</td><td>Google Ireland Ltd. (UE) / EUA</td></tr>
+              <tr><td>jsDelivr (CDN)</td><td>o leitor de PDF (pdf.js) quando carrega uma planta em PDF e a biblioteca MQTT na área de cliente; o browser envia-lhe o seu IP</td><td>rede mundial de servidores</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Não há ferramentas de análise de tráfego (analytics) nem publicidade no site. Se um dia as juntarmos, esta página e a de <a href="cookies.html">Cookies</a> são atualizadas e passa a ser pedido o seu consentimento.</p>
+
+        <h2 id="direitos">Os seus direitos</h2>
+        <p>Pode, a qualquer momento: <strong>aceder</strong> aos seus dados, <strong>corrigi-los</strong>, pedir que sejam <strong>apagados</strong>, <strong>limitar</strong> o seu tratamento, <strong>opor-se</strong> a ele, <strong>retirar o consentimento</strong> (para as fotos) e receber os seus dados num formato de uso corrente (<strong>portabilidade</strong>). Basta escrever para <span data-empresa="email">geral@domusenergia.pt</span>. Respondemos no prazo de um mês.</p>
+        <p>Se achar que não tratámos bem os seus dados, pode apresentar queixa à <strong>Comissão Nacional de Proteção de Dados (CNPD)</strong>, Av. D. Carlos I, 134 - 1.º, 1200-651 Lisboa, <a href="https://www.cnpd.pt" rel="noopener" target="_blank">www.cnpd.pt</a>.</p>
+
+        <h2 id="apagar">Como apagar a conta</h2>
+        <p>Entre em <a href="conta.html">A minha conta</a>, vá à secção "A minha conta" e carregue em <strong>"Apagar a minha conta"</strong>. Confirma com a sua palavra-passe e a conta é apagada na hora, com os dados descritos em "Durante quanto tempo guardamos". Também pode pedir por email.</p>
+
+        <h2 id="cookies">Cookies e dados guardados no browser</h2>
+        <p>Usamos só o cookie de sessão da conta (HttpOnly) e alguns dados guardados no seu próprio browser (a simulação em curso, o tema claro/escuro e uma marca de que tem sessão aberta). Não há cookies de publicidade nem de análise de tráfego. Tudo explicado em <a href="cookies.html">Cookies</a>.</p>
+
+        <h2 id="seguranca">Segurança</h2>
+        <p>O site é servido por HTTPS; as palavras-passe ficam cifradas (scrypt); as sessões são identificadas por códigos aleatórios de que o servidor guarda só a impressão digital (SHA-256); as credenciais da sua casa ficam cifradas (AES-256-GCM); o acesso aos pedidos é só da conta que os fez; e cada ato relevante fica na auditoria. Nenhum sistema é perfeito: se detetarmos um incidente com os seus dados, avisamo-lo e a CNPD nos prazos da lei.</p>
+
+        <h2 id="alteracoes">Alterações a esta política</h2>
+        <p>Quando mudarmos esta política, atualizamos a data no topo. Se a mudança for relevante para quem tem conta, avisamos por email.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© <span id="ano"></span> Domus Energia</span>
+      <nav class="rodape-servicos" aria-label="Serviços">
+        <span>Serviços</span>
+        <ul>
+          <li><a href="carregador-carro.html">Carregador de carro em casa</a></li>
+          <li><a href="quadro-eletrico.html">Quadro elétrico antigo</a></li>
+          <li><a href="casa-inteligente.html">Casa inteligente</a></li>
+          <li><a href="poupar-energia.html">Poupar energia</a></li>
+        </ul>
+      </nav>
+      <nav class="rodape-legal" aria-label="Legal">
+        <a href="privacidade.html" aria-current="page">Privacidade</a>
+        <a href="termos.html">Termos</a>
+        <a href="cookies.html">Cookies</a>
+      </nav>
+      <a href="conta.html">A minha conta</a>
+      <a href="cliente.html">Área de cliente</a>
+    </div>
+  </footer>
+
+  <a class="whatsapp-flutuante js-whatsapp" href="#" aria-label="Falar no WhatsApp"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 4.5A11.5 11.5 0 0 0 6.2 22l-1.6 5.6 5.8-1.5A11.5 11.5 0 1 0 16 4.5z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12.2 10.6c.4-.4 1-.3 1.2.2l1 2.2c.2.4 0 .8-.3 1.1l-.6.6c.8 1.7 2.1 3 3.8 3.8l.6-.6c.3-.3.8-.4 1.1-.2l2.2 1c.5.2.6.9.2 1.2-2.4 2.6-6 1-8.2-1.2s-3.9-5.7-1-8.1z" fill="currentColor"/></svg></a>
+
+  <script src="config.js"></script>
+  <script type="module" src="site.js"></script>
+  <script type="module" src="legal.js"></script>
+</body>
+</html>

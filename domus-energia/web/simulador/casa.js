@@ -245,8 +245,9 @@ export function divisoesDaCasa(casa, maquinas = []) {
       extras: { ...x, corredor: x.corredor ?? quartos >= 2 },
     })], c.tipologia);
   }
-  // "Outra divisão" de "A casa tem…" (ginásio, sótão…; `casa.outras`): no r/c, a seguir às outras divisões da casa.
-  if (perfilCasa(c.tipo) === "habitacao" && c.tipologia) for (const nome of nomesOutras(c)) add(nome);
+  // "Outra divisão" de "A casa tem…" (ginásio, sótão…; `casa.outras`): no r/c, a seguir às outras divisões da casa,
+  // marcadas com a linha de onde vêm (`origem: "outra:<i>"`) para a planta mexida as renomear (acertarPlantaMexida).
+  if (perfilCasa(c.tipo) === "habitacao" && c.tipologia) for (const o of outrasDaCasa(c)) r.push({ nome: o.nome, piso: 0, origem: `outra:${o.linha}` });
   const tem = (tipos) => r.some((d) => tipos.includes(tipoDivisao(d.nome)));
   const lista = (Array.isArray(maquinas) ? maquinas : []).map((m) => itemMaquina(m).modelo);
   if (lista.some((m) => PRECISA_EXTERIOR[m] && !tem(PRECISA_EXTERIOR[m]))) add("Exterior");
@@ -259,13 +260,15 @@ export const LIMITES_OUTRAS = { linhas: 10, nome: 30, qtd: [1, 10] };
  * Nomes das "outras divisões" da casa (`casa.outras`: [{nome, qtd}]), pela ordem: "Ginásio", e com qtd 2 ou mais
  * "Ginásio", "Ginásio 2"…; sem nome, "Outra divisão". Estados antigos sem o campo: nenhuma.
  */
-export function nomesOutras(casa) {
+export const nomesOutras = (casa) => outrasDaCasa(casa).map((o) => o.nome);
+/** As "outras divisões" com a linha de `casa.outras` de onde vêm: [{nome, linha}] (nomesOutras com a origem). */
+export function outrasDaCasa(casa) {
   const r = [];
-  for (const o of (Array.isArray(casa?.outras) ? casa.outras : []).slice(0, LIMITES_OUTRAS.linhas)) {
+  (Array.isArray(casa?.outras) ? casa.outras : []).slice(0, LIMITES_OUTRAS.linhas).forEach((o, linha) => {
     const nome = String(o?.nome ?? "").trim().slice(0, LIMITES_OUTRAS.nome) || "Outra divisão";
     const qtd = inteiro(o?.qtd, LIMITES_OUTRAS.qtd, 1);
-    for (let i = 1; i <= qtd; i++) r.push(i === 1 ? nome : `${nome} ${i}`);
-  }
+    for (let i = 1; i <= qtd; i++) r.push({ nome: i === 1 ? nome : `${nome} ${i}`, linha });
+  });
   return r;
 }
 
@@ -484,7 +487,7 @@ export function pisoTipicoMaquina(casa, modelo, maquinas = []) {
 export function plantaDaCasa(casa, maquinas = []) {
   const p = plantaVazia();
   const escolhidas = (Array.isArray(maquinas) ? maquinas : []).map(itemMaquina);
-  const itens = divisoesDaCasa(casa, escolhidas).map((d) => ({ nome: d.nome, piso: d.piso ?? 0, tam: d.tamanho ?? tamanho(d.nome, casa) }));
+  const itens = divisoesDaCasa(casa, escolhidas).map((d) => ({ nome: d.nome, piso: d.piso ?? 0, tam: d.tamanho ?? tamanho(d.nome, casa), origem: d.origem }));
   const pos = new Map();
   let maxX = 0, maxY = 0;
   [...new Set(itens.map((z) => z.piso))].sort((a, b) => a - b).forEach((piso) => {
@@ -503,7 +506,7 @@ export function plantaDaCasa(casa, maquinas = []) {
   });
   itens.forEach((it, i) => {
     const [x, yy] = pos.get(it);
-    p.divisoes.push({ id: `d${i + 1}`, nome: it.nome, piso: it.piso, x_cm: x, y_cm: yy, largura_cm: it.tam[0], altura_cm: it.tam[1] });
+    p.divisoes.push({ id: `d${i + 1}`, nome: it.nome, piso: it.piso, x_cm: x, y_cm: yy, largura_cm: it.tam[0], altura_cm: it.tam[1], ...(it.origem ? { origem: it.origem } : {}) });
   });
   const arred = (v) => Math.ceil(v / ESCALA_CM) * ESCALA_CM;
   p.largura_cm = Math.min(MAX_LADO_CM, Math.max(p.largura_cm, arred(maxX + MARGEM)));
@@ -527,7 +530,26 @@ export function plantaDaCasa(casa, maquinas = []) {
       p.elementos.push({ id: `e${++e}`, tipo: "maquina", x_cm, y_cm, rot: 0, piso: d.piso, divisao: null, props, ...(temPergunta("maquina", props) ? { por_responder: true } : {}) });
     }
   }
-  return atualizarDivisoes(p);
+  atualizarDivisoes(p);
+  marcarPortaDaRua(p);
+  return p;
+}
+
+/** Ordem das divisões onde costuma estar a porta da rua (a 1.ª porta da 1.ª que a planta tiver, no r/c). */
+const DIVISOES_DA_RUA = ["entrada", "corredor", "sala", "sala_cozinha", "escadas", "garagem"];
+/**
+ * Porta da rua na planta automática (QA 2F.9/B7): sem nenhuma porta marcada `entrada`, a 1.ª porta da entrada/hall,
+ * senão do corredor, da sala…, senão a 1.ª porta do r/c, fica "É a porta da rua?" = sim (o pacote Segurança conta-a:
+ * regras.js portas_entrada, melhorias.js). Os elementos têm de ter `divisao` (atualizarDivisoes). Devolve a porta ou null.
+ */
+export function marcarPortaDaRua(p) {
+  const portas = p.elementos.filter((e) => e.tipo === "porta");
+  if (!portas.length || portas.some((e) => e.props?.entrada)) return null;
+  const rc = portas.filter((e) => (e.piso ?? 0) === 0);
+  const tipoDe = (e) => { const d = p.divisoes.find((x) => x.id === e.divisao); return d ? tipoDivisao(d.nome) : null; };
+  const porta = DIVISOES_DA_RUA.map((t) => rc.find((e) => tipoDe(e) === t)).find(Boolean) ?? rc[0] ?? portas[0];
+  porta.props = { ...porta.props, entrada: true };
+  return porta;
 }
 
 /**
@@ -655,14 +677,41 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
       p.elementos.push({ ...a, id: novoId("e", p.elementos), piso: d.piso ?? 0, divisao: d.id });
     }
   };
-  if (comAparelhos && antes.fase !== "tudo") for (const d of [...p.divisoes]) porAparelhos(d);
-  // Divisões
-  const dA = agruparDivisoes(antes.divisoes), dB = agruparDivisoes(depois.divisoes);
+  if (comAparelhos && antes.fase !== "tudo") { for (const d of [...p.divisoes]) porAparelhos(d); marcarPortaDaRua(p); }
+  const novaDivisao = (nome, piso, extra = {}) => {
+    const [w, h] = tamanho(nome, casa);
+    const [x, y] = sitioDivisao(p, w, h, piso);
+    const d = { id: novoId("d", p.divisoes), nome, piso, x_cm: x, y_cm: y, largura_cm: w, altura_cm: h, ...extra };
+    p.divisoes.push(d);
+    p.largura_cm = Math.min(MAX_LADO_CM, Math.max(p.largura_cm, Math.ceil((x + w + MARGEM) / ESCALA_CM) * ESCALA_CM));
+    p.altura_cm = Math.min(MAX_LADO_CM, Math.max(p.altura_cm, Math.ceil((y + h + MARGEM) / ESCALA_CM) * ESCALA_CM));
+    if (comAparelhos) porAparelhos(d);
+    return d;
+  };
+  // "Outras divisões" de "A casa tem…" (QA N1): seguem a linha de onde vêm (`origem: "outra:<i>"`), não o tipo — mudar
+  // o nome renomeia/renumera as que já estão na planta ("Outra divisão" → "Ginásio", "Ginásio 2"); mais ou menos na
+  // linha acrescenta ou tira. Plantas antigas sem `origem`: as divisões com esses nomes passam a ter.
+  const porOrigem = (lista) => { const m = new Map(); for (const d of lista ?? []) if (d.origem) { if (!m.has(d.origem)) m.set(d.origem, []); m.get(d.origem).push(d); } return m; };
+  const oB = porOrigem(depois.divisoes);
+  const adotadas = new Set();
+  for (const origem of new Set([...oB.keys(), ...p.divisoes.filter((d) => d.origem).map((d) => d.origem)])) {
+    const nb = oB.get(origem) ?? [];
+    const l = p.divisoes.filter((d) => d.origem === origem).sort((a, b) => numeroId(a) - numeroId(b));
+    if (!l.length) for (const { nome } of nb) {
+      const d = p.divisoes.find((x) => !x.origem && x.nome === nome);
+      if (d) { d.origem = origem; l.push(d); adotadas.add(nome); }
+    }
+    for (let i = 0; i < Math.min(l.length, nb.length); i++) l[i].nome = nb[i].nome;
+    for (let i = nb.length; i < l.length; i++) tirarDivisao(l[i]);
+    for (let i = l.length; i < nb.length && p.divisoes.length < MAX_DIVISOES; i++) novaDivisao(nb[i].nome, nb[i].piso ?? 0, { origem });
+  }
+  // Divisões (por tipo e piso), sem as "outras"
+  const dA = agruparDivisoes(antes.divisoes.filter((d) => !d.origem && !adotadas.has(d.nome))), dB = agruparDivisoes(depois.divisoes.filter((d) => !d.origem));
   for (const k of new Set([...dA.keys(), ...dB.keys()])) {
     const [tipo, pisoTxt] = k.split("|");
     const piso = Number(pisoTxt);
     const na = dA.get(k) ?? [], nb = dB.get(k) ?? [];
-    const doTipo = () => p.divisoes.filter((d) => (d.piso ?? 0) === piso && tipoDivisao(d.nome) === tipo);
+    const doTipo = () => p.divisoes.filter((d) => !d.origem && (d.piso ?? 0) === piso && tipoDivisao(d.nome) === tipo);
     for (let i = nb.length; i < na.length; i++) {
       const l = doTipo();
       if (!l.length) break;
@@ -677,13 +726,7 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
         const base = nb[0].replace(/ \d+$/, "");
         for (let n = 2; ; n++) if (!usados.has(`${base} ${n}`)) { nome = `${base} ${n}`; break; }
       }
-      const [w, h] = tamanho(nome, casa);
-      const [x, y] = sitioDivisao(p, w, h, piso);
-      const d = { id: novoId("d", p.divisoes), nome, piso, x_cm: x, y_cm: y, largura_cm: w, altura_cm: h };
-      p.divisoes.push(d);
-      p.largura_cm = Math.min(MAX_LADO_CM, Math.max(p.largura_cm, Math.ceil((x + w + MARGEM) / ESCALA_CM) * ESCALA_CM));
-      p.altura_cm = Math.min(MAX_LADO_CM, Math.max(p.altura_cm, Math.ceil((y + h + MARGEM) / ESCALA_CM) * ESCALA_CM));
-      if (comAparelhos) porAparelhos(d);
+      novaDivisao(nome, piso);
     }
   }
   // Máquinas

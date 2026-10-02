@@ -28,11 +28,11 @@ Legenda: ✅ feito/testado · 🔄 em construção (fase 2) · ➕ novo, a plane
 | Vida mais eficiente e confortável | 🔄 | Conjunto de tudo o acima |
 
 ## Relatório do estado da casa (Condição → Saída)
-Pedido: "Insira o estado atual da casa → receba um relatório detalhado de todos os dispositivos."
+Pedido: "Insira o estado atual da casa → receba um relatório completo de todos os dispositivos."
 
 | Ponto do relatório | Estado | Nota |
 |---|---|---|
-| Relatório detalhado de todos os aparelhos ligados | ➕ | **Novo ecrã "Relatório da casa"**: um resumo gerado a partir do estado ao vivo, por divisão: o que está ligado, aberto, offline, com bateria fraca, consumo agora e hoje. Botão "Partilhar/copiar". Também enviado por notificação de manhã (opcional). |
+| Relatório completo de todos os aparelhos ligados | ➕ | **Novo ecrã "Relatório da casa"**: um resumo gerado a partir do estado ao vivo, por divisão: o que está ligado, aberto, offline, com bateria fraca, consumo agora e hoje. Botão "Partilhar/copiar". Também enviado por notificação de manhã (opcional). |
 | Luzes ligadas/desligadas | 🔄 | Canais `interruptor` e `luz` |
 | Temperatura do termóstato | ➕ | **Ainda não suportado.** Novo tipo de canal `termostato` (temperatura atual, temperatura definida, modo). Aparelhos Tuya Wi-Fi de termóstato ou Shelly H&T / Shelly BLU H&T |
 | Câmaras de segurança ativadas/desativadas | ➕ | **Ainda não suportado.** Câmaras exigem vídeo (RTSP/ONVIF), não só MQTT. Proposta fase 3: mostrar estado (online, gravação ligada/desligada) e ligação para a app da câmara; vídeo ao vivo mais tarde (ex.: go2rtc no servidor) |

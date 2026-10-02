@@ -1,0 +1,11 @@
+# Domus Energia — opancas.pt
+User-agent: *
+Allow: /
+Disallow: /painel/
+Disallow: /api/
+Disallow: /pagamento-simulado.html
+Disallow: /foto.html
+Disallow: /conta.html
+Disallow: /cliente.html
+
+Sitemap: https://opancas.pt/sitemap.xml

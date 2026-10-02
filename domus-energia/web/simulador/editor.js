@@ -154,7 +154,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   let ajusteAuto = false;     // a vista foi ajustada sozinha e o cliente ainda não a mexeu: reajusta se o tamanho mudar
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
-  let tiposDivisao = TIPOS_DIVISAO;   // botões de divisão (mudam com o tipo de imóvel: definirTiposDivisao)
+  let tiposDivisao = TIPOS_DIVISAO;   // tipos de divisão do tipo de imóvel (definirTiposDivisao): na linha os que a casa tem, todos na janela "Outra divisão"
+  let divisoesCasa = [];      // nomes das divisões de "A casa tem…" (definirTiposDivisao): os tipos delas ficam na linha, mesmo sem estar na planta
   let modelosJanela = null;   // modelos da lista "Qual é?" (os do perfil do imóvel: definirMaquinas); null = todos
   let pisoAtual = 0;          // separador visível: só as divisões e os elementos deste piso (0 = r/c)
   let pisosPedidos = 1;       // pisos da casa (definirPisos); aparecem também os pisos que já têm coisas
@@ -168,9 +169,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   raiz.classList.add("editor");
 
   // Ferramentas numa só linha compacta por cima da planta (decisão do dono), que desliza para o lado (carrossel):
-  // todas as divisões do tipo de imóvel (definirTiposDivisao), todos os elementos e todas as máquinas
-  // (definirMaquinas), em 3 grupos separados por um traço discreto. (Ronda sinalizar: saiu o "Mais…" — a janela com
-  // a lista completa; tudo está na linha, as setas ‹ › dão a volta.)
+  // as divisões que a casa tem e "Outra divisão" (a janela com todas as do tipo de imóvel), todos os elementos e todas
+  // as máquinas (definirMaquinas), em 3 grupos separados por um traço discreto. (Ronda sinalizar: saiu o "Mais…" — a
+  // janela com a lista completa; as setas ‹ › dão a volta.)
   const fila = el("div", "editor-ferramentas");
   fila.setAttribute("role", "toolbar");
   fila.setAttribute("aria-label", "Ferramentas da planta");
@@ -204,8 +205,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   if (typeof ResizeObserver === "function") new ResizeObserver(acertarSetasFila).observe(fila);
   const ferramentas = {};
   const grupoBarra = (cls, rotulo) => { const g = el("div", `editor-barra ${cls}`); g.setAttribute("role", "group"); g.setAttribute("aria-label", rotulo); return g; };
-  // 1. Um botão por tipo de divisão, com o seu desenho (planta-svg.js divisao_<tipo>): cria-a logo, com o nome
-  // certo (Quarto, Quarto 2, Sala…); o que traz (casa.js resumoAparelhos) fica no nome acessível do botão.
+  // 1. Um botão por tipo de divisão que a casa tem (as da planta neste piso e as de "A casa tem…"; decisão do dono), com
+  // o seu desenho (planta-svg.js divisao_<tipo>): cria-a logo, com o nome certo (Quarto, Quarto 2, Sala…); o que traz
+  // (casa.js resumoAparelhos) fica no nome acessível do botão. No fim, "Outra divisão" abre a janela com todos os tipos.
   const barraDiv = grupoBarra("editor-divisoes", "Acrescentar divisão");
   /** Nome acessível: o que a divisão traz só quando o passo mostra os aparelhos (em "A casa" só as divisões). */
   const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${resumoAparelhos(t.nome, t.w, t.h)})` : ""}`;
@@ -216,18 +218,69 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     b.append(desenharIcone(svgEl("svg"), "divisao", { tipo: ICONE_DIVISAO[t.nome] ?? tipoDoNome(t.nome) }), el("span", "ferramenta-nome", t.nome));
     return b;
   }
+  /** Tipo (a chave do desenho) de um botão de divisão. */
+  const chaveTipo = (t) => ICONE_DIVISAO[t.nome] ?? tipoDoNome(t.nome);
+  /** Tipos de uma lista de nomes de divisões (casa.js tipoDivisao); a kitnet (sala com cozinha) conta como sala e cozinha. */
+  const tiposDe = (nomes) => new Set(nomes.flatMap((n) => { const k = tipoDoNome(n); return k === "sala_cozinha" ? ["sala", "cozinha"] : [k]; }));
+  /** O botão cria a divisão logo (rato, toque ou teclado), num sítio livre. */
+  const ligarDivisao = (b, t) => b.addEventListener("click", () => {
+    definirModo(null);
+    if (criarDivisao(t.nome)) mostrarPlanta();
+  });
+  const bOutraDiv = botao("", "ferramenta tipo-divisao outra-divisao");
+  bOutraDiv.id = "editor-outra-divisao";
+  bOutraDiv.setAttribute("aria-label", "Outra divisão: todos os tipos de divisão");
+  bOutraDiv.setAttribute("aria-haspopup", "dialog");
+  bOutraDiv.append(desenharIcone(svgEl("svg"), "divisao", { tipo: "outra" }), el("span", "ferramenta-nome", "Outra divisão"));
+  bOutraDiv.addEventListener("click", () => abrirTodasDivisoes());
   function desenharBotoesDivisao() {
     barraDiv.replaceChildren();
     for (const t of tiposDivisao) {
+      if (t.nome === "Outra") continue;   // só na janela "Outra divisão"
       const b = botaoDivisao(t);
-      // O botão cria-a logo (rato, toque ou teclado), num sítio livre.
-      b.addEventListener("click", () => {
-        definirModo(null);
-        if (criarDivisao(t.nome)) mostrarPlanta();
-      });
+      ligarDivisao(b, t);
       barraDiv.append(b);
     }
+    barraDiv.append(bOutraDiv);
     acertarBarra();
+  }
+  /** Na linha só os tipos que a casa tem: os das divisões da planta neste piso e os de "A casa tem…" (divisoesCasa). */
+  function acertarBotoesDivisao() {
+    const tem = tiposDe([...(planta ? divisoesPiso() : []).map((d) => d.nome), ...divisoesCasa]);
+    for (const b of barraDiv.children) {
+      const t = b.dataset.divisao && tiposDivisao.find((x) => x.nome === b.dataset.divisao);
+      if (t) b.hidden = !tem.has(chaveTipo(t));
+    }
+  }
+  // Janela "Outra divisão" (<dialog> modal, como "Acrescentar outro aparelho" em app.js): a grelha de todos os tipos
+  // de divisão do imóvel; escolher um cria-a como o botão da linha e fecha; "Fechar" ou Esc fecham; o foco volta ao botão.
+  const janelaDiv = el("dialog", "editor-dialogo editor-mais janela-divisoes");
+  janelaDiv.id = "divisoes-janela";
+  janelaDiv.setAttribute("aria-labelledby", "divisoes-titulo");
+  const janelaDivTitulo = el("h2", null, "Acrescentar uma divisão");
+  janelaDivTitulo.id = "divisoes-titulo";
+  const janelaDivGrelha = el("div", "editor-mais-grelha");
+  const janelaDivCorpo = el("div", "editor-mais-corpo");
+  janelaDivCorpo.append(janelaDivGrelha);
+  const janelaDivFechar = botao("Fechar", "btn sec");
+  janelaDivFechar.id = "divisoes-fechar";
+  janelaDivFechar.addEventListener("click", () => janelaDiv.close());
+  const janelaDivBotoes = el("div", "form-botoes");
+  janelaDivBotoes.append(janelaDivFechar);
+  janelaDiv.append(janelaDivTitulo, janelaDivCorpo, janelaDivBotoes);
+  janelaDiv.addEventListener("close", () => bOutraDiv.focus({ preventScroll: true }));
+  function abrirTodasDivisoes() {
+    if (janelaDiv.open) return;
+    janelaDivGrelha.replaceChildren();
+    for (const t of tiposDivisao) {
+      const b = botaoDivisao(t);
+      b.addEventListener("click", () => janelaDiv.close());
+      ligarDivisao(b, t);
+      janelaDivGrelha.append(b);
+    }
+    janelaDiv.showModal();
+    janelaDivCorpo.scrollTop = 0;
+    janelaDivGrelha.querySelector("button")?.focus();
   }
 
   // 2. Elementos da instalação elétrica (as máquinas têm o seu grupo, um botão por modelo).
@@ -279,6 +332,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   /** Mostra na linha os grupos que o passo deixa mudar (lote 8, definirPermissoes); esconde os vazios. */
   function acertarBarra() {
+    acertarBotoesDivisao();
     barraDiv.classList.toggle("sem-permissao", !podeDivisoes);
     for (const g of [barra, barraMaq]) g.classList.toggle("sem-permissao", !podeAparelhos);
     for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || !g.children.length;
@@ -545,7 +599,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   dlgBotoes.append(dGuardar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
-  raiz.append(principal, menu, lado, dialogo);
+  raiz.append(principal, menu, lado, dialogo, janelaDiv);
 
   // ---------------------------------------------------------------- barras (role=toolbar): setas
   /**
@@ -2084,6 +2138,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     desenharSelecao();
     desenharFundo();
     rovingAcoes();
+    acertarBarra();   // os botões das divisões seguem a planta (as divisões deste piso)
     reporFoco(foco);
   }
 
@@ -2146,6 +2201,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      */
     definirPermissoes({ divisoes = true, aparelhos = true } = {}) {
       if (divisoes === podeDivisoes && aparelhos === podeAparelhos) return;
+      const voltarAoInicio = divisoes && !podeDivisoes;   // QA N2: o grupo das divisões reaparece à esquerda
       podeDivisoes = divisoes;
       podeAparelhos = aparelhos;
       desfazer = []; refazer = [];
@@ -2156,6 +2212,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         if (t) b.setAttribute("aria-label", rotuloDivisao(t));
       }
       acertarBarra();
+      // Depois de o grupo aparecer (layout feito): com scroll-snap o Chrome voltava a encostar ao botão onde estava
+      // (os elementos, agora a 582 px); a linha volta ao início para as divisões se verem.
+      if (voltarAoInicio) { void fila.scrollWidth; fila.scrollLeft = 0; }
       if (planta) desenharTudo();
     },
     /**
@@ -2176,8 +2235,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     /** Piso visível (0 = r/c). */
     get piso() { return pisoAtual; },
     mudarPiso: (p) => mudarPiso(p),
-    /** Botões de divisão para o tipo de imóvel (regras.js tiposDivisaoPara), todos na linha. */
-    definirTiposDivisao(lista) {
+    /**
+     * Tipos de divisão do tipo de imóvel (regras.js tiposDivisaoPara): na linha só os que a casa tem (as divisões da
+     * planta neste piso e `casa`, os nomes das divisões de "A casa tem…"); todos na janela "Outra divisão".
+     */
+    definirTiposDivisao(lista, casa = []) {
+      divisoesCasa = Array.isArray(casa) ? casa : [];
       if (lista === tiposDivisao) { acertarBarra(); return; }
       tiposDivisao = lista;
       desenharBotoesDivisao();
@@ -2201,6 +2264,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     limpar() {
       fechoExterno = null;
       if (dialogo.open) dialogo.close();
+      if (janelaDiv.open) janelaDiv.close();
       dialogoAtivo = false;
       rascunho = null;
       acertarBarra();

@@ -351,6 +351,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
     // Polígono (paredes oblíquas): 3–24 cantos dentro da planta, sem paredes cruzadas; senão fica o retângulo.
     // Com cantos válidos, a caixa envolvente passa a ser a deles (um retângulo "normal" fica sem `pontos`).
     const pts = d.pontos === undefined ? null : validarPontos(d.pontos, r.largura_cm, r.altura_cm);
+    if (/^outra:\d{1,2}$/.test(d.origem)) n.origem = d.origem;   // "Outra divisão" de A casa tem… (casa.js outrasDaCasa)
     r.divisoes.push(pts ? definirPontos(n, pts) : n);
   }
   for (const e of lista(p.elementos, MAX_ELEMENTOS)) {

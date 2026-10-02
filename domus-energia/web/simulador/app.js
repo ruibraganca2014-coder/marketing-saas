@@ -67,15 +67,23 @@ const reduzido = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
  * um elemento, um seletor, ou false para não mexer no foco). `texto` (o que falta) vai só para os leitores de ecrã
  * (#sim-falta-leitor). As mensagens ficam para o que não é uma escolha no ecrã (servidor, "Sem ligação", fotos).
  */
-const aPulsar = new Map();
+// Auditoria (WCAG 3.3.1): o contorno pulsa ~2 s e depois FICA (`.em-falta`, `aria-invalid`, `aria-errormessage` →
+// #sim-falta-leitor) até o cliente mexer no grupo (input/change lá dentro: desassinalar) ou mudar de passo. Num <fieldset>
+// sem role: role="radiogroup" (só botões de opção) ou "group", com aria-labelledby na legenda (aria-invalid é válido aí).
+let nLegenda = 0;
 function assinalar(alvo, texto, foco = null) {
   if (!alvo) return;
-  clearTimeout(aPulsar.get(alvo));
+  if (alvo.tagName === "FIELDSET" && !alvo.hasAttribute("role")) {
+    const inputs = [...alvo.querySelectorAll("input")];
+    alvo.setAttribute("role", inputs.length && inputs.every((i) => i.type === "radio") ? "radiogroup" : "group");
+    const legenda = alvo.querySelector(":scope > legend");
+    if (legenda && !alvo.hasAttribute("aria-labelledby")) { legenda.id ||= `legenda-${++nLegenda}`; alvo.setAttribute("aria-labelledby", legenda.id); }
+  }
   alvo.classList.remove("em-falta");
-  void alvo.offsetWidth;   // reinicia a animação se ainda estava a pulsar
+  void alvo.offsetWidth;   // reinicia a animação (pulsa outra vez) se já estava assinalado
   alvo.classList.add("em-falta");
   alvo.setAttribute("aria-invalid", "true");
-  aPulsar.set(alvo, setTimeout(() => { alvo.classList.remove("em-falta"); alvo.removeAttribute("aria-invalid"); aPulsar.delete(alvo); }, 2000));
+  alvo.setAttribute("aria-errormessage", "sim-falta-leitor");
   const leitor = $("sim-falta-leitor");
   leitor.textContent = leitor.textContent === texto ? `${texto} ` : texto;   // repetido: muda para voltar a ser lido
   if (foco !== false) {
@@ -84,6 +92,17 @@ function assinalar(alvo, texto, foco = null) {
   }
   alvo.scrollIntoView({ block: "center", behavior: reduzido() ? "auto" : "smooth" });
 }
+/** Tira a marca de "em falta" (o cliente respondeu, ou mudou de passo). */
+function desassinalar(alvo) {
+  alvo.classList.remove("em-falta");
+  alvo.removeAttribute("aria-invalid");
+  alvo.removeAttribute("aria-errormessage");
+}
+const desassinalarTodos = () => { for (const x of document.querySelectorAll(".em-falta")) desassinalar(x); };
+for (const ev of ["input", "change", "click"]) document.addEventListener(ev, (e) => {
+  if (ev === "click" && !e.target.closest?.("button")) return;   // num clique só os botões do grupo (separadores, "Tirar foto…")
+  for (const x of document.querySelectorAll(".em-falta")) if (x.contains(e.target)) desassinalar(x);
+}, true);
 
 // Armazenamento do navegador (pode não existir ou lançar exceções: modo privado, bloqueado).
 const armazem = (() => { try { return window.localStorage; } catch { return null; } })();
@@ -294,6 +313,7 @@ function irPara(i, { foco = true } = {}) {
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
   if (!funilAvaria() && estado.passo > P.quer && de <= P.quer) prepararPassosSeguintes();
   if (estado.passo !== de) editor.limparAviso();   // as mensagens da planta não passam para o passo seguinte
+  if (estado.passo !== de) desassinalarTodos();   // as marcas de "em falta" ficam só no passo onde faltou a escolha
   const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
   mostrarPasso(foco);
   if (porVerAoEntrar) mostrarNaPlanta(porVerAoEntrar);
@@ -1323,9 +1343,12 @@ const maquinasEditor = () => [
   ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), ...modelosDoPerfil(estado.casa.tipo),
 ];
 
-/** Linha das ferramentas do editor (ronda sinalizar: sem "Mais…"): todas as divisões do tipo de imóvel e todas as máquinas. */
+/**
+ * Linha das ferramentas do editor (ronda sinalizar: sem "Mais…"): os tipos de divisão do imóvel — na linha só os que a
+ * casa tem (a planta e "A casa tem…"; os outros na janela "Outra divisão") — e todas as máquinas.
+ */
 function ferramentasEditor() {
-  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo));
+  editor.definirTiposDivisao(tiposDivisaoPara(estado.casa.tipo), divisoesDaCasa(estado.casa, maquinasParaPlanta(estado)).map((d) => d.nome));
   editor.definirMaquinas(maquinasEditor(), modelosDoPerfil(estado.casa.tipo));
 }
 
@@ -1355,7 +1378,7 @@ function preencherPlanta() {
 function sincAtual(f = fasePlanta()) {
   const comDivisoes = f === "tudo" || (f === "divisoes" && casaDaDivisoes());
   return {
-    divisoes: comDivisoes ? divisoesDaCasa(estado.casa, []).map((d) => ({ nome: d.nome, piso: d.piso ?? 0 })) : [],
+    divisoes: comDivisoes ? divisoesDaCasa(estado.casa, []).map((d) => ({ nome: d.nome, piso: d.piso ?? 0, ...(d.origem ? { origem: d.origem } : {}) })) : [],
     maquinas: f === "tudo" ? maquinasParaPlanta(estado).map((m) => ({ modelo: m.modelo, qtd: m.qtd, piso: m.piso })) : [],
     fase: f,
   };
@@ -3417,7 +3440,7 @@ async function carregarCatalogo() {
     catalogo = j.itens.filter((a) => a && typeof a.sku === "string");
     configOrc = j.config && typeof j.config === "object" ? j.config : null;
     // Pagamentos do pedido: faixa "Modo de demonstração" (simulados). Desligados: enviar é grátis na mesma, mas não se
-    // compra nada (nem o relatório pormenorizado, nem a visita) e a avaria vai sem pagar.
+    // compra nada (nem o relatório completo, nem a visita) e a avaria vai sem pagar.
     faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
     pagamentosAtivos = !(j.pagamentos && j.pagamentos.ativo === false);
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
@@ -4020,7 +4043,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 }
 
 // ---- Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: ENVIAR É GRÁTIS (o relatório básico fica logo na conta). No passo
-// Enviar compra-se o relatório pormenorizado e/ou a visita técnica (estado.compras), pagos a seguir ao envio (o pedido
+// Enviar compra-se o relatório completo e/ou a visita técnica (estado.compras), pagos a seguir ao envio (o pedido
 // já existe: se o pagamento falhar, compra-se depois na conta). A avaria rápida paga o diagnóstico e a deslocação ao
 // enviar e volta-se para simulador.html?pagamento=<ref>. O valor a pagar é sempre o do servidor; os daqui são para mostrar.
 let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamento)
@@ -4038,7 +4061,7 @@ function valorConfig(k) {
   const v = configOrc?.[k];
   return v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : CONFIG_OMISSAO[k];
 }
-/** Relatório pormenorizado (€ c/ IVA): `preco_relatorio_iva` (29 €). */
+/** Relatório completo (€ c/ IVA): `preco_relatorio_iva` (29 €). */
 const precoRelatorio = () => valorConfig("preco_relatorio_iva");
 /**
  * Visita técnica (€ c/ IVA): a deslocação até à localidade + 0,5 h × tarifa; null fora da área, sem a localidade ou
@@ -4123,8 +4146,8 @@ function desenharCompras() {
   const semVisita = semConc ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade para ver o preço.";
   const TEXTOS = {
     basico: ["Só o relatório básico — grátis", "Estimativa e lista do trabalho, logo na conta."],
-    pormenorizado: [`Relatório pormenorizado — ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
-    pormenorizado_visita: [`Relatório pormenorizado e visita — ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
+    pormenorizado: [`Relatório completo — ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
+    pormenorizado_visita: [`Relatório completo e visita — ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
       pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : semVisita],
     visita: [`Só a visita técnica${pv ? ` — ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : semVisita],
   };
@@ -4290,7 +4313,7 @@ async function enviar() {
     botao.disabled = false;
     botao.textContent = TEXTO_ENVIAR;
     concluido(preco, semFundo, resultadoFotos);
-    // Fase 3: a compra (relatório pormenorizado / visita) paga-se a seguir, sobre o pedido já enviado; volta-se à conta.
+    // Fase 3: a compra (relatório completo / visita) paga-se a seguir, sobre o pedido já enviado; volta-se à conta.
     // Se não abrir, o pedido está feito na mesma: compra-se na conta.
     if (resposta?.pagamento) {
       $("fim-texto").textContent = "Recebemos o pedido. A abrir o pagamento…";

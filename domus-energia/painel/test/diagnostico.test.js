@@ -51,6 +51,9 @@ test('validar.js diagnostico: limpa e ordena; recusa chaves, valores, tipos e co
   const d = validarDiagnostico({ ...DIAG, verificacoes: ['continuidade', 'isolado', 'tensao', 'visual'], valores: { tensao: '231,4', continuidade: 0.3, rcd: '' } });
   assert.deepEqual(d, { verificacoes: ['isolado', 'visual', 'tensao', 'continuidade'], valores: { tensao: 231.4, continuidade: 0.3 }, tipo: 'aberto', conclusao: DIAG.conclusao });
   assert.deepEqual(validarDiagnostico({}), { verificacoes: [], valores: {}, tipo: null, conclusao: null });
+  // Um valor medido assinala a verificação (senão o cliente não o via: diagnosticoCliente filtra pelas verificações).
+  assert.deepEqual(validarDiagnostico({ valores: { tensao: 230 } }).verificacoes, ['tensao']);
+  assert.deepEqual(validarDiagnostico({ verificacoes: ['continuidade'], valores: { tensao: 230, rcd: '' } }).verificacoes, ['tensao', 'continuidade']);
   const mau = (x, re = /Diagnóstico/) => assert.throws(() => validarDiagnostico({ ...DIAG, ...x }), re, JSON.stringify(x));
   mau({ extra: 1 }, /campo desconhecido/);
   mau({ verificacoes: ['isolado', 'isolado'] }, /sem repetir/);

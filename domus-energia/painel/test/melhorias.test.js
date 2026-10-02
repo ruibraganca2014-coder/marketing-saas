@@ -325,6 +325,10 @@ test('bug 4: `?pacote=` só com as chaves dos pacotes (nada herdado do objeto)',
 
 test('decisão C: sem porta da rua desenhada, 1 sensor de porta para a entrada; as janelas só se desenhadas', () => {
   const e = casaT2(['nova']);
+  // A planta automática já marca a porta da rua (QA N4, casa.js marcarPortaDaRua): aqui desmarca-se (e recontam-se as
+  // divisões, que levam o sensor dessa porta) para testar a decisão C.
+  for (const x of e.planta.elementos) if (x.tipo === 'porta') x.props.entrada = false;
+  e.divisoes = divisoesDaContagem(contarPlanta(plantaInteligentes(plantaNovos(e.planta, ['nova']), [])));
   const sp = (x) => porId(calcularMelhorias(x, CATALOGO, {})).seguranca.itens.find((i) => i.chave === 'sensor_porta')?.qtd ?? 0;
   assert.equal(e.planta.elementos.some((x) => x.tipo === 'janela' || (x.tipo === 'porta' && x.props.entrada)), false);
   assert.equal(sp(e), 1);

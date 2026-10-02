@@ -44,6 +44,23 @@
           <h2>Os meus pedidos</h2>
           <div class="msg" id="conta-msg" role="status" hidden></div>
           <div id="conta-pedidos" aria-live="polite"></div>
+
+          <!-- Apagar a conta (RGPD; docs/CONTA-CLIENTE.md): confirmação na própria página, com a palavra-passe; POST /api/conta/apagar (conta.js). -->
+          <section class="cartao conta-apagar" id="conta-apagar" aria-labelledby="conta-apagar-titulo">
+            <h2 id="conta-apagar-titulo">A minha conta</h2>
+            <p>Entrou como <strong id="conta-apagar-email"></strong>.</p>
+            <p>Apagar a conta apaga os seus dados pessoais, a simulação guardada e os pedidos sem seguimento. Os pedidos com pagamentos feitos ficam anonimizados (sem nome, contactos nem fotos) por causa das faturas. Mais em <a href="privacidade.html#prazos">Política de Privacidade</a>.</p>
+            <div class="form-botoes"><button class="btn sec" type="button" id="conta-apagar-abrir">Apagar a minha conta</button></div>
+            <div id="conta-apagar-confirmar" hidden>
+              <p><strong>Tem a certeza?</strong> Isto não se desfaz. Para confirmar, escreva a sua palavra-passe.</p>
+              <label>Palavra-passe<input id="conta-apagar-senha" type="password" maxlength="200" autocomplete="current-password"></label>
+              <div class="msg" id="conta-apagar-msg" role="status" hidden></div>
+              <div class="form-botoes">
+                <button class="btn perigo" type="button" id="conta-apagar-sim">Apagar a conta para sempre</button>
+                <button class="btn sec" type="button" id="conta-apagar-nao">Cancelar</button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </section>
@@ -52,6 +69,11 @@
   <footer>
     <div class="wrap">
       <span>© <span id="ano"></span> Domus Energia</span>
+      <nav class="rodape-legal" aria-label="Legal">
+        <a href="privacidade.html">Privacidade</a>
+        <a href="termos.html">Termos</a>
+        <a href="cookies.html">Cookies</a>
+      </nav>
       <a href="index.html">Site</a>
     </div>
   </footer>

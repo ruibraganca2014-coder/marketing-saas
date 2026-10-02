@@ -147,6 +147,7 @@ const TIPOS = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8',
 };
 
 function destino(caminho) {
@@ -197,8 +198,10 @@ async function servirSite(req, res, caminho) {
     res.writeHead(200, { 'content-type': TIPOS[extname(ficheiro).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : corpo);
   } catch {
-    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('Não encontrado');
+    // Como o Caddy (handle_errors): a página web/404.html; sem ela, texto.
+    const pagina = await readFile(join(WEB, '404.html')).catch(() => null);
+    res.writeHead(404, { 'content-type': pagina ? TIPOS['.html'] : 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(req.method === 'HEAD' ? undefined : pagina ?? 'Não encontrado');
   }
 }
 

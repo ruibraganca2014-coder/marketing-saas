@@ -177,6 +177,29 @@ describe('fotos pelo telemóvel (QR)', () => {
     }
   });
 
+  test('limite por IP dos tokens NOVOS (LIMITE_FOTOS_TOKENS_HORA): reutilizar o token da mesma simulação não conta', async () => {
+    const q = await iniciarPainel({ env: { LIMITE_FOTOS_TOKENS_HORA: '2', LIMITE_FOTOS_CONSULTAS_HORA: '1000' } });
+    try {
+      const ip = '9.9.9.3';
+      const a = await pedir(q, { sim: 'aaaa000000000001', ip });
+      assert.equal(a.estado, 201, a.texto);
+      // O mesmo token para a mesma simulação (outra chave): não cria token, não conta.
+      assert.equal((await pedir(q, { sim: 'aaaa000000000001', chave: 'd1:tomada', token: a.json.token, ip })).estado, 200);
+      assert.equal((await pedir(q, { sim: 'aaaa000000000002', ip })).estado, 201);
+      const r = await pedir(q, { sim: 'aaaa000000000003', ip });
+      assert.equal(r.estado, 429, r.texto);
+      assert.match(r.json.erro, /Demasiados códigos/);
+      assert.ok(r.cabecalhos['retry-after']);
+      assert.equal(tokensNaBase(q).length, 2, 'o 3.º token não foi criado');
+      // Outro IP continua a poder; e o token já criado continua a servir a quem atingiu o limite.
+      assert.equal((await pedir(q, { sim: 'aaaa000000000003', ip: '9.9.9.4' })).estado, 201);
+      assert.equal((await pedir(q, { sim: 'aaaa000000000001', chave: 'd2:luz', token: a.json.token, ip })).estado, 200);
+      assert.equal((await sondar(q, a.json.token)).estado, 200);
+    } finally {
+      await q.fechar();
+    }
+  });
+
   test('expira ao fim de 24 h: 401 em tudo; a limpeza apaga o token, as chaves e os ficheiros', async () => {
     const sim = '0'.repeat(24);
     const { json: { token } } = await pedir(p, { sim, chave: 'quadro' });

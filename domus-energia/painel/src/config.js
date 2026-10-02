@@ -109,6 +109,7 @@ export function lerConfig(env = process.env) {
     fotosDir: env.FOTOS_DIR || join(dados, 'painel', 'fotos'),
     limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
     limiteFotosConsultasHora: Number(env.LIMITE_FOTOS_CONSULTAS_HORA || 3000),   // fotos pelo telemóvel: sondagens e tokens por hora, por IP
+    limiteFotosTokensHora: Number(env.LIMITE_FOTOS_TOKENS_HORA || 30),           // fotos pelo telemóvel: tokens NOVOS por hora, por IP
     // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
     anthropicKey,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
