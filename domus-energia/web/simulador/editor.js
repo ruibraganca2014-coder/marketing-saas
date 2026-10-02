@@ -783,6 +783,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   }
   const existe = (id) => planta.divisoes.some((d) => d.id === id) || planta.elementos.some((e) => e.id === id);
   const obterDivisao = (id) => planta.divisoes.find((d) => d.id === id);
+  /** Id da divisão mais pequena (em área) do piso à vista que contém o ponto; null se nenhuma. */
+  function divisaoMenorEm(x, y) {
+    let r = null, menor = Infinity;
+    for (const d of planta.divisoes) {
+      if (pisoDe(d) !== pisoAtual) continue;
+      const pts = pontosDivisao(d);
+      if (!pontoEmPoligono(x, y, pts)) continue;
+      const a = areaPoligono(pts);
+      if (a < menor) { menor = a; r = d.id; }
+    }
+    return r;
+  }
   const obterElemento = (id) => planta.elementos.find((e) => e.id === id);
 
   function novoId(pre, lista) {
@@ -1275,6 +1287,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       }, TOQUE_LONGO_MS);
     }
     const alvo = ev.target.closest?.("[data-pega], [data-elemento], [data-divisao]");
+    // Divisões sobrepostas: ganha a mais pequena debaixo do ponteiro (senão a de cima tapava a que tem dentro).
+    const idDiv = alvo?.dataset.divisao ? divisaoMenorEm(p.x, p.y) ?? alvo.dataset.divisao : null;
     if (alvo?.dataset.pega && podeDivisoes) {
       const d = obterDivisao(alvo.dataset.id);
       if (d) { arrasto = { ...base, tipo: "canto", i: Number(alvo.dataset.pega), d, pts0: pontosDivisao(d), c0: caixaDe(d), dentro: elementosDentro(d) }; return; }
@@ -1290,18 +1304,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       }
     }
     // Divisões presas (lote 8): arrastar a selecionada desloca a vista e diz onde se mudam as divisões.
-    if (alvo?.dataset.divisao && selecionado === alvo.dataset.divisao && !podeDivisoes) {
-      arrasto = { ...base, tipo: "deslocar", alvo: alvo.dataset.divisao, presa: true };
+    if (idDiv && selecionado === idDiv && !podeDivisoes) {
+      arrasto = { ...base, tipo: "deslocar", alvo: idDiv, presa: true };
       return;
     }
-    if (alvo?.dataset.divisao && selecionado === alvo.dataset.divisao) {
-      const d = obterDivisao(alvo.dataset.divisao);
+    if (idDiv && selecionado === idDiv) {
+      const d = obterDivisao(idDiv);
       arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro: elementosDentro(d) };
       return;
     }
     // Vista presa: arrastar uma divisão (mesmo sem a selecionar antes) move-a logo; no vazio, arrastar não faz nada.
-    if (!podeVista && alvo?.dataset.divisao && podeDivisoes) {
-      const d = obterDivisao(alvo.dataset.divisao);
+    if (!podeVista && idDiv && podeDivisoes) {
+      const d = obterDivisao(idDiv);
       if (d) {
         if (selecionado !== d.id) { selecionado = d.id; desenharTudo(); }
         arrasto = { ...base, tipo: "divisao", d, x0: d.x_cm, y0: d.y_cm, pts0: d.pontos ? d.pontos.map((q) => [...q]) : null, dentro: elementosDentro(d) };
@@ -1309,7 +1323,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       }
     }
     // Divisão não selecionada ou vazio: arrastar desloca a vista; tocar seleciona.
-    arrasto = { ...base, tipo: "deslocar", alvo: alvo?.dataset.divisao ?? null };
+    arrasto = { ...base, tipo: "deslocar", alvo: idDiv };
   });
 
   svg.addEventListener("pointermove", (ev) => {
@@ -2175,6 +2189,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desenharTudo();
     },
     redesenhar: () => desenharTudo(),
+    /** O botão "Ajustar" sem mensagem nem anular: a folha volta ao tamanho das divisões e a vista mostra-as todas. */
+    ajustar() {
+      if (!planta) return;
+      delete planta.tamanho_fixo;
+      ajustarFolha();
+      verTudo();
+      desenharTudo();
+    },
     /** Ronda A: ajusta e centra a vista na planta (o "Ver tudo"): ao abrir uma planta guardada, ao mudar de passo… */
     verTudo() {
       if (!planta) return;

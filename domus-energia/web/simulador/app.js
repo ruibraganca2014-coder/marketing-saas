@@ -1552,6 +1552,8 @@ function atualizarPlanta() {
   const n = pisosDaCasa(estado.casa);
   if (n !== pisosEditor) { pisosEditor = n; editor.definirPisos(n); }
   if (editor.planta !== estado.planta) editor.abrir(estado.planta, { reiniciarVista: true });
+  // "A casa" (decisão do dono): cada mudança à esquerda que mexe na planta carrega também no "Ajustar".
+  if (redesenhada && estado.passo === P.casa) editor.ajustar();
   plantaAutoJson = estado.plantaAuto ? JSON.stringify(estado.planta) : plantaAutoJson;
   desenharPlantaOrigem();
   desenharPlantaVazia();
