@@ -208,8 +208,8 @@
           <div class="cartao como-bloco">
             <h3><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 3 6 13.5h5L9.5 21 18 10h-5.5z"/></svg></span>Tenho uma avaria · ~2 min</h3>
             <p>1 Início · 2 Avaria · 3 Enviar</p>
-            <!-- O mesmo valor que o simulador calcula (DIAG-AVARIA + 0,5 h × tarifa): atualizar aqui se o catálogo mudar. -->
-            <p class="como-preco">Diagnóstico 42,50 € + deslocação, descontado na reparação.</p>
+            <!-- O valor vem do catálogo do servidor (site.js: DIAG-AVARIA + horas × tarifa); o texto fixo é só o de recurso. -->
+            <p class="como-preco">Diagnóstico <span id="preco-diagnostico">44,00 €</span> + deslocação, descontado na reparação.</p>
           </div>
         </div>
         <p class="sub">Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>

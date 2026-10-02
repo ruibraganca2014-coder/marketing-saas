@@ -4149,7 +4149,7 @@ const foraAreaTexto = () => `fora da área servida (até ${kmMaximo()} km de ${b
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
-/** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 42,50 € + deslocação". */
+/** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 44,00 € + deslocação" (25 € + 0,5 h × tarifa de 38 €). */
 const textoDiagnostico = (valor) => `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`;
 /** O cartão "Tenho uma avaria" do Início diz o preço do diagnóstico (DIAG-AVARIA + 0,5 h × tarifa) assim que o catálogo chega; sem ele, sem valor. */
 function ajudaAvaria() {

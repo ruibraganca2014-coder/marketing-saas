@@ -169,3 +169,18 @@ function mostrar(texto, ok, dados = null) {
   msg.className = `msg ${ok ? "ok" : "erro"}`;
   msg.hidden = false;
 }
+
+// Preço do diagnóstico de avaria (index.html #preco-diagnostico): o do catálogo do servidor, igual ao do simulador
+// (DIAG-AVARIA: preço + horas × tarifa). Sem servidor fica o valor escrito na página.
+{
+  const alvo = document.getElementById("preco-diagnostico");
+  if (alvo) {
+    const base = (window.DOMUS?.apiBase || "") + "/api/catalogo";
+    fetch(base, { headers: { Accept: "application/json" } }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      const a = (d?.artigos ?? d?.itens ?? []).find((x) => x.sku === "DIAG-AVARIA");
+      const tarifa = Number((d?.config ?? d)?.tarifa_hora_iva);
+      const v = a && Number.isFinite(tarifa) ? Number(a.preco_venda_iva) + Number(a.horas_instalacao || 0) * tarifa : NaN;
+      if (Number.isFinite(v) && v > 0) alvo.textContent = v.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+    }).catch(() => {});
+  }
+}
