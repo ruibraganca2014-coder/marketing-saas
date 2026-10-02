@@ -45,6 +45,8 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     CONTA_CHAVE: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     // Os testes antigos enviam o pedido sem pagar; os dos pagamentos (pagamentos-pedido.test.js) ligam-nos.
     PAGAMENTO_PEDIDO: '0',
+    // Eletricistas externos (docs/ELETRICISTAS.md): ligado nos testes; desligado por omissão (eletricistas.test.js testa os dois).
+    ELETRICISTAS: '1',
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };

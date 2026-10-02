@@ -29,7 +29,8 @@ const ECRAS = [
   { id: "pagamentos", nome: "Pagamentos", papeis: ["ceo"], m: pagamentos },
   { id: "equipa", nome: "Equipa", papeis: ["ceo"], m: equipa },
   { id: "contas", nome: "Contas de clientes", papeis: ["ceo"], m: contas },
-  { id: "eletricistas", nome: "Eletricistas", papeis: ["ceo"], m: eletricistas },
+  // Só com o módulo ligado no servidor (ELETRICISTAS=1; o "eu" diz `eletricistas`): docs/ELETRICISTAS.md.
+  { id: "eletricistas", nome: "Eletricistas", papeis: ["ceo"], m: eletricistas, se: "eletricistas" },
   { id: "auditoria", nome: "Auditoria", papeis: ["ceo"], m: auditoria },
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
 ];
@@ -52,7 +53,7 @@ async function arrancar() {
 }
 function normalizarEu(r) {
   const u = campo(r, "utilizador", "eu") ?? r ?? {};
-  return { id: campo(u, "id"), nome: campo(u, "nome") ?? campo(u, "email") ?? "", email: campo(u, "email") ?? "", papel: campo(u, "papel") ?? "", pagamentos: campo(r, "pagamentos") ?? null };
+  return { id: campo(u, "id"), nome: campo(u, "nome") ?? campo(u, "email") ?? "", email: campo(u, "email") ?? "", papel: campo(u, "papel") ?? "", pagamentos: campo(r, "pagamentos") ?? null, eletricistas: campo(r, "eletricistas") === true };
 }
 
 /**
@@ -133,13 +134,15 @@ $("sair").addEventListener("click", async () => {
 
 // ---------- Estrutura ----------
 const permitido = (ecra) => ecra.papeis.includes(eu?.papel);
+/** O ecrã existe neste servidor (um módulo desligado não aparece no menu nem abre pelo endereço)? */
+const existe = (ecra) => !ecra.se || eu?.[ecra.se] === true;
 
 function mostrarPainel() {
   vistaLogin.hidden = true;
   vistaPainel.hidden = false;
   $("quem").replaceChildren(h("span", { class: "quem-nome", text: eu.nome }), h("span", { class: "selo-p papel", text: PAPEIS[eu.papel] ?? eu.papel }));
   const lista = $("nav-lista");
-  lista.replaceChildren(...ECRAS.filter(permitido).map((e) =>
+  lista.replaceChildren(...ECRAS.filter((e) => permitido(e) && existe(e)).map((e) =>
     h("li", {}, h("a", { href: `#/${e.id}`, dataset: { ecra: e.id }, text: e.nome }))));
   const mudar = h("a", { href: "#", role: "button", "aria-haspopup": "dialog", text: "Mudar palavra-passe" });
   mudar.addEventListener("click", (e) => { e.preventDefault(); abrirMenu(false); mudarPalavraPasse(); });
@@ -224,7 +227,7 @@ export function navegar(caminho) { location.hash = `#/${caminho}`; }
 function encaminhar() {
   if (!eu) return;
   const { id, resto } = rota();
-  const ecra = ECRAS.find((e) => e.id === id);
+  const ecra = ECRAS.find((e) => e.id === id && existe(e));
   const mesmo = ecraAtual && ecraAtual.id === id && ecraAtual.ecra === ecra;
   // Mudar só a ficha (#/clientes → #/clientes/x) não volta a montar o ecrã.
   if (mesmo && ecraAtual.api?.rota) { ecraAtual.api.rota(resto); marcarNav(id); return; }
@@ -235,7 +238,7 @@ function encaminhar() {
   if (!ecra) { conteudo.append(h("div", { class: "cartao" }, h("h1", { text: "Página não encontrada" }), h("a", { class: "btn sec pequeno", href: "#/inicio", text: "Ir para o início" }))); ecraAtual = null; return; }
   document.title = `${ecra.nome} — Painel Domus Energia`;
   if (!permitido(ecra)) { conteudo.append(semAcesso()); ecraAtual = { id, ecra }; return; }
-  const ctx = { eu, resto, navegar, acompanharPedido, pode: (...papeis) => papeis.includes(eu.papel) };
+  const ctx = { eu, resto, navegar, acompanharPedido, pode: (...papeis) => papeis.includes(eu.papel), eletricistas: eu.eletricistas === true };
   const api = ecra.m(conteudo, ctx) ?? {};
   desmontar = api.desmontar ?? null;
   ecraAtual = { id, ecra, api };

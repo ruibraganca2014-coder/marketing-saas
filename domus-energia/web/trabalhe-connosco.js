@@ -170,4 +170,12 @@ form.addEventListener("submit", async (e) => {
   }
 });
 
-carregarConcelhos();
+// O módulo pode estar desligado no servidor (ELETRICISTAS; docs/ELETRICISTAS.md): aí a API responde 404 e fica só a
+// linha "Candidaturas ainda não estão abertas.", sem formulário. Sem ligação mostra-se o formulário (o envio avisa).
+(async () => {
+  let estado = 0;
+  try { estado = (await fetch(`${api}/eletricista/candidatura`, { headers: { Accept: "application/json" } })).status; } catch { estado = 0; }
+  if (estado === 404) { document.getElementById("cand-fechada").hidden = false; return; }
+  document.getElementById("cand-aberta").hidden = false;
+  carregarConcelhos();
+})();

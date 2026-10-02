@@ -13,6 +13,11 @@ import { iniciarPainel, painelComEquipa } from './ajuda.js';
 import { MIGRACOES, migrar, versaoEsquema } from '../src/db.js';
 import { nifValido, tipoDoDocumento, SEGURO_MAX_BYTES, PRAZO_VISITA_MS, COOKIE_ELETRICISTA } from '../src/eletricistas.js';
 import { ELETRICISTAS_TESTE } from '../src/acesso-rapido.js';
+import { lerConfig } from '../src/config.js';
+import { ROTAS } from '../src/api.js';
+import { readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { estadoNovo, montarSimulacao, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
@@ -172,7 +177,9 @@ describe('candidatura pública', () => {
     assert.equal((await candidatar(dadosCandidatura(), { cabecalhos: { Origin: 'https://mau.exemplo', 'Sec-Fetch-Site': 'cross-site' } })).estado, 403);
     assert.equal((await candidatar(dadosCandidatura(), { site: false })).estado, 403);
     assert.equal((await p.pedir('POST', '/api/eletricista/candidatura', { corpo: 'nome=x', tipo: 'application/x-www-form-urlencoded' })).estado, 415);
-    assert.equal((await p.pedir('GET', '/api/eletricista/candidatura')).estado, 405);
+    // GET: as páginas perguntam se o módulo existe (desligado dá 404; ver o "interruptor" em baixo).
+    assert.deepEqual((await p.pedir('GET', '/api/eletricista/candidatura')).json, { aberta: true });
+    assert.equal((await p.pedir('GET', '/api/eletricista/codigo')).estado, 405);
     assert.equal((await p.pedir('GET', '/api/eletricista/nada')).estado, 404);
     const ip = '203.0.113.9';
     for (let i = 0; i < 5; i++) assert.equal((await candidatar(dadosCandidatura(), { ip })).estado, 201);
@@ -727,5 +734,96 @@ describe('acesso rápido: "Eletricista de teste" só no lançador local', () => 
     // Outra origem de testes deste computador.
     p.app.db.prepare("UPDATE eletricistas SET estado = 'aprovado'").run();
     assert.equal((await entrar(p, 1, { cabecalhos: { Origin: 'http://qa1.localhost:8080', Host: 'qa1.localhost:8080' }, ip: '127.0.0.1' })).estado, 200);
+  });
+});
+
+describe('interruptor ELETRICISTAS: desligado por omissão (o módulo ainda não está publicado)', () => {
+  const AQUI = dirname(fileURLToPath(import.meta.url));
+  let p;
+  before(async () => { p = await painelComEquipa({ env: { ELETRICISTAS: '0', PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'simulado' } }); });
+  after(() => p.fechar());
+  const DESCONHECIDO = { erro: 'Endereço desconhecido.' };
+
+  test('só ELETRICISTAS=1 liga; o servidor a sério nunca põe a variável (docker-compose.yml, .env.example, instalar.sh)', async () => {
+    assert.equal(lerConfig({}).eletricistas, false);
+    for (const v of ['0', '', 'true', 'sim', 'on']) assert.equal(lerConfig({ ELETRICISTAS: v }).eletricistas, false, `ELETRICISTAS=${v}`);
+    assert.equal(lerConfig({ ELETRICISTAS: '1' }).eletricistas, true);
+    assert.equal(p.config.eletricistas, false);
+    for (const f of ['docker-compose.yml', '.env.example', 'instalar.sh', 'domus.sh']) {
+      assert.equal(/ELETRICISTAS\s*[=:]/.test(await readFile(join(AQUI, '..', '..', 'servidor', f), 'utf8')), false, f);
+    }
+    // … e o lançador local põe-na.
+    assert.match(await readFile(join(AQUI, '..', '..', 'local', 'iniciar.js'), 'utf8'), /ELETRICISTAS: process\.env\.ELETRICISTAS === '0' \? '0' : '1'/);
+  });
+
+  test('desligado: todas as rotas /api/eletricista/* dão 404 (o mesmo dos endereços desconhecidos), com ou sem sessão, e nada fica gravado', async () => {
+    const c = await p.contaConfirmada();
+    const desconhecida = await p.pedir('GET', '/api/outra');
+    assert.deepEqual([desconhecida.estado, desconhecida.json], [404, DESCONHECIDO]);
+    for (const r of p.app.api.eletricistas.ROTAS_ELETRICISTA) {
+      const caminho = `/api/eletricista/${r.caminho.replace(':id', '1')}`;
+      for (const cookie of [undefined, p.cookies.ceo, c.cookie, `${COOKIE_ELETRICISTA}=${'a'.repeat(43)}`]) {
+        const x = await p.pedir(r.metodo, caminho, { cookie, corpo: r.metodo === 'POST' ? {} : undefined });
+        assert.deepEqual([x.estado, x.json], [404, DESCONHECIDO], `${r.metodo} ${caminho}`);
+        assert.equal(x.cabecalhos['set-cookie'], undefined);
+      }
+    }
+    // A candidatura completa e o pedido de código também: nada entra na base, nenhum email, nenhum ficheiro.
+    assert.equal((await p.pedir('POST', '/api/eletricista/candidatura', { corpo: dadosCandidatura() })).estado, 404);
+    assert.equal((await p.pedir('POST', '/api/eletricista/codigo', { corpo: { email: 'alguem@exemplo.pt' } })).estado, 404);
+    assert.equal((await p.pedir('POST', '/api/eletricista/dev/entrar', { corpo: { n: 1 }, cabecalhos: { Origin: 'http://localhost:8080' }, ip: '127.0.0.1' })).estado, 404);
+    assert.equal((await p.pedir('GET', '/api/eletricista/')).estado, 404);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM eletricistas').get().n, 0);
+    assert.equal(p.emails.filter((m) => /candidatura|eletricista/i.test(m.assunto)).length, 0);
+    assert.equal(existsSync(p.config.eletricistasDir), false);
+  });
+
+  test('desligado: as rotas do painel dos eletricistas dão 404 (anónimo e CEO), o "eu" diz que não há módulo e nada sai no catálogo', async () => {
+    const nomes = ['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista'];
+    const rotas = ROTAS.filter((r) => nomes.includes(r.nome));
+    assert.equal(rotas.length, 6);
+    assert.equal(ROTAS.filter((r) => /eletricista/i.test(r.caminho)).length, 6, 'todas as rotas dos eletricistas estão atrás do interruptor');
+    for (const r of rotas) {
+      const caminho = `/painel/api/${r.caminho.replace(':id', '1')}`;
+      for (const papel of [null, 'ceo', 'comercial', 'tecnico']) {
+        const x = await p.pedir(r.metodo, caminho, { cookie: papel ? p.cookies[papel] : undefined, corpo: r.metodo === 'POST' ? { acao: 'bolsa' } : undefined });
+        assert.deepEqual([x.estado, x.json], [404, DESCONHECIDO], `${r.metodo} ${caminho} (${papel ?? 'anónimo'})`);
+      }
+    }
+    // O resto do painel fica igual, e diz ao ecrã que o módulo não existe (o menu e a atribuição escondem-se).
+    const eu = await p.pedir('GET', '/painel/api/eu', { cookie: p.cookies.ceo });
+    assert.deepEqual([eu.estado, eu.json.eletricistas], [200, false]);
+    const entrou = await p.pedir('POST', '/painel/api/entrar', { corpo: { email: 'ceo@domus.teste', password: 'senha-de-teste-1' } });
+    assert.equal(entrou.json.eletricistas, false);
+    const pedido = await p.pedir('POST', '/painel/api/orcamentos', { cookie: p.cookies.ceo, corpo: { nome: 'Ana', telefone: '912 000 000', localidade: 'Sintra', servico: 'Casa' } });
+    assert.equal(pedido.estado, 201);
+    const ficha = await p.pedir('GET', `/painel/api/orcamentos/${pedido.json.id}`, { cookie: p.cookies.ceo });
+    assert.ok(!/eletricista/i.test(Object.keys(ficha.json).join(' ')), 'a ficha do pedido não leva nada dos eletricistas');
+    assert.equal((await p.pedir('GET', `/painel/api/orcamentos/${pedido.json.id}/eletricista`, { cookie: p.cookies.ceo })).estado, 404);
+    assert.ok(!('eletricista_pct' in (await p.pedir('GET', '/api/catalogo')).json.config));
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM trabalhos_eletricista').get().n, 0);
+    // As migrações 27 e 28 correm na mesma (as tabelas existem, vazias).
+    assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
+  });
+
+  test('ligado (ELETRICISTAS=1, como nos outros testes): o "eu" diz que há módulo; com o acesso rápido mas sem o módulo o botão não entra', async () => {
+    const q = await iniciarPainel();
+    try {
+      assert.equal(q.config.eletricistas, true);
+      const ceo = await q.criarUtilizador('ceo');
+      const cookie = await q.entrar(ceo.email);
+      assert.equal((await q.pedir('GET', '/painel/api/eu', { cookie })).json.eletricistas, true);
+      assert.equal((await q.pedir('GET', '/painel/api/eletricistas', { cookie })).estado, 200);
+      assert.equal((await q.pedir('GET', '/api/eletricista/eu')).estado, 401);
+    } finally { await q.fechar(); }
+    const LOCAL = 'http://localhost:8080';
+    const r = await iniciarPainel({ env: { ELETRICISTAS: '0', ACESSO_RAPIDO: '1', EMAIL_LOCAL: '1', ANFITRIAO: '127.0.0.1', PAINEL_ORIGENS: LOCAL } });
+    try {
+      assert.equal(r.config.acessoRapido, true);
+      const DO_LOCAL = { cabecalhos: { Origin: LOCAL }, ip: '127.0.0.1' };
+      assert.equal((await r.pedir('POST', '/api/eletricista/dev/entrar', { corpo: { n: 1 }, ...DO_LOCAL })).estado, 404);
+      assert.equal((await r.pedir('POST', '/painel/api/dev/entrar', { corpo: { papel: 'ceo' }, ...DO_LOCAL })).estado, 200, 'os outros botões continuam');
+      assert.equal(r.app.db.prepare('SELECT COUNT(*) AS n FROM eletricistas').get().n, 0);
+    } finally { await r.fechar(); }
   });
 });

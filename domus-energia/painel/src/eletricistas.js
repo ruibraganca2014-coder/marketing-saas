@@ -768,6 +768,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // ------------------------------------------------------------ despacho /api/eletricista/*
   // [método, caminho, precisa de sessão, handler]
   const ROTAS_ELETRICISTA = [
+    ['GET', 'candidatura', false, 'aberta'],
     ['POST', 'candidatura', false, 'candidatura'],
     ['POST', 'codigo', false, 'codigo'],
     ['POST', 'entrar', false, 'entrar'],
@@ -782,6 +783,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/largar', true, 'largar'],
   ].map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
+  // As páginas perguntam se o módulo existe (com ELETRICISTAS desligado isto dá 404 e elas mostram só uma linha).
+  h.aberta = ({ res }) => responder(res, 200, { aberta: true });
 
   async function tratar(req, res, url, ip) {
     const segs = url.pathname.slice(CAMINHO_API.length).split('/');

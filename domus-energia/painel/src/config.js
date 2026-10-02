@@ -157,6 +157,9 @@ export function lerConfig(env = process.env) {
     // Endereço do site nos emails (ligação para a conta).
     siteUrl: String(env.SITE_URL || siteOrigens[0] || env.PUBLIC_URL || (env.DOMUS_HOST ? `https://${env.DOMUS_HOST}` : '')).replace(/\/+$/, ''),
     acessoRapido,
+    // Eletricistas externos (fase 4; docs/ELETRICISTAS.md): módulo ainda por publicar. Só com ELETRICISTAS=1 — que só o
+    // lançador local põe — existem as rotas /api/eletricista/*, as do painel e o ecrã "Eletricistas"; sem ela dão 404.
+    eletricistas: env.ELETRICISTAS === '1',
     avisos,
     erros,
   };

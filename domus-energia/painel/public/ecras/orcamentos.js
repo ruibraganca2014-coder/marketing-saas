@@ -184,7 +184,7 @@ export default function orcamentos(el, ctx) {
     partes.push(...blocoPagamentos(j, o, arquivado));
     // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir o pedido (obra, visita paga ou diagnóstico) ou pô-lo na
     // bolsa; só na ficha completa (a que traz o histórico), para não pedir duas vezes.
-    if (ctx.pode("ceo") && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id));
+    if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id));
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
     if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));

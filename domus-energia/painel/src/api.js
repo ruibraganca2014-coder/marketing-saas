@@ -141,6 +141,12 @@ export const ROTAS = [
   return { metodo, caminho, papeis, nome, partes };
 });
 
+/**
+ * Rotas do módulo dos eletricistas externos (docs/ELETRICISTAS.md): só existem com `config.eletricistas`
+ * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
+ */
+const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista']);
+
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
   try {
@@ -446,7 +452,7 @@ export function criarApi(ctx) {
     if (v.email.length > 254 || v.password.length > 200) throw new ErroApi(401, 'Email ou palavra-passe errados.');
     const { token, utilizador } = await auth.entrar(v.email, v.password, ip);
     auditar(utilizador, 'entrar', `utilizador:${utilizador.id}`, null, ip);
-    responder(res, 200, { utilizador: publicoUtilizador(utilizador), pagamentos: pagPed.info() }, { 'Set-Cookie': auth.cookie(token, Math.floor(config.sessaoMs / 1000)) });
+    responder(res, 200, { utilizador: publicoUtilizador(utilizador), pagamentos: pagPed.info(), eletricistas: config.eletricistas }, { 'Set-Cookie': auth.cookie(token, Math.floor(config.sessaoMs / 1000)) });
   };
 
   h.sair = async ({ req, res, ip }) => {
@@ -461,6 +467,8 @@ export function criarApi(ctx) {
     utilizador: { id: u.id, nome: u.nome, email: u.email, papel: u.papel }, sessao_expira: u.sessaoExpira,
     // Faixa no painel: "Modo de demonstração — pagamentos simulados" ou "Pagamentos desligados".
     pagamentos: pagPed.info(),
+    // Módulo dos eletricistas externos ligado (ELETRICISTAS=1)? O painel esconde o ecrã e a atribuição sem ele.
+    eletricistas: config.eletricistas,
   });
 
   // A própria pessoa muda a palavra-passe (a que o CEO lhe entregou ao criar a conta).
@@ -1743,8 +1751,9 @@ export function criarApi(ctx) {
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
       if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
       // Sem o acesso rápido (sempre, no servidor) estes dois endereços seguem em frente e dão 404 como qualquer outro desconhecido.
-      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_ELETRICISTA)) return await rapido.tratar(req, res, caminho, ip);
-      if (caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
+      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
+      // Sem ELETRICISTAS=1 o módulo não existe: /api/eletricista/* segue em frente e dá 404 como qualquer outro desconhecido.
+      if (config.eletricistas && caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
       if (caminho.startsWith('/api/conta/')) {
         if (await pagPed.tratar(req, res, url, ip)) return undefined;
         return await contas.tratar(req, res, url, ip);
@@ -1763,8 +1772,8 @@ export function criarApi(ctx) {
       }
       const resto = caminho.slice(P.length);
       const { rota, params, caminhoExiste } = encontrarRota(req.method, resto);
-      if (!rota) {
-        if (caminhoExiste) return responder(res, 405, { erro: 'Método não permitido.' });
+      if (!rota || (!config.eletricistas && ROTAS_ELETRICISTAS.has(rota.nome))) {
+        if (!rota && caminhoExiste) return responder(res, 405, { erro: 'Método não permitido.' });
         return responder(res, 404, { erro: 'Endereço desconhecido.' });
       }
       if (rota.metodo === 'POST') {

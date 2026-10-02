@@ -129,6 +129,8 @@ arrancar('painel', {
   CONFIAR_PROXY: '1',
   // Acesso rápido (testes): só este lançador põe a variável; o servidor/docker-compose.yml nunca.
   ACESSO_RAPIDO: ACESSO_RAPIDO ? '1' : '0',
+  // Eletricistas externos (fase 4, ainda por publicar): só este lançador liga o módulo; o servidor/docker-compose.yml não.
+  ELETRICISTAS: process.env.ELETRICISTAS === '0' ? '0' : '1',
   // Leitura automática da foto do quadro: só se a variável existir no terminal que corre o npm start.
   ...(chaveAnthropic ? { ANTHROPIC_API_KEY: chaveAnthropic } : {}),
 });

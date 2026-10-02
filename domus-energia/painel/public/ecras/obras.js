@@ -141,7 +141,7 @@ export default function obras(el, ctx) {
       ]),
     ];
     // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir a obra do pedido ou pô-la na bolsa.
-    if (ceo && campo(o, "orcamento_id")) partes.push(blocoEletricista(campo(o, "orcamento_id")));
+    if (ceo && ctx.eletricistas && campo(o, "orcamento_id")) partes.push(blocoEletricista(campo(o, "orcamento_id")));
     if (!edita) {
       const estado = campo(o, "estado") ?? "agendada";
       const mat = materialDe(o);

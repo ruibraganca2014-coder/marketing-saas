@@ -498,6 +498,11 @@ function pararContagem() { clearInterval(tContagem); tContagem = null; }
 
 // ---------------------------------------------------------------- arranque
 (async () => {
+  // O módulo pode estar desligado no servidor (ELETRICISTAS; docs/ELETRICISTAS.md): a API responde 404 e fica só a
+  // linha "Área ainda não disponível.", sem o formulário de entrada.
+  let estado = 0;
+  try { estado = (await fetch(`${API}candidatura`, { headers: { Accept: "application/json" } })).status; } catch { estado = 0; }
+  if (estado === 404) { marcarSessao(false); $("el-indisponivel").hidden = false; return; }
   if (!temMarcaSessao()) { mostrarEntrar(); return; }
   try {
     const r = await pedir("eu");

@@ -4,6 +4,17 @@ Eletricistas habilitados que trabalham para a Domus Energia com as condições d
 
 Código: `painel/src/eletricistas.js` (rotas `/api/eletricista/*` e a lógica), `painel/src/api.js` (rotas do painel), `painel/src/db.js` (migrações 27 e 28), `web/trabalhe-connosco.*`, `web/eletricista.*`, `painel/public/ecras/eletricistas.js` e `painel/public/ecras/atribuicao.js`. Testes: `painel/test/eletricistas.test.js`.
 
+## Interruptor: o módulo ainda não está publicado
+
+Decisão do dono (2026-10-02): o módulo fica no código mas **desligado em produção** até ser publicado. O interruptor é a variável `ELETRICISTAS` do painel (`config.eletricistas`):
+
+- **Só `ELETRICISTAS=1` liga.** Por omissão está desligado. Só o lançador local (`local/iniciar.js`) a põe; o `servidor/docker-compose.yml`, o `.env.example` e o `instalar.sh` não (há um teste que o verifica). `ELETRICISTAS=0 npm start` desliga-o também no local.
+- **Desligado:** todas as rotas `/api/eletricista/*` (incluindo a do acesso rápido) e as do painel (`eletricistas*`, `orcamentos/:id/eletricista`) respondem `404 Endereço desconhecido.`, pelo mesmo caminho de qualquer endereço que não existe, com ou sem sessão. O temporizador das 48 h não arranca. As migrações 27 e 28 correm na mesma (tabelas vazias) e `eletricista_pct` continua fora do `/api/catalogo`.
+- **Painel:** o `GET eu` e o `POST entrar` levam `eletricistas: true | false`; com `false` o ecrã "Eletricistas" não aparece no menu nem abre pelo endereço, e o bloco "Eletricista externo" não aparece nas fichas do pedido e da obra.
+- **Site:** `trabalhe-connosco.html` e `eletricista.html` continuam no repositório. Ao abrir perguntam `GET /api/eletricista/candidatura` (`200 {aberta: true}` com o módulo ligado); com 404 mostram só "Candidaturas ainda não estão abertas." e "Área ainda não disponível.", sem formulário. As duas páginas têm `noindex`.
+
+**Para publicar:** pôr `ELETRICISTAS=1` no `.env` do servidor (e passá-la ao painel no `docker-compose.yml`), repor a ligação "Trabalhe connosco" no rodapé de `web/index.html` e a entrada no `web/sitemap.xml` (há um comentário em cada sítio), e trocar o `noindex` de `trabalhe-connosco.html` por `index, follow` com o `canonical`.
+
 ## Decisões do dono
 
 1. **Atribuição:** o CEO atribui o pedido a um eletricista ou põe-no na **bolsa**. Na bolsa só veem o trabalho os eletricistas aprovados que declararam o concelho do pedido; o primeiro a aceitar fica com ele.
@@ -88,6 +99,7 @@ Os POST exigem a `Origin` do site (CSRF) e `Content-Type: application/json`.
 
 | Rota | Sessão | O que faz |
 |---|---|---|
+| `GET candidatura` | — | `200 {aberta: true}`: as páginas perguntam se o módulo está ligado (desligado: 404). |
 | `POST candidatura` | — | `{nome, email, telefone, nif, dgeg, concelhos[], experiencia?, notas?, seguro: {tipo, dados (base64)}, consentimento: true, website}` → `201 {ok, mensagem}`. 5 por hora por IP, 100 por hora no total. `website` é o campo-armadilha. Email repetido: a mesma resposta, nada muda. |
 | `POST codigo` | — | `{email}` → sempre `200` com a mesma mensagem; o código só sai para um eletricista aprovado (3 por hora por email, 10 por hora por IP). |
 | `POST entrar` | — | `{email, codigo}` → `200 {eletricista}` + cookie; `400` se o código está errado, expirou (15 min) ou gastou as 5 tentativas, ou se não está aprovado. |
@@ -134,7 +146,7 @@ Uma sessão de eletricista não abre rotas do painel nem da conta, e vice-versa,
 - **Caddy** (`servidor/caddy/Caddyfile`): `/api/eletricista/*` vai para o painel, com o corpo até 8 MB (o documento de 5 MB em base64 dá cerca de 6,7 MB). O bloco tem de ficar antes do `/api/*` dos pagamentos.
 - **Variável nova, opcional:** `ELETRICISTAS_DIR`. Por omissão fica dentro de `dados/painel`, que já é um volume do painel.
 - **Emails:** pelo SMTP do painel, como os da conta. Os avisos à empresa vão para os utilizadores do painel com o papel CEO.
-- **`robots.txt`:** `eletricista.html` não é indexada; `trabalhe-connosco.html` está no `sitemap.xml`.
+- **`robots.txt`:** `eletricista.html` não é indexada. Enquanto o módulo não for publicado, `trabalhe-connosco.html` tem `noindex` e está fora do `sitemap.xml` e do rodapé do site.
 
 ## Acesso rápido (só no lançador local)
 

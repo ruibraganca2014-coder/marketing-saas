@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Trabalhe connosco: eletricistas — Domus Energia</title>
   <meta name="description" content="É eletricista habilitado? Receba trabalhos nos seus concelhos, já com relatório técnico e material fornecido. Candidate-se à Domus Energia.">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://opancas.pt/trabalhe-connosco.html">
+  <!-- Módulo ainda por publicar (docs/ELETRICISTAS.md): noindex por agora; ao publicar passa a "index, follow" e volta o canonical. -->
+  <meta name="robots" content="noindex">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
   <script src="tema.js"></script>
@@ -46,7 +46,9 @@
 
   <main id="conteudo">
     <section>
-      <div class="wrap publico">
+      <!-- Com o módulo desligado no servidor (a API responde 404) fica só esta linha, sem formulário (trabalhe-connosco.js). -->
+      <div class="wrap" id="cand-fechada" hidden><p class="cartao">Candidaturas ainda não estão abertas.</p></div>
+      <div class="wrap publico" id="cand-aberta" hidden>
         <div class="pub-topo">
           <p class="rotulo">Trabalhe connosco</p>
           <h1>É eletricista habilitado? Trabalhe com a <em>Domus Energia</em>.</h1>

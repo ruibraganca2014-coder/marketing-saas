@@ -71,7 +71,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   api.fotosRemotas.iniciar();
   api.contas.iniciar();
   api.pagamentosPedido.iniciar();
-  api.eletricistas.iniciar();
+  if (config.eletricistas) api.eletricistas.iniciar();
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
