@@ -1,4 +1,4 @@
-// Simulador de orçamento (docs/SIMULADOR-ORCAMENTO.md): 9 passos com a planta ao lado de todos (no passo "Planta", à largura toda), progresso guardado
+// Simulador de orçamento (docs/SIMULADOR-ORCAMENTO.md): 11 passos com a planta ao lado de todos (no passo "Planta", à largura toda), progresso guardado
 // no navegador, preço a partir do catálogo público e envio para POST /api/orcamento.
 // Todos os textos do cliente e do servidor entram só com textContent.
 
@@ -230,7 +230,9 @@ function passoAo(de, d) {
  * Minutos típicos de cada passo (estado.js FUNIS): só para o cliente saber quanto falta. Primeira vez ~13 min (lote 8);
  * fluxo curto (só reparações) 4 min, sem Equipamentos, Planta nem Divisões; já tenho planta ~4 min; avaria ~2 min.
  */
-const MINUTOS_CURTO = { 0: 0.5, 1: 0.5, 4: 0.5, 11: 0.5, 6: 1, 10: 1, 12: 0.5, 7: 0.5, 8: 1 };
+const MINUTOS_CURTO = { 0: 0.5, 1: 0.5, 4: 0.5, 11: 0.5, 6: 1, 10: 1, 7: 0.5, 8: 0.5 };
+/** Minutos de um funil inteiro ("~12 min" no cartão do Início e em "Como fazer a simulação"). */
+const minutosFunil = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + (FUNIS[f].minutos[i] ?? 1), 0));
 const minutosDe = (i) => (naoPrecisa(i) ? 0 : fluxoCurto() ? MINUTOS_CURTO[i] ?? 1 : FUNIS[funil()].minutos[i] ?? 1);
 const minTxt = (m) => (m < 1 ? "½" : String(m));
 /** Por baixo do nome: "feito" nos passos para trás, "não precisa" nos saltados, o tempo típico nos que faltam. */
@@ -239,9 +241,10 @@ const tempoDe = (i) => (naoPrecisa(i) ? "não precisa" : feito(i) ? "feito" : `~
 const feito = (i) => posicao(i) < posicao(estado.passo) && !(i === P.melhorias && estado.melhoriasPorVer) && !estado.relatoriosPorVer?.includes(i);
 /**
  * Passos da barra a que se pode voltar: os já vistos (na avaria, só os de trás — o passo mais adiantado da primeira vez
- * não conta). O Enviar só pelo "Seguinte".
+ * não conta). O Enviar só pelo "Seguinte". Pela posição no funil (fase 3 da auditoria: no "Já tenho a planta" o
+ * Relatório vem depois das Melhorias, ao contrário da ordem geral; um `visitado` fora do funil não dá nada como visto).
  */
-const chegou = (i) => (funilAvaria() ? posicao(i) < posicao(estado.passo) : ordemPasso(i) <= ordemPasso(visitado));
+const chegou = (i) => (funilAvaria() ? posicao(i) < posicao(estado.passo) : posicao(i) <= posicao(visitado));
 
 function desenharProgresso() {
   const ol = $("sim-passos");
@@ -289,6 +292,38 @@ function desenharProgresso() {
   const falta = $("sim-falta");
   const min = Math.ceil(seq.reduce((s, i, k) => s + (k >= atualPos ? minutosDe(i) : 0), 0));
   falta.textContent = aEnviar || estado.passo === P.enviar ? "Último passo." : `Faltam cerca de ${min} min.`;
+  desenharEstimativaProvisoria();
+}
+
+/**
+ * Fase 3 da auditoria — estimativa provisória por baixo da barra: a partir do passo a seguir aos Equipamentos (no "Já
+ * tenho a planta" desde "Trocar e reparar"), "Estimativa: X–Y € · afina nos passos seguintes", com o estado de agora
+ * (a planta automática se ainda não a desenhou: plantaParaContar) e sem deslocação, como o Orçamento; às dezenas.
+ * Escondida no Início, em "A casa" e nos Equipamentos (ainda não há dados), na avaria mostra o diagnóstico. Não redesenha nada.
+ */
+function estimativaProvisoria() {
+  if (!catalogo) return null;
+  const melhorias = calcularMelhorias(estado, catalogo, configOrc);
+  const aceites = melhorias.filter((m) => m.aceite);
+  const pedidos = [...pedidosDaSelecao({ ...estado, plantaPontos: plantaParaContar() }), ...aceites.flatMap((m) => m.linhas)];
+  if (!pedidos.length) return null;
+  const p = calcularPreco(pedidos, catalogo, configOrc, { valor_iva: 0 }, aceites.reduce((t, m) => t + (m.margem ?? 0), 0));
+  if (p.min === null) return null;
+  const dez = (x) => Math.round(x / 10) * 10;
+  return { min: dez(p.min), max: Math.max(dez(p.min), dez(p.max)) };
+}
+function desenharEstimativaProvisoria() {
+  const e = $("sim-estimativa");
+  const p = estado.passo;
+  let texto = null;
+  if (funilAvaria()) {
+    if (p !== P.inicio && catalogo) { const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo, configOrc, { valor_iva: 0 }); if (total !== null) texto = textoDiagnostico(total); }
+  } else if (p !== P.inicio && (funilPlanta() || ordemPasso(p) > ordemPasso(P.quer))) {
+    const est = estimativaProvisoria();
+    if (est) texto = `Estimativa: ${formatarEuroRedondo(est.min)} – ${formatarEuroRedondo(est.max)}${ordemPasso(p) < ordemPasso(P.preco) ? " · afina nos passos seguintes" : ""}`;
+  }
+  e.textContent = texto ?? "";
+  e.hidden = !texto;
 }
 
 /** Pode ir para o passo `i` pela barra? (os bloqueios dos passos pelo caminho, como no "Seguinte") */
@@ -322,11 +357,11 @@ function irPara(i, { foco = true } = {}) {
 }
 
 /** A planta não se vê no Início (o caso ainda não está escolhido) nem na avaria rápida (sem planta). */
-/** Ronda A: nem nos dois relatórios (o básico leva a planta dentro; o completo mostra a amostra). */
-const semPlanta = () => [P.inicio, P.relatorio, P.completo].includes(estado.passo) || funilAvaria();
+/** Ronda A: nem no Relatório (leva a planta dentro e a amostra do completo). */
+const semPlanta = () => [P.inicio, P.relatorio].includes(estado.passo) || funilAvaria();
 
 function mostrarPasso(foco = true) {
-  for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = i !== estado.passo;
+  for (let i = 0; i < PASSOS.length; i++) { const s = $(`passo-${i}`); if (s) s.hidden = i !== estado.passo; }   // (o 12 já não existe na página)
   $("passo-fim").hidden = true;
   const p = estado.passo;
   // Títulos numerados pela posição no funil ("2. Trocar e reparar" no funil "Já tenho a planta").
@@ -354,8 +389,7 @@ function mostrarPasso(foco = true) {
   if (p === P.trocar) desenharTrocar();
   if (p === P.melhorias) { estado.melhoriasPorVer = false; desenharMelhorias(); }
   if (estado.relatoriosPorVer?.includes(p)) estado.relatoriosPorVer = estado.relatoriosPorVer.filter((x) => x !== p);
-  if (p === P.relatorio) desenharRelatorio();
-  if (p === P.completo) desenharCompleto();
+  if (p === P.relatorio) { desenharRelatorio(); desenharCompleto(); }   // fase 3 da auditoria: um só passo "Relatório"
   // Ronda A: a planta à vista fica ajustada e centrada (planta guardada, "Já tenho a planta", outro passo).
   if (!sem) editor.verTudo();
   desenharAcaoPlanta();   // a caixa "o que fazer" por baixo da planta só existe em "Trocar e reparar"
@@ -629,7 +663,9 @@ function mudarServico(lista) {
 function desenharInicio() {
   const c = casaParaPlanta();
   const cartao = $("funil-planta");
-  cartao.querySelector("small").textContent = c ? `A sua casa: ${resumoCasa(c)}` : "Em PDF ou foto: marcamos os aparelhos por cima.";
+  // Fase 3 da auditoria: sem casa guardada o cartão só promete o que há — carregar a planta e seguir o funil da primeira
+  // vez (~12 min); com casa guardada, continuar com ela (~5 min).
+  cartao.querySelector("small").textContent = c ? `Continuar com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : `Tenho a planta em PDF ou foto · ~${minutosFunil("primeira")} min`;
   cartao.classList.toggle("destaque-casa", !!c && !estado.funil);
   // Obras e "Carregar a planta" seguem no funil da primeira vez, mas foram escolhidos em "Já tenho a planta".
   const caso = ["obras", "carregar"].includes(estado.caminho) ? "planta" : estado.funil;
@@ -651,9 +687,12 @@ function desenharInicio() {
  * contas da barra: no fluxo curto sem os passos que "não precisa" (os números são os da barra).
  */
 function desenharComo() {
-  const seq = sequencia();
-  $("sim-como-titulo").textContent = `Como fazer a simulação · ~${Math.ceil(seq.reduce((s, i) => s + minutosDe(i), 0))} min`;
-  $("sim-como-passos").textContent = seq.map((i, k) => (naoPrecisa(i) ? null : `${k + 1} ${PASSOS[i]}`)).filter(Boolean).join(" · ");
+  // "Já tenho a planta" sem casa guardada: o único caminho é carregar a planta e seguir a primeira vez — é esse que se mostra.
+  const f = funilPlanta() && !estado.caminho && !casaParaPlanta() ? "primeira" : funil();
+  const seq = FUNIS[f].passos;
+  const minutos = (i) => (f === funil() ? minutosDe(i) : FUNIS[f].minutos[i] ?? 1);
+  $("sim-como-titulo").textContent = `Como fazer a simulação · ~${Math.ceil(seq.reduce((s, i) => s + minutos(i), 0))} min`;
+  $("sim-como-passos").textContent = seq.map((i, k) => (f === funil() && naoPrecisa(i) ? null : `${k + 1} ${PASSOS[i]}`)).filter(Boolean).join(" · ");
 }
 /** Sem caso escolhido (ou, na primeira vez, sem serviço): fica (ou volta) no Início e assinala o grupo que falta. Devolve true se bloqueou. */
 function bloquearInicio() {
@@ -1126,11 +1165,59 @@ function acertarQuer() {
  * máquina marca-a ou desmarca-a nesse piso. A planta desenhada põe-nas nesses pisos (casa.js plantaDaCasa).
  * Os objetivos são da casa toda.
  */
+/**
+ * Fase 3 da auditoria — as 8 máquinas principais de uma casa e as habituais por tipologia, pré-marcadas (uma vez, no
+ * r/c) quando o passo aparece sem nada escolhido: T0/T1 placa, frigorífico, TV e máquina de lavar roupa; T2+ também
+ * forno, lavar loiça e termoacumulador; moradia ou T3+ também ar condicionado. São sugestões: o cliente desmarca
+ * ("Marcámos o habitual para um T2. Ajuste."). "Mais máquinas" abre a grelha completa; uma máquina já escolhida (estado
+ * guardado, página de anúncio) fica sempre à vista.
+ */
+const MAQUINAS_PRINCIPAIS = ["placa", "forno", "maquina_lavar", "maquina_loica", "termoacumulador", "frigorifico", "televisao", "ar_condicionado"];
+function maquinasHabituais(casa) {
+  const t = casa.tipologia;
+  const n = t && /^T(\d+)/.test(t) ? Number(t.slice(1)) : null;
+  const l = ["placa", "frigorifico", "televisao", "maquina_lavar"];
+  if (n === null || n >= 2) l.push("forno", "maquina_loica", "termoacumulador");
+  if (casa.tipo === "moradia" || (n !== null && n >= 3)) l.push("ar_condicionado");
+  return l;
+}
+let maisMaquinas = false;   // "Mais máquinas": a grelha completa à vista (só nas casas; serviços e industrial veem tudo)
+let sugestaoFeita = false;  // a linha "Marcámos o habitual…" só nesta visita, depois de as marcar (um estado guardado não a repete)
+function sugerirMaquinas() {
+  if (estado.querSugerido || codigoCliente || perfilCasa(estado.casa.tipo) !== "habitacao" || maquinasEscolhidas(estado.quer).length) return;
+  sugestaoFeita = true;
+  const porPiso = { ...estado.quer.porPiso };
+  for (const k of maquinasHabituais(estado.casa)) porPiso[k] = { 0: 1 };
+  estado.quer = normalizarQuer({ ...estado.quer, porPiso }, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
+  estado.querSugerido = true;
+  acertarQuer();
+  sugerirLigacao();
+  agendarGravacao();
+}
+/** Esconde as máquinas fora das 8 principais (e não escolhidas) até "Mais máquinas"; grupos vazios saem; a linha da sugestão. */
+function filtrarMaquinas() {
+  const casa = perfilCasa(estado.casa.tipo) === "habitacao";
+  for (const c of document.querySelectorAll(`#passo-${P.quer} .quer-item`)) {
+    const k = c.dataset.maquina;
+    c.hidden = casa && !maisMaquinas && !MAQUINAS_PRINCIPAIS.includes(k) && !(estado.quer.quantidades[k] > 0);
+  }
+  for (const g of document.querySelectorAll(`#passo-${P.quer} .quer-grupo`)) g.hidden = ![...g.querySelectorAll(".quer-item")].some((c) => !c.hidden);
+  $("quer-pequenas").closest("fieldset").hidden = ![...$("quer-pequenas").querySelectorAll(".quer-item")].some((c) => !c.hidden);
+  const b = $("quer-mais");
+  b.hidden = !casa;
+  b.textContent = maisMaquinas ? "Menos máquinas" : "Mais máquinas";
+  b.setAttribute("aria-expanded", String(maisMaquinas));
+  const s = $("quer-sugestao");
+  s.hidden = !(casa && sugestaoFeita);
+  s.textContent = `Marcámos o habitual para ${estado.casa.tipo === "moradia" ? "uma moradia" : "um"}${estado.casa.tipo === "moradia" ? "" : ` ${estado.casa.tipologia ?? "apartamento"}`}. Ajuste.`;
+}
+$("quer-mais").addEventListener("click", () => { maisMaquinas = !maisMaquinas; filtrarMaquinas(); });
 function desenharQuer() {
   const gm = $("quer-maquinas"), gp = $("quer-pequenas");
   const perfil = perfilCasa(estado.casa.tipo);
   const n = pisosDaCasa(estado.casa);
   if (pisoQuer >= n) pisoQuer = 0;
+  sugerirMaquinas();
   if (gm.dataset.perfil !== perfil) {
     gm.dataset.perfil = perfil;
     // Marcada no piso à vista: 1 (o cliente muda no contador); desmarcada: sai desse piso.
@@ -1174,6 +1261,7 @@ function desenharQuer() {
   }
   for (const i of [...gm.querySelectorAll("input[type=checkbox]"), ...gp.querySelectorAll("input[type=checkbox]")]) i.checked = quantidadeNoPiso(estado.quer, i.value, pisoQuer) > 0;
   for (const c of document.querySelectorAll(`#passo-${P.quer} .quer-item`)) desenharExtraQuer(c.dataset.maquina);
+  filtrarMaquinas();
   desenharPisosQuer();
 }
 
@@ -3452,8 +3540,9 @@ async function carregarCatalogo() {
   }
   if (estado.passo === P.preco && !$(`passo-${P.preco}`).hidden) desenharPreco();
   if (estado.passo === P.melhorias && !$(`passo-${P.melhorias}`).hidden) desenharMelhorias();
-  if (estado.passo === P.completo && !$(`passo-${P.completo}`).hidden) desenharCompleto();
+  if (estado.passo === P.relatorio && !$(`passo-${P.relatorio}`).hidden) desenharCompleto();
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharDeslocacao();
+  desenharEstimativaProvisoria();   // a estimativa por baixo da barra precisa dos preços
 }
 
 /** Avaria rápida: o preço é o diagnóstico (DIAG-AVARIA + horas × tarifa) e a deslocação. */
@@ -4418,7 +4507,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
     if (contaEu && casaGuardada) pedirConta("simulacao", { corpo: { estado: casaGuardada } }).catch(() => {});
   }
   apagarEstado(armazem ?? semArmazem);
-  for (let i = 0; i < PASSOS.length; i++) $(`passo-${i}`).hidden = true;
+  for (let i = 0; i < PASSOS.length; i++) { const s = $(`passo-${i}`); if (s) s.hidden = true; }
   $("sim-como").hidden = true;
   fecharPlanta({ foco: false });
   $("sim-planta").hidden = true;
@@ -4466,6 +4555,8 @@ function recomecar({ manterFotos = false } = {}) {
   visitado = PASSO_INICIAL;
   ultimoPreco = null;
   pisoQuer = 0;
+  maisMaquinas = false;
+  sugestaoFeita = false;
   pisoCasa = 0;
   divisaoTocada = null;
   aparelhoTocado = null;

@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  estadoNovo, normalizarEstado, temProgresso, montarSimulacao, FUNIS, PASSO, passosDoFunil, guardarCasa, carregarCasa,
+  estadoNovo, normalizarEstado, temProgresso, montarSimulacao, FUNIS, PASSO, PASSOS, passosDoFunil, guardarCasa, carregarCasa,
   resumoCasa, usarCasa, temCasa, CHAVE_CASA, FOTO_AVARIA, legendaAvaria, avariaPerigosa, ordemPasso, maisAdiantado, AVARIA_PROBLEMA, AVARIA_PERIGO,
 } from '../../web/simulador/estado.js';
 import { plantaDaCasa } from '../../web/simulador/casa.js';
@@ -33,15 +33,19 @@ function casaT2() {
   return e;
 }
 
-test('funis: passos e tempos (primeira ~14 min (ronda de correções: o Quadro é só a foto, ~1 min), já tenho planta ~6, avaria ~2; Melhorias antes do Orçamento; ronda A: relatórios e Planta depois das Divisões)', () => {
+test('funis: passos e tempos (primeira ~12 min (fase 3 da auditoria: um só Relatório, Equipamentos pré-marcados, Enviar sem palavra-passe), já tenho planta ~5, avaria ~2; Melhorias antes do Orçamento; o 12 reformado)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
   assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.relatorio,
-    PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
-  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.completo, PASSO.preco, PASSO.enviar]);
+    PASSO.trocar, PASSO.melhorias, PASSO.preco, PASSO.enviar]);
+  assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.relatorio, PASSO.preco, PASSO.enviar]);
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
-  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [14, 6, 2]);
+  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [12, 5, 2]);
+  assert.ok(!Object.values(FUNIS).some((f) => f.passos.includes(PASSO.completo)), 'o Relatório completo (12) não está em nenhum funil');
+  assert.equal(PASSOS[PASSO.relatorio], 'Relatório');
   assert.equal(FUNIS.primeira.minutos[PASSO.quadro], 1, 'B3: o passo Quadro é só a foto');
-  for (const f of ['primeira', 'planta']) assert.deepEqual(FUNIS[f].passos, [...FUNIS[f].passos].sort((a, b) => ordemPasso(a) - ordemPasso(b)), `${f}: pela ordem dos passos`);
+  assert.deepEqual(FUNIS.primeira.passos, [...FUNIS.primeira.passos].sort((a, b) => ordemPasso(a) - ordemPasso(b)), 'primeira: pela ordem dos passos');
+  // "Já tenho a planta": o Relatório vem depois das Melhorias (o cliente já tem a casa) — a barra compara pela posição no funil (app.js chegou).
+  assert.ok(ordemPasso(PASSO.relatorio) < ordemPasso(PASSO.trocar) && FUNIS.planta.passos.indexOf(PASSO.relatorio) > FUNIS.planta.passos.indexOf(PASSO.melhorias));
   assert.deepEqual(passosDoFunil(null), FUNIS.primeira.passos, 'sem caso escolhido: os da primeira vez');
 });
 
@@ -198,25 +202,40 @@ test('ronda A: estados de antes dos relatórios (ordem 10 e 9) retomam com senti
   const v11 = (x) => ({ ...estadoNovo(), passos: 13, ordem: 11, funil: 'primeira', servico: ['nova'], ...x });
   assert.deepEqual(r(v11({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.divisoes, PASSO.divisoes, []]);
   assert.deepEqual(r(v11({ passo: PASSO.planta, visitado: PASSO.planta })), [PASSO.planta, PASSO.quadro, []]);
-  assert.deepEqual(r(v11({ passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo] })), [PASSO.preco, PASSO.preco, [PASSO.completo]]);
+  assert.deepEqual(r(v11({ passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo] })), [PASSO.preco, PASSO.preco, []], 'o 12 já não existe: nada por ver');
+  assert.deepEqual(r(v11({ passo: PASSO.completo, visitado: PASSO.completo })), [PASSO.relatorio, PASSO.melhorias, []], 'no Relatório completo → Relatório; o mais adiantado passa às Melhorias');
+  // Ordem 12 (ronda B: a ordem de agora com os dois relatórios): o 12 passa ao 11; o resto fica igual.
+  const v12 = (x) => ({ ...estadoNovo(), passos: 13, ordem: 12, funil: 'primeira', servico: ['nova'], ...x });
+  assert.deepEqual(r(v12({ passo: PASSO.completo, visitado: PASSO.completo })), [PASSO.relatorio, PASSO.melhorias, []]);
+  assert.deepEqual(r(v12({ passo: PASSO.melhorias, visitado: PASSO.completo, relatoriosPorVer: [PASSO.completo] })), [PASSO.melhorias, PASSO.melhorias, []]);
+  assert.deepEqual(r(v12({ passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.relatorio, PASSO.completo] })), [PASSO.preco, PASSO.preco, [PASSO.relatorio]]);
+  assert.deepEqual(r(v12({ passo: PASSO.quadro, visitado: PASSO.quadro })), [PASSO.quadro, PASSO.quadro, []]);
+  assert.deepEqual(r(v12({ funil: 'planta', passo: PASSO.completo, visitado: PASSO.completo })), [PASSO.relatorio, PASSO.relatorio, []], 'no "Já tenho a planta" o Relatório é o mais adiantado (posição no funil)');
+  assert.equal(normalizarEstado(v12({ passo: PASSO.preco, visitado: PASSO.preco })).melhoriasPorVer, false, 'ordem 12 já tinha as Melhorias');
+  assert.deepEqual(r(v12({ passo: PASSO.enviar, visitado: PASSO.enviar })), [PASSO.preco, PASSO.preco, []]);
   // Nas Divisões já tinha visto o Trocar: pode ir até ele pela barra; o Relatório básico fica por ver.
   assert.deepEqual(r(v10({ passo: PASSO.divisoes, visitado: PASSO.trocar })), [PASSO.divisoes, PASSO.trocar, [PASSO.relatorio]]);
   // No Orçamento: fica lá; os dois relatórios ficam por ver (a barra não os dá como feitos).
-  assert.deepEqual(r(v10({ passo: PASSO.preco, visitado: PASSO.preco })), [PASSO.preco, PASSO.preco, [PASSO.relatorio, PASSO.completo]]);
+  assert.deepEqual(r(v10({ passo: PASSO.preco, visitado: PASSO.preco })), [PASSO.preco, PASSO.preco, [PASSO.relatorio]]);
   assert.deepEqual(r(v10({ passo: PASSO.melhorias, visitado: PASSO.melhorias })), [PASSO.melhorias, PASSO.melhorias, [PASSO.relatorio]]);
-  // Já tenho a planta: só o Relatório completo é novo.
-  assert.deepEqual(r(v10({ funil: 'planta', passo: PASSO.trocar, visitado: PASSO.preco })), [PASSO.trocar, PASSO.preco, [PASSO.completo]]);
+  // Já tenho a planta: o Relatório é novo.
+  assert.deepEqual(r(v10({ funil: 'planta', passo: PASSO.trocar, visitado: PASSO.preco })), [PASSO.trocar, PASSO.preco, [PASSO.relatorio]]);
   // Ordem 9 (antes das Melhorias) e 8 (antes dos funis): o mesmo, e as Melhorias por ver como antes.
   const v9 = normalizarEstado({ ...estadoNovo(), passos: 10, ordem: 9, funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco });
-  assert.deepEqual([v9.passo, v9.relatoriosPorVer, v9.melhoriasPorVer], [PASSO.preco, [PASSO.relatorio, PASSO.completo], true]);
+  assert.deepEqual([v9.passo, v9.relatoriosPorVer, v9.melhoriasPorVer], [PASSO.preco, [PASSO.relatorio], true]);
   const v8 = normalizarEstado({ ...estadoNovo(), passos: 9, ordem: 8, passo: PASSO.preco, visitado: PASSO.preco, servico: ['nova'] });
-  assert.deepEqual([v8.passo, v8.relatoriosPorVer], [PASSO.preco, [PASSO.relatorio, PASSO.completo]]);
+  assert.deepEqual([v8.passo, v8.relatoriosPorVer], [PASSO.preco, [PASSO.relatorio]]);
   // A avaria não muda.
   assert.deepEqual(r(v10({ funil: 'avaria', passo: PASSO.avaria, visitado: PASSO.avaria })), [PASSO.avaria, PASSO.avaria, []]);
   // Estados de agora: os relatórios por ver guardam-se (só os que ficaram para trás).
-  const agora = normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.completo, 99] });
-  assert.deepEqual(agora.relatoriosPorVer, [PASSO.completo]);
-  assert.deepEqual(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.planta, visitado: PASSO.planta, relatoriosPorVer: [PASSO.completo] }).relatoriosPorVer, []);
+  const agora = normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.preco, visitado: PASSO.preco, relatoriosPorVer: [PASSO.relatorio, PASSO.completo, 99] });
+  assert.deepEqual(agora.relatoriosPorVer, [PASSO.relatorio]);
+  assert.deepEqual(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.planta, visitado: PASSO.planta, relatoriosPorVer: [PASSO.relatorio] }).relatoriosPorVer, []);
+  // Fase 3 da auditoria: as 8 máquinas pré-marcadas só uma vez (querSugerido); um estado de antes com máquinas (ou já para lá dos Equipamentos) não as recebe.
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.casa, visitado: PASSO.casa }).querSugerido, false);
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.casa, visitado: PASSO.casa, querSugerido: true }).querSugerido, true);
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], passo: PASSO.quer, visitado: PASSO.divisoes }).querSugerido, true);
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'primeira', servico: ['nova'], casa: { ...estadoNovo().casa, tipo: 'apartamento' }, quer: { maquinas: ['placa'], porPiso: { placa: { 0: 1 } } } }).querSugerido, true);
   assert.equal(maisAdiantado(PASSO.planta, PASSO.divisoes, PASSO.quadro), PASSO.quadro, 'o Quadro vem depois da Planta e das Divisões');
 });
 

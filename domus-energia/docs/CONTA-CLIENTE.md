@@ -4,8 +4,8 @@ A conta do cliente serve para enviar o pedido do simulador, acompanhá-lo e, dep
 
 ## Decisões do dono
 
-1. **A conta é obrigatória para enviar a simulação.** No passo 7 ("Enviar") aparece antes do contacto: "Criar conta" (email, palavra-passe e confirmação) ou "Já tenho conta — entrar". Com a sessão aberta mostra "Entrou como x@y · Sair". O email da conta preenche e fixa o email do contacto. Nome, telefone, morada e localidade (concelho, com as sugestões dos 308 concelhos) ficam no contacto e são guardados no perfil da conta quando o pedido é enviado.
-2. **Email e palavra-passe**, com as regras do painel (`senhas.js`: scrypt, pelo menos 10 caracteres). O email é confirmado com um **código de 6 dígitos**, que vale 15 minutos e aceita 5 tentativas. Sem email confirmado não se pode enviar. O "Esqueci a palavra-passe" manda um código de uso único (15 min) e responde sempre o mesmo, exista ou não a conta. **"Criar conta" também responde sempre o mesmo** ("Enviámos um código para o email"): se o email já tem conta, em vez do código vai para esse email um aviso ("Alguém tentou criar conta com este email; se foi você, entre ou use Esqueci a palavra-passe"), e o ecrã do código explica isso. A sessão abre ao confirmar o código (com o email e a palavra-passe da conta); quem volta mais tarde sem ter confirmado cria a conta outra vez com a mesma palavra-passe e recebe um código novo.
+1. **A conta é obrigatória para enviar a simulação.** No passo "Enviar" aparece antes do contacto: "Criar conta" (só o email; o código de 6 dígitos confirma e abre a sessão) ou "Já tenho conta — entrar". Com a sessão aberta mostra "Entrou como x@y · Sair". O email da conta preenche e fixa o email do contacto. Nome, telefone, morada e localidade (concelho, com as sugestões dos 308 concelhos) ficam no contacto e são guardados no perfil da conta quando o pedido é enviado.
+2. **Só o email + código; a palavra-passe é opcional** (fase 3 da auditoria, decisão do dono, 2026-10-02). "Criar conta" pede só o email e manda um **código de 6 dígitos** (vale 15 minutos, 5 tentativas); confirmar o código cria a conta (confirma o email) e abre a sessão. Quem tem o email tem a conta: se o email já tem conta, "Criar conta" manda um código **para entrar** (a resposta ao browser é sempre a mesma, "Enviámos um código para o email"). Entrar tem dois caminhos: **"Entrar com código"** (email → `POST codigo` → código → sessão; também serve de "Esqueci-me da palavra-passe") e **"Entrar com palavra-passe"** (quem a definiu). A palavra-passe define-se ou muda-se na conta ("Definir palavra-passe" / "Mudar a palavra-passe", `POST palavra-passe`, com as regras do painel: `senhas.js`, scrypt, pelo menos 10 caracteres; `contas.hash` aceita NULL, migração 21). "Esqueci" e "repor" (código + palavra-passe nova) continuam a existir no servidor. `GET eu` e as respostas com `conta` trazem `tem_password`. Apagar a conta confirma-se com a palavra-passe ou, sem ela, com um código para entrar (`POST codigo` com o email da conta; `POST apagar {codigo}`).
 3. **A conta** (`conta.html`) mostra:
    - o estado do pedido (recebido → visita → proposta → aceite → instalação), feito a partir dos estados reais do painel;
    - a simulação enviada, num resumo simples (sem a parte técnica);
@@ -21,7 +21,7 @@ A conta do cliente serve para enviar o pedido do simulador, acompanhá-lo e, dep
 
 ## Guardar e retomar a simulação
 
-Com a sessão aberta, o simulador guarda o estado na conta sempre que se muda de passo e quando o cliente entra no passo 7 (`POST /api/conta/simulacao`, até 1,5 MB; se não couber, vai sem a imagem de fundo).
+Com a sessão aberta, o simulador guarda o estado na conta sempre que se muda de passo e quando o cliente entra no passo "Enviar" (`POST /api/conta/simulacao`, até 1,5 MB; se não couber, vai sem a imagem de fundo).
 
 Ao abrir o simulador com sessão fica, sem perguntar, a simulação mais recente entre a deste navegador e a da conta (lote 8, docs/SIMULADOR-ORCAMENTO.md §0): se a da conta for mais recente, continua-se nela no passo onde ficou; senão a deste navegador vai para a conta. **As fotos ainda por enviar ficam só no navegador onde foram tiradas** (IndexedDB).
 
@@ -46,11 +46,11 @@ Riscos e limites:
 
 ## Segurança
 
-- A sessão usa o cookie `domus_conta`, diferente do cookie do painel: `HttpOnly; SameSite=Lax; Path=/api`, com `Secure` fora de localhost. O caminho é `/api` (e não `/api/conta`) porque o `POST /api/orcamento` com simulação também usa esta sessão. O cookie chega por isso aos pagamentos (`/api/*` no Caddy), que o ignoram: autenticam com `Authorization: Bearer` e nunca registam cabeçalhos. Na base de dados só fica o SHA-256 do cookie. A sessão dura 7 dias sem uso e no máximo 30 dias. Mudar a palavra-passe fecha todas as sessões.
+- A sessão usa o cookie `domus_conta`, diferente do cookie do painel: `HttpOnly; SameSite=Lax; Path=/api`, com `Secure` fora de localhost. O caminho é `/api` (e não `/api/conta`) porque o `POST /api/orcamento` com simulação também usa esta sessão. O cookie chega por isso aos pagamentos (`/api/*` no Caddy), que o ignoram: autenticam com `Authorization: Bearer` e nunca registam cabeçalhos. Na base de dados só fica o SHA-256 do cookie. A sessão dura 7 dias sem uso e no máximo 30 dias. Repor a palavra-passe ("Esqueci") fecha todas as sessões; definir ou mudar a palavra-passe na conta não (quem lá está já provou o email).
 - **Uma conta de cliente não abre nenhuma rota `/painel/api/`** (as sessões são separadas), e cada conta só vê os seus pedidos: os pedidos de outras contas dão 404.
 - As origens são verificadas (CSRF) como no resto do painel: `Origin`/`Sec-Fetch-Site` em todos os POST.
-- Há limites por IP e por email em criar, código, reenviar, esqueci e repor. **Emails enviados**, por email e com quotas separadas (acima delas, em silêncio): códigos de confirmar (criar e reenviar) 3 por hora; avisos "já tem conta" 1 por hora; códigos de repor ("Esqueci") 3 por hora — um terceiro que chame "criar" com o email de outra pessoa não bloqueia o "Esqueci" dela. **Entrar**: 10 por minuto por IP e 5 por minuto por par email+IP, com um atraso progressivo curto a partir da 3.ª falha seguida do mesmo IP (1 s, 2 s, 4 s… até 60 s); por email só um travão alto (50 por hora), para que um terceiro não consiga bloquear a conta de alguém. Uma conta por confirmar não entra (a mesma resposta de erro): entra ao confirmar o código.
-- **Nenhuma resposta diz se um email tem conta**: criar, entrar, confirmar sem sessão, esqueci e repor respondem igual. No repor, o código deixa de valer ao fim de 5 tentativas erradas, mas a resposta continua a ser "código errado ou expirado"; há limite por email (10/hora, exista ou não a conta) e por IP (20/hora). No confirmar sem sessão, as tentativas só contam com a palavra-passe certa (um terceiro não gasta o código).
+- Há limites por IP e por email em criar, codigo, confirmar, reenviar, esqueci e repor. **Emails enviados**, por email e com quotas separadas (acima delas, em silêncio): códigos de confirmar/entrar (criar, codigo e reenviar) 3 por hora; códigos de repor ("Esqueci") 3 por hora — um terceiro que chame "criar" ou "codigo" com o email de outra pessoa não bloqueia o "Esqueci" dela. "criar" 5/hora por IP e 3/hora por email; "codigo" 10/hora por IP; "confirmar" 20/hora por IP. **Entrar** (palavra-passe): 10 por minuto por IP e 5 por minuto por par email+IP, com um atraso progressivo curto a partir da 3.ª falha seguida do mesmo IP (1 s, 2 s, 4 s… até 60 s); por email só um travão alto (50 por hora), para que um terceiro não consiga bloquear a conta de alguém. Uma conta por confirmar (ou sem palavra-passe) não entra assim (a mesma resposta de erro): entra com o código.
+- **Nenhuma resposta diz se um email tem conta**: criar, codigo, entrar, confirmar sem sessão, esqueci e repor respondem igual. No repor, o código deixa de valer ao fim de 5 tentativas erradas, mas a resposta continua a ser "código errado ou expirado"; há limite por email (10/hora, exista ou não a conta) e por IP (20/hora). No confirmar sem sessão o código também deixa de valer ao fim de 5 tentativas erradas (um terceiro consegue gastá-lo; o dono pede outro — 3 por hora).
 - Os códigos só vão no corpo do email (nunca no assunto). Com SMTP, o registo do painel não guarda o assunto nem o corpo; sem SMTP / no modo local o email vai todo para o registo (é assim que se lê o código).
 - Também há limites de tamanho (JSON com 16 KB, simulação com 1,5 MB, fotos com 1 MB).
 - `POST /api/orcamento` **com simulação** exige a sessão com o email confirmado. O pedido fica com o `conta_id` e o email do pedido passa a ser o da conta. Enviar é grátis (fase 3): `201` com o pedido e o token das fotos, e o pagamento da compra escolhida no passo Enviar, se houver ([PAGAMENTOS-PEDIDO.md](PAGAMENTOS-PEDIDO.md)). Só a avaria rápida, com os pagamentos ligados, responde `202 {pagamento}`: passa a orçamento depois de paga, e as fotos vão com o token dado no regresso do pagamento.
@@ -68,7 +68,7 @@ O cliente SMTP é mínimo (`painel/src/email.js`, sem dependências):
 
 Configura-se no `.env` com `SMTP_HOST`, `SMTP_PORTA`, `SMTP_UTILIZADOR`, `SMTP_PASSWORD` e `EMAIL_REMETENTE` (opcionais: `SMTP_SEGURANCA` = `tls`/`starttls`, e `SMTP_TIMEOUT_MS`). A opção gratuita recomendada é o Brevo, com 300 emails por dia (`servidor/.env.example`).
 
-**Sem SMTP, e sempre no modo local**, o email é escrito no registo do painel: `[email] para x@y: código 123456 (confirmar o email)`.
+**Sem SMTP, e sempre no modo local**, o email é escrito no registo do painel: `[email] para x@y: código 123456 (confirmar o email)` (ou `(entrar)`, `(mudar a palavra-passe)`).
 
 ## Site noutro endereço (Vercel)
 
@@ -86,14 +86,16 @@ Exemplo: o site em `https://domusenergia.pt` (Vercel) e o painel, a API, o MQTT 
 
 | Método | Caminho | Sessão | O quê |
 |---|---|---|---|
-| POST | `criar` | — | `{email, password}` → 201 `{ok, email, mensagem}`, sempre igual e sem cookie; código por email (ou, se o email já tem conta, um aviso) |
-| POST | `entrar` | — | `{email, password}` → 200 e cookie (só contas confirmadas); 401 com a mesma mensagem para tudo; 429 com `Retry-After` |
+| POST | `criar` | — | `{email}` → 201 `{ok, email, mensagem}`, sempre igual e sem cookie; conta nova (sem palavra-passe) e código de confirmar por email (ou, se o email já tem conta, o código para entrar) |
+| POST | `codigo` | — | `{email}` → 200, sempre com a mesma resposta; código para entrar (conta confirmada) ou de confirmar; 10/hora por IP, 3 emails/hora por email |
+| POST | `entrar` | — | `{email, password}` → 200 e cookie (só contas confirmadas e com palavra-passe); 401 com a mesma mensagem para tudo; 429 com `Retry-After` |
 | POST | `sair` | — | apaga a sessão |
 | POST | `esqueci` | — | `{email}` → 200, sempre com a mesma resposta |
 | POST | `repor` | — | `{email, codigo, password}` → nova palavra-passe (e confirma o email); 400 igual para tudo o que falha |
-| POST | `confirmar` | — | `{email, password, codigo}` → 200, cookie (abre a sessão); 400 igual para tudo o que falha |
-| GET | `eu` | sim | conta, `simulacao_atualizada`, `tem_casa` |
+| POST | `confirmar` | — | `{email, codigo}` → 200, cookie (abre a sessão; confirma o email se ainda não estava); 400 igual para tudo o que falha |
+| GET | `eu` | sim | conta (com `tem_password`), `simulacao_atualizada`, `tem_casa` |
 | POST | `confirmar` / `reenviar` | sim | contas por confirmar com sessão aberta antes desta versão: `{codigo}` (400 errado, 410 expirado, 429 esgotado) |
+| POST | `palavra-passe` | confirmada | `{password}` → define ou muda a palavra-passe (regras do painel); não fecha as outras sessões |
 | GET/POST | `simulacao` | sim | `{estado}` do simulador (ou `null` para apagar) |
 | GET | `pedidos` | confirmada | pedidos da conta, com passos, resumo, fotos e proposta |
 | GET | `pedidos/:id/fotos/:foto` | confirmada | a foto (só do próprio pedido) |

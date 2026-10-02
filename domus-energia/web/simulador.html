@@ -68,6 +68,8 @@
       <nav class="sim-progresso" aria-label="Passos do simulador">
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
         <ol id="sim-passos"></ol>
+        <!-- Fase 3 da auditoria: estimativa provisória a partir do passo a seguir aos Equipamentos (app.js desenharEstimativaProvisoria) -->
+        <p class="sim-estimativa" id="sim-estimativa" aria-live="polite" hidden></p>
         <div class="sim-recomecar"><button class="btn sec pequeno" id="sim-recomecar-topo" type="button">Começar de novo</button></div>
       </nav>
 
@@ -141,6 +143,8 @@
           <h2 id="titulo-2" tabindex="-1">3. Equipamentos</h2>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
+          <!-- Fase 3 da auditoria: as 8 principais pré-marcadas pela tipologia; "Mais máquinas" abre a grelha completa (app.js filtrarMaquinas) -->
+          <p class="msg info quer-sugestao" id="quer-sugestao" hidden></p>
           <div class="quer-painel" id="quer-painel">
             <fieldset class="escolhas">
               <legend>Máquinas grandes</legend>
@@ -151,6 +155,7 @@
               <div class="quer-grupos" id="quer-pequenas"></div>
             </fieldset>
           </div>
+          <div class="form-botoes"><button class="btn sec" id="quer-mais" type="button" aria-expanded="false" aria-controls="quer-painel">Mais máquinas</button></div>
           <p class="msg info quer-resumo" id="quer-resumo" aria-live="polite" hidden></p>
         </section>
 
@@ -159,13 +164,21 @@
           <h2 id="titulo-3" tabindex="-1">4. Planta</h2>
         </section>
 
-        <!-- Relatório básico (ronda A; índice 11, depois da Planta): grátis, sem preços — a planta, as divisões com os aparelhos e o quadro (app.js desenharRelatorio) -->
+        <!-- Relatório (fase 3 da auditoria: um só passo, índice 11, depois do Quadro): o básico grátis — a planta, as divisões com os
+             aparelhos e o quadro, com PDF (app.js desenharRelatorio) — e por baixo o relatório completo: o que traz, a amostra desfocada
+             feita com esta casa e "Quero o relatório completo" (estado.compras.relatorio, o mesmo do passo Enviar; app.js desenharCompleto) -->
         <section class="sim-passo" id="passo-11" aria-labelledby="titulo-11" data-passo="11" hidden>
-          <h2 id="titulo-11" tabindex="-1">7. Relatório básico</h2>
+          <h2 id="titulo-11" tabindex="-1">7. Relatório</h2>
           <p class="sub-passo">Grátis. O resumo da sua casa, sem preços.</p>
           <div class="sim-relatorio" id="relatorio"></div>
           <div class="form-botoes"><button class="btn sec" id="relatorio-pdf" type="button">Guardar PDF</button></div>
           <p class="msg" id="relatorio-pdf-msg" role="status" hidden></p>
+          <h3 class="sim-completo-titulo" id="completo-titulo">Relatório completo <small class="ajuda">Opcional. Material, preço por divisão e planta técnica.</small></h3>
+          <div class="sim-completo" id="completo"></div>
+          <div class="cartao sim-completo-quero" id="completo-quero" hidden>
+            <div class="escolhas-grelha compras-grelha" id="completo-opcao"></div>
+            <p class="ajuda">Paga no fim, ao enviar. Entregue após revisão (até 24 h).</p>
+          </div>
         </section>
 
         <!-- 5. Quadro elétrico -->
@@ -234,18 +247,6 @@
             <div class="escolhas-grelha melhorias-grelha" id="melhorias"></div>
           </fieldset>
           <p class="sim-nota" id="melhorias-plano"></p>
-        </section>
-
-        <!-- Relatório completo (ronda A; índice 12, depois das Melhorias): o que traz, numa amostra desfocada feita com esta
-             casa, e "Quero o relatório completo" (estado.compras.relatorio, o mesmo do passo Enviar; app.js desenharCompleto) -->
-        <section class="sim-passo" id="passo-12" aria-labelledby="titulo-12" data-passo="12" hidden>
-          <h2 id="titulo-12" tabindex="-1">10. Relatório completo</h2>
-          <p class="sub-passo">Opcional. Material, preço por divisão e planta técnica.</p>
-          <div class="sim-completo" id="completo"></div>
-          <div class="cartao sim-completo-quero" id="completo-quero" hidden>
-            <div class="escolhas-grelha compras-grelha" id="completo-opcao"></div>
-            <p class="ajuda">Paga no fim, ao enviar. Entregue após revisão (até 24 h).</p>
-          </div>
         </section>
 
         <!-- 9. Orçamento (antes "Resumo e preço") -->
@@ -370,8 +371,8 @@
         <!-- "Como fazer a simulação" (fase 1): só no Início, por baixo dos cartões — duas linhas curtas (os passos do funil
              escolhido e o que ter à mão; app.js desenharComo). O mesmo, para os 3 casos, no site (index.html #como-simular). -->
         <section class="sim-como" id="sim-como" aria-labelledby="sim-como-titulo">
-          <h2 id="sim-como-titulo">Como fazer a simulação · ~14 min</h2>
-          <p id="sim-como-passos">1 Início · 2 A casa · 3 Equipamentos · 4 Divisões · 5 Planta · 6 Quadro elétrico · 7 Relatório básico · 8 Trocar e reparar · 9 Melhorias · 10 Relatório completo · 11 Orçamento · 12 Enviar</p>
+          <h2 id="sim-como-titulo">Como fazer a simulação · ~12 min</h2>
+          <p id="sim-como-passos">1 Início · 2 A casa · 3 Equipamentos · 4 Divisões · 5 Planta · 6 Quadro elétrico · 7 Relatório · 8 Trocar e reparar · 9 Melhorias · 10 Orçamento · 11 Enviar</p>
           <p>Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>
         </section>
         <div class="sim-navegacao" id="sim-navegacao">

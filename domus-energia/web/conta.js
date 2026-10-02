@@ -45,6 +45,7 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     if (!dentro) { $("conta-pedidos").replaceChildren(); mensagem(null); return; }
     $("conta-casa").hidden = !eu.tem_casa;
     $("conta-apagar-email").textContent = eu.conta.email;
+    desenharSenha(Boolean(eu.conta.tem_password));
     const r = $("conta-retomar");
     r.replaceChildren();
     r.hidden = !eu.simulacao_atualizada;
@@ -601,7 +602,60 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
   }
 }
 
-// ---- Apagar a minha conta (RGPD): confirmação na página com a palavra-passe → POST /api/conta/apagar; a sessão acaba.
+// ---- Palavra-passe (opcional; fase 3 da auditoria): a conta entra com código; quem quiser define-a aqui → POST /api/conta/palavra-passe.
+let temSenha = false;
+const senhaMsg = (t, tipo = "erro") => {
+  const m = $("conta-senha-msg");
+  m.textContent = t ?? "";
+  m.className = `msg ${tipo}`;
+  m.hidden = !t;
+};
+/** Os textos da palavra-passe e do apagar seguem a conta: com palavra-passe confirma-se com ela; sem, com um código. */
+function desenharSenha(tem) {
+  temSenha = tem;
+  $("conta-senha-estado").textContent = tem ? "Entra com código ou com a sua palavra-passe." : "Entra com um código enviado ao email. Se preferir, defina uma palavra-passe.";
+  $("conta-senha-abrir").textContent = tem ? "Mudar a palavra-passe" : "Definir palavra-passe";
+  $("conta-apagar-como").replaceChildren(el("strong", null, "Tem a certeza?"), ` Isto não se desfaz. Para confirmar, ${tem ? "escreva a sua palavra-passe." : "peça um código para o email e escreva-o aqui."}`);
+  $("conta-apagar-rotulo").firstChild.textContent = tem ? "Palavra-passe" : "Código de 6 algarismos";
+  const i = $("conta-apagar-senha");
+  i.type = tem ? "password" : "text";
+  i.autocomplete = tem ? "current-password" : "one-time-code";
+  i.inputMode = tem ? "text" : "numeric";
+  $("conta-apagar-codigo-caixa").hidden = tem;
+}
+$("conta-senha-abrir").addEventListener("click", () => {
+  $("conta-senha-form").hidden = false;
+  $("conta-senha-abrir").hidden = true;
+  $("conta-senha-1").focus();
+});
+$("conta-senha-nao").addEventListener("click", () => {
+  $("conta-senha-form").hidden = true;
+  $("conta-senha-abrir").hidden = false;
+  $("conta-senha-1").value = $("conta-senha-2").value = "";
+  senhaMsg(null);
+});
+for (const k of ["conta-senha-1", "conta-senha-2"]) $(k).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("conta-senha-guardar").click(); } });
+$("conta-senha-guardar").addEventListener("click", async () => {
+  const b = $("conta-senha-guardar");
+  const s1 = $("conta-senha-1").value, s2 = $("conta-senha-2").value;
+  if (s1.length < 10) { senhaMsg("A palavra-passe deve ter pelo menos 10 caracteres."); $("conta-senha-1").focus(); return; }
+  if (s1 !== s2) { senhaMsg("As duas palavras-passe não são iguais."); $("conta-senha-2").focus(); return; }
+  if (b.disabled) return;
+  b.disabled = true;
+  try {
+    const r = await pedirConta("palavra-passe", { corpo: { password: s1 } });
+    desenharSenha(Boolean(r.conta?.tem_password));
+    $("conta-senha-1").value = $("conta-senha-2").value = "";
+    $("conta-senha-form").hidden = true;
+    $("conta-senha-abrir").hidden = false;
+    mensagem("Palavra-passe guardada. Já pode entrar com ela.", "ok");
+  } catch (e) {
+    senhaMsg(e.message);
+  }
+  b.disabled = false;
+});
+
+// ---- Apagar a minha conta (RGPD): confirmação na página com a palavra-passe (ou um código, sem palavra-passe) → POST /api/conta/apagar; a sessão acaba.
 const apagarMsg = (t, tipo = "erro") => {
   const m = $("conta-apagar-msg");
   m.textContent = t ?? "";
@@ -611,7 +665,20 @@ const apagarMsg = (t, tipo = "erro") => {
 $("conta-apagar-abrir").addEventListener("click", () => {
   $("conta-apagar-confirmar").hidden = false;
   $("conta-apagar-abrir").hidden = true;
-  $("conta-apagar-senha").focus();
+  (temSenha ? $("conta-apagar-senha") : $("conta-apagar-codigo")).focus();
+});
+$("conta-apagar-codigo").addEventListener("click", async () => {
+  const b = $("conta-apagar-codigo");
+  if (b.disabled) return;
+  b.disabled = true;
+  try {
+    await pedirConta("codigo", { corpo: { email: $("conta-apagar-email").textContent } });
+    apagarMsg("Enviámos um código para o seu email (vale 15 minutos).", "info");
+    $("conta-apagar-senha").focus();
+  } catch (e) {
+    apagarMsg(e.message);
+  }
+  b.disabled = false;
 });
 $("conta-apagar-nao").addEventListener("click", () => {
   $("conta-apagar-confirmar").hidden = true;
@@ -622,13 +689,13 @@ $("conta-apagar-nao").addEventListener("click", () => {
 $("conta-apagar-senha").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); $("conta-apagar-sim").click(); } });
 $("conta-apagar-sim").addEventListener("click", async () => {
   const b = $("conta-apagar-sim");
-  const senha = $("conta-apagar-senha").value;
-  if (!senha) { apagarMsg("Escreva a palavra-passe para confirmar."); $("conta-apagar-senha").focus(); return; }
+  const senha = $("conta-apagar-senha").value.trim();
+  if (!senha) { apagarMsg(temSenha ? "Escreva a palavra-passe para confirmar." : "Escreva o código que lhe enviámos."); $("conta-apagar-senha").focus(); return; }
   if (b.disabled) return;
   b.disabled = true;
   apagarMsg("A apagar a conta…", "info");
   try {
-    await pedirConta("apagar", { corpo: { password: senha } });
+    await pedirConta("apagar", { corpo: temSenha ? { password: senha } : { codigo: senha.replace(/\s/g, "") } });
   } catch (e) {
     b.disabled = false;
     apagarMsg(e.message);

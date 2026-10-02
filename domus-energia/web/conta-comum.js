@@ -1,5 +1,6 @@
-// Conta de cliente (docs/CONTA-CLIENTE.md): chamadas a /api/conta/* e o bloco "Criar conta / Entrar /
-// Confirmar o email / Esqueci a palavra-passe", usado no passo "Enviar" do simulador e em conta.html.
+// Conta de cliente (docs/CONTA-CLIENTE.md): chamadas a /api/conta/* e o bloco "Criar conta (só o email) / Código /
+// Entrar com código / Entrar com palavra-passe", usado no passo "Enviar" do simulador e em conta.html. Fase 3 da
+// auditoria: a conta cria-se só com o email e o código de 6 dígitos; a palavra-passe é opcional (define-se na conta).
 // O painel serve as rotas; com DOMUS.apiBase (site no Vercel, painel noutro endereço) os pedidos levam
 // o cookie da conta (credentials: "include"; o painel responde com CORS só para SITE_ORIGENS).
 // Sem <form> (o bloco fica dentro do formulário do simulador): Enter num campo carrega no botão principal.
@@ -110,10 +111,10 @@ const el = (tag, props = {}, ...filhos) => {
  */
 export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, texto = {} } = {}) {
   let eu = null;
-  let modo = "criar";      // fora: criar | codigo | entrar | esqueci | repor
-  let emailRepor = "";
-  // Depois de "Criar conta" (sem sessão ainda): o email e a palavra-passe ficam só em memória até confirmar o código.
-  let pendente = null;     // {email, password}
+  let modo = "criar";      // fora: criar | codigo | entrar (com código) | senha (com palavra-passe)
+  let emailRepor = "";     // o email já escrito, para o campo seguinte
+  // Depois de "Criar conta" ou "Enviar código" (sem sessão ainda): o email fica só em memória até confirmar o código.
+  let pendente = null;     // {email, origem: "criar" | "codigo"}
   const id = (n) => `${prefixo}-${n}`;
   const msg = el("div", { classe: "msg", role: "status", id: id("msg"), hidden: true });
 
@@ -192,38 +193,39 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     }
     if (modo === "codigo" && !pendente) modo = "criar";
     const email = campo("Email", "email", { type: "email", maxlength: "254", autocomplete: "email", inputmode: "email" });
+    const irPara = (m) => { emailRepor = email.i.value.trim() || emailRepor; modo = m; mensagem(null); desenhar(); focar(); };
+    /** Pede o código para `e` ("criar" cria a conta se não existe; "codigo" só para contas que existem) e passa ao código. */
+    const pedirCodigo = async (e, origem) => {
+      const r = await pedirConta(origem, { corpo: { email: e } });
+      pendente = { email: e, origem };
+      modo = "codigo";
+      desenhar();
+      mensagem(r?.mensagem ?? "Enviámos um código para o email.", "info");
+      document.getElementById(id("codigo"))?.focus();
+    };
     if (modo === "criar") {
-      const s1 = campo("Palavra-passe", "senha", { type: "password", maxlength: "200", autocomplete: "new-password" }, "Pelo menos 10 caracteres.");
-      const s2 = campo("Confirmar a palavra-passe", "senha2", { type: "password", maxlength: "200", autocomplete: "new-password" });
+      if (emailRepor) email.i.value = emailRepor;
       const criar = botao("Criar conta", "criar", () => ocupado(criar, async () => {
         const e = email.i.value.trim();
         if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
-        if (s1.i.value.length < 10) { invalido(s1, "A palavra-passe deve ter pelo menos 10 caracteres."); return; }
-        if (s1.i.value !== s2.i.value) { invalido(s2, "As duas palavras-passe não são iguais."); return; }
         // A resposta é sempre a mesma (o servidor não diz se o email já tem conta); a sessão abre ao confirmar o código.
-        const r = await pedirConta("criar", { corpo: { email: e, password: s1.i.value } });
-        pendente = { email: e, password: s1.i.value };
-        modo = "codigo";
-        desenhar();
-        mensagem(r?.mensagem ?? "Enviámos um código para o email.", "info");
-        document.getElementById(id("codigo"))?.focus();
+        await pedirCodigo(e, "criar");
       }));
-      comEnter([email, s1, s2], criar);
+      comEnter([email], criar);
       // Consentimento (RGPD): a conta e o pedido são necessários ao contrato, por isso basta a frase com as ligações.
       const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao enviar, aceita os ",
         el("a", { href: "termos.html", target: "_blank", rel: "noopener", texto: "Termos" }), " e a ",
         el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
       caixa.append(el("p", { texto: texto.fora ?? "Crie uma conta para enviar o pedido e acompanhá-lo depois." }), msg,
-        email.l, el("div", { classe: "duas" }, s1.l, s2.l), consentimento,
-        el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta — entrar", "ir-entrar", () => { modo = "entrar"; mensagem(null); desenhar(); focar(); })));
+        email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Sem palavra-passe." }), consentimento,
+        el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta — entrar", "ir-entrar", () => irPara("entrar"))));
     } else if (modo === "codigo" && pendente) {
-      // Código depois de "Criar conta": confirma com o email e a palavra-passe e abre a sessão.
+      // Código depois de "Criar conta" ou "Enviar código": confirma com o email e abre a sessão.
       const cod = campo("Código de 6 algarismos", "codigo", { inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", pattern: "[0-9 ]*" });
-      const sairDoCodigo = (m) => { emailRepor = pendente?.email ?? ""; pendente = null; modo = m; mensagem(null); desenhar(); focar(); };
       const confirmar = botao("Confirmar", "confirmar", () => ocupado(confirmar, async () => {
         const v = cod.i.value.replace(/\s/g, "");
         if (!/^\d{6}$/.test(v)) { invalido(cod, "O código tem 6 algarismos."); return; }
-        const r = await pedirConta("confirmar", { corpo: { email: pendente.email, password: pendente.password, codigo: v } });
+        const r = await pedirConta("confirmar", { corpo: { email: pendente.email, codigo: v } });
         pendente = null;
         modo = "entrar";
         eu = await contaAtual() ?? { conta: r.conta };
@@ -232,19 +234,30 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         aoMudar(eu);
       }));
       const reenviar = ligacao("Reenviar o código", "reenviar", () => ocupado(reenviar, async () => {
-        await pedirConta("criar", { corpo: { email: pendente.email, password: pendente.password } });
+        await pedirConta(pendente.origem, { corpo: { email: pendente.email } });
         mensagem("Pedimos outro código. Veja também o correio não desejado (spam).", "info");
       }));
       comEnter([cod], confirmar);
       caixa.append(
-        el("p", {}, "Enviámos um código para ", el("strong", { texto: pendente.email }), ". Escreva-o aqui para confirmar o email (vale 15 minutos)."),
-        el("p", { classe: "ajuda", id: id("ja-tem-conta") },
-          "Se este email já tem conta, não recebe código: recebe um aviso. Nesse caso, entre com a sua palavra-passe ou use \"Esqueci a palavra-passe\"."),
+        el("p", {}, "Enviámos um código para ", el("strong", { texto: pendente.email }), ". Escreva-o aqui (vale 15 minutos)."),
         msg, el("div", { classe: "duas" }, cod.l),
         el("div", { classe: "form-botoes" }, confirmar, reenviar,
-          ligacao("Já tenho conta — entrar", "ir-entrar", () => sairDoCodigo("entrar")),
-          ligacao("Esqueci a palavra-passe", "ir-esqueci", () => sairDoCodigo("esqueci"))));
+          ligacao("Outro email", "ir-criar", () => { emailRepor = pendente?.email ?? ""; pendente = null; modo = "criar"; mensagem(null); desenhar(); focar(); })));
     } else if (modo === "entrar") {
+      // Entrar com código: o email → código → sessão (também serve de "Esqueci-me da palavra-passe").
+      if (emailRepor) email.i.value = emailRepor;
+      const enviar = botao("Enviar código", "enviar-codigo", () => ocupado(enviar, async () => {
+        const e = email.i.value.trim();
+        if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
+        await pedirCodigo(e, "codigo");
+      }));
+      comEnter([email], enviar);
+      caixa.append(el("p", { texto: "Entre com um código enviado para o seu email." }), msg, email.l,
+        el("div", { classe: "form-botoes" }, enviar,
+          ligacao("Entrar com palavra-passe", "ir-senha", () => irPara("senha")),
+          ligacao("Criar conta", "ir-criar", () => irPara("criar"))));
+    } else {
+      // Entrar com palavra-passe (quem a definiu na conta).
       if (emailRepor) email.i.value = emailRepor;
       const s = campo("Palavra-passe", "senha", { type: "password", maxlength: "200", autocomplete: "current-password" });
       const entrar = botao("Entrar", "entrar", () => ocupado(entrar, async () => {
@@ -258,46 +271,10 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         aoMudar(eu);
       }));
       comEnter([email, s], entrar);
-      caixa.append(el("p", { texto: "Entre na sua conta." }), msg, el("div", { classe: "duas" }, email.l, s.l),
+      caixa.append(el("p", { texto: "Entre com a sua palavra-passe." }), msg, el("div", { classe: "duas" }, email.l, s.l),
         el("div", { classe: "form-botoes" }, entrar,
-          ligacao("Esqueci a palavra-passe", "ir-esqueci", () => { emailRepor = email.i.value.trim(); modo = "esqueci"; mensagem(null); desenhar(); focar(); }),
-          ligacao("Criar conta", "ir-criar", () => { modo = "criar"; mensagem(null); desenhar(); focar(); })));
-    } else if (modo === "esqueci") {
-      email.i.value = emailRepor;
-      const enviar = botao("Enviar código", "enviar-codigo", () => ocupado(enviar, async () => {
-        const e = email.i.value.trim();
-        if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
-        const r = await pedirConta("esqueci", { corpo: { email: e } });
-        emailRepor = e;
-        modo = "repor";
-        desenhar();
-        mensagem(r?.mensagem ?? "Se houver uma conta com este email, enviámos um código.", "info");
-        focar();
-      }));
-      comEnter([email], enviar);
-      caixa.append(el("p", { texto: "Escreva o email da conta: enviamos um código para mudar a palavra-passe." }), msg, email.l,
-        el("div", { classe: "form-botoes" }, enviar, ligacao("Voltar a entrar", "ir-entrar", () => { modo = "entrar"; mensagem(null); desenhar(); focar(); })));
-    } else {
-      const cod = campo("Código de 6 algarismos", "codigo", { inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7" });
-      const s1 = campo("Palavra-passe nova", "senha", { type: "password", maxlength: "200", autocomplete: "new-password" }, "Pelo menos 10 caracteres.");
-      const s2 = campo("Confirmar a palavra-passe", "senha2", { type: "password", maxlength: "200", autocomplete: "new-password" });
-      const mudar = botao("Mudar a palavra-passe", "repor", () => ocupado(mudar, async () => {
-        const v = cod.i.value.replace(/\s/g, "");
-        if (!/^\d{6}$/.test(v)) { invalido(cod, "O código tem 6 algarismos."); return; }
-        if (s1.i.value.length < 10) { invalido(s1, "A palavra-passe deve ter pelo menos 10 caracteres."); return; }
-        if (s1.i.value !== s2.i.value) { invalido(s2, "As duas palavras-passe não são iguais."); return; }
-        await pedirConta("repor", { corpo: { email: emailRepor, codigo: v, password: s1.i.value } });
-        eu = await contaAtual();
-        modo = "entrar";
-        desenhar();
-        mensagem("Palavra-passe mudada.", "ok");
-        aoMudar(eu);
-        msg.tabIndex = -1;
-        msg.focus();
-      }));
-      comEnter([cod, s1, s2], mudar);
-      caixa.append(el("p", {}, "Código enviado para ", el("strong", { texto: emailRepor }), "."), msg, cod.l, el("div", { classe: "duas" }, s1.l, s2.l),
-        el("div", { classe: "form-botoes" }, mudar, ligacao("Pedir outro código", "ir-esqueci", () => { modo = "esqueci"; mensagem(null); desenhar(); focar(); })));
+          ligacao("Entrar com código", "ir-entrar", () => irPara("entrar")),
+          ligacao("Esqueci-me da palavra-passe", "ir-esqueci", () => { irPara("entrar"); mensagem("Entre com um código. Depois pode definir uma palavra-passe nova na sua conta.", "info"); })));
     }
   }
 

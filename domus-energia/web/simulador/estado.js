@@ -28,27 +28,30 @@ export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem d
  * usa só alguns passos, por esta ordem (FUNIS). Fase 2: o passo "Melhorias" (índice 10, no fim da lista para os índices
  * de antes não mudarem) fica entre "Trocar e reparar" e o Orçamento (ORDEM_PASSOS). Ronda A: entram o "Relatório básico"
  * (11, grátis, depois da Planta) e o "Relatório completo" (12, depois das Melhorias); a Planta passa para depois das
- * Divisões.
+ * Divisões. Fase 3 da auditoria: os dois relatórios juntam-se num só passo "Relatório" (o 11, onde estava o básico:
+ * básico grátis com PDF + a amostra do completo e "Quero o relatório completo"); o 12 fica reformado (em nenhum funil;
+ * os estados que lá estavam passam ao 11).
  */
-export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório básico", "Relatório completo"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo"];
 /** Índices dos passos (os mesmos ids `passo-N` da página). */
 export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12 };
 /**
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
  * chegou" comparam-se por esta ordem, não pelo índice.
  */
-export const ORDEM_PASSOS = [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8, 9];
+export const ORDEM_PASSOS = [0, 1, 2, 5, 3, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
 /**
  * Funis (fase 1, decisões do dono): o caso escolhido no Início. `passos` pela ordem da barra; `minutos` de cada passo
- * (só para o cliente saber quanto falta). Primeira vez ~14 min (o Quadro é só a foto: ~1 min); já tenho planta ~6 min; avaria ~2 min. Fase 2: as
- * Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta". Ronda A: os dois relatórios.
+ * (só para o cliente saber quanto falta). Primeira vez ~12 min (o Quadro é só a foto: ~1 min; fase 3 da auditoria: os
+ * Equipamentos vêm pré-marcados ~1 min, um só Relatório ~½ min e o Enviar sem palavra-passe ~½ min); já tenho planta
+ * ~5 min; avaria ~2 min. Fase 2: as Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta".
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 12, 7, 8], minutos: { 0: 1, 1: 1, 2: 2, 5: 1, 3: 2, 4: 1, 11: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 1, 8: 1 } },
-  planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 12, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 12: 0.5, 7: 0.5, 8: 1 } },
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 7, 8], minutos: { 0: 1, 1: 1, 2: 1, 5: 1, 3: 2, 4: 1, 11: 0.5, 6: 2, 10: 1, 7: 1, 8: 0.5 } },
+  planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 11, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 11: 0.5, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
 export const CHAVES_FUNIL = Object.keys(FUNIS);
@@ -83,8 +86,10 @@ export const SERVICO_PLANTA = ["automatizar", "reparar"];
  * carregar a planta (PDF ou foto como fundo, no funil da primeira vez). null = ainda não escolheu (ou outro caso).
  */
 export const CAMINHOS = ["automatizar", "reparar", "obras", "carregar"];
-/** Ronda A: os passos novos (Relatório básico e Relatório completo): um estado de antes deles não os viu (`relatoriosPorVer`). */
-export const PASSOS_NOVOS = [11, 12];
+/** Ronda A: o passo novo (Relatório; o 12 foi reformado): um estado de antes dele não o viu (`relatoriosPorVer`). */
+export const PASSOS_NOVOS = [11];
+/** Fase 3 da auditoria: o passo 12 ("Relatório completo") já não existe — quem lá estava passa ao Relatório (11). */
+const PASSO_REFORMADO = 12;
 /**
  * Avaria rápida (funil 3): onde, o que se passa, descrição (≤ 200) e foto obrigatória (chave FOTO_AVARIA). Vai no
  * pedido em `simulacao.avaria` = {onde, problema, descricao} (§6).
@@ -132,8 +137,11 @@ export const FOTOS_AVARIA = [FOTO_AVARIA, "avaria:foto_2", "avaria:foto_3", "ava
  *   de agora; quem estava no Orçamento pode voltar às Melhorias pela barra (ORDEM_PASSOS).
  * - `ordem: 10` (11 passos, antes dos relatórios; a Planta a seguir aos Equipamentos): os mesmos índices, mas a ordem
  *   mudou — reordenar() (os relatórios ficam por ver; quem estava para lá do primeiro passo por ver volta a ele).
+ * - `ordem: 11` (13 passos, ronda A: o Quadro antes das Divisões e da Planta) e `ordem: 12` (o Quadro depois da Planta,
+ *   com os dois relatórios): quem estava no Relatório completo (12) passa ao Relatório (11); o mais adiantado 12 passa
+ *   às Melhorias (o último passo de então que ainda existe antes do Orçamento).
  */
-export const ORDEM = 12;
+export const ORDEM = 13;
 /** Até à ordem 10: a ordem dos passos e os passos de cada funil (antes dos relatórios; a Planta depois dos Equipamentos). */
 const ORDEM_10 = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9];
 const FUNIS_10 = { primeira: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], planta: [0, 6, 10, 7, 8], avaria: [0, 9, 8] };
@@ -229,6 +237,7 @@ export function estadoNovo() {
     casa: casaNova(),
     fasesEditadas: false,      // o cliente escolheu a ligação: já não a sugerimos
     quer: { maquinas: [], pequenas: [], objetivos: [], quantidades: {}, porPiso: {} },
+    querSugerido: false,       // fase 3 da auditoria: as 8 máquinas habituais da tipologia já foram pré-marcadas (uma vez)
     planta: plantaVazia(),
     plantaSaltada: false,
     plantaAuto: false,         // a planta é a que desenhámos a partir das divisões e o cliente ainda não lhe mexeu
@@ -463,8 +472,9 @@ export function normalizarEstado(v) {
   // `ordem: 9` (antes das Melhorias) e `ordem: 10` (antes dos relatórios) têm os mesmos índices: carregam-se como um
   // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
   const deAgora = v.ordem === ORDEM && v.passos === PASSOS.length;
+  const de12 = v.ordem === 12 && v.passos === PASSOS.length;   // ronda A/B: os dois relatórios (o 12 depois das Melhorias), a ordem de agora
   const de11 = v.ordem === 11 && v.passos === PASSOS.length;   // ronda A: o Quadro ainda antes das Divisões e da Planta
-  const atual = deAgora || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
+  const atual = deAgora || de12 || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
   const migrar = atual ? null : v.ordem === 8 ? MIGRAR.ordem8 : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];
   // Serviço (lote 7): um estado de antes do passo "Serviço" fica com "Instalação nova" (tudo Novo: o mesmo preço).
@@ -483,18 +493,21 @@ export function normalizarEstado(v) {
     e.funil = FUNIS[v.funil] ? v.funil : null;
     let passo = int(v.passo, 0, PASSOS.length - 1);
     if (passo > 0 && !e.funil) e.funil = "primeira";
-    const seq = deAgora ? passosDoFunil(e.funil) : (de11 ? FUNIS_11 : FUNIS_10)[e.funil ?? "primeira"];
+    const seq = deAgora || de12 ? passosDoFunil(e.funil) : (de11 ? FUNIS_11 : FUNIS_10)[e.funil ?? "primeira"];
+    // Fase 3 da auditoria: o Relatório completo (12) juntou-se ao Relatório (11).
+    if (passo === PASSO_REFORMADO) passo = PASSO.relatorio;
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
     if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
     if (!seq.includes(passo)) passo = 0;
     e.passo = passo;
-    const vis = int(v.visitado, 0, PASSOS.length - 1);
+    let vis = int(v.visitado, 0, PASSOS.length - 1);
+    if (vis === PASSO_REFORMADO) vis = PASSO.melhorias;
     e.visitado = seq.includes(vis) && vis !== PASSO.enviar && seq.indexOf(vis) > seq.indexOf(passo) ? vis : passo;
   }
   e.caminho = CAMINHOS.includes(v.caminho) ? v.caminho : null;
   // Ordem 11 já guardava os relatórios por ver: mantêm-se esses (só os que ficaram para trás).
   if (de11) { reordenar(e, ORDEM_11, FUNIS_11); e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado)); }
-  else if (!deAgora) reordenar(e);
+  else if (!deAgora && !de12) reordenar(e);
   else e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
@@ -505,7 +518,7 @@ export function normalizarEstado(v) {
   e.avaria = normalizarAvaria(v.avaria);
   e.melhorias = normalizarMelhorias(v.melhorias);
   // Estados de antes das Melhorias (ordem ≤ 9) já para lá delas nunca as viram: a barra não as dá como feitas.
-  const antesMelhorias = !deAgora && !(v.ordem === 10 && v.passos === 11);
+  const antesMelhorias = !deAgora && !de12 && !(v.ordem === 10 && v.passos === 11);
   e.melhoriasPorVer = e.funil !== "avaria" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
   e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
@@ -550,6 +563,8 @@ export function normalizarEstado(v) {
   const vq = v.quer && typeof v.quer === "object" ? v.quer : {};
   const antigas = [...lista(vq.maquinas, 60), ...lista(vq.pequenas, 60)].filter((k) => typeof k === "string");
   e.quer = normalizarQuer(vq, tipo, { pisos: pisosDaCasa(e.casa), pisoTipico: (k) => pisoTipicoMaquina(e.casa, k, antigas) });
+  // Um estado de antes das sugestões que já escolheu máquinas (ou já passou os Equipamentos) não as recebe por cima.
+  e.querSugerido = bool(v.querSugerido) || maquinasEscolhidas(e.quer).length > 0 || ordemPasso(e.visitado) > ordemPasso(PASSO.quer);
   if (e.casa.fases === null) { e.casa.fases = fasesSugeridas(e); e.fasesEditadas = false; }
   e.planta = normalizarPlanta(v.planta, { pisosAntigos });
   // Já não se salta a planta (está no topo de todos os passos): uma planta saltada num estado antigo volta a contar

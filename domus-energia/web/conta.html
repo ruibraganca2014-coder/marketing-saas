@@ -45,15 +45,30 @@
           <div class="msg" id="conta-msg" role="status" hidden></div>
           <div id="conta-pedidos" aria-live="polite"></div>
 
-          <!-- Apagar a conta (RGPD; docs/CONTA-CLIENTE.md): confirmação na própria página, com a palavra-passe; POST /api/conta/apagar (conta.js). -->
+          <!-- A minha conta: palavra-passe opcional (POST /api/conta/palavra-passe) e apagar a conta (RGPD; docs/CONTA-CLIENTE.md):
+               confirmação na própria página, com a palavra-passe ou, sem ela, com um código enviado ao email; POST /api/conta/apagar (conta.js). -->
           <section class="cartao conta-apagar" id="conta-apagar" aria-labelledby="conta-apagar-titulo">
             <h2 id="conta-apagar-titulo">A minha conta</h2>
             <p>Entrou como <strong id="conta-apagar-email"></strong>.</p>
+            <p id="conta-senha-estado">Entra com um código enviado ao email. Se preferir, defina uma palavra-passe.</p>
+            <div class="form-botoes"><button class="btn sec" type="button" id="conta-senha-abrir">Definir palavra-passe</button></div>
+            <div id="conta-senha-form" hidden>
+              <div class="duas">
+                <label>Palavra-passe nova <small class="ajuda">Pelo menos 10 caracteres.</small><input id="conta-senha-1" type="password" maxlength="200" autocomplete="new-password"></label>
+                <label>Confirmar a palavra-passe<input id="conta-senha-2" type="password" maxlength="200" autocomplete="new-password"></label>
+              </div>
+              <div class="msg" id="conta-senha-msg" role="status" hidden></div>
+              <div class="form-botoes">
+                <button class="btn" type="button" id="conta-senha-guardar">Guardar a palavra-passe</button>
+                <button class="btn sec" type="button" id="conta-senha-nao">Cancelar</button>
+              </div>
+            </div>
             <p>Apagar a conta apaga os seus dados pessoais, a simulação guardada e os pedidos sem seguimento. Os pedidos com pagamentos feitos ficam anonimizados (sem nome, contactos nem fotos) por causa das faturas. Mais em <a href="privacidade.html#prazos">Política de Privacidade</a>.</p>
             <div class="form-botoes"><button class="btn sec" type="button" id="conta-apagar-abrir">Apagar a minha conta</button></div>
             <div id="conta-apagar-confirmar" hidden>
-              <p><strong>Tem a certeza?</strong> Isto não se desfaz. Para confirmar, escreva a sua palavra-passe.</p>
-              <label>Palavra-passe<input id="conta-apagar-senha" type="password" maxlength="200" autocomplete="current-password"></label>
+              <p id="conta-apagar-como"><strong>Tem a certeza?</strong> Isto não se desfaz. Para confirmar, escreva a sua palavra-passe.</p>
+              <label id="conta-apagar-rotulo">Palavra-passe<input id="conta-apagar-senha" type="password" maxlength="200" autocomplete="current-password"></label>
+              <div class="form-botoes" id="conta-apagar-codigo-caixa" hidden><button class="btn sec pequeno" type="button" id="conta-apagar-codigo">Enviar código para o email</button></div>
               <div class="msg" id="conta-apagar-msg" role="status" hidden></div>
               <div class="form-botoes">
                 <button class="btn perigo" type="button" id="conta-apagar-sim">Apagar a conta para sempre</button>

@@ -415,6 +415,28 @@ export const MIGRACOES = [
   // 20 — ronda sinalizar (docs/SIMULADOR-ORCAMENTO.md §0): a tomada tripla nova (TOMADA-TRIPLA-NOVA, 65 €; `props.caixas`
   // = 3 na planta). INSERT OR IGNORE: nunca mexe num artigo que o CEO já tenha.
   (db) => semear(db, SEMENTES_PONTOS_20, true),
+  // 21 — fase 3 da auditoria (docs/CONTA-CLIENTE.md): a conta cria-se só com o email e um código (a palavra-passe é
+  // opcional, definida depois na conta): `contas.hash` passa a aceitar NULL e os códigos ganham o tipo 'entrar'
+  // (entrar com código). Recria as duas tabelas pelo procedimento da migração 8 (mesmas colunas, dados, índices e
+  // sequência); as contas que já existem ficam com a sua palavra-passe.
+  semChaves((db) => {
+    const recriar = (tabela, de, para) => {
+      const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tabela).sql;
+      const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, `CREATE TABLE ${tabela}_novo`).replace(de, para);
+      if (!novo.includes(para)) throw new Error(`migração 21: não foi possível ler o esquema de ${tabela}`);
+      const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(tabela).map((x) => x.sql);
+      const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(tabela)?.seq ?? null;
+      db.exec(novo);
+      db.exec(`INSERT INTO ${tabela}_novo SELECT * FROM ${tabela}`);
+      db.exec(`DROP TABLE ${tabela}`);
+      db.exec(`ALTER TABLE ${tabela}_novo RENAME TO ${tabela}`);
+      for (const i of indices) db.exec(i);
+      db.prepare('DELETE FROM sqlite_sequence WHERE name IN (?, ?)').run(tabela, `${tabela}_novo`);
+      if (seq !== null) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
+    };
+    recriar('contas', /hash TEXT NOT NULL,/i, 'hash TEXT,');
+    recriar('contas_codigos', /tipo TEXT NOT NULL CHECK \(tipo IN \([^)]*\)\)/i, "tipo TEXT NOT NULL CHECK (tipo IN ('confirmar', 'repor', 'entrar'))");
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

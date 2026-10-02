@@ -111,13 +111,18 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
   };
 
   /** Conta de cliente criada e confirmada pela API; devolve {cookie, email}. */
+  /** Conta criada só com o email e confirmada com o código; com `senha` (a omissão) define também a palavra-passe (null: sem). */
   async function contaConfirmada(email = `cliente${++ipSeq}@exemplo.pt`, senha = SENHA) {
-    const r = await pedir('POST', '/api/conta/criar', { corpo: { email, password: senha } });
+    const r = await pedir('POST', '/api/conta/criar', { corpo: { email } });
     if (r.estado !== 201) throw new Error(`criar conta: ${r.estado} ${r.texto}`);
-    // A sessão abre ao confirmar o código (com o email e a palavra-passe).
-    const c = await pedir('POST', '/api/conta/confirmar', { corpo: { email, password: senha, codigo: codigo(email) } });
+    // A sessão abre ao confirmar o código (com o email).
+    const c = await pedir('POST', '/api/conta/confirmar', { corpo: { email, codigo: codigo(email) } });
     if (c.estado !== 200) throw new Error(`confirmar conta: ${c.estado} ${c.texto}`);
     const cookie = c.cabecalhos['set-cookie'][0].split(';')[0];
+    if (senha) {
+      const s = await pedir('POST', '/api/conta/palavra-passe', { cookie, corpo: { password: senha } });
+      if (s.estado !== 200) throw new Error(`definir palavra-passe: ${s.estado} ${s.texto}`);
+    }
     return { cookie, email };
   }
 
