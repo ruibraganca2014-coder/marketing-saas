@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Área do eletricista — Domus Energia</title>
+  <meta name="description" content="Área dos eletricistas parceiros da Domus Energia: bolsa de trabalhos e os meus trabalhos.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#606c38">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="eletricista.css">
+</head>
+<body>
+  <!-- Área do eletricista (docs/ELETRICISTAS.md): sessão própria (cookie domus_eletricista), separada da conta de cliente e do painel. -->
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+  <div class="app">
+    <header class="app-topo">
+      <span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.9 4 7 13.5h4.6L10 20l7-10h-4.8z" fill="currentColor"/></svg></span>
+      <div class="quem"><b>Domus Energia</b><span id="el-quem">Área do eletricista</span></div>
+      <button id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+      <button id="el-sair" type="button" hidden>Sair</button>
+    </header>
+
+    <main id="conteudo" class="app-rolo" tabindex="-1">
+      <section class="pilha" id="el-entrar" aria-labelledby="el-entrar-titulo" hidden>
+        <h1 id="el-entrar-titulo" class="so-leitor">Entrar na área do eletricista</h1>
+        <div class="cartao pilha" id="el-entrar-bloco">
+          <h2>Entrar</h2>
+          <p class="suave" id="el-entrar-texto">Para eletricistas parceiros aprovados. Entra com o seu email e um código de 6 algarismos que lhe enviamos.</p>
+          <label class="campo" id="el-campo-email"><span>Email</span><input id="el-email" type="email" maxlength="254" autocomplete="email" inputmode="email"></label>
+          <label class="campo" id="el-campo-codigo" hidden><span>Código de 6 algarismos</span><input id="el-codigo" type="text" maxlength="7" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]*"></label>
+          <div class="msg" id="el-entrar-msg" role="status" hidden></div>
+          <div class="fila">
+            <button class="btn" type="button" id="el-pedir-codigo">Enviar código</button>
+            <button class="btn" type="button" id="el-confirmar" hidden>Entrar</button>
+            <button class="link-botao" type="button" id="el-outro-email" hidden>Outro email</button>
+          </div>
+        </div>
+        <p class="suave pequeno">Ainda não trabalha connosco? <a href="trabalhe-connosco.html">Candidate-se</a>.</p>
+      </section>
+      <div class="pilha" id="el-vista" aria-live="polite"></div>
+    </main>
+
+    <div class="app-fundo" id="el-fundo" hidden>
+      <nav class="app-abas" role="tablist" aria-label="Área do eletricista">
+        <button type="button" role="tab" id="el-aba-bolsa" data-aba="bolsa" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16v11H4zM9 8V5h6v3M4 13h16"/></svg><span>Bolsa</span><span class="conta" id="el-conta-bolsa" hidden></span></button>
+        <button type="button" role="tab" id="el-aba-trabalhos" data-aba="trabalhos" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h12v16H6zM9 9h6M9 13h6M9 17h3"/></svg><span>Trabalhos</span><span class="conta" id="el-conta-trabalhos" hidden></span></button>
+        <button type="button" role="tab" id="el-aba-pagamentos" aria-selected="false" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v11H3zM3 11h18M7 15h3"/></svg><span>Pagamentos</span><span class="breve">em breve</span></button>
+        <button type="button" role="tab" id="el-aba-ajuda" aria-selected="false" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7M12 17h.01"/></svg><span>Ajuda técnica</span><span class="breve">em breve</span></button>
+      </nav>
+    </div>
+  </div>
+  <div id="aviso" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script type="module" src="eletricista.js"></script>
+</body>
+</html>

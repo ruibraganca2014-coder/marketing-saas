@@ -49,7 +49,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       return responder(res, 400, { erro: 'Endereço inválido.' });
     }
     const c = url.pathname;
-    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/fotos-remotas') || c.startsWith('/api/conta/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
+    if (c === '/api/orcamento' || c === '/api/orcamento/fotos' || c === '/api/catalogo' || c.startsWith('/api/fotos-remotas') || c.startsWith('/api/conta/') || c.startsWith('/api/eletricista/') || c.startsWith('/painel/api/')) return api.tratar(req, res, url);
     if (c === '/painel') {
       res.writeHead(301, { ...CABECALHOS_SEGURANCA, Location: '/painel/', 'Content-Length': 0 });
       return res.end();
@@ -71,6 +71,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   api.fotosRemotas.iniciar();
   api.contas.iniciar();
   api.pagamentosPedido.iniciar();
+  api.eletricistas.iniciar();
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
@@ -80,6 +81,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       api.fotosRemotas.parar();
       api.contas.parar();
       api.pagamentosPedido.parar();
+      api.eletricistas.parar();
       auth.fechar();
       await alertas.fechar();
       await new Promise((r) => { servidor.close(() => r()); servidor.closeAllConnections?.(); });

@@ -61,6 +61,12 @@ const MATRIZ = [
   ['GET', 'contas', [C]],
   ['POST', 'contas/999', [C], {}],
   ['POST', 'contas/999/apagar', [C], {}],
+  ['GET', 'eletricistas', [C]],
+  ['GET', 'eletricistas/999', [C]],
+  ['POST', 'eletricistas/999', [C], {}],
+  ['GET', 'eletricistas/999/seguro', [C]],
+  ['GET', 'orcamentos/999/eletricista', [C]],
+  ['POST', 'orcamentos/999/eletricista', [C], {}],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 
@@ -118,6 +124,10 @@ test('rotas públicas e endereços desconhecidos', async () => {
   assert.equal((await p.pedir('GET', '/api/orcamento')).estado, 405);
   assert.equal((await p.pedir('GET', '/api/catalogo')).estado, 200);
   assert.equal((await p.pedir('GET', '/api/outra')).estado, 404, '/api/* dos pagamentos não é do painel');
+  // Eletricistas externos (docs/ELETRICISTAS.md): rotas próprias, com sessão própria.
+  assert.equal((await p.pedir('GET', '/api/eletricista/eu')).estado, 401);
+  assert.equal((await p.pedir('GET', '/api/eletricista/eu', { cookie: p.cookies.ceo })).estado, 401, 'a sessão do painel não abre a área do eletricista');
+  assert.equal((await p.pedir('GET', '/api/eletricista')).estado, 404);
 });
 
 test('financeiro só para o CEO (clientes, resumo)', async () => {

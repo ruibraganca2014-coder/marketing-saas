@@ -6,7 +6,8 @@
 //   mqtt://localhost:1883          -> o mesmo broker, para aparelhos e ferramentas
 //   http://localhost:8080/painel/  -> painel da empresa (porta interna 8081)
 //   http://localhost:8080/api/...  -> pagamentos (porta interna 8082); /api/orcamento(/fotos), /api/catalogo e
-//                                     /api/conta/* (conta de cliente) e /api/fotos-remotas* (fotos pelo telemóvel) -> painel
+//                                     /api/conta/* (conta de cliente), /api/fotos-remotas* (fotos pelo telemóvel) e
+//                                     /api/eletricista/* (eletricistas externos) -> painel
 //
 // Diferenças para o servidor a sério (é só para desenvolver e testar):
 //   - o broker aceita qualquer utilizador e palavra-passe e não tem ACL;
@@ -16,7 +17,7 @@
 //   - os pagamentos do pedido são simulados (docs/PAGAMENTOS-PEDIDO.md): nenhum dinheiro real, nenhuma chave Stripe.
 //
 // Acesso rápido (testes): só aqui e só neste computador (localhost; pela rede local não), as páginas ganham a barra "Acesso rápido (testes)" (em baixo, à esquerda) para
-// entrar sem palavra-passe como CEO, Comercial, Técnico ou Cliente de teste 1/2. Este lançador passa ACESSO_RAPIDO=1
+// entrar sem palavra-passe como CEO, Comercial, Técnico, Cliente de teste 1/2 ou Eletricista de teste. Este lançador passa ACESSO_RAPIDO=1
 // ao painel (que só o aceita num ambiente local: painel/src/acesso-rapido.js, docs/SEGURANCA.md) e junta às páginas
 // o local/acesso-rapido.js — que não existe em web/ nem em painel/public. ACESSO_RAPIDO=0 npm start desliga.
 //
@@ -160,7 +161,7 @@ const TIPOS = {
 };
 
 function destino(caminho) {
-  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo' || caminho.startsWith('/api/conta/') || caminho.startsWith('/api/fotos-remotas')) return PORTA_PAINEL;
+  if (caminho === '/api/orcamento' || caminho === '/api/orcamento/fotos' || caminho === '/api/catalogo' || caminho.startsWith('/api/conta/') || caminho.startsWith('/api/eletricista/') || caminho.startsWith('/api/fotos-remotas')) return PORTA_PAINEL;
   if (caminho === '/painel' || caminho.startsWith('/painel/')) return PORTA_PAINEL;
   if (caminho.startsWith('/api/') || caminho === '/stripe/webhook') return PORTA_PAGAMENTOS;
   return null;
@@ -268,6 +269,7 @@ Domus Energia a correr localmente
   Área de cliente ${ORIGEM}/cliente.html   (qualquer código e palavra-passe entram: o broker local não verifica)
   Simulador:      ${ORIGEM}/simulador.html
   Conta:          ${ORIGEM}/conta.html     (códigos dos emails aparecem aqui, "[email] para ...")
+  Eletricistas:   ${ORIGEM}/trabalhe-connosco.html (candidatura)  e  ${ORIGEM}/eletricista.html (área do eletricista)
   Painel:         ${ORIGEM}/painel/        (credenciais do CEO em local/dados/local.json)
   Acesso rápido:  ${ACESSO_RAPIDO ? 'ligado — barra "Acesso rápido (testes)" em baixo, à esquerda: entra sem palavra-passe; só neste computador, não pela rede local (ACESSO_RAPIDO=0 desliga)' : 'desligado (ACESSO_RAPIDO=0)'}
   MQTT:           mqtt://localhost:${PORTA_MQTT}  e  ws://localhost:${PORTA_SITE}/mqtt

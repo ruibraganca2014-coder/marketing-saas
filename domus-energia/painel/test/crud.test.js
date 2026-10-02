@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 19, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16 + obra mínima e limite do cartão da 23 + horas por dia da 24 + teto da deslocação da 25)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 20, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16 + obra mínima e limite do cartão da 23 + horas por dia da 24 + teto da deslocação da 25 + a percentagem dos eletricistas da 27)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -72,13 +72,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
     deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20,
     intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29,
     ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100,
-    obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5,
+    obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5, eletricista_pct: 70,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 18, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16) + 2 (migração 23) + horas por dia (migração 24) + teto da deslocação (migração 25)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 19, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16) + 2 (migração 23) + horas por dia (migração 24) + teto da deslocação (migração 25) + percentagem dos eletricistas (migração 27)');
   db.close();
 });
 

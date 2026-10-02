@@ -7,5 +7,6 @@ Disallow: /pagamento-simulado.html
 Disallow: /foto.html
 Disallow: /conta.html
 Disallow: /cliente.html
+Disallow: /eletricista.html
 
 Sitemap: https://opancas.pt/sitemap.xml

@@ -120,6 +120,8 @@ export function lerConfig(env = process.env) {
     pedidosPollMs: Number(env.PEDIDOS_POLL_MS || 3000),
     // Fotos do simulador (POST /api/orcamento/fotos): fora da pasta pública, uma pasta por pedido.
     fotosDir: env.FOTOS_DIR || join(dados, 'painel', 'fotos'),
+    // Documentos dos eletricistas externos (seguro de responsabilidade civil; docs/ELETRICISTAS.md): fora da pasta pública.
+    eletricistasDir: env.ELETRICISTAS_DIR || join(dados, 'painel', 'eletricistas'),
     limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
     limiteFotosConsultasHora: Number(env.LIMITE_FOTOS_CONSULTAS_HORA || 3000),   // fotos pelo telemóvel: sondagens e tokens por hora, por IP
     limiteFotosTokensHora: Number(env.LIMITE_FOTOS_TOKENS_HORA || 30),           // fotos pelo telemóvel: tokens NOVOS por hora, por IP

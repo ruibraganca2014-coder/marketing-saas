@@ -5,6 +5,7 @@
 // até a casa ser ligada na ficha do pedido (só com o restante pago).
 import { pedir, campo, lista, numero } from "../api.js";
 import { h, ESTADOS_OBRA, KITS, PAPEIS, nomeDe, num, data, diaSemana, isoDia, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt } from "../ui.js";
+import { blocoEletricista } from "./atribuicao.js";
 
 /** Técnicos de uma obra como [{id, nome}] (aceita ids, nomes ou objetos). */
 export function tecnicosDe(o) {
@@ -139,6 +140,8 @@ export default function obras(el, ctx) {
         ["Horas estimadas", estimadas == null ? "—" : `${num(estimadas)} h`],
       ]),
     ];
+    // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir a obra do pedido ou pô-la na bolsa.
+    if (ceo && campo(o, "orcamento_id")) partes.push(blocoEletricista(campo(o, "orcamento_id")));
     if (!edita) {
       const estado = campo(o, "estado") ?? "agendada";
       const mat = materialDe(o);

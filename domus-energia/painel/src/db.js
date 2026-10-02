@@ -28,6 +28,11 @@ export const ESTADOS_PAGAMENTO = ['pendente', 'pago', 'falhado', 'cancelado', 'e
 export const ESTADOS_DEVOLUCAO = ['pede_iban', 'por_fazer', 'devolvido'];
 /** Motivos de um movimento de stock (migração 22). */
 export const MOTIVOS_STOCK = ['entrada', 'reserva', 'libertacao', 'saida', 'acerto'];
+/** Eletricistas externos (fase 4, migrações 27 e 28; docs/ELETRICISTAS.md). */
+export const ESTADOS_ELETRICISTA = ['pendente', 'aprovado', 'recusado', 'suspenso'];
+export const TIPOS_TRABALHO = ['obra', 'visita', 'avaria'];
+export const ESTADOS_TRABALHO = ['na_bolsa', 'aceite', 'visita_marcada', 'retirado'];
+export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visita_marcada', 'largou', 'expirou', 'retirado'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -544,6 +549,83 @@ export const MIGRACOES = [
       devolvido_por TEXT
     );
     CREATE INDEX devolucoes_pedido_estado ON devolucoes_pedido(estado);
+  `),
+  // 27 — fase 4, ronda 1 (docs/ELETRICISTAS.md): eletricistas externos. A candidatura pública cria a linha `pendente`
+  // (nome, contactos, NIF, n.º DGEG, concelhos onde trabalha em JSON, o documento do seguro de responsabilidade civil —
+  // os bytes ficam em ELETRICISTAS_DIR, fora da pasta pública — e quando deu o consentimento); o CEO aprova, recusa,
+  // suspende ou reativa. Sessões e códigos de 6 dígitos PRÓPRIOS (cookie `domus_eletricista`), separados dos do painel
+  // e dos da conta de cliente. `percentagem` NULL = a da configuração (`eletricista_pct`, 70 % da mão de obra sem IVA).
+  (db) => db.exec(`
+    CREATE TABLE eletricistas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      nome TEXT NOT NULL,
+      telefone TEXT NOT NULL,
+      nif TEXT NOT NULL,
+      dgeg TEXT NOT NULL,
+      concelhos TEXT NOT NULL DEFAULT '[]',     -- JSON: nomes dos concelhos (painel/public/vendor/concelhos.js)
+      experiencia TEXT,
+      notas TEXT,                               -- "Que trabalhos faz mais?" (opcional)
+      estado TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN (${lista(ESTADOS_ELETRICISTA)})),
+      percentagem REAL,                         -- % da mão de obra (NULL = a da configuração)
+      seguro_id TEXT,                           -- 24 hex (nome do ficheiro); NULL sem documento
+      seguro_tipo TEXT CHECK (seguro_tipo IS NULL OR seguro_tipo IN ('application/pdf', 'image/jpeg', 'image/png')),
+      seguro_bytes INTEGER,
+      consentimento TEXT NOT NULL,              -- quando aceitou a Política de Privacidade (ISO)
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL,
+      decidido TEXT,                            -- quando o CEO aprovou ou recusou (ISO)
+      ultimo_acesso TEXT
+    );
+    CREATE TABLE eletricistas_sessoes (
+      id TEXT PRIMARY KEY,                      -- SHA-256 do token (o token só existe no cookie domus_eletricista)
+      eletricista_id INTEGER NOT NULL REFERENCES eletricistas(id) ON DELETE CASCADE,
+      criada INTEGER NOT NULL,
+      expira INTEGER NOT NULL,
+      renovada INTEGER NOT NULL
+    );
+    CREATE INDEX eletricistas_sessoes_eletricista ON eletricistas_sessoes(eletricista_id);
+    CREATE TABLE eletricistas_codigos (
+      eletricista_id INTEGER PRIMARY KEY REFERENCES eletricistas(id) ON DELETE CASCADE,
+      hash TEXT NOT NULL,                       -- SHA-256 (com o eletricista) do código de 6 dígitos
+      expira INTEGER NOT NULL,
+      tentativas INTEGER NOT NULL DEFAULT 0
+    );
+    INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('eletricista_pct', 70);
+  `),
+  // 28 — fase 4, ronda 1: atribuição e bolsa (docs/ELETRICISTAS.md). Um trabalho por pedido e tipo (obra, visita paga ou
+  // diagnóstico de avaria): `na_bolsa` → `aceite` (quem e quando) → `visita_marcada`; `retirado` fecha a linha (o CEO
+  // retirou-o, ou uma atribuição direta caducou ou foi largada). 48 h depois de aceite sem visita marcada volta à bolsa.
+  // `trabalhos_eletricista_eventos` guarda cada passo com o eletricista: quem LARGOU ou deixou CADUCAR um trabalho fica
+  // registado (ronda 3: quem larga nunca recebe).
+  (db) => db.exec(`
+    CREATE TABLE trabalhos_eletricista (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      tipo TEXT NOT NULL CHECK (tipo IN (${lista(TIPOS_TRABALHO)})),
+      estado TEXT NOT NULL CHECK (estado IN (${lista(ESTADOS_TRABALHO)})),
+      modo TEXT NOT NULL CHECK (modo IN ('bolsa', 'direto')),
+      concelho TEXT NOT NULL,                   -- o concelho do pedido quando o trabalho foi criado
+      eletricista_id INTEGER REFERENCES eletricistas(id),
+      percentagem REAL,                         -- fixada ao aceitar ou ao atribuir
+      aceite_em INTEGER,                        -- ms desde 1970 (o prazo de 48 h conta daqui)
+      visita TEXT,                              -- "AAAA-MM-DDTHH:MM", hora de Lisboa
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX trabalhos_eletricista_ativo ON trabalhos_eletricista(orcamento_id, tipo) WHERE estado != 'retirado';
+    CREATE INDEX trabalhos_eletricista_estado ON trabalhos_eletricista(estado);
+    CREATE INDEX trabalhos_eletricista_eletricista ON trabalhos_eletricista(eletricista_id);
+    CREATE TABLE trabalhos_eletricista_eventos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trabalho_id INTEGER NOT NULL REFERENCES trabalhos_eletricista(id) ON DELETE CASCADE,
+      eletricista_id INTEGER REFERENCES eletricistas(id),
+      evento TEXT NOT NULL CHECK (evento IN (${lista(EVENTOS_TRABALHO)})),
+      quando TEXT NOT NULL,
+      por TEXT                                  -- email do CEO, "eletricista:<id>" ou "sistema"
+    );
+    CREATE INDEX trabalhos_eletricista_eventos_trabalho ON trabalhos_eletricista_eventos(trabalho_id);
+    CREATE INDEX trabalhos_eletricista_eventos_eletricista ON trabalhos_eletricista_eventos(eletricista_id, evento);
   `),
 ];
 

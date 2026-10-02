@@ -101,7 +101,7 @@ const euroComIva = (totalCent, ivaPct) => {
 // ------------------------------------------------------------ área servida (a mesma regra do simulador, §5.1)
 const chave = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const CONC = new Map(CONCELHOS.map(([nome, , ilha, lat, lon]) => [chave(nome), { nome, ilha, lat, lon }]));
-function concelho(texto) {
+export function concelho(texto) {
   const k = chave(texto);
   if (!k) return null;
   return CONC.get(k) ?? (String(texto).includes(',') ? CONC.get(chave(String(texto).split(',')[0])) : null) ?? null;

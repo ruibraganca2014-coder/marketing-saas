@@ -24,7 +24,8 @@ import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
 import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
-import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE } from './acesso-rapido.js';
+import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_ELETRICISTA } from './acesso-rapido.js';
+import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -60,12 +61,14 @@ const CONFIG_ORCAMENTO = {
   ensaio_isolamento_mohm: { min: 0, max: 1000, rotulo: 'a resistência de isolamento mínima (MΩ)' },
   ensaio_diferencial_ms: { min: 0, max: 10_000, rotulo: 'o tempo de disparo máximo do diferencial (ms)' },
   ensaio_terra_ohm: { min: 0, max: 100_000, rotulo: 'a resistência de terra máxima (Ω)' },
+  // Eletricistas externos (migração 27; docs/ELETRICISTAS.md): % da mão de obra sem IVA que recebem, por omissão.
+  eletricista_pct: { min: 0, max: 100, rotulo: 'a percentagem da mão de obra dos eletricistas externos (%)' },
 };
 const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial'];
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && !k.startsWith('ensaio_')), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && k !== 'eletricista_pct' && !k.startsWith('ensaio_')), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -127,6 +130,12 @@ export const ROTAS = [
   ['GET', 'contas', ['ceo'], 'contas'],
   ['POST', 'contas/:id', ['ceo'], 'atualizarConta'],
   ['POST', 'contas/:id/apagar', ['ceo'], 'apagarConta'],
+  ['GET', 'eletricistas', ['ceo'], 'eletricistas'],
+  ['GET', 'eletricistas/:id', ['ceo'], 'eletricista'],
+  ['POST', 'eletricistas/:id', ['ceo'], 'atualizarEletricista'],
+  ['GET', 'eletricistas/:id/seguro', ['ceo'], 'seguroEletricista'],
+  ['GET', 'orcamentos/:id/eletricista', ['ceo'], 'atribuicaoEletricista'],
+  ['POST', 'orcamentos/:id/eletricista', ['ceo'], 'atribuirEletricista'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -216,8 +225,10 @@ export function criarApi(ctx) {
     criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+  // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
+  const eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
-  const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, auditar, relogio }) : null;
+  const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
   db.prepare('INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES (\'iva_pct\', ?)').run(config.ivaTaxa ?? 23);
 
@@ -1575,6 +1586,44 @@ export function criarApi(ctx) {
     responder(res, 200, { ...r, contas: contas.listar() });
   };
 
+  // ---- eletricistas externos (só CEO; docs/ELETRICISTAS.md): candidaturas, aprovar/recusar/suspender/reativar,
+  // concelhos e percentagem da mão de obra; o documento do seguro; atribuir um pedido ou pô-lo na bolsa.
+  h.eletricistas = ({ res }) => responder(res, 200, eletricistas.listar());
+
+  h.eletricista = ({ res, params }) => responder(res, 200, { eletricista: eletricistas.paraPainel(eletricistas.obter(params.id)) });
+
+  h.atualizarEletricista = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem']);
+    const e = eletricistas.atualizar(params.id, v, u, ip);
+    responder(res, 200, { eletricista: eletricistas.paraPainel(e), ...eletricistas.listar() });
+  };
+
+  // O documento do seguro: só PDF/JPEG/PNG (o tipo foi verificado pelos bytes ao receber), sem que o navegador o possa
+  // interpretar como outra coisa (nosniff, CSP sandbox); o PDF descarrega-se (attachment), a imagem abre.
+  h.seguroEletricista = async ({ res, params }) => {
+    const d = await eletricistas.seguro(params.id);
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Type': d.tipo, 'Content-Length': d.corpo.length,
+      'Content-Disposition': `${d.tipo === 'application/pdf' ? 'attachment' : 'inline'}; filename="seguro-eletricista-${d.id}.${d.extensao}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(d.corpo);
+  };
+
+  h.atribuicaoEletricista = ({ res, params }) => responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
+
+  // "Atribuir a…" (eletricista aprovado, com o concelho do pedido), "Pôr na bolsa" ou "Retirar" (em qualquer altura).
+  h.atribuirEletricista = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['acao', 'eletricista_id']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar']);
+    if (acao === 'atribuir') eletricistas.atribuir(o, v.eletricista_id, u, ip);
+    else if (acao === 'bolsa') eletricistas.porNaBolsa(o, u, ip);
+    else eletricistas.retirar(o, u, ip);
+    responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
+  };
+
   // ------------------------------------------------------------ públicos
   async function orcamentoPublico(req, res, ip) {
     if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
@@ -1694,7 +1743,8 @@ export function criarApi(ctx) {
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
       if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
       // Sem o acesso rápido (sempre, no servidor) estes dois endereços seguem em frente e dão 404 como qualquer outro desconhecido.
-      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE)) return await rapido.tratar(req, res, caminho, ip);
+      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_ELETRICISTA)) return await rapido.tratar(req, res, caminho, ip);
+      if (caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
       if (caminho.startsWith('/api/conta/')) {
         if (await pagPed.tratar(req, res, url, ip)) return undefined;
         return await contas.tratar(req, res, url, ip);
@@ -1737,6 +1787,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas };
 }
 

@@ -1,6 +1,6 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio, #/clientes, #/clientes/<codigo>, #/alertas, #/orcamentos, #/orcamentos/<id>,
-// #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
+// #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
@@ -14,6 +14,7 @@ import auditoria from "./ecras/auditoria.js";
 import catalogo from "./ecras/catalogo.js";
 import stock from "./ecras/stock.js";
 import contas from "./ecras/contas.js";
+import eletricistas from "./ecras/eletricistas.js";
 import ajuda from "./ecras/ajuda.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
@@ -28,6 +29,7 @@ const ECRAS = [
   { id: "pagamentos", nome: "Pagamentos", papeis: ["ceo"], m: pagamentos },
   { id: "equipa", nome: "Equipa", papeis: ["ceo"], m: equipa },
   { id: "contas", nome: "Contas de clientes", papeis: ["ceo"], m: contas },
+  { id: "eletricistas", nome: "Eletricistas", papeis: ["ceo"], m: eletricistas },
   { id: "auditoria", nome: "Auditoria", papeis: ["ceo"], m: auditoria },
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
 ];

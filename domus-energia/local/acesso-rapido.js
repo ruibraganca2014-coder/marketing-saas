@@ -4,23 +4,24 @@
 // com ACESSO_RAPIDO=1; docs/SEGURANCA.md "Acesso rápido").
 //   - barra fixa em baixo, à esquerda, em todas as páginas: os botões todos e "Sair";
 //   - no ecrã de entrada do painel: "Entrar como: CEO · Comercial · Técnico";
-//   - no bloco da conta (conta.html e passo "Enviar" do simulador): "Cliente de teste 1 · Cliente de teste 2".
+//   - no bloco da conta (conta.html e passo "Enviar" do simulador): "Cliente de teste 1 · Cliente de teste 2";
+//   - no ecrã de entrada da área do eletricista (eletricista.html): "Eletricista de teste".
 (() => {
   "use strict";
   if (document.getElementById("acesso-rapido")) return;
 
-  // Atalhos: uma linha por botão. Para juntar outro (ex.: o eletricista da fase 4) acrescenta-se aqui e em
-  // painel/src/acesso-rapido.js.
+  // Atalhos: uma linha por botão. Para juntar outro acrescenta-se aqui e em painel/src/acesso-rapido.js.
   const ATALHOS = [
     { grupo: "equipa", rotulo: "CEO", rota: "/painel/api/dev/entrar", corpo: { papel: "ceo" }, destino: "/painel/" },
     { grupo: "equipa", rotulo: "Comercial", rota: "/painel/api/dev/entrar", corpo: { papel: "comercial" }, destino: "/painel/" },
     { grupo: "equipa", rotulo: "Técnico", rota: "/painel/api/dev/entrar", corpo: { papel: "tecnico" }, destino: "/painel/" },
     { grupo: "cliente", rotulo: "Cliente de teste 1", rota: "/api/conta/dev/entrar", corpo: { n: 1 }, destino: "/conta.html" },
     { grupo: "cliente", rotulo: "Cliente de teste 2", rota: "/api/conta/dev/entrar", corpo: { n: 2 }, destino: "/conta.html" },
-    // { grupo: "eletricista", rotulo: "Eletricista de teste", rota: "…", corpo: { … }, destino: "…" },   // fase 4
+    { grupo: "eletricista", rotulo: "Eletricista de teste", rota: "/api/eletricista/dev/entrar", corpo: { n: 1 }, destino: "/eletricista.html" },
   ];
   const GRUPOS = { equipa: "Painel", cliente: "Conta de cliente", eletricista: "Eletricista" };
   const MARCA_CONTA = "domus_conta_sessao";   // web/conta-comum.js: "há sessão da conta" (o cookie é HttpOnly)
+  const MARCA_ELETRICISTA = "domus_eletricista_sessao";   // web/eletricista.js: o mesmo, para a área do eletricista
   const ABERTA = "domus_acesso_rapido";       // a barra ficou aberta ("1") ou fechada
 
   const guardado = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -55,6 +56,7 @@
     try {
       await enviar(atalho.rota, atalho.corpo);
       if (atalho.grupo === "cliente") guardar(MARCA_CONTA, "1");
+      if (atalho.grupo === "eletricista") guardar(MARCA_ELETRICISTA, "1");
       if (ficar && temBlocoConta()) avisarBlocoConta(); else ir(atalho.destino);
     } catch (e) {
       avisar(e?.message || "Não foi possível entrar.");
@@ -63,9 +65,10 @@
 
   async function sair() {
     avisar(null);
-    // As duas sessões (painel e conta); sem sessão o servidor responde na mesma.
-    await Promise.allSettled([enviar("/painel/api/sair", {}), enviar("/api/conta/sair", {})]);
+    // As três sessões (painel, conta e eletricista); sem sessão o servidor responde na mesma.
+    await Promise.allSettled([enviar("/painel/api/sair", {}), enviar("/api/conta/sair", {}), enviar("/api/eletricista/sair", {})]);
     guardar(MARCA_CONTA, null);
+    guardar(MARCA_ELETRICISTA, null);
     if (temBlocoConta()) avisarBlocoConta(); else location.reload();
   }
 
@@ -147,13 +150,13 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
   document.body.append(barra);
   document.body.classList.add("ar-presente");
 
-  // Não tapar o que está preso ao ecrã: a barra sobe para cima do "Anterior / Seguinte" do simulador e, no painel
-  // largo, passa para a direita da navegação lateral.
+  // Não tapar o que está preso ao ecrã: a barra sobe para cima do "Anterior / Seguinte" do simulador (e das abas da
+  // área do eletricista) e, no painel largo, passa para a direita da navegação lateral.
   function posicionar() {
     const lado = document.getElementById("navegacao");
     barra.style.left = lado && getComputedStyle(lado).position === "sticky" ? `${Math.round(lado.getBoundingClientRect().right) + 8}px` : "";
     barra.style.bottom = "";
-    const nav = document.getElementById("sim-navegacao");
+    const nav = document.getElementById("sim-navegacao") ?? document.getElementById("el-fundo");
     if (!nav || !nav.getClientRects().length) return;
     const n = nav.getBoundingClientRect(), r = barra.getBoundingClientRect();
     if (n.top < r.bottom && r.top < n.bottom && n.top - r.height - 8 >= 0) barra.style.bottom = `${Math.round(window.innerHeight - n.top) + 8}px`;
@@ -184,4 +187,6 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
   for (const id of ["conta-bloco", "enviar-conta-bloco"]) {
     document.getElementById(id)?.after(faixa("Entrar como (testes, só neste computador):", "cliente", true));
   }
+  // Ecrã de entrada da área do eletricista (web/eletricista.html).
+  document.getElementById("el-entrar-bloco")?.after(faixa("Entrar como (testes, só neste computador):", "eletricista", false));
 })();

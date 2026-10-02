@@ -570,3 +570,23 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
   .ajuda-tecnica tr, .ajuda-tecnica li { break-inside: avoid; page-break-inside: avoid; }
   .ajuda-tecnica .tabela-cartoes { display: table; width: 100%; }
 }
+
+/* ---------- Eletricistas externos (docs/ELETRICISTAS.md) ---------- */
+.pct { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; white-space: nowrap; }
+.pct input { width: 72px; text-align: right; }
+.pct-omissao { margin-bottom: 6px; }
+.pct-omissao label { font-weight: 700; }
+.candidaturas { display: grid; gap: 10px; }
+.candidatura { padding: 0; }
+.candidatura > summary { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 10px 16px; cursor: pointer; }
+.candidatura > summary .linha-principal { margin-right: auto; }
+.candidatura > :not(summary) { margin-left: 16px; margin-right: 16px; }
+.candidatura > :last-child { margin-bottom: 16px; }
+.candidatura .form-botoes { margin-top: 10px; }
+.concelhos-eletricista { max-height: 260px; overflow-y: auto; margin-top: 6px; }
+#lista-eletricistas .linha-principal span { overflow-wrap: anywhere; }
+.eletricista-externo { border: 1px solid var(--borda); border-radius: 14px; padding: 12px 16px 14px; margin: 14px 0; }
+.eletricista-externo h3 { margin: 0 0 8px; }
+.eletricista-externo select { width: auto; max-width: 100%; flex: 1 1 220px; min-width: 0; }
+.eletricista-externo p { margin: 0; }
+.eletricista-historico summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }

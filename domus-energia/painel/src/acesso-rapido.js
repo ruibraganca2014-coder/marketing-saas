@@ -2,6 +2,7 @@
 // palavra-passe com utilizadores e contas DE TESTE, pelos botões que o lançador local (local/iniciar.js) junta às páginas.
 //   POST /painel/api/dev/entrar {papel}  → sessão normal do painel (cookie domus_painel) como ceo | comercial | tecnico
 //   POST /api/conta/dev/entrar {n}       → sessão normal da conta de cliente (cookie domus_conta), conta de teste 1 | 2
+//   POST /api/eletricista/dev/entrar {n} → sessão normal da área do eletricista (cookie domus_eletricista), eletricista de teste 1
 // Num servidor a sério é impossível, por camadas:
 //   1. só existe com ACESSO_RAPIDO=1, que só o lançador local põe (o servidor/docker-compose.yml nunca);
 //   2. mesmo com a variável, o arranque recusa-o (erro no registo, fica DESLIGADO) se houver um sinal de servidor a
@@ -20,15 +21,20 @@ import { iso } from './util.js';
 
 export const ROTA_EQUIPA = '/painel/api/dev/entrar';
 export const ROTA_CLIENTE = '/api/conta/dev/entrar';
+export const ROTA_ELETRICISTA = '/api/eletricista/dev/entrar';
 
-// Perfis de teste: uma linha por botão. Para juntar outro (ex.: o eletricista da fase 4) acrescenta-se aqui e em
-// local/acesso-rapido.js (ATALHOS).
+// Perfis de teste: uma linha por botão. Para juntar outro acrescenta-se aqui e em local/acesso-rapido.js (ATALHOS).
 export const EQUIPA_TESTE = {
   ceo: { email: 'ceo.teste@domus.localhost', nome: 'CEO de teste' },
   comercial: { email: 'comercial.teste@domus.localhost', nome: 'Comercial de teste' },
   tecnico: { email: 'tecnico.teste@domus.localhost', nome: 'Técnico de teste' },
 };
 export const CLIENTES_TESTE = { 1: 'cliente1.teste@exemplo.pt', 2: 'cliente2.teste@exemplo.pt' };
+// Eletricista externo de teste (fase 4): já aprovado, com concelhos da Grande Lisboa; dados fictícios (NIF de exemplo).
+export const ELETRICISTAS_TESTE = {
+  1: { email: 'eletricista1.teste@exemplo.pt', nome: 'Eletricista de teste', telefone: '900 000 001', nif: '999999990', dgeg: 'TESTE-0001',
+    concelhos: ['Amadora', 'Cascais', 'Lisboa', 'Oeiras', 'Sintra'] },
+};
 
 const LOOPBACK = new BlockList();
 LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
@@ -83,7 +89,7 @@ export function recusaAcessoRapido(env) {
   return null;
 }
 
-export function criarAcessoRapido({ db, config, auth, contas, auditar, relogio }) {
+export function criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) {
   const agoraIso = () => iso(relogio());
 
   async function entrarEquipa(req, res, ip) {
@@ -131,7 +137,27 @@ export function criarAcessoRapido({ db, config, auth, contas, auditar, relogio }
     responder(res, 200, { conta: contas.publico(c) }, { 'Set-Cookie': cookie });
   }
 
-  /** `caminho` é ROTA_EQUIPA ou ROTA_CLIENTE. Os ErroApi são tratados por quem chama (api.js). */
+  async function entrarEletricista(req, res, ip) {
+    const v = await lerJson(req, ['n']);
+    const perfil = Number.isInteger(v.n) && Object.hasOwn(ELETRICISTAS_TESTE, v.n) ? ELETRICISTAS_TESTE[v.n] : null;
+    if (!perfil) throw new ErroApi(400, 'Eletricista de teste desconhecido.');
+    const ler = () => db.prepare('SELECT * FROM eletricistas WHERE email = ?').get(perfil.email);
+    let e = ler();
+    if (!e) {
+      // Já aprovado e sem documento (não sai nenhum email): este eletricista só existe no lançador local.
+      const agora = agoraIso();
+      const novo = db.prepare(`INSERT OR IGNORE INTO eletricistas (email, nome, telefone, nif, dgeg, concelhos, estado, consentimento, criado, atualizado, decidido)
+        VALUES (?, ?, ?, ?, ?, ?, 'aprovado', ?, ?, ?, ?)`).run(perfil.email, perfil.nome, perfil.telefone, perfil.nif, perfil.dgeg, JSON.stringify(perfil.concelhos), agora, agora, agora, agora).changes;
+      e = ler();
+      if (novo) auditar({ id: null, email: `eletricista:${e.id}` }, 'eletricista_aprovado', `eletricista:${e.id}`, { origem: 'acesso_rapido' }, ip);
+    }
+    if (e.estado !== 'aprovado') throw new ErroApi(409, 'Este eletricista de teste não está aprovado no painel (Eletricistas).');
+    const cookie = eletricistas.abrirSessao(req, e.id);
+    auditar({ id: null, email: `eletricista:${e.id}` }, 'eletricista_entrou', `eletricista:${e.id}`, { origem: 'acesso_rapido' }, ip);
+    responder(res, 200, { eletricista: eletricistas.publico(e) }, { 'Set-Cookie': cookie });
+  }
+
+  /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
   async function tratar(req, res, caminho, ip) {
     // Só neste computador: chega pelo lançador (127.0.0.1), vem de 127.0.0.1/::1 e com o Host e a Origin de localhost;
     // pela rede local ou de fora é como se não existisse.
@@ -139,6 +165,7 @@ export function criarAcessoRapido({ db, config, auth, contas, auditar, relogio }
     if (req.method !== 'POST') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'POST' });
     if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
+    if (caminho === ROTA_ELETRICISTA) return entrarEletricista(req, res, ip);
     return caminho === ROTA_EQUIPA ? entrarEquipa(req, res, ip) : entrarCliente(req, res, ip);
   }
 

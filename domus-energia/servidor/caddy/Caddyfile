@@ -11,6 +11,8 @@
 #   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem), incluindo os
 #                                  pagamentos do pedido /api/conta/pagamentos/* e o webhook do Stripe deles
 #                                  /api/conta/pagamentos/stripe-webhook (docs/PAGAMENTOS-PEDIDO.md)
+#   https://HOST/api/eletricista/* -> painel (eletricistas externos, docs/ELETRICISTAS.md; idem): candidatura com o
+#                                  documento do seguro (até 5 MB) e a área do eletricista
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
 #   https://HOST/ntfy/...    -> redireciona para https://ntfy.HOST/...
 #   https://ntfy.HOST/       -> ntfy (notificações)
@@ -43,6 +45,16 @@
 	handle @orcamento {
 		request_body {
 			max_size 2MB
+		}
+		reverse_proxy painel:8080
+	}
+
+	# Eletricistas externos (docs/ELETRICISTAS.md): a candidatura leva o documento do seguro em base64 (5 MB → ~6,7 MB
+	# de JSON; o serviço volta a verificar o tamanho e o tipo pelos bytes). ANTES da regra /api/* dos pagamentos.
+	@eletricista path /api/eletricista/*
+	handle @eletricista {
+		request_body {
+			max_size 8MB
 		}
 		reverse_proxy painel:8080
 	}
