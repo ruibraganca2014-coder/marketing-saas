@@ -944,7 +944,6 @@ function sincronizarCasa() {
   desenharOutras();
   desenharPisosCasa();
   $("casa-fases").value = c.fases ?? fasesSugeridas(estado);
-  for (const i of document.querySelectorAll("input[name=casa-para-raios]")) i.checked = i.value === (estado.quadro.para_raios ?? "");
 }
 /**
  * Linhas de "Outra divisão" (`estado.casa.outras`): em cada uma o nome (≤ 30 letras), quantas (− n +) e "Tirar"; no fim
@@ -1779,7 +1778,6 @@ const PROTECAO_SIMPLES = {
  * como "Quadro novo" (incluído por precaução, como no preço: quadro.js levaQuadroNovo).
  */
 const QUADRO_OPCOES = [["manter", "Manter como está"], ["melhorar", "Melhorar"], ["novo", "Quadro novo"]];
-const PARA_RAIOS_SIMPLES = [["sim", "Sim"], ["nao", "Não"], ["", "Não sei"]];
 /** A opção do cartão a partir do estado. */
 const opcaoQuadro = () => (!quadroNoPedido({ ...estado, servico: servicos() }) ? "manter" : estado.quadro.quadro_novo === "atual" ? "melhorar" : "novo");
 
@@ -1805,13 +1803,6 @@ function montarQuadroMelhorias() {
     }));
   }
 }
-/** Monta uma vez a pergunta do para-raios (passo "A casa"). */
-function montarParaRaios() {
-  for (const [v, t] of PARA_RAIOS_SIMPLES) {
-    $("casa-para-raios").append(escolha("radio", "casa-para-raios", v, t, null, (sim) => { if (sim) { estado.quadro.para_raios = v || null; estado.quadro.pacote = pacoteDoQuadro(estado.quadro); agendarGravacao(); } }));
-  }
-}
-
 function quadroMudou() {
   estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
   agendarGravacao();
@@ -1854,7 +1845,6 @@ function desenharQuadroMelhorias() {
   nota.hidden = false;
 }
 montarQuadroMelhorias();
-montarParaRaios();
 
 /**
  * Foto do quadro (obrigatória, sempre — também com "Melhorar o quadro? Não"): câmara ou galeria. Botão grande; depois,
