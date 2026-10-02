@@ -1,6 +1,6 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio, #/clientes, #/clientes/<codigo>, #/alertas, #/orcamentos, #/orcamentos/<id>,
-// #/obras, #/obras/<id>, #/catalogo, #/pagamentos, #/equipa, #/contas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
+// #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
@@ -12,6 +12,7 @@ import pagamentos from "./ecras/pagamentos.js";
 import equipa from "./ecras/equipa.js";
 import auditoria from "./ecras/auditoria.js";
 import catalogo from "./ecras/catalogo.js";
+import stock from "./ecras/stock.js";
 import contas from "./ecras/contas.js";
 import ajuda from "./ecras/ajuda.js";
 
@@ -23,6 +24,7 @@ const ECRAS = [
   { id: "orcamentos", nome: "Orçamentos", papeis: ["ceo", "comercial"], m: orcamentos },
   { id: "obras", nome: "Obras", papeis: ["ceo", "tecnico", "comercial"], m: obras },
   { id: "catalogo", nome: "Catálogo", papeis: ["ceo"], m: catalogo },
+  { id: "stock", nome: "Stock", papeis: ["ceo"], m: stock },
   { id: "pagamentos", nome: "Pagamentos", papeis: ["ceo"], m: pagamentos },
   { id: "equipa", nome: "Equipa", papeis: ["ceo"], m: equipa },
   { id: "contas", nome: "Contas de clientes", papeis: ["ceo"], m: contas },

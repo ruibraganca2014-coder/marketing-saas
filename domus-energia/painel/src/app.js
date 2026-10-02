@@ -21,6 +21,7 @@ import { criarLeitor } from './leitura-quadro.js';
  */
 export async function criarApp({ config, registo, relogio = () => Date.now(), mqtt = true, fetch = globalThis.fetch, correio, fetchStripe }) {
   for (const a of config.avisos || []) registo.aviso(a);
+  for (const e of config.erros || []) registo.erro(e);
   const db = abrirDb(config.db);
   const auth = new Autenticacao({ db, config, registo, relogio });
   const dados = new Dados(config);

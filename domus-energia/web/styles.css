@@ -790,6 +790,15 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-proposta { border-left: 4px solid var(--musgo); padding-left: 12px; display: grid; gap: 8px; }
 .conta-proposta .valor { font-size: 1.4rem; font-weight: 800; }
 .conta-proposta p { white-space: pre-line; }
+/* Proposta em três partes (mão de obra, material, deslocação, IVA, total) e a caixa "Quero que comecem já". */
+.conta-pedido > *, .conta-proposta > * { min-width: 0; }
+/* No telemóvel o botão "Aceito a proposta e pago o sinal (X €)" não cabe numa linha: parte-se em duas. */
+.conta-proposta .btn, .conta-relatorio .btn { white-space: normal; text-align: center; }
+.conta-partes { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; margin: 0; max-width: 340px; }
+.conta-partes dt { margin: 0; }
+.conta-partes dd { margin: 0; text-align: right; }
+.conta-partes dt:last-of-type, .conta-partes dd:last-of-type { font-weight: 700; }
+.conta-comecar-ja { align-items: flex-start; font-weight: 500; line-height: 1.35; }
 .pagina-conta main > section { padding: 32px 0 48px; }
 .pagina-conta .wrap.estreito { max-width: 760px; }
 .pagina-conta h1 { margin-top: 0; }

@@ -509,9 +509,13 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 200, { ok: true, atualizado: agora });
   };
 
-  const obraDe = db.prepare('SELECT data, hora, estado FROM obras WHERE id = ?');
+  const obraDe = db.prepare('SELECT data, hora, estado, por_agendar FROM obras WHERE id = ?');
   function pedidoParaCliente(o) {
-    const obra = o.obra_id ? obraDe.get(o.obra_id) : null;
+    // A obra nasce com o sinal pago, ainda sem data escolhida (`por_agendar`): só conta como "Instalação marcada" depois
+    // de agendada. Uma obra cancelada de um pedido que já não está aceite não se mostra.
+    const daObra = o.obra_id ? obraDe.get(o.obra_id) : null;
+    const obra = daObra && !(daObra.estado === 'cancelada' && o.estado !== 'aceite') ? daObra : null;
+    const agendada = Boolean(obra) && !obra.por_agendar;
     const valor = deCent(o.valor_proposta_cent);
     const pag = pagamentos()?.paraCliente(o) ?? null;
     const temProposta = valor !== null && ['proposta_enviada', 'aceite'].includes(o.estado);
@@ -521,24 +525,27 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       { chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita },
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
       { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
-      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : 'Instalação', feito: Boolean(obra), data: obra?.data ?? null },
+      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
     if (pag?.aguarda_sinal) estadoTexto = 'Proposta aceite — falta pagar o sinal para confirmarmos a instalação.';
-    if (o.estado === 'aceite' && o.obra_concluida && !obra) estadoTexto = 'Obra concluída.';
-    if (obra) estadoTexto = obra.estado === 'concluida' ? 'Instalação concluída.' : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : 'Instalação marcada.';
-    const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.obra_id;
+    if (o.estado === 'aceite' && o.obra_concluida && !obra) estadoTexto = pag?.obra_paga === false ? 'Obra concluída. A app fica ativa depois de pagar o restante.' : 'Obra concluída.';
+    if (obra) {
+      estadoTexto = obra.estado === 'concluida' ? (pag?.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.')
+        : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : agendada ? 'Instalação marcada.' : estadoTexto;
+    }
+    const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.cliente;
     let sim = null;
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
     return {
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
       data_visita: o.data_visita, servico: o.servico,
       proposta: temProposta ? { valor, texto: o.proposta_texto ?? null, aceite: o.proposta_aceite ?? null } : null,
-      pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.obra_id && !o.proposta_aceite,
+      pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.cliente && !o.proposta_aceite,
       plano_sugerido: ['base', 'conforto', 'premium'].includes(sim?.plano_sugerido) ? sim.plano_sugerido : null,
       ...(pag ?? {}),
       pode_fotos: podeFotos,
-      obra: obra ? { data: obra.data, hora: obra.hora, estado: obra.estado } : null,
+      obra: obra ? { data: agendada ? obra.data : null, hora: agendada ? obra.hora : null, estado: obra.estado, por_agendar: !agendada } : null,
       resumo: resumoSimulacao(o.simulacao),
       fotos: fotos.listar(o, sim, `/api/conta/pedidos/${o.id}/fotos/`).map((f) => ({ id: f.id, chave: f.chave, legenda: f.legenda, url: f.url, criado: f.criado })),
       fotos_max: 40,
@@ -573,7 +580,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
 
   h.acrescentarFoto = async ({ req, res, c, params, ip }) => {
     const o = pedidoDaConta(c, params.id);
-    if (o.estado === 'aceite' || o.estado === 'perdido' || o.obra_id) throw new ErroApi(409, 'Este pedido já não aceita fotos novas. Mostre-as ao eletricista na visita.');
+    if (o.estado === 'aceite' || o.estado === 'perdido' || o.cliente) throw new ErroApi(409, 'Este pedido já não aceita fotos novas. Mostre-as ao eletricista na visita.');
     esperar([[L.fotosIp, ip]]);
     contar([[L.fotosIp, ip]]);
     const f = await fotos.receber(req, o.id);
@@ -588,8 +595,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   // com sinal 0 fica logo aceite. Aceitar outra vez enquanto o sinal está por pagar devolve o mesmo pagamento.
   h.aceitar = async ({ req, res, c, params, ip }) => {
     const o = pedidoDaConta(c, params.id);
-    const v = await lerJson(req, ['valor', 'plano']);
-    if (o.estado === 'aceite' || o.obra_id) throw new ErroApi(409, 'Esta proposta já foi aceite.');
+    const v = await lerJson(req, ['valor', 'plano', 'inicio_imediato']);
+    if (o.estado === 'aceite' || o.cliente) throw new ErroApi(409, 'Esta proposta já foi aceite.');
     if (o.estado !== 'proposta_enviada' || o.valor_proposta_cent === null) throw new ErroApi(409, 'Ainda não há uma proposta para aceitar.');
     if (v.valor !== undefined && (typeof v.valor !== 'number' || Math.round(v.valor * 100) !== o.valor_proposta_cent)) {
       throw new ErroApi(409, 'A proposta mudou entretanto. Veja o valor atualizado antes de aceitar.');
@@ -604,20 +611,24 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const agora = agoraIso();
     if (!comPagamento) {
       const r = db.prepare(`UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, plano_escolhido = COALESCE(?, plano_escolhido), atualizado = ?
-        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND obra_id IS NULL`).run(agora, plano, agora, o.id, c.id);
+        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND cliente IS NULL`).run(agora, plano, agora, o.id, c.id);
       if (!r.changes) throw new ErroApi(409, 'Esta proposta já foi aceite.');
+      // Aceite (sem pagamentos online): o material fica reservado e a obra nasce, por agendar.
+      pag?.aoFicarAceite(o.id, quem(c).email);
       auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online', plano }, ip);
       registo.info(`orçamento ${o.id}: proposta aceite pelo cliente (online)`);
       return responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)), pagamento: null });
     }
     if (!o.proposta_aceite || o.plano_escolhido !== plano) {
       db.prepare(`UPDATE orcamentos SET proposta_aceite = COALESCE(proposta_aceite, ?), plano_escolhido = ?, atualizado = ?
-        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND obra_id IS NULL`).run(agora, plano, agora, o.id, c.id);
+        WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND cliente IS NULL`).run(agora, plano, agora, o.id, c.id);
       if (!o.proposta_aceite) {
         auditar(quem(c), 'proposta_aceite_aguarda_sinal', `orcamento:${o.id}`, { valor_proposta: deCent(o.valor_proposta_cent), plano }, ip);
         registo.info(`orçamento ${o.id}: proposta aceite pelo cliente (online), a aguardar o sinal`);
       }
     }
+    // "Quero que comecem já" (decisão 11 do dono): fica no pedido, com a data, antes de pagar o sinal.
+    if (typeof v.inicio_imediato === 'boolean') pag.definirInicioImediato(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), v.inicio_imediato, c.id, ip);
     const atual = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id);
     const pagamento = await pag.aoAceitar(c, atual);
     if (!pagamento) auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online', plano, sinal: 0 }, ip);
@@ -737,9 +748,11 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
    */
   async function apagar(idTexto) {
     const c = obterConta(idTexto);
-    const semObra = db.prepare(`SELECT id FROM orcamentos o WHERE conta_id = ? AND obra_id IS NULL
-      AND NOT EXISTS (SELECT 1 FROM obras b WHERE b.orcamento_id = o.id)`).all(c.id).map((x) => x.id);
-    const pago = db.prepare('SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\' LIMIT 1');
+    // Pedidos ainda sem casa ligada (não convertidos). A obra nasce com o sinal pago, antes da casa: um pedido com obra
+    // (ou com pagamentos pagos ou devolvidos) não se apaga, é anonimizado; a obra fica, ligada ao pedido anonimizado.
+    const semObra = db.prepare('SELECT id FROM orcamentos o WHERE conta_id = ? AND cliente IS NULL').all(c.id).map((x) => x.id);
+    const pago = db.prepare(`SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ?1 AND estado IN ('pago', 'devolvido')
+      UNION ALL SELECT 1 FROM obras WHERE orcamento_id = ?1 LIMIT 1`);
     const anonimizar = semObra.filter((id) => pago.get(id));
     const alvos = semObra.filter((id) => !anonimizar.includes(id));
     const mantidos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE conta_id = ?').get(c.id).n - semObra.length;
@@ -751,17 +764,20 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       // "conta_apagada" que o chamador escreve). Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
       // Pagamentos: os por pagar saem (com o pedido guardado); os pagos ficam (contabilidade), ligados ao pedido
       // (anonimizado ou mantido), sem a conta.
-      db.prepare('DELETE FROM pagamentos_pedido WHERE conta_id = ? AND estado != \'pago\'').run(c.id);
+      // Devoluções por transferência: das já feitas sai o titular (do IBAN já só ficava o fim); uma ainda por fazer
+      // guarda o IBAN até o CEO a fazer (é preciso para devolver o dinheiro).
+      db.prepare("UPDATE devolucoes_pedido SET titular = NULL WHERE conta_id = ? AND estado = 'devolvido'").run(c.id);
+      db.prepare("DELETE FROM pagamentos_pedido WHERE conta_id = ? AND estado NOT IN ('pago', 'devolvido')").run(c.id);
       db.prepare('UPDATE pagamentos_pedido SET pedido = NULL, conta_id = NULL WHERE conta_id = ?').run(c.id);
       for (const id of alvos) {
-        db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado != \'pago\'').run(id);
+        db.prepare("DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado NOT IN ('pago', 'devolvido')").run(id);
         db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_apagado_rgpd', `orcamento:${id}`);
       }
       const agora = agoraIso();
       for (const id of anonimizar) {
-        db.prepare('DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado != \'pago\'').run(id);
+        db.prepare("DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado NOT IN ('pago', 'devolvido')").run(id);
         db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
@@ -906,5 +922,6 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   return {
     tratar, sessao, aposOrcamento, aoResultadoPedido, resumoParaPainel, listar, definirAtivo, apagar, apagarRetidas,
     iniciar, parar, ROTAS_CONTA,
+    abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

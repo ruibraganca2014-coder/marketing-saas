@@ -159,16 +159,21 @@ export const SEMENTES_ACOES = [
 
 // Ronda regras (docs/SIMULADOR-ORCAMENTO.md §0 "Ronda regras"; decisões do dono de 2026-10-01). Entram pela migração 15
 // (INSERT OR IGNORE; o CEO edita os preços no painel).
-// - Pontos novos normais com preço fechado (material médio + mão de obra incluída: horas 0): ponto de luz 45 €, tomada
+// - Pontos novos normais com preço fechado (material médio + mão de obra incluída): ponto de luz 45 €, tomada
 //   40 €, tomada dupla 55 €, interruptor 35 €. Um ponto inteligente = o ponto + o aparelho Wi-Fi (INT-VIDRO-N, TOMADA-WIFI).
 // - Tipos de comando do interruptor (web/simulador/regras.js COMANDOS): escada = o ponto + um comutador de escada por
 //   interruptor (2 interruptores = 2 comutadores); inversor = o ponto + um inversor; botão de pressão = o ponto + um botão;
 //   lustre = o ponto com 2 botões (sem artigo à parte). Horas de aparelhagem: 0,15 h por peça.
 // - Campainha normal (máquina "campainha" na planta): a campainha com transformador + um botão de pressão.
 // - Diferencial tipo A: o circuito do carregador VE usa-o sempre (RTIEBT 722.531.2.101: no mínimo tipo A).
+// Ronda dinheiro (decisão 3 do dono, 2026-10-02): os pontos são artigos de PREÇO FECHADO (`especificacoes.preco_fechado`)
+// — o cliente paga `preco_venda_iva` (o mesmo de sempre) e as `horas_instalacao` dizem quanta mão de obra vai lá dentro
+// (horas × tarifa, para os 70 % do eletricista e os dias de obra); o material é o que sobra. Nas bases já existentes as
+// horas e a marca entram pela migração 24 (HORAS_PONTOS).
+export const HORAS_PONTOS = { 'PONTO-LUZ-NOVO': 0.75, 'TOMADA-NOVA': 0.6, 'TOMADA-DUPLA-NOVA': 0.75, 'TOMADA-TRIPLA-NOVA': 0.9, 'INTERRUPTOR-NOVO': 0.5 };
 const ponto = (sku, nome, preco, funcao) => ({
-  sku, nome, categoria: 'outro', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: 0,
-  especificacoes: { funcao, nota: 'preço fechado por ponto: material e mão de obra incluídos' },
+  sku, nome, categoria: 'outro', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: HORAS_PONTOS[sku],
+  especificacoes: { funcao, preco_fechado: true, nota: 'preço fechado por ponto: material e mão de obra incluídos' },
 });
 export const SEMENTES_PONTOS = [
   ponto('PONTO-LUZ-NOVO', 'Ponto de luz novo (tubo, cabo, caixas, ligação e mão de obra)', 45, 'ponto_luz'),
@@ -195,4 +200,18 @@ export const SEMENTES_PONTOS = [
 // preço fechado, 65 €. Entra pela migração 20 (INSERT OR IGNORE; o CEO edita o preço no painel).
 export const SEMENTES_PONTOS_20 = [
   ponto('TOMADA-TRIPLA-NOVA', 'Tomada tripla nova (3 tomadas na mesma caixa; material e mão de obra)', 65, 'ponto_tomada_tripla'),
+];
+// Ronda dinheiro (decisão 5 do dono, 2026-10-02): linha dedicada até 15 m, de preço fechado como os pontos. Entra sempre
+// com um carregador VE novo (390 €: já com o disjuntor e o diferencial tipo A do circuito) e com qualquer outra máquina
+// nova com circuito próprio (140 € ao juntá-la a uma casa que já existe; 70 € numa "Instalação nova"). Entram pela migração 24
+// (INSERT OR IGNORE; o CEO edita no painel).
+const linha = (sku, nome, preco, horas, funcao) => ({
+  sku, nome, categoria: 'outro', fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: preco, horas_instalacao: horas,
+  especificacoes: { funcao, preco_fechado: true, metros_max: 15, nota: 'preço fechado: material e mão de obra incluídos' },
+});
+export const SEMENTES_DINHEIRO = [
+  linha('LINHA-DEDICADA-VE', 'Linha dedicada do carregador até 15 m (cabo, tubo, disjuntor, diferencial tipo A e mão de obra)', 390, 4, 'linha_dedicada_ve'),
+  linha('LINHA-DEDICADA', 'Linha dedicada da máquina até 15 m (cabo, tubo e mão de obra)', 140, 1.5, 'linha_dedicada'),
+  // Em "Instalação nova" (a obra já está aberta) a linha da máquina custa 70 €; a do carregador é a mesma (390 €).
+  linha('LINHA-DEDICADA-NOVA', 'Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra)', 70, 0.75, 'linha_dedicada_nova'),
 ];

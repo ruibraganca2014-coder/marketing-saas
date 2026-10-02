@@ -78,10 +78,16 @@ export class Autenticacao {
       throw new ErroApi(401, 'Email ou palavra-passe errados.');
     }
     this.db.prepare('DELETE FROM falhas_login WHERE email = ?').run(e);
+    return { token: this.abrirSessao(u.id), utilizador: u };
+  }
+
+  /** Sessão nova para o utilizador (já verificado por quem chama); devolve o token do cookie. */
+  abrirSessao(uid) {
     const token = randomBytes(32).toString('base64url');
+    const agora = this.relogio();
     this.db.prepare('INSERT INTO sessoes (id, utilizador_id, criada, expira, renovada) VALUES (?, ?, ?, ?, ?)')
-      .run(sha(token), u.id, agora, agora + this.config.sessaoMs, agora);
-    return { token, utilizador: u };
+      .run(sha(token), uid, agora, agora + this.config.sessaoMs, agora);
+    return token;
   }
 
   /** Utilizador da sessão do pedido (ou null). Renova a sessão (e o cookie). */

@@ -1,6 +1,6 @@
 // Pagamentos (CEO): totais por mês, tabela das linhas do CSV dos pagamentos e "Exportar CSV".
 import { pedir, campo, lista, numero, BASE } from "../api.js";
-import { h, PLANOS, euros, data, mes, nomeDe, carregando, erroEcra, txt, avisar } from "../ui.js";
+import { h, PLANOS, euros, data, mes, nomeDe, carregando, erroEcra, txt, avisar, selo } from "../ui.js";
 
 // Linhas do pagamentos.csv (data;cliente;plano;valor_com_iva;valor_sem_iva;id_stripe).
 const valorDe = (l) => campo(l, "valor_com_iva", "valor", "montante", "total");
@@ -60,11 +60,39 @@ export default function pagamentos(el) {
     finally { exportarPed.disabled = false; }
   });
 
+  // Devoluções por transferência ainda por fazer (pagamentos por referência Multibanco): valor, IBAN e titular dados
+  // pelo cliente na conta; "Devolvido" depois de o CEO fazer a transferência (fica a data e quem).
+  const zonaDev = h("div", { id: "devolucoes-por-fazer" });
+  el.querySelector("#pagamentos-pedidos").before(zonaDev);
+  function desenharDevolucoes(ds) {
+    if (!ds.length) { zonaDev.replaceChildren(); return; }
+    zonaDev.replaceChildren(h("section", { class: "cartao", "aria-labelledby": "dev-titulo" },
+      h("h2", { id: "dev-titulo", text: `Devoluções por fazer (${ds.length})` }),
+      h("p", { class: "ajuda", text: "Pagamentos por referência Multibanco devolvem-se por transferência bancária. Só contam como devolvidos depois de marcados." }),
+      h("ul", { class: "linhas-simples" }, ...ds.map((d) => h("li", { dataset: { devolucao: String(campo(d, "id")), estado: campo(d, "estado") } },
+        h("strong", { text: `${euros(campo(d, "valor"))} — ${txt(d, "motivo_texto")}` }), " ",
+        campo(d, "orcamento_id") ? h("a", { href: `#/orcamentos/${encodeURIComponent(campo(d, "orcamento_id"))}`, text: `pedido n.º ${campo(d, "orcamento_id")}` }) : null, " ",
+        selo(txt(d, "estado_texto"), campo(d, "estado") === "por_fazer" ? "grav-critica" : "aviso"),
+        campo(d, "estado") === "por_fazer" ? h("span", { class: "bloco-ajuda num", text: `IBAN ${campo(d, "iban")} · titular ${txt(d, "titular")}` }) : null,
+        campo(d, "estado") === "por_fazer" ? h("button", { class: "btn sec pequeno", type: "button", text: "Devolvido", "aria-label": `Marcar como devolvido: ${euros(campo(d, "valor"))}`,
+          onclick: async (e) => {
+            const b = e.currentTarget;
+            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; return; }
+            b.disabled = true;
+            try {
+              await pedir(`devolucoes/${encodeURIComponent(campo(d, "id"))}/devolvida`, { corpo: {} });
+              avisar("Devolução marcada como feita.");
+              carregarPedidos();
+            } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+          } }) : null)))));
+  }
+
   async function carregarPedidos() {
     let r;
     try { r = await pedir("pagamentos-pedido", { sinal: ctrl.signal }); }
     catch (e) { if (e.name !== "AbortError") zonaPed.replaceChildren(erroEcra(e, carregarPedidos)); return; }
     const ls = lista(r, "pagamentos");
+    desenharDevolucoes(lista(campo(r, "devolucoes_por_fazer") ?? [], "devolucoes_por_fazer"));
     exportarPed.disabled = !ls.length;
     if (!ls.length) { zonaPed.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pagamentos de pedidos." })); return; }
     const t = campo(r, "total_pago");

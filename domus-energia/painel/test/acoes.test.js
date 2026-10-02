@@ -14,9 +14,9 @@ import { simulacao as validarSimulacao } from '../src/validar.js';
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_DINHEIRO].filter((a) => a.ativo !== false);
 
 /** Cozinha com 2 tomadas, 2 interruptores, 1 luz, uma placa e a porta. */
 function planta(acoes = {}) {
@@ -58,8 +58,9 @@ test('Instalação nova sem ações: os mesmos pedidos de antes mais os pontos n
   const base = { casa: null, quadro: { circuitos: [] }, extras: {} };
   const pa = pedidosDaSelecao({ ...base, divisoes: antes }).map(({ chave, qtd }) => ({ chave, qtd }));
   const pn = pedidosDaSelecao({ ...base, servico: ['nova'], planta: p, divisoes: agora }).map(({ chave, qtd }) => ({ chave, qtd }));
-  // Os pontos novos com preço fechado (2 tomadas, 2 interruptores, 1 luz) juntam-se; o resto é igual.
-  const pontos = [{ chave: 'ponto_tomada', qtd: 2 }, { chave: 'ponto_interruptor', qtd: 2 }, { chave: 'ponto_luz', qtd: 1 }];
+  // Os pontos novos com preço fechado (2 tomadas, 2 interruptores, 1 luz) juntam-se, e a linha dedicada da placa nova
+  // (ronda dinheiro); o resto é igual.
+  const pontos = [{ chave: 'ponto_tomada', qtd: 2 }, { chave: 'ponto_interruptor', qtd: 2 }, { chave: 'ponto_luz', qtd: 1 }, { chave: 'linha_dedicada_nova', qtd: 1 }];
   assert.deepEqual(pn, [...pa, ...pontos]);
   assert.equal(calcularPreco(pn, CATALOGO, null).total, calcularPreco([...pa, ...pontos], CATALOGO, null).total);
 });

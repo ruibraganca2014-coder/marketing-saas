@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20 } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
 
 let p;
 before(async () => { p = await painelComEquipa(); });
@@ -225,7 +225,7 @@ test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10
 test('catálogo público: só ativos e visíveis, sem preço de compra, fornecedor nem link; cache 300 s', async () => {
   const cab = { cookie: p.cookies.ceo };
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
-  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro, as das ações, os pontos da ronda regras e a tomada tripla)');
+  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro, as das ações, os pontos da ronda regras, a tomada tripla e as linhas dedicadas)');
   const sy1 = lista.find((a) => a.sku === 'TONGOU-SY1-JWT');
   assert.equal(sy1.preco_compra, 11.04);
   assert.equal(sy1.preco_venda_iva, 39.9);
@@ -252,7 +252,7 @@ test('catálogo público: só ativos e visíveis, sem preço de compra, forneced
   for (const segredo of ['preco_compra', 'fornecedor', 'link', 'alibaba', 'Secreto', '11.04', '14.3', '6.82', '3.21', 'Tongou/Changyou', 'Zhouqiao', 'armazenista']) {
     assert.ok(!pub.texto.includes(segredo), `o público não vê "${segredo}"`);
   }
-  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 38, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29 });
+  assert.deepEqual(pub.json.config, { tarifa_hora_iva: 38, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29, obra_minima_iva: 100, horas_por_dia: 8, deslocacao_max_dias: 5 });
   assert.deepEqual(pub.json.itens.find((a) => a.sku === 'NOVO-1'), { sku: 'NOVO-1', nome: 'Novo', categoria: 'luz', preco_venda_iva: 9.9, horas_instalacao: 0.2, horas_troca: null, especificacoes: { rede: 'zigbee' } });
 });
 
@@ -321,7 +321,7 @@ test('catálogo e configuração: validação e só o CEO', async () => {
   }
   let r = await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { tarifa_hora_iva: 40, intervalo_menos_pct: 5, intervalo_mais_pct: 25 } });
   assert.equal(r.estado, 200);
-  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29, iva_pct: 23,
+  assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29, iva_pct: 23, obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5,
     ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100 });
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { intervalo_mais_pct: 101 } })).estado, 400);
   // O antigo `margem_intervalo_pct` já não se edita (fase 3: −10 % / +20 %).
@@ -334,7 +334,7 @@ test('catálogo e configuração: validação e só o CEO', async () => {
     [{ deslocacao_max_km: null }, 'Indique a distância máxima da deslocação.'],
     [{ deslocacao_preco_km_iva: -1 }, 'O preço por km da deslocação: entre 0 e 100.'],
   ]) assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo })).json.erro, erro, JSON.stringify(corpo));
-  assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config, { tarifa_hora_iva: 40, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29 });
+  assert.deepEqual((await p.pedir('GET', '/api/catalogo')).json.config, { tarifa_hora_iva: 40, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29, obra_minima_iva: 100, horas_por_dia: 8, deslocacao_max_dias: 5 });
   for (const papel of ['tecnico', 'comercial']) {
     assert.equal((await p.pedir('GET', '/painel/api/catalogo', { cookie: p.cookies[papel] })).estado, 403);
     assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { cookie: p.cookies[papel], corpo: { tarifa_hora_iva: 1 } })).estado, 403);
@@ -363,7 +363,7 @@ test('configuração da deslocação (base, km grátis, €/km, máximo): valida
   // Uma chave que não é do simulador (ex. um custo interno) nunca aparece no /api/catalogo.
   p.app.db.prepare("INSERT INTO config_orcamento (chave, valor) VALUES ('custo_interno_km', 0.12)").run();
   const pub = (await p.pedir('GET', '/api/catalogo')).json.config;
-  assert.deepEqual(pub, { tarifa_hora_iva: 40, deslocacao_iva: 5, deslocacao_base: 'Évora', deslocacao_km_gratis: 10, deslocacao_preco_km_iva: 0.55, deslocacao_max_km: 150, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29 });
+  assert.deepEqual(pub, { tarifa_hora_iva: 40, deslocacao_iva: 5, deslocacao_base: 'Évora', deslocacao_km_gratis: 10, deslocacao_preco_km_iva: 0.55, deslocacao_max_km: 150, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29, obra_minima_iva: 100, horas_por_dia: 8, deslocacao_max_dias: 5 });
   p.app.db.prepare("DELETE FROM config_orcamento WHERE chave = 'custo_interno_km'").run();
   assert.ok(p.app.db.prepare("SELECT 1 FROM auditoria WHERE acao = 'config_orcamento_atualizada' AND detalhes LIKE '%deslocacao_base%'").get());
   // Repõe os valores de exemplo.

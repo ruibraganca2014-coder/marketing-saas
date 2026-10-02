@@ -10,7 +10,7 @@ import {
   comandoDe, caixasDe,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
-import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente } from "./acoes.js";
+import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente, perguntaMedicao } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao, LIMITES_OUTRAS } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
@@ -267,6 +267,9 @@ export function estadoNovo() {
     // Fase 3 (monetização): o que o cliente compra ao enviar — relatório pormenorizado e/ou visita técnica (nada: só o
     // relatório básico, grátis). Um só sítio: outro passo pode escolhê-lo antes; o passo Enviar mostra-o e muda-o.
     compras: { relatorio: false, visita: false },
+    // Ronda dinheiro: máquinas (modelos) que entram como "Novo" mesmo sem "Instalação nova" — a entrada pelo anúncio do
+    // carregador (entrada.js): a linha dedicada conta no preço desde o início (app.js marcarNovas).
+    maquinasNovas: [],
   };
 }
 
@@ -377,7 +380,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
       if (ACOES[e.acao]) n.acao = e.acao;
       const av = txt(e.avaria, MAX_AVARIA).replace(CONTROLO_LINHA, " ");
       if (av.trim()) n.avaria = av;
-      if (typeof e.inteligente === "boolean" && perguntaInteligente(n.tipo)) n.inteligente = e.inteligente;
+      if (typeof e.inteligente === "boolean" && (perguntaInteligente(n.tipo) || perguntaMedicao(n.tipo, n.props))) n.inteligente = e.inteligente;
     }
     r.elementos.push(n);
   }
@@ -627,6 +630,7 @@ export function normalizarEstado(v) {
   e.urgencia = URGENCIAS[v.urgencia] ? v.urgencia : "normal";
   const cp = v.compras && typeof v.compras === "object" ? v.compras : {};
   e.compras = { relatorio: bool(cp.relatorio), visita: bool(cp.visita) };
+  e.maquinasNovas = [...new Set(lista(v.maquinasNovas, 20).filter((k) => typeof k === "string" && Object.hasOwn(MODELOS, k)))];
   return e;
 }
 
@@ -967,6 +971,7 @@ function acaoParaEnvio(e, servicos) {
   const r = { acao };
   if (acao === "reparar") r.avaria = textoSeguro(e.avaria, MAX_AVARIA);
   if (acao === "substituir" && perguntaInteligente(e.tipo)) r.inteligente = e.inteligente === true;
+  if (acao === "novo" && perguntaMedicao(e.tipo, e.props)) r.inteligente = e.inteligente === true;   // carregador novo: com medição?
   return r;
 }
 
@@ -1008,7 +1013,7 @@ export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], obj
     if (acao === "reparar") item.avarias.push(textoSeguro(e.avaria, MAX_AVARIA));
     if (acao === "substituir" && perguntaInteligente(e.tipo) && e.inteligente === true) item.inteligentes++;
     // Ronda regras: no Novo, os pontos com preço fechado e a aparelhagem do comando (acoes.js pontosDoElemento) e o inteligente.
-    for (const chave of pedidosDoElemento(e, acao, objetivos)) {
+    for (const chave of pedidosDoElemento(e, acao, objetivos, servicos)) {
       const a = linhaArtigo(chave, acao);
       const m = item.material.find((x) => x.sku === a.sku);
       if (m) m.qtd++; else item.material.push({ sku: a.sku, qtd: 1 });
@@ -1083,6 +1088,7 @@ export const ESTADOS_DESLOCACAO = ["estimada", "visita", "sem_localidade", "fora
  * `simulacao.deslocacao` (§5.1, §6) a partir de calcularDeslocacao() (./deslocacao.js): localidade escrita,
  * concelho reconhecido e distrito (null se não reconhecido), distância estimada por estrada (km) e valor
  * (€ c/ IVA; em "visita"/"sem_localidade" só o mínimo fixo; null quando fora da área). null sem cálculo.
+ * Ronda dinheiro: o valor é ida e volta × `dias` (dias de obra, no máximo `deslocacao_max_dias`: `limitado`; 1 na avaria).
  */
 export function deslocacaoParaEnvio(d) {
   if (!d || typeof d !== "object" || !ESTADOS_DESLOCACAO.includes(d.estado)) return null;
@@ -1094,6 +1100,7 @@ export function deslocacaoParaEnvio(d) {
     distrito: textoSeguro(d.distrito, 60) || null,
     distancia_km: n(d.distancia_km, 5000),
     valor_iva: n(d.valor_iva, 100_000),
+    ...(n(d.dias, 1000) ? { dias: d.dias, limitado: d.limitado === true } : {}),
   };
 }
 
@@ -1147,10 +1154,17 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
       };
     }),
     // `grupo` (lote 7): reparar, substituir, novo ou quadro; `horas` = as desta linha (as de troca ao substituir).
-    itens: preco.linhas.map((l) => ({ sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "novo", horas: l.horas == null ? null : Math.round(l.horas * 100) / 100 })),
-    mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva },
+    // Ronda dinheiro: nos artigos de preço fechado (`fechado`) o `preco_iva` é tudo o que o cliente paga pela linha; a
+    // mão de obra que vai lá dentro (`mao_obra_incluida_iva`) não está em `mao_obra.valor_iva` (está em `incluida_iva`).
+    itens: preco.linhas.map((l) => ({
+      sku: l.sku, qtd: l.qtd, preco_iva: l.preco_iva, grupo: l.grupo ?? "novo", horas: l.horas == null ? null : Math.round(l.horas * 100) / 100,
+      ...(l.fechado ? { fechado: true, mao_obra_incluida_iva: l.mao_obra_incluida_iva } : {}),
+    })),
+    mao_obra: { horas: preco.horas, valor_iva: preco.mao_obra_iva, incluida_iva: preco.mao_obra_incluida_iva ?? 0, dias: preco.dias ?? null },
     deslocacao: deslocacaoParaEnvio(preco.deslocacao),
     total: { min: preco.min, max: preco.max },
+    // Ronda dinheiro: a obra mínima (€ c/ IVA) quando o trabalho fica abaixo dela (o `total` já a tem); null se não.
+    obra_minima_iva: preco.obra_minima ?? null,
     // Fase 2: a margem dos pacotes aceites (já no `total`; o painel soma-a ao "Total (sem intervalo)").
     melhorias_margem_iva: preco.melhorias_margem_iva ?? 0,
     // Fase 2: pacotes do passo "Melhorias" — os artigos também vão em `itens` (grupo "melhoria"; os do "Quadro seguro",

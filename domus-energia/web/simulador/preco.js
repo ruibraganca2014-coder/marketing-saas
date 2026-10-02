@@ -9,7 +9,9 @@ import { pedidosAcoes, pedidosPontosNovos } from "./acoes.js";
 // margem_pacotes_pct (fase 2): margem dos pacotes do passo "Melhorias" (melhorias.js), sobre material + mão de obra.
 // Fase 3: o intervalo da estimativa é −intervalo_menos_pct / +intervalo_mais_pct (10 % / 20 %); um servidor antigo
 // só com `margem_intervalo_pct` usa-a para os dois lados (como antes). preco_relatorio_iva: o relatório pormenorizado.
-export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, intervalo_menos_pct: 10, intervalo_mais_pct: 20, deslocacao_iva: 0, margem_pacotes_pct: 20, preco_relatorio_iva: 29 };
+// Ronda dinheiro: horas_por_dia (8: dias de obra = horas ÷ 8, para cima, pelo menos 1; a deslocação é por dia) e
+// obra_minima_iva (100 €: comObraMinima).
+export const CONFIG_OMISSAO = { tarifa_hora_iva: 38, intervalo_menos_pct: 10, intervalo_mais_pct: 20, deslocacao_iva: 0, margem_pacotes_pct: 20, preco_relatorio_iva: 29, horas_por_dia: 8, obra_minima_iva: 100 };
 /** Visita técnica: a deslocação + estas horas × a tarifa (o servidor calcula o valor a pagar da mesma maneira). */
 export const VISITA_HORAS = 0.5;
 export const TEXTO_ESTIMATIVA = "Estimativa; valor final após a visita.";
@@ -91,7 +93,27 @@ export const PEDIDOS = {
   inversor: { sku: "INVERSOR", nome: "Inversor de grupo", procura: comFuncao("inversor") },
   botao_pressao: { sku: "BOTAO-PRESSAO", nome: "Botão de pressão", procura: comFuncao("botao_pressao") },
   campainha: { sku: "CAMPAINHA", nome: "Campainha com transformador", procura: comFuncao("campainha") },
+  // Ronda dinheiro (acoes.js pontosDoElemento): linha dedicada até 15 m, preço fechado — a do carregador VE novo (já com
+  // o disjuntor e o diferencial tipo A do circuito) e a de qualquer outra máquina nova com circuito próprio.
+  linha_dedicada_ve: { sku: "LINHA-DEDICADA-VE", nome: "Linha dedicada do carregador até 15 m (cabo, tubo, disjuntor, diferencial tipo A e mão de obra)", procura: comFuncao("linha_dedicada_ve") },
+  linha_dedicada: { sku: "LINHA-DEDICADA", nome: "Linha dedicada da máquina até 15 m (cabo, tubo e mão de obra)", procura: comFuncao("linha_dedicada") },
+  // Em "Instalação nova" a obra já está aberta: a linha da máquina custa menos (70 €).
+  linha_dedicada_nova: { sku: "LINHA-DEDICADA-NOVA", nome: "Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra)", procura: comFuncao("linha_dedicada_nova") },
 };
+
+/**
+ * Artigo de preço fechado (ronda dinheiro: pontos novos e linhas dedicadas; `especificacoes.preco_fechado`): o cliente
+ * paga o `preco_venda_iva` e mais nada; as horas dizem a mão de obra que vai lá dentro (horas × tarifa) e o material é
+ * o que sobra. A tarifa pode mudar: o preço ao cliente não mexe.
+ */
+export const precoFechado = (a) => a?.especificacoes?.preco_fechado === true;
+/** Dias de obra: as horas ÷ as horas por dia (8), para cima; pelo menos 1. */
+export function diasDeObra(horas, horasPorDia = CONFIG_OMISSAO.horas_por_dia) {
+  const d = Number(horasPorDia) > 0 ? Number(horasPorDia) : CONFIG_OMISSAO.horas_por_dia;
+  return Math.max(1, Math.ceil((Number(horas) || 0) / d));
+}
+/** "≈ 4 dias de obra" */
+export const textoDias = (dias) => `≈ ${dias} ${dias === 1 ? "dia" : "dias"} de obra`;
 
 /** Horas de troca de um artigo: `horas_troca` do catálogo ou, sem ela, FRACAO_TROCA das horas de instalação. */
 export function horasTroca(a) {
@@ -164,8 +186,13 @@ export const arredondar5 = (x) => Math.round(x / 5) * 5;
  * ./deslocacao.js (§5.1) — soma o seu valor_iva (null = fora da área: não soma); sem ele soma o
  * `deslocacao_iva` fixo (como antes). `extra`: a margem dos pacotes aceites no passo "Melhorias" (melhorias.js; as
  * linhas deles já estão nos pedidos, com `grupo: "melhoria"`).
- * @returns {{linhas:{chave:string, sku:string, nome:string, qtd:number, preco_iva:number|null, total:number|null, horas:number|null}[],
- *   horas:number|null, mao_obra_iva:number|null, deslocacao_iva:number, artigos_iva:number|null, melhorias_margem_iva:number, total:number|null,
+ * Ronda dinheiro: nos artigos de PREÇO FECHADO (precoFechado) a linha custa ao cliente só o preço do artigo; as horas
+ * contam para `horas` e `dias` (dias de obra) mas não para `mao_obra_iva` — a mão de obra deles vai dentro do preço
+ * (`mao_obra_incluida_iva`: horas × tarifa, nunca acima do preço da linha; o material é o resto). Mão de obra toda =
+ * `mao_obra_iva` + `mao_obra_incluida_iva`. A deslocação de calcularDeslocacao() é por dia de obra: aqui passa a
+ * um dia × min(`dias`, `deslocacao_max_dias`) (`deslocacao` devolvida já com os dias cobrados, `limitado` e o valor).
+ * @returns {{linhas:{chave:string, sku:string, nome:string, qtd:number, preco_iva:number|null, total:number|null, horas:number|null, fechado:boolean, mao_obra_incluida_iva:number}[],
+ *   horas:number|null, dias:number|null, mao_obra_iva:number|null, mao_obra_incluida_iva:number, deslocacao_iva:number, artigos_iva:number|null, melhorias_margem_iva:number, total:number|null,
  *   min:number|null, max:number|null, completo:boolean, config:object, deslocacao:object|null}}
  */
 export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extra = 0) {
@@ -182,29 +209,54 @@ export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extr
     const preco = a && Number.isFinite(Number(a.preco_venda_iva)) ? Number(a.preco_venda_iva) : null;
     // Substituir: as horas de troca (menos do que instalar de novo); o resto, as de instalação.
     const horas = !a ? null : acao === "substituir" ? horasTroca(a) : Number.isFinite(Number(a.horas_instalacao)) ? Number(a.horas_instalacao) : null;
+    const total = preco === null ? null : cent(preco * qtd);
+    // Preço fechado: a mão de obra (horas × tarifa) sai de dentro do preço da linha, nunca acima dele.
+    const fechado = precoFechado(a);
     return {
       chave, sku: a?.sku ?? PEDIDOS[chave].sku, nome: a?.nome ?? PEDIDOS[chave].nome, qtd,
-      preco_iva: preco, total: preco === null ? null : cent(preco * qtd), horas: horas === null ? null : horas * qtd,
+      preco_iva: preco, total, horas: horas === null ? null : horas * qtd,
+      fechado, mao_obra_incluida_iva: fechado && total !== null && horas !== null ? Math.min(total, cent(horas * qtd * cfg.tarifa_hora_iva)) : 0,
       acao, grupo: acao ?? grupo ?? "novo",
     };
   });
   if (!catalogo) {
-    return { linhas, horas: null, mao_obra_iva: null, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, melhorias_margem_iva: 0, total: null, min: null, max: null, completo: false, config: cfg, deslocacao };
+    return { linhas, horas: null, dias: null, mao_obra_iva: null, mao_obra_incluida_iva: 0, deslocacao_iva: cfg.deslocacao_iva, artigos_iva: null, melhorias_margem_iva: 0, total: null, min: null, max: null, completo: false, config: cfg, deslocacao };
   }
   const completo = linhas.every((l) => l.preco_iva !== null);
   const horas = cent(soma(linhas, (l) => l.horas));
-  const mao = cent(horas * cfg.tarifa_hora_iva);
+  const mao = cent(cent(soma(linhas.filter((l) => !l.fechado), (l) => l.horas)) * cfg.tarifa_hora_iva);
   const artigos = cent(soma(linhas, (l) => l.total));
-  const desloc = !linhas.length ? 0 : deslocacao ? deslocacao.valor_iva ?? 0 : cfg.deslocacao_iva;
+  // Deslocação por dia de obra (deslocacao.js): um dia (ida e volta) × os dias que as horas dão.
+  const dias = diasDeObra(horas, cfg.horas_por_dia);
+  // No máximo `deslocacao_max_dias` (5) por obra: `limitado` quando os dias de obra passam o teto.
+  const diasDesl = Math.min(dias, deslocacao?.config?.deslocacao_max_dias ?? dias);
+  const desl = deslocacao && deslocacao.valor_dia_iva !== undefined
+    ? { ...deslocacao, dias: diasDesl, limitado: dias > diasDesl, valor_iva: deslocacao.valor_dia_iva === null ? null : cent(deslocacao.valor_dia_iva * diasDesl) } : deslocacao;
+  const desloc = !linhas.length ? 0 : desl ? desl.valor_iva ?? 0 : cfg.deslocacao_iva;
   const margem = cent(Number(extra) > 0 ? Number(extra) : 0);
   const total = cent(artigos + mao + desloc + margem);
   const menos = Math.min(cfg.intervalo_menos_pct, 100) / 100;
   const mais = cfg.intervalo_mais_pct / 100;
   return {
-    linhas, horas, mao_obra_iva: mao, deslocacao_iva: desloc, artigos_iva: artigos, melhorias_margem_iva: margem, total,
-    min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)), completo, config: cfg, deslocacao,
+    linhas, horas, dias, mao_obra_iva: mao, mao_obra_incluida_iva: cent(soma(linhas, (l) => l.mao_obra_incluida_iva)), deslocacao_iva: desloc, artigos_iva: artigos, melhorias_margem_iva: margem, total,
+    min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)), completo, config: cfg, deslocacao: desl,
   };
 }
+
+/**
+ * Obra mínima (ronda dinheiro, decisão 9 do dono; `obra_minima_iva`, 100 € c/ IVA): abaixo dela cobra-se o mínimo. O
+ * total e o intervalo nunca ficam abaixo do mínimo (mais a deslocação, que soma por cima); `obra_minima` = o mínimo
+ * quando o trabalho fica abaixo dele (senão null). A avaria rápida não passa por aqui (o diagnóstico é um valor fixo),
+ * nem o custo dos pacotes (melhorias.js).
+ */
+export function comObraMinima(p) {
+  const m = p?.config?.obra_minima_iva;
+  if (!p || p.total === null || !p.linhas.length || !(m > 0)) return p;
+  const piso = cent(m + p.deslocacao_iva);
+  return { ...p, obra_minima: p.total < piso ? m : null, total: Math.max(p.total, piso), min: Math.max(p.min, arredondar5(piso)), max: Math.max(p.max, arredondar5(piso)) };
+}
+/** "1 820 € – 2 425 €", ou um só valor quando o mínimo e o máximo são iguais (obra mínima). */
+export const textoIntervalo = (p) => (p.min === p.max ? formatarEuroRedondo(p.min) : `${formatarEuroRedondo(p.min)} – ${formatarEuroRedondo(p.max)}`);
 
 /**
  * Plano mensal sugerido (§5): central → Premium; sensores/alarme ou o objetivo "controlar à distância"

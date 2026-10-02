@@ -34,6 +34,14 @@
             <p class="pag-valor num" id="pag-valor"></p>
             <p id="pag-descricao"></p>
             <p class="ajuda" id="pag-ref"></p>
+            <p class="ajuda" id="pag-metodos" hidden></p>
+            <label class="campo" for="pag-metodo"><span>Pagar como (simulação)</span>
+              <select id="pag-metodo" name="metodo">
+                <option value="card">Cartão</option>
+                <option value="mb_way">MB Way</option>
+                <option value="multibanco">Referência Multibanco</option>
+              </select>
+            </label>
             <div class="form-botoes pag-botoes">
               <button class="btn" type="button" id="pag-sucesso">Pagar (simular sucesso)</button>
               <button class="btn sec" type="button" id="pag-falha">Simular falha</button>

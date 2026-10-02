@@ -308,16 +308,16 @@ export function resumoQuadro(estado) {
   linha("diferencial_tipo_a", "Diferencial 40 A / 30 mA tipo A (carregador VE; RTIEBT 722)", gVe, gVe * MODULOS.diferencial * P);
   novos += Math.max(0, gruposGeral.length - 1) * MODULOS.diferencial * P;
   // Artigos (disjuntores, AFDD, inteligentes): todos os circuitos; módulos e linhas: só os do quadro geral.
-  let disj = 0, nAfdd = 0, sy2 = 0, sy1 = 0;
-  let disjG = 0, mDisj = 0, nAfddG = 0, mAfdd = 0, sy2G = 0, sy1G = 0, mSy = 0, tetra = 0, tetraT = 0;
+  let disj = 0, disjVe = 0, nAfdd = 0, sy2 = 0, sy1 = 0;
+  let disjG = 0, mDisj = 0, nAfddG = 0, mAfdd = 0, sy2G = 0, sy1G = 0, mSy = 0, tetra = 0, tetraT = 0, tetraVe = 0;
   for (const c of circuitos) {
     const g = quadroDe(c) === geral;
     const i = inteligenteDe(c, q.disjuntor);
     const comAfdd = afdd.includes(c.n);
-    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { tetraT++; if (g) tetra++; continue; }
+    if (tri && (c.itens?.maquinas ?? []).some(trifasica)) { tetraT++; if (temCarregador(c)) tetraVe++; if (g) tetra++; continue; }
     if (comAfdd) { nAfdd++; if (g) { nAfddG++; mAfdd += MODULOS.afdd; novos += i === "sy2" ? MODULOS.afdd : MODULOS.afdd - MODULOS.disjuntor; } }
     if (i === "sy2") { sy2++; if (g) { sy2G++; mSy += MODULOS.sy; } }
-    else if (!comAfdd) { disj++; if (g) { disjG++; mDisj += MODULOS.disjuntor; } }
+    else if (!comAfdd) { disj++; if (temCarregador(c)) disjVe++; if (g) { disjG++; mDisj += MODULOS.disjuntor; } }
     if (i === "sy1") { sy1++; if (g) { sy1G++; mSy += MODULOS.sy; novos += MODULOS.sy; } }
   }
   // Quadro novo sem "Instalação nova": um disjuntor 1P+N por cada circuito que a casa já tem (estimativa, no geral).
@@ -346,7 +346,7 @@ export function resumoQuadro(estado) {
   return {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
-    disjuntores: disj, sy2, sy1, tetrapolares: tetraT, circuitos_existentes: existentes, afdd_existentes: afddEx,
+    disjuntores: disj, disjuntores_ve: disjVe, sy2, sy1, tetrapolares: tetraT, tetrapolares_ve: tetraVe, circuitos_existentes: existentes, afdd_existentes: afddEx,
     parciais, pisos_quadros: pisosQ,
     potencia: potenciaSugerida(circuitos, compartimentosRtiebt(estado)),
   };
@@ -361,6 +361,8 @@ export const levaQuadroNovo = (q) => q?.quadro_novo !== "atual";
  * os disjuntores dos circuitos sem SY2/AFDD e um tetrapolar (4P) por circuito de máquina trifásica numa casa
  * trifásica; com o quadro atual, a ampliação quando há mais de 12 módulos novos (a máquina trifásica fica na
  * proteção trifásica que já tem).
+ * Ronda dinheiro: o diferencial tipo A e o disjuntor (1P+N, ou o tetrapolar do de 22 kW) do circuito do carregador VE já vão dentro da linha dedicada do
+ * carregador (LINHA-DEDICADA-VE, acoes.js pontosDoElemento): não entram aqui outra vez (os módulos contam na mesma).
  * @returns {{chave:string, qtd:number}[]}
  */
 export function pedidosQuadro(estado) {
@@ -368,10 +370,10 @@ export function pedidosQuadro(estado) {
   const p = r.protecoes;
   const out = [];
   const add = (chave, qtd) => { if (qtd > 0) out.push({ chave, qtd }); };
-  // Ronda regras: o grupo do carregador VE leva sempre o diferencial tipo A (RTIEBT 722.531.2.101), nunca o AC nem o Wi-Fi.
+  // Ronda regras: o grupo do carregador VE leva sempre o diferencial tipo A (RTIEBT 722.531.2.101), nunca o AC nem o
+  // Wi-Fi — incluído na linha dedicada do carregador (ronda dinheiro).
   const ve = r.grupos.filter((g) => g.carregador).length;
   add(p.idr_wifi ? "diferencial_wifi" : "diferencial", r.grupos.length - ve);
-  add("diferencial_tipo_a", ve);
   add("descarregador", p.descarregador ? 1 : 0);
   add("rele_tensao", p.rele_tensao ? 1 : 0);
   add("afdd", r.afdd.length + r.afdd_existentes);
@@ -380,8 +382,8 @@ export function pedidosQuadro(estado) {
   if (levaQuadroNovo(estado.quadro)) {
     // O geral (salvo com o geral Wi-Fi) e o de cada quadro parcial (a saída do piso, no geral).
     add("disjuntor_geral", (p.geral_wifi ? 0 : 1) + r.parciais);
-    add("disjuntor_circuito", r.disjuntores);
-    add("disjuntor_tetrapolar", r.tetrapolares);
+    add("disjuntor_circuito", r.disjuntores - r.disjuntores_ve);
+    add("disjuntor_tetrapolar", r.tetrapolares - r.tetrapolares_ve);
     // Caixas: a(s) do geral e as dos parciais (as de 12 módulos juntam-se numa linha).
     if (r.tamanho === TAMANHO_PARCIAL) add(`caixa_${r.tamanho}`, r.quadros + r.parciais);
     else { add(`caixa_${r.tamanho}`, r.quadros); add(`caixa_${TAMANHO_PARCIAL}`, r.parciais); }
@@ -470,7 +472,7 @@ export function avisosProtecoes(estado) {
   const a = (t) => out.push(`${t}${FIM_AVISO}`);
   if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea).");
   else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver para-raios ou for alimentada por linha aérea, o descarregador de sobretensões é recomendado (RTIEBT 801.5.10).");
-  if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio tipo A — tipo A exigido (RTIEBT 722); se o carregador já o trouxer, sai do preço.");
+  if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio tipo A — tipo A exigido (RTIEBT 722); já vai na linha dedicada do carregador.");
   if (r.circuitos_existentes) a(`Quadro novo com os circuitos que a casa já tem: contámos ${r.circuitos_existentes} (1 de iluminação por piso, 1 de tomadas por cada 2 divisões, a cozinha e as casas de banho à parte), cada um com um disjuntor 1P+N — o n.º de circuitos a confirmar na visita.`);
   if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos deixa 25 % livres — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);
   // Quadro novo: um de N módulos, ou vários de 48 quando nem esse deixa 25 % livres (r.cabe, r.quadros).

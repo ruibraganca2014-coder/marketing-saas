@@ -7,7 +7,7 @@ import { normalizarQuer, fasesSugeridas, pisosDaCasa } from "./estado.js";
 import { QUADRO_SEGURO, acertarMelhorias } from "./melhorias.js";
 
 const ENTRADAS = {
-  /** Carregador de carro: obras ou automatizar, "Automatizar o que já tenho", com o carregador (7,4 kW) em Equipamentos. */
+  /** Carregador de carro: obras ou automatizar, "Automatizar o que já tenho", com o carregador (7,4 kW) em Equipamentos, como Novo. */
   carregador(estado) {
     estado.funil = "primeira";
     estado.servico = ["automatizar"];
@@ -15,6 +15,9 @@ const ENTRADAS = {
     const porPiso = { ...estado.quer.porPiso, carregador_ve: { 0: 1 } };
     estado.quer = normalizarQuer({ ...estado.quer, porPiso }, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
     if (!estado.fasesEditadas) estado.casa.fases = fasesSugeridas(estado);
+    // Ronda dinheiro: quem vem do anúncio quer um carregador NOVO — nasce "Novo" na planta (app.js marcarNovas) e a
+    // linha dedicada (LINHA-DEDICADA-VE) conta no preço desde a primeira estimativa.
+    estado.maquinasNovas = ["carregador_ve"];
   },
   /** Quadro antigo: "Automatizar o que já tenho", "Melhorar o quadro? Sim" e o pacote "Quadro seguro". */
   "quadro-antigo"(estado) {

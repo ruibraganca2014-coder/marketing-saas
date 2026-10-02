@@ -2,6 +2,7 @@
 
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { recusaAcessoRapido } from './acesso-rapido.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
@@ -79,6 +80,18 @@ export function lerConfig(env = process.env) {
   if (ivaTaxa !== ivaEnv) avisos.push(`IVA_TAXA inválida ("${env.IVA_TAXA}"): usa-se 23`);
   if (pagamentoPedido && pagamentosModo === 'stripe' && !stripeChave) avisos.push('PAGAMENTOS_MODO=stripe sem STRIPE_SECRET_KEY: o envio de pedidos com simulação responde 503');
   if (pagamentoPedido && pagamentosModo === 'stripe' && !env.STRIPE_PEDIDO_WEBHOOK_SECRET) avisos.push('sem STRIPE_PEDIDO_WEBHOOK_SECRET: o webhook dos pagamentos do pedido está desligado (a confirmação fica só no regresso do cliente)');
+  // Acesso rápido (testes; acesso-rapido.js, docs/SEGURANCA.md): só com ACESSO_RAPIDO=1 — que só o lançador local
+  // põe — e sem nenhum sinal de servidor a sério (https, DOMUS_HOST, NODE_ENV=production…); senão erro e DESLIGADO.
+  const erros = [];
+  let acessoRapido = false;
+  if (env.ACESSO_RAPIDO === '1') {
+    const recusa = recusaAcessoRapido(env);
+    if (recusa) erros.push(`ACESSO_RAPIDO=1 IGNORADO (${recusa}): o acesso rápido de testes fica DESLIGADO`);
+    else {
+      acessoRapido = true;
+      avisos.push('ACESSO_RAPIDO=1: acesso rápido de testes LIGADO (entrar sem palavra-passe com utilizadores de teste, só a partir deste computador, nunca pela rede)');
+    }
+  }
   return {
     porta: Number(env.PORTA || 8080),
     anfitriao: env.ANFITRIAO || undefined,   // sem ele: todas as interfaces (como antes); o lançador local usa 127.0.0.1
@@ -141,6 +154,8 @@ export function lerConfig(env = process.env) {
     stripeMetodos: String(env.STRIPE_PEDIDO_METODOS || 'card,mb_way,multibanco').split(',').map((x) => x.trim()).filter((x) => /^[a-z_]{2,40}$/.test(x)),
     // Endereço do site nos emails (ligação para a conta).
     siteUrl: String(env.SITE_URL || siteOrigens[0] || env.PUBLIC_URL || (env.DOMUS_HOST ? `https://${env.DOMUS_HOST}` : '')).replace(/\/+$/, ''),
+    acessoRapido,
     avisos,
+    erros,
   };
 }

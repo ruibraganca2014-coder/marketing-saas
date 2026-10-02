@@ -16,11 +16,11 @@ import {
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
-  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent,
+  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoDias,
 } from "./preco.js";
 import {
   SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, soReparacoes, precisaEscolher, temAcao,
-  perguntaInteligente, acaoDe, faltaAcao, plantaNovos, pedidoDoElemento, inteligenteDe, plantaInteligentes,
+  perguntaInteligente, acaoDe, faltaAcao, plantaNovos, pedidoDoElemento, inteligenteDe, plantaInteligentes, perguntaMedicao,
 } from "./acoes.js";
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
@@ -307,7 +307,7 @@ function estimativaProvisoria() {
   const aceites = melhorias.filter((m) => m.aceite);
   const pedidos = [...pedidosDaSelecao({ ...estado, plantaPontos: plantaParaContar() }), ...aceites.flatMap((m) => m.linhas)];
   if (!pedidos.length) return null;
-  const p = calcularPreco(pedidos, catalogo, configOrc, { valor_iva: 0 }, aceites.reduce((t, m) => t + (m.margem ?? 0), 0));
+  const p = comObraMinima(calcularPreco(pedidos, catalogo, configOrc, { valor_iva: 0 }, aceites.reduce((t, m) => t + (m.margem ?? 0), 0)));
   if (p.min === null) return null;
   const dez = (x) => Math.round(x / 10) * 10;
   return { min: dez(p.min), max: Math.max(dez(p.min), dez(p.max)) };
@@ -320,7 +320,7 @@ function desenharEstimativaProvisoria() {
     if (p !== P.inicio && catalogo) { const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo, configOrc, { valor_iva: 0 }); if (total !== null) texto = textoDiagnostico(total); }
   } else if (p !== P.inicio && (funilPlanta() || ordemPasso(p) > ordemPasso(P.quer))) {
     const est = estimativaProvisoria();
-    if (est) texto = `Estimativa: ${formatarEuroRedondo(est.min)} – ${formatarEuroRedondo(est.max)}${ordemPasso(p) < ordemPasso(P.preco) ? " · afina nos passos seguintes" : ""}`;
+    if (est) texto = `Estimativa: ${textoIntervalo(est)}${ordemPasso(p) < ordemPasso(P.preco) ? " · afina nos passos seguintes" : ""}`;
   }
   e.textContent = texto ?? "";
   e.hidden = !texto;
@@ -1503,7 +1503,7 @@ function acertarMexida() {
   if (JSON.stringify(antes) === JSON.stringify(depois)) return false;
   const p = structuredClone(estado.planta);
   const dicas = acertarPlantaMexida(p, antes, depois, { casa: estado.casa });
-  estado.planta = p;
+  estado.planta = marcarNovas(p);
   estado.plantaSinc = depois;
   estado.plantaBase = assinaturaBase();
   estado.plantaFase = depois.fase;
@@ -1520,7 +1520,7 @@ function acertarMexida() {
 const fasePlanta = () => (codigoCliente || visitado > P.casa ? "tudo" : visitado === P.casa ? "divisoes" : "vazia");
 const plantaDaFaseTemAlgo = () => { const f = fasePlanta(); return f === "tudo" || (f === "divisoes" && casaDaDivisoes()); };
 function desenharDaCasa() {
-  const p = plantaDaCasa(estado.casa, maquinasParaPlanta(estado));
+  const p = marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
   const f = fasePlanta();
   if (f !== "tudo") p.elementos = [];
   if (f === "vazia" || (f === "divisoes" && !casaDaDivisoes())) p.divisoes = [];
@@ -1689,7 +1689,16 @@ const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length 
 // Reparar e Substituir ficam nos circuitos existentes e têm o seu preço (preco.js pedidosDaSelecao).
 // Tomadas e interruptores: inteligentes só com a resposta do cliente (ou o objetivo "Luzes pelo telemóvel"): acoes.js plantaInteligentes.
 /** A planta que conta: a do cliente ou, com a planta saltada, a que a casa desenha (também para os pontos novos, preco.js). */
-const plantaParaContar = () => (usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
+const plantaParaContar = () => (usaPlanta() ? estado.planta : marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado))));
+/**
+ * Ronda dinheiro — entrada pelo anúncio do carregador (entrada.js, `estado.maquinasNovas`): essas máquinas nascem "Novo"
+ * na planta que desenhamos (a linha dedicada conta no preço desde o início); a escolha do cliente nunca é mudada.
+ */
+function marcarNovas(p) {
+  const novas = estado.maquinasNovas ?? [];
+  if (novas.length) for (const e of p.elementos) if (e.tipo === "maquina" && novas.includes(e.props?.modelo) && !ACOES[e.acao]) e.acao = "novo";
+  return p;
+}
 const contagemAtual = () => contarPlanta(plantaInteligentes(plantaNovos(plantaParaContar(), servicos()), estado.quer.objetivos));
 
 /**
@@ -2090,7 +2099,7 @@ let divisaoTocada = null;       // divisão mexida a partir deste passo (o pedid
 const abertas = new Set();      // linhas com vários aparelhos com a lista "Qual?" aberta
 
 /** Planta deste passo: a desenhada ou, com a planta saltada, a que a casa daria (a mesma da contagem). */
-const plantaDivisoes = () => (usaPlanta() ? estado.planta : plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
+const plantaDivisoes = () => (usaPlanta() ? estado.planta : marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado))));
 
 /** Linhas de uma divisão: {k, tipo, modelo, els} — uma por tipo de aparelho (máquinas: uma por modelo). */
 function linhasDivisao(planta, d) {
@@ -2825,6 +2834,7 @@ function mudarAparelhos(d, ids, mudar, focoId) {
   editor.redesenhar();
   agendarGravacao();
   desenharTrocar();
+  desenharEstimativaProvisoria();   // a estimativa por baixo da barra segue a escolha (ex.: carregador com medição)
   focar(focoId);
 }
 
@@ -2863,14 +2873,18 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   // "Por um inteligente?" ao Trocar (obrigatório) e no Novo (sugestão de melhoria: a omissão é normal, ou inteligente
   // com o objetivo "Luzes pelo telemóvel" nos interruptores). Todos a Trocar (ou todos Novos), sem "um a um":
   // pergunta-se uma vez para a linha toda ("todas iguais").
-  const pergunta = (e) => perguntaInteligente(e.tipo) && ["substituir", "novo"].includes(acaoDe(e, sv));
-  const valorInteligente = (e) => (acaoDe(e, sv) === "novo" ? inteligenteDe(e, estado.quer.objetivos) : e.inteligente);
+  // Ronda dinheiro: no carregador Novo a pergunta é "Com medição no telemóvel?" (opcional; sem resposta = Não: a linha
+  // dedicada de 390 € já traz tudo; com "Sim" junta-se o disjuntor inteligente).
+  const medicao = (e) => perguntaMedicao(e.tipo, e.props) && acaoDe(e, sv) === "novo";
+  const pergunta = (e) => medicao(e) || (perguntaInteligente(e.tipo) && ["substituir", "novo"].includes(acaoDe(e, sv)));
+  const textoPergunta = (e) => (medicao(e) ? "Com medição no telemóvel?" : "Por um inteligente?");
+  const valorInteligente = (e) => (medicao(e) ? e.inteligente === true : acaoDe(e, sv) === "novo" ? inteligenteDe(e, estado.quer.objetivos) : e.inteligente);
   const inteligenteTodos = !umAUm && els.length > 1 && pergunta(els[0]) && els.every((e) => acaoDe(e, sv) === acaoDe(els[0], sv));
   if (inteligenteTodos) {
     const g = el("div", "acao-inteligente");
     g.setAttribute("role", "group");
-    g.setAttribute("aria-label", `Por um inteligente? ${els.length} ${nomeL} (${onde}), todos`);
-    g.append(el("span", null, `Por um inteligente? (${els.length === 2 ? "os 2" : `os ${els.length}`})`));
+    g.setAttribute("aria-label", `${textoPergunta(els[0])} ${els.length} ${nomeL} (${onde}), todos`);
+    g.append(el("span", null, `${textoPergunta(els[0])} (${els.length === 2 ? "os 2" : `os ${els.length}`})`));
     const comum = els.every((e) => valorInteligente(e) === valorInteligente(els[0])) ? valorInteligente(els[0]) : undefined;
     for (const [v, t] of [[true, "Sim"], [false, "Não"]]) {
       const b = el("button", "btn sec pequeno", t);
@@ -2923,8 +2937,8 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
     } else if (pergunta(e) && !inteligenteTodos) {
       const g = el("div", "acao-inteligente");
       g.setAttribute("role", "group");
-      g.setAttribute("aria-label", `Por um inteligente? ${nomeE} (${onde})`);
-      g.append(el("span", null, `Por um inteligente?${els.length > 1 ? ` (${nomeE.toLowerCase()})` : ""}`));
+      g.setAttribute("aria-label", `${textoPergunta(e)} ${nomeE} (${onde})`);
+      g.append(el("span", null, `${textoPergunta(e)}${els.length > 1 ? ` (${nomeE.toLowerCase()})` : ""}`));
       for (const [v, t] of [[true, "Sim"], [false, "Não"]]) {
         const b = el("button", "btn sec pequeno", t);
         b.type = "button";
@@ -3559,9 +3573,12 @@ function calcular() {
   const extra = aceites.reduce((t, m) => t + (m.margem ?? 0), 0);
   // Local da obra: a localidade do contacto (passo 7) — como em casaParaEnvio. `preco` (o que se envia) já leva a
   // deslocação; `semDesloc` é o do Resumo (passo 6), sem deslocação ("+ deslocação").
+  // Ronda dinheiro: a deslocação é ida e volta por dia de obra (calcularPreco acerta os dias pelas horas) e, fora da
+  // avaria, o total nunca fica abaixo da obra mínima (comObraMinima).
   const deslocacao = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
-  const preco = calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao, extra);
-  const semDesloc = calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 }, extra);
+  const minimo = (p) => (funilAvaria() ? p : comObraMinima(p));
+  const preco = minimo(calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao, extra));
+  const semDesloc = minimo(calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 }, extra));
   // Plano sugerido: "controlar à distância" = o pacote Casa inteligente aceite (B8: os cartões "O que quer fazer" saíram
   // do Orçamento; os objetivos de um estado antigo — "distância", "desligar tudo ao fechar" — continuam a contar).
   const distancia = quer("distancia") || quer("desligar") || aceites.some((m) => m.id === "casa-inteligente");
@@ -3649,6 +3666,9 @@ function listaInclui(pedidos) {
   const comandos = [[q("comutador_escada"), "de escada"], [q("inversor"), "inversor"], [q("botao_pressao") - q("campainha"), "de pressão"]].filter(([n]) => n > 0).map(([n, t]) => `${n} ${t}`);
   add(q("ponto_interruptor"), `1 interruptor novo${comandos.length ? ` (${comandos.join(", ")})` : ""}`, `interruptores novos${comandos.length ? ` (${comandos.join(", ")})` : ""}`);
   add(q("campainha"), "1 campainha com botão de pressão", "campainhas com botão de pressão");
+  // Ronda dinheiro: a linha dedicada (até 15 m) de cada máquina nova com circuito próprio; a do carregador com o diferencial tipo A.
+  add(q("linha_dedicada_ve"), "1 linha dedicada para o carregador (até 15 m, com diferencial tipo A)", "linhas dedicadas para carregadores (até 15 m, com diferencial tipo A)");
+  add(q("linha_dedicada") - q("linha_dedicada_ve"), "1 linha dedicada para máquina (até 15 m)", "linhas dedicadas para máquinas (até 15 m)");
   add(q("interruptor"), "1 interruptor inteligente (luzes pelo telemóvel)", "interruptores inteligentes (luzes pelo telemóvel)");
   add(q("estore"), "1 estore automático", "estores automáticos");
   add(q("sensor_movimento"), "1 sensor de movimento", "sensores de movimento");
@@ -3684,8 +3704,11 @@ function desenharPreco() {
   } else if (semDesloc.min !== null) {
     // Sem deslocação: essa vem da localidade do contacto e mostra-se no passo 7.
     total.append(el("p", "sim-rotulo", "Estimativa com instalação"));
-    total.append(el("p", "sim-intervalo num", `${formatarEuroRedondo(semDesloc.min)} – ${formatarEuroRedondo(semDesloc.max)}`));
+    total.append(el("p", "sim-intervalo num", textoIntervalo(semDesloc)));
+    // Ronda dinheiro: abaixo da obra mínima cobra-se o mínimo; as horas dizem-se em dias de obra.
+    if (semDesloc.obra_minima) total.append(el("p", "ajuda", `Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}`));
     if (!foraDaArea()) total.append(el("p", "ajuda", "+ deslocação"));   // fora da área não há deslocação (textoEstimativa)
+    if (semDesloc.dias) total.append(el("p", "ajuda", textoDias(semDesloc.dias)));
     if (!semDesloc.completo) total.append(el("p", "ajuda", "Há artigos sem preço: confirmamos depois."));
   } else {
     total.append(el("p", "sim-intervalo", "Vamos enviar-lhe o preço"));
@@ -3736,9 +3759,9 @@ function dadosPdfOrcamento() {
     nomesAcoes: NOMES_ACOES,
     inclui: pedidos.length ? listaInclui(pedidos) : [],
     melhorias: aceites.map(textoMelhoria),
-    intervalo: pedidos.length && semDesloc.min !== null ? `${formatarEuroRedondo(semDesloc.min)} – ${formatarEuroRedondo(semDesloc.max)}${foraDaArea() ? "" : " + deslocação"}` : null,
+    intervalo: pedidos.length && semDesloc.min !== null ? `${textoIntervalo(semDesloc)}${foraDaArea() ? "" : " + deslocação"}` : null,
     planos: Object.entries(PLANOS).map(([k, x]) => ({ nome: x.nome, preco: `${formatarEuro(x.preco)} por mês`, sugerido: k === plano })),
-    nota: "Estimativa; valor final após a visita.",
+    nota: `Estimativa; valor final após a visita.${pedidos.length && semDesloc.dias ? ` ${textoDias(semDesloc.dias)}.` : ""}${semDesloc.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}.` : ""}`,
   };
 }
 $("preco-pdf").addEventListener("click", async () => {
@@ -4072,14 +4095,15 @@ function desenharDeslocacao() {
       el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Sem visita técnica: contactamos para combinar."));
   }
   else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita."));
-  else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}`));
+  // Ronda dinheiro: ida e volta por dia de obra ("Deslocação a Sintra (cerca de 29 km): 28,80 € (ida e volta, 4 dias)").
+  else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}${d.valor_iva > 0 ? (d.limitado ? ` (ida e volta; máximo ${d.dias} dias)` : ` (ida e volta, ${d.dias} ${d.dias === 1 ? "dia" : "dias"})`) : ""}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
   if (funilAvaria()) {
     if (semDesloc.total !== null) caixa.append(el("p", "num", textoDiagnostico(semDesloc.total)));
     // A avaria paga-se ao enviar: o diagnóstico e a deslocação (o servidor confirma o valor).
     if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(preco.total)} (descontado na reparação)`));
   }
-  else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`));
+  else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${textoIntervalo(preco)}`));
   caixa.hidden = false;
 }
 
@@ -4106,7 +4130,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
     const loc = estado.contacto.localidade.trim() || estado.casa.localidade.trim();
     if (loc) partes.push(`Localidade: ${loc}`);
     if (codigoCliente) partes.push(`Cliente: ${codigoCliente}`);
-    if (preco?.min != null) partes.push(funilAvaria() ? textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva) : `Estimativa: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}`);
+    if (preco?.min != null) partes.push(funilAvaria() ? textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva) : `Estimativa: ${textoIntervalo(preco)}`);
     partes.push(`${estado.divisoes.length} ${estado.divisoes.length === 1 ? "divisão" : "divisões"}.`);
     const texto2 = partes.join("\n").slice(0, 1500);
     if (temWhatsapp()) {
@@ -4516,7 +4540,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
     : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
-    : `Estimativa enviada: ${formatarEuroRedondo(preco.min)} – ${formatarEuroRedondo(preco.max)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
+    : `Estimativa enviada: ${textoIntervalo(preco)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).
   const ff = $("fim-fotos");

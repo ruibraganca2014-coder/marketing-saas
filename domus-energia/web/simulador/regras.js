@@ -654,7 +654,8 @@ export function contarPlanta(planta) {
       case "sensor_porta": l.sensores_porta++; break;
       case "sensor_movimento": l.sensores_movimento++; break;
       case "quadro": l.quadros++; break;
-      case "maquina": l.maquinas.push({ modelo: MODELOS[p.modelo] ? p.modelo : "outro", potencia_w: potencia(p) }); break;
+      // `inteligente` (ronda dinheiro): só o carregador novo com "medição no telemóvel" (sugerirCircuitos).
+      case "maquina": l.maquinas.push({ modelo: MODELOS[p.modelo] ? p.modelo : "outro", potencia_w: potencia(p), ...(e.inteligente === true ? { inteligente: true } : {}) }); break;
       default: break;
     }
   }
@@ -683,6 +684,9 @@ const potencia = (p) => {
   const w = Number(p.potencia_w);
   return Number.isFinite(w) && w >= 0 ? Math.round(w) : (MODELOS[p.modelo]?.w ?? 0);
 };
+
+/** A máquina de um elemento da planta como a contagem a vê ({modelo, potencia_w}: a potência escrita ou a típica do modelo). */
+export const maquinaDaPlanta = (props) => ({ modelo: MODELOS[props?.modelo] ? props.modelo : "outro", potencia_w: potencia(props ?? {}) });
 
 /** Linhas do passo "Divisões" a partir da contagem (porta da rua → sensor sugerido); "Fora das divisões" não é uma divisão. */
 export function divisoesDaContagem(contagem) {
@@ -874,7 +878,9 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
   const maquinas = [];
   for (const c of contagem) {
     for (const m of c.maquinas.filter(circuitoProprio)) {
-      const semInteligente = opcoes.fases === "tri" && trifasica(m);
+      // Ronda dinheiro: o carregador VE só leva disjuntor inteligente se o cliente pedir a medição (a linha dedicada já
+      // traz o disjuntor e o diferencial tipo A).
+      const semInteligente = (opcoes.fases === "tri" && trifasica(m)) || (ehCarregador(m) && m.inteligente !== true);
       maquinas.push({
         ...circuitoVazio(0, "maquina"),
         ...(semInteligente ? { inteligente: false, medir: false } : {}),

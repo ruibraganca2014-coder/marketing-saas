@@ -1,6 +1,8 @@
 // Obras: agenda semanal + lista; ficha com checklist de material, horas e notas.
 // CEO: tudo (nova obra, datas, técnicos). Técnico: só as suas obras (estado, horas reais, material, notas).
 // Comercial: só leitura.
+// A obra nasce com o sinal pago (decisão do dono): aparece aqui "Por agendar" e com "Casa por ligar — falta o restante"
+// até a casa ser ligada na ficha do pedido (só com o restante pago).
 import { pedir, campo, lista, numero } from "../api.js";
 import { h, ESTADOS_OBRA, KITS, PAPEIS, nomeDe, num, data, diaSemana, isoDia, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt } from "../ui.js";
 
@@ -67,8 +69,16 @@ export default function obras(el, ctx) {
     return h("a", { class: `obra obra-${estado} ${minha(o) ? "minha" : ""}`.trim(), href: `#/obras/${encodeURIComponent(id)}`, dataset: { id } },
       h("strong", { text: txt(o, "cliente_nome", "cliente") }),
       h("span", { class: "ajuda", text: `${nomeDe(KITS, campo(o, "kit"))}${tecs ? ` · ${tecs}` : ""}` }),
-      curto ? (campo(o, "hora") ? h("span", { class: "ajuda num", text: String(campo(o, "hora")) }) : null) : h("span", { class: "ajuda num", text: `${data(campo(o, "data"))}${campo(o, "hora") ? ` ${campo(o, "hora")}` : ""}` }),
-      selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`));
+      curto ? (campo(o, "hora") ? h("span", { class: "ajuda num", text: String(campo(o, "hora")) }) : null) : h("span", { class: "ajuda num", text: `${campo(o, "por_agendar") === true ? "data provisória: " : ""}${data(campo(o, "data"))}${campo(o, "hora") ? ` ${campo(o, "hora")}` : ""}` }),
+      h("span", { class: "linha-selos" }, selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`), ...selosCasa(o)));
+  }
+
+  /** "Por agendar" (data provisória) e "Casa por ligar — falta o restante" (a obra existe antes da casa). */
+  function selosCasa(o) {
+    if (["cancelada"].includes(campo(o, "estado"))) return [];
+    const casa = campo(o, "casa");
+    return [campo(o, "por_agendar") === true ? selo("Por agendar", "aviso") : null,
+      casa === "falta_restante" ? selo("Casa por ligar — falta o restante", "info") : casa === "por_ligar" ? selo("Casa por ligar", "info") : null].filter(Boolean);
   }
 
   function desenharAgenda() {
@@ -120,8 +130,10 @@ export default function obras(el, ctx) {
     const tecs = tecnicosDe(o);
     const partes = [
       dados([
-        ["Cliente", campo(o, "cliente") ? h("a", { href: `#/clientes/${encodeURIComponent(campo(o, "cliente"))}`, text: txt(o, "cliente_nome", "cliente") }) : "—"],
-        ["Data", `${data(campo(o, "data"))}${campo(o, "hora") ? ` às ${campo(o, "hora")}` : ""}`],
+        ["Cliente", campo(o, "cliente") ? h("a", { href: `#/clientes/${encodeURIComponent(campo(o, "cliente"))}`, text: txt(o, "cliente_nome", "cliente") }) : txt(o, "cliente_nome")],
+        ...(campo(o, "casa") && campo(o, "casa") !== "ligada" ? [["Casa", campo(o, "casa") === "falta_restante" ? "Casa por ligar — falta o restante" : "Casa por ligar (na ficha do pedido)"]] : []),
+        ...(campo(o, "orcamento_id") && !ctx.pode("tecnico") ? [["Pedido", h("a", { href: `#/orcamentos/${encodeURIComponent(campo(o, "orcamento_id"))}`, text: `n.º ${campo(o, "orcamento_id")}` })]] : []),
+        ["Data", `${data(campo(o, "data"))}${campo(o, "hora") ? ` às ${campo(o, "hora")}` : ""}${campo(o, "por_agendar") === true ? " (provisória: por agendar)" : ""}`],
         ["Técnicos", tecs.map((t) => t.nome).join(", ") || "—"],
         ["Kit", nomeDe(KITS, kit)],
         ["Horas estimadas", estimadas == null ? "—" : `${num(estimadas)} h`],

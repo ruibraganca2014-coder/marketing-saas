@@ -21,3 +21,11 @@ O `iniciar.js` substitui o `servidor/docker-compose.yml`: arranca um broker MQTT
 - não há ntfy, por isso as notificações do motor falham e só aparecem no registo;
 - o `domus.sh` não corre, por isso os pedidos do painel (criar clientes e aparelhos) ficam pendentes;
 - o Stripe fica desligado até pores as variáveis `STRIPE_*` no ambiente.
+
+## Acesso rápido (testes)
+
+Só aqui, as páginas têm em baixo, à esquerda, o botão **Acesso rápido (testes)**: abre uma caixa com "CEO · Comercial · Técnico" (painel), "Cliente de teste 1 · Cliente de teste 2" (conta de cliente) e "Sair". Entra-se sem palavra-passe, com utilizadores de teste criados na primeira vez (`ceo.teste@domus.localhost`, `comercial.teste@…`, `tecnico.teste@…`, `cliente1.teste@exemplo.pt`, `cliente2.teste@exemplo.pt`). Os mesmos botões aparecem no ecrã de entrada do painel e no bloco da conta (`conta.html` e passo "Enviar" do simulador). A entrada normal continua igual.
+
+- `ACESSO_RAPIDO=0 npm start` desliga tudo (sem barra, as rotas dão 404).
+- Só funciona neste computador (`http://localhost:8080`, `*.localhost`, `127.0.0.1`). Não funciona pela rede: no endereço da rede local (porta 8090, telemóvel no mesmo Wi-Fi) as páginas não têm a barra e as rotas dão 404.
+- No servidor a sério não existe: a barra é o `local/acesso-rapido.js` (que o `iniciar.js` junta às páginas; não está em `web/` nem em `painel/public/`) e o painel só liga as rotas com `ACESSO_RAPIDO=1` num ambiente local. Ver `docs/SEGURANCA.md`, "Acesso rápido".

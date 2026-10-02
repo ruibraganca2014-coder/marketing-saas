@@ -60,13 +60,14 @@ test('distância: haversine × 1,3; Lisboa→Sintra, Lisboa→Porto, ilhas', () 
   assert.equal(distanciaEstrada(lx, lx), 0);
 });
 
-test('deslocação: km grátis, €/km, mínimo fixo, fora da área, texto livre', () => {
+test('deslocação (ida e volta, por dia): km grátis, €/km, mínimo fixo, fora da área, texto livre', () => {
   const cfg = { deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, deslocacao_iva: 0 };
   const { config, ...s } = calcularDeslocacao('Sintra', cfg);
-  assert.deepEqual(s, { localidade: 'Sintra', concelho: 'Sintra', distrito: 'Lisboa', distancia_km: 29, estado: 'estimada', valor_iva: 3.6 });
+  // 29 km − 20 grátis = 9 km pagos × 2 (ida e volta) × 0,40 € = 7,20 € por dia.
+  assert.deepEqual(s, { localidade: 'Sintra', concelho: 'Sintra', distrito: 'Lisboa', distancia_km: 29, dias: 1, limitado: false, estado: 'estimada', valor_dia_iva: 7.2, valor_iva: 7.2 });
   assert.equal(config.deslocacao_base, 'Lisboa');
   assert.equal(calcularDeslocacao('Lisboa', cfg).valor_iva, 0, 'dentro dos km grátis');
-  assert.equal(calcularDeslocacao('Sintra', { ...cfg, deslocacao_iva: 10 }).valor_iva, 13.6, 'fixo + km pagos');
+  assert.equal(calcularDeslocacao('Sintra', { ...cfg, deslocacao_iva: 10 }).valor_iva, 17.2, 'fixo + km pagos, ida e volta');
   const porto = calcularDeslocacao('Porto', cfg);
   assert.equal(porto.estado, 'fora_area');
   assert.equal(porto.valor_iva, null);
@@ -80,7 +81,7 @@ test('deslocação: km grátis, €/km, mínimo fixo, fora da área, texto livre
   assert.equal(livre.valor_iva, 7.5, 'só o mínimo fixo');
   assert.equal(calcularDeslocacao('', cfg).estado, 'sem_localidade');
   // Sem configuração (catálogo em baixo) ou base inválida: valores de exemplo (Lisboa, 20 km, 0,40 €/km, 100 km).
-  assert.equal(calcularDeslocacao('Sintra', null).valor_iva, 3.6);
+  assert.equal(calcularDeslocacao('Sintra', null).valor_iva, 7.2);
   assert.equal(calcularDeslocacao('Sintra', { ...cfg, deslocacao_base: 'Atlântida' }).distancia_km, 29);
   assert.equal(calcularDeslocacao('Évora', { ...cfg, deslocacao_max_km: 200 }).estado, 'estimada');
 });

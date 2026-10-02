@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, migrar, versaoEsquema, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20 } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
 import { pontosDoElemento, pedidosDoElemento, pedidosPontosNovos, plantaNovos, plantaInteligentes } from '../../web/simulador/acoes.js';
 import { pedidosDaSelecao, calcularPreco, encontrarArtigo, PEDIDOS } from '../../web/simulador/preco.js';
 import { plantaDaCasa, aparelhosOmissao, comandoSugerido } from '../../web/simulador/casa.js';
@@ -15,7 +15,7 @@ import { pedidosQuadro, resumoQuadro, potenciaSugerida, compartimentosRtiebt, mi
 import { estadoNovo, normalizarEstado, montarSimulacao, normalizarProps } from '../../web/simulador/estado.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 
-const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_PONTOS_20].filter((a) => a.ativo !== false);
+const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_PONTOS_20, ...SEMENTES_DINHEIRO].filter((a) => a.ativo !== false);
 const CATALOGO_ANTIGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
 const qtd = (pedidos, chave) => pedidos.filter((p) => p.chave === chave).reduce((s, p) => s + p.qtd, 0);
 
@@ -43,7 +43,7 @@ test('migração 15: os artigos da ronda regras entram numa base existente sem d
   const antes = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1 + SEMENTES_PONTOS_20.length);   // a 20 traz a tomada tripla
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1 + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length);   // a 20 traz a tomada tripla; a 24, as linhas dedicadas
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'PONTO-LUZ-NOVO'").get().c, 5000);
   for (const s of SEMENTES_PONTOS) assert.ok(db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(s.sku), s.sku);
   const a = db.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'IDR-2P-40A-30MA-A'").get();
@@ -71,7 +71,9 @@ test('pontos novos: preço fechado por ponto; inteligente = o ponto + o aparelho
   assert.deepEqual(pontosDoElemento(dupla), ['ponto_tomada_dupla']);
   assert.deepEqual(pontosDoElemento(int), ['ponto_interruptor']);
   assert.deepEqual(pontosDoElemento({ tipo: 'maquina', props: { modelo: 'campainha' } }), ['campainha', 'botao_pressao']);
-  assert.deepEqual(pontosDoElemento({ tipo: 'maquina', props: { modelo: 'placa' } }), []);
+  // Ronda dinheiro: a máquina nova com circuito próprio leva a linha dedicada; as pequenas não.
+  assert.deepEqual(pontosDoElemento({ tipo: 'maquina', props: { modelo: 'placa' } }), ['linha_dedicada']);
+  assert.deepEqual(pontosDoElemento({ tipo: 'maquina', props: { modelo: 'frigorifico' } }), []);
   // Novo inteligente: o ponto e o aparelho Wi-Fi (o ponto nunca se conta duas vezes).
   assert.deepEqual(pedidosDoElemento({ ...int, inteligente: true }, 'novo'), ['ponto_interruptor', 'interruptor_1']);
   assert.deepEqual(pedidosDoElemento({ ...tom, inteligente: true }, 'novo'), ['ponto_tomada', 'tomada']);
@@ -191,7 +193,7 @@ test('tomada dupla e campainha: artigos próprios (55 € e campainha + botão) 
   assert.ok(cont.some((c) => c.maquinas.some((m) => m.modelo === 'campainha')));
 });
 
-test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), com a nota "tipo A exigido (RTIEBT 722)"', () => {
+test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), dentro da linha dedicada (ronda dinheiro), com a nota "tipo A exigido (RTIEBT 722)"', () => {
   const e = casaT2(['nova'], ['carregador_ve']);
   assert.ok(e.quadro.circuitos.some((c) => c.itens.maquinas.some((m) => m.modelo === 'carregador_ve')));
   const grupos = gruposDiferenciais(e.quadro.circuitos);
@@ -199,7 +201,7 @@ test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), com a n
   for (const wifi of [false, true]) {
     e.quadro.protecoes = { ...e.quadro.protecoes, idr_wifi: wifi };
     const ped = pedidosQuadro(e);
-    assert.equal(qtd(ped, 'diferencial_tipo_a'), 1, `wifi=${wifi}`);
+    assert.equal(qtd(ped, 'diferencial_tipo_a'), 0, `wifi=${wifi}: o tipo A vai na linha dedicada do carregador, não à parte`);
     assert.equal(qtd(ped, wifi ? 'diferencial_wifi' : 'diferencial'), grupos.length - 1);
     assert.equal(qtd(ped, wifi ? 'diferencial' : 'diferencial_wifi'), 0);
   }
@@ -209,7 +211,8 @@ test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), com a n
   assert.equal(r.linhas.find((x) => x.chave === 'diferencial').qtd, grupos.length - 1);
   assert.ok(avisosProtecoes(e).some((a) => /tipo A exigido \(RTIEBT 722\)/.test(a)));
   const preco = calcularPreco(pedidosDaSelecao(e), CATALOGO, null);
-  assert.equal(preco.linhas.find((x) => x.sku === 'IDR-2P-40A-30MA-A').preco_iva, 45);
+  assert.equal(preco.linhas.find((x) => x.sku === 'IDR-2P-40A-30MA-A'), undefined, 'sem linha à parte');
+  assert.equal(preco.linhas.find((x) => x.sku === 'LINHA-DEDICADA-VE').preco_iva, 390);
   // Sem carregador: nenhum tipo A.
   assert.equal(qtd(pedidosQuadro(casaT2(['nova'])), 'diferencial_tipo_a'), 0);
 });
@@ -292,7 +295,7 @@ test('ronda sinalizar — tomada tripla: caixas 1–3 (dupla antiga → 2), pont
   const n0 = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0 + SEMENTES_DINHEIRO.length);   // a 24 traz as linhas dedicadas
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get().c, 7000);
   const nova = abrirDb(':memory:');
   const a = nova.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get();

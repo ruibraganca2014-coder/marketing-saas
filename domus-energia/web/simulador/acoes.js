@@ -1,7 +1,7 @@
 // Simulador de orçamento — serviço pedido (passo 1) e ação por aparelho (passo "Trocar e reparar", lote 8): Manter,
 // Reparar, Substituir ou Novo (docs/SIMULADOR-ORCAMENTO.md §0, lotes 7 e 8). Só lógica, sem DOM.
 
-import { COMANDOS, comandoDe, caixasDe } from "./regras.js";
+import { COMANDOS, comandoDe, caixasDe, circuitoProprio, maquinaDaPlanta } from "./regras.js";
 
 /** Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos. */
 export const SERVICOS = {
@@ -52,6 +52,14 @@ export const temAcao = (tipo, props = {}) =>
   ["luz", "interruptor", "tomada", "sensor_movimento", "sensor_porta", "maquina"].includes(tipo) || (tipo === "janela" && !!props?.estore);
 /** "Por um inteligente? Sim/Não" ao substituir (tomada e interruptor; as máquinas não). */
 export const perguntaInteligente = (tipo) => tipo === "tomada" || tipo === "interruptor";
+/** Carregadores de carro elétrico (7,4 kW e 22 kW). */
+export const CARREGADORES_VE = ["carregador_ve", "carregador_ve_22"];
+/**
+ * Ronda dinheiro: no carregador NOVO a medição no telemóvel é opcional ("Com medição no telemóvel? Sim/Não" em "Trocar
+ * e reparar"; `inteligente` do elemento). Sem ela o circuito do carregador não leva disjuntor inteligente: a linha
+ * dedicada (390 €) já traz tudo.
+ */
+export const perguntaMedicao = (tipo, props = {}) => tipo === "maquina" && CARREGADORES_VE.includes(props?.modelo);
 
 /**
  * Ação de um elemento: a escolhida ou a omissão do serviço. Os elementos sem ação (porta, quadro, janela sem estore)
@@ -146,9 +154,14 @@ export function pedidoDoElemento(e, acao, objetivos = []) {
  * TOMADA-DUPLA-NOVA, TOMADA-TRIPLA-NOVA, INTERRUPTOR-NOVO) e a aparelhagem do tipo de comando (COMANDOS: comutador de escada, inversor,
  * botão de pressão — uma peça por interruptor); a campainha normal (máquina "campainha") = a campainha + um botão de
  * pressão. Um ponto inteligente = o ponto + o aparelho Wi-Fi (pedidoDoElemento): nunca se conta duas vezes o ponto.
- * Lista vazia nos outros (máquinas, sensores, janelas: sem ponto fechado).
+ * Ronda dinheiro (decisão 5 do dono): uma máquina NOVA com circuito próprio (regras.js circuitoProprio) leva a linha
+ * dedicada até 15 m, preço fechado — a do carregador VE (LINHA-DEDICADA-VE 390 €, já com o disjuntor e o diferencial
+ * tipo A do circuito; igual com ou sem "Instalação nova"); a das outras: LINHA-DEDICADA (140 €) ao juntar a máquina a
+ * uma casa que já existe, LINHA-DEDICADA-NOVA (70 €) numa "Instalação nova" (`servicos`: a obra já está aberta).
+ * Mantida ou trocada fica no circuito que já tem: sem linha.
+ * Lista vazia nos outros (máquinas pequenas, sensores, janelas: sem ponto fechado).
  */
-export function pontosDoElemento(e) {
+export function pontosDoElemento(e, servicos = []) {
   if (!e) return [];
   const p = e.props ?? {};
   if (e.tipo === "luz") return ["ponto_luz"];
@@ -158,12 +171,15 @@ export function pontosDoElemento(e) {
     return artigo ? ["ponto_interruptor", artigo] : ["ponto_interruptor"];
   }
   if (e.tipo === "maquina" && p.modelo === "campainha") return ["campainha", "botao_pressao"];
+  if (e.tipo === "maquina" && circuitoProprio(maquinaDaPlanta(p))) {
+    return [CARREGADORES_VE.includes(p.modelo) ? "linha_dedicada_ve" : (servicos ?? []).includes("nova") ? "linha_dedicada_nova" : "linha_dedicada"];
+  }
   return [];
 }
 
 /** Todos os pedidos de um elemento para a ação: no Novo, os pontos (pontosDoElemento) e o aparelho inteligente; no resto, pedidoDoElemento. */
-export function pedidosDoElemento(e, acao, objetivos = []) {
-  const r = acao === "novo" ? pontosDoElemento(e) : [];
+export function pedidosDoElemento(e, acao, objetivos = [], servicos = []) {
+  const r = acao === "novo" ? pontosDoElemento(e, servicos) : [];
   const chave = pedidoDoElemento(e, acao, objetivos);
   if (chave) r.push(chave);
   return r;
@@ -177,7 +193,7 @@ export function pedidosPontosNovos(planta, servicos) {
   const m = new Map();
   for (const e of planta?.elementos ?? []) {
     if (!temAcao(e.tipo, e.props) || acaoDe(e, servicos) !== "novo") continue;
-    for (const chave of pontosDoElemento(e)) m.set(chave, (m.get(chave) ?? 0) + 1);
+    for (const chave of pontosDoElemento(e, servicos)) m.set(chave, (m.get(chave) ?? 0) + 1);
   }
   return [...m].map(([chave, qtd]) => ({ chave, qtd }));
 }

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { painelComEquipa } from './ajuda.js';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, versaoEsquema, migrar, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20 } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
 import { diaLisboa, somarDiasCivil } from '../src/util.js';
 
 let p;
@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 15, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 19, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16 + obra mínima e limite do cartão da 23 + horas por dia da 24 + teto da deslocação da 25)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -72,12 +72,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
     deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20,
     intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29,
     ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100,
+    obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 14, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 18, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16) + 2 (migração 23) + horas por dia (migração 24) + teto da deslocação (migração 25)');
   db.close();
 });
 
@@ -146,7 +147,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
   const n = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
-  assert.equal(n, antes + SEMENTES_QUADRO.length - 1 + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length, 'todos os novos menos o que já existia (e os das ações, migração 10, os pontos, migração 15, e a tomada tripla, migração 20)');
+  assert.equal(n, antes + SEMENTES_QUADRO.length - 1 + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length, 'todos os novos menos o que já existia (e os das ações, migração 10, os pontos, migração 15, a tomada tripla, migração 20, e as linhas dedicadas, migração 24)');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM (SELECT sku FROM catalogo GROUP BY sku HAVING COUNT(*) > 1)').get().n, 0, 'sem duplicados');
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TONGOU-SY2-JWT'").get().c, 4444, 'preço editado mantém-se');
   const idr = db.prepare("SELECT nome, preco_venda_iva_cent AS c, horas_instalacao AS h FROM catalogo WHERE sku = 'IDR-2P-40A-30MA'").get();
@@ -165,7 +166,7 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
   db.close();
   // Base nova: sementes e artigos do quadro, cada SKU uma vez.
   const nova = abrirDb(':memory:');
-  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length);
+  assert.equal(nova.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length);
   nova.close();
 });
 
@@ -310,7 +311,9 @@ test('converter com aparelhos: validados como POST clientes/:c/aparelhos; pedido
   }
   assert.match((await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'sara', aparelhos: [disj, { ...porta, id: 'X' }] })).json.erro, /^Aparelho 2: Id do aparelho inválido/);
   assert.deepEqual(new Set(await readdir(join(p.dados, 'pedidos-admin'))), antes, 'nada escrito quando a validação falha');
-  assert.equal((await api('GET', `orcamentos/${o.id}`, 'comercial')).json.obra_id, null, 'nem obra criada');
+  // A obra nasce quando o pedido fica aceite; a casa (cliente) é que não se liga com a validação a falhar.
+  assert.equal((await api('GET', `orcamentos/${o.id}`, 'comercial')).json.cliente, null, 'nem casa ligada');
+  assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM obras WHERE orcamento_id = ?').get(o.id).n, 1, 'uma só obra (a do pedido aceite)');
   const r = await api('POST', `orcamentos/${o.id}/converter`, 'comercial', { codigo: 'sara', kit: 'conforto', aparelhos: [disj, porta, estore] });
   assert.equal(r.estado, 201, r.texto);
   assert.equal(r.json.pedido.tipo, 'cliente');

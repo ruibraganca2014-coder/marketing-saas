@@ -35,6 +35,14 @@ async function carregar() {
   $("pag-valor").textContent = euro(p.valor);
   $("pag-descricao").textContent = p.descricao;
   $("pag-ref").textContent = `Referência: ${p.ref}${p.base != null ? ` · ${euro(p.base)} + IVA ${String(p.iva_pct).replace(".", ",")} % (${euro(p.iva)})` : ""}`;
+  // Os métodos que o Stripe ofereceria para este valor (acima do limite do cartão: só Multibanco ou MB Way).
+  if (Array.isArray(p.metodos) && p.metodos.length) {
+    $("pag-metodos").textContent = `No pagamento real: ${p.metodos.join(", ")}.${p.metodos.includes("Cartão") ? "" : " Acima do limite do cartão só se paga por Multibanco ou MB Way."}`;
+    $("pag-metodos").hidden = false;
+    // Só os métodos que este valor aceita (acima do limite, sem cartão). Uma devolução de um Multibanco é por transferência.
+    const nomes = { card: "Cartão", mb_way: "MB Way", multibanco: "Multibanco" };
+    for (const o of [...$("pag-metodo").options]) if (!p.metodos.includes(nomes[o.value])) o.remove();
+  }
   $("pag-dados").hidden = false;
   if (p.estado !== "pendente") {
     for (const b of botoes) b.disabled = true;
@@ -72,7 +80,7 @@ async function simular(resultado) {
   for (const b of botoes) b.disabled = true;
   mensagem("A processar…", "info");
   try {
-    const r = await pedirConta(`pagamentos/${ref}/simular`, { corpo: { resultado } });
+    const r = await pedirConta(`pagamentos/${ref}/simular`, { corpo: { resultado, ...(resultado === "sucesso" && $("pag-metodo").value ? { metodo: $("pag-metodo").value } : {}) } });
     location.assign(destinoSeguro(r.voltar));
   } catch (e) {
     for (const b of botoes) b.disabled = false;

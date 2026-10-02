@@ -296,6 +296,9 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     return eu;
   }
 
+  // A sessão abriu ou fechou fora deste bloco (o acesso rápido de testes do lançador local): volta a lê-la.
+  window.addEventListener("domus:conta-sessao", () => { atualizar(); });
+
   desenhar();
   return { atualizar, eu: () => eu, sair, focar, mensagem };
 }

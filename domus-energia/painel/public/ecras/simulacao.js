@@ -70,7 +70,9 @@ function deslocacaoTxt(d) {
   const t = (x) => (typeof x === "string" && x.trim() ? x.trim() : null);
   const km = numero(d.distancia_km), v = numero(d.valor_iva);
   const onde = t(d.concelho) ? `${t(d.concelho)}${t(d.distrito) ? ` (${t(d.distrito)})` : ""}` : null;
-  if (d.estado === "estimada") return `${onde ?? "—"} · ${km !== null ? `${num(km)} km (estimativa)` : "distância —"} · ${euros(v)}`;
+  // Ronda dinheiro: a deslocação é ida e volta por dia de obra (`dias`; os pedidos de antes não o trazem: uma ida).
+  const dias = numero(d.dias);
+  if (d.estado === "estimada") return `${onde ?? "—"} · ${km !== null ? `${num(km)} km (estimativa)` : "distância —"} · ${euros(v)}${dias !== null ? (d.limitado === true ? ` (ida e volta; máximo ${num(dias)} dias)` : ` (ida e volta, ${plural(dias, "dia", "dias")})`) : ""}`;
   if (d.estado === "fora_area") return `${onde ?? "—"}${km !== null ? ` · ${num(km)} km` : ""} — fora da área servida (contactar o cliente)`;
   const minimo = v !== null && v > 0 ? ` · mínimo ${euros(v)}` : "";
   if (d.estado === "visita") return `«${t(d.localidade) ?? ""}»: concelho não reconhecido — confirmar na visita${minimo}`;
@@ -349,7 +351,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
     partes.push(h("div", { class: "avisos-sim", role: "note" }, h("h4", { text: `Avisos (${avisos.length})` }),
       h("ul", {}, ...avisos.slice(0, 50).map((a) => h("li", { text: a })))));
   }
-  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva), { margem: numero(sim.melhorias_margem_iva) }));
+  if (itens.length) partes.push(tabelaItens(itens, mo, catalogo, numero(obj(sim.deslocacao).valor_iva), { margem: numero(sim.melhorias_margem_iva), minimo: numero(sim.obra_minima_iva) }));
   const melhorias = blocoMelhorias(sim, catalogo);
   if (melhorias) partes.push(melhorias);
   const circuitos = arr(obj(sim.quadro).circuitos).filter((c) => c && typeof c === "object");
@@ -383,8 +385,11 @@ export function blocoMelhorias(sim, catalogo = {}) {
 /**
  * Artigos, mão de obra e deslocação. `horas`: mais uma coluna com as horas de instalação do catálogo (relatório técnico).
  * `margem` (fase 2): a margem dos pacotes aceites nas Melhorias (`melhorias_margem_iva`), que o total do cliente já tem.
+ * Ronda dinheiro: os artigos de preço fechado (`fechado`: pontos novos, linhas dedicadas) levam a marca "Preço fechado"
+ * — a mão de obra deles vai dentro do preço (`mao_obra.incluida_iva`, dita na linha da mão de obra; não soma outra
+ * vez); `mao_obra.dias` = dias de obra; `minimo` = a obra mínima cobrada quando o trabalho fica abaixo dela.
  */
-function tabelaItens(itens, mo, catalogo, desl = null, { horas = false, margem = null } = {}) {
+function tabelaItens(itens, mo, catalogo, desl = null, { horas = false, margem = null, minimo = null } = {}) {
   let soma = 0, somaHoras = 0;
   const cols = horas ? 4 : 3;
   const linhas = itens.slice(0, 300).map((i) => {
@@ -400,8 +405,9 @@ function tabelaItens(itens, mo, catalogo, desl = null, { horas = false, margem =
     const hLinha = numero(i.horas) ?? (hArt === null ? null : Math.round(hArt * qtd * 100) / 100);
     somaHoras += hLinha ?? 0;
     const grupo = i.grupo === "reparar" || i.grupo === "substituir" ? selo(ACOES_SIM[i.grupo], "aviso") : i.grupo === "melhoria" ? selo("Melhoria", "info") : null;
+    const fechado = i.fechado === true ? selo("Preço fechado", "info") : null;
     return h("tr", { dataset: { sku }, class: art ? "" : "fora-catalogo" },
-      h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), grupo, marca)),
+      h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("span", { class: "sim-artigo", text: art?.nome ?? (sku || "—") }), h("span", { class: "ajuda bloco-ajuda", text: sku }), grupo, fechado, marca)),
       h("td", { class: "num", "data-rotulo": "Qtd.", text: num(qtd) }),
       horas ? h("td", { class: "num", "data-rotulo": "Horas", text: hLinha === null ? "—" : `${num2(hLinha)} h` }) : null,
       h("td", { class: "num", "data-rotulo": "Preço", text: euros(preco) }),
@@ -410,10 +416,15 @@ function tabelaItens(itens, mo, catalogo, desl = null, { horas = false, margem =
   const moValor = numero(mo.valor_iva);
   const pe = [h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: horas && somaHoras ? `Artigos (${num2(somaHoras)} h de instalação no catálogo)` : "Artigos" }), h("td", { class: "num", text: euros(soma) }))];
   if (moValor !== null || numero(mo.horas) !== null) {
-    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: String(cols), text: `Mão de obra${numero(mo.horas) !== null ? ` (${num2(mo.horas)} h)` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
+    const incluida = numero(mo.incluida_iva), dias = numero(mo.dias);
+    const moTxt = [numero(mo.horas) !== null ? `${num2(mo.horas)} h` : null, dias !== null ? `≈ ${plural(dias, "dia", "dias")} de obra` : null,
+      incluida > 0 ? `mais ${euros(incluida)} dentro dos preços fechados` : null].filter(Boolean).join("; ");
+    pe.push(h("tr", { class: "mao-obra" }, h("th", { scope: "row", colspan: String(cols), text: `Mão de obra${moTxt ? ` (${moTxt})` : ""}` }), h("td", { class: "num", text: euros(moValor) })));
     if (desl !== null) pe.push(h("tr", { class: "deslocacao" }, h("th", { scope: "row", colspan: String(cols), text: "Deslocação" }), h("td", { class: "num", text: euros(desl) })));
     if (margem > 0) pe.push(h("tr", { class: "margem-pacotes" }, h("th", { scope: "row", colspan: String(cols), text: "Margem dos pacotes" }), h("td", { class: "num", text: euros(margem) })));
-    pe.push(h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(soma + (moValor ?? 0) + (desl ?? 0) + (margem > 0 ? margem : 0)) })));
+    const obra = soma + (moValor ?? 0) + (margem > 0 ? margem : 0);
+    if (minimo > obra) pe.push(h("tr", { class: "obra-minima" }, h("th", { scope: "row", colspan: String(cols), text: `Obra mínima (o trabalho soma ${euros(obra)})` }), h("td", { class: "num", text: euros(minimo) })));
+    pe.push(h("tr", {}, h("th", { scope: "row", colspan: String(cols), text: "Total (sem intervalo)" }), h("td", { class: "num", text: euros(Math.max(obra, minimo ?? 0) + (desl ?? 0)) })));
   }
   const fora = linhas.filter((l) => l.classList.contains("fora-catalogo")).length;
   return h("div", { class: "sim-bloco" }, h("h4", { text: "Artigos" }),
@@ -1239,7 +1250,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
   if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? (outrasFotos.length > 1 ? `Fotos da avaria (${outrasFotos.length})` : "Foto da avaria") : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
-    partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva) }),
+    partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva), minimo: numero(s.obra_minima_iva) }),
       dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));
   }
   partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado na visita técnica." }));

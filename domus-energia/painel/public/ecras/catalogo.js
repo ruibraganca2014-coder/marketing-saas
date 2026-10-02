@@ -5,6 +5,8 @@ import { pedir, campo, lista, numero } from "../api.js";
 import { h, euros, num, selo, campoForm, escolha, janela, mensagem, avisar, carregando, erroEcra, data } from "../ui.js";
 // Os 308 concelhos (cópia de web/simulador/concelhos.js): a base da deslocação escolhe-se desta lista.
 import { CONCELHOS } from "../vendor/concelhos.js";
+// Stock simples (decisão 13; ecras/stock.js): "Entrada de stock" abre a mesma janela do ecrã Stock.
+import { abrirEntradaStock } from "./stock.js";
 
 export const CATEGORIAS = {
   disjuntor: "Disjuntor", interruptor: "Interruptor", sensor: "Sensor", estore: "Estore", tomada: "Tomada", luz: "Luz",
@@ -65,7 +67,7 @@ export default function catalogo(el) {
   const zonaConfig = h("section", { class: "cartao bloco-config", "aria-labelledby": "config-titulo" }, h("h2", { id: "config-titulo", text: "Simulador de orçamento" }), carregando());
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Catálogo" }), novo),
-    h("p", { class: "ajuda", text: `Artigos do simulador de orçamento. O cliente só vê o nome, o preço de venda e as horas; nunca o preço de compra, o fornecedor nem o link. Margem = preço de venda sem IVA (÷ 1,23) − preço de compra; abaixo de ${MARGEM_MINIMA} % fica assinalada.` }),
+    h("p", { class: "ajuda", text: `Artigos do simulador de orçamento. O cliente só vê o nome, o preço de venda e as horas; nunca o custo, o stock, o fornecedor nem o link. Margem = preço de venda sem IVA (÷ 1,23) − custo real de compra (preço + transporte + alfândega); abaixo de ${MARGEM_MINIMA} % fica assinalada.` }),
     zonaConfig,
     h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Artigos" })),
       h("div", { class: "filtros" }, fTexto, fCat, fAtivo), contagem, zona));
@@ -107,7 +109,13 @@ export default function catalogo(el) {
         campoForm("IVA dos pagamentos (%)", entrada("iva_pct", campo(config, "iva_pct") ?? 23, "50", "0.1"),
           "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). O relatório, a visita e a avaria já são com IVA."),
         campoForm("Relatório completo (€, c/ IVA)", entrada("preco_relatorio_iva", campo(config, "preco_relatorio_iva") ?? 29, "1000"),
-          "Enviar é grátis (relatório básico). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal.")),
+          "Enviar é grátis (relatório básico). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal."),
+        h("div", { class: "tres" },
+          campoForm("Obra mínima (€, c/ IVA)", entrada("obra_minima_iva", campo(config, "obra_minima_iva") ?? 100, "10000"), "Abaixo disto cobra-se o mínimo e o que foi pago antes não se desconta."),
+          campoForm("Limite do cartão (€, c/ IVA)", entrada("cartao_max_iva", campo(config, "cartao_max_iva") ?? 500, "1000000"), "Acima disto só Multibanco ou MB Way."),
+          campoForm("Horas por dia de obra", entrada("horas_por_dia", campo(config, "horas_por_dia") ?? 8, "24", "0.5"), "Deslocação: ida e volta por dia de obra.")),
+        campoForm("Deslocação — máximo de dias por obra", entrada("deslocacao_max_dias", campo(config, "deslocacao_max_dias") ?? 5, "365", "1"), "Deslocação = (fixo + km pagos × 2 × preço por km) × dias de obra, no máximo estes dias."),
+        h("p", { class: "ajuda", text: "Sinal = o maior entre 30 % do total com IVA e o custo do material (o sinal cobre o material), menos o que já foi pago." })),
       h("fieldset", { class: "grupo" }, h("legend", { text: "Ensaios (relatório completo)" }),
         h("p", { class: "ajuda", text: "Valores de referência da lista de ensaios do relatório completo, marcados \"a confirmar pelo técnico\". A continuidade do PE não tem limite (valor medido)." }),
         h("div", { class: "tres" },
@@ -122,6 +130,7 @@ export default function catalogo(el) {
         ["margem_pacotes_pct", 100, "A margem dos pacotes"],
         ["deslocacao_km_gratis", 1000, "O n.º de km grátis"], ["deslocacao_preco_km_iva", 100, "O preço por km"], ["deslocacao_max_km", 2000, "A distância máxima"],
         ["iva_pct", 50, "A taxa de IVA"], ["preco_relatorio_iva", 1000, "O preço do relatório"],
+        ["obra_minima_iva", 10000, "A obra mínima"], ["cartao_max_iva", 1000000, "O limite do cartão"], ["horas_por_dia", 24, "As horas por dia de obra"], ["deslocacao_max_dias", 365, "O máximo de dias de deslocação"],
         ["ensaio_isolamento_mohm", 1000, "O isolamento mínimo"], ["ensaio_terra_ohm", 100000, "A terra máxima"], ["ensaio_diferencial_ms", 10000, "O disparo do diferencial"]]) {
         const v = numero(f.elements[k].value);
         if (v === null || v < 0 || v > max) { mensagem(msg, `${rot} tem de ser um número entre 0 e ${num(max)}.`); f.elements[k].focus(); return; }
@@ -157,8 +166,8 @@ export default function catalogo(el) {
     if (!vis.length) { zona.replaceChildren(h("p", { class: "vazio", text: "Nenhum artigo com estes filtros." })); return; }
     zona.replaceChildren(h("table", { class: "tabela tabela-cartoes", id: "tabela-catalogo" },
       h("caption", { class: "so-leitor", text: "Artigos do catálogo" }),
-      h("thead", {}, h("tr", {}, ...["Artigo", "Categoria", "Compra", "Venda c/ IVA", "Margem", "Horas", "Estado", ""].map((t, i) =>
-        h("th", { scope: "col", class: [2, 3, 5].includes(i) ? "num" : "", text: t }, i === 7 ? h("span", { class: "so-leitor", text: "Ações" }) : null)))),
+      h("thead", {}, h("tr", {}, ...["Artigo", "Categoria", "Custo", "Venda c/ IVA", "Margem", "Horas", "Stock", "Mínimo", "Estado", ""].map((t, i) =>
+        h("th", { scope: "col", class: [2, 3, 5, 6, 7].includes(i) ? "num" : "", text: t }, i === 9 ? h("span", { class: "so-leitor", text: "Ações" }) : null)))),
       h("tbody", {}, ...vis.map(linha))));
   }
 
@@ -170,12 +179,30 @@ export default function catalogo(el) {
     return h("tr", { dataset: { id, sku: String(campo(a, "sku") ?? "") }, class: `${ativo ? "" : "inativo"} ${m.aviso ? `margem-${m.aviso}` : ""}`.trim() },
       h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("strong", { class: "bloco-ajuda", text: String(campo(a, "nome") ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [campo(a, "sku"), campo(a, "fornecedor")].filter(Boolean).join(" · ") }))),
       h("td", { "data-rotulo": "Categoria", text: CATEGORIAS[campo(a, "categoria")] ?? String(campo(a, "categoria") ?? "—") }),
-      h("td", { class: "num", "data-rotulo": "Compra", text: euros(campo(a, "preco_compra")) }),
+      h("td", { class: "num", "data-rotulo": "Custo", text: euros(campo(a, "preco_compra")) }),
       h("td", { class: "num", "data-rotulo": "Venda c/ IVA", text: euros(campo(a, "preco_venda_iva")) }),
       h("td", { class: "celula-margem", "data-rotulo": "Margem" }, h("span", { class: "linha-selos" }, ...celulaMargem(m))),
       h("td", { class: "num", "data-rotulo": "Horas", text: horas(campo(a, "horas_instalacao")) }),
+      h("td", { class: "num", "data-rotulo": "Stock" }, h("span", { class: "linha-selos" },
+        h("span", { text: `${campo(a, "stock_qtd") ?? 0}${numero(campo(a, "stock_reservado")) > 0 ? ` (${campo(a, "stock_reservado")} res.)` : ""}` }),
+        abaixoMinimo(a) ? selo("Abaixo do mínimo", "grav-critica") : null)),
+      h("td", { class: "num", "data-rotulo": "Mínimo", text: String(campo(a, "stock_minimo") ?? 0) }),
       h("td", { "data-rotulo": "Estado" }, h("span", { class: "linha-selos" }, ativo ? selo("Ativo", "orc-aceite") : selo("Inativo", "obra-cancelada"), visivel ? null : selo("Escondido do cliente", "aviso"), provisorio ? selo("Preço provisório", "aviso") : null)),
-      h("td", { class: "acoes" }, h("button", { class: "btn sec pequeno", type: "button", text: "Editar", "aria-label": `Editar ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirArtigo(a) })));
+      h("td", { class: "acoes" }, h("span", { class: "form-botoes" },
+        h("button", { class: "btn sec pequeno", type: "button", text: "Editar", "aria-label": `Editar ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirArtigo(a) }),
+        h("button", { class: "btn sec pequeno", type: "button", text: "Entrada de stock", "aria-label": `Entrada de stock de ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirEntradaStock(a, guardado) }))));
+  }
+
+  /** Artigo com stock gerido e o disponível (em armazém − reservado) abaixo do mínimo (ou negativo). */
+  const abaixoMinimo = (a) => {
+    const disp = (numero(campo(a, "stock_qtd")) ?? 0) - (numero(campo(a, "stock_reservado")) ?? 0);
+    return campo(a, "stock_gerido") === true && (disp < (numero(campo(a, "stock_minimo")) ?? 0) || disp < 0);
+  };
+  /** Um artigo voltou do servidor (entrada de stock): troca-o na lista. */
+  function guardado(novoA) {
+    const i = itens.findIndex((x) => String(campo(x, "id")) === String(campo(novoA, "id")));
+    if (i >= 0) itens[i] = novoA;
+    desenhar();
   }
 
   // ---------- Criar / editar ----------
@@ -201,11 +228,14 @@ export default function catalogo(el) {
         campoForm("Link (página do fornecedor)", inp("link", { type: "url", maxlength: "500", inputmode: "url", placeholder: "https://…", spellcheck: "false" }), "Só https://. Nunca aparece ao cliente.")),
       linkAtual,
       h("div", { class: "tres" },
-        campoForm("Preço de compra (€)", inp("preco_compra", { type: "number", min: "0", step: "0.01", inputmode: "decimal" }), "Vazio = desconhecido"),
+        campoForm("Custo real de compra (€)", inp("preco_compra", { type: "number", min: "0", step: "0.01", inputmode: "decimal" }), "Preço + transporte + alfândega. Vazio = desconhecido"),
         campoForm("Preço de venda (€, c/ IVA)", inp("preco_venda_iva", { type: "number", min: "0", step: "0.01", inputmode: "decimal", required: true })),
         campoForm("Horas de instalação", h("input", { name: "horas_instalacao", type: "number", min: "0", max: "100", step: "0.05", inputmode: "decimal", value: campo(a, "horas_instalacao") ?? 0 }))),
       // Lote 7 (simulador, ação "Substituir"): as horas de trocar um aparelho que já existe.
-      campoForm("Horas de troca (substituir)", h("input", { name: "horas_troca", type: "number", min: "0", max: "100", step: "0.05", inputmode: "decimal", value: campo(a, "horas_troca") ?? "" }), "Vazio = 50 % das horas de instalação."),
+      h("div", { class: "duas" },
+        campoForm("Horas de troca (substituir)", h("input", { name: "horas_troca", type: "number", min: "0", max: "100", step: "0.05", inputmode: "decimal", value: campo(a, "horas_troca") ?? "" }), "Vazio = 50 % das horas de instalação."),
+        // Stock (decisão 13): o mínimo edita-se aqui; a quantidade muda por "Entrada de stock" e pelas obras.
+        campoForm("Stock mínimo", h("input", { name: "stock_minimo", type: "number", min: "0", step: "1", inputmode: "numeric", value: campo(a, "stock_minimo") ?? 0 }), a ? `Em armazém: ${campo(a, "stock_qtd") ?? 0}. Abaixo do mínimo fica assinalado.` : "Abaixo do mínimo fica assinalado.")),
       zonaMargem,
       h("fieldset", { class: "grupo" }, h("legend", { text: "Especificações" }), zonaEsp,
         h("details", { class: "esp-json" }, h("summary", { text: "JSON (avançado)" }),
@@ -297,11 +327,13 @@ export default function catalogo(el) {
       const trocaTxt = el2.horas_troca.value.trim();
       const horasTroca = trocaTxt === "" ? null : numero(trocaTxt);
       if (trocaTxt !== "" && (horasTroca === null || horasTroca < 0 || horasTroca > 100)) return erro("Horas de troca: número entre 0 e 100 (ou vazio).", el2.horas_troca);
+      const minimo = numero(el2.stock_minimo.value.trim() === "" ? "0" : el2.stock_minimo.value);
+      if (minimo === null || minimo < 0 || !Number.isInteger(minimo)) return erro("Stock mínimo: número inteiro igual ou maior que 0.", el2.stock_minimo);
       const especificacoes = lerJson();
       if (especificacoes === null) { f.querySelector("details.esp-json").open = true; return erro("As especificações têm de ser um objeto JSON válido.", json); }
       const tudo = {
         sku, nome, categoria: categoria.value, fornecedor: el2.fornecedor.value.trim() || null, link: link || null,
-        preco_compra: compra, preco_venda_iva: venda, horas_instalacao: horas, horas_troca: horasTroca, especificacoes,
+        preco_compra: compra, preco_venda_iva: venda, horas_instalacao: horas, horas_troca: horasTroca, especificacoes, stock_minimo: minimo,
         ativo: el2.ativo.checked, visivel_cliente: el2.visivel_cliente.checked,
       };
       // Editar: só o que mudou.
@@ -309,7 +341,7 @@ export default function catalogo(el) {
       if (a) {
         corpo = {};
         for (const [k, val] of Object.entries(tudo)) {
-          const antes = campo(a, k) ?? null;
+          const antes = campo(a, k) ?? (k === "stock_minimo" ? 0 : null);
           if (JSON.stringify(k === "especificacoes" ? (antes ?? {}) : antes) !== JSON.stringify(val)) corpo[k] = val;
         }
         if (!Object.keys(corpo).length) { mensagem(msg, "Não mudou nada.", "info"); return; }

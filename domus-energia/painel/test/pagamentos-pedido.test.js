@@ -12,6 +12,7 @@ import { createHmac } from 'node:crypto';
 import { painelComEquipa } from './ajuda.js';
 import {
   calcularSinal, foraDaArea, comIva, partirIva, deslocacaoServidor, intervaloEstimativa, valorVisitaCent, precoRelatorioCent,
+  metodosPagamento, diasDeObra,
 } from '../src/pagamentos-pedido.js';
 import { lerConfig } from '../src/config.js';
 import { calcularPreco, cent as centSim } from '../../web/simulador/preco.js';
@@ -39,10 +40,11 @@ const SIM_AVARIA = (() => {
   return montarSimulacao(e, preco, null, [{ chave: FOTO_AVARIA, legenda: 'Avaria' }]);
 })();
 const JPEG = (n = 2000) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, 1)]);
-// Configuração de omissão (base nova): Lisboa, 20 km grátis, 0,40 €/km, 38 €/h. Sintra ≈ 29 km → deslocação 3,60 €.
-const DESLOC_SINTRA = 3.6;
-const VISITA_SINTRA = 22.6;            // 3,60 + 0,5 × 38
-const DIAG_SINTRA = 25 + 19 + 3.6;     // DIAG-AVARIA 25 € + 0,5 h × 38 + deslocação
+// Configuração de omissão (base nova): Lisboa, 20 km grátis, 0,40 €/km, 38 €/h. Sintra ≈ 29 km → deslocação 7,20 € por
+// dia de obra (ida e volta: 9 km pagos × 2 × 0,40 €; decisão 4 do dono, 2026-10-02). A visita e a avaria são um dia.
+const DESLOC_SINTRA = 7.2;
+const VISITA_SINTRA = 26.2;            // 7,20 + 0,5 × 38
+const DIAG_SINTRA = 25 + 19 + 7.2;     // DIAG-AVARIA 25 € + 0,5 h × 38 + deslocação
 
 test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes; intervalo −10/+20; visita; relatório; área', () => {
   // Doc: 1000 € + IVA 23 % = 1230 €; relatório 29 € + visita 25 € pagos antes → sinal = 369 − 54 = 315 €; restante 861 €.
@@ -53,6 +55,19 @@ test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes;
   assert.deepEqual(partirIva(86_100, 23), { base: 70_000, iva: 16_100 });
   assert.equal(calcularSinal(100_000, 0), 30_000);
   assert.equal(calcularSinal(5000, 2900), 0, 'nunca negativo');
+  // Decisão 6: o sinal cobre o material — o maior entre 30 % e o custo do material, menos o já pago; nunca acima do total.
+  assert.equal(calcularSinal(123_000, 5400, 50_000), 44_600, 'material 500 € > 30 % (369 €): 500 − 54');
+  assert.equal(calcularSinal(123_000, 5400, 20_000), 31_500, 'material abaixo dos 30 %: vale os 30 %');
+  assert.equal(calcularSinal(10_000, 0, 50_000), 10_000, 'nunca acima do total');
+  assert.equal(calcularSinal(10_000, 4000, 50_000), 6000, 'nem do que falta pagar');
+  // Decisão 7: acima do limite do cartão (500 €) só Multibanco ou MB Way.
+  const metodos = ['card', 'mb_way', 'multibanco'];
+  assert.deepEqual(metodosPagamento(50_000, {}, metodos), metodos, '500,00 € ainda com cartão');
+  assert.deepEqual(metodosPagamento(50_001, {}, metodos), ['mb_way', 'multibanco']);
+  assert.deepEqual(metodosPagamento(50_001, { cartao_max_iva: 1000 }, metodos), metodos, 'limite configurável');
+  assert.deepEqual(metodosPagamento(50_001, {}, ['card']), ['multibanco'], 'só cartão configurado: fica o Multibanco');
+  // Decisão 4: dias de obra = horas ÷ 8 (para cima, mínimo 1); a deslocação é ida e volta por dia.
+  assert.deepEqual([diasDeObra(0, {}), diasDeObra(8, {}), diasDeObra(8.1, {}), diasDeObra(26, {}), diasDeObra(26, { horas_por_dia: 10 })], [1, 1, 2, 4, 3]);
   // Intervalo assimétrico (−10 % / +20 %, múltiplos de 5); a configuração antiga (só margem_intervalo_pct) continua a ler-se.
   assert.deepEqual(intervaloEstimativa(1000, { intervalo_menos_pct: 10, intervalo_mais_pct: 20 }), { min: 900, max: 1200 });
   assert.deepEqual(intervaloEstimativa(1000, {}), { min: 900, max: 1200 }, 'omissão −10/+20');
@@ -69,8 +84,12 @@ test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes;
   assert.equal(foraDaArea('Bragança', cfg), true, 'longe');
   assert.equal(foraDaArea('uma aldeia qualquer', cfg), false, 'desconhecido: a visita confirma');
   const cd = { ...cfg, deslocacao_iva: 5, deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, tarifa_hora_iva: 40 };
-  assert.equal(deslocacaoServidor('Sintra', cd), 8.6, '5 + (29 − 20) × 0,40');
-  assert.equal(valorVisitaCent('Sintra', cd), 2860, 'deslocação 8,60 + 0,5 h × 40');
+  assert.equal(deslocacaoServidor('Sintra', cd), 12.2, '5 + (29 − 20) × 2 × 0,40 (ida e volta)');
+  assert.equal(deslocacaoServidor('Sintra', cd, 3), 36.6, '3 dias de obra');
+  // Teto: no máximo `deslocacao_max_dias` (5) dias de deslocação por obra.
+  assert.equal(deslocacaoServidor('Sintra', cd, 9), 61, '9 dias de obra pagam 5 de deslocação');
+  assert.equal(deslocacaoServidor('Sintra', { ...cd, deslocacao_max_dias: 2 }, 9), 24.4, 'teto configurável');
+  assert.equal(valorVisitaCent('Sintra', cd), 3220, 'deslocação 12,20 + 0,5 h × 40');
   assert.equal(valorVisitaCent('uma aldeia qualquer', cd), null, 'B2: sem concelho reconhecido não há visita');
   assert.equal(valorVisitaCent('', cd), null, 'sem localidade não há visita');
   assert.equal(valorVisitaCent('Funchal', cd), null, 'fora da área: não há visita');
@@ -371,9 +390,9 @@ describe('modo simulado', () => {
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } });
     assert.equal(ac.estado, 200, ac.texto);
     assert.deepEqual([ac.json.pagamento.fase, ac.json.pagamento.valor, ac.json.pagamento.iva_pct], ['sinal', sinalEsperado, 23]);
-    assert.match(ac.json.pagamento.descricao, /1230,00 € com IVA\), menos os 51,60 € já pagos/);
+    assert.match(ac.json.pagamento.descricao, /^Sinal de 30 % da proposta .*1230,00 € com IVA\), menos os 55,20 € já pagos/);
     assert.equal(ac.json.pedido.aguarda_sinal, true);
-    assert.deepEqual(ac.json.pedido.sinal, { valor: sinalEsperado, pct: 30, desconto: centSim(29 + VISITA_SINTRA), pago: false });
+    assert.deepEqual(ac.json.pedido.sinal, { valor: sinalEsperado, pct: 30, desconto: centSim(29 + VISITA_SINTRA), pago: false, cobre_material: false });
     assert.deepEqual(ac.json.pedido.proposta_iva, { base: 1000, iva_pct: 23, iva: 230, total: 1230 });
     assert.equal(ac.json.pedido.compras.pode, false, 'aceite: já não se compra o relatório nem a visita');
     assert.equal((await comprar(c, id, 'visita')).estado, 409);
@@ -393,7 +412,8 @@ describe('modo simulado', () => {
     assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'comercial', {})).estado, 200);
     assert.match(p.emails.at(-1).texto, /861,00 €, com IVA/);
     assert.deepEqual((await painel('GET', `orcamentos/${id}`)).json.valores_pagamento,
-      { proposta: 1000, iva_pct: 23, iva: 230, total: 1230, pago_antes: centSim(29 + VISITA_SINTRA), sinal: sinalEsperado, restante: 861 });
+      { proposta: 1000, iva_pct: 23, iva: 230, total: 1230, pago_antes: centSim(29 + VISITA_SINTRA), sinal: sinalEsperado, restante: 861,
+        base: 1000, minima: null, desconto: centSim(29 + VISITA_SINTRA), em_falta: 861, material_origem: null, sinal_material: false });
     assert.equal((await pedidoConta(c, id)).pode_pagar_restante, true);
     const rs = await comprar(c, id, 'restante');
     assert.equal(rs.json.pagamento.valor, 861);

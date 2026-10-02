@@ -2,8 +2,10 @@
 // Só lógica, sem DOM e sem pedidos de rede: a tabela dos 308 concelhos vem de ./concelhos.js.
 //
 // Distância estimada = distância em linha reta (haversine, entre as sedes dos concelhos) × FATOR_ESTRADA.
-// Deslocação (€, c/ IVA) = deslocacao_iva (valor fixo, o mínimo de cada deslocação)
-//                        + max(0, km − deslocacao_km_gratis) × deslocacao_preco_km_iva.
+// Deslocação por dia de obra, ida e volta (ronda dinheiro, decisão 4 do dono), € c/ IVA:
+//   um dia = deslocacao_iva (valor fixo, o mínimo de cada dia) + max(0, km − deslocacao_km_gratis) × 2 × deslocacao_preco_km_iva
+//   total  = um dia × min(dias, deslocacao_max_dias) (dias de obra: preco.js diasDeObra; no máximo 5 por obra; a
+//            visita técnica e a avaria são 1 dia).
 
 import { CONCELHOS } from "./concelhos.js";
 
@@ -14,6 +16,7 @@ const RAIO_TERRA_KM = 6371;
 /** Configuração da deslocação quando o /api/catalogo não a traz (iguais às da migração 4 do painel). */
 export const DESLOCACAO_OMISSAO = {
   deslocacao_iva: 0, deslocacao_base: "Lisboa", deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100,
+  deslocacao_max_dias: 5,   // teto: no máximo 5 dias de deslocação por obra (decisão do dono)
 };
 
 /** Texto para comparar: sem acentos, minúsculas, só letras e números separados por um espaço. */
@@ -76,30 +79,39 @@ export function configDeslocacao(config) {
     const v = config?.[k];
     if (v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0) cfg[k] = Number(v);
   }
+  const md = Number(config?.deslocacao_max_dias);
+  if (config?.deslocacao_max_dias !== null && config?.deslocacao_max_dias !== "" && Number.isFinite(md) && md >= 1) cfg.deslocacao_max_dias = Math.floor(md);
   if (typeof config?.deslocacao_base === "string" && procurarConcelho(config.deslocacao_base)) cfg.deslocacao_base = config.deslocacao_base;
   return cfg;
 }
 
 const cent = (x) => Math.round(x * 100) / 100;
+/** Cada dia de obra é uma ida e uma volta: os km pagos contam a dobrar. */
+export const IDA_E_VOLTA = 2;
 
 /**
- * Deslocação para uma localidade escrita pelo cliente.
+ * Deslocação para uma localidade escrita pelo cliente, por `dias` de obra (1 = a visita técnica, a avaria, ou antes
+ * de se saberem as horas: preco.js calcularPreco acerta os dias pelas horas do trabalho).
  * estado: "sem_localidade" | "visita" (texto sem concelho reconhecido) | "estimada" | "fora_area"
  * (acima da distância máxima, ou noutra ilha / entre ilha e continente).
- * valor_iva: com a distância, o fixo + os km pagos; sem concelho reconhecido, só o fixo (o mínimo, o resto
- * confirma-se na visita); fora da área, null (não soma: "contacte-nos").
- * @returns {{estado:string, localidade:string, concelho:string|null, distrito:string|null, distancia_km:number|null, valor_iva:number|null, config:object}}
+ * valor_dia_iva: um dia, ida e volta — com a distância, o fixo + os km pagos × 2; sem concelho reconhecido, só o fixo
+ * (o mínimo, o resto confirma-se na visita); fora da área, null (não soma: "contacte-nos"). valor_iva = um dia × dias,
+ * com os dias limitados a `deslocacao_max_dias` (5; `limitado` = os dias pedidos passavam o teto).
+ * @returns {{estado:string, localidade:string, concelho:string|null, distrito:string|null, distancia_km:number|null, dias:number, valor_dia_iva:number|null, valor_iva:number|null, config:object}}
  */
-export function calcularDeslocacao(localidade, config) {
+export function calcularDeslocacao(localidade, config, dias = 1) {
   const cfg = configDeslocacao(config);
   const loc = String(localidade ?? "").trim();
   const c = procurarConcelho(loc);
-  const r = { localidade: loc, concelho: c?.nome ?? null, distrito: c?.distrito ?? null, distancia_km: null, config: cfg };
-  if (!c) return { ...r, estado: loc ? "visita" : "sem_localidade", valor_iva: cfg.deslocacao_iva };
+  const pedidos = Math.max(1, Math.round(Number(dias)) || 1);
+  const n = Math.min(pedidos, cfg.deslocacao_max_dias);
+  const r = { localidade: loc, concelho: c?.nome ?? null, distrito: c?.distrito ?? null, distancia_km: null, dias: n, limitado: pedidos > n, config: cfg };
+  const valor = (dia) => ({ valor_dia_iva: dia, valor_iva: dia === null ? null : cent(dia * n) });
+  if (!c) return { ...r, estado: loc ? "visita" : "sem_localidade", ...valor(cfg.deslocacao_iva) };
   const base = procurarConcelho(cfg.deslocacao_base);
   const km = distanciaEstrada(base, c);
-  if (km === null) return { ...r, estado: "fora_area", valor_iva: null };
-  if (km > cfg.deslocacao_max_km) return { ...r, estado: "fora_area", distancia_km: km, valor_iva: null };
+  if (km === null) return { ...r, estado: "fora_area", ...valor(null) };
+  if (km > cfg.deslocacao_max_km) return { ...r, estado: "fora_area", distancia_km: km, ...valor(null) };
   const pagos = Math.max(0, km - cfg.deslocacao_km_gratis);
-  return { ...r, estado: "estimada", distancia_km: km, valor_iva: cent(cfg.deslocacao_iva + pagos * cfg.deslocacao_preco_km_iva) };
+  return { ...r, estado: "estimada", distancia_km: km, ...valor(cent(cfg.deslocacao_iva + pagos * IDA_E_VOLTA * cfg.deslocacao_preco_km_iva)) };
 }

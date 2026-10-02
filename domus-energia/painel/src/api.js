@@ -11,7 +11,7 @@ import {
   RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro, diagnostico as validarDiagnostico,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
-import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, PAPEIS, CATEGORIAS, transacao } from './db.js';
+import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, ESTADOS_PAGAMENTO, PAPEIS, CATEGORIAS, transacao } from './db.js';
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
@@ -22,7 +22,9 @@ import { criarFotosRemotas } from './fotos-remotas.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
+import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
+import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE } from './acesso-rapido.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -46,6 +48,14 @@ const CONFIG_ORCAMENTO = {
   deslocacao_max_km: { min: 0, max: 2000, rotulo: 'a distância máxima da deslocação' },
   // IVA dos pagamentos online (proposta sem IVA → pagamentos com IVA; docs/PAGAMENTOS-PEDIDO.md).
   iva_pct: { min: 0, max: 50, rotulo: 'a taxa de IVA (%)' },
+  // Decisões do dono de 2026-10-02 (migração 23): obra mínima (abaixo cobra-se o mínimo; o simulador avisa) e o valor
+  // acima do qual não se paga por cartão (só Multibanco ou MB Way).
+  obra_minima_iva: { min: 0, max: 10_000, rotulo: 'a obra mínima' },
+  // Horas por dia de obra (migração 24): a deslocação é ida e volta por dia; dias = horas ÷ este valor.
+  horas_por_dia: { min: 1, max: 24, rotulo: 'as horas por dia de obra' },
+  // … no máximo estes dias de deslocação por obra (migração 25; decisão do dono).
+  deslocacao_max_dias: { min: 1, max: 365, rotulo: 'o máximo de dias de deslocação por obra' },
+  cartao_max_iva: { min: 0, max: 1_000_000, rotulo: 'o limite do cartão' },
   // Relatório completo: valores de referência da lista de ensaios (migração 16; docs/PAGAMENTOS-PEDIDO.md).
   ensaio_isolamento_mohm: { min: 0, max: 1000, rotulo: 'a resistência de isolamento mínima (MΩ)' },
   ensaio_diferencial_ms: { min: 0, max: 10_000, rotulo: 'o tempo de disparo máximo do diferencial (ms)' },
@@ -55,7 +65,7 @@ const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial']
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && !k.startsWith('ensaio_')), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && !k.startsWith('ensaio_')), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -87,6 +97,8 @@ export const ROTAS = [
   ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
+  ['POST', 'orcamentos/:id/visita-faltou', ['ceo', 'comercial'], 'visitaFaltou'],
+  ['POST', 'orcamentos/:id/devolver-sinal', ['ceo'], 'devolverSinal'],
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
   ['POST', 'orcamentos/:id/diagnostico', ['ceo', 'comercial'], 'guardarDiagnostico'],
@@ -98,6 +110,7 @@ export const ROTAS = [
   ['POST', 'obras/:id', ['ceo', 'tecnico'], 'atualizarObra'],
   ['GET', 'pagamentos', ['ceo'], 'pagamentos'],
   ['GET', 'pagamentos-pedido', ['ceo'], 'pagamentosPedido'],
+  ['POST', 'devolucoes/:id/devolvida', ['ceo'], 'devolucaoFeita'],
   ['GET', 'utilizadores', ['ceo'], 'utilizadores'],
   ['POST', 'utilizadores', ['ceo'], 'criarUtilizador'],
   ['POST', 'utilizadores/:id', ['ceo'], 'atualizarUtilizador'],
@@ -107,6 +120,8 @@ export const ROTAS = [
   ['GET', 'catalogo', ['ceo'], 'catalogo'],
   ['POST', 'catalogo', ['ceo'], 'criarArtigo'],
   ['POST', 'catalogo/:id', ['ceo'], 'atualizarArtigo'],
+  ['POST', 'catalogo/:id/stock', ['ceo'], 'movimentoStock'],
+  ['GET', 'stock', ['ceo'], 'stock'],
   ['GET', 'config-orcamento', ['ceo'], 'configOrcamento'],
   ['POST', 'config-orcamento', ['ceo'], 'atualizarConfigOrcamento'],
   ['GET', 'contas', ['ceo'], 'contas'],
@@ -193,11 +208,16 @@ export function criarApi(ctx) {
   // Pagamentos do pedido (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
   let pagPed = null;
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed });
+  // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
+  const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
-    db, config, registo, relogio, auditar, correio, fotos, sessao: (req, res) => contas.sessao(req, res),
+    db, config, registo, relogio, auditar, correio, fotos, stock, sessao: (req, res) => contas.sessao(req, res),
+    criarObra: (o, por) => obraDoPedido(o, { id: null, email: por }),
     criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+  // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
+  const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
   db.prepare('INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES (\'iva_pct\', ?)').run(config.ivaTaxa ?? 23);
 
@@ -246,9 +266,22 @@ export function criarApi(ctx) {
       compras: o.simulacao ? pagPed.compras(o) : null,
       // Proposta (sem IVA) → total com IVA, sinal e restante (o que o cliente paga online).
       valores_pagamento: pagPed.resumoValores(o),
+      // Decisões de 2026-10-02: a proposta em três partes (sem IVA; null = um só valor), se a casa já se pode ligar
+      // (obra toda paga), "Quero que comecem já", a falta à visita e quando reservar o material.
+      proposta_partes: pagPed.partes(o),
+      ligar_casa: o.estado === 'aceite' ? pagPed.ligacaoCasa(o) : null,
+      inicio_imediato: o.inicio_imediato ?? null, visita_faltou: o.visita_faltou ?? null,
+      material_reserva: pagPed.reservaMaterial(o),
+      // A obra do pedido (nasce com o sinal pago; a casa liga-se depois): {id, data, estado, por_agendar} ou null.
+      obra: resumoObra(o.obra_id),
+      // Devoluções por transferência (pagamentos por Multibanco): estado e valor; o IBAN só mascarado.
+      devolucoes: pagPed.devolucoesDoPedido(o.id),
       anonimizado: o.anonimizado ?? null,
     };
     if (completo) {
+      // As três partes sugeridas pela simulação (catálogo do servidor) para o CEO abrir a proposta, e o stock do pedido.
+      r.proposta_sugerida = o.simulacao ? pagPed.propostaSugerida(o) : null;
+      r.stock = o.simulacao ? stock.resumoPedido(o) : null;
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
       r.catalogo = artigosDaSimulacao(r.simulacao);
       r.fotos = fotos.listar(o, r.simulacao);
@@ -283,11 +316,25 @@ export function criarApi(ctx) {
   }
 
   const tecnicosDe = db.prepare('SELECT u.id, u.nome FROM obra_tecnicos t JOIN utilizadores u ON u.id = t.utilizador_id WHERE t.obra_id = ? ORDER BY u.nome');
+  const resumoObra = (id) => {
+    const b = id ? db.prepare('SELECT id, data, estado, por_agendar FROM obras WHERE id = ?').get(id) : null;
+    return b ? { id: b.id, data: b.data, estado: b.estado, por_agendar: Boolean(b.por_agendar) } : null;
+  };
+  const nomeDoOrcamento = db.prepare('SELECT nome FROM orcamentos WHERE id = ?');
+  /** A casa de uma obra: "ligada"; "por_ligar" (já se pode ligar); "falta_restante" (só com o restante pago). Sem valores: o técnico vê-a. */
+  const casaDaObra = (b) => {
+    if (b.cliente) return 'ligada';
+    const orc = b.orcamento_id ? db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(b.orcamento_id) : null;
+    return orc && orc.estado === 'aceite' && !pagPed.ligacaoCasa(orc).pode ? 'falta_restante' : 'por_ligar';
+  };
   function formatarObra(o, mapaFichas) {
     let material = [];
     try { material = JSON.parse(o.material); } catch { /* ignorado */ }
     return {
-      id: o.id, cliente: o.cliente, cliente_nome: mapaFichas?.get(o.cliente)?.nome ?? null, orcamento_id: o.orcamento_id,
+      // Obra criada com o sinal pago: a casa ainda não está ligada (`cliente` vazio até à conversão, que só se faz com o
+      // restante pago) e a data é provisória até alguém a escolher (`por_agendar`). O nome vem do pedido.
+      id: o.id, cliente: o.cliente || null, cliente_nome: mapaFichas?.get(o.cliente)?.nome ?? (!o.cliente && o.orcamento_id ? nomeDoOrcamento.get(o.orcamento_id)?.nome ?? null : null),
+      orcamento_id: o.orcamento_id, casa_ligada: Boolean(o.cliente), casa: casaDaObra(o), por_agendar: Boolean(o.por_agendar),
       data: o.data, hora: o.hora, kit: o.kit, estado: o.estado, material,
       horas_estimadas: o.horas_estimadas, horas_reais: o.horas_reais, notas: o.notas,
       tecnicos: tecnicosDe.all(o.id).map((t) => ({ id: t.id, nome: t.nome })),
@@ -302,6 +349,8 @@ export function criarApi(ctx) {
       preco_compra: deCent(a.preco_compra_cent), preco_venda_iva: deCent(a.preco_venda_iva_cent),
       horas_instalacao: a.horas_instalacao, horas_troca: a.horas_troca ?? null, especificacoes: JSON.parse(a.especificacoes || '{}'),
       ativo: Boolean(a.ativo), visivel_cliente: Boolean(a.visivel_cliente), atualizado: a.atualizado,
+      // Stock (migração 22; só CEO): em armazém, reservado para obras aceites, mínimo e se o artigo tem stock gerido.
+      stock_qtd: a.stock_qtd ?? 0, stock_reservado: a.stock_reservado ?? 0, stock_minimo: a.stock_minimo ?? 0, stock_gerido: stock.gerido(a),
     };
   }
   const lerConfigOrcamento = () => Object.fromEntries(db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor]));
@@ -426,7 +475,7 @@ export function criarApi(ctx) {
 
   // Propostas aceites pelo cliente na conta e ainda por converter (aviso no início do painel).
   const propostasAceitesOnline = () => db.prepare(`SELECT id, nome, proposta_aceite, valor_proposta_cent FROM orcamentos
-    WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND obra_id IS NULL ORDER BY proposta_aceite DESC LIMIT 50`).all()
+    WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL ORDER BY proposta_aceite DESC LIMIT 50`).all()
     .map((o) => ({ id: o.id, nome: o.nome, quando: o.proposta_aceite, valor_proposta: deCent(o.valor_proposta_cent) }));
 
   h.resumo = async ({ res, u }) => {
@@ -720,7 +769,7 @@ export function criarApi(ctx) {
   h.atualizarOrcamento = async ({ req, res, u, params, ip }) => {
     const o = naoArquivado(obterOrcamento(params.id));
     const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'proposta_texto', 'motivo_perda',
-      'nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem']);
+      'nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', ...PARTES_PROPOSTA]);
     const mud = camposContacto(v, false);
     if (v.estado !== undefined) mud.estado = opcao(v.estado, 'estado', ESTADOS_ORCAMENTO);
     if (v.notas !== undefined) mud.notas = texto(v.notas, 'as notas', { max: 4000, multilinha: true });
@@ -729,25 +778,90 @@ export function criarApi(ctx) {
     // Texto da proposta que o cliente vê na conta (com o valor), a partir do estado "proposta_enviada".
     if (v.proposta_texto !== undefined) mud.proposta_texto = texto(v.proposta_texto, 'o texto da proposta', { max: 4000, multilinha: true });
     if (v.motivo_perda !== undefined) mud.motivo_perda = texto(v.motivo_perda, 'o motivo da perda', { max: 500, multilinha: true });
+    // Proposta em três partes (sem IVA; decisão 15): as três ou nenhuma. Com elas o valor da proposta é a soma; mudar só
+    // o valor (como antes) volta a uma proposta de um só valor.
+    const dadas = PARTES_PROPOSTA.filter((k) => v[k] !== undefined);
+    if (dadas.length) {
+      const nulas = PARTES_PROPOSTA.filter((k) => v[k] === null).length;
+      if (dadas.length !== 3 || (nulas && nulas !== 3)) falha('Indique as três partes da proposta (mão de obra, material e deslocação) ou nenhuma.');
+      const ROTULO = { proposta_mao_obra: 'a mão de obra', proposta_material: 'o material', proposta_deslocacao: 'a deslocação' };
+      for (const k of PARTES_PROPOSTA) mud[`${k}_cent`] = nulas ? null : paraCent(numero(v[k], ROTULO[k], { max: 1_000_000, nulo: false }));
+      if (!nulas) mud.valor_proposta_cent = PARTES_PROPOSTA.reduce((t, k) => t + mud[`${k}_cent`], 0);
+    } else if (mud.valor_proposta_cent !== undefined && mud.valor_proposta_cent !== o.valor_proposta_cent && o.proposta_mao_obra_cent !== null) {
+      for (const k of PARTES_PROPOSTA) mud[`${k}_cent`] = null;
+    }
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     const final = { ...o, ...mud };
     if (!final.telefone && !final.email) falha('Indique um telefone ou um email.');
     if (final.estado === 'perdido' && !final.motivo_perda) falha('Indique o motivo da perda.');
     if (final.estado === 'visita_marcada' && !final.data_visita) falha('Indique a data da visita.');
-    if (o.obra_id && mud.estado && mud.estado !== 'aceite') falha('Este pedido já foi convertido em cliente e obra.');
+    if (o.cliente && mud.estado && mud.estado !== 'aceite') falha('Este pedido já foi convertido em cliente e obra.');
     const cols = Object.keys(mud);
     db.prepare(`UPDATE orcamentos SET ${cols.map((k) => `${k} = ?`).join(', ')}, atualizado = ? WHERE id = ?`)
       .run(...cols.map((k) => mud[k]), agoraIso(), o.id);
     const det = {};
-    for (const k of cols) if (o[k] !== mud[k]) det[k === 'valor_proposta_cent' ? 'valor_proposta' : k] = k === 'valor_proposta_cent' ? deCent(mud[k]) : mud[k];
-    // Aceite pelo cliente e a aguardar o sinal: se a proposta (valor ou estado) mudou, o sinal por pagar sai e o
+    for (const k of cols) if (o[k] !== mud[k]) det[k.endsWith('_cent') ? k.slice(0, -5) : k] = k.endsWith('_cent') ? deCent(mud[k]) : mud[k];
+    // Aceite pelo cliente e a aguardar o sinal: se a proposta (valor, partes ou estado) mudou, o sinal por pagar sai e o
     // cliente volta a aceitar (docs/PAGAMENTOS-PEDIDO.md).
-    if (o.proposta_aceite && o.estado === 'proposta_enviada' && ('valor_proposta' in det || (mud.estado && mud.estado !== 'proposta_enviada'))) {
+    if (o.proposta_aceite && o.estado === 'proposta_enviada' && ('valor_proposta' in det || PARTES_PROPOSTA.some((k) => k in det) || (mud.estado && mud.estado !== 'proposta_enviada'))) {
       pagPed.aoMudarProposta(o.id);
+    }
+    // Um pedido que passa a aceite (à mão, sem sinal online) reserva o material e ganha a obra (por agendar); um que
+    // deixa de o estar liberta o material e a obra fica cancelada (nunca se apaga).
+    if (mud.estado && mud.estado !== o.estado) {
+      if (mud.estado === 'aceite') { stock.reservar(obterOrcamento(params.id), u.email); obraDoPedido(obterOrcamento(params.id), u, ip); }
+      else if (o.estado === 'aceite') { stock.libertar(o.id, u.email, 'o pedido deixou de estar aceite'); cancelarObraDoPedido(o, u, ip); }
     }
     auditar(u, 'orcamento_atualizado', `orcamento:${o.id}`, det, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
+
+  const PARTES_PROPOSTA = ['proposta_mao_obra', 'proposta_material', 'proposta_deslocacao'];
+
+  /** Material de uma obra a partir da simulação do pedido (itens do catálogo): [{sku, nome, quantidade, feito}]. */
+  function materialDaSimulacao(o) {
+    if (!o.simulacao) return [];
+    try {
+      const sim = JSON.parse(o.simulacao);
+      if (!Array.isArray(sim.itens)) return [];
+      const nomeSku = db.prepare('SELECT nome FROM catalogo WHERE sku = ?');
+      return sim.itens.slice(0, 200).filter((i) => i && typeof i.sku === 'string' && RE_SKU.test(i.sku))
+        .map((i) => ({ sku: i.sku, nome: nomeSku.get(i.sku)?.nome ?? i.sku, quantidade: Number.isFinite(i.qtd) && i.qtd > 0 ? Math.min(Math.round(i.qtd), 10_000) : 1, feito: false }));
+    } catch { return []; }   // simulação sem itens válidos
+  }
+
+  /**
+   * A obra de um pedido aceite (decisão do dono: a obra nasce com o sinal pago; a casa liga-se depois, com o restante
+   * pago). Uma só por pedido: se já existe devolve-a (uma cancelada volta a "agendada", por agendar). Nasce sem casa
+   * (`cliente` vazio), com o material e as horas da simulação e uma data provisória (`por_agendar`): hoje, ou o dia a
+   * partir do qual se reserva o material (14 dias depois do sinal, sem "Quero que comecem já"). Devolve o id.
+   */
+  function obraDoPedido(o, u, ip = null) {
+    const agora = agoraIso();
+    const existente = db.prepare('SELECT * FROM obras WHERE id = ? OR orcamento_id = ? ORDER BY id LIMIT 1').get(o.obra_id ?? -1, o.id);
+    if (existente) {
+      if (existente.estado === 'cancelada' && !existente.cliente) {
+        db.prepare("UPDATE obras SET estado = 'agendada', por_agendar = 1, atualizado = ? WHERE id = ?").run(agora, existente.id);
+        auditar(u, 'obra_atualizada', `obra:${existente.id}`, { estado: 'agendada', orcamento: o.id, motivo: 'o pedido voltou a aceite' }, ip);
+      }
+      if (o.obra_id !== existente.id) db.prepare('UPDATE orcamentos SET obra_id = ? WHERE id = ?').run(existente.id, o.id);
+      return existente.id;
+    }
+    const reserva = pagPed.reservaMaterial(o);
+    const data = diaLisboa(new Date(reserva?.a_partir ?? relogio()));
+    const id = Number(db.prepare(`INSERT INTO obras (cliente, orcamento_id, data, estado, material, horas_estimadas, por_agendar, criado, atualizado)
+      VALUES ('', ?, ?, 'agendada', ?, ?, 1, ?, ?)`).run(o.id, data, JSON.stringify(materialDaSimulacao(o)), horasDaSimulacao(o.simulacao), agora, agora).lastInsertRowid);
+    db.prepare('UPDATE orcamentos SET obra_id = ? WHERE id = ?').run(id, o.id);
+    auditar(u, 'obra_criada', `obra:${id}`, { orcamento: o.id, data, por_agendar: true, casa_ligada: false }, ip);
+    return id;
+  }
+
+  /** O pedido deixou de estar aceite (ou o sinal foi devolvido) antes de a obra ser feita: a obra fica cancelada. */
+  function cancelarObraDoPedido(o, u, ip = null) {
+    if (!o.obra_id) return;
+    const r = db.prepare("UPDATE obras SET estado = 'cancelada', atualizado = ? WHERE id = ? AND estado NOT IN ('concluida', 'cancelada')").run(agoraIso(), o.obra_id);
+    if (r.changes) auditar(u, 'obra_atualizada', `obra:${o.obra_id}`, { estado: 'cancelada', orcamento: o.id }, ip);
+  }
 
   // Dois "Converter" ao mesmo tempo (duplo clique, dois separadores): o 2.º espera pela verificação de
   // `obra_id`, que só fica gravada no fim; sem isto criava obras e pedidos-admin em dobro.
@@ -768,16 +882,26 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['codigo', 'data', 'hora', 'kit', 'tecnicos', 'notas', 'horas_estimadas', 'aparelhos'], 64 * 1024);
     naoArquivado(o);
     if (o.estado !== 'aceite') throw new ErroApi(409, 'Só se converte um pedido com o estado "aceite".');
-    if (o.obra_id) throw new ErroApi(409, 'Este pedido já foi convertido.');
+    if (o.cliente) throw new ErroApi(409, 'Este pedido já foi convertido.');
+    // Decisão 1 do dono: a casa (conta do cliente no servidor, aparelhos, plano) só se liga com a obra toda paga. Com
+    // os pagamentos desligados (ou num pedido sem conta) fica como antes; o painel mostra o aviso.
+    const ligacao = pagPed.ligacaoCasa(o);
+    if (!ligacao.pode) throw new ErroApi(409, `Falta o cliente pagar o restante (${ligacao.falta.toFixed(2).replace('.', ',')} €): a casa só se liga com a obra paga.`);
     const codigo = texto(v.codigo, 'o código do cliente', { max: 32, obrigatorio: true, re: RE_ID,
       reMsg: 'Código inválido: 1 a 32 letras minúsculas, dígitos e "-" (sem "-" no início ou no fim).' });
     if (RESERVADOS.has(codigo)) falha(`O código "${codigo}" é reservado.`);
+    // A obra já existe desde o sinal (obraDoPedido): ligar a casa reaproveita-a — nunca cria outra — e só muda nela o
+    // que vier no pedido (data, hora, kit, horas, notas, técnicos). Sem obra (pedidos aceites antes disto) cria-a.
+    const obraAtual = o.obra_id ? db.prepare('SELECT * FROM obras WHERE id = ?').get(o.obra_id) ?? null : null;
     const dataVisita = o.data_visita ? o.data_visita.slice(0, 10) : null;
-    const data = dia(v.data ?? dataVisita, 'a data da obra', { obrigatorio: true });
-    const h2 = hora(v.hora, 'a hora');
-    const kit = opcao(v.kit, 'kit', Object.keys(KITS), { obrigatorio: false });
-    const horasEst = v.horas_estimadas !== undefined ? numero(v.horas_estimadas, 'as horas estimadas', { max: 500 }) : (horasDaSimulacao(o.simulacao) ?? (kit ? KITS[kit] : null));
-    const notas = texto(v.notas, 'as notas', { max: 4000, multilinha: true });
+    // A data: a do pedido; senão a da obra já agendada; senão o dia da visita; senão a provisória da obra.
+    const provisoria = (v.data === undefined || v.data === null) && Boolean(obraAtual?.por_agendar) && !dataVisita;
+    const data = dia(v.data ?? (obraAtual && !obraAtual.por_agendar ? obraAtual.data : null) ?? dataVisita ?? obraAtual?.data, 'a data da obra', { obrigatorio: true });
+    const h2 = v.hora === undefined && obraAtual ? obraAtual.hora : hora(v.hora, 'a hora');
+    const kit = v.kit === undefined && obraAtual ? obraAtual.kit : opcao(v.kit, 'kit', Object.keys(KITS), { obrigatorio: false });
+    const horasEst = v.horas_estimadas !== undefined ? numero(v.horas_estimadas, 'as horas estimadas', { max: 500 })
+      : obraAtual ? obraAtual.horas_estimadas ?? (v.kit !== undefined && kit ? KITS[kit] : null) : (horasDaSimulacao(o.simulacao) ?? (kit ? KITS[kit] : null));
+    const notas = v.notas === undefined && obraAtual ? obraAtual.notas : texto(v.notas, 'as notas', { max: 4000, multilinha: true });
     if (v.tecnicos !== undefined && u.papel !== 'ceo') throw new ErroApi(403, 'Só o CEO atribui técnicos.');
     const tecs = v.tecnicos === undefined ? [] : tecnicos(v.tecnicos);
     // Aparelhos a pedir ao servidor (pré-preenchidos no painel a partir da simulação), validados
@@ -803,17 +927,7 @@ export function criarApi(ctx) {
       }
     }
     // Material a partir da simulação (itens do catálogo), se houver.
-    let mat = [];
-    if (o.simulacao) {
-      try {
-        const sim = JSON.parse(o.simulacao);
-        if (Array.isArray(sim.itens)) {
-          const nomeSku = db.prepare('SELECT nome FROM catalogo WHERE sku = ?');
-          mat = sim.itens.slice(0, 200).filter((i) => i && typeof i.sku === 'string' && RE_SKU.test(i.sku))
-            .map((i) => ({ sku: i.sku, nome: nomeSku.get(i.sku)?.nome ?? i.sku, quantidade: Number.isFinite(i.qtd) && i.qtd > 0 ? Math.min(Math.round(i.qtd), 10_000) : 1, feito: false }));
-        }
-      } catch { /* simulação sem itens válidos */ }
-    }
+    const mat = materialDaSimulacao(o);
     const existe = await dados.clienteExiste(codigo);
     const fichaExistente = db.prepare('SELECT * FROM fichas_cliente WHERE codigo = ?').get(codigo);
     if (!existe && fichaExistente && fichaExistente.orcamento_id && fichaExistente.orcamento_id !== o.id) {
@@ -844,15 +958,24 @@ export function criarApi(ctx) {
           nome = COALESCE(fichas_cliente.nome, excluded.nome), contacto = COALESCE(fichas_cliente.contacto, excluded.contacto),
           localidade = COALESCE(fichas_cliente.localidade, excluded.localidade), atualizado = excluded.atualizado`)
         .run(codigo, o.nome, [o.telefone, o.email].filter(Boolean).join(' · ') || null, o.localidade, o.id, agora, agora);
-      const id = Number(db.prepare(`INSERT INTO obras (cliente, orcamento_id, data, hora, kit, estado, material, horas_estimadas, notas, criado, atualizado)
-        VALUES (?, ?, ?, ?, ?, 'agendada', ?, ?, ?, ?, ?)`).run(codigo, o.id, data, h2, kit, JSON.stringify(mat), horasEst, notas, agora, agora).lastInsertRowid);
+      let id;
+      if (obraAtual) {
+        id = obraAtual.id;
+        const estado = obraAtual.estado === 'cancelada' ? 'cancelada' : o.obra_concluida ? 'concluida' : obraAtual.estado;
+        db.prepare('UPDATE obras SET cliente = ?, data = ?, hora = ?, kit = ?, horas_estimadas = ?, notas = ?, por_agendar = ?, estado = ?, atualizado = ? WHERE id = ?')
+          .run(codigo, data, h2, kit, horasEst, notas, provisoria ? 1 : 0, estado, agora, id);
+        if (v.tecnicos !== undefined) db.prepare('DELETE FROM obra_tecnicos WHERE obra_id = ?').run(id);
+      } else {
+        id = Number(db.prepare(`INSERT INTO obras (cliente, orcamento_id, data, hora, kit, estado, material, horas_estimadas, notas, criado, atualizado)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(codigo, o.id, data, h2, kit, o.obra_concluida ? 'concluida' : 'agendada', JSON.stringify(mat), horasEst, notas, agora, agora).lastInsertRowid);
+      }
       for (const t of tecs) db.prepare('INSERT INTO obra_tecnicos (obra_id, utilizador_id) VALUES (?, ?)').run(id, t);
       db.prepare('UPDATE orcamentos SET cliente = ?, obra_id = ?, pedido_id = ?, atualizado = ? WHERE id = ?').run(codigo, id, pedido?.id ?? null, agora, o.id);
       return id;
     });
     auditar(u, 'orcamento_convertido', `orcamento:${o.id}`, { cliente: codigo, obra: obraId, pedido: pedido?.id ?? null, aparelhos: pedidosAparelhos.length }, ip);
     for (const [i, a] of aparelhos.entries()) auditar(u, 'pedido_aparelho', `cliente:${codigo}`, { pedido: pedidosAparelhos[i].id, aparelho: a.id, tipo: a.tipo, orcamento: o.id }, ip);
-    auditar(u, 'obra_criada', `obra:${obraId}`, { cliente: codigo, data, kit, orcamento: o.id }, ip);
+    auditar(u, obraAtual ? 'obra_atualizada' : 'obra_criada', `obra:${obraId}`, { cliente: codigo, data, kit, orcamento: o.id, ...(obraAtual ? { casa_ligada: true } : {}) }, ip);
     // Plano mensal escolhido ao aceitar: no modo simulado a subscrição começa com a casa ligada (pedido-admin
     // "plano", a seguir ao do cliente); no modo stripe o cliente ativa-a na área de cliente (serviço pagamentos/).
     let pedidoPlano = null;
@@ -897,10 +1020,10 @@ export function criarApi(ctx) {
     const o = naoArquivado(obterOrcamento(params.id));
     const quando = diaHora(v.data_visita, 'a data da visita');
     if (!quando || !/T\d{2}:\d{2}/.test(quando)) falha('Indique o dia e a hora da visita.');
-    if (o.obra_id || ['aceite', 'perdido'].includes(o.estado)) throw new ErroApi(409, 'Este pedido já não tem visita técnica.');
+    if (o.cliente || ['aceite', 'perdido'].includes(o.estado)) throw new ErroApi(409, 'Este pedido já não tem visita técnica.');
     const agora = agoraIso();
     const estado = ['novo', 'contactado'].includes(o.estado) ? 'visita_marcada' : o.estado;
-    db.prepare('UPDATE orcamentos SET data_visita = ?, estado = ?, atualizado = ? WHERE id = ?').run(quando, estado, agora, o.id);
+    db.prepare('UPDATE orcamentos SET data_visita = ?, estado = ?, visita_faltou = NULL, atualizado = ? WHERE id = ?').run(quando, estado, agora, o.id);
     auditar(u, 'visita_marcada', `orcamento:${o.id}`, { data_visita: quando, estado }, ip);
     const email = emailDaConta(o.conta_id);
     if (email) {
@@ -908,6 +1031,57 @@ export function criarApi(ctx) {
       const txt = new Date(`${quando}:00Z`).toLocaleString('pt-PT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
       correio.enviar({ para: email, assunto: 'Domus Energia: visita técnica marcada', resumo: `visita do pedido ${o.id} marcada para ${quando}`,
         texto: ['Olá,', '', `A visita técnica do seu pedido n.º ${o.id} está marcada para ${txt}.`, 'Se não puder, responda a este email ou ligue-nos.',
+          ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // "Cliente faltou" (decisão 10 do dono): o técnico foi e o cliente não estava (ou cancelou em cima da hora). A visita
+  // (ou o diagnóstico da avaria) não é devolvida nem descontada no sinal: o pagamento fica marcado (`faltou`), a falta
+  // fica registada (auditoria), a data sai e o cliente é avisado. Para avançar, o cliente marca e paga uma visita nova.
+  h.visitaFaltou = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (!pagPed.temVisita(o)) throw new ErroApi(409, 'Este pedido não tem uma visita paga.');
+    if (o.visita_faltou) throw new ErroApi(409, 'A falta já está registada.');
+    const falta = pagPed.faltaParaVisita(o);
+    if (falta === null) throw new ErroApi(409, 'A visita ainda não tem data marcada.');
+    if (falta > 0) throw new ErroApi(409, 'A visita ainda não aconteceu.');
+    const agora = agoraIso();
+    const ref = pagPed.marcarFalta(o);
+    db.prepare("UPDATE orcamentos SET visita_faltou = ?, data_visita = NULL, estado = CASE WHEN estado = 'visita_marcada' THEN 'contactado' ELSE estado END, atualizado = ? WHERE id = ?").run(agora, agora, o.id);
+    auditar(u, 'visita_faltou', `orcamento:${o.id}`, { data_visita: o.data_visita, devolvido: false, ...(ref ? { ref } : {}) }, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: não o encontrámos na visita', resumo: `visita do pedido ${o.id}: cliente faltou`,
+        texto: ['Olá,', '', `O nosso técnico foi à visita do seu pedido n.º ${o.id} e não o encontrou.`,
+          'Como dizem os Termos, uma visita a que falta (ou cancelada com menos de 24 h) não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova na sua conta.',
+          ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // "Cancelar obra e devolver sinal" (só CEO): antes de a obra ser feita. Devolve o sinal (todo, ou `valor`: o sinal
+  // menos o material já encomendado e os serviços prestados), o pedido fica "perdido", a obra cancelada (não se apaga)
+  // e o material reservado é libertado.
+  h.devolverSinal = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['valor', 'motivo']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (o.cliente) throw new ErroApi(409, 'Este pedido já foi convertido em cliente e obra.');
+    const valor = v.valor === undefined || v.valor === null ? null : paraCent(numero(v.valor, 'o valor a devolver', { min: 0.01, max: 1_000_000, nulo: false }));
+    const motivo = texto(v.motivo, 'o motivo', { max: 500, multilinha: true }) ?? 'Obra cancelada: sinal devolvido.';
+    const r = await pagPed.devolverSinal(o, valor);
+    const agora = agoraIso();
+    db.prepare("UPDATE orcamentos SET estado = 'perdido', motivo_perda = ?, atualizado = ? WHERE id = ?").run(motivo, agora, o.id);
+    stock.libertar(o.id, u.email, 'sinal devolvido');
+    cancelarObraDoPedido(o, u, ip);
+    auditar(u, 'sinal_devolvido', `orcamento:${o.id}`, { ref: r.ref, devolvido: deCent(r.cent), modo: r.modo, estado: 'perdido', ...(r.manual ? { manual: true } : {}) }, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: sinal devolvido', resumo: `sinal do pedido ${o.id} devolvido (${deCent(r.cent)} €)`,
+        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} foi cancelada.`,
+          r.manual ? `Como pagou por referência Multibanco, devolvemos ${deCent(r.cent).toFixed(2).replace('.', ',')} € do sinal por transferência bancária: indique o IBAN na sua conta.`
+            : `Devolvemos ${deCent(r.cent).toFixed(2).replace('.', ',')} € do sinal para o mesmo meio de pagamento (até 14 dias)${r.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
@@ -980,13 +1154,16 @@ export function criarApi(ctx) {
     const agora = agoraIso();
     db.prepare('UPDATE orcamentos SET obra_concluida = ?, atualizado = ? WHERE id = ?').run(agora, agora, o.id);
     if (o.obra_id) db.prepare("UPDATE obras SET estado = 'concluida', atualizado = ? WHERE id = ? AND estado != 'cancelada'").run(agora, o.obra_id);
+    // Stock: o material da obra sai do armazém (e a reserva fecha).
+    stock.saida(o, u.email);
     const v = pagPed.valores({ ...o, obra_concluida: agora });
     auditar(u, 'obra_concluida', `orcamento:${o.id}`, { restante: deCent(v.restante) }, ip);
     const email = emailDaConta(o.conta_id);
     if (email && v.restante > 0) {
       correio.enviar({ para: email, assunto: 'Domus Energia: obra concluída', resumo: `obra do pedido ${o.id} concluída; restante ${deCent(v.restante)} €`,
         texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} está concluída. Pode pagar o restante (${deCent(v.restante).toFixed(2).replace('.', ',')} €, com IVA) na sua conta.`,
-          `Proposta: ${deCent(v.proposta).toFixed(2).replace('.', ',')} € + IVA ${String(v.iva_pct).replace('.', ',')} % (${deCent(v.iva).toFixed(2).replace('.', ',')} €) = ${deCent(v.total).toFixed(2).replace('.', ',')} €, menos o que já pagou.`,
+          'A app da casa fica ativa depois de pagar o restante.',
+          `Proposta: ${deCent(v.base).toFixed(2).replace('.', ',')} € + IVA ${String(v.iva_pct).replace('.', ',')} % (${deCent(v.iva).toFixed(2).replace('.', ',')} €) = ${deCent(v.total).toFixed(2).replace('.', ',')} €, menos o que já pagou.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
@@ -1069,6 +1246,8 @@ export function criarApi(ctx) {
       if (v.estado === 'cancelada') throw new ErroApi(403, 'Só o CEO cancela obras.');
     }
     const r = await camposObra(v, true);
+    // Obra criada com o sinal pago, com data provisória: escolher a data agenda-a.
+    if (r.data !== undefined && o.por_agendar) r.por_agendar = 0;
     const tecs = v.tecnicos === undefined ? null : tecnicos(v.tecnicos);
     if (!Object.keys(r).length && tecs === null) falha('Nada para alterar.');
     transacao(db, () => {
@@ -1083,6 +1262,12 @@ export function criarApi(ctx) {
     if (det.material) det.material = `${JSON.parse(det.material).length} artigos`;
     if (tecs) det.tecnicos = tecs;
     auditar(u, 'obra_atualizada', `obra:${o.id}`, det, ip);
+    // Stock: obra concluída → o material do pedido sai do armazém; obra cancelada → a reserva é libertada.
+    if (r.estado && r.estado !== o.estado && o.orcamento_id) {
+      const orc = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.orcamento_id);
+      if (orc && r.estado === 'concluida') stock.saida(orc, u.email);
+      else if (orc && r.estado === 'cancelada') stock.libertar(orc.id, u.email, 'obra cancelada');
+    }
     responder(res, 200, formatarObra(db.prepare('SELECT * FROM obras WHERE id = ?').get(o.id), fichas()));
   };
 
@@ -1132,13 +1317,15 @@ export function criarApi(ctx) {
     const mes = url.searchParams.get('mes');
     if (mes !== null && !/^\d{4}-\d{2}$/.test(mes)) falha('Mês inválido (AAAA-MM).');
     const estado = url.searchParams.get('estado');
-    if (estado !== null) opcao(estado, 'estado', ['pendente', 'pago', 'falhado', 'cancelado', 'expirado']);
+    if (estado !== null) opcao(estado, 'estado', ESTADOS_PAGAMENTO);
     const linhas = pagPed.listarTodos({ estado, mes });
     if (url.searchParams.get('formato') === 'csv') {
       const seguro = (s) => (/^[=+\-@\t\r]/.test(String(s ?? '')) ? `'${s}` : String(s ?? '')).replace(/[;\r\n"]/g, ' ');
       const dec = (n) => (n == null ? '' : n.toFixed(2).replace('.', ','));
       const csv = ['data;referencia;descricao;base;iva;total;estado;pedido']
-        .concat(linhas.map((l) => [l.data, l.ref, seguro(l.descricao), dec(l.base), dec(l.iva), dec(l.valor), l.estado, l.orcamento_id ?? ''].join(';')))
+        // Uma devolução (visita cancelada, sinal devolvido) vai numa linha própria, a negativo, com a data dela.
+        .concat(linhas.flatMap((l) => [[l.data, l.ref, seguro(l.descricao), dec(l.base), dec(l.iva), dec(l.valor), l.estado, l.orcamento_id ?? ''].join(';'),
+          ...(l.devolvido ? [[l.devolvido_em ?? l.data, l.ref, seguro(`Devolução: ${l.descricao}`), dec(-l.devolvido_base), dec(-l.devolvido_iva), dec(-l.devolvido), 'devolucao', l.orcamento_id ?? ''].join(';')] : [])]))
         .join('\r\n');
       const corpo = Buffer.from(`﻿${csv}\r\n`);
       res.writeHead(200, {
@@ -1148,9 +1335,28 @@ export function criarApi(ctx) {
       });
       return res.end(corpo);
     }
+    // Totais: o que ficou pago, já sem as devoluções parciais (uma devolução total deixa o pagamento "devolvido").
     const pagos = linhas.filter((l) => l.estado === 'pago');
-    const soma = (k) => deCent(pagos.reduce((s, l) => s + paraCent(l[k]), 0));
-    responder(res, 200, { pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base'), iva: soma('iva'), total: soma('valor') } });
+    const soma = (k, dev) => deCent(pagos.reduce((s, l) => s + paraCent(l[k]) - paraCent(l[dev] ?? 0), 0));
+    responder(res, 200, {
+      pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base', 'devolvido_base'), iva: soma('iva', 'devolvido_iva'), total: soma('valor', 'devolvido') },
+      // Devoluções por transferência ainda por fazer (pagamentos por Multibanco): valor, IBAN e titular, para o CEO.
+      devolucoes_por_fazer: pagPed.devolucoesPorFazer(),
+    });
+  };
+
+  // "Devolvido": o CEO fez a transferência de uma devolução manual (pagamento por referência Multibanco). Fica a data e
+  // quem; só agora conta como devolvido nos totais e no CSV. O IBAN não vai para a auditoria.
+  h.devolucaoFeita = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const d = pagPed.marcarDevolvida(idNum(params.id), u.email);
+    auditar(u, 'devolucao_feita', d.orcamento_id ? `orcamento:${d.orcamento_id}` : `conta:${d.conta_id}`, { devolucao: d.id, ref: d.ref, valor: d.valor }, ip);
+    const email = emailDaConta(d.conta_id);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: devolução feita', resumo: `devolução ${d.id} feita (${d.valor} €)`,
+        texto: ['Olá,', '', `Fizemos a transferência de ${d.valor.toFixed(2).replace('.', ',')} € para a conta que indicou (${d.iban}).`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, { devolucao: { ...d, conta_id: undefined }, devolucoes_por_fazer: pagPed.devolucoesPorFazer() });
   };
 
   // ---- utilizadores do painel
@@ -1274,9 +1480,31 @@ export function criarApi(ctx) {
     }
     if (v.ativo !== undefined) r.ativo = booleano(v.ativo, 'ativo') ? 1 : 0;
     if (v.visivel_cliente !== undefined) r.visivel_cliente = booleano(v.visivel_cliente, 'visivel_cliente') ? 1 : 0;
+    // Stock (migração 22): só o mínimo se edita aqui; a quantidade muda por movimentos (POST catalogo/:id/stock).
+    if (v.stock_minimo !== undefined) r.stock_minimo = numero(v.stock_minimo, 'o stock mínimo', { max: 1_000_000, casas: 0, nulo: false });
     return r;
   }
-  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'horas_troca', 'especificacoes', 'ativo', 'visivel_cliente'];
+  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'horas_troca', 'especificacoes', 'ativo', 'visivel_cliente', 'stock_minimo'];
+
+  // ---- stock (só CEO; stock.js): os artigos (abaixo do mínimo primeiro) e os últimos movimentos
+  h.stock = ({ res }) => responder(res, 200, stock.listar());
+
+  // "Entrada de stock" (quantidade > 0; com o custo real de compra: preço + transporte + alfândega) ou "acerto"
+  // (inventário: quantidade com sinal).
+  h.movimentoStock = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['qtd', 'motivo', 'nota', 'preco_compra']);
+    const motivo = opcao(v.motivo, 'motivo', ['entrada', 'acerto']);
+    const qtd = numero(v.qtd, 'a quantidade', { min: motivo === 'entrada' ? 1 : -1_000_000, max: 1_000_000, casas: 0, nulo: false });
+    if (qtd === 0) falha('A quantidade não pode ser 0.');
+    const nota = texto(v.nota, 'a nota', { max: 200 });
+    const custo = v.preco_compra === undefined || v.preco_compra === null ? null : paraCent(numero(v.preco_compra, 'o custo de compra', { max: 100_000, nulo: false }));
+    const id = idNum(params.id);
+    if (!db.prepare('SELECT 1 FROM catalogo WHERE id = ?').get(id)) throw new ErroApi(404, 'Artigo não encontrado.');
+    if (custo !== null) db.prepare('UPDATE catalogo SET preco_compra_cent = ? WHERE id = ?').run(custo, id);
+    const a = stock.movimentar(id, { qtd, motivo, nota }, u.email);
+    auditar(u, 'stock_movimento', `catalogo:${a.id}`, { sku: a.sku, motivo, qtd, ...(custo !== null ? { preco_compra: deCent(custo) } : {}) }, ip);
+    responder(res, 201, formatarArtigo(a));
+  };
 
   h.criarArtigo = async ({ req, res, u, ip }) => {
     const r = camposArtigo(await lerJson(req, CAMPOS_ARTIGO, 32 * 1024), false);
@@ -1465,6 +1693,8 @@ export function criarApi(ctx) {
       // Rotas públicas: CORS com credenciais só para o site público noutra origem (SITE_ORIGENS).
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
       if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
+      // Sem o acesso rápido (sempre, no servidor) estes dois endereços seguem em frente e dão 404 como qualquer outro desconhecido.
+      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE)) return await rapido.tratar(req, res, caminho, ip);
       if (caminho.startsWith('/api/conta/')) {
         if (await pagPed.tratar(req, res, url, ip)) return undefined;
         return await contas.tratar(req, res, url, ip);

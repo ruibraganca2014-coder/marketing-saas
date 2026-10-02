@@ -7,7 +7,7 @@
 // cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao, marcarSessao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
-import { formatarEuroRedondo } from "./simulador/preco.js";
+import { formatarEuroRedondo, textoDias } from "./simulador/preco.js";
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
 
@@ -83,8 +83,9 @@ async function mostrarRegresso() {
   else mensagem("Cancelou o pagamento. Não foi cobrado nada: pode tentar de novo quando quiser.", "info");
 }
 
+// "conta-pedidos-msg": a mensagem da página (por cima dos pedidos); "conta-msg" é a do bloco de entrar (conta-comum.js).
 function mensagem(t, tipo = "erro") {
-  const m = $("conta-msg");
+  const m = $("conta-pedidos-msg");
   m.textContent = t ?? "";
   m.className = `msg ${tipo}`;
   m.hidden = !t;
@@ -103,7 +104,7 @@ async function carregar() {
     mensagem(e.message);
     return;
   }
-  if (regresso) await mostrarRegresso(); else if ($("conta-msg").classList.contains("erro")) mensagem(null);
+  if (regresso) await mostrarRegresso(); else if ($("conta-pedidos-msg").classList.contains("erro")) mensagem(null);
   const pedidos = Array.isArray(r?.pedidos) ? r.pedidos : [];
   if (!pedidos.length) {
     const p = el("p", "vazio", "Ainda não há pedidos nesta conta. Quando simular e enviar, aparecem aqui com o relatório e o andamento. ");
@@ -129,7 +130,12 @@ function cartaoPedido(p) {
   }
   c.append(passos);
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
+  if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
   if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
+  else if (p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", "Instalação: vamos marcar a data consigo."));
+  // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
+  if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", "Não o encontrámos na visita: a visita não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova."));
+  for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
   if (p.proposta) c.append(blocoProposta(p));
   if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
   if (p.relatorio_basico) c.append(blocoBasico(p));
@@ -147,21 +153,36 @@ function blocoProposta(p) {
   // A proposta é sem IVA; o que se paga online inclui-o (decisão do dono).
   const pi = p.proposta_iva;
   b.append(el("h4", null, "A nossa proposta"), el("p", "valor num", `${euro(p.proposta.valor)} + IVA`));
-  if (pi) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
+  // O detalhe (decisão 15): mão de obra, material e deslocação, sem IVA; depois o IVA e o total.
+  const pp = p.proposta_partes;
+  if (pp) {
+    const dl = el("dl", "dados-simples conta-partes");
+    for (const [k, v] of [["Mão de obra", pp.mao_obra], ["Material", pp.material], ["Deslocação", pp.deslocacao]]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
+    if (pi && !p.obra_minima) dl.append(el("dt", null, `IVA ${pctTxt(pi.iva_pct)}`), el("dd", "num", euro(pi.iva)), el("dt", null, "Total com IVA"), el("dd", "num", euro(pi.total)));
+    b.append(dl);
+  }
+  // Obra mínima (decisão 9): abaixo dela cobra-se o mínimo e o que pagou antes não é descontado.
+  if (p.obra_minima != null) b.append(el("p", "msg info conta-minima", `Obra mínima: ${formatarEuroRedondo(p.obra_minima)} com IVA${pp?.deslocacao > 0 ? ", mais a deslocação" : ""}. Esta proposta fica abaixo: paga ${pi ? euro(pi.total) : "o mínimo"} e o que já pagou (visita, diagnóstico) não é descontado.`));
+  else if (pi && !pp) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
   if (p.proposta.texto) b.append(el("p", null, p.proposta.texto));
   const msg = el("div", "msg", null);
   msg.hidden = true;
   msg.setAttribute("role", "status");
-  if (p.plano) b.append(el("p", null, `Plano mensal escolhido: ${p.plano.nome}. A subscrição começa quando a casa ficar ligada.`));
+  if (p.plano) b.append(el("p", null, `Plano mensal escolhido: ${p.plano.nome}. A app fica ativa depois de pagar o restante.`));
   if (p.aguarda_sinal) {
     b.append(el("p", "msg info", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}. Falta pagar o sinal (${euro(p.sinal.valor)}) para confirmarmos a instalação.`));
-    if (p.pode_pagar_sinal) b.append(botaoPagar(p, "sinal", `Pagar o sinal (${euro(p.sinal.valor)})`, msg), msg);
+    if (p.pode_pagar_sinal) {
+      const ja = caixaComecarJa(p);
+      b.append(ja.caixa, soMultibanco(p, p.sinal.valor), botaoPagar(p, "sinal", `Pagar o sinal (${euro(p.sinal.valor)})`, msg, () => ({ inicio_imediato: ja.entrada.checked })), msg);
+    }
   } else if (p.proposta.aceite && p.estado === "aceite") {
     b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}. Vamos contactá-lo para marcar a instalação.`));
+    if (p.inicio_imediato) b.append(el("p", "ajuda", "Pediu para começarmos já: prescindiu do direito de livre resolução de 14 dias sobre o que for executado."));
+    if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {
     const sinal = p.sinal && p.sinal.valor > 0 && p.modo ? p.sinal : null;
     const planos = el("fieldset", "conta-planos");
-    planos.append(el("legend", null, "Plano mensal (começa quando a casa ficar ligada)"));
+    planos.append(el("legend", null, "Plano mensal"), el("p", "ajuda", "A app fica ativa depois de pagar o restante."));
     for (const [k, [nome, preco]] of Object.entries(PLANOS)) {
       const l = el("label");
       const i = document.createElement("input");
@@ -176,24 +197,42 @@ function blocoProposta(p) {
     const botao = el("button", "btn", sinal ? `Aceito a proposta e pago o sinal (${euro(sinal.valor)})` : "Aceito a proposta");
     botao.type = "button";
     botao.id = `aceitar-${p.id}`;
-    botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, planos));
+    const ja = sinal ? caixaComecarJa(p) : null;
+    botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, planos, ja?.entrada.checked ?? null));
+    // O sinal cobre o material (decisão 6): o maior entre 30 % do total e o custo do material, menos o que já pagou.
     const ajuda = sinal
-      ? `Sinal: ${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O resto paga-se no fim da obra.`
+      ? `Sinal: ${sinal.cobre_material ? "cobre o material" : `${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}`}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O sinal cobre o material; o resto paga-se no fim da obra.`
       : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
-    b.append(planos, el("p", "ajuda", ajuda), botao, msg);
+    b.append(planos, el("p", "ajuda", ajuda), ja?.caixa ?? "", sinal ? soMultibanco(p, sinal.valor) : "", botao, msg);
   }
   return b;
 }
 
-/** Botão que pede ao servidor o pagamento de uma fase (o valor é o do servidor) e vai pagar. */
-function botaoPagar(p, fase, texto, msg) {
+/** "Acima de 500 € paga por Multibanco ou MB Way." (decisão 7), quando o valor passa o limite do cartão; senão nada. */
+function soMultibanco(p, valor) {
+  return p.cartao_max != null && valor > p.cartao_max ? el("p", "ajuda conta-metodos", `Acima de ${formatarEuroRedondo(p.cartao_max)} paga por Multibanco ou MB Way.`) : "";
+}
+
+/** "Quero que comecem já" (decisão 11): a caixa que vai com o pagamento do sinal; fica guardada no pedido. */
+function caixaComecarJa(p) {
+  const caixa = el("label", "caixa conta-comecar-ja");
+  const entrada = document.createElement("input");
+  entrada.type = "checkbox";
+  entrada.id = `comecar-ja-${p.id}`;
+  entrada.checked = Boolean(p.inicio_imediato);
+  caixa.append(entrada, " Quero que comecem já (prescindo do direito de livre resolução de 14 dias sobre o que for executado)");
+  return { caixa, entrada };
+}
+
+/** Botão que pede ao servidor o pagamento de uma fase (o valor é o do servidor) e vai pagar. `extra()`: mais campos do pedido. */
+function botaoPagar(p, fase, texto, msg, extra = null) {
   const botao = el("button", "btn", texto);
   botao.type = "button";
   botao.id = `pagar-${fase}-${p.id}`;
   botao.addEventListener("click", async () => {
     botao.disabled = true;
     try {
-      const r = await pedirConta(`pedidos/${p.id}/pagar`, { corpo: { fase } });
+      const r = await pedirConta(`pedidos/${p.id}/pagar`, { corpo: { fase, ...(extra ? extra() : {}) } });
       if (!irPagar(r.pagamento)) throw new Error("Não foi possível abrir o pagamento. Tente de novo.");
     } catch (e) {
       botao.disabled = false;
@@ -214,8 +253,116 @@ function blocoRestante(p) {
   msg.setAttribute("role", "status");
   b.append(el("h4", null, "Fim da obra"));
   if (p.restante?.pago) b.append(el("p", "msg ok", "A obra está paga. Obrigado!"));
-  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${p.proposta_iva ? `: ${euro(p.proposta_iva.total)} menos o que já pagou` : ""}).`), botaoPagar(p, "restante", `Pagar o restante (${euro(p.restante.valor)})`, msg), msg);
+  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${p.proposta_iva ? `: ${euro(p.proposta_iva.total)} menos o que já pagou` : ""}).`),
+    el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."), soMultibanco(p, p.restante.valor),
+    botaoPagar(p, "restante", `Pagar o restante (${euro(p.restante.valor)})`, msg), msg);
   return b;
+}
+
+/**
+ * Cancelar a visita técnica paga (decisão 10): com mais de 24 h de antecedência devolvemos a visita; com menos já não
+ * há devolução; se faltou, a visita não é devolvida.
+ */
+function blocoCancelarVisita(p) {
+  const vc = p.visita_cancelar;
+  if (!vc.pode && !vc.motivo) return null;
+  // O diagnóstico da avaria segue a mesma regra da visita (uma avaria marcada para o próprio dia já não tem devolução).
+  const [a, o, O] = vc.avaria ? ["o diagnóstico", "o diagnóstico", "Diagnóstico cancelado"] : ["a visita", "a visita técnica", "Visita cancelada"];
+  const b = el("section", "conta-relatorio conta-cancelar-visita");
+  b.setAttribute("aria-label", vc.avaria ? "Cancelar o diagnóstico" : "Cancelar a visita");
+  if (!vc.pode) { b.append(el("p", "ajuda", vc.motivo)); return b; }
+  const msg = msgPequena();
+  const botao = el("button", "btn sec pequeno", vc.avaria ? "Cancelar diagnóstico" : "Cancelar visita");
+  botao.type = "button";
+  botao.id = `cancelar-visita-${p.id}`;
+  botao.addEventListener("click", () => {
+    if (b.querySelector(".confirmar")) return;
+    const caixa = el("div", "confirmar msg info");
+    caixa.setAttribute("role", "alert");
+    caixa.append(el("p", null, `Cancela ${o}? Devolvemos ${euro(vc.devolucao)}.`));
+    const sim = el("button", "btn pequeno", "Sim, cancelar");
+    sim.type = "button";
+    sim.id = `cancelar-visita-sim-${p.id}`;
+    const nao = el("button", "btn sec pequeno", "Não");
+    nao.type = "button";
+    const bs = el("div", "form-botoes");
+    bs.append(sim, nao);
+    caixa.append(bs);
+    botao.after(caixa);
+    sim.focus();
+    nao.addEventListener("click", () => { caixa.remove(); botao.focus(); });
+    sim.addEventListener("click", async () => {
+      sim.disabled = true;
+      try {
+        const r = await pedirConta(`pedidos/${p.id}/cancelar-visita`, { corpo: {} });
+        await carregar();
+        mensagem(r.manual ? `${O}. Pagou por referência Multibanco: devolvemos ${euro(r.devolvido)} por transferência — indique o IBAN no pedido.`
+          : `${O}. Devolvemos ${euro(r.devolvido)} para o mesmo meio de pagamento (até 14 dias).`, "ok");
+      } catch (e) {
+        caixa.remove();
+        msg.textContent = e.message;
+        msg.className = "msg erro";
+        msg.hidden = false;
+        if (e instanceof ErroConta && e.estado === 409) carregar();
+      }
+    });
+  });
+  b.append(el("p", "ajuda", `Não pode estar? Até 24 h antes d${a} cancela aqui e devolvemos ${euro(vc.devolucao)}. Com menos de 24 h, ou se faltar, ${a} não é devolvid${vc.avaria ? "o" : "a"}.`), botao, msg);
+  return b;
+}
+
+/**
+ * Devolução por transferência (pagou por referência Multibanco): pedimos o IBAN e o titular; depois de os dar fica
+ * "por fazer" (pode corrigi-los) e, feita a transferência, "devolvido". Do IBAN só se mostra o fim.
+ */
+function blocoDevolucao(d) {
+  const b = el("section", "conta-relatorio conta-devolucao");
+  b.setAttribute("aria-label", "Devolução por transferência");
+  b.append(el("h4", null, `Devolução de ${euro(d.valor)}`));
+  if (d.estado === "devolvido") { b.append(el("p", "msg ok", `Transferência feita em ${dataTxt(d.devolvido)} para ${d.iban ?? "a sua conta"}.`)); return b; }
+  const msg = msgPequena();
+  const campo = (rotulo, attrs) => {
+    const l = el("label", "campo");
+    const i = document.createElement("input");
+    Object.assign(i, attrs);
+    l.append(el("span", null, rotulo), i);
+    return [l, i];
+  };
+  const [lIban, iIban] = campo("IBAN (PT50…)", { name: "iban", id: `dev-iban-${d.id}`, autocomplete: "off", inputMode: "text", maxLength: 34, placeholder: "PT50 0000 0000 0000 0000 0000 0" });
+  const [lTit, iTit] = campo("Titular da conta", { name: "titular", id: `dev-titular-${d.id}`, autocomplete: "name", maxLength: 120, value: d.titular ?? "" });
+  const botao = el("button", "btn pequeno", d.estado === "por_fazer" ? "Corrigir IBAN" : "Enviar IBAN");
+  botao.type = "button";
+  botao.id = `dev-enviar-${d.id}`;
+  botao.addEventListener("click", async () => {
+    const iban = iIban.value.replace(/\s+/g, "").toUpperCase(), titular = iTit.value.trim();
+    const erro = (t, i) => { msg.textContent = t; msg.className = "msg erro"; msg.hidden = false; i.focus(); };
+    if (!ibanValido(iban)) return erro("IBAN inválido: escreva um IBAN português (PT50 e 21 algarismos).", iIban);
+    if (titular.length < 2) return erro("Indique o nome do titular da conta.", iTit);
+    botao.disabled = true;
+    try {
+      await pedirConta(`devolucoes/${d.id}/iban`, { corpo: { iban, titular } });
+      await carregar();
+      mensagem("IBAN recebido. Fazemos a transferência até 14 dias.", "ok");
+    } catch (e) {
+      botao.disabled = false;
+      msg.textContent = e.message;
+      msg.className = "msg erro";
+      msg.hidden = false;
+    }
+  });
+  b.append(el("p", null, d.estado === "por_fazer"
+    ? `Recebemos o IBAN ${d.iban}. Fazemos a transferência até 14 dias.`
+    : "Pagou por referência Multibanco: devolvemos por transferência bancária. Indique o IBAN e o titular da conta."),
+  el("p", "ajuda", "O IBAN serve só para esta devolução."), lIban, lTit, botao, msg);
+  return b;
+}
+
+/** IBAN português: "PT50" + 21 algarismos, com o resto 1 na divisão por 97 (ISO 13616). O servidor valida outra vez. */
+function ibanValido(iban) {
+  if (!/^PT50\d{21}$/.test(iban)) return false;
+  let resto = 0;
+  for (const d of `${iban.slice(4)}2529${iban.slice(2, 4)}`) resto = (resto * 10 + Number(d)) % 97;
+  return resto === 1;
 }
 
 function blocoPagamentos(p) {
@@ -227,6 +374,9 @@ function blocoPagamentos(p) {
     const li = el("li");
     li.dataset.fase = x.fase;
     li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)} com IVA`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
+    if (x.nao_realizada) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita não realizada — não desconta"));
+    if (x.a_devolver != null) li.append(el("span", "conta-recibo", `A devolver por transferência: ${euro(x.a_devolver)}`));
+    if (x.devolvido != null) li.append(el("span", "conta-recibo", `Devolvidos ${euro(x.devolvido)}${x.devolvido_em ? ` em ${dataTxt(x.devolvido_em, true)}` : ""}${x.modo === "simulado" ? " · SIMULAÇÃO" : ""}`));
     if (x.recibo) {
       const r = x.recibo;
       const iva = r.base != null ? ` (${euro(r.base)} + IVA${r.iva_pct != null ? ` ${pctTxt(r.iva_pct)}` : ""} ${euro(r.iva)})` : "";
@@ -328,8 +478,8 @@ function blocoBasico(p) {
 function desenharBasico(r) {
   const out = [];
   // Como no Orçamento do simulador: o intervalo sem a deslocação e "+ deslocação X €" (fora da área: sem deslocação).
-  if (r.intervalo) out.push(el("p", "valor num", `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}${r.deslocacao != null ? ` + deslocação ${euro(r.deslocacao)}` : ""}`),
-    el("p", "ajuda", r.deslocacao != null ? "Com IVA." : "Com IVA, sem deslocação."));
+  if (r.intervalo) out.push(el("p", "valor num", `${r.intervalo.min === r.intervalo.max ? formatarEuroRedondo(r.intervalo.min) : `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`}${r.deslocacao != null ? ` + deslocação ${euro(r.deslocacao)}${idaEVolta(r)}` : ""}`),
+    el("p", "ajuda", `${r.deslocacao != null ? "Com IVA." : "Com IVA, sem deslocação."}${r.dias ? ` ${textoDias(r.dias)}.` : ""}${r.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(r.obra_minima)}.` : ""}`));
   const a = r.acoes ?? {};
   const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]
     .filter(([k]) => a[k] > 0).map(([k, t]) => `${a[k]} ${a[k] === 1 ? "aparelho" : "aparelhos"} ${t}`);
@@ -373,6 +523,10 @@ function blocoVisita(p) {
   }
   return b;
 }
+
+/** " (ida e volta, 3 dias)" ou " (ida e volta; máximo 5 dias)", como no Orçamento do simulador; "" sem deslocação paga. */
+const idaEVolta = (r) => (r.deslocacao > 0 && r.deslocacao_dias
+  ? (r.deslocacao_limitada ? ` (ida e volta; máximo ${r.deslocacao_dias} dias)` : ` (ida e volta, ${r.deslocacao_dias} ${r.deslocacao_dias === 1 ? "dia" : "dias"})`) : "");
 
 function tabelaMaterial(linhas) {
   const t = el("table");
@@ -418,7 +572,8 @@ function desenharRelatorio(r) {
     out.push(el("p", null, `Instalação e configuração dos pacotes: ${euro(mel.instalacao)}`));
   }
   if (r.mao_obra) out.push(el("p", null, `Mão de obra${r.mao_obra.horas ? ` (cerca de ${String(r.mao_obra.horas).replace(".", ",")} h)` : ""}: ${euro(r.mao_obra.valor)}`));
-  if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}`));
+  if (r.dias) out.push(el("p", "ajuda", `${textoDias(r.dias)}.`));
+  if (r.deslocacao != null) out.push(el("p", null, `Deslocação: ${euro(r.deslocacao)}${idaEVolta(r)}`));
   out.push(el("p", "valor num", `Total estimado: ${euro(r.total)}`), el("p", "ajuda", r.nota));
   // Conteúdo técnico (só no pormenorizado; web/simulador/simbolos.js): planta técnica com a simbologia normalizada e a
   // legenda, esquema por luz, nota de terra e lista de ensaios (os valores medidos aparecem quando os registamos).
@@ -463,7 +618,7 @@ function desenharRelatorio(r) {
   return out;
 }
 
-function confirmarAceitar(p, b, botao, msg, planos) {
+function confirmarAceitar(p, b, botao, msg, planos, comecarJa = null) {
   if (b.querySelector(".confirmar")) return;
   const plano = planos.querySelector("input:checked")?.value ?? null;
   const caixa = el("div", "confirmar msg info");
@@ -484,7 +639,7 @@ function confirmarAceitar(p, b, botao, msg, planos) {
   sim.addEventListener("click", async () => {
     sim.disabled = true;
     try {
-      const r = await pedirConta(`pedidos/${p.id}/aceitar`, { corpo: { valor: p.proposta.valor, plano } });
+      const r = await pedirConta(`pedidos/${p.id}/aceitar`, { corpo: { valor: p.proposta.valor, plano, ...(comecarJa === null ? {} : { inicio_imediato: comecarJa }) } });
       if (r?.pagamento && irPagar(r.pagamento)) return;
       await carregar();
       mensagem("Proposta aceite. Obrigado! Vamos contactá-lo para marcar a instalação.", "ok");
@@ -594,7 +749,7 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
     });
     await carregar();
     mensagem("Foto enviada.", "ok");
-    const m = $("conta-msg");
+    const m = $("conta-pedidos-msg");
     m.tabIndex = -1;
     m.focus();
   } catch (e) {

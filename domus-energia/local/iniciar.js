@@ -15,6 +15,11 @@
 //   - os emails das contas de cliente (códigos) não saem: aparecem neste terminal, "[painel] [email] para x: código 123456";
 //   - os pagamentos do pedido são simulados (docs/PAGAMENTOS-PEDIDO.md): nenhum dinheiro real, nenhuma chave Stripe.
 //
+// Acesso rápido (testes): só aqui e só neste computador (localhost; pela rede local não), as páginas ganham a barra "Acesso rápido (testes)" (em baixo, à esquerda) para
+// entrar sem palavra-passe como CEO, Comercial, Técnico ou Cliente de teste 1/2. Este lançador passa ACESSO_RAPIDO=1
+// ao painel (que só o aceita num ambiente local: painel/src/acesso-rapido.js, docs/SEGURANCA.md) e junta às páginas
+// o local/acesso-rapido.js — que não existe em web/ nem em painel/public. ACESSO_RAPIDO=0 npm start desliga.
+//
 // Outras origens para testar no browser (ex.: http://qc1.localhost:8080): ORIGENS_EXTRA="http://qc1.localhost:8080,..." npm start.
 //
 // Uso: npm run instalar (uma vez) e depois npm start.
@@ -48,6 +53,8 @@ const REDE_LOCAL = process.env.REDE_LOCAL !== '0';
 const PORTA_REDE = Number(process.env.PORTA_REDE || 8090);
 const IPS_LOCAIS = REDE_LOCAL ? Object.values(networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a.address) : [];
 const ORIGENS_REDE = IPS_LOCAIS.map((ip) => `http://${ip}:${PORTA_REDE}`);
+// Acesso rápido (testes; ver o cabeçalho). ACESSO_RAPIDO=0 desliga.
+const ACESSO_RAPIDO = process.env.ACESSO_RAPIDO !== '0';
 // Origens aceites pelo painel nos pedidos que alteram dados (CSRF): a do site e as de ORIGENS_EXTRA.
 const ORIGENS = [ORIGEM, ...ORIGENS_REDE, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
 
@@ -119,6 +126,8 @@ arrancar('painel', {
   PAINEL_CEO_EMAIL: segredos.ceoEmail,
   PAINEL_CEO_PASS: segredos.ceoPass,
   CONFIAR_PROXY: '1',
+  // Acesso rápido (testes): só este lançador põe a variável; o servidor/docker-compose.yml nunca.
+  ACESSO_RAPIDO: ACESSO_RAPIDO ? '1' : '0',
   // Leitura automática da foto do quadro: só se a variável existir no terminal que corre o npm start.
   ...(chaveAnthropic ? { ANTHROPIC_API_KEY: chaveAnthropic } : {}),
 });
@@ -157,9 +166,30 @@ function destino(caminho) {
   return null;
 }
 
+// Acesso rápido (testes): a barra é um script deste lançador, junto ao fim de cada página (menos a foto.html do telemóvel).
+// Só neste computador: o pedido vem de 127.0.0.1/::1 e pelo ouvinte de localhost (nunca pelo da rede local).
+const daqui = (req) => ACESSO_RAPIDO && req.socket.localPort === PORTA_SITE
+  && /^(::1|(::ffff:)?127\.\d+\.\d+\.\d+)$/.test(req.socket.remoteAddress ?? '');
+const comAcessoRapido = (html) => {
+  const marca = '<script src="/acesso-rapido.js"></script>\n';
+  const i = html.lastIndexOf('</body>');
+  return i < 0 ? html + marca : html.slice(0, i) + marca + html.slice(i);
+};
+
 function reencaminhar(req, res, porta) {
   const cabecalhos = { ...req.headers, 'x-forwarded-for': req.socket.remoteAddress, 'x-forwarded-proto': 'http' };
   const p = http.request({ host: '127.0.0.1', port: porta, method: req.method, path: req.url, headers: cabecalhos }, (r) => {
+    // Páginas do painel (index.html): leva a barra do acesso rápido, como as do site.
+    if (daqui(req) && porta === PORTA_PAINEL && req.method === 'GET' && r.statusCode === 200 && String(r.headers['content-type']).startsWith('text/html')) {
+      const partes = [];
+      r.on('data', (b) => partes.push(b));
+      r.on('end', () => {
+        const corpo = Buffer.from(comAcessoRapido(Buffer.concat(partes).toString('utf8')));
+        res.writeHead(200, { ...r.headers, 'content-length': corpo.length });
+        res.end(corpo);
+      });
+      return;
+    }
     res.writeHead(r.statusCode, r.headers);
     r.pipe(res);
   });
@@ -187,6 +217,10 @@ async function servirSite(req, res, caminho) {
     res.writeHead(200, { 'content-type': TIPOS['.js'], 'cache-control': 'no-store' });
     return res.end(local);
   }
+  if (daqui(req) && caminho === '/acesso-rapido.js') {
+    res.writeHead(200, { 'content-type': TIPOS['.js'], 'cache-control': 'no-store' });
+    return res.end(await readFile(join(AQUI, 'acesso-rapido.js')));
+  }
   let ficheiro = normalize(join(WEB, decodeURIComponent(caminho)));
   if (ficheiro !== WEB && !ficheiro.startsWith(WEB + sep)) {
     res.writeHead(403);
@@ -194,7 +228,8 @@ async function servirSite(req, res, caminho) {
   }
   if (caminho.endsWith('/')) ficheiro = join(ficheiro, 'index.html');
   try {
-    const corpo = await readFile(ficheiro);
+    let corpo = await readFile(ficheiro);
+    if (daqui(req) && extname(ficheiro).toLowerCase() === '.html' && !ficheiro.endsWith(`${sep}foto.html`)) corpo = Buffer.from(comAcessoRapido(corpo.toString('utf8')));
     res.writeHead(200, { 'content-type': TIPOS[extname(ficheiro).toLowerCase()] || 'application/octet-stream', 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : corpo);
   } catch {
@@ -234,6 +269,7 @@ Domus Energia a correr localmente
   Simulador:      ${ORIGEM}/simulador.html
   Conta:          ${ORIGEM}/conta.html     (códigos dos emails aparecem aqui, "[email] para ...")
   Painel:         ${ORIGEM}/painel/        (credenciais do CEO em local/dados/local.json)
+  Acesso rápido:  ${ACESSO_RAPIDO ? 'ligado — barra "Acesso rápido (testes)" em baixo, à esquerda: entra sem palavra-passe; só neste computador, não pela rede local (ACESSO_RAPIDO=0 desliga)' : 'desligado (ACESSO_RAPIDO=0)'}
   MQTT:           mqtt://localhost:${PORTA_MQTT}  e  ws://localhost:${PORTA_SITE}/mqtt
   Rede local:     ${ORIGENS_REDE.join('  ') || '(desligada)'}   (telemóvel no mesmo Wi-Fi; QR das fotos; REDE_LOCAL=0 desliga)
 Ctrl+C para parar.

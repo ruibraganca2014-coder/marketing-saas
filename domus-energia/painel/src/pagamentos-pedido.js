@@ -23,19 +23,31 @@
 // 30 % × 1230 − 54 = 315 €; restante 861 €. O relatório, a visita e a avaria já são com IVA. Cada pagamento guarda a
 // taxa usada (iva_pct) para o recibo e o CSV (base, IVA, total).
 //
+// Decisões do dono de 2026-10-02 (docs/PAGAMENTOS-PEDIDO.md "Decisões de 2026-10-02"): sinal = o maior entre 30 % do
+// total com IVA e o custo do material, menos o já pago; obra mínima (`obra_minima_iva`, 100 €: abaixo cobra-se o
+// mínimo e o que foi pago antes não se desconta); acima de `cartao_max_iva` (500 €) só Multibanco ou MB Way; proposta em
+// três partes (mão de obra, material, deslocação); visita cancelada com mais de 24 h é devolvida; "Quero que comecem
+// já" (`inicio_imediato`); a casa só se liga com a obra toda paga (`ligacaoCasa`).
+//
 // Regras: os valores são SEMPRE calculados aqui (nunca vêm do browser); cada pagamento tem uma referência
 // aleatória (ref) e só a conta dona o vê e paga; um evento só é tratado uma vez (pagamentos_eventos) e uma fase
 // paga não se paga outra vez (índice único); a avaria só passa a orçamento ("novo" no painel) depois de paga.
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson } from './http.js';
-import { idNum, opcao, MELHORIAS } from './validar.js';
+import { idNum, opcao, booleano, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
 
 export const SINAL_PCT = 30;
+export const OBRA_MINIMA_OMISSAO = 100;           // € c/ IVA: abaixo disto cobra-se o mínimo (config `obra_minima_iva`)
+export const CARTAO_MAX_OMISSAO = 500;            // € c/ IVA: acima disto não se paga por cartão (config `cartao_max_iva`)
+export const CANCELAR_VISITA_MS = 24 * 3600_000;  // a visita cancelada com mais antecedência do que isto é devolvida
+export const DIAS_LIVRE_RESOLUCAO = 14;
+export const HORAS_DIA_OBRA = 8;                  // deslocação da obra: uma ida e volta por cada 8 h (config `horas_por_dia`)
+export const DESLOCACAO_MAX_DIAS = 5;             // … no máximo 5 dias de deslocação por obra (config `deslocacao_max_dias`)
 export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório completo (config `preco_relatorio_iva`)
 export const VISITA_HORAS = 0.5;                  // visita técnica = deslocação + 0,5 h × tarifa
 export const VALIDADE_MS = 24 * 3600_000;         // um pagamento por pagar expira (e o pedido guardado sai) ao fim de 24 h
@@ -65,7 +77,8 @@ const TEXTO_PAGO = {
   relatorio: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h).',
   relatorio_visita: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.',
 };
-const TEXTO_ESTADO = { pendente: 'Por pagar', pago: 'Pago', falhado: 'Falhou', cancelado: 'Cancelado', expirado: 'Expirou' };
+const TEXTO_ESTADO = { pendente: 'Por pagar', pago: 'Pago', falhado: 'Falhou', cancelado: 'Cancelado', expirado: 'Expirou', devolvido: 'Devolvido' };
+const NOME_METODO = { card: 'Cartão', mb_way: 'MB Way', multibanco: 'Multibanco' };
 
 const euro = (c) => `${(c / 100).toFixed(2).replace('.', ',')} €`;
 const pct = (v) => `${String(v).replace('.', ',')} %`;
@@ -108,23 +121,29 @@ function distancia(localidade, cfg) {
 /** true = fora da área servida (outra ilha ou acima da distância máxima); false = dentro ou desconhecido (a visita confirma). */
 export const foraDaArea = (localidade, cfg) => distancia(localidade, cfg).fora;
 /**
- * Deslocação (€ c/ IVA) pela configuração do servidor, como o simulador (§5.1): fixo + km acima dos grátis × preço
- * por km; concelho desconhecido → só o fixo; fora da área → null (não soma).
+ * Deslocação (€ c/ IVA) pela configuração do servidor, como o simulador (§5.1; web/simulador/deslocacao.js). Decisão 4
+ * do dono (2026-10-02): ida e volta por cada dia de obra — um dia = fixo + km acima dos grátis × 2 × preço por km;
+ * total = um dia × min(`dias`, `deslocacao_max_dias`) (no máximo 5 dias por obra; a visita técnica e a avaria são 1
+ * dia). Concelho desconhecido → só o fixo; fora da área → null (não soma).
  */
-export function deslocacaoServidor(localidade, cfg) {
+export function deslocacaoServidor(localidade, cfg, dias = 1) {
   const d = distancia(localidade, cfg);
   const n = (k) => (Number.isFinite(Number(cfg[k])) ? Number(cfg[k]) : 0);
   if (d.fora) return null;
-  const extra = d.km === null ? 0 : Math.max(0, d.km - n('deslocacao_km_gratis')) * n('deslocacao_preco_km_iva');
-  return Math.round((n('deslocacao_iva') + extra) * 100) / 100;
+  const extra = d.km === null ? 0 : Math.max(0, d.km - n('deslocacao_km_gratis')) * 2 * n('deslocacao_preco_km_iva');
+  const dia = Math.round((n('deslocacao_iva') + extra) * 100) / 100;
+  const maxDias = Math.max(1, Math.round(numCfg(cfg, 'deslocacao_max_dias', DESLOCACAO_MAX_DIAS)));
+  return Math.round(dia * Math.min(Math.max(1, Math.round(Number(dias)) || 1), maxDias) * 100) / 100;
 }
 
 /**
- * Sinal (cêntimos) de uma proposta COM IVA: 30 % do valor menos TUDO o que já foi pago antes (relatório, visita,
- * avaria; nunca negativo).
+ * Sinal (cêntimos) de uma proposta COM IVA: o maior entre 30 % do valor e o custo do material (o sinal cobre o
+ * material), menos TUDO o que já foi pago antes e é descontado (relatório, visita, avaria); nunca negativo e nunca
+ * acima do que falta pagar.
  */
-export function calcularSinal(valorComIvaCent, pagoAntesCent) {
-  return Math.max(0, Math.round((valorComIvaCent * SINAL_PCT) / 100) - pagoAntesCent);
+export function calcularSinal(valorComIvaCent, pagoAntesCent, custoMaterialCent = 0) {
+  const bruto = Math.max(Math.round((valorComIvaCent * SINAL_PCT) / 100), custoMaterialCent || 0);
+  return Math.max(0, Math.min(bruto, valorComIvaCent) - pagoAntesCent);
 }
 
 /** Valor da configuração (número ≥ 0) ou a omissão. */
@@ -143,6 +162,20 @@ export function intervaloEstimativa(total, cfg) {
   const mais = numCfg(cfg, 'intervalo_mais_pct', antiga ?? 20) / 100;
   return { min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)) };
 }
+/**
+ * Métodos de pagamento de um valor (cêntimos c/ IVA): acima de `cartao_max_iva` (500 €) sai o cartão (uma contestação
+ * de cartão tira o dinheiro depois da obra feita) e ficam o Multibanco e o MB Way.
+ */
+export function metodosPagamento(valorCent, cfg, metodos) {
+  if (valorCent <= Math.round(numCfg(cfg, 'cartao_max_iva', CARTAO_MAX_OMISSAO) * 100)) return [...metodos];
+  const sem = metodos.filter((m) => m !== 'card');
+  return sem.length ? sem : ['multibanco'];
+}
+/** Dias de obra, como o simulador (preco.js diasDeObra): horas ÷ `horas_por_dia` (8), para cima; pelo menos 1. */
+export function diasDeObra(horas, cfg) {
+  const porDia = Number(cfg?.horas_por_dia) > 0 ? Number(cfg.horas_por_dia) : HORAS_DIA_OBRA;
+  return Math.max(1, Math.ceil((Number(horas) || 0) / porDia));
+}
 /** Preço do relatório completo (cêntimos, c/ IVA): `preco_relatorio_iva` (29 €). */
 export const precoRelatorioCent = (cfg) => Math.round(numCfg(cfg, 'preco_relatorio_iva', PRECO_RELATORIO_OMISSAO) * 100);
 /** A localidade é um dos 308 concelhos (como o simulador a reconhece)? Sem isso não se vende a visita (B2). */
@@ -160,9 +193,9 @@ export function valorVisitaCent(localidade, cfg) {
 
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, correio: object, fotos: object,
- *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, fetch?: typeof fetch}} ctx
+ *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
  */
-export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, fetch: fetchStripe = globalThis.fetch }) {
+export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch }) {
   const modo = config.pagamentosModo;
   const agoraIso = () => iso(relogio());
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
@@ -185,7 +218,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       descricao: p.descricao, estado: p.estado, estado_texto: TEXTO_ESTADO[p.estado], modo: p.modo, criado: p.criado, pago: p.pago,
       orcamento_id: p.orcamento_id, com_visita: p.com_visita === null ? null : Boolean(p.com_visita), plano: p.plano,
     };
-    if (p.estado === 'pendente') r.url = urlPagar(p);
+    if (p.estado === 'pendente') {
+      r.url = urlPagar(p);
+      // Os métodos oferecidos (acima do limite do cartão: só Multibanco ou MB Way); a página simulada mostra-os.
+      r.metodos = metodosPagamento(p.valor_cent, lerConfigOrc(), config.stripeMetodos ?? []).map((m) => NOME_METODO[m] ?? m);
+    }
+    if (p.devolvido_cent) { r.devolvido = deCent(p.devolvido_cent); r.devolvido_em = p.devolvido; }
+    if (p.a_devolver) r.a_devolver = deCent(p.a_devolver);
+    // "Visita não realizada — não desconta": o cliente faltou (o pagamento fica, mas não é descontado no sinal).
+    if (p.faltou) r.nao_realizada = true;
     if (p.estado === 'pago') {
       r.recibo = { data: p.pago, valor: deCent(p.valor_cent), base: r.base, iva: r.iva, iva_pct: iva, descricao: p.descricao, referencia: p.ref, simulado: p.modo === 'simulado' };
     }
@@ -239,7 +280,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       locale: 'pt',
     };
     if (email) params.customer_email = email;
-    config.stripeMetodos.forEach((m, i) => { params[`payment_method_types[${i}]`] = m; });
+    metodosPagamento(p.valor_cent, lerConfigOrc(), config.stripeMetodos).forEach((m, i) => { params[`payment_method_types[${i}]`] = m; });
     const s = await stripe('POST', 'checkout/sessions', params, `domus-${p.ref}`);
     db.prepare('UPDATE pagamentos_pedido SET stripe_sessao = ?, stripe_url = ?, atualizado = ? WHERE id = ?').run(s.id, s.url, agoraIso(), p.id);
     return linha(p.ref);
@@ -305,18 +346,21 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const pagoDe = (orcamentoId, fase) => db.prepare('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = ? AND estado = \'pago\'').get(orcamentoId, fase);
   const marcas = (v) => v.map(() => '?').join(', ');
   const pagoEm = (orcamentoId, fases) => db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND fase IN (${marcas(fases)}) ORDER BY id LIMIT 1`).get(orcamentoId, ...fases);
-  const totalPago = (orcamentoId) => db.prepare('SELECT COALESCE(SUM(valor_cent), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(orcamentoId).s;
-  const pagoAntes = (orcamentoId) => db.prepare(`SELECT COALESCE(SUM(valor_cent), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago'
+  const totalPago = (orcamentoId) => db.prepare('SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(orcamentoId).s;
+  // O que foi devolvido (visita cancelada) não conta: por inteiro o pagamento fica `devolvido`; em parte, `devolvido_cent`.
+  // Uma visita a que o cliente faltou também não (`faltou_cent`): fica paga, mas não se desconta no sinal nem na obra.
+  const pagoAntes = (orcamentoId) => db.prepare(`SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago'
     AND fase IN (${marcas(FASES_ANTES)})`).get(orcamentoId, ...FASES_ANTES).s;
   /** O cliente já pagou o relatório completo (ou os 19 € antigos)? */
   const temRelatorio = (o) => Boolean(pagoEm(o.id, FASES_RELATORIO));
   /** A visita técnica já está paga (visita, relatório + visita, avaria, ou os 19 € antigos com visita)? */
-  const temVisita = (o) => Boolean(pagoEm(o.id, FASES_VISITA))
+  const temVisita = (o) => Boolean(db.prepare(`SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND COALESCE(com_visita, 1) = 1 AND faltou IS NULL
+    AND fase IN (${marcas(FASES_VISITA)}) LIMIT 1`).get(o.id, ...FASES_VISITA))
     || Boolean(db.prepare('SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = \'relatorio\' AND estado = \'pago\' AND com_visita = 1').get(o.id));
   const simDe = (o) => { try { const s = JSON.parse(o.simulacao ?? 'null'); return s && typeof s === 'object' ? s : null; } catch { return null; } };
   const localidadeDe = (o) => o.localidade || simDe(o)?.casa?.localidade || '';
   /** Ainda se compra o relatório ou a visita: com simulação, antes de aceitar a proposta e da obra. */
-  const podeComprar = (o) => Boolean(o.simulacao) && ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.obra_id;
+  const podeComprar = (o) => Boolean(o.simulacao) && ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.cliente;
 
   /**
    * Comprar o relatório completo, a visita técnica ou os dois (`fase`: relatorio_pormenorizado | visita |
@@ -329,7 +373,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const inclui = COMPRAS[fase];
     if (!inclui) throw new ErroApi(400, 'Compra desconhecida.');
     if (!config.pagamentoPedido) throw new ErroApi(409, 'Os pagamentos online estão desligados. Fale connosco para pedir o relatório ou a visita.');
-    if (simDe(o)?.funil === 'avaria') throw new ErroApi(409, 'Na avaria, o diagnóstico já inclui a visita.');
+    // Avaria: o diagnóstico já inclui a visita; só se compra uma visita nova depois de o cliente faltar ao diagnóstico.
+    if (simDe(o)?.funil === 'avaria' && (inclui.relatorio || temVisita(o))) throw new ErroApi(409, 'Na avaria, o diagnóstico já inclui a visita.');
     if (!podeComprar(o)) throw new ErroApi(409, 'Este pedido já não aceita esta compra.');
     if (inclui.relatorio && temRelatorio(o)) throw new ErroApi(409, 'Já comprou o relatório completo.');
     if (inclui.visita && temVisita(o)) throw new ErroApi(409, 'A visita técnica já está paga.');
@@ -368,7 +413,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       AND fase IN (${marcas(fases)}) LIMIT 1`).get(o.id, relogio(), ...fases)?.ref ?? null;
     return {
       ativas: Boolean(config.pagamentoPedido),
-      pode: podeComprar(o) && !avaria,
+      pode: podeComprar(o) && (!avaria || !temVisita(o)),
       avaria,
       relatorio: { valor: deCent(precoRelatorioCent(cfg)), comprado: temRelatorio(o), pendente: pendente(['relatorio_pormenorizado', 'pormenorizado_visita']) },
       // `sem_concelho`: localidade sem concelho reconhecido — sem visita (B2); `fora_area`: concelho fora da área servida.
@@ -380,20 +425,294 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const obraConcluida = (o) => Boolean(o.obra_concluida) || (o.obra_id ? obraDe.get(o.obra_id)?.estado === 'concluida' : false);
 
   /**
+   * Custo do material de um pedido para o sinal (decisão 6): a soma dos artigos do pedido × o custo de compra do
+   * catálogo quando TODOS o têm (`origem: 'custo'`); senão o material da proposta em três partes, pelo valor de venda
+   * sem IVA (`origem: 'venda'`: nunca abaixo do custo, por isso é um substituto prudente); sem nenhum dos dois, null
+   * (vale só a regra dos 30 %).
+   */
+  function materialDoSinal(o) {
+    const c = stock?.custoMaterial(o) ?? null;
+    if (c?.completo) return { cent: c.cent, origem: 'custo' };
+    if (o.proposta_material_cent !== null && o.proposta_material_cent !== undefined) return { cent: o.proposta_material_cent, origem: 'venda' };
+    return null;
+  }
+
+  /**
    * Valores de um orçamento (cêntimos), sempre calculados aqui a partir do valor da proposta (SEM IVA, como o painel o
-   * guarda), da taxa de IVA e do que já foi pago: total = proposta + IVA; sinal = 30 % do total − tudo o que foi pago
-   * antes (relatório, visita, avaria; `pago_antes`); restante = total − tudo o que já foi pago − o sinal por pagar. Com
-   * o sinal pago, a taxa é a desse pagamento (não muda a meio).
+   * guarda), da taxa de IVA e do que já foi pago: total = proposta + IVA, ou a obra mínima (`obra_minima_iva`, mais a
+   * deslocação) quando o trabalho fica abaixo dela — nesse caso o que foi pago antes NÃO se desconta (`desconto` = 0); sinal = o maior entre
+   * 30 % do total e o custo do material, menos o `desconto`; restante = total − o que já foi pago para a obra − o sinal
+   * por pagar; `em_falta` = o que falta para a obra estar toda paga. Com o sinal pago, a taxa é a desse pagamento (não
+   * muda a meio). Uma proposta de 0 € fica 0 (não há obra a cobrar).
    */
   function valores(o) {
     const antes = pagoAntes(o.id);
     const proposta = o.valor_proposta_cent;
-    if (proposta === null || proposta === undefined) return { pago_antes: antes, sinal: null, restante: null, proposta: null, total: null, iva: null, iva_pct: ivaAtual() };
+    if (proposta === null || proposta === undefined) {
+      return { pago_antes: antes, desconto: antes, sinal: null, restante: null, em_falta: null, proposta: null, base: null, total: null, iva: null, iva_pct: ivaAtual(), minima: null, material: null, sinal_material: false };
+    }
     const sinalPago = pagoDe(o.id, 'sinal');
     const ivaPct = sinalPago ? ivaDe(sinalPago) : ivaAtual();
-    const total = comIva(proposta, ivaPct);
-    const sinal = sinalPago ? sinalPago.valor_cent : calcularSinal(total, antes);
-    return { pago_antes: antes, sinal, restante: Math.max(0, total - totalPago(o.id) - (sinalPago ? 0 : sinal)), proposta, total, iva: total - proposta, iva_pct: ivaPct };
+    const minimoCent = Math.round(numCfg(lerConfigOrc(), 'obra_minima_iva', OBRA_MINIMA_OMISSAO) * 100);
+    // A obra mínima é sobre o trabalho (mão de obra + material); a deslocação da proposta em três partes soma por cima,
+    // como no simulador. Numa proposta de um só valor compara-se o valor todo.
+    const deslocacao = comIva(o.proposta_mao_obra_cent === null || o.proposta_mao_obra_cent === undefined ? 0 : o.proposta_deslocacao_cent ?? 0, ivaPct);
+    const minima = proposta > 0 && comIva(proposta, ivaPct) - deslocacao < minimoCent;
+    const total = minima ? minimoCent + deslocacao : comIva(proposta, ivaPct);
+    const base = minima ? partirIva(total, ivaPct).base : proposta;
+    const desconto = minima ? 0 : antes;
+    // O material compara-se na mesma base do total: com IVA (custo de compra, ou valor de venda, × (1 + IVA)).
+    const material = materialDoSinal(o);
+    const materialIva = material ? comIva(material.cent, ivaPct) : 0;
+    const sinal = sinalPago ? sinalPago.valor_cent : calcularSinal(total, desconto, materialIva);
+    const pagoObra = totalPago(o.id) - (antes - desconto);
+    return {
+      pago_antes: antes, desconto, sinal, restante: Math.max(0, total - pagoObra - (sinalPago ? 0 : sinal)), em_falta: Math.max(0, total - pagoObra),
+      proposta, base, total, iva: total - base, iva_pct: ivaPct, minima: minima ? minimoCent : null, material,
+      sinal_material: Boolean(material) && materialIva > Math.round((total * SINAL_PCT) / 100),
+    };
+  }
+
+  /** A proposta em três partes (€ sem IVA): {mao_obra, material, deslocacao}; null nas propostas de um só valor. */
+  const partes = (o) => (o.proposta_mao_obra_cent === null || o.proposta_mao_obra_cent === undefined ? null
+    : { mao_obra: deCent(o.proposta_mao_obra_cent), material: deCent(o.proposta_material_cent ?? 0), deslocacao: deCent(o.proposta_deslocacao_cent ?? 0) });
+
+  /**
+   * As três partes sugeridas ao CEO quando abre a proposta (€ sem IVA), recalculadas no servidor pelo catálogo: mão de
+   * obra = horas × tarifa (com a que vai dentro dos artigos de preço fechado: é sobre ela que se calculam os 70 % do
+   * eletricista); deslocação = ida e volta por dia de obra; material = o resto do relatório do cliente (artigos e
+   * pacotes). A soma é o total do relatório. null sem simulação.
+   */
+  function propostaSugerida(o) {
+    const r = o.simulacao ? relatorioCliente(o, true) : null;
+    if (!r?.mao_obra) return null;
+    const iva = ivaAtual();
+    const semIva = (euros) => deCent(partirIva(Math.round(euros * 100), iva).base);
+    const mao = r.mao_obra.valor + r._interno.mao_obra_incluida;
+    const desloc = r.deslocacao ?? 0;
+    return { mao_obra: semIva(mao), material: semIva(Math.max(0, r.total - mao - desloc)), deslocacao: semIva(desloc), horas: r._interno.horas };
+  }
+
+  /**
+   * A casa (app, plano, automações) só se liga com a obra toda paga (decisão 1): {pode, falta (€), aviso}. Com os
+   * pagamentos desligados, num pedido sem conta de cliente ou sem valor de proposta não há pagamento online: liga-se
+   * como antes, com um aviso para confirmar por fora.
+   */
+  function ligacaoCasa(o) {
+    const semOnline = !config.pagamentoPedido ? 'Pagamentos desligados' : !o.conta_id ? 'Pedido sem conta de cliente' : null;
+    if (semOnline) return { pode: true, falta: null, aviso: `${semOnline}: confirme por fora que a obra está paga antes de ligar a casa.` };
+    const v = valores(o);
+    if (v.total === null) return { pode: true, falta: null, aviso: 'Pedido sem valor de proposta: confirme por fora que a obra está paga antes de ligar a casa.' };
+    return { pode: v.em_falta === 0, falta: deCent(v.em_falta), aviso: null };
+  }
+
+  /**
+   * Quando se reserva (encomenda) o material de um pedido aceite (decisão 11): já, se o cliente pediu para começar já
+   * (`inicio_imediato`); senão a partir de 14 dias depois do sinal (fim da livre resolução). null antes de aceite.
+   */
+  function reservaMaterial(o) {
+    if (o.estado !== 'aceite') return null;
+    const desde = pagoDe(o.id, 'sinal')?.pago ?? o.proposta_aceite ?? null;
+    const ja = Boolean(o.inicio_imediato) || !desde;
+    return { ja, inicio_imediato: o.inicio_imediato ?? null, a_partir: ja ? null : iso(Date.parse(desde) + DIAS_LIVRE_RESOLUCAO * 24 * 3600_000) };
+  }
+
+  /** "Quero que comecem já" (conta, ao aceitar ou ao pagar o sinal): só muda enquanto o sinal não está pago. */
+  function definirInicioImediato(o, quer, contaId, ip = null) {
+    if (o.estado !== 'proposta_enviada' || pagoDe(o.id, 'sinal') || Boolean(o.inicio_imediato) === quer) return;
+    db.prepare('UPDATE orcamentos SET inicio_imediato = ?, atualizado = ? WHERE id = ?').run(quer ? agoraIso() : null, agoraIso(), o.id);
+    auditar(quem(contaId), 'inicio_imediato', `orcamento:${o.id}`, { quer }, ip);
+  }
+
+  // ------------------------------------------------------------ visita: cancelar com devolução (decisão 10)
+  /** Agora em Lisboa, lido como UTC: compara-se com `data_visita`, que é a hora de Lisboa sem fuso. */
+  const agoraLisboaMs = () => Date.parse(`${new Date(relogio()).toLocaleString('sv-SE', { timeZone: 'Europe/Lisbon' }).replace(' ', 'T')}Z`);
+  /** ms que faltam para a visita marcada (negativo depois dela); null sem data. Só o dia = as 00:00. */
+  function faltaParaVisita(o) {
+    const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(o.data_visita ?? '');
+    return m ? Date.parse(`${m[1]}T${m[2] ?? '00:00'}:00Z`) - agoraLisboaMs() : null;
+  }
+  /** O pagamento da visita técnica ou do diagnóstico da avaria que ainda vale (pago, não devolvido, sem falta). */
+  const pagamentoVisita = (o) => db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND com_visita = 1 AND faltou IS NULL
+    AND fase IN ('visita', 'pormenorizado_visita', 'avaria') ORDER BY id LIMIT 1`).get(o.id);
+  /** A parte de um pagamento que é a visita (cêntimos): tudo, menos o relatório quando foram comprados juntos. */
+  const parteVisita = (p) => (p.fase === 'pormenorizado_visita' ? p.valor_cent - precoRelatorioCent(lerConfigOrc()) : p.valor_cent);
+
+  /**
+   * O que a conta mostra sobre cancelar a visita paga: {pode, devolucao (€), motivo, faltou}. Com mais de 24 h de
+   * antecedência (ou ainda sem data) devolve-se a visita toda; com menos, `motivo` diz que já não há devolução; depois da
+   * hora, ou com "Cliente faltou" marcado no painel, não há nada para cancelar. null sem visita paga.
+   */
+  function visitaCancelar(o) {
+    const p = pagamentoVisita(o);
+    if (!p) return null;
+    // `avaria`: é o diagnóstico da avaria (a mesma regra da visita: mais de 24 h antes da hora marcada, ou ainda sem
+    // data, devolve-se tudo; uma avaria marcada para o próprio dia já não tem devolução).
+    const avaria = p.fase === 'avaria';
+    const r = { pode: false, devolucao: null, motivo: null, avaria };
+    if (o.cliente || !['novo', 'contactado', 'visita_marcada'].includes(o.estado)) return r;
+    const falta = faltaParaVisita(o);
+    if (falta !== null && falta <= 0) return r;
+    if (falta !== null && falta <= CANCELAR_VISITA_MS) return { ...r, motivo: `Já não é possível cancelar com devolução (faltam menos de 24 h para ${avaria ? 'o diagnóstico' : 'a visita'}).` };
+    const dev = parteVisita(p);
+    return dev > 0 ? { ...r, pode: true, devolucao: deCent(dev) } : r;
+  }
+
+  /**
+   * "Cliente faltou" (painel): o pagamento da visita ou do diagnóstico fica `pago` (não se devolve) mas marcado
+   * (`faltou`): deixa de contar como visita paga e NÃO é descontado no sinal (`faltou_cent`: a parte da visita). Para
+   * avançar, o cliente marca e paga uma visita nova. Devolve a referência do pagamento marcado (ou null).
+   */
+  function marcarFalta(o) {
+    const p = pagamentoVisita(o);
+    if (!p) return null;
+    db.prepare('UPDATE pagamentos_pedido SET faltou = ?, faltou_cent = ?, atualizado = ? WHERE id = ?').run(agoraIso(), Math.max(0, parteVisita(p)), agoraIso(), p.id);
+    return p.ref;
+  }
+
+  /**
+   * O CEO cancela a obra antes de ela ser feita e devolve o sinal (todo, ou `valorCent`: o sinal menos o material já
+   * encomendado e os serviços prestados): Stripe → reembolso; modo simulado → só fica marcado. Devolve {ref, cent, modo}.
+   */
+  async function devolverSinal(o, valorCent = null) {
+    const p = pagoDe(o.id, 'sinal');
+    if (!p) throw new ErroApi(409, 'Este pedido não tem o sinal pago.');
+    if (p.devolvido || p.a_devolver) throw new ErroApi(409, 'O sinal já foi devolvido.');
+    if (obraConcluida(o) || pagoDe(o.id, 'restante')) throw new ErroApi(409, 'A obra já foi feita: o sinal já não se devolve aqui.');
+    const cent = valorCent ?? p.valor_cent;
+    if (!(cent > 0) || cent > p.valor_cent) throw new ErroApi(400, `O valor a devolver tem de estar entre 0,01 € e ${euro(p.valor_cent)}.`);
+    const r = await devolver(p, cent, 'sinal');
+    registo.info(`pagamento ${p.ref}: sinal ${r.manual ? 'a devolver por transferência' : 'devolvido'} (${euro(cent)}${p.modo === 'simulado' ? ', simulado' : ''}) — orçamento ${o.id}`);
+    return r;
+  }
+
+  /** O pedido ficou aceite (sinal pago, ou sinal 0): o material fica reservado no stock e a obra nasce (uma vez). */
+  function aoFicarAceite(orcamentoId, por) {
+    const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(orcamentoId);
+    if (!o || o.estado !== 'aceite') return;
+    stock?.reservar(o, por);
+    criarObra?.(o, por);
+  }
+
+  /**
+   * Devolve `cent` de um pagamento pago. Cartão e MB Way: automático pelo Stripe (API REST, sobre o PaymentIntent da
+   * sessão do Checkout); modo simulado: só fica marcado. Pago por referência Multibanco (o Stripe não devolve sozinho):
+   * devolução MANUAL por transferência — fica uma linha em `devolucoes_pedido` à espera do IBAN do cliente e o
+   * pagamento com `a_devolver`; só conta como devolvido quando o CEO a marca como feita (`marcarDevolvida`).
+   * `tiraVisita`: o pagamento deixa de valer como visita paga. Devolve {ref, cent, modo, manual}.
+   */
+  async function devolver(p, cent, motivo, { tiraVisita = false } = {}) {
+    let metodo = p.metodo ?? null;
+    let pi = null;
+    if (p.modo === 'stripe') {
+      if (!p.stripe_sessao) throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
+      const s = await stripe('GET', `checkout/sessions/${encodeURIComponent(p.stripe_sessao)}?expand[]=payment_intent.latest_charge`);
+      pi = typeof s.payment_intent === 'string' ? s.payment_intent : s.payment_intent?.id;
+      metodo ??= s.payment_intent?.latest_charge?.payment_method_details?.type ?? null;
+      if (!pi) throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
+    }
+    const manual = metodo === 'multibanco';
+    if (!manual && p.modo === 'stripe') {
+      await stripe('POST', 'refunds', { payment_intent: pi, amount: String(cent), reason: 'requested_by_customer', 'metadata[ref]': p.ref }, `domus-reembolso-${p.ref}`);
+    }
+    const agora = agoraIso();
+    const visita = tiraVisita ? ', com_visita = 0' : '';
+    const u = manual
+      ? db.prepare(`UPDATE pagamentos_pedido SET a_devolver = ?, metodo = ?${visita}, atualizado = ? WHERE id = ? AND estado = 'pago' AND devolvido IS NULL AND a_devolver IS NULL`).run(cent, metodo, agora, p.id)
+      : db.prepare(`UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, metodo = COALESCE(?, metodo)${visita}, atualizado = ?
+        WHERE id = ? AND estado = 'pago' AND devolvido IS NULL AND a_devolver IS NULL`).run(cent === p.valor_cent ? 'devolvido' : 'pago', agora, cent, metodo, agora, p.id);
+    if (!u.changes) throw new ErroApi(409, 'Este pagamento já foi devolvido.');
+    if (manual) {
+      db.prepare(`INSERT INTO devolucoes_pedido (pagamento_id, conta_id, orcamento_id, valor_cent, motivo, estado, criado) VALUES (?, ?, ?, ?, ?, 'pede_iban', ?)`)
+        .run(p.id, p.conta_id, p.orcamento_id, cent, motivo, agora);
+    }
+    return { ref: p.ref, cent, modo: p.modo, manual };
+  }
+
+  // ---- devoluções manuais por transferência (pagamentos por referência Multibanco)
+  /** IBAN português válido ("PT50" + 21 algarismos, módulo 97), sem espaços e em maiúsculas; senão null. */
+  function ibanPt(v) {
+    const t = typeof v === 'string' ? v.replace(/\s+/g, '').toUpperCase() : '';
+    if (!/^PT50\d{21}$/.test(t)) return null;
+    // ISO 13616: os 4 primeiros caracteres vão para o fim, as letras passam a números (P = 25, T = 29); resto 1.
+    const digitos = `${t.slice(4)}2529${t.slice(2, 4)}`;
+    let resto = 0;
+    for (const d of digitos) resto = (resto * 10 + Number(d)) % 97;
+    return resto === 1 ? t : null;
+  }
+  /** "PT50 •••• 0154": só o país e os 4 últimos algarismos (listas, conta, depois de devolvido). */
+  const ibanMascarado = (iban) => (iban ? `${iban.slice(0, 4)} •••• ${iban.slice(-4)}` : null);
+  const TEXTO_DEVOLUCAO = { pede_iban: 'À espera do IBAN do cliente', por_fazer: 'Devolução por fazer', devolvido: 'Devolvido' };
+  const NOME_MOTIVO = { visita: 'Visita técnica cancelada', diagnostico: 'Diagnóstico cancelado', sinal: 'Sinal devolvido' };
+  /** Uma devolução manual para a conta e para as listas: o IBAN sempre mascarado. `completo` (só CEO, por fazer): o IBAN inteiro. */
+  function devolucaoPublica(d, completo = false) {
+    return {
+      id: d.id, orcamento_id: d.orcamento_id, valor: deCent(d.valor_cent), motivo: d.motivo, motivo_texto: NOME_MOTIVO[d.motivo], estado: d.estado, estado_texto: TEXTO_DEVOLUCAO[d.estado],
+      iban: completo && d.estado === 'por_fazer' ? d.iban : ibanMascarado(d.iban), titular: d.titular ?? null,
+      criado: d.criado, devolvido: d.devolvido ?? null, ...(completo ? { devolvido_por: d.devolvido_por ?? null } : {}),
+    };
+  }
+  const devolucoesDoPedido = (orcamentoId, completo = false) => db.prepare('SELECT * FROM devolucoes_pedido WHERE orcamento_id = ? ORDER BY id').all(orcamentoId).map((d) => devolucaoPublica(d, completo));
+  /** As devoluções ainda por fazer (painel → Pagamentos, só CEO), com o IBAN inteiro e o titular. */
+  const devolucoesPorFazer = () => db.prepare("SELECT * FROM devolucoes_pedido WHERE estado != 'devolvido' ORDER BY id").all().map((d) => devolucaoPublica(d, true));
+
+  /** A conta dá o IBAN e o titular de uma devolução sua que está à espera (ou corrige-os enquanto não foi feita). */
+  function darIban(c, id, iban, titular) {
+    const d = db.prepare('SELECT * FROM devolucoes_pedido WHERE id = ? AND conta_id = ?').get(id, c.id);
+    if (!d) throw new ErroApi(404, 'Devolução não encontrada.');
+    if (d.estado === 'devolvido') throw new ErroApi(409, 'Esta devolução já foi feita.');
+    const limpo = ibanPt(iban);
+    if (!limpo) throw new ErroApi(400, 'IBAN inválido: escreva um IBAN português (PT50 e 21 algarismos).');
+    db.prepare("UPDATE devolucoes_pedido SET iban = ?, titular = ?, estado = 'por_fazer' WHERE id = ?").run(limpo, titular, d.id);
+    // O IBAN nunca vai para a auditoria nem para o registo.
+    auditar(quem(c.id), 'devolucao_iban', d.orcamento_id ? `orcamento:${d.orcamento_id}` : `conta:${c.id}`, { devolucao: d.id, valor: deCent(d.valor_cent) });
+    return devolucaoPublica(db.prepare('SELECT * FROM devolucoes_pedido WHERE id = ?').get(d.id));
+  }
+
+  /**
+   * O CEO fez a transferência e marca "Devolvido" (data e quem): só agora o pagamento conta como devolvido (totais e
+   * CSV), e do IBAN fica guardado só o fim ("PT50 •••• 0154").
+   */
+  function marcarDevolvida(id, por) {
+    const d = db.prepare('SELECT * FROM devolucoes_pedido WHERE id = ?').get(id);
+    if (!d) throw new ErroApi(404, 'Devolução não encontrada.');
+    if (d.estado === 'devolvido') throw new ErroApi(409, 'Esta devolução já está marcada como feita.');
+    if (d.estado === 'pede_iban') throw new ErroApi(409, 'O cliente ainda não indicou o IBAN.');
+    const agora = agoraIso();
+    const p = db.prepare('SELECT * FROM pagamentos_pedido WHERE id = ?').get(d.pagamento_id);
+    db.prepare("UPDATE devolucoes_pedido SET estado = 'devolvido', devolvido = ?, devolvido_por = ?, iban = ? WHERE id = ?").run(agora, por, ibanMascarado(d.iban), d.id);
+    db.prepare('UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, a_devolver = NULL, atualizado = ? WHERE id = ?')
+      .run(d.valor_cent === p.valor_cent ? 'devolvido' : 'pago', agora, d.valor_cent, agora, p.id);
+    return { ...devolucaoPublica(db.prepare('SELECT * FROM devolucoes_pedido WHERE id = ?').get(d.id), true), ref: p.ref, conta_id: d.conta_id };
+  }
+
+  /**
+   * O cliente cancela a visita técnica com mais de 24 h de antecedência: a visita é devolvida (Stripe: reembolso; modo
+   * simulado: só fica marcada), a data sai e o pedido volta a "contactado". A visita comprada com o relatório devolve
+   * só a parte da visita (o pagamento continua `pago`, com `devolvido_cent`).
+   */
+  async function cancelarVisita(c, o, ip = null) {
+    const info = visitaCancelar(o);
+    if (!info) throw new ErroApi(409, 'Este pedido não tem uma visita técnica paga.');
+    if (!info.pode) throw new ErroApi(409, info.motivo ?? (info.avaria ? 'Este diagnóstico já não se pode cancelar.' : 'Esta visita já não se pode cancelar.'));
+    const p = pagamentoVisita(o);
+    const cent = Math.round(info.devolucao * 100);
+    const r = await devolver(p, cent, info.avaria ? 'diagnostico' : 'visita', { tiraVisita: true });
+    const agora = agoraIso();
+    // A visita sai e o pedido volta a "contactado"; a avaria era só o diagnóstico: cancelado, o pedido fica fechado.
+    if (info.avaria) db.prepare("UPDATE orcamentos SET data_visita = NULL, estado = 'perdido', motivo_perda = 'Diagnóstico cancelado pelo cliente (devolvido).', atualizado = ? WHERE id = ?").run(agora, o.id);
+    else db.prepare("UPDATE orcamentos SET data_visita = NULL, estado = CASE WHEN estado = 'visita_marcada' THEN 'contactado' ELSE estado END, atualizado = ? WHERE id = ?").run(agora, o.id);
+    auditar(quem(c.id), 'visita_cancelada_cliente', `orcamento:${o.id}`, { ref: p.ref, devolvido: deCent(cent), modo: p.modo, data_visita: o.data_visita ?? null, ...(info.avaria ? { avaria: true } : {}), ...(r.manual ? { manual: true } : {}) }, ip);
+    registo.info(`pagamento ${p.ref}: visita cancelada pelo cliente, ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}${p.modo === 'simulado' ? ' (simulado)' : ''} — orçamento ${o.id}`);
+    const para = emailConta(c.id);
+    if (para) {
+      correio.enviar({ para, assunto: 'Domus Energia: visita cancelada', resumo: `visita do pedido ${o.id} cancelada; ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}`,
+        texto: ['Olá,', '', `Cancelou ${info.avaria ? 'o diagnóstico da avaria' : 'a visita técnica'} do pedido n.º ${o.id}.`,
+          r.manual ? `Como pagou por referência Multibanco, devolvemos ${euro(cent)} por transferência bancária: indique o IBAN na sua conta.`
+            : `Devolvemos ${euro(cent)} para o mesmo meio de pagamento (até 14 dias)${p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
+          info.avaria ? 'Se voltar a precisar, envie um novo pedido.' : 'Pode marcar outra visita na sua conta quando quiser.', ...(config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []), '', 'Domus Energia'].join('\n') });
+    }
+    return { devolvido: deCent(cent), manual: r.manual };
   }
 
   /** Sinal ao aceitar a proposta, ou o restante no fim da obra (POST pedidos/:id/pagar e aceitar). */
@@ -406,7 +725,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (fase === 'sinal') {
       if (!o.proposta_aceite || o.estado !== 'proposta_enviada') throw new ErroApi(409, 'Aceite primeiro a proposta.');
       valorCent = v.sinal;
-      descricao = `Sinal de ${SINAL_PCT} % da proposta do pedido n.º ${o.id} (${euro(v.total)} com IVA)${v.pago_antes ? `, menos os ${euro(v.pago_antes)} já pagos` : ''}`;
+      descricao = `${v.sinal_material ? 'Sinal da proposta' : `Sinal de ${SINAL_PCT} % da proposta`} do pedido n.º ${o.id} (${euro(v.total)} com IVA)${v.sinal_material ? ': cobre o material' : ''}${v.desconto ? `, menos os ${euro(v.desconto)} já pagos` : ''}`;
     } else {
       if (o.estado !== 'aceite' || !pagoDe(o.id, 'sinal') && valores(o).sinal > 0) throw new ErroApi(409, 'Ainda não há nada para pagar neste pedido.');
       if (!obraConcluida(o)) throw new ErroApi(409, 'O restante paga-se quando a obra estiver concluída.');
@@ -426,6 +745,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const v = valores(o);
     if (!(v.sinal > 0)) {
       db.prepare('UPDATE orcamentos SET estado = \'aceite\', atualizado = ? WHERE id = ? AND estado = \'proposta_enviada\'').run(agoraIso(), o.id);
+      aoFicarAceite(o.id, quem(conta.id).email);
       return null;
     }
     return pagarFase(conta, o, 'sinal');
@@ -467,6 +787,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       return 'ignorado';
     }
     let r = 'ignorado';
+    // O Multibanco é o único método que confirma depois (evento assíncrono): fica anotado para uma devolução futura.
+    if (ev.type === 'checkout.session.async_payment_succeeded' && !p.metodo) db.prepare("UPDATE pagamentos_pedido SET metodo = 'multibanco' WHERE id = ?").run(p.id);
     if ((ev.type === 'checkout.session.completed' && s.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') r = confirmar(p);
     else if (ev.type === 'checkout.session.async_payment_failed') r = falhar(p, 'falhado');
     else if (ev.type === 'checkout.session.expired') r = falhar(p, 'cancelado');
@@ -489,6 +811,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       } else if (p.fase === 'sinal') {
         const a = db.prepare('UPDATE orcamentos SET estado = \'aceite\', atualizado = ? WHERE id = ? AND estado = \'proposta_enviada\'').run(agoraIso(), p.orcamento_id);
         if (a.changes) auditar(quem(p.conta_id), 'proposta_aceite_cliente', `orcamento:${p.orcamento_id}`, { estado: 'aceite', via: 'online', sinal: deCent(p.valor_cent), plano: p.plano });
+        // Sinal pago: o material do pedido fica reservado no stock (decisão 13) e a obra nasce, por agendar (a casa só
+        // se liga depois, com o restante pago). Um segundo evento do mesmo pagamento não chega aqui.
+        if (a.changes) aoFicarAceite(p.orcamento_id, quem(p.conta_id).email);
       }
       db.exec('COMMIT');
     } catch (e) {
@@ -564,7 +889,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const parar = () => clearInterval(temporizador);
 
   // ------------------------------------------------------------ relatório para o cliente
-  const artigo = db.prepare('SELECT nome, preco_venda_iva_cent, horas_instalacao, horas_troca FROM catalogo WHERE sku = ?');
+  const artigo = db.prepare('SELECT nome, preco_venda_iva_cent, horas_instalacao, horas_troca, especificacoes FROM catalogo WHERE sku = ?');
+  /** Artigo de preço fechado (ronda dinheiro; web/simulador/preco.js precoFechado): a mão de obra vai dentro do preço. */
+  const precoFechado = (a) => { try { return JSON.parse(a?.especificacoes || '{}')?.preco_fechado === true; } catch { return false; } };
   const SKU_DIVISAO = [
     ['estores', 'BAB-CURTAIN', 'estore automático', 'estores automáticos'],
     ['sensores_porta', 'SENS-PORTA-WIFI', 'aviso de porta ou janela aberta', 'avisos de porta ou janela aberta'],
@@ -727,7 +1054,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * Conteúdo técnico (só aqui, nunca no básico; web/simulador/simbolos.js): `planta` (para a planta técnica com a
    * simbologia normalizada), `esquemas` (o tipo de comando de cada luz, por divisão), `terra_nota` e `ensaios`.
    */
-  function relatorioCliente(o) {
+  function relatorioCliente(o, interno = false) {
     let s;
     try { s = JSON.parse(o.simulacao ?? 'null'); } catch { s = null; }
     if (!s || typeof s !== 'object') return null;
@@ -830,19 +1157,30 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     });
     const geral = [];
     for (const [sku, q] of restante) if (q > 0) geral.push(linhaMat(sku, q));
-    // Mão de obra: horas do catálogo (ao substituir, as de troca; sem elas 50 %) × a tarifa da configuração.
-    let horas = 0;
+    // Mão de obra: horas do catálogo (ao substituir, as de troca; sem elas 50 %) × a tarifa da configuração. Nos artigos
+    // de PREÇO FECHADO (pontos novos, linhas dedicadas) o cliente paga só o preço do artigo: as horas deles contam para
+    // os dias de obra (`horasTodas`) e para a mão de obra que vai lá dentro (`incluida`, nunca acima do preço da linha),
+    // mas não para a mão de obra cobrada à parte — como o simulador (preco.js calcularPreco).
+    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
+    let horas = 0, horasTodas = 0, incluida = 0;
     for (const [sku, x] of itens) {
       const a = art(sku);
       if (!a) continue;
       const hi = Number(a.horas_instalacao) || 0;
       const ht = Number.isFinite(a.horas_troca) ? a.horas_troca : hi * 0.5;
-      horas += (x.qtd - x.troca) * hi + x.troca * ht;
+      const h = (x.qtd - x.troca) * hi + x.troca * ht;
+      horasTodas += h;
+      if (precoFechado(a)) incluida += Math.min(((a.preco_venda_iva_cent ?? 0) * x.qtd) / 100, Math.round(h * tarifa * 100) / 100);
+      else horas += h;
     }
     horas = Math.round(horas * 100) / 100;
-    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
+    horasTodas = Math.round(horasTodas * 100) / 100;
     const maoObra = itens.size ? Math.round(horas * tarifa * 100) / 100 : null;
-    const deslocacao = itens.size ? deslocacaoServidor(o.localidade ?? s.casa?.localidade ?? '', cfg) : null;
+    // Deslocação por dia de obra, ida e volta (decisão 4): os dias pelas horas todas; a avaria é um dia.
+    const deslocacao = itens.size ? deslocacaoServidor(o.localidade ?? s.casa?.localidade ?? '', cfg, s.funil === 'avaria' ? 1 : diasDeObra(horasTodas, cfg)) : null;
+    // Dias de obra ("≈ N dias de obra") e os dias de deslocação cobrados (no máximo `deslocacao_max_dias`), como o simulador.
+    const diasObra = !itens.size ? null : s.funil === 'avaria' ? 1 : diasDeObra(horasTodas, cfg);
+    const maxDias = Math.max(1, Math.round(numCfg(cfg, 'deslocacao_max_dias', DESLOCACAO_MAX_DIAS)));
     const somaGeral = Math.round(geral.reduce((t, l) => t + (l.total ?? 0), 0) * 100) / 100;
     // Fase 2: a instalação e configuração dos pacotes (a margem deles), como o simulador (web/simulador/melhorias.js
     // calcularMelhorias): por pacote, custo = material + horas × tarifa dos seus artigos (preços e horas do CATÁLOGO),
@@ -882,6 +1220,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       divisoes, geral: { titulo: 'Quadro elétrico e geral', material: geral, total: somaGeral },
       mao_obra: maoObra === null ? null : { horas, valor: maoObra },
       deslocacao, melhorias, total: Math.round(soma * 100) / 100,
+      dias: diasObra, deslocacao_dias: deslocacao === null ? null : Math.min(diasObra, maxDias), deslocacao_limitada: deslocacao !== null && diasObra > maxDias,
       nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. O que já pagou (relatório, visita) é descontado na obra.',
       // Conteúdo técnico do pormenorizado (decisões 4, 5, 7, 8 e 12): planta técnica, esquema por luz, terra e ensaios.
       planta, esquemas: planta ? esquemasDaPlanta(planta) : [],
@@ -893,6 +1232,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       esquema_quadro: esquemaQuadroCliente(o),
       // Diagnóstico da avaria feito no painel (`orcamentos.diagnostico`, migração 18): só aqui, nunca no básico.
       diagnostico: diagnosticoCliente(o),
+      // Só para o painel (`propostaSugerida`): as horas todas e a mão de obra dentro dos artigos de preço fechado.
+      ...(interno ? { _interno: { horas: horasTodas, mao_obra_incluida: Math.round(incluida * 100) / 100 } } : {}),
     };
   }
 
@@ -909,13 +1250,21 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const divisoes = r.divisoes.filter((d) => d.trabalho.length).map((d) => ({ nome: d.nome, trabalho: d.trabalho }));
     if (r.geral.material.length) divisoes.push({ nome: 'Quadro elétrico e geral', trabalho: ['Trabalho no quadro elétrico (o material está no relatório completo).'] });
     const semDesloc = Math.round((r.total - (r.deslocacao ?? 0)) * 100) / 100;
+    // Obra mínima (decisão 9; como o simulador, preco.js comObraMinima): o intervalo nunca fica abaixo dela.
+    const cfg = lerConfigOrc();
+    const minimo = numCfg(cfg, 'obra_minima_iva', OBRA_MINIMA_OMISSAO);
+    let intervalo = avaria || !(semDesloc > 0) ? null : intervaloEstimativa(semDesloc, cfg);
+    if (intervalo && minimo > 0) intervalo = { min: Math.max(intervalo.min, arredondar5(minimo)), max: Math.max(intervalo.max, arredondar5(minimo)) };
     return {
       pedido: o.id, acoes: r.acoes, divisoes,
       melhorias: r.melhorias ? r.melhorias.pacotes.map((x) => x.nome) : [],
       // Na avaria o preço é o do diagnóstico (pago ao enviar), sem intervalo.
-      intervalo: avaria || !(semDesloc > 0) ? null : intervaloEstimativa(semDesloc, lerConfigOrc()),
+      intervalo,
+      obra_minima: intervalo && semDesloc < minimo ? minimo : null,
       // A deslocação à parte (€ c/ IVA); null fora da área servida (não há deslocação) ou sem trabalho.
       deslocacao: avaria ? null : r.deslocacao,
+      // "≈ N dias de obra" e "(ida e volta, N dias)" / "(ida e volta; máximo N dias)", como no Orçamento do simulador.
+      dias: avaria ? null : r.dias, deslocacao_dias: avaria ? null : r.deslocacao_dias, deslocacao_limitada: !avaria && r.deslocacao_limitada,
       com_deslocacao: r.deslocacao !== null,
       nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
     };
@@ -932,6 +1281,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return {
       ref: p.ref, fase: p.fase, fase_texto: NOME_FASE[p.fase], valor: deCent(p.valor_cent), base: deCent(base), iva: deCent(ivaCent), iva_pct: iva,
       estado: p.estado, estado_texto: TEXTO_ESTADO[p.estado], modo: p.modo, criado: p.criado, pago: p.pago, plano: p.plano,
+      devolvido: p.devolvido_cent ? deCent(p.devolvido_cent) : null, devolvido_em: p.devolvido ?? null, nao_realizada: Boolean(p.faltou),
+      a_devolver: p.a_devolver ? deCent(p.a_devolver) : null, metodo: p.metodo ?? null,
       com_visita: p.com_visita === null ? null : Boolean(p.com_visita), descricao: p.descricao, orcamento_id: p.orcamento_id,
     };
   }
@@ -940,7 +1291,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   function resumoValores(o) {
     const v = valores(o);
     if (v.total === null) return null;
-    return { proposta: deCent(v.proposta), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total), pago_antes: deCent(v.pago_antes), sinal: deCent(v.sinal), restante: deCent(v.restante) };
+    return {
+      proposta: deCent(v.proposta), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total), pago_antes: deCent(v.pago_antes), sinal: deCent(v.sinal), restante: deCent(v.restante),
+      // Decisões de 2026-10-02: a base cobrada (≠ proposta com a obra mínima), a obra mínima aplicada (ou null), o que
+      // se desconta no sinal, de onde vem o material que o sinal cobre ('custo' de compra ou valor de 'venda'; o valor
+      // não vai: o comercial não vê custos) e o que falta para a obra estar toda paga.
+      base: deCent(v.base), minima: deCent(v.minima), desconto: deCent(v.desconto), em_falta: deCent(v.em_falta),
+      material_origem: v.material?.origem ?? null, sinal_material: v.sinal_material,
+    };
   }
 
   /**
@@ -953,7 +1311,11 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (estado) { cond.push('estado = ?'); args.push(estado); }
     if (mes) { cond.push('substr(COALESCE(pago, criado), 1, 7) = ?'); args.push(mes); }
     return db.prepare(`SELECT * FROM pagamentos_pedido ${cond.length ? `WHERE ${cond.join(' AND ')}` : ''} ORDER BY id DESC LIMIT 5000`).all(...args)
-      .map((p) => ({ ...linhaPainel(p), data: p.pago ?? p.criado }));
+      .map((p) => {
+        // A devolução (visita cancelada, sinal devolvido) com a base e o IVA, para os totais e para a linha do CSV.
+        const dev = p.devolvido_cent ? partirIva(p.devolvido_cent, ivaDe(p)) : null;
+        return { ...linhaPainel(p), data: p.pago ?? p.criado, devolvido_base: dev ? deCent(dev.base) : null, devolvido_iva: dev ? deCent(dev.iva) : null };
+      });
   }
 
   /**
@@ -977,9 +1339,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   /** O que a conta vê dos pagamentos de um pedido (conta.js pedidoParaCliente). */
   function paraCliente(o) {
     const lista = doOrcamento.all(o.id);
-    // Por fase: o pago, senão o mais recente (os antigos cancelados/expirados não interessam ao cliente).
+    // Os pagos e os devolvidos todos (uma visita a que faltou e a visita nova são dois pagamentos da mesma fase); nas
+    // fases sem nenhum, o mais recente (os antigos cancelados/expirados não interessam ao cliente).
     const porFase = {};
-    for (const p of lista) if (!porFase[p.fase] || porFase[p.fase].estado !== 'pago') porFase[p.fase] = p;
+    for (const p of lista) {
+      if (['pago', 'devolvido'].includes(p.estado)) porFase[`${p.fase}:${p.id}`] = p;
+      else if (!lista.some((x) => x.fase === p.fase && ['pago', 'devolvido'].includes(x.estado))) porFase[p.fase] = p;
+    }
     const v = valores(o);
     const sinalPago = Boolean(pagoDe(o.id, 'sinal'));
     const cp = compras(o);
@@ -993,8 +1359,19 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       relatorio: !o.simulacao ? null : o.relatorio_libertado ? 'disponivel' : cp.relatorio.comprado ? 'em_revisao' : cp.avaria ? null : 'por_comprar',
       compras: cp,
       // A proposta é sem IVA; o que se paga online inclui-o (total = proposta + IVA).
-      proposta_iva: v.total === null ? null : { base: deCent(v.proposta), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total) },
-      sinal: v.sinal === null ? null : { valor: deCent(v.sinal), pct: SINAL_PCT, desconto: deCent(v.pago_antes), pago: sinalPago },
+      proposta_iva: v.total === null ? null : { base: deCent(v.base), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total) },
+      // Decisões de 2026-10-02: o detalhe da proposta (três partes, sem IVA), a obra mínima aplicada (€ c/ IVA ou null),
+      // o limite do cartão, "Quero que comecem já", cancelar a visita e se a obra já está toda paga (a app fica ativa).
+      proposta_partes: partes(o),
+      obra_minima: deCent(v.minima),
+      cartao_max: numCfg(lerConfigOrc(), 'cartao_max_iva', CARTAO_MAX_OMISSAO),
+      inicio_imediato: o.inicio_imediato ?? null,
+      visita_cancelar: visitaCancelar(o),
+      visita_faltou: o.visita_faltou ?? null,
+      // Devoluções por transferência (pagou por Multibanco): a conta pede o IBAN; depois só se mostra o fim dele.
+      devolucoes: devolucoesDoPedido(o.id),
+      obra_paga: o.estado === 'aceite' && v.em_falta !== null ? v.em_falta === 0 : null,
+      sinal: v.sinal === null ? null : { valor: deCent(v.sinal), pct: SINAL_PCT, desconto: deCent(v.desconto), pago: sinalPago, cobre_material: v.sinal_material },
       aguarda_sinal: aguardaSinal,
       pode_pagar_sinal: aguardaSinal && v.sinal > 0,
       restante: o.estado === 'aceite' && v.restante !== null ? { valor: deCent(v.restante), pago: Boolean(pagoDe(o.id, 'restante')), obra_concluida: concluida } : null,
@@ -1010,6 +1387,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     ['GET', /^\/api\/conta\/pagamentos\/(pp_[A-Za-z0-9_-]{22})$/, 'ver'],
     ['POST', /^\/api\/conta\/pagamentos\/(pp_[A-Za-z0-9_-]{22})\/simular$/, 'simular'],
     ['POST', /^\/api\/conta\/pedidos\/(\d+)\/pagar$/, 'pagar'],
+    ['POST', /^\/api\/conta\/pedidos\/(\d+)\/cancelar-visita$/, 'cancelarVisita'],
+    ['POST', /^\/api\/conta\/devolucoes\/(\d+)\/iban$/, 'iban'],
     ['GET', /^\/api\/conta\/pedidos\/(\d+)\/relatorio$/, 'relatorio'],
     ['GET', /^\/api\/conta\/pedidos\/(\d+)\/relatorio-basico$/, 'relatorioBasico'],
   ];
@@ -1049,8 +1428,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   // Página simulada: só no modo simulado (no modo stripe responde como se não existisse).
   h.simular = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido || modo !== 'simulado') throw new ErroApi(404, 'Endereço desconhecido.');
-    const v = await lerJson(req, ['resultado']);
+    const v = await lerJson(req, ['resultado', 'metodo']);
     const resultado = opcao(v.resultado, 'resultado', ['sucesso', 'falha', 'cancelar']);
+    // O método com que se "pagou" (por omissão cartão): uma devolução de um Multibanco é manual, por transferência.
+    const metodo = opcao(v.metodo, 'metodo', Object.keys(NOME_METODO), { obrigatorio: false }) ?? 'card';
     expirar();
     const p = daConta(c, m[1]);
     if (p.modo !== 'simulado') throw new ErroApi(409, 'Este pagamento não é simulado.');
@@ -1068,18 +1449,37 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       } },
     };
     auditar(quem(c.id), 'pagamento_simulado', p.orcamento_id ? `orcamento:${p.orcamento_id}` : `conta:${c.id}`, { ref: p.ref, resultado }, ip);
+    if (resultado === 'sucesso') db.prepare('UPDATE pagamentos_pedido SET metodo = ? WHERE id = ?').run(metodo, p.id);
     tratarEvento(evento);
     const depois = linha(p.ref);
     responder(res, 200, { pagamento: publico(depois), voltar: voltar(depois) });
   };
 
   // Sinal, restante e (fase 3) as compras do pedido: relatório completo, visita técnica ou os dois.
-  h.pagar = async ({ req, res, c, m }) => {
+  h.pagar = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
-    const v = await lerJson(req, ['fase']);
+    const v = await lerJson(req, ['fase', 'inicio_imediato']);
     const fase = opcao(v.fase, 'fase', ['sinal', 'restante', ...Object.keys(COMPRAS)]);
     const o = pedidoDaConta(c, m[1]);
+    // "Quero que comecem já" (decisão 11): vem com o pagamento do sinal.
+    if (v.inicio_imediato !== undefined && fase === 'sinal') definirInicioImediato(o, booleano(v.inicio_imediato, 'inicio_imediato'), c.id, ip);
     responder(res, 200, { pagamento: COMPRAS[fase] ? await comprar(c, o, fase) : await pagarFase(c, o, fase) });
+  };
+
+  // "Cancelar visita" (decisão 10): devolvida com mais de 24 h de antecedência; com menos, 409 com a explicação.
+  h.cancelarVisita = async ({ req, res, c, m, ip }) => {
+    await lerJson(req, []);
+    const r = await cancelarVisita(c, pedidoDaConta(c, m[1]), ip);
+    // `manual`: pago por referência Multibanco — a devolução é por transferência e a conta pede o IBAN.
+    responder(res, 200, { ok: true, devolvido: r.devolvido, manual: r.manual });
+  };
+
+  // Devolução por transferência (pagou por referência Multibanco): a conta dá o IBAN e o titular.
+  h.iban = async ({ req, res, c, m }) => {
+    const v = await lerJson(req, ['iban', 'titular']);
+    const titular = typeof v.titular === 'string' ? v.titular.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 120) : '';
+    if (titular.length < 2) throw new ErroApi(400, 'Indique o nome do titular da conta.');
+    responder(res, 200, { devolucao: darIban(c, idNum(m[1]), v.iban, titular) });
   };
 
   h.relatorio = ({ res, c, m }) => {
@@ -1156,6 +1556,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     modo, ativo: config.pagamentoPedido, tratar, iniciarAvaria, comprar, compras, temRelatorio, temVisita, aoAceitar, pagarFase,
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
+    ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
+    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt,
     PLANOS: PLANOS_MENSAIS,
   };
 }

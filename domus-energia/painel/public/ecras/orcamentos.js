@@ -190,12 +190,37 @@ export default function orcamentos(el, ctx) {
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const sEstado = escolha("estado", ESTADOS_ORC, estado);
     const motivo = campoForm("Motivo da perda", h("input", { name: "motivo_perda", maxlength: "300", value: campo(o, "motivo_perda") ?? "" }));
+    // Proposta em três partes (sem IVA; decisão 15): mão de obra, material e deslocação; o valor da proposta é a soma.
+    // Vazias = proposta de um só valor (como antes). "Preencher pela simulação" (ou escolher "Proposta enviada" sem
+    // valores) põe as partes recalculadas pelo servidor a partir do catálogo; o CEO acerta-as depois da visita.
+    const pPartes = campo(o, "proposta_partes");
+    const sugerida = campo(o, "proposta_sugerida");
+    const parte = (nome, valor) => h("input", { name: nome, type: "number", min: "0", step: "0.01", inputmode: "decimal", value: valor ?? "" });
+    const pMao = parte("proposta_mao_obra", pPartes?.mao_obra), pMat = parte("proposta_material", pPartes?.material), pDes = parte("proposta_deslocacao", pPartes?.deslocacao);
+    const iValor = h("input", { name: "valor_proposta", type: "number", min: "0", step: "0.01", inputmode: "decimal", value: campo(o, "valor_proposta") ?? "" });
+    const temPartes = () => [pMao, pMat, pDes].some((i) => i.value.trim() !== "");
+    const somar = () => {
+      iValor.readOnly = temPartes();
+      if (temPartes()) iValor.value = (Math.round([pMao, pMat, pDes].reduce((t, i) => t + (numero(i.value) ?? 0), 0) * 100) / 100).toFixed(2);
+    };
+    for (const i of [pMao, pMat, pDes]) i.addEventListener("input", somar);
+    const preencher = () => {
+      if (!sugerida) return;
+      pMao.value = sugerida.mao_obra ?? ""; pMat.value = sugerida.material ?? ""; pDes.value = sugerida.deslocacao ?? "";
+      somar();
+    };
+    const bPreencher = sugerida ? h("button", { class: "btn sec pequeno", type: "button", id: "preencher-proposta", text: "Preencher pela simulação", onclick: preencher }) : null;
+    const blocoPartes = h("fieldset", { class: "grupo", id: "proposta-partes" }, h("legend", { text: "Proposta (€, sem IVA)" }),
+      h("div", { class: "tres" }, campoForm("Mão de obra", pMao), campoForm("Material", pMat), campoForm("Deslocação", pDes)),
+      h("p", { class: "ajuda", text: `O total é a soma das três partes; o cliente vê o detalhe. Vazias = um só valor.${sugerida?.horas ? ` A simulação dá cerca de ${String(sugerida.horas).replace(".", ",")} h de mão de obra.` : ""}` }),
+      bPreencher);
     const f = h("form", { class: "form-grelha", id: "form-orcamento", novalidate: true },
       h("h3", { text: "Acompanhamento" }),
       h("div", { class: "duas" },
         campoForm("Estado", sEstado),
         campoForm("Data da visita", h("input", { name: "data_visita", type: "datetime-local", value: paraInput(campo(o, "data_visita")) }))),
-      campoForm("Valor da proposta (€, sem IVA)", h("input", { name: "valor_proposta", type: "number", min: "0", step: "0.01", inputmode: "decimal", value: campo(o, "valor_proposta") ?? "" })),
+      blocoPartes,
+      campoForm("Valor da proposta (€, sem IVA)", iValor),
       campoForm("Texto da proposta (o cliente vê-o na conta)", h("textarea", { name: "proposta_texto", maxlength: "4000", rows: "3" }, campo(o, "proposta_texto") ?? ""),
         campo(o, "conta") ? "Com o estado \"Proposta enviada\" e o valor, o cliente vê a proposta na conta e pode carregar em \"Aceito a proposta\" (valor + IVA)." : "Este pedido não tem conta de cliente: a proposta vai por email ou em mão."),
       motivo,
@@ -213,6 +238,9 @@ export default function orcamentos(el, ctx) {
     }
     const mostrarMotivo = () => { motivo.hidden = sEstado.value !== "perdido"; };
     sEstado.addEventListener("change", mostrarMotivo); mostrarMotivo();
+    // Abrir a proposta ("Proposta enviada") ainda sem valores: as três partes vêm pré-preenchidas pela simulação.
+    sEstado.addEventListener("change", () => { if (sEstado.value === "proposta_enviada" && !temPartes() && iValor.value.trim() === "") preencher(); });
+    somar();
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const el = f.elements;
@@ -229,6 +257,15 @@ export default function orcamentos(el, ctx) {
         proposta_texto: el.proposta_texto.value.trim() || null,
         motivo_perda: el.estado.value === "perdido" ? el.motivo_perda.value.trim() : null,
       };
+      // As três partes ou nenhuma: com elas o servidor faz a soma; sem elas (e se as havia) passa a um só valor.
+      if (temPartes()) {
+        for (const i of [pMao, pMat, pDes]) {
+          const n = i.value.trim() === "" ? null : numero(i.value);
+          if (n === null || n < 0) { mensagem(msg, "Preencha as três partes da proposta (mão de obra, material e deslocação), ou deixe as três vazias."); i.focus(); return; }
+          corpo[i.name] = n;
+        }
+        delete corpo.valor_proposta;
+      } else if (pPartes) Object.assign(corpo, { proposta_mao_obra: null, proposta_material: null, proposta_deslocacao: null });
       const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
       try {
         const r = await pedir(`orcamentos/${encodeURIComponent(id)}`, { corpo });
@@ -242,12 +279,35 @@ export default function orcamentos(el, ctx) {
 
     // Converter (só aceite, e ainda não convertido)
     const obra = campo(o, "obra_id", "obra");
-    const convertido = campo(o, "cliente", "cliente_codigo") ?? (obra ? campo(o, "codigo_cliente") : null);
+    // A obra nasce com o sinal pago; "convertido" = a casa já está ligada (o pedido tem cliente).
+    const convertido = campo(o, "cliente", "cliente_codigo");
+    const ob = campo(o, "obra");
     if (convertido) {
       partes.push(h("div", { class: "msg ok bloco" }, "Convertido em cliente ",
         h("a", { href: `#/clientes/${encodeURIComponent(typeof convertido === "string" ? convertido : "")}`, text: typeof convertido === "string" ? convertido : "" }),
         obra ? [" e ", h("a", { href: `#/obras/${encodeURIComponent(typeof obra === "object" ? campo(obra, "id") : obra)}`, text: "obra" })] : null, "."));
-    } else if (estado === "aceite") partes.push(formConverter(j, o));
+    } else if (estado === "aceite") {
+      // Decisão 1: a casa só se liga com a obra toda paga. Com os pagamentos desligados (ou sem conta) liga-se, com aviso.
+      const lig = campo(o, "ligar_casa");
+      // A obra já existe (por agendar ou com data): agenda-se e atribui-se o técnico no ecrã Obras.
+      if (ob && typeof ob === "object") {
+        partes.push(h("div", { class: "msg info bloco", id: "obra-do-pedido" }, h("span", {}, "Obra criada com o sinal: ",
+          h("a", { href: `#/obras/${encodeURIComponent(ob.id)}`, text: ob.estado === "cancelada" ? "cancelada" : ob.estado === "concluida" ? "concluída" : ob.por_agendar ? "por agendar" : `agendada para ${data(ob.data, { hora: false })}` }),
+          lig && lig.pode === false ? ". Casa por ligar — falta o restante." : ". Casa por ligar.")));
+      }
+      if (lig && lig.pode === false) {
+        partes.push(h("section", { class: "form-grelha converter", id: "converter-bloqueado" },
+          h("h3", { text: "Ligar casa" }),
+          h("p", { class: "msg info", id: "converter-falta", text: `Falta o cliente pagar o restante (${euros(lig.falta)}). A casa (app e mensalidade) só se liga com a obra paga.` }),
+          h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "button", disabled: true, text: "Ligar casa" }))));
+      } else {
+        if (lig?.aviso) partes.push(h("p", { class: "msg info bloco", id: "converter-aviso", text: lig.aviso }));
+        partes.push(formConverter(j, o));
+      }
+      // Antes de a obra ser feita, o CEO pode cancelá-la e devolver o sinal (todo ou parte).
+      const sinalPago = lista(campo(o, "pagamentos") ?? [], "pagamentos").find((x) => campo(x, "fase") === "sinal" && campo(x, "estado") === "pago" && campo(x, "devolvido") == null && campo(x, "a_devolver") == null);
+      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida")) partes.push(formDevolverSinal(j, o, sinalPago));
+    }
 
     const hist = lista(campo(o, "historico") ?? [], "historico");
     if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
@@ -303,7 +363,24 @@ export default function orcamentos(el, ctx) {
     // Proposta sem IVA → o que o cliente paga online (com IVA): total, sinal e restante.
     const vp = campo(o, "valores_pagamento");
     if (vp && typeof vp === "object") {
-      out.unshift(h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (30 % menos ${euros(vp.pago_antes ?? vp.relatorio ?? 0)} já pagos) · restante ${euros(vp.restante)}.` }));
+      // Decisões de 2026-10-02: o sinal cobre o material (o maior entre 30 % e o material); obra mínima (cobra-se o
+      // mínimo e o que foi pago antes não se desconta); a proposta em três partes.
+      const desconto = vp.desconto ?? vp.pago_antes ?? vp.relatorio ?? 0;
+      const sinalTxt = vp.sinal_material ? `cobre o material${vp.material_origem === "venda" ? ", pelo valor de venda" : ""}` : "30 %";
+      const pp = campo(o, "proposta_partes");
+      const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
+      if (pp) linhas.push(h("p", { class: "ajuda", id: "valores-partes", text: `Mão de obra ${euros(pp.mao_obra)} · material ${euros(pp.material)} · deslocação ${euros(pp.deslocacao)} (sem IVA).` }));
+      if (vp.minima != null) linhas.push(h("p", { class: "msg info", id: "obra-minima", text: `Obra mínima: ${euros(vp.minima)} com IVA. A proposta fica abaixo: cobra-se o mínimo${pp && pp.deslocacao > 0 ? " (mais a deslocação)" : ""} e o que o cliente pagou antes não é descontado.` }));
+      linhas.push(h("p", { class: "ajuda", id: "sinal-material", text: "O sinal cobre o material: é o maior entre 30 % do total e o custo do material." }));
+      // Material (decisão 11): reservar já, se o cliente pediu para começar já; senão passados os 14 dias de livre resolução.
+      const mr = campo(o, "material_reserva");
+      if (mr) linhas.push(h("p", { class: "ajuda", id: "material-reserva", text: mr.ja ? `Material: reservar já${mr.inicio_imediato ? ` (o cliente pediu para começar já em ${data(mr.inicio_imediato)})` : ""}.` : `Reservar a partir de ${data(mr.a_partir, { hora: false })} (14 dias).` }));
+      const st = campo(o, "stock");
+      if (st?.artigos?.length) {
+        const falta = st.artigos.filter((a) => a.disponivel < 0);
+        linhas.push(h("p", { class: "ajuda", id: "stock-pedido", text: `Stock: ${st.saiu ? "o material já saiu do armazém" : st.reservado ? "material reservado" : "por reservar (com o sinal pago)"} — ${st.artigos.map((a) => `${a.qtd} × ${a.sku}`).join(", ")}.${falta.length ? ` Em falta: ${falta.map((a) => a.sku).join(", ")}.` : ""}` }));
+      }
+      out.unshift(...linhas);
     }
     if (arquivado) { /* sem ações: o pedido não muda */ }
     else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
@@ -315,6 +392,9 @@ export default function orcamentos(el, ctx) {
       h("strong", { text: `${txt(x, "fase_texto")}: ${euros(campo(x, "valor"))}` }),
       campo(x, "base") != null ? h("span", { class: "ajuda", text: ` (${euros(campo(x, "base"))} + IVA ${euros(campo(x, "iva"))})` }) : null, " ",
       selo(txt(x, "estado_texto"), campo(x, "estado") === "pago" ? "orc-aceite" : campo(x, "estado") === "pendente" ? "info" : "aviso"),
+      campo(x, "devolvido") != null && campo(x, "estado") === "pago" ? selo(`${euros(campo(x, "devolvido"))} devolvidos`, "aviso") : null,
+      campo(x, "a_devolver") != null ? selo(`Devolução por fazer: ${euros(campo(x, "a_devolver"))}`, "grav-critica") : null,
+      campo(x, "nao_realizada") === true ? selo("Visita não realizada — não desconta", "aviso") : null,
       campo(x, "modo") === "simulado" ? selo("Simulado", "aviso") : null,
       h("span", { class: "ajuda", text: ` ${campo(x, "pago") ? `pago ${data(campo(x, "pago"))}` : `criado ${data(campo(x, "criado"))}`} · ${txt(x, "ref")}` })));
     return [h("section", { class: "pagamentos-pedido", id: "pagamentos-pedido" },
@@ -340,6 +420,14 @@ export default function orcamentos(el, ctx) {
       : v.fora_area ? "Sem visita: fora da área servida." : `Visita técnica ainda não paga${v.valor != null ? ` (${euros(v.valor)})` : ""}.`;
     const partes = [h("p", { class: "ajuda", id: "visita-estado", text: `${texto}${quando ? ` Marcada para ${data(quando)}.` : ""}` })];
     if (disp || urg) partes.push(h("p", { class: "ajuda", id: "visita-disponibilidade", text: `Disponibilidade do cliente: ${disp ? disp.toLowerCase() : "não indicou"}${urg && urg !== "normal" ? ` · ${URGENCIAS[urg]}` : ""}.` }));
+    // Decisão 10: cancelada pelo cliente com mais de 24 h → devolvida (ele fá-lo na conta); com menos, ou se faltar, a
+    // visita fica paga: "Cliente faltou" regista a falta (sem devolução) e avisa o cliente.
+    const faltou = campo(o, "visita_faltou");
+    if (faltou) partes.push(h("p", { class: "msg info", id: "visita-faltou-texto", text: `Cliente faltou (registado ${data(faltou)}): a visita não é devolvida nem descontada no sinal. Para avançar, o cliente marca e paga uma visita nova.` }));
+    else if (v.paga && quando && new Date(paraInput(quando)).getTime() <= Date.now()) {
+      partes.push(h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "visita-faltou", text: "Cliente faltou",
+        onclick: (e) => acao(e.currentTarget, "visita-faltou", "Falta registada: a visita fica paga e o cliente foi avisado.") })));
+    }
     if (!v.paga && !quando) return partes;
     const entrada = h("input", { name: "data_visita_marcar", type: "datetime-local", "aria-label": "Dia e hora da visita", value: paraInput(quando) });
     const b = h("button", { class: "btn pequeno", type: "button", id: "marcar-visita", text: quando ? "Mudar a visita" : "Marcar visita",
@@ -681,9 +769,44 @@ export default function orcamentos(el, ctx) {
     return sec;
   }
 
+  /** "Cancelar obra e devolver sinal" (CEO): o valor a devolver (por omissão o sinal todo) e o motivo; pede confirmação. */
+  function formDevolverSinal(j, o, sinal) {
+    const id = String(campo(o, "id"));
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const f = h("form", { class: "form-grelha", id: "form-devolver-sinal", novalidate: true },
+      h("h3", { text: "Cancelar obra e devolver sinal" }),
+      h("p", { class: "ajuda", text: "Antes de a obra ser feita. O pedido fica perdido, a obra cancelada e o material reservado é libertado. Cartão e MB Way: devolução automática; Multibanco: por transferência (o cliente indica o IBAN na conta)." }),
+      h("div", { class: "duas" },
+        campoForm("Valor a devolver (€)", h("input", { name: "valor", type: "number", min: "0.01", max: String(campo(sinal, "valor")), step: "0.01", inputmode: "decimal", required: true, value: String(campo(sinal, "valor")) }), "O sinal menos o material já encomendado e os serviços prestados."),
+        campoForm("Motivo", h("input", { name: "motivo", maxlength: "300", placeholder: "Ex.: o cliente desistiu" }))),
+      h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "confirmo" }), "Confirmo: cancelar a obra e devolver este valor"),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", text: "Cancelar obra e devolver sinal" })),
+      msg);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const el = f.elements;
+      const valor = numero(el.valor.value);
+      if (valor === null || valor <= 0 || valor > Number(campo(sinal, "valor"))) { mensagem(msg, `O valor tem de estar entre 0,01 € e ${euros(campo(sinal, "valor"))}.`); el.valor.focus(); return; }
+      if (!el.confirmo.checked) { mensagem(msg, "Marque a caixa para confirmar."); el.confirmo.focus(); return; }
+      const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/devolver-sinal`, { corpo: { valor, ...(el.motivo.value.trim() ? { motivo: el.motivo.value.trim() } : {}) } });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo);
+        avisar("Obra cancelada e sinal devolvido.");
+        desenharFicha(j, novo);
+      } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
+    });
+    return f;
+  }
+
   function formConverter(j, o) {
     const id = String(campo(o, "id"));
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    // A obra já existe desde o sinal: "Ligar casa" só pede o código do cliente e os aparelhos (a data, o kit e os
+    // técnicos tratam-se na obra). Sem obra (pedidos aceites antes disto) é o formulário completo, como antes.
+    const temObra = campo(o, "obra") && typeof campo(o, "obra") === "object";
+    const acao = temObra ? "Ligar casa" : "Converter em cliente e obra";
     const amanha = new Date(); amanha.setDate(amanha.getDate() + 7);
     // Com visita marcada, a obra começa por omissão no dia da visita (pode ser mudada).
     const diaVisita = paraInput(campo(o, "data_visita")).slice(0, 10);
@@ -696,23 +819,24 @@ export default function orcamentos(el, ctx) {
       ? campoForm("Horas estimadas", h("input", { name: "horas_estimadas", type: "number", min: "0", max: "500", step: "0.05", inputmode: "decimal", required: true, value: String(horasSim) }), "Da simulação do cliente (em vez das horas do kit)")
       : null;
     const f = h("form", { class: "form-grelha converter", id: "form-converter", novalidate: true },
-      h("h3", { text: "Converter em cliente e obra" }),
-      h("p", { class: "ajuda", text: "Pede ao servidor a conta do cliente e agenda a obra de instalação." }),
-      h("div", { class: "duas" },
-        campoForm("Código do cliente", h("input", { name: "codigo", required: true, maxlength: "32", autocapitalize: "none", spellcheck: "false", value: sugerirCodigo(campo(o, "nome") ?? "") })),
-        campoForm("Kit", escolha("kit", Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])), "conforto"))),
-      campoForm("Data da obra", h("input", { name: "data", type: "date", required: true, value: diaVisita || isoDia(amanha) }), diaVisita ? "Dia da visita (pode mudar)." : null),
-      campoHoras,
+      h("h3", { text: acao }),
+      h("p", { class: "ajuda", text: temObra ? "Pede ao servidor a conta do cliente (app e mensalidade) e os aparelhos. A obra já existe: fica ligada a este cliente." : "Pede ao servidor a conta do cliente e agenda a obra de instalação." }),
+      temObra ? campoForm("Código do cliente", h("input", { name: "codigo", required: true, maxlength: "32", autocapitalize: "none", spellcheck: "false", value: sugerirCodigo(campo(o, "nome") ?? "") }))
+        : h("div", { class: "duas" },
+          campoForm("Código do cliente", h("input", { name: "codigo", required: true, maxlength: "32", autocapitalize: "none", spellcheck: "false", value: sugerirCodigo(campo(o, "nome") ?? "") })),
+          campoForm("Kit", escolha("kit", Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])), "conforto"))),
+      temObra ? null : campoForm("Data da obra", h("input", { name: "data", type: "date", required: true, value: diaVisita || isoDia(amanha) }), diaVisita ? "Dia da visita (pode mudar)." : null),
+      temObra ? null : campoHoras,
       listaAparelhos,
-      h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Converter em cliente e obra" })),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: acao })),
       msg);
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       const el = f.elements;
-      const corpo = { codigo: el.codigo.value.trim(), kit: el.kit.value, data: el.data.value };
+      const corpo = temObra ? { codigo: el.codigo.value.trim() } : { codigo: el.codigo.value.trim(), kit: el.kit.value, data: el.data.value };
       if (!RE_CODIGO.test(corpo.codigo)) { mensagem(msg, "Código inválido: 1 a 32 letras minúsculas, números e '-' (sem '-' no início ou no fim)."); el.codigo.focus(); return; }
-      if (!corpo.data) { mensagem(msg, "Escolha a data da obra."); el.data.focus(); return; }
-      if (campoHoras) {
+      if (!temObra && !corpo.data) { mensagem(msg, "Escolha a data da obra."); el.data.focus(); return; }
+      if (campoHoras && !temObra) {
         const horas = numero(el.horas_estimadas.value);
         if (horas === null || horas < 0 || horas > 500) { mensagem(msg, "As horas estimadas têm de ser um número entre 0 e 500."); el.horas_estimadas.focus(); return; }
         corpo.horas_estimadas = horas;
@@ -738,7 +862,8 @@ export default function orcamentos(el, ctx) {
         const novo = { ...o, ...(campo(r, "orcamento") ?? {}), estado: "aceite", cliente: campo(r, "cliente") ?? corpo.codigo, obra_id: (obraR && typeof obraR === "object" ? campo(obraR, "id") : obraR) ?? campo(o, "obra_id") };
         substituir(novo);
         const nAp = corpo.aparelhos?.length ?? 0;
-        avisar((campo(r, "cliente_existia") === true ? `Obra agendada para o cliente ${corpo.codigo} (já existia).` : `Pedido de cliente ${corpo.codigo} enviado e obra agendada.`)
+        avisar((temObra ? `Casa ligada: ${campo(r, "cliente_existia") === true ? `cliente ${corpo.codigo} (já existia).` : `pedido de cliente ${corpo.codigo} enviado.`}`
+          : campo(r, "cliente_existia") === true ? `Obra agendada para o cliente ${corpo.codigo} (já existia).` : `Pedido de cliente ${corpo.codigo} enviado e obra agendada.`)
           + (nAp ? ` ${nAp} ${nAp === 1 ? "aparelho pedido" : "aparelhos pedidos"} ao servidor.` : ""));
         desenharFicha(j, novo);
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
@@ -822,6 +947,9 @@ const ACOES = {
   pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",
   pagamento_expirado: "Pagamento expirado", pagamento_simulado: "Pagamento simulado (página de teste)",
   relatorio_libertado: "Relatório libertado ao cliente", obra_concluida: "Obra concluída", visita_marcada: "Visita marcada",
+  visita_cancelada_cliente: "Visita cancelada pelo cliente (devolvida)", visita_faltou: "Cliente faltou à visita (sem devolução)",
+  sinal_devolvido: "Obra cancelada: sinal devolvido", devolucao_iban: "O cliente indicou o IBAN da devolução", devolucao_feita: "Devolução por transferência feita",
+  inicio_imediato: "Cliente: \"Quero que comecem já\"",
   ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado",
 };
 /** O pedido precisa da secção "Diagnóstico": avaria rápida, serviço de reparações, aparelhos a reparar ou quadro com problemas. */
@@ -857,6 +985,8 @@ function textoHistorico(x, sim) {
     if (d.fase) partes.push({ relatorio: "19 € (relatório e visita)", sinal: "sinal", restante: "restante", relatorio_pormenorizado: "relatório completo", visita: "visita técnica", pormenorizado_visita: "relatório e visita", avaria: "diagnóstico da avaria" }[d.fase] ?? d.fase);
     if (d.valor != null) partes.push(euros(d.valor));
     if (d.sinal != null) partes.push(`sinal: ${euros(d.sinal)}`);
+    if (typeof d.devolvido === "number") partes.push(`devolvido: ${euros(d.devolvido)}`);
+    if (acao === "inicio_imediato" && d.quer === false) partes[0] = "Cliente: já não quer começar já";
     if (d.modo === "simulado" || d.resultado) partes.push(d.resultado ? `simulado: ${d.resultado}` : "simulado");
   }
   return partes.join(" · ");

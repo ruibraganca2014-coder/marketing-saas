@@ -5,7 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20 } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -22,6 +22,12 @@ export const PAPEIS = ['ceo', 'tecnico', 'comercial'];
  * de uma vez, no passo Enviar) e `avaria` (diagnóstico + deslocação, pagos ao enviar a avaria rápida).
  */
 export const FASES_PAGAMENTO = ['relatorio', 'sinal', 'restante', 'relatorio_pormenorizado', 'visita', 'pormenorizado_visita', 'avaria'];
+/** Estados de um pagamento do pedido; `devolvido` (migração 23): pago e depois devolvido por inteiro (visita cancelada). */
+export const ESTADOS_PAGAMENTO = ['pendente', 'pago', 'falhado', 'cancelado', 'expirado', 'devolvido'];
+/** Devolução manual por transferência (migração 26): à espera do IBAN do cliente → por fazer → devolvido. */
+export const ESTADOS_DEVOLUCAO = ['pede_iban', 'por_fazer', 'devolvido'];
+/** Motivos de um movimento de stock (migração 22). */
+export const MOTIVOS_STOCK = ['entrada', 'reserva', 'libertacao', 'saida', 'acerto'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -437,6 +443,108 @@ export const MIGRACOES = [
     recriar('contas', /hash TEXT NOT NULL,/i, 'hash TEXT,');
     recriar('contas_codigos', /tipo TEXT NOT NULL CHECK \(tipo IN \([^)]*\)\)/i, "tipo TEXT NOT NULL CHECK (tipo IN ('confirmar', 'repor', 'entrar'))");
   }),
+  // 22 — stock simples (decisão 13 do dono, docs/PAINEL-EMPRESA.md "Stock"): por artigo, a quantidade em armazém
+  // (`stock_qtd`), a reservada para obras aceites (`stock_reservado`) e o mínimo (`stock_minimo`); `stock_movimentos`
+  // guarda cada entrada, reserva, libertação, saída e acerto (artigo, quantidade com sinal, pedido, quem, quando). O
+  // custo real de compra é o `preco_compra_cent` que já existe. Nada disto sai no /api/catalogo (público).
+  (db) => db.exec(`
+    ALTER TABLE catalogo ADD COLUMN stock_qtd INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE catalogo ADD COLUMN stock_reservado INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE catalogo ADD COLUMN stock_minimo INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE stock_movimentos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      artigo_id INTEGER NOT NULL REFERENCES catalogo(id),
+      qtd INTEGER NOT NULL,                     -- com sinal: entrada +, saída −, reserva +, libertação −, acerto ±
+      motivo TEXT NOT NULL CHECK (motivo IN (${lista(MOTIVOS_STOCK)})),
+      orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+      por TEXT,                                 -- email de quem fez (ou "sistema")
+      nota TEXT,
+      quando TEXT NOT NULL
+    );
+    CREATE INDEX stock_movimentos_artigo ON stock_movimentos(artigo_id);
+    CREATE INDEX stock_movimentos_orcamento ON stock_movimentos(orcamento_id);
+  `),
+  // 23 — decisões do dono sobre o dinheiro (docs/PAGAMENTOS-PEDIDO.md "Decisões de 2026-10-02"): a proposta em três
+  // partes sem IVA (mão de obra, material, deslocação; NULL nas propostas de um só valor, que continuam a valer);
+  // `inicio_imediato` (o cliente pediu para começar já, prescindindo da livre resolução sobre o já executado) e
+  // `visita_faltou` (o painel marcou "Cliente faltou"); nos pagamentos, o estado `devolvido` (recria a tabela pelo
+  // procedimento da migração 14) e o valor devolvido (`devolvido_cent`: uma devolução parcial deixa o pagamento `pago`);
+  // na configuração, a obra mínima (100 € c/ IVA) e o limite do cartão (500 € c/ IVA). INSERT OR IGNORE: nunca mexe
+  // num valor que o CEO já tenha editado.
+  semChaves((db) => {
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pagamentos_pedido'").get().sql;
+    const estados = `estado TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN (${lista(ESTADOS_PAGAMENTO)}))`;
+    const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, 'CREATE TABLE pagamentos_pedido_novo')
+      .replace(/estado TEXT NOT NULL DEFAULT 'pendente' CHECK \(estado IN \([^)]*\)\)/i, estados);
+    if (!novo.includes(estados)) throw new Error('migração 23: não foi possível ler o esquema de pagamentos_pedido');
+    const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'pagamentos_pedido' AND sql IS NOT NULL").all().map((x) => x.sql);
+    const seq = Math.max(db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'pagamentos_pedido'").get()?.seq ?? 0,
+      db.prepare('SELECT MAX(id) AS m FROM pagamentos_pedido').get().m ?? 0);
+    db.exec(novo);
+    db.exec('INSERT INTO pagamentos_pedido_novo SELECT * FROM pagamentos_pedido');
+    db.exec('DROP TABLE pagamentos_pedido');
+    db.exec('ALTER TABLE pagamentos_pedido_novo RENAME TO pagamentos_pedido');
+    for (const i of indices) db.exec(i);
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('pagamentos_pedido', 'pagamentos_pedido_novo')").run();
+    if (seq) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('pagamentos_pedido', ?)").run(seq);
+    db.exec(`
+      ALTER TABLE pagamentos_pedido ADD COLUMN devolvido TEXT;          -- quando foi devolvido (ISO)
+      ALTER TABLE pagamentos_pedido ADD COLUMN devolvido_cent INTEGER;  -- quanto (parcial: o pagamento continua 'pago')
+      ALTER TABLE orcamentos ADD COLUMN proposta_mao_obra_cent INTEGER;
+      ALTER TABLE orcamentos ADD COLUMN proposta_material_cent INTEGER;
+      ALTER TABLE orcamentos ADD COLUMN proposta_deslocacao_cent INTEGER;
+      ALTER TABLE orcamentos ADD COLUMN inicio_imediato TEXT;           -- quando o cliente pediu para começar já (ISO)
+      ALTER TABLE orcamentos ADD COLUMN visita_faltou TEXT;             -- quando o painel marcou "Cliente faltou" (ISO)
+      INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('obra_minima_iva', 100), ('cartao_max_iva', 500);
+    `);
+  }),
+  // 24 — ronda dinheiro, lado do simulador (docs/SIMULADOR-ORCAMENTO.md §0 "Ronda dinheiro"; decisões 3, 4 e 5 do dono):
+  // os pontos novos passam a artigos de PREÇO FECHADO — o preço ao cliente fica o que está (também o que o CEO editou) e
+  // ganham as horas de mão de obra que vão lá dentro (HORAS_PONTOS) e a marca `especificacoes.preco_fechado`; só nos que
+  // ainda têm 0 horas (um ponto a que o CEO já deu horas fica como ele o deixou). Entram as três linhas dedicadas até
+  // 15 m (carregador 390 €, máquina numa casa que já existe 140 €, máquina em instalação nova 70 €; INSERT OR IGNORE) e as horas por dia de obra (`horas_por_dia`, 8: a deslocação é por dia de obra).
+  (db) => {
+    const fechar = db.prepare(`UPDATE catalogo SET horas_instalacao = ?, especificacoes = json_set(especificacoes, '$.preco_fechado', json('true')), atualizado = ?
+      WHERE sku = ? AND horas_instalacao = 0 AND json_valid(especificacoes)`);
+    const agora = iso();
+    for (const [sku, horas] of Object.entries(HORAS_PONTOS)) fechar.run(horas, agora, sku);
+    semear(db, SEMENTES_DINHEIRO, true);
+    db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('horas_por_dia', 8);`);
+  },
+  // 25 — teto da deslocação (decisão do dono, 2026-10-02): a deslocação é ida e volta por dia de obra, no máximo
+  // `deslocacao_max_dias` (5) dias por obra. INSERT OR IGNORE: nunca mexe num valor que o CEO já tenha editado.
+  (db) => db.exec(`INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('deslocacao_max_dias', 5);`),  // 26 — obra separada da casa e visita a que o cliente faltou (decisões do dono, 2026-10-02; docs/PAGAMENTOS-PEDIDO.md):
+  // a obra nasce com o sinal pago, ainda sem data escolhida (`obras.por_agendar` = 1; a casa liga-se depois, com o
+  // restante pago: até lá `obras.cliente` fica vazio); um pagamento de visita ou diagnóstico a que o cliente faltou fica
+  // `pago` mas marcado (`faltou`, e `faltou_cent` = a parte que não se desconta no sinal) e sai do índice único, para o
+  // cliente poder pagar uma visita nova. Devoluções manuais (pagamento por referência Multibanco: transferência
+  // bancária feita pelo CEO): `devolucoes_pedido` guarda o valor, o IBAN e o titular dados pelo cliente na conta e quem e
+  // quando a marcou como feita; o pagamento fica com `a_devolver` até lá (só conta como devolvido depois de marcada).
+  (db) => db.exec(`
+    ALTER TABLE obras ADD COLUMN por_agendar INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE pagamentos_pedido ADD COLUMN faltou TEXT;
+    ALTER TABLE pagamentos_pedido ADD COLUMN faltou_cent INTEGER;
+    ALTER TABLE pagamentos_pedido ADD COLUMN metodo TEXT;             -- card | mb_way | multibanco, quando se sabe
+    ALTER TABLE pagamentos_pedido ADD COLUMN a_devolver INTEGER;      -- cêntimos de uma devolução manual ainda por fazer
+    DROP INDEX pagamentos_pedido_fase_paga;
+    CREATE UNIQUE INDEX pagamentos_pedido_fase_paga ON pagamentos_pedido(orcamento_id, fase)
+      WHERE estado = 'pago' AND orcamento_id IS NOT NULL AND faltou IS NULL AND a_devolver IS NULL;
+    CREATE TABLE devolucoes_pedido (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pagamento_id INTEGER NOT NULL REFERENCES pagamentos_pedido(id),
+      conta_id INTEGER REFERENCES contas(id) ON DELETE SET NULL,
+      orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+      valor_cent INTEGER NOT NULL CHECK (valor_cent > 0),
+      motivo TEXT NOT NULL CHECK (motivo IN ('visita', 'diagnostico', 'sinal')),
+      estado TEXT NOT NULL CHECK (estado IN (${lista(ESTADOS_DEVOLUCAO)})),
+      iban TEXT,                                -- só enquanto a transferência está por fazer; depois fica só o fim
+      titular TEXT,
+      criado TEXT NOT NULL,
+      devolvido TEXT,                           -- quando o CEO marcou "Devolvido"
+      devolvido_por TEXT
+    );
+    CREATE INDEX devolucoes_pedido_estado ON devolucoes_pedido(estado);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

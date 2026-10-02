@@ -9,12 +9,12 @@ Pagamentos do fluxo simulador → proposta → obra. As subscrições mensais co
 - **Visita técnica = deslocação até à localidade + 0,5 h × `tarifa_hora_iva`**, calculada no servidor (`valorVisitaCent`) e mostrada antes de pagar. Fora da área servida (`deslocacao_max_km`, outra ilha) não há visita (409, e o simulador e a conta dizem-no). Paga a visita, o CEO ou o comercial marca o dia e a hora no painel ("Marcar visita", `POST orcamentos/:id/marcar-visita`, ao lado da disponibilidade que o cliente deu no simulador); a conta mostra a data e o cliente recebe um email.
 - **Onde se compra:** no passo Enviar, "O que quer receber?" — "Só o relatório básico — grátis", "Relatório completo — 29 €", "Relatório completo e visita — 29 € + X €" e "Só a visita técnica — X €" (`estado.compras = {relatorio, visita}`). O pedido é enviado primeiro (grátis) e a compra vai a seguir para o pagamento (página simulada ou Stripe Checkout) sobre o orçamento que já existe, com regresso à conta: **falhar ou cancelar nunca perde o pedido**. O que não se comprou compra-se depois na conta ("Comprar relatório completo (29 €)", "Marcar visita técnica (X €)"), até a proposta ser aceite.
 - **Avaria rápida: paga-se ao enviar** o diagnóstico (o artigo `DIAG-AVARIA` do catálogo + as suas horas × tarifa, como o simulador) e a deslocação. É a visita pedida (o CEO marca a data como acima). Não há relatório completo à parte. Fora da área não se envia: 409 "fale connosco por telefone ou WhatsApp". Como os 19 € de antes, o pedido fica guardado no pagamento e só passa a orçamento quando é pago.
-- **Desconto na obra:** tudo o que foi pago antes (relatório, visita, avaria, e os 19 € antigos) sai do sinal. **Sinal = 30 % × proposta com IVA − tudo o que já foi pago (nunca abaixo de 0).**
+- **Desconto na obra:** tudo o que foi pago antes (relatório, visita, avaria, e os 19 € antigos) sai do sinal — menos o que foi devolvido e as visitas a que o cliente faltou. **Sinal = o maior entre 30 % × proposta com IVA e o custo do material com IVA, − tudo o que já foi pago (nunca abaixo de 0 nem acima do que falta pagar)** — ver "Decisões de 2026-10-02".
 - **Intervalo da estimativa −10 % / +20 %** (`intervalo_menos_pct`, `intervalo_mais_pct`, migração 14, editáveis no painel), no simulador, no PDF, na ficha do painel, na conta e no relatório básico. O `margem_intervalo_pct` (15) fica na base mas já não se usa; um servidor antigo que só o tenha continua simétrico no simulador (`preco.js`).
 - **Os pagamentos online incluem IVA.** A proposta do painel é **sem IVA**; o sinal e o restante são calculados sobre o total **com IVA** (taxa `iva_pct`, no painel em Catálogo → Configuração → "IVA dos pagamentos"; o valor inicial vem de `IVA_TAXA`, por omissão 23). O relatório, a visita e a avaria já são com IVA. Cada pagamento guarda a taxa usada (`iva_pct`, migração 11): o recibo, o email, a conta, o painel e o CSV mostram a base, o IVA e o total. Com o sinal pago, o restante usa a taxa do sinal.
 - **Aceitar a proposta = pagar o sinal**, com o plano mensal (Base 4,99 €, Conforto 9,99 € ou Premium 19,99 €). Antes do sinal pago o painel mostra "Aceite — a aguardar sinal"; só depois o pedido passa a "Aceite". Aceite a proposta, já não se compra o relatório nem a visita.
 - **O restante paga-se no fim da obra.** O painel marca "Obra concluída" e a conta mostra "Pagar o restante".
-- **A subscrição começa quando a casa fica ligada** (conversão no painel): no modo simulado, a conversão cria o pedido-admin `plano` (`ativo`); no modo stripe, o cliente ativa-a na área de cliente, pelo serviço `pagamentos/`.
+- **A subscrição começa quando a casa fica ligada** (conversão no painel): no modo simulado, a conversão cria o pedido-admin `plano` (`ativo`); no modo stripe, o cliente ativa-a na área de cliente, pelo serviço `pagamentos/`. **A casa só se liga com o restante pago** (decisão de 2026-10-02, abaixo).
 - **Pedidos antigos (19 €, fase `relatorio`)** continuam a ler-se: contam como relatório completo comprado e (com `com_visita = 1`) visita paga, e descontam no sinal como antes.
 
 Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €), relatório completo (29 €) e visita (25 €: deslocação 6 € + 0,5 h × 38 €) comprados:
@@ -26,7 +26,66 @@ Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €), relatório complet
 | Sinal | 30 % × 1230 − 29 − 25 = 315 € | 256,10 € + 58,90 € |
 | Restante | 1230 − 54 − 315 = 861 € | 700 € + 161 € |
 
-Sem compras antes, o sinal é 369 € (e o restante 861 € na mesma). O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)`; `pago_antes` = soma dos pagos nas fases `relatorio`, `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` e `avaria`; sinal = `calcularSinal(total, pago_antes)`; restante = total − tudo o que já foi pago − o sinal por pagar.
+Sem compras antes, o sinal é 369 € (e o restante 861 € na mesma). O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)` (ou a obra mínima); `pago_antes` = soma dos pagos nas fases `relatorio`, `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` e `avaria` (menos o que foi devolvido); sinal = `calcularSinal(total, desconto, custo do material)`; restante = total − tudo o que já foi pago para a obra − o sinal por pagar.
+
+## Decisões de 2026-10-02 (fluxo do dinheiro)
+
+Decisões finais do dono depois da auditoria do fluxo do dinheiro. Do lado do simulador (pontos de preço fechado com horas, deslocação ida e volta por dia de obra, linhas dedicadas, aviso da obra mínima): docs/SIMULADOR-ORCAMENTO.md §0 "Ronda dinheiro".
+
+| # | Regra | Onde |
+|---|---|---|
+| 1 | **A casa só se liga com o restante pago; a obra nasce com o sinal** (ver "Obra e casa", abaixo). `POST orcamentos/:id/converter` ("Ligar casa": cria o cliente no servidor, os aparelhos e o plano, e liga a obra que já existe) responde 409 "Falta o cliente pagar o restante (X €)" enquanto a obra não estiver toda paga (`ligacaoCasa`: `em_falta` = 0). A ficha traz `ligar_casa` (`{pode, falta, aviso}`) e o painel mostra o botão desligado com a mesma frase. **Com os pagamentos desligados, num pedido sem conta de cliente ou sem valor de proposta** não há pagamento online: liga-se como antes, com o aviso "confirme por fora que a obra está paga". A conta diz "A app fica ativa depois de pagar o restante." | `ligacaoCasa`, `converterOrcamento`, `obraDoPedido` |
+| 6 | **Sinal = max(30 % × total com IVA, custo do material × (1 + IVA)) − já pago** (≥ 0 e ≤ o que falta pagar). Os dois comparam-se na mesma base, com IVA, à taxa da configuração (`iva_pct`; a do sinal já pago, se houver — nunca um 1,23 fixo). O custo do material é a soma dos artigos do pedido (`simulacao.itens`) × o **custo real de compra** do catálogo quando **todos** os artigos com preço de venda o têm (`material_origem: "custo"`); se faltar algum, usa-se o **material da proposta em três partes, pelo valor de venda** (`"venda"`: nunca abaixo do custo, por isso é um substituto prudente); sem custos e sem partes (proposta de um só valor) fica só a regra dos 30 %. A percentagem continua 30 (`SINAL_PCT`). O painel e a conta dizem "o sinal cobre o material". O valor do custo não vai na ficha (o comercial vê-a). | `calcularSinal`, `materialDoSinal`, `stock.custoMaterial` |
+| 7 | **Acima de 500 € só Multibanco ou MB Way** (`cartao_max_iva`, editável em Catálogo → Configuração; não é público). Na sessão do Stripe Checkout, `payment_method_types` fica sem `card` quando o valor do pagamento passa o limite (`metodosPagamento`: de `STRIPE_PEDIDO_METODOS` sai o cartão; se só houvesse cartão fica `multibanco`). Os nomes do Stripe são `card`, `mb_way` e `multibanco`. Cada pagamento por pagar traz `metodos` (a página simulada mostra-os: "No pagamento real: MB Way, Multibanco") e o pedido traz `cartao_max`. | `metodosPagamento`, `sessaoStripe` |
+| 9 | **Obra mínima: 100 € com IVA** (`obra_minima_iva`; público, o simulador avisa). Se o trabalho da proposta ficar abaixo, cobra-se o mínimo e **o que foi pago antes (visita, diagnóstico, relatório) não é descontado** (`desconto` = 0). Numa proposta de um só valor compara-se o valor todo; numa proposta em três partes compara-se mão de obra + material e **a deslocação soma por cima** (como no simulador). Uma proposta de 0 € fica 0. O painel mostra "Obra mínima: 100 €"; a conta mostra a linha; o relatório básico nunca dá um intervalo abaixo do mínimo. | `valores` (`minima`, `base`, `desconto`) |
+| 10 | **Visita e diagnóstico de avaria: sem devolução com menos de 24 h ou falta; com mais de 24 h devolve-se tudo.** Na conta, "Cancelar visita" / "Cancelar diagnóstico" (`POST /api/conta/pedidos/:id/cancelar-visita`): com mais de 24 h até à hora marcada (ou ainda sem data) devolve tudo (ver "Devoluções", abaixo); com menos — por exemplo uma avaria urgente, marcada para o próprio dia — 409 "Já não é possível cancelar com devolução". O pagamento passa a `devolvido` (a visita compra-se outra vez); a visita comprada com o relatório devolve só a parte da visita (o pagamento fica `pago`, com `devolvido_cent`). Visita cancelada: a data sai e o pedido volta a "contactado"; diagnóstico cancelado: o pedido fica "perdido". **"Cliente faltou"** (`POST orcamentos/:id/visita-faltou`, CEO e comercial, só depois da hora marcada; vale para a visita e para o diagnóstico): o pagamento fica `pago` mas marcado (`faltou`, `faltou_cent`) — **não é devolvido nem descontado no sinal** e deixa de valer como visita paga; a data sai, a falta fica em `orcamentos.visita_faltou` e na auditoria e o cliente recebe um email. **Para avançar, o cliente marca e paga uma visita nova** (o pagamento com falta sai do índice único); só uma visita que se fez — nem com falta, nem devolvida — conta como "já pago" no sinal. A conta mostra "Visita não realizada — não desconta". | `visitaCancelar`, `cancelarVisita`, `marcarFalta`, `h.visitaFaltou` |
+| 11 | **Material e arranque.** Ao pagar o sinal a conta tem a caixa "Quero que comecem já (prescindo do direito de livre resolução de 14 dias sobre o que for executado)"; fica em `orcamentos.inicio_imediato` (data) e na auditoria (`inicio_imediato`), e já não muda depois do sinal pago. O painel mostra "Material: reservar já" ou "Reservar a partir de DD/MM (14 dias)" (14 dias depois do sinal). | `definirInicioImediato`, `reservaMaterial` |
+| 13 | **Stock simples** (migração 22): docs/PAINEL-EMPRESA.md "Stock". Sinal pago → reserva; obra concluída → saída; pedido que deixa de estar aceite ou obra cancelada → libertação. | `painel/src/stock.js` |
+| 15 | **Proposta em três partes** (migração 23): `proposta_mao_obra_cent`, `proposta_material_cent`, `proposta_deslocacao_cent` (sem IVA). `POST orcamentos/:id` aceita `proposta_mao_obra`, `proposta_material` e `proposta_deslocacao` (as três ou nenhuma); com elas `valor_proposta` é a soma. Mudar só o `valor_proposta` (como antes) volta a uma proposta de um só valor (partes a NULL), que continua a funcionar. A ficha completa traz `proposta_sugerida` (`{mao_obra, material, deslocacao, horas}`, sem IVA), recalculada no servidor pelo catálogo: mão de obra = horas × tarifa (com a que vai dentro dos artigos de preço fechado), deslocação = ida e volta por dia de obra, material = o resto. O painel preenche as três com "Preencher pela simulação" (ou ao escolher "Proposta enviada" sem valores); o CEO acerta-as depois da visita. A conta mostra as três linhas, o IVA e o total. | `partes`, `propostaSugerida` |
+
+### Obra e casa (a obra nasce com o sinal; a casa liga-se com o restante)
+
+- **Sinal pago** (ou sinal 0, ou pedido posto em "aceite" à mão) → `obraDoPedido` cria **a obra do pedido** (uma só por pedido: um segundo evento do mesmo pagamento não cria outra): sem casa (`obras.cliente` vazio), com o material e as horas da simulação, **por agendar** (`obras.por_agendar`, migração 26; a data fica provisória: hoje com "Quero que comecem já", senão 14 dias depois do sinal). Aparece logo em Obras, para agendar e atribuir o técnico; escolher a data agenda-a. No mesmo momento o material é reservado no stock.
+- **Painel:** em Obras, os selos "Por agendar" e "Casa por ligar — falta o restante" (`casa`: `falta_restante` · `por_ligar` · `ligada`; sem valores, porque o técnico vê a obra); na ficha do pedido, "Obra criada com o sinal: por agendar / agendada para DD/MM. Casa por ligar — falta o restante." e o botão "Ligar casa" desligado até ao restante. A conta mostra "Instalação: vamos marcar a data consigo." até a obra ter data.
+- **"Ligar casa"** (`POST orcamentos/:id/converter`, só com o restante pago): pede o cliente ao servidor, os aparelhos e o plano (a mensalidade começa aqui) e **reaproveita a obra que existe** — nunca cria outra; só muda nela o que vier no pedido (data, hora, kit, horas, notas, técnicos). O formulário do painel pede só o código do cliente e os aparelhos. "Convertido" passa a ser `orcamentos.cliente` preenchido (antes era `obra_id`).
+- **Cancelar antes da obra:** o pedido deixa de estar aceite (estado mudado no painel) ou o CEO usa **"Cancelar obra e devolver sinal"** (`POST orcamentos/:id/devolver-sinal {valor?, motivo?}`, só CEO, antes de "obra concluída"; por omissão o sinal todo, ou o sinal menos o material já encomendado) → a obra fica `cancelada` (nunca se apaga), a reserva de stock é libertada e, na devolução, o pedido fica "perdido". Um pedido que volta a "aceite" reaproveita a mesma obra (outra vez por agendar).
+- **RGPD:** ao apagar a conta, um pedido ainda sem casa mas já com obra (ou com pagamentos) é anonimizado, não apagado; a obra fica ligada ao pedido anonimizado.
+
+### Devoluções
+
+| Pagou com | Como se devolve |
+|---|---|
+| Cartão, MB Way | Automático: `POST /v1/refunds` sobre o `payment_intent` da sessão do Checkout (`Idempotency-Key: domus-reembolso-<ref>`). No modo simulado só fica marcado. |
+| Referência Multibanco | **Manual, por transferência bancária** (o Stripe não devolve sozinho um Multibanco). Fica uma linha em `devolucoes_pedido` (migração 26) e o pagamento com `a_devolver`. |
+
+Devolução manual, passo a passo:
+
+1. A devolução é pedida (o cliente cancela a visita ou o diagnóstico; o CEO devolve o sinal) → `devolucoes_pedido` com o estado `pede_iban`; o pagamento continua `pago`, com `a_devolver` (já não vale como visita paga nem desconta no sinal; sai do índice único, por isso a visita compra-se outra vez).
+2. **A conta pede o IBAN e o titular** (`POST /api/conta/devolucoes/:id/iban {iban, titular}`): IBAN português, "PT50" + 21 algarismos, módulo 97 — validado no servidor. Fica `por_fazer`; o cliente pode corrigi-lo enquanto não for feita.
+3. **O painel** (Pagamentos, só CEO) mostra **"Devoluções por fazer"**: valor, IBAN inteiro e titular. O CEO faz a transferência e carrega em **"Devolvido"** (`POST /painel/api/devolucoes/:id/devolvida`): ficam a data e quem; o pagamento passa a `devolvido` (ou `pago` com `devolvido_cent`, se parcial); do IBAN guarda-se só o fim ("PT50 •••• 0154"); o cliente recebe um email.
+
+**Só conta como devolvido depois de marcado:** os totais (`total_pago`) e o CSV usam `devolvido_cent`, não `a_devolver`. Nos totais, uma devolução parcial desconta; no CSV, cada devolução vai numa **linha própria a negativo** (`Devolução: …;-base;-iva;-total;devolucao`), com a data dela. O IBAN nunca vai para a auditoria, o registo, o pedido nem o pagamento (docs/SEGURANCA.md).
+
+Como se sabe o método: no modo stripe, ao devolver lê-se a sessão com `expand[]=payment_intent.latest_charge` (`payment_method_details.type`); um pagamento confirmado por `checkout.session.async_payment_succeeded` fica logo anotado como Multibanco (`pagamentos_pedido.metodo`). No modo simulado, a página `pagamento-simulado.html` tem "Pagar como" (cartão, MB Way, referência Multibanco).
+
+Também de 2026-10-02 (decisão 4, com o simulador): **a deslocação é ida e volta por dia de obra** — `deslocacaoServidor(localidade, cfg, dias)` = (fixo + km acima dos grátis × 2 × preço por km) × min(dias, `deslocacao_max_dias`) — **no máximo 5 dias de deslocação por obra** (`deslocacao_max_dias`, migração 25, editável em Catálogo → Configuração e público no `/api/catalogo`); a visita técnica e a avaria são um dia (Sintra: 7,20 €; visita 26,20 €); no relatório, dias = horas ÷ `horas_por_dia` (8). Nos artigos de **preço fechado** (`especificacoes.preco_fechado`) as horas contam para os dias mas não para a mão de obra cobrada à parte.
+
+O relatório do cliente e o básico trazem `dias` ("≈ N dias de obra"), `deslocacao_dias` e `deslocacao_limitada`: a conta mostra "+ deslocação X € (ida e volta, N dias)" ou "(ida e volta; máximo 5 dias)", como o Orçamento do simulador.
+
+Exemplo do sinal com material: proposta 300 € (+ IVA = 369 €) com 10 disjuntores a 14,30 € de custo (143 € + IVA 23 % = 175,89 €) → 30 % = 110,70 € < 175,89 € → **sinal 175,89 €**, restante 193,11 €.
+
+Exemplo da obra mínima: proposta 50 € (61,50 € com IVA) com a visita (26,20 €) já paga → total 100 €, sinal 30 €, restante 70 €; a visita não é descontada.
+
+### Regras ainda sem código (fase 4, eletricistas externos)
+
+Ficam registadas para a fase 4 (módulo `/eletricista`); nada disto está implementado:
+
+- **Cliente responde "Não"** no fim da obra (decisão 8): defeito provado → o eletricista volta sem receber; sem defeito → o cliente paga uma visita; sem resposta do cliente em 7 dias → a obra dá-se por aceite.
+- **O eletricista recebe 70 % da mão de obra SEM IVA** (decisão 2). A mão de obra é a da proposta em três partes (`proposta_mao_obra_cent`); nos artigos de preço fechado é a que vai dentro do preço.
+- **Avaria por eletricista externo** (decisão 14): 70 % sobre a meia hora de mão de obra (sem IVA) + a deslocação; a taxa de diagnóstico (25 €) fica na Domus.
+- **Eletricista que faz a visita e larga o trabalho** (volta à bolsa; decisão 12): nunca recebe pela visita.
+- **Deslocação paga ao eletricista = a que o cliente pagou** (decisão 4), e mais nada.
+- Para o contabilista: autoliquidação do IVA nas faturas dos eletricistas, retenção na fonte, IVA a 6 % em mão de obra de habitação; marcação CE do material importado.
 
 ## Relatório completo — conteúdo técnico
 
@@ -78,14 +137,17 @@ O Stripe é chamado pela **API REST** (`fetch`, form-encoded, com `Idempotency-K
 |---|---|
 | `ref` | referência aleatória `pp_…` (22 caracteres base64url): URL, recibo e `client_reference_id` do Stripe |
 | `fase` | `relatorio_pormenorizado` (29 €) · `visita` · `pormenorizado_visita` (os dois, do passo Enviar) · `avaria` (diagnóstico + deslocação) · `sinal` · `restante` · `relatorio` (os 19 € do modelo antigo; só as linhas que já existem) |
-| `estado` | `pendente` → `pago`, ou `pendente` → `falhado` / `cancelado` / `expirado` |
+| `estado` | `pendente` → `pago`, ou `pendente` → `falhado` / `cancelado` / `expirado`; `pago` → `devolvido` (visita ou diagnóstico cancelados com mais de 24 h, sinal devolvido; migração 23) |
+| `devolvido`, `devolvido_cent` | quando e quanto foi devolvido (migração 23); numa devolução parcial (a visita de "relatório + visita", parte do sinal) o pagamento continua `pago` e as somas descontam o `devolvido_cent` |
+| `faltou`, `faltou_cent` | "Cliente faltou" (migração 26): o pagamento fica `pago` mas não vale como visita nem desconta no sinal (`faltou_cent` = a parte da visita) |
+| `a_devolver`, `metodo` | devolução manual por fazer, em cêntimos (migração 26; pagamentos por Multibanco), e o método quando se sabe (`card` · `mb_way` · `multibanco`) |
 | `modo` | `simulado` · `stripe` |
 | `retorno` | para onde se volta: `simulador` ou `conta` |
 | `com_visita` | 1 quando o pagamento inclui a visita (visita, relatório + visita, avaria; nos 19 € antigos, 0 fora da área) |
 | `plano` | sinal: o plano mensal escolhido |
 | `pedido` | avaria por pagar: o pedido (JSON) que passa a orçamento quando é pago; apagado depois |
 
-`pagamentos_eventos` guarda os ids dos eventos já tratados. Nos `orcamentos` há três colunas novas: `relatorio_libertado`, `plano_escolhido` e `obra_concluida`.
+`pagamentos_eventos` guarda os ids dos eventos já tratados. Nos `orcamentos` há três colunas novas: `relatorio_libertado`, `plano_escolhido` e `obra_concluida`; a migração 23 junta `proposta_mao_obra_cent`, `proposta_material_cent`, `proposta_deslocacao_cent`, `inicio_imediato` e `visita_faltou`.
 
 Pedido com simulação (grátis):
 
@@ -117,7 +179,7 @@ Proposta:
 |---|---|---|
 | (desligados) | sem `PAGAMENTOS_MODO` e sem `STRIPE_SECRET_KEY` (o `.env.example` já não põe `simulado`) | enviar é grátis na mesma; **não se compra nada** (o passo Enviar não mostra as compras, a conta diz "Pagamentos online desligados: fale connosco", `…/pagar` 404, uma `compra` no envio volta em `pagamento_erro`) e a avaria vai sem pagar; o CEO pode libertar o relatório sem compra; o painel mostra a faixa "**Pagamentos desligados**" e avisa no arranque |
 | `simulado` | **só com `PAGAMENTOS_MODO=simulado` escrito**; sempre no local (`local/iniciar.js`) | faixa "**Modo de demonstração — pagamentos simulados**" no simulador, na conta e no painel; página própria `web/pagamento-simulado.html`, marcada "**SIMULAÇÃO — não é cobrado nada**", com o valor, a descrição e a referência vindos do servidor e três botões: "Pagar (simular sucesso)", "Simular falha" e "Cancelar". Cada botão chama `POST /api/conta/pagamentos/:ref/simular {resultado}` |
-| `stripe` | por omissão com `STRIPE_SECRET_KEY` | Stripe Checkout (`mode=payment`, EUR, cartão, MB WAY e Multibanco); confirmação pelo webhook e pelo regresso do cliente |
+| `stripe` | por omissão com `STRIPE_SECRET_KEY` | Stripe Checkout (`mode=payment`, EUR, cartão, MB WAY e Multibanco; acima de `cartao_max_iva` sem cartão); confirmação pelo webhook e pelo regresso do cliente |
 
 Trocar de modo é só configuração. A página simulada gera um evento **no formato de um webhook do Stripe** (`checkout.session.completed` com `payment_status=paid`, `checkout.session.async_payment_failed` ou `checkout.session.expired`, com `data.object` = uma `checkout.session` com `client_reference_id`, `amount_total` e `currency`). O webhook usa a mesma função `tratarEvento`.
 
@@ -153,26 +215,33 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | GET | `/api/conta/pagamentos/:ref[?fotos=1][&cancelado=1]` | conta dona | `{pagamento}`: `ref`, `fase`, `valor`, `descricao`, `estado`, `modo`, `url` se por pagar, `recibo` se pago; mais `fotos_token`/`fotos_max` para a avaria paga há menos de 2 h. Com `cancelado=1` (regresso do Stripe) cancela a sessão por pagar |
 | POST | `/api/conta/pagamentos/:ref/simular` | conta dona, **só no modo simulado** | `{resultado: sucesso\|falha\|cancelar}` → `{pagamento, voltar}` |
 | POST | `/api/conta/pagamentos/stripe-webhook` | Stripe (assinado), **só no modo stripe** | `200 {resultado}` · `400` com assinatura inválida · `500` temporário (o Stripe repete) |
-| POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano}` → `{pedido, pagamento}` |
-| POST | `/api/conta/pedidos/:id/pagar` | conta dona | `{fase: sinal\|restante\|relatorio_pormenorizado\|visita\|pormenorizado_visita}` → `{pagamento}`; `409` se já estiver pago, fora da área (visita) ou ainda não se puder pagar |
-| GET | `/api/conta/pedidos/:id/relatorio-basico` | conta dona | relatório básico (grátis): `{intervalo, com_deslocacao, acoes, divisoes: [{nome, trabalho}], melhorias, nota}` |
+| POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano, inicio_imediato?}` → `{pedido, pagamento}` |
+| POST | `/api/conta/pedidos/:id/pagar` | conta dona | `{fase: sinal\|restante\|relatorio_pormenorizado\|visita\|pormenorizado_visita, inicio_imediato?}` → `{pagamento}` (com `metodos` enquanto está por pagar); `409` se já estiver pago, fora da área (visita) ou ainda não se puder pagar |
+| POST | `/api/conta/pedidos/:id/cancelar-visita` | conta dona | cancela a visita técnica (ou o diagnóstico da avaria) com mais de 24 h de antecedência → `{ok, devolvido, manual}` (`manual`: pagou por Multibanco, a conta pede o IBAN); `409` com menos de 24 h, sem visita paga ou já cancelada |
+| POST | `/api/conta/devolucoes/:id/iban` | conta dona | `{iban, titular}` de uma devolução por transferência → `{devolucao}` (IBAN mascarado); `400` IBAN inválido; `409` já feita |
+| GET | `/api/conta/pedidos/:id/relatorio-basico` | conta dona | relatório básico (grátis): `{intervalo, obra_minima, com_deslocacao, acoes, divisoes: [{nome, trabalho}], melhorias, nota}` |
 | GET | `/api/conta/pedidos/:id/relatorio` | conta dona | relatório completo; `409` por comprar ou "em revisão" até ser libertado |
 | GET | `/painel/api/orcamentos/:id/relatorio-cliente` | CEO | pré-visualização do relatório do cliente |
 | POST | `/painel/api/orcamentos/:id/libertar-relatorio` | CEO | liberta o relatório e avisa o cliente por email; `409` se o cliente ainda não o comprou (com os pagamentos ligados) |
 | POST | `/painel/api/orcamentos/:id/marcar-visita` | CEO, comercial | `{data_visita: "AAAA-MM-DDTHH:MM"}` → estado "Visita marcada" (se estava antes), email ao cliente, data na conta |
 | GET | `/painel/api/pagamentos-pedido[?estado=][&mes=][&formato=csv]` | CEO | todos os pagamentos dos pedidos (também dos anonimizados), com base, IVA e total; CSV `data;referencia;descricao;base;iva;total;estado;pedido` |
-| POST | `/painel/api/orcamentos/:id/obra-concluida` | CEO, comercial | obra concluída: o restante fica disponível |
+| POST | `/painel/api/orcamentos/:id/obra-concluida` | CEO, comercial | obra concluída: o restante fica disponível e o material sai do stock |
+| POST | `/painel/api/orcamentos/:id/visita-faltou` | CEO, comercial | "Cliente faltou": a visita (ou o diagnóstico) fica paga, sem devolução e sem desconto no sinal; auditoria e email; `409` antes da hora marcada |
+| POST | `/painel/api/orcamentos/:id/devolver-sinal` | CEO | "Cancelar obra e devolver sinal" `{valor?, motivo?}`: antes de a obra ser feita; pedido "perdido", obra cancelada, stock libertado |
+| POST | `/painel/api/devolucoes/:id/devolvida` | CEO | marca como feita uma devolução por transferência (`409` sem IBAN ou já feita) |
 
 `GET /api/conta/pedidos` traz, em cada pedido:
 
 - `pagamentos` (por fase: o pago ou o mais recente, com o recibo);
 - `relatorio_basico` (true com simulação), `relatorio` (`por_comprar`, `em_revisao` ou `disponivel`; null na avaria) e `plano`;
 - `compras` (`{ativas, pode, avaria, relatorio: {valor, comprado, pendente}, visita: {valor, paga, fora_area, pendente}}`);
-- `sinal` (`{valor, pct, desconto, pago}`), `aguarda_sinal` e `pode_pagar_sinal`;
+- `sinal` (`{valor, pct, desconto, pago, cobre_material}`), `aguarda_sinal` e `pode_pagar_sinal`;
+- `proposta_partes` (`{mao_obra, material, deslocacao}` sem IVA, ou null), `obra_minima` (€ ou null), `cartao_max`, `inicio_imediato`, `visita_cancelar` (`{pode, devolucao, motivo, avaria}` ou null), `visita_faltou`, `devolucoes` (`[{id, valor, motivo, estado, iban (mascarado), titular}]`) e `obra_paga`;
+- `obra` (`{data, hora, estado, por_agendar}`; a data só depois de agendada);
 - `restante` e `pode_pagar_restante`;
 - `plano_sugerido` e `modo`.
 
-`GET /painel/api/orcamentos/:id` traz `pagamentos` (com `base`, `iva`, `iva_pct`), `compras` (como na conta), `valores_pagamento` (proposta, IVA, total, `pago_antes`, sinal, restante), `aguarda_sinal`, `relatorio_libertado`, `plano_escolhido`, `obra_concluida` e `anonimizado`. Cada pagamento para a conta (e o recibo) traz `base`, `iva` e `iva_pct`; cada pedido traz `proposta_iva` (`{base, iva_pct, iva, total}`). `GET /painel/api/eu`, `GET /api/conta/eu` e `GET /api/catalogo` trazem `pagamentos` (`{ativo, modo, demonstracao…}`) para as faixas.
+`GET /painel/api/orcamentos/:id` traz `pagamentos` (com `base`, `iva`, `iva_pct`, `devolvido`), `compras` (como na conta), `valores_pagamento` (proposta, IVA, total, `pago_antes`, sinal, restante; e `base`, `minima`, `desconto`, `em_falta`, `material_origem`, `sinal_material`), `proposta_partes`, `proposta_sugerida`, `ligar_casa`, `obra` (`{id, data, estado, por_agendar}`), `devolucoes` (IBAN mascarado), `inicio_imediato`, `visita_faltou`, `material_reserva` (`{ja, a_partir}`), `stock` (`{reservado, saiu, artigos}`), `aguarda_sinal`, `relatorio_libertado`, `plano_escolhido`, `obra_concluida` e `anonimizado`. Cada pagamento para a conta (e o recibo) traz `base`, `iva` e `iva_pct`; cada pedido traz `proposta_iva` (`{base, iva_pct, iva, total}`). `GET /painel/api/eu`, `GET /api/conta/eu` e `GET /api/catalogo` trazem `pagamentos` (`{ativo, modo, demonstracao…}`) para as faixas.
 
 ## Configuração (`servidor/.env`, serviço painel)
 
@@ -207,7 +276,7 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 
 Ainda não feito:
 
-- a devolução (reembolso) de um pagamento: faz-se no painel do Stripe e não é refletida aqui;
+- a devolução (reembolso) do relatório completo e do restante: faz-se no painel do Stripe e não é refletida aqui (a visita, o diagnóstico e o sinal devolvem-se aqui: "Devoluções");
 - o teste ponta a ponta contra o Stripe real (só um Stripe falso ao nível do `fetch`, nos testes).
 
 ## Testes
@@ -229,5 +298,9 @@ Ainda não feito:
 - IVA e preço do relatório configuráveis no painel;
 - modo: desligados (envia grátis, compras desligadas com aviso, CEO liberta, avaria sem pagar); `simulado` só explícito; só a chave → stripe;
 - modo stripe: Checkout da compra (volta à conta) com os três métodos, `…/simular` 404 e webhook assinado (válido, inválido, repetido, sessão errada); webhook 404 no modo simulado.
+
+`painel/test/dinheiro-a.test.js` (decisões de 2026-10-02): migrações 22 e 23; o `/api/catalogo` sem stock nem custos; stock (entrada, acerto, mínimo, reserva com o sinal, saída com a obra concluída, libertação); proposta em três partes; sinal pelo material (custo, venda, 30 %); converter só com o restante pago (e com os pagamentos desligados como antes); cancelar a visita (mais e menos de 24 h, falta, devolução parcial); métodos acima de 500 €; obra mínima; "Quero que comecem já"; no modo stripe, `payment_method_types` sem cartão e o reembolso pela API.
+
+`painel/test/dinheiro-a2.test.js` (obra e casa, faltas, devoluções): migração 26; sinal pago → uma obra, casa por ligar; segundo evento → a mesma obra; restante pago → "ligar casa" com a mesma obra; sinal devolvido ou pedido cancelado → obra cancelada e stock libertado; "Cancelar diagnóstico" (mais e menos de 24 h, falta); visita com falta não desconta e a visita nova sim; totais e CSV com devoluções; devolução manual por IBAN (validação, máscara, fora da auditoria e dos emails, "Devolvido" só pelo CEO, RGPD); no modo stripe, Multibanco sem `POST /refunds` e MB Way automático.
 
 `crud.test.js`: a migração 14 (fases novas no CHECK, a linha dos 19 € igual, sequência e índice único refeitos, intervalo e relatório na configuração sem mexer no editado). A matriz de papéis (`papeis.test.js`) inclui `marcar-visita`.
