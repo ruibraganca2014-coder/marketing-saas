@@ -14,6 +14,13 @@ const valores = {
   telefone: cfg.telefoneVisivel,
 };
 let faltam = 0;
+// Telefone de exemplo (351900000000, como o site.js `numeroReal`): esconde a linha em vez de mostrar um número falso.
+if (/^\+?351?9?0{6,}$/.test(String(cfg.telefone ?? "").replace(/\D/g, "")) || /^9?0[0 ]+$/.test(String(cfg.telefoneVisivel ?? "").trim())) {
+  for (const el of document.querySelectorAll('[data-empresa="telefone"]')) {
+    const linha = el.closest("dd")?.previousElementSibling?.tagName === "DT" ? el.closest("dd") : null;
+    if (linha) { linha.previousElementSibling.remove(); linha.remove(); } else el.remove();
+  }
+}
 for (const el of document.querySelectorAll("[data-empresa]")) {
   const v = String(valores[el.dataset.empresa] ?? "[A PREENCHER]").trim() || "[A PREENCHER]";
   el.textContent = v;

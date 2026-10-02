@@ -24,9 +24,9 @@ window.DOMUS = {
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {
-    nome: "[A PREENCHER]",       // nome legal (ex.: Domus Energia, Unipessoal Lda.)
-    nif: "[A PREENCHER]",        // NIF / NIPC
-    morada: "[A PREENCHER]",     // sede (rua, código postal, localidade)
-    ral: "[A PREENCHER]",        // entidade de resolução alternativa de litígios (RAL) e o seu site
+    nome: "Estação Nómada, Unipessoal Lda.",       // nome legal (certidão permanente; marca Domus Energia)
+    nif: "519 588 533",                              // NIPC
+    morada: "Rua 1.º de Maio, n.º 2, 2730-144 Barcarena (Oeiras)",   // sede
+    ral: "CNIACC — Centro Nacional de Informação e Arbitragem de Conflitos de Consumo, www.cniacc.pt",
   },
 };

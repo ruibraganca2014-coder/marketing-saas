@@ -948,3 +948,15 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
   .legal .tabela td { display: block; padding: 2px 0; border: 0; }
   .legal .tabela td::before { content: attr(data-r) ": "; font-weight: 700; color: var(--texto-suave); }
 }
+
+/* === "Quem faz a obra" (index.html #quem-faz): texto + garantias em lista, sem cartões repetidos === */
+.quem-faz { display: grid; gap: 28px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 860px) { .quem-faz { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; } }
+.quem-faz-texto p { max-width: 60ch; }
+.quem-faz-empresa { font-size: .9rem; color: var(--texto-suave); margin-top: 14px; }
+.garantias { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-top: 1px solid var(--borda); }
+.garantias li { display: grid; grid-template-columns: 26px minmax(0, 1fr); column-gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--borda); }
+.garantias li::before { content: "✓"; grid-row: span 2; width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; background: var(--musgo); color: var(--fundo); font-size: 13px; font-weight: 700; line-height: 20px; text-align: center; }
+.garantias b { display: block; }
+.garantias span { color: var(--texto-suave); font-size: .95rem; }
+/* === fim "Quem faz a obra" === */
