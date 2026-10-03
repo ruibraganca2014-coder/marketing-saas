@@ -28,6 +28,7 @@ import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_ELETRICISTA } from '
 import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
 import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
+import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -72,12 +73,19 @@ const CONFIG_ORCAMENTO = {
   lembrete_proposta_1_dias: { min: 1, max: 30, inteiro: true, rotulo: 'o prazo do primeiro lembrete da proposta (dias)' },
   lembrete_proposta_2_dias: { min: 2, max: 60, inteiro: true, rotulo: 'o prazo do segundo lembrete da proposta (dias)' },
   lembrete_proposta_3_dias: { min: 3, max: 90, inteiro: true, rotulo: 'o prazo do lembrete "Perdido?" (dias)' },
+  // Emails automáticos ao cliente (migração 34; docs/EMAILS-AUTOMATICOS.md; emails-auto.js PRAZOS_EMAILS): os dois
+  // lembretes do pagamento em falta (crescentes) e o email depois da obra, em dias; a hora (Lisboa) do lembrete da
+  // visita, na véspera, fora das horas de silêncio.
+  email_pagamento_1_dias: { min: 1, max: 30, inteiro: true, rotulo: 'o prazo do primeiro lembrete do pagamento em falta (dias)' },
+  email_pagamento_2_dias: { min: 2, max: 60, inteiro: true, rotulo: 'o prazo do segundo lembrete do pagamento em falta (dias)' },
+  email_obra_dias: { min: 1, max: 30, inteiro: true, rotulo: 'o prazo do email depois da obra (dias)' },
+  email_visita_hora: { min: 8, max: 20, inteiro: true, rotulo: 'a hora do lembrete da visita (na véspera)' },
 };
 const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial'];
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && k !== 'eletricista_pct' && !k.startsWith('ensaio_') && !k.startsWith('lembrete_')), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && k !== 'eletricista_pct' && !k.startsWith('ensaio_') && !k.startsWith('lembrete_') && !k.startsWith('email_')), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -255,8 +263,10 @@ export function criarApi(ctx) {
   let pagPed = null;
   let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
   let crm = null;            // idem (CRM: a conta apagada leva as notas e os contactos da ficha, RGPD)
+  let emailsAuto = null;     // idem (emails automáticos: a avaliação na conta e o registo dos envios na ficha do CRM)
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
-    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm });
+    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm,
+    emails: () => emailsAuto });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
@@ -271,8 +281,11 @@ export function criarApi(ctx) {
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed,
     concluirObra: (o, u, ip) => concluirObra(o, u, ip) });
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
-  crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed });
+  crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed, emails: () => emailsAuto });
   const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio });
+  // Emails automáticos ao cliente (emails-auto.js; docs/EMAILS-AUTOMATICOS.md): correm na volta dos lembretes do CRM.
+  emailsAuto = criarEmailsAuto({ db, config, relogio, auditar, correio, crm, tarefas, pagamentos: () => pagPed });
+  tarefas.aCadaVolta(() => emailsAuto.verificar());
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
   const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
@@ -1616,7 +1629,7 @@ export function criarApi(ctx) {
   h.configOrcamento = ({ res }) => responder(res, 200, lerConfigOrcamento());
 
   h.atualizarConfigOrcamento = async ({ req, res, u, ip }) => {
-    const v = await lerJson(req, [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base']);
+    const v = await lerJson(req, [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base', CHAVE_GOOGLE]);
     const mud = {};
     for (const [k, { rotulo, ...lim }] of Object.entries(CONFIG_ORCAMENTO)) {
       if (v[k] !== undefined) mud[k] = numero(v[k], rotulo, { ...lim, nulo: false });
@@ -1627,13 +1640,28 @@ export function criarApi(ctx) {
       const p = { ...PRAZOS_LEMBRETES, ...lerConfigOrcamento(), ...mud };
       if (!(p.lembrete_proposta_1_dias < p.lembrete_proposta_2_dias && p.lembrete_proposta_2_dias < p.lembrete_proposta_3_dias)) falha('Os três prazos da proposta têm de ser crescentes (ex.: 3, 7 e 14 dias).');
     }
+    // Lembretes do pagamento em falta (emails automáticos): o segundo depois do primeiro.
+    if (mud.email_pagamento_1_dias !== undefined || mud.email_pagamento_2_dias !== undefined) {
+      const p = { ...PRAZOS_EMAILS, ...lerConfigOrcamento(), ...mud };
+      if (!(p.email_pagamento_1_dias < p.email_pagamento_2_dias)) falha('O segundo lembrete do pagamento em falta tem de ser depois do primeiro (ex.: 3 e 7 dias).');
+    }
+    // Ligação da avaliação no Google (texto): vazia ou null tira-a (sem ela não há convite em lado nenhum).
+    let semGoogle = false;
+    if (v[CHAVE_GOOGLE] !== undefined) {
+      if (v[CHAVE_GOOGLE] === null || v[CHAVE_GOOGLE] === '') semGoogle = true;
+      else {
+        mud[CHAVE_GOOGLE] = urlGoogle(v[CHAVE_GOOGLE]);
+        if (!mud[CHAVE_GOOGLE]) falha('A ligação da avaliação no Google tem de ser um endereço https do Google (ex.: https://g.page/r/…/review).');
+      }
+    }
     if (v.deslocacao_base !== undefined) {
       if (typeof v.deslocacao_base !== 'string' || !NOMES_CONCELHOS.has(v.deslocacao_base)) falha('A base da deslocação tem de ser um dos 308 concelhos (nome da lista).');
       mud.deslocacao_base = v.deslocacao_base;
     }
-    if (!Object.keys(mud).length) falha('Nada para alterar.');
+    if (!Object.keys(mud).length && !semGoogle) falha('Nada para alterar.');
     for (const [k, val] of Object.entries(mud)) db.prepare('INSERT INTO config_orcamento (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor').run(k, val);
-    auditar(u, 'config_orcamento_atualizada', 'config-orcamento', mud, ip);
+    if (semGoogle) db.prepare('DELETE FROM config_orcamento WHERE chave = ?').run(CHAVE_GOOGLE);
+    auditar(u, 'config_orcamento_atualizada', 'config-orcamento', semGoogle ? { ...mud, [CHAVE_GOOGLE]: null } : mud, ip);
     responder(res, 200, lerConfigOrcamento());
   };
 
@@ -1834,6 +1862,9 @@ export function criarApi(ctx) {
     auditar(contaId ? { id: null, email: `conta:${contaId}` } : null, 'orcamento_recebido', `orcamento:${id}`,
       { origem: 'site', simulacao: Boolean(sim), conta: Boolean(contaId), ...(pagamento ? { pagamento, visita: comVisita } : {}) }, ip);
     registo.info(`orçamento ${id} recebido`);
+    // Boas-vindas (emails automáticos): logo ao receber, fora das horas de silêncio. A avaria paga ao enviar não as
+    // recebe (o email "pagamento recebido" já confirma o pedido). Um erro aqui nunca falha o pedido.
+    if (!pagamento) { try { emailsAuto.aoReceber(id); } catch (e) { registo.erro(`boas-vindas do orçamento ${id}: ${e?.stack || e}`); } }
     return id;
   }
 
@@ -1877,6 +1908,8 @@ export function criarApi(ctx) {
       // Sem ELETRICISTAS=1 o módulo não existe: /api/eletricista/* segue em frente e dá 404 como qualquer outro desconhecido.
       if (config.eletricistas && caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
       if (caminho.startsWith('/api/conta/')) {
+        // "Não quero receber" dos emails automáticos: sem sessão e sem origem (o token assinado autoriza; RFC 8058).
+        if (await emailsAuto.tratar(req, res, url)) return undefined;
         if (await pagPed.tratar(req, res, url, ip)) return undefined;
         return await contas.tratar(req, res, url, ip);
       }
@@ -1918,6 +1951,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas, emailsAuto };
 }
 

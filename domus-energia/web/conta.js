@@ -6,6 +6,7 @@
 // pormenorizado (revisto antes de o vermos) e a visita técnica (a data aparece quando a marcarmos); estado e recibo de
 // cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
 // Fase 4, ronda 3: "O trabalho ficou concluído?" (Sim com 1 a 5 estrelas / Não com o que falta) e a visita sem defeito.
+// Emails automáticos (docs/EMAILS-AUTOMATICOS.md): "Como correu?" (1 a 5 estrelas depois da obra) e o convite do Google.
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao, marcarSessao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 import { formatarEuroRedondo, textoDias } from "./simulador/preco.js";
@@ -138,6 +139,7 @@ function cartaoPedido(p) {
   if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", "Não o encontrámos na visita: a visita não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova."));
   for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
   if (p.confirmacao) c.append(blocoConfirmacao(p));
+  if (p.avaliacao) c.append(blocoAvaliacao(p));
   if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
   if (p.proposta) c.append(blocoProposta(p));
   if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
@@ -384,6 +386,74 @@ function blocoConfirmacao(p) {
     t.focus();
   });
   b.append(bs, zona, msg);
+  return b;
+}
+
+/**
+ * "Como correu?" (docs/EMAILS-AUTOMATICOS.md): com a obra concluída e ainda sem avaliação, 1 a 5 estrelas (uma vez).
+ * Depois de avaliar — aqui ou na confirmação do trabalho — o convite para a avaliação pública no Google, a todos, com
+ * qualquer número de estrelas, e só quando o servidor dá a ligação (configurada no painel).
+ */
+function blocoAvaliacao(p) {
+  const x = p.avaliacao;
+  const b = el("section", "conta-proposta conta-avaliacao");
+  b.setAttribute("aria-label", "Avaliação do trabalho");
+  if (!x.pode) {
+    b.append(el("h4", null, "A sua avaliação"));
+    if (x.do_pedido) { const e = el("p", "conta-estrelas-dadas", `${"★".repeat(x.estrelas)}${"☆".repeat(5 - x.estrelas)}`); e.setAttribute("aria-label", `${x.estrelas} em 5 estrelas`); b.append(e); }
+    b.append(el("p", null, "Obrigado pela sua avaliação."));
+    if (typeof x.google === "string" && x.google.startsWith("https://")) {
+      const a = el("a", "btn sec", "Avaliar no Google");
+      a.href = x.google;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.id = `avaliar-google-${p.id}`;
+      b.append(el("p", "ajuda", "Se quiser, deixe também uma avaliação pública no Google: ajuda outras pessoas a escolher."), a);
+    }
+    return b;
+  }
+  const msg = msgPequena();
+  const f = el("form", "conta-confirmar-form");
+  f.noValidate = true;
+  const estrelas = el("fieldset", "conta-estrelas");
+  estrelas.append(el("legend", null, "De 1 a 5 estrelas"));
+  const linha = el("div", "conta-estrelas-linha");
+  for (let n = 1; n <= 5; n++) {
+    const l = el("label");
+    const i = document.createElement("input");
+    i.type = "radio";
+    i.name = `avaliar-${p.id}`;
+    i.value = String(n);
+    i.id = `avaliar-${p.id}-${n}`;
+    i.setAttribute("aria-label", `${n} em 5 estrelas`);
+    l.append(i, el("span", null, "★"));
+    l.title = `${n} em 5`;
+    i.addEventListener("change", () => linha.querySelectorAll("label").forEach((y, k) => y.classList.toggle("ativa", k < n)));
+    linha.append(l);
+  }
+  estrelas.append(linha);
+  const ok = el("button", "btn", "Enviar avaliação");
+  ok.type = "submit";
+  ok.id = `avaliar-enviar-${p.id}`;
+  f.append(estrelas, ok);
+  f.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const n = Number(f.querySelector(`input[name="avaliar-${p.id}"]:checked`)?.value);
+    if (!n) { msg.textContent = "Escolha a avaliação: de 1 a 5 estrelas."; msg.className = "msg erro"; msg.hidden = false; linha.querySelector("input").focus(); return; }
+    ok.disabled = true;
+    try {
+      await pedirConta(`pedidos/${p.id}/avaliar`, { corpo: { estrelas: n } });
+      await carregar();
+      mensagem("Obrigado! Registámos a sua avaliação.", "ok");
+    } catch (e) {
+      ok.disabled = false;
+      msg.textContent = e.message;
+      msg.className = "msg erro";
+      msg.hidden = false;
+      if (e instanceof ErroConta && e.estado === 409) carregar();
+    }
+  });
+  b.append(el("h4", null, "Como correu?"), el("p", null, "A obra está concluída. Diga-nos como correu o trabalho."), f, msg);
   return b;
 }
 

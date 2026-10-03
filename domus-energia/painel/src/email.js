@@ -20,8 +20,11 @@ function cabecalhoTexto(s) {
   return /^[\x20-\x7e]*$/.test(t) ? t : `=?UTF-8?B?${Buffer.from(t, 'utf8').toString('base64')}?=`;
 }
 
-/** Mensagem RFC 5322 com o corpo em base64 (nenhuma linha começa por "."; sem problemas de 8 bits). */
-export function montarMensagem({ de, para, assunto, texto, agora = new Date() }) {
+/**
+ * Mensagem RFC 5322 com o corpo em base64 (nenhuma linha começa por "."; sem problemas de 8 bits). `cabecalhos`:
+ * cabeçalhos a mais ({nome: valor}; ex.: List-Unsubscribe), só ASCII visível e sem quebras de linha (os outros não entram).
+ */
+export function montarMensagem({ de, para, assunto, texto, cabecalhos = {}, agora = new Date() }) {
   const dominio = de.split('@')[1] || 'localhost';
   const corpo = Buffer.from(String(texto).replace(/\r?\n/g, CRLF), 'utf8').toString('base64').replace(/.{1,76}/g, (l) => `${l}${CRLF}`);
   return [
@@ -34,6 +37,7 @@ export function montarMensagem({ de, para, assunto, texto, agora = new Date() })
     'Content-Type: text/plain; charset=utf-8',
     'Content-Transfer-Encoding: base64',
     'Auto-Submitted: auto-generated',
+    ...Object.entries(cabecalhos).filter(([k, v]) => /^[A-Za-z][A-Za-z0-9-]{0,60}$/.test(k) && /^[ -~]{1,900}$/.test(String(v))).map(([k, v]) => `${k}: ${v}`),
     '',
     corpo,
   ].join(CRLF);
@@ -106,7 +110,7 @@ function ligacao(socket, timeoutMs) {
  * Envia um email por SMTP. `smtp`: {host, porta, utilizador, password, seguranca: "tls"|"starttls"|"nenhuma", timeoutMs}.
  * Lança Error com uma mensagem sem segredos.
  */
-export async function enviarSmtp(smtp, { de, para, assunto, texto }) {
+export async function enviarSmtp(smtp, { de, para, assunto, texto, cabecalhos }) {
   if (!RE_EMAIL.test(de) || !RE_EMAIL.test(para)) throw new Error('endereço de email inválido');
   const timeoutMs = smtp.timeoutMs ?? 20_000;
   const socket = await new Promise((ok, erro) => {
@@ -144,7 +148,7 @@ export async function enviarSmtp(smtp, { de, para, assunto, texto }) {
     await c.comando(`MAIL FROM:<${de}>`, [250]);
     await c.comando(`RCPT TO:<${para}>`, [250, 251]);
     await c.comando('DATA', [354]);
-    c.socket.write(`${montarMensagem({ de, para, assunto, texto })}${CRLF}.${CRLF}`);
+    c.socket.write(`${montarMensagem({ de, para, assunto, texto, cabecalhos })}${CRLF}.${CRLF}`);
     await c.ler([250]);
     await c.comando('QUIT', [221]).catch(() => {});
   } catch (e) {
@@ -156,14 +160,14 @@ export async function enviarSmtp(smtp, { de, para, assunto, texto }) {
 }
 
 /**
- * Correio das contas: `enviar({para, assunto, texto})` devolve uma Promise que nunca rejeita (o erro vai para o
+ * Correio das contas: `enviar({para, assunto, texto, cabecalhos?})` devolve uma Promise que nunca rejeita (o erro vai para o
  * registo). Sem SMTP (ou `local`), escreve o email no registo — é assim que se lê o código no modo local.
  */
 export function criarCorreio({ config, registo, local = false }) {
   const smtp = local ? null : config.smtp;
   const de = config.emailRemetente || (config.smtp?.utilizador && RE_EMAIL.test(config.smtp.utilizador) ? config.smtp.utilizador : 'nao-responder@domus.localhost');
   const emCurso = new Set();
-  function enviar({ para, assunto, texto, resumo }) {
+  function enviar({ para, assunto, texto, resumo, cabecalhos }) {
     if (!smtp) {
       // Bem visível no terminal/registo (modo local ou sem SMTP): "[email] para x: código 123456".
       registo.info(`[email] para ${para}: ${resumo ?? assunto}`);
@@ -171,7 +175,7 @@ export function criarCorreio({ config, registo, local = false }) {
       return Promise.resolve(true);
     }
     // Com SMTP nunca se regista o assunto nem o corpo (podem levar códigos): só o resultado.
-    const p = enviarSmtp(smtp, { de, para, assunto, texto })
+    const p = enviarSmtp(smtp, { de, para, assunto, texto, cabecalhos })
       .then(() => { registo.info('email enviado'); return true; })
       .catch((e) => { registo.erro(`email para o cliente não enviado: ${e.message}`); return false; });
     emCurso.add(p);

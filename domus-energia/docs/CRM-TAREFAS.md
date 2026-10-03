@@ -71,6 +71,7 @@ As fases **são os estados que o pedido já tinha** (nada duplicado): novo → c
 - **Cancelados sozinhos** (`tarefas.cancelada`, saem do quadro, ficam na base, auditoria `tarefa_cancelada`) quando a fase avança. Não se apagam (marcam-se como feitos). Se o CEO mudar os prazos e um lembrete cancelado (não feito) voltar a ser devido, **reabre-se o mesmo** (auditoria `tarefa_reaberta`), sem duplicar.
 - Atribuídos ao responsável do pedido, senão ao do cliente, senão aos CEO (`NULL`). Prazo: o dia em que nascem.
 - Verificados **ao ler** (tarefas, contagem, semana, CRM) e **de 15 em 15 minutos** (o mesmo padrão dos pagamentos e dos eletricistas; `tarefas.iniciar`).
+- **Outras tarefas automáticas** ([EMAILS-AUTOMATICOS.md](EMAILS-AUTOMATICOS.md)): "Ligar a &lt;cliente&gt; — pagamento em falta" (`pagamento_falta`, com o 2.º lembrete por email ao cliente) e "Avaliação baixa — ligar a &lt;cliente&gt;" (`avaliacao_baixa`, 1 a 3 estrelas). Usam a mesma chave única (`tarefas.lembrete`), são para os CEO e não dependem da fase do pedido (os lembretes do CRM não as cancelam). Os emails automáticos ao cliente correm na mesma volta de 15 minutos (`tarefas.aCadaVolta`).
 
 ### Email diário das tarefas (decisão do dono)
 - **Um email por utilizador ativo do painel**, na primeira passagem depois das **08:00 de Lisboa** (verifica-se de minuto a minuto; `tarefas.resumoDiario`), com as suas tarefas por fazer **atrasadas** e **para hoje** (os CEO: também as sem responsável). **Sem tarefas não sai nada.**

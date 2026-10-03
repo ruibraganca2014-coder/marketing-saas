@@ -32,6 +32,16 @@ const LEMBRETES = {
     texto: (d) => `A proposta foi enviada há ${dias(d)} sem resposta. Decida: marcar o pedido como perdido (com o motivo) ou continuar a seguir. A fase só muda quando decidir.` },
 };
 /**
+ * Tarefas automáticas que não são lembretes do CRM (emails-auto.js; docs/EMAILS-AUTOMATICOS.md): nascem uma vez (a mesma
+ * chave única) e não se cancelam com a fase do pedido. `d`: os dias sem pagar, ou as estrelas da avaliação.
+ */
+const AUTOMATICAS = {
+  pagamento_falta: { titulo: (n) => `Ligar a ${n} — pagamento em falta`, neutro: 'ligar ao cliente (pagamento em falta)',
+    texto: (d) => `O cliente foi lembrado duas vezes por email e o pagamento continua por fazer há ${dias(d)}. Ligue-lhe. Já não saem mais lembretes automáticos.` },
+  avaliacao_baixa: { titulo: (n) => `Avaliação baixa — ligar a ${n}`, neutro: 'ligar ao cliente (avaliação baixa)',
+    texto: (d) => `O cliente avaliou o trabalho com ${d} em 5 estrelas. Urgente: ligue-lhe para perceber o que não correu bem.` },
+};
+/**
  * Prazos dos lembretes (`config_orcamento`, editáveis pelo CEO no ecrã Tarefas; os limites são validados em api.js
  * `CONFIG_ORCAMENTO`): o valor por omissão de cada um.
  */
@@ -121,7 +131,8 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
     for (const o of pedidos.values()) { const l = lembreteDe(o, agora, pz); if (l) devidos.set(l.chave, { o, ...l }); }
     let n = 0;
     for (const t of db.prepare("SELECT id, lembrete, orcamento_id FROM tarefas WHERE lembrete IS NOT NULL AND cancelada IS NULL AND estado != 'feito'").all()) {
-      if (devidos.has(t.lembrete)) continue;
+      // Só os lembretes do CRM: as outras tarefas automáticas (pagamento em falta, avaliação baixa) não dependem da fase.
+      if (!LEMBRETES[t.lembrete.split(':')[1]] || devidos.has(t.lembrete)) continue;
       db.prepare('UPDATE tarefas SET cancelada = ?, atualizado = ? WHERE id = ? AND cancelada IS NULL').run(agoraIso(), agoraIso(), t.id);
       auditar(null, 'tarefa_cancelada', `tarefa:${t.id}`, { lembrete: t.lembrete.split(':')[1] ?? null, orcamento: t.orcamento_id, motivo: 'a fase do pedido avançou' });
     }
@@ -151,6 +162,27 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
     return n;
   }
   crm.aoLer(() => lembretes());
+
+  /**
+   * Tarefa automática fora do CRM (`AUTOMATICAS`), para os CEO (sem responsável) e com o prazo de hoje, ligada ao pedido
+   * e à ficha do cliente. Idempotente: a chave `<pedido>:<tipo>:…` é única (feita ou aberta, nunca nasce outra).
+   */
+  function criarAutomatica(tipo, o, chave, d) {
+    const agoraTxt = agoraIso();
+    const r = db.prepare(`INSERT OR IGNORE INTO tarefas (titulo, descricao, cliente_id, orcamento_id, responsavel_id, prazo, estado, lembrete, criado, criado_por, atualizado)
+      VALUES (?, ?, ?, ?, NULL, ?, 'a_fazer', ?, ?, 'sistema', ?)`).run(AUTOMATICAS[tipo].titulo(o.nome), AUTOMATICAS[tipo].texto(d), o.crm_cliente_id ?? null, o.id,
+      diaLisboa(new Date(relogio())), chave, agoraTxt, agoraTxt);
+    if (r.changes) auditar(null, 'tarefa_criada', `tarefa:${r.lastInsertRowid}`, { lembrete: tipo, orcamento: o.id, responsavel_id: null });
+    return Boolean(r.changes);
+  }
+  /** Cancela (como os lembretes do CRM) as tarefas automáticas abertas do `tipo` cuja chave já não está em `devidas`. */
+  function cancelarAutomaticas(tipo, devidas, motivo) {
+    for (const t of db.prepare("SELECT id, lembrete, orcamento_id FROM tarefas WHERE lembrete LIKE ? AND cancelada IS NULL AND estado != 'feito'").all(`%:${tipo}:%`)) {
+      if (devidas.has(t.lembrete)) continue;
+      db.prepare('UPDATE tarefas SET cancelada = ?, atualizado = ? WHERE id = ? AND cancelada IS NULL').run(agoraIso(), agoraIso(), t.id);
+      auditar(null, 'tarefa_cancelada', `tarefa:${t.id}`, { lembrete: tipo, orcamento: t.orcamento_id, motivo });
+    }
+  }
 
   // ------------------------------------------------------------ utilidades
   const nomeCliente = db.prepare('SELECT nome FROM crm_clientes WHERE id = ?');
@@ -357,7 +389,7 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
     const abertas = db.prepare("SELECT * FROM tarefas WHERE cancelada IS NULL AND estado != 'feito' AND prazo IS NOT NULL AND prazo <= ? ORDER BY prazo, (prazo_hora IS NULL), prazo_hora, id").all(hoje);
     const painel = config?.origens?.[0] ? ['', `Painel: ${config.origens[0]}/painel/#/tarefas`] : [];
     const linha = (t) => `- Tarefa n.º ${t.id}${t.prazo < hoje ? ` · prazo ${dataPt(t.prazo)}` : ''}${t.prazo_hora ? ` · ${t.prazo_hora}` : ''}`
-      + `${t.lembrete ? ` · lembrete automático: ${LEMBRETES[t.lembrete.split(':')[1]]?.neutro ?? 'CRM'}` : ''}${t.orcamento_id ? ` · pedido n.º ${t.orcamento_id}` : ''}`
+      + `${t.lembrete ? ` · lembrete automático: ${(LEMBRETES[t.lembrete.split(':')[1]] ?? AUTOMATICAS[t.lembrete.split(':')[1]])?.neutro ?? 'CRM'}` : ''}${t.orcamento_id ? ` · pedido n.º ${t.orcamento_id}` : ''}`
       + `${t.obra_id ? ` · obra n.º ${t.obra_id}` : ''}${t.responsavel_id === null ? ' · sem responsável' : ''}`;
     let n = 0;
     for (const u of porTratar) {
@@ -379,14 +411,20 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
 
   // ------------------------------------------------------------ de 15 em 15 minutos (como os pagamentos e os eletricistas)
   // O email diário verifica-se de minuto a minuto (só uma leitura dos utilizadores; sai logo a seguir às 08:00).
+  // Na mesma volta, depois dos lembretes, correm os emails automáticos ao cliente (`aCadaVolta`; emails-auto.js).
   let temporizador = null, temporizadorResumo = null;
+  let cadaVolta = null;
+  const aCadaVolta = (fn) => { cadaVolta = fn; };
   function iniciar(intervaloMs = 15 * 60_000, intervaloResumoMs = 60_000) {
-    temporizador = setInterval(() => { try { lembretes(); } catch (e) { registo?.erro(`lembretes do CRM: ${e?.stack || e}`); } }, intervaloMs);
+    temporizador = setInterval(() => {
+      try { lembretes(); } catch (e) { registo?.erro(`lembretes do CRM: ${e?.stack || e}`); }
+      try { cadaVolta?.(); } catch (e) { registo?.erro(`emails automáticos: ${e?.stack || e}`); }
+    }, intervaloMs);
     temporizador.unref();
     temporizadorResumo = setInterval(() => { try { resumoDiario(); } catch (e) { registo?.erro(`email diário das tarefas: ${e?.stack || e}`); } }, intervaloResumoMs);
     temporizadorResumo.unref();
   }
   const parar = () => { clearInterval(temporizador); clearInterval(temporizadorResumo); };
 
-  return { h, lembretes, resumoDiario, prazos, iniciar, parar };
+  return { h, lembretes, resumoDiario, prazos, criarAutomatica, cancelarAutomaticas, aCadaVolta, iniciar, parar };
 }

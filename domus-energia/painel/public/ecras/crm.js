@@ -15,6 +15,8 @@ const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { re
 const gravar = (v) => { try { localStorage.setItem(CHAVE_VISTA, v); } catch {} };
 const agoraInput = () => { const d = new Date(); return `${isoDia(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const nomeFase = (f) => FASES_CRM[f] ?? f ?? "—";
+/** Emails automáticos ao cliente (docs/EMAILS-AUTOMATICOS.md): o nome de cada tipo na lista da ficha. */
+const EMAILS_AUTO = { boas_vindas: "Pedido recebido (boas-vindas)", visita: "Lembrete da visita", pagamento_1: "Pagamento em falta: 1.º lembrete", pagamento_2: "Pagamento em falta: 2.º lembrete", obra: "Depois da obra: guia e pedido de avaliação" };
 
 export default function crm(el, ctx) {
   const ctrl = new AbortController();
@@ -178,6 +180,13 @@ export default function crm(el, ctx) {
       const rels = lista(f, "relatorios");
       if (rels.length) partes.push(h("h3", { text: "Relatórios técnicos" }), h("ul", { class: "lista-simples" }, ...rels.map((r) => h("li", {},
         h("a", { href: `#/orcamentos/${encodeURIComponent(r.orcamento_id)}/relatorio`, text: `Relatório do pedido n.º ${r.orcamento_id}` }), r.libertado ? ` · libertado ao cliente ${data(r.libertado)}` : " · ainda não libertado"))));
+    }
+    if (vende) {
+      // Emails automáticos enviados (só o tipo e a data; os textos não se guardam) e a recusa do email depois da obra.
+      const env = lista(f, "emails_automaticos");
+      partes.push(h("h3", { text: "Emails automáticos" }));
+      if (c.emails_recusados) partes.push(h("p", { class: "msg info", id: "emails-recusados", text: `O cliente não quer receber o email depois da obra (guia e pedido de avaliação) desde ${data(c.emails_recusados)}. Os emails de serviço continuam.` }));
+      partes.push(env.length ? h("ul", { class: "lista-simples", id: "emails-automaticos" }, ...env.map((x) => h("li", {}, `${data(x.quando)} · ${EMAILS_AUTO[x.tipo] ?? x.tipo} · pedido n.º ${x.orcamento_id}`))) : h("p", { class: "vazio", text: "Ainda não saiu nenhum email automático." }));
     }
     const trab = lista(f, "trabalhos_eletricista");
     if (trab.length) partes.push(h("h3", { text: "Eletricistas externos" }), h("ul", { class: "lista-simples" }, ...trab.map((t) => h("li", {},

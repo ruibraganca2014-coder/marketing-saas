@@ -68,6 +68,8 @@ O cliente SMTP é mínimo (`painel/src/email.js`, sem dependências):
 
 Configura-se no `.env` com `SMTP_HOST`, `SMTP_PORTA`, `SMTP_UTILIZADOR`, `SMTP_PASSWORD` e `EMAIL_REMETENTE` (opcionais: `SMTP_SEGURANCA` = `tls`/`starttls`, e `SMTP_TIMEOUT_MS`). A opção gratuita recomendada é o Brevo, com 300 emails por dia (`servidor/.env.example`).
 
+Os **emails automáticos** ao cliente (pedido recebido, lembrete da visita, pagamento em falta, depois da obra com o pedido de avaliação e "Não quero receber") estão em [EMAILS-AUTOMATICOS.md](EMAILS-AUTOMATICOS.md). A conta mostra "Como correu?" (1 a 5 estrelas) depois da obra e, depois de avaliar, o convite para a avaliação no Google (a todos, só com a ligação configurada no painel).
+
 **Sem SMTP, e sempre no modo local**, o email é escrito no registo do painel: `[email] para x@y: código 123456 (confirmar o email)` (ou `(entrar)`, `(mudar a palavra-passe)`).
 
 ## Site noutro endereço (Vercel)
@@ -101,6 +103,8 @@ Exemplo: o site em `https://domusenergia.pt` (Vercel) e o painel, a API, o MQTT 
 | GET | `pedidos/:id/fotos/:foto` | confirmada | a foto (só do próprio pedido) |
 | POST | `pedidos/:id/fotos` | confirmada | foto (bytes, `X-Foto-Chave`, `X-Foto-Legenda`); 409 depois de aceite |
 | POST | `pedidos/:id/aceitar` | confirmada | `{valor?, plano}` → `{pedido, pagamento}` (sinal por pagar; "aceite" depois de pago); 409 se já aceite, convertida ou se o valor mudou |
+| POST | `pedidos/:id/avaliar` | confirmada | `{estrelas}` (1 a 5) → `{pedido}`: "Como correu?" num pedido com a obra concluída, uma vez ([EMAILS-AUTOMATICOS.md](EMAILS-AUTOMATICOS.md)); 409 sem avaliação por fazer |
+| GET / POST | `emails/nao-receber?t=` | — (token assinado) | "Não quero receber" do email depois da obra: página de confirmação / guarda a recusa (HTML) |
 | POST | `pedidos/:id/pagar` | confirmada | `{fase: sinal\|restante}` → `{pagamento}` (PAGAMENTOS-PEDIDO.md) |
 | GET | `pedidos/:id/relatorio` | confirmada | relatório técnico do cliente; 409 em revisão |
 | GET / POST | `pagamentos/:ref`, `pagamentos/:ref/simular` | confirmada (conta dona) | estado e recibo de um pagamento; pagamento simulado (só no modo simulado) |

@@ -795,6 +795,23 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return pagarFase(conta, o, 'sinal');
   }
 
+  /**
+   * O que o cliente já foi chamado a pagar e ainda não pagou (emails automáticos, docs/EMAILS-AUTOMATICOS.md): o sinal de
+   * uma proposta que aceitou online, ou o restante de uma obra dada por concluída no painel. {fase, desde, cent,
+   * a_pagar}: `desde` = quando foi pedido (aceitou a proposta / obra concluída); `a_pagar` = tem um pagamento aberto
+   * ainda válido (ex.: uma referência Multibanco gerada há menos de 24 h). null sem nada em falta, com os pagamentos
+   * desligados ou num pedido sem conta (não se paga online).
+   */
+  function emFalta(o) {
+    if (!config.pagamentoPedido || !o.conta_id) return null;
+    const fase = o.estado === 'proposta_enviada' && o.proposta_aceite ? 'sinal' : o.estado === 'aceite' && o.obra_concluida ? 'restante' : null;
+    if (!fase || pagoDe(o.id, fase)) return null;
+    const cent = valores(o)[fase];
+    if (!(cent > 0)) return null;
+    const aPagar = Boolean(db.prepare("SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = ? AND estado = 'pendente' AND expira > ? LIMIT 1").get(o.id, fase, relogio()));
+    return { fase, desde: fase === 'sinal' ? o.proposta_aceite : o.obra_concluida, cent, a_pagar: aPagar };
+  }
+
   function cancelar(p, motivo) {
     db.prepare('UPDATE pagamentos_pedido SET estado = \'cancelado\', pedido = NULL, atualizado = ? WHERE id = ? AND estado = \'pendente\'').run(agoraIso(), p.id);
     auditar(null, 'pagamento_cancelado', p.orcamento_id ? `orcamento:${p.orcamento_id}` : `conta:${p.conta_id}`, { ref: p.ref, fase: p.fase, motivo });
@@ -1606,7 +1623,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
-    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago,
+    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta,
     PLANOS: PLANOS_MENSAIS,
   };
 }

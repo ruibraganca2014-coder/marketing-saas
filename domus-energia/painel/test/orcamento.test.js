@@ -323,7 +323,8 @@ test('catálogo e configuração: validação e só o CEO', async () => {
   assert.equal(r.estado, 200);
   assert.deepEqual(r.json, { tarifa_hora_iva: 40, margem_intervalo_pct: 15, deslocacao_iva: 0, deslocacao_base: 'Lisboa', deslocacao_km_gratis: 20, deslocacao_preco_km_iva: 0.4, deslocacao_max_km: 100, margem_pacotes_pct: 20, intervalo_menos_pct: 5, intervalo_mais_pct: 25, preco_relatorio_iva: 29, iva_pct: 23, obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5,
     ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100, eletricista_pct: 70,
-    lembrete_novo_dias_uteis: 1, lembrete_visita_dias: 2, lembrete_proposta_1_dias: 3, lembrete_proposta_2_dias: 7, lembrete_proposta_3_dias: 14 });
+    lembrete_novo_dias_uteis: 1, lembrete_visita_dias: 2, lembrete_proposta_1_dias: 3, lembrete_proposta_2_dias: 7, lembrete_proposta_3_dias: 14,
+    email_pagamento_1_dias: 3, email_pagamento_2_dias: 7, email_obra_dias: 2, email_visita_hora: 10 });
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { intervalo_mais_pct: 101 } })).estado, 400);
   // O antigo `margem_intervalo_pct` já não se edita (fase 3: −10 % / +20 %).
   assert.equal((await p.pedir('POST', '/painel/api/config-orcamento', { ...cab, corpo: { margem_intervalo_pct: 20 } })).estado, 400);

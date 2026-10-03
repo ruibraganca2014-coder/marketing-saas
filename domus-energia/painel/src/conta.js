@@ -161,7 +161,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null, crm = () => null }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null, crm = () => null, emails = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -537,6 +537,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.cliente;
     let sim = null;
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
+    const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     return {
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
       data_visita: o.data_visita, servico: o.servico,
@@ -548,7 +549,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       obra: obra ? { data: agendada ? obra.data : null, hora: agendada ? obra.hora : null, estado: obra.estado, por_agendar: !agendada } : null,
       // Trabalho feito por um eletricista externo (docs/ELETRICISTAS.md): "O trabalho ficou concluído?" — por confirmar,
       // confirmado (com a avaliação) ou devolvido; nunca quem o fez. null sem o módulo ou sem trabalho.
-      confirmacao: eletricistas()?.paraCliente(o) ?? null,
+      confirmacao,
+      // Avaliação do trabalho (1 a 5 estrelas) e, depois de avaliar, o convite para a avaliação no Google
+      // (docs/EMAILS-AUTOMATICOS.md): {pode, estrelas, do_pedido, google} ou null.
+      avaliacao: emails()?.paraCliente(o, confirmacao) ?? null,
       resumo: resumoSimulacao(o.simulacao),
       fotos: fotos.listar(o, sim, `/api/conta/pedidos/${o.id}/fotos/`).map((f) => ({ id: f.id, chave: f.chave, legenda: f.legenda, url: f.url, criado: f.criado })),
       fotos_max: 40,
@@ -645,6 +649,18 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const o = pedidoDaConta(c, params.id);
     const v = await lerJson(req, ['concluido', 'estrelas', 'comentario', 'site', 'descricao']);
     eletricistas().confirmarCliente(o, v, c, ip);
+    // Avaliação baixa (1 a 3 estrelas): tarefa urgente para os CEO (docs/EMAILS-AUTOMATICOS.md).
+    if (v.concluido === true) emails()?.aposAvaliar(o, v.estrelas);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+
+  // "Como correu?" (docs/EMAILS-AUTOMATICOS.md): 1 a 5 estrelas, uma vez, num pedido com a obra concluída que ainda não
+  // foi avaliado na confirmação do trabalho. Só o dono do pedido.
+  h.avaliar = async ({ req, res, c, params, ip }) => {
+    const o = pedidoDaConta(c, params.id);
+    const v = await lerJson(req, ['estrelas']);
+    if (!emails().paraCliente(o, eletricistas()?.paraCliente(o) ?? null)?.pode) throw new ErroApi(409, 'Este pedido não tem uma avaliação por fazer.');
+    emails().avaliar(o, v.estrelas, c, ip);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
   };
 
@@ -775,6 +791,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const fichasCrm = crm()?.clientesDaConta(c.id) ?? [];
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Emails automáticos (docs/EMAILS-AUTOMATICOS.md): o registo dos envios dos pedidos desta conta (também dos que
+      // ficam, anonimizados ou convertidos) e a recusa "Não quero receber" deste email saem com ela.
+      db.prepare('DELETE FROM emails_automaticos WHERE orcamento_id IN (SELECT id FROM orcamentos WHERE conta_id = ?)').run(c.id);
+      db.prepare('DELETE FROM emails_recusados WHERE email = ?').run(String(c.email).toLowerCase());
       // Auditoria: o histórico dos pedidos apagados/anonimizados e da conta sai (com os IPs e os detalhes); de cada
       // pedido fica só uma linha "apagado (RGPD)" / "anonimizado (RGPD)" sem dados pessoais (a da conta é a
       // "conta_apagada" que o chamador escreve). Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.
@@ -906,6 +926,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['GET', 'pedidos/:id/fotos/:foto', 'confirmada', 'foto'],
     ['POST', 'pedidos/:id/fotos', 'confirmada', 'acrescentarFoto'],
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],
+    ['POST', 'pedidos/:id/avaliar', 'confirmada', 'avaliar'],
     // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
     ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
     ['GET', 'casa', 'confirmada', 'casa'],

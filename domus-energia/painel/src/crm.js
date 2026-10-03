@@ -38,7 +38,7 @@ const FMT_HORA = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Lisbon', h
 export const agoraLisboa = (ms) => `${diaLisboa(new Date(ms))}T${FMT_HORA.format(new Date(ms))}`;
 export const horaLisboa = (ms) => FMT_HORA.format(new Date(ms));
 
-export function criarCrm({ db, config, relogio, auditar, pagamentos }) {
+export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = () => null }) {
   const agoraIso = () => iso(relogio());
 
   // ------------------------------------------------------------ identidade do cliente
@@ -247,6 +247,10 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos }) {
       r.pagamentos = pedidos.flatMap((o) => pagamentos().listarParaPainel(o.id).map((p) => ({ orcamento_id: o.id, ...p })));
       r.relatorios = pedidos.filter((o) => o.simulacao).map((o) => ({ orcamento_id: o.id, criado: o.criado, libertado: o.relatorio_libertado ?? null }));
       r.equipa = equipa();
+      // Emails automáticos (docs/EMAILS-AUTOMATICOS.md): os que saíram para os pedidos desta ficha (tipo e data, sem o
+      // corpo) e se o cliente recusou o email depois da obra ("Não quero receber"; só leitura).
+      r.emails_automaticos = emails()?.enviados(ids) ?? [];
+      r.cliente.emails_recusados = emails()?.recusou(k.email, conta?.email, ...pedidos.map((o) => o.email)) ?? null;
     }
     // Trabalhos de eletricistas externos: só com o módulo ligado e só para o CEO (como o resto do módulo no painel).
     if (ceo && config.eletricistas && ids.length) {

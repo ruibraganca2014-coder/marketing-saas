@@ -5,6 +5,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO } from './catalogo-sementes.js';
 import { iso } from './util.js';
 
@@ -45,6 +46,8 @@ export const ORIGENS_CONTACTO = ['google', 'facebook', 'instagram', 'facebook_in
 export const MOTIVOS_PERDA = ['preco', 'prazo', 'sem_resposta', 'outro'];
 export const TIPOS_REGISTO = ['nota', 'chamada', 'email', 'whatsapp', 'visita'];
 export const ESTADOS_TAREFA = ['a_fazer', 'em_curso', 'feito'];
+/** Emails automáticos ao cliente (migração 34; docs/EMAILS-AUTOMATICOS.md): os tipos que ficam no registo dos envios. */
+export const TIPOS_EMAIL_AUTO = ['boas_vindas', 'visita', 'pagamento_1', 'pagamento_2', 'obra'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -826,6 +829,37 @@ export const MIGRACOES = [
     INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('lembrete_novo_dias_uteis', 1), ('lembrete_visita_dias', 2),
       ('lembrete_proposta_1_dias', 3), ('lembrete_proposta_2_dias', 7), ('lembrete_proposta_3_dias', 14);
   `),
+  // 34 — emails automáticos ao cliente (decisões do dono de 2026-10-03; docs/EMAILS-AUTOMATICOS.md). `emails_automaticos`:
+  // o registo dos envios — uma linha por email, com uma chave única (nunca sai duas vezes, também depois de reiniciar),
+  // sem o endereço nem o corpo; sai com o pedido. `emails_recusados`: quem carregou em "Não quero receber" (por email,
+  // em minúsculas). `emails_chave`: o segredo (uma linha) que assina a ligação "Não quero receber". A avaliação do
+  // trabalho na conta (1 a 5 estrelas) quando a obra não passou por um eletricista externo. Os prazos, editáveis pelo
+  // CEO (Tarefas): 1.º e 2.º lembrete do pagamento em falta, o email depois da obra (dias) e a hora do lembrete da visita.
+  (db) => {
+    db.exec(`
+      CREATE TABLE emails_automaticos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        chave TEXT NOT NULL UNIQUE,               -- "<pedido>:<tipo>[:<fase>][:<data da visita ou do pedido de pagamento>]"
+        orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+        tipo TEXT NOT NULL CHECK (tipo IN (${lista(TIPOS_EMAIL_AUTO)})),
+        quando TEXT NOT NULL
+      );
+      CREATE INDEX emails_automaticos_orcamento ON emails_automaticos(orcamento_id);
+      CREATE TABLE emails_recusados (
+        email TEXT PRIMARY KEY,                   -- em minúsculas
+        quando TEXT NOT NULL
+      );
+      CREATE TABLE emails_chave (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        chave TEXT NOT NULL
+      );
+      ALTER TABLE orcamentos ADD COLUMN avaliacao_estrelas INTEGER CHECK (avaliacao_estrelas IS NULL OR avaliacao_estrelas BETWEEN 1 AND 5);
+      ALTER TABLE orcamentos ADD COLUMN avaliacao_quando TEXT;
+      INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('email_pagamento_1_dias', 3), ('email_pagamento_2_dias', 7),
+        ('email_obra_dias', 2), ('email_visita_hora', 10);
+    `);
+    db.prepare('INSERT INTO emails_chave (id, chave) VALUES (1, ?)').run(randomBytes(32).toString('hex'));
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

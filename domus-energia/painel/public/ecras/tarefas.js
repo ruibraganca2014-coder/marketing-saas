@@ -10,7 +10,8 @@ import { h, ESTADOS_TAREFA, ESTADOS_OBRA, data, selo, campoForm, escolha, janela
 const CHAVE_VISTA = "domus.painel.tarefas.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
 const gravar = (v) => { try { localStorage.setItem(CHAVE_VISTA, v); } catch {} };
-const NOME_LEMBRETE = { novo_24h: "Pedido novo sem contacto", visita_2d: "Visita feita, proposta por enviar", proposta_3d: "Proposta sem resposta", proposta_7d: "Proposta sem resposta (2.º aviso)", proposta_14d: "Proposta: perdido?" };
+const NOME_LEMBRETE = { novo_24h: "Pedido novo sem contacto", visita_2d: "Visita feita, proposta por enviar", proposta_3d: "Proposta sem resposta", proposta_7d: "Proposta sem resposta (2.º aviso)", proposta_14d: "Proposta: perdido?",
+  pagamento_falta: "Pagamento em falta", avaliacao_baixa: "Avaliação baixa" };
 /** Prazos dos lembretes automáticos (config-orcamento, só o CEO): [chave, etiqueta, omissão, mínimo, máximo]. */
 const PRAZOS_LEMBRETES = [
   ["lembrete_novo_dias_uteis", "Pedido novo sem contacto (dias úteis)", 1, 1, 10],
@@ -18,6 +19,13 @@ const PRAZOS_LEMBRETES = [
   ["lembrete_proposta_1_dias", "Proposta sem resposta: 1.º aviso (dias)", 3, 1, 30],
   ["lembrete_proposta_2_dias", "Proposta sem resposta: 2.º aviso (dias)", 7, 2, 60],
   ["lembrete_proposta_3_dias", "Proposta sem resposta: \"Perdido?\" (dias)", 14, 3, 90],
+];
+/** Emails automáticos ao cliente (docs/EMAILS-AUTOMATICOS.md; config-orcamento, só o CEO): [chave, etiqueta, omissão, mínimo, máximo]. */
+const PRAZOS_EMAILS = [
+  ["email_pagamento_1_dias", "Pagamento em falta: 1.º lembrete (dias)", 3, 1, 30],
+  ["email_pagamento_2_dias", "Pagamento em falta: 2.º lembrete e tarefa (dias)", 7, 2, 60],
+  ["email_obra_dias", "Depois da obra: guia e pedido de avaliação (dias)", 2, 1, 30],
+  ["email_visita_hora", "Lembrete da visita, na véspera (hora, 8 a 20)", 10, 8, 20],
 ];
 /** Avisa o menu (contagem de atrasadas/hoje) de que as tarefas mudaram. */
 const avisarMenu = () => document.dispatchEvent(new CustomEvent("domus:tarefas"));
@@ -40,7 +48,7 @@ export default function tarefas(el, ctx) {
   const zona = h("div", { class: "zona-tarefas" }, carregando());
   el.append(...[h("div", { class: "ecra-topo" }, h("h1", { text: "Tarefas" }), segmentos,
     h("a", { class: "btn", href: "#/tarefas/nova", id: "nova-tarefa", text: "Nova tarefa" })),
-    ceo ? h("div", { class: "filtros" }, fResp) : null, contagem, zona, ceo ? blocoLembretes() : null].filter(Boolean));
+    ceo ? h("div", { class: "filtros" }, fResp) : null, contagem, zona, ceo ? blocoLembretes() : null, ceo ? blocoEmails() : null].filter(Boolean));
   fResp.addEventListener("change", desenhar);
 
   /** Prazos dos lembretes automáticos (só o CEO): lidos ao abrir o bloco, guardados em config-orcamento. */
@@ -68,6 +76,43 @@ export default function tarefas(el, ctx) {
       }
       const b = fr.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
       try { preencher(await pedir("config-orcamento", { corpo }) ?? corpo); avisar("Prazos dos lembretes guardados."); recarregar(); }
+      catch (erro) { mensagem(msg, erro.message); }
+      b.disabled = false;
+    });
+    return det;
+  }
+
+  /** Emails automáticos ao cliente (só o CEO): os prazos e a ligação da avaliação no Google, em config-orcamento. */
+  function blocoEmails() {
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const google = h("input", { type: "url", name: "google_avaliacao_url", maxlength: "300", placeholder: "https://g.page/r/…/review", inputmode: "url" });
+    const fr = h("form", { class: "form-grelha", id: "form-emails", novalidate: true },
+      h("p", { class: "ajuda", text: "Emails que o cliente recebe sozinho: pedido recebido, lembrete da visita na véspera, pagamento em falta (dois lembretes e depois uma tarefa para o CEO) e, depois da obra, o guia com o pedido de avaliação. Nunca saem entre as 21:00 e as 08:00." }),
+      ...PRAZOS_EMAILS.map(([k, etiqueta, omissao, min, max]) => campoForm(etiqueta, h("input", { type: "number", name: k, min: String(min), max: String(max), step: "1", inputmode: "numeric", value: String(omissao), required: true }))),
+      campoForm("Ligação da avaliação no Google", google, "Depois de avaliar na conta, todos os clientes veem o convite para a avaliação pública no Google, com qualquer número de estrelas. Vazia: não há convite."),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", text: "Guardar emails automáticos" })), msg);
+    const preencher = (cfg) => {
+      for (const [k, , omissao] of PRAZOS_EMAILS) fr.elements[k].value = String(numero(campo(cfg, k)) ?? omissao);
+      const g = campo(cfg, "google_avaliacao_url");
+      google.value = typeof g === "string" ? g : "";
+    };
+    let lido = false;
+    const det = h("details", { class: "grupo lembretes-config", id: "emails-config" }, h("summary", { text: "Emails automáticos ao cliente (CEO)" }), fr);
+    det.addEventListener("toggle", async () => {
+      if (!det.open || lido) return;
+      try { preencher(await pedir("config-orcamento", { sinal: ctrl.signal })); lido = true; }
+      catch (e) { if (e.name !== "AbortError") mensagem(msg, e.message); }
+    });
+    fr.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const corpo = { google_avaliacao_url: google.value.trim() };
+      for (const [k, etiqueta, , min, max] of PRAZOS_EMAILS) {
+        const v = numero(fr.elements[k].value);
+        if (v === null || !Number.isInteger(v) || v < min || v > max) { mensagem(msg, `${etiqueta}: um número inteiro entre ${min} e ${max}.`); fr.elements[k].focus(); return; }
+        corpo[k] = v;
+      }
+      const b = fr.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
+      try { preencher(await pedir("config-orcamento", { corpo }) ?? corpo); avisar("Emails automáticos guardados."); }
       catch (erro) { mensagem(msg, erro.message); }
       b.disabled = false;
     });
