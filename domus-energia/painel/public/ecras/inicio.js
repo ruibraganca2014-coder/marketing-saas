@@ -1,6 +1,6 @@
 // Início: resumo por papel (GET resumo). O servidor já só manda o que o papel pode ver;
 // aqui mostra-se o que vier, com nomes conhecidos para os campos do §3.
-import { pedir, campo, numero } from "../api.js";
+import { pedir, campo, numero, lista } from "../api.js";
 import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt } from "../ui.js";
 
 const saudacao = () => { const hr = new Date().getHours(); return hr < 13 ? "Bom dia" : hr < 20 ? "Boa tarde" : "Boa noite"; };
@@ -16,12 +16,22 @@ export default function inicio(el, ctx) {
     let r;
     try { r = await pedir("resumo", { sinal: ctrl.signal }); }
     catch (e) { if (e.name !== "AbortError") zona.replaceChildren(erroEcra(e, carregar)); return; }
-    zona.replaceChildren(...montar(r ?? {}));
+    // As minhas tarefas atrasadas ou para hoje (o mesmo que o selo do menu conta); sem elas o Início aparece na mesma.
+    let tarefas = [];
+    try { tarefas = lista(await pedir("tarefas?vista=minhas", { sinal: ctrl.signal }), "tarefas").filter((t) => t.estado !== "feito" && (t.atrasada || t.hoje)); }
+    catch (e) { if (e.name === "AbortError") return; }
+    zona.replaceChildren(...montar(r ?? {}, tarefas));
   }
 
-  function montar(r) {
+  function montar(r, tarefas) {
     const kpis = [];
     const blocos = [];
+    if (tarefas.length) {
+      blocos.push(h("section", { class: "cartao", id: "tarefas-para-hoje" }, h("h2", {}, h("a", { href: "#/tarefas", text: `Para hoje (${num(tarefas.length)})` })),
+        h("ul", { class: "lista-curta" }, ...tarefas.slice(0, 8).map((t) => h("li", {}, h("a", { class: "lista-curta-item", href: `#/tarefas/${encodeURIComponent(t.id)}` },
+          h("span", { class: "num quando", text: t.atrasada ? `Atrasada: ${data(t.prazo, { hora: false })}` : t.prazo_hora || "Hoje" }), h("span", { class: "lc-quem", text: t.titulo }))))),
+        tarefas.length > 8 ? h("p", { class: "ajuda" }, h("a", { href: "#/tarefas", text: `Ver as ${num(tarefas.length)} tarefas` })) : null));
+    }
     const kpi = (rotulo, valor, { href, destaque, ajuda } = {}) => {
       const c = h(href ? "a" : "div", { class: `kpi ${destaque ?? ""}`.trim(), href },
         h("span", { class: "kpi-rotulo", text: rotulo }),

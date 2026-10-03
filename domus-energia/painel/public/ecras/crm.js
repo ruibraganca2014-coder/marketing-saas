@@ -38,8 +38,8 @@ export default function crm(el, ctx) {
   const filtrosClientes = h("div", { class: "filtros" }, fTexto);
   const contagem = h("p", { class: "ajuda", role: "status" });
   const zona = h("div", { class: "zona-crm" }, carregando());
-  el.append(h("div", { class: "ecra-topo" }, h("h1", { text: vende ? "CRM" : "Clientes das minhas obras" }), segmentos),
-    vende ? filtrosPedidos : null, filtrosClientes, contagem, zona);
+  el.append(...[h("div", { class: "ecra-topo" }, h("h1", { text: vende ? "CRM" : "Clientes das minhas obras" }), segmentos),
+    vende ? filtrosPedidos : null, filtrosClientes, contagem, zona].filter(Boolean));
   for (const f of [fOrigem, fConcelho, fResp, fDe, fAte]) f.addEventListener("change", carregarPedidos);
   fFase.addEventListener("change", desenhar);
   let tTexto;

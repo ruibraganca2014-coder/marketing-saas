@@ -38,9 +38,9 @@ export default function tarefas(el, ctx) {
   const fResp = escolha("responsavel", { "": "Todos os responsáveis" }, "", { "aria-label": "Filtrar o quadro por responsável" });
   const contagem = h("p", { class: "ajuda", role: "status" });
   const zona = h("div", { class: "zona-tarefas" }, carregando());
-  el.append(h("div", { class: "ecra-topo" }, h("h1", { text: "Tarefas" }), segmentos,
+  el.append(...[h("div", { class: "ecra-topo" }, h("h1", { text: "Tarefas" }), segmentos,
     h("a", { class: "btn", href: "#/tarefas/nova", id: "nova-tarefa", text: "Nova tarefa" })),
-    ceo ? h("div", { class: "filtros" }, fResp) : null, contagem, zona, ceo ? blocoLembretes() : null);
+    ceo ? h("div", { class: "filtros" }, fResp) : null, contagem, zona, ceo ? blocoLembretes() : null].filter(Boolean));
   fResp.addEventListener("change", desenhar);
 
   /** Prazos dos lembretes automáticos (só o CEO): lidos ao abrir o bloco, guardados em config-orcamento. */

@@ -52,6 +52,7 @@ As fases **são os estados que o pedido já tinha** (nada duplicado): novo → c
 - Tarefa: título, descrição, ligação opcional a cliente / pedido / obra (ligada a um pedido fica também ligada à ficha do cliente), responsável (`NULL` = **os CEO**), prazo (dia e hora opcional), estado **A fazer / Em curso / Feito**, checklist (até 50 itens), criada por/quando, feita por/quando.
 - Ecrã **Tarefas**: **Quadro** (3 colunas; arrastar com o rato, ou "Mover para" em cada cartão — teclado; o do CEO tem as de todos e o filtro por responsável, o dos outros só as suas), **As minhas** (de que sou responsável; o CEO também vê as sem responsável) e **Semana** (tarefas com prazo e as obras agendadas, estas só para consulta). As feitas há mais de 30 dias saem do quadro (ficam na base).
 - **Selo no menu** "Tarefas": as minhas tarefas por fazer atrasadas ou para hoje (`GET tarefas/contagem`; atualiza ao mudar de ecrã e quando se mexe numa tarefa; sem temporizador, para não manter a sessão aberta para sempre).
+- **Início → "Para hoje"**: as mesmas tarefas (as minhas, atrasadas ou para hoje), até 8, com ligação a cada uma e ao quadro; o bloco não aparece quando não há nenhuma (`ecras/inicio.js`, `GET tarefas?vista=minhas`).
 
 ### Lembretes automáticos (decisão do dono)
 | Quando | Tarefa | Tipo | Prazo (`config_orcamento`) |
