@@ -70,7 +70,6 @@ svg { max-width: 100%; }
 .app-abas button:disabled { opacity: .55; cursor: not-allowed; }
 .app-abas button:focus-visible { outline-offset: -3px; }
 .app-abas .conta { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--argila); color: var(--sobre-musgo); font-size: .72rem; line-height: 18px; }
-.app-abas .breve { font-weight: 600; font-size: .64rem; }
 
 /* ---------- Peças ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 20px; border-radius: 999px; border: 2px solid var(--musgo); background: var(--musgo); color: var(--sobre-musgo); font: 700 1rem/1.2 var(--letra); cursor: pointer; text-align: center; text-decoration: none; }

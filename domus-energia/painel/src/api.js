@@ -138,6 +138,9 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/eletricista', ['ceo'], 'atribuirEletricista'],
   ['POST', 'eletricistas/:id/apagar', ['ceo'], 'apagarEletricista'],
   ['GET', 'trabalhos-eletricista/:id/fotos/:foto', ['ceo'], 'fotoTrabalhoEletricista'],
+  ['GET', 'pagamentos-eletricistas', ['ceo'], 'pagamentosEletricistas'],
+  ['POST', 'trabalhos-eletricista/:id/pago', ['ceo'], 'pagoEletricista'],
+  ['GET', 'trabalhos-eletricista/:id/fatura', ['ceo'], 'faturaEletricista'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -148,7 +151,7 @@ export const ROTAS = [
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-  'apagarEletricista', 'fotoTrabalhoEletricista']);
+  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -227,17 +230,20 @@ export function criarApi(ctx) {
   let pagPed = null;
   let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
-    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id) });
+    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null) });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
     db, config, registo, relogio, auditar, correio, fotos, stock, sessao: (req, res) => contas.sessao(req, res),
     criarObra: (o, por) => obraDoPedido(o, { id: null, email: por }),
     criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
+    // "Visita sem defeito" (eletricistas.js): a data em que o CEO decidiu cobrar a visita ao cliente, ou null.
+    visitaSemDefeito: (o) => (config.eletricistas ? eletricistas.visitaSemDefeito(o) : null),
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
   // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
-  eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed });
+  eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed,
+    concluirObra: (o, u, ip) => concluirObra(o, u, ip) });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
   const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
@@ -1172,7 +1178,12 @@ export function criarApi(ctx) {
   // Obra concluída: o cliente passa a ver "Pagar o restante" na conta.
   h.obraConcluida = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
-    const o = naoArquivado(obterOrcamento(params.id));
+    concluirObra(naoArquivado(obterOrcamento(params.id)), u, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  /** Marca a obra de um pedido como concluída (o botão do painel e a aprovação do trabalho de um eletricista externo). */
+  function concluirObra(o, u, ip) {
     if (o.estado !== 'aceite') throw new ErroApi(409, 'Só um pedido aceite (com o sinal pago) pode ter a obra concluída.');
     if (o.obra_concluida) throw new ErroApi(409, 'A obra já está marcada como concluída.');
     const agora = agoraIso();
@@ -1190,8 +1201,7 @@ export function criarApi(ctx) {
           `Proposta: ${deCent(v.base).toFixed(2).replace('.', ',')} € + IVA ${String(v.iva_pct).replace('.', ',')} % (${deCent(v.iva).toFixed(2).replace('.', ',')} €) = ${deCent(v.total).toFixed(2).replace('.', ',')} €, menos o que já pagou.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
-  };
+  }
 
   // ---- obras
   h.obras = ({ res, u, url }) => {
@@ -1350,6 +1360,9 @@ export function criarApi(ctx) {
         // Uma devolução (visita cancelada, sinal devolvido) vai numa linha própria, a negativo, com a data dela.
         .concat(linhas.flatMap((l) => [[l.data, l.ref, seguro(l.descricao), dec(l.base), dec(l.iva), dec(l.valor), l.estado, l.orcamento_id ?? ''].join(';'),
           ...(l.devolvido ? [[l.devolvido_em ?? l.data, l.ref, seguro(`Devolução: ${l.descricao}`), dec(-l.devolvido_base), dec(-l.devolvido_iva), dec(-l.devolvido), 'devolucao', l.orcamento_id ?? ''].join(';')] : [])]))
+        // Eletricistas externos (docs/ELETRICISTAS.md): o que se lhes deve e o que já foi pago, em linhas próprias, a
+        // negativo (é uma despesa, sem IVA) e com o estado `eletricista_…`: não entram nos totais dos clientes.
+        .concat(estado ? [] : pagEletricistas(mes).linhas.map((l) => [l.data, l.ref, seguro(l.descricao), dec(-l.valor), '', dec(-l.valor), l.estado, l.orcamento_id ?? ''].join(';')))
         .join('\r\n');
       const corpo = Buffer.from(`﻿${csv}\r\n`);
       res.writeHead(200, {
@@ -1366,8 +1379,11 @@ export function criarApi(ctx) {
       pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base', 'devolvido_base'), iva: soma('iva', 'devolvido_iva'), total: soma('valor', 'devolvido') },
       // Devoluções por transferência ainda por fazer (pagamentos por Multibanco): valor, IBAN e titular, para o CEO.
       devolucoes_por_fazer: pagPed.devolucoesPorFazer(),
+      // Eletricistas externos: o que se deve e o que já se pagou (sem IVA), à parte da receita dos clientes; null sem o módulo.
+      eletricistas: config.eletricistas ? { a_pagar: pagEletricistas(mes).a_pagar, pago: pagEletricistas(mes).pago } : null,
     });
   };
+  const pagEletricistas = (mes) => (config.eletricistas ? eletricistas.resumoPagamentos(mes) : { linhas: [], a_pagar: null, pago: null });
 
   // "Devolvido": o CEO fez a transferência de uma devolução manual (pagamento por referência Multibanco). Fica a data e
   // quem; só agora conta como devolvido nos totais e no CSV. O IBAN não vai para a auditoria.
@@ -1644,16 +1660,41 @@ export function criarApi(ctx) {
     res.end(f.corpo);
   };
 
+  // Pagamentos a eletricistas (ronda 3): o que está por aprovar, a pagar (com o prazo, a fatura-recibo e o IBAN) e pago.
+  h.pagamentosEletricistas = ({ res }) => responder(res, 200, eletricistas.pagamentosPainel());
+
+  // "Pago": o CEO fez a transferência (fica a data e quem). Só com as três condições cumpridas e a fatura-recibo.
+  h.pagoEletricista = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['parte']);
+    eletricistas.marcarPago(params.id, u, ip, v.parte);
+    responder(res, 200, eletricistas.pagamentosPainel());
+  };
+
+  // A fatura-recibo do eletricista: como o documento do seguro (tipo verificado pelos bytes, nosniff, CSP sandbox).
+  h.faturaEletricista = async ({ res, params, url }) => {
+    const d = await eletricistas.faturaParaPainel(params.id, url.searchParams.get('parte'));
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Type': d.tipo, 'Content-Length': d.corpo.length,
+      'Content-Disposition': `${d.tipo === 'application/pdf' ? 'attachment' : 'inline'}; filename="fatura-recibo-${d.regresso ? 'ida-' : ''}trabalho-${d.id}.${d.extensao}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(d.corpo);
+  };
+
   h.atribuicaoEletricista = ({ res, params }) => responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
 
   // "Atribuir a…" (eletricista aprovado, com o concelho do pedido), "Pôr na bolsa" ou "Retirar" (em qualquer altura).
   h.atribuirEletricista = async ({ req, res, u, params, ip }) => {
-    const v = await lerJson(req, ['acao', 'eletricista_id']);
+    const v = await lerJson(req, ['acao', 'eletricista_id', 'motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
-    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar']);
+    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito']);
     if (acao === 'atribuir') eletricistas.atribuir(o, v.eletricista_id, u, ip);
     else if (acao === 'bolsa') eletricistas.porNaBolsa(o, u, ip);
-    else eletricistas.retirar(o, u, ip);
+    else if (acao === 'retirar') eletricistas.retirar(o, u, ip);
+    // Ronda 3: aprovar o trabalho confirmado pelo cliente, devolvê-lo ao eletricista (com o motivo) ou decidir o "Não"
+    // do cliente (defeito: o eletricista volta sem receber mais; sem defeito: o cliente paga uma visita).
+    else eletricistas.decidir(o, acao, v.motivo, u, ip);
     responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
   };
 

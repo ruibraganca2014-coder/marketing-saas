@@ -178,7 +178,8 @@ describe('candidatura pública', () => {
     assert.equal((await candidatar(dadosCandidatura(), { site: false })).estado, 403);
     assert.equal((await p.pedir('POST', '/api/eletricista/candidatura', { corpo: 'nome=x', tipo: 'application/x-www-form-urlencoded' })).estado, 415);
     // GET: as páginas perguntam se o módulo existe (desligado dá 404; ver o "interruptor" em baixo).
-    assert.deepEqual((await p.pedir('GET', '/api/eletricista/candidatura')).json, { aberta: true });
+    // Leva a percentagem da mão de obra em vigor (a página "Trabalhe connosco" mostra-a).
+    assert.deepEqual((await p.pedir('GET', '/api/eletricista/candidatura')).json, { aberta: true, percentagem: 70 });
     assert.equal((await p.pedir('GET', '/api/eletricista/codigo')).estado, 405);
     assert.equal((await p.pedir('GET', '/api/eletricista/nada')).estado, 404);
     const ip = '203.0.113.9';
@@ -319,7 +320,7 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.match(r.cabecalhos['set-cookie'][0], /^domus_eletricista=[A-Za-z0-9_-]{43}; Path=\/api\/eletricista; HttpOnly; SameSite=Lax; Max-Age=\d+$/);
     const fora = await p.pedir('POST', '/api/eletricista/sair', { corpo: {}, cabecalhos: { Host: 'painel.teste' } });
     assert.match(fora.cabecalhos['set-cookie'][0], /; HttpOnly; Secure; SameSite=Lax; Max-Age=0$/);
-    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'nome', 'percentagem']);
+    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'iban', 'nome', 'percentagem']);
     const cookie = cookieDe(r);
     assert.equal((await p.pedir('POST', '/api/eletricista/entrar', { corpo: { email: e.email, codigo } })).estado, 400, 'o código só serve uma vez');
     assert.equal((await p.pedir('GET', '/api/eletricista/eu', { cookie })).json.eletricista.email, e.email);
@@ -784,10 +785,11 @@ describe('interruptor ELETRICISTAS: desligado por omissão (o módulo ainda não
 
   test('desligado: as rotas do painel dos eletricistas dão 404 (anónimo e CEO), o "eu" diz que não há módulo e nada sai no catálogo', async () => {
     const nomes = ['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-      'apagarEletricista', 'fotoTrabalhoEletricista'];   // as duas últimas são da ronda 2
+      'apagarEletricista', 'fotoTrabalhoEletricista',   // ronda 2
+      'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista'];   // ronda 3
     const rotas = ROTAS.filter((r) => nomes.includes(r.nome));
-    assert.equal(rotas.length, 8);
-    assert.equal(ROTAS.filter((r) => /eletricista/i.test(r.caminho)).length, 8, 'todas as rotas dos eletricistas estão atrás do interruptor');
+    assert.equal(rotas.length, 11);
+    assert.equal(ROTAS.filter((r) => /eletricista/i.test(r.caminho)).length, 11, 'todas as rotas dos eletricistas estão atrás do interruptor');
     for (const r of rotas) {
       const caminho = `/painel/api/${r.caminho.replace(':id', '1').replace(':foto', '0123456789abcdef01234567')}`;
       for (const papel of [null, 'ceo', 'comercial', 'tecnico']) {

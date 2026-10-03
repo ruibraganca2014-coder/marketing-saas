@@ -174,8 +174,15 @@ form.addEventListener("submit", async (e) => {
 // linha "Candidaturas ainda não estão abertas.", sem formulário. Sem ligação mostra-se o formulário (o envio avisa).
 (async () => {
   let estado = 0;
-  try { estado = (await fetch(`${api}/eletricista/candidatura`, { headers: { Accept: "application/json" } })).status; } catch { estado = 0; }
+  let pct = null;
+  try {
+    const r = await fetch(`${api}/eletricista/candidatura`, { headers: { Accept: "application/json" } });
+    estado = r.status;
+    if (r.ok) pct = Number((await r.json())?.percentagem);
+  } catch { estado = 0; }
   if (estado === 404) { document.getElementById("cand-fechada").hidden = false; return; }
+  // A percentagem em vigor (configuração do painel); sem resposta fica a escrita na página (70).
+  if (Number.isFinite(pct) && pct >= 0 && pct <= 100) for (const s of document.querySelectorAll("[data-pct]")) s.textContent = String(pct).replace(".", ",");
   document.getElementById("cand-aberta").hidden = false;
   carregarConcelhos();
 })();

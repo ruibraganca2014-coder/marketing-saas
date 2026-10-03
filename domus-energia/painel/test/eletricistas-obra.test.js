@@ -132,6 +132,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
   }
   const ficha = async (e, tid) => (await area(e, 'GET', `trabalhos/${tid}`)).json.trabalho;
   const bolsaEmails = () => p.emails.filter((m) => /novo trabalho em/i.test(m.assunto));
+  const voltouEmails = () => p.emails.filter((m) => /voltou à bolsa/i.test(m.assunto));
 
   test('avisos da bolsa: um email a cada eletricista aprovado do concelho, sem nada do cliente nem valores; um por trabalho e eletricista', async () => {
     const a = await aprovado({ concelhos: ['Torres Vedras', 'Mafra'] });
@@ -153,19 +154,24 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
       assert.ok(!/pedido n\.º/.test(m.texto));
     }
     assert.equal(p.app.db.prepare("SELECT detalhes FROM auditoria WHERE acao = 'trabalho_na_bolsa' ORDER BY id DESC LIMIT 1").get().detalhes.includes('"avisados":2'), true);
-    // Aprovado entretanto: quando o trabalho voltar à bolsa recebe o aviso; quem já o recebeu (e quem largou) não recebe outro.
+    // Aprovado entretanto: quando o trabalho voltar à bolsa recebe o aviso "novo"; quem já o tinha recebido recebe "voltou
+    // à bolsa" — menos quem o largou (ou deixou caducar), que nunca mais é avisado deste trabalho.
     const novo = await aprovado({ concelhos: ['Torres Vedras'] });
     await painel('POST', `eletricistas/${suspenso.id}`, 'ceo', { acao: 'reativar' });
     assert.equal((await area(a, 'POST', `bolsa/${tid}/aceitar`, {})).estado, 200);
     p.emails.length = 0;
     assert.equal((await area(a, 'POST', `trabalhos/${tid}/largar`, {})).estado, 200);
     assert.deepEqual(bolsaEmails().map((m) => m.para).sort(), [novo.email, suspenso.email].sort(), 'só quem ainda não tinha sido avisado');
-    // Volta outra vez (48 h sem visita): ninguém recebe segundo aviso.
+    assert.deepEqual(voltouEmails().map((m) => m.para), [b.email], 'quem já sabia do trabalho recebe "voltou à bolsa"; quem o largou não');
+    assert.equal(voltouEmails()[0].assunto, 'Domus Energia: um trabalho voltou à bolsa em Torres Vedras');
+    for (const dado of [CLIENTE.nome, 'Carla', CLIENTE.telefone, 'Rua do Exemplo', 'cliente.obra', '1240', '€', 'pedido n.º']) assert.ok(!voltouEmails()[0].texto.includes(dado), `o aviso não leva "${dado}"`);
+    // Volta outra vez (48 h sem visita): os outros da zona recebem "voltou à bolsa"; nem quem o largou nem quem o deixou caducar.
     assert.equal((await area(b, 'POST', `bolsa/${tid}/aceitar`, {})).estado, 200);
     p.emails.length = 0;
     p.relogio.avancar(PRAZO_VISITA_MS + 1000);
     assert.equal(p.app.api.eletricistas.expirar(), 1);
     assert.equal(bolsaEmails().length, 0);
+    assert.deepEqual(voltouEmails().map((m) => m.para).sort(), [novo.email, suspenso.email].sort());
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM trabalhos_eletricista_avisos WHERE trabalho_id = ?').get(tid).n, 4);
     // Outro trabalho no mesmo concelho: aviso novo. Atribuição direta: sem aviso da bolsa.
     const id2 = await obra('Torres Vedras');
@@ -385,7 +391,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal((await area(e, 'GET', `trabalhos/${tid}`)).estado, 404);
   });
 
-  test('avaria: diagnóstico pela lista de verificação do painel; concluir pede a conclusão e uma foto de antes (sem ensaios nem foto de depois)', async () => {
+  test('avaria e visita técnica: concluir pede o mesmo que a obra (visita marcada, foto de antes, foto de depois e os três ensaios); a avaria também a conclusão do diagnóstico', async () => {
     const e = await aprovado();
     const c = await p.contaConfirmada();
     const av = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
@@ -395,7 +401,8 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     const tid = (await atribuicao(id, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
     assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
     let f = await ficha(e, tid);
-    assert.deepEqual(f.falta, ['uma foto de antes', 'a conclusão do diagnóstico']);
+    const ENSAIOS = ['ensaio: resistência de isolamento', 'ensaio: disparo do diferencial', 'ensaio: resistência de terra'];
+    assert.deepEqual(f.falta, ['uma foto de antes', 'uma foto de depois', ...ENSAIOS, 'a conclusão do diagnóstico']);
     assert.equal(f.diagnostico.atual, null);
     assert.deepEqual(f.diagnostico.modelo.checklist.map((x) => x.chave), ['isolado', 'visual', 'rcd', 'tensao', 'continuidade', 'isolamento', 'funcional']);
     assert.equal(f.diagnostico.modelo.tipos.aberto, 'Circuito aberto');
@@ -404,24 +411,36 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     }
     const d = await area(e, 'POST', `trabalhos/${tid}/diagnostico`, { diagnostico: { verificacoes: ['isolado', 'visual'], valores: { tensao: 0 }, tipo: 'aberto', conclusao: 'Borne solto na caixa de derivação: reapertado.' } });
     assert.equal(d.estado, 200, d.texto);
-    assert.deepEqual([d.json.trabalho.diagnostico.atual.tipo, d.json.trabalho.diagnostico.atual.verificacoes, d.json.trabalho.falta], ['aberto', ['isolado', 'visual', 'tensao'], ['uma foto de antes']]);
+    assert.deepEqual([d.json.trabalho.diagnostico.atual.tipo, d.json.trabalho.diagnostico.atual.verificacoes, d.json.trabalho.falta], ['aberto', ['isolado', 'visual', 'tensao'], ['uma foto de antes', 'uma foto de depois', ...ENSAIOS]]);
     assert.ok(!('por' in d.json.trabalho.diagnostico.atual));
     const ped = (await painel('GET', `orcamentos/${id}`)).json;
     assert.deepEqual([ped.diagnostico.tipo, ped.diagnostico.por], ['aberto', `eletricista:${e.id}`]);
     assert.equal((await enviarFoto(e, tid, 'pontos_antes')).estado, 201);
+    let r = await area(e, 'POST', `trabalhos/${tid}/concluir`, {});
+    assert.deepEqual([r.estado, r.json.erro], [409, `Ainda falta: uma foto de depois; ${ENSAIOS.join('; ')}.`], 'só a foto de antes e o diagnóstico não chegam');
+    assert.equal((await enviarFoto(e, tid, 'pontos_depois')).estado, 201);
+    assert.equal((await area(e, 'POST', `trabalhos/${tid}/concluir`, {})).estado, 409, 'faltam os ensaios');
+    assert.equal((await area(e, 'POST', `trabalhos/${tid}/ensaios`, { isolamento: 200, terra: 40, diferencial: 28 })).estado, 200);
     p.emails.length = 0;
-    const r = await area(e, 'POST', `trabalhos/${tid}/concluir`, {});
+    r = await area(e, 'POST', `trabalhos/${tid}/concluir`, {});
     assert.equal(r.estado, 200, r.texto);
     assert.equal(r.json.trabalho.estado, 'concluida_eletricista');
     assert.ok(p.emails.some((m) => m.para === c.email && /confirme na sua conta/.test(m.texto)));
     assert.equal((await area(e, 'POST', `trabalhos/${tid}/diagnostico`, { diagnostico: null })).estado, 409);
     assert.equal((await atribuicao(id)).json.trabalho.diagnostico, true);
-    // Visita técnica paga: basta a visita marcada e uma foto de antes.
+    // Visita técnica paga: o mesmo que a obra (sem diagnóstico).
     const c2 = await p.contaConfirmada();
     const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
     await p.pedir('POST', `/api/conta/pagamentos/${vis.json.pagamento.ref}/simular`, { cookie: c2.cookie, corpo: { resultado: 'sucesso' } });
     const tv = (await atribuicao(vis.json.pedido, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
-    assert.deepEqual((await ficha(e, tv)).falta, ['marcar a visita', 'uma foto de antes']);
+    assert.deepEqual((await ficha(e, tv)).falta, ['marcar a visita', 'uma foto de antes', 'uma foto de depois', ...ENSAIOS]);
+    assert.equal((await area(e, 'POST', `trabalhos/${tv}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    assert.equal((await enviarFoto(e, tv, 'quadro_antes')).estado, 201);
+    assert.equal((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).estado, 409, 'a foto de antes já não chega');
+    assert.equal((await enviarFoto(e, tv, 'quadro_depois')).estado, 201);
+    assert.equal((await area(e, 'POST', `trabalhos/${tv}/ensaios`, { isolamento: 200, terra: 100, diferencial: 28 })).estado, 200);
+    assert.deepEqual((await ficha(e, tv)).falta, []);
+    assert.equal((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).estado, 200);
   });
 
   test('apagar eletricista (RGPD, só CEO, com confirmação): sem trabalhos a linha sai; com histórico fica anonimizado; o documento e as sessões saem sempre', async () => {

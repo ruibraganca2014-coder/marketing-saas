@@ -161,7 +161,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {} }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -546,6 +546,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       ...(pag ?? {}),
       pode_fotos: podeFotos,
       obra: obra ? { data: agendada ? obra.data : null, hora: agendada ? obra.hora : null, estado: obra.estado, por_agendar: !agendada } : null,
+      // Trabalho feito por um eletricista externo (docs/ELETRICISTAS.md): "O trabalho ficou concluído?" — por confirmar,
+      // confirmado (com a avaliação) ou devolvido; nunca quem o fez. null sem o módulo ou sem trabalho.
+      confirmacao: eletricistas()?.paraCliente(o) ?? null,
       resumo: resumoSimulacao(o.simulacao),
       fotos: fotos.listar(o, sim, `/api/conta/pedidos/${o.id}/fotos/`).map((f) => ({ id: f.id, chave: f.chave, legenda: f.legenda, url: f.url, criado: f.criado })),
       fotos_max: 40,
@@ -553,6 +556,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   }
 
   h.pedidos = ({ res, c }) => {
+    eletricistas()?.prazos();   // 7 dias sem resposta do cliente: o trabalho fica aceite (verificado ao ler)
     const linhas = db.prepare('SELECT * FROM orcamentos WHERE conta_id = ? ORDER BY id DESC LIMIT 50').all(c.id);
     responder(res, 200, { pedidos: linhas.map(pedidoParaCliente) });
   };
@@ -633,6 +637,15 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const pagamento = await pag.aoAceitar(c, atual);
     if (!pagamento) auditar(quem(c), 'proposta_aceite_cliente', `orcamento:${o.id}`, { estado: 'aceite', valor_proposta: deCent(o.valor_proposta_cent), via: 'online', plano, sinal: 0 }, ip);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)), pagamento });
+  };
+
+  // "O trabalho ficou concluído?" (docs/ELETRICISTAS.md): Sim (1 a 5 estrelas, comentário opcional, "podem usar o meu
+  // comentário no site") ou Não (o que falta). Só o dono do pedido, e só com um trabalho à espera de confirmação.
+  h.confirmarTrabalho = async ({ req, res, c, params, ip }) => {
+    const o = pedidoDaConta(c, params.id);
+    const v = await lerJson(req, ['concluido', 'estrelas', 'comentario', 'site', 'descricao']);
+    eletricistas().confirmarCliente(o, v, c, ip);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
   };
 
   // Credenciais MQTT da casa (área de cliente "Entrar com email"): só para a própria conta, com o email confirmado.
@@ -889,6 +902,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['GET', 'pedidos/:id/fotos/:foto', 'confirmada', 'foto'],
     ['POST', 'pedidos/:id/fotos', 'confirmada', 'acrescentarFoto'],
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],
+    // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
+    ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
     ['GET', 'casa', 'confirmada', 'casa'],
     ['POST', 'apagar', 'sessao', 'apagarConta'],
   ].map(([metodo, caminho, sessao, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao, nome }));

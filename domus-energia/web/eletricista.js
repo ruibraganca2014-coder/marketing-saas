@@ -2,9 +2,10 @@
 // em /api/eletricista), Bolsa (trabalhos dos seus concelhos, sem dados do cliente nem preços: é o servidor que os
 // tira), Aceitar, Os meus trabalhos (cliente, relatório técnico, material, 48 h para marcar a visita, Marcar visita,
 // Largar trabalho). Ronda 2 — a ficha de obra: material levantado ou recebido, fotos antes e depois, ensaios medidos,
-// diagnóstico da avaria, "Obra concluída" (fica a aguardar a confirmação do cliente) e a Ajuda técnica. Os pagamentos
-// são da ronda 3 ("em breve").
-// Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>. Só textContent (nunca HTML com dados).
+// diagnóstico da avaria, "Obra concluída" (fica a aguardar a confirmação do cliente) e a Ajuda técnica. Ronda 3 — os
+// Pagamentos: o valor de cada trabalho (fixado quando a Domus aprova), o estado (a aguardar o cliente / a aprovação / o
+// restante, fatura em falta, a pagar até, pago em), o envio da fatura-recibo e o IBAN (só se vê mascarado).
+// Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda. Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
 import { reduzirFoto } from "./simulador/fotos.js";
@@ -141,7 +142,7 @@ function entrou(e) {
 // ---------------------------------------------------------------- rotas
 function rota() {
   const [aba, id] = location.hash.replace(/^#\/?/, "").split("/");
-  return { aba: ["trabalhos", "ajuda"].includes(aba) ? aba : "bolsa", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
+  return { aba: ["trabalhos", "pagamentos", "ajuda"].includes(aba) ? aba : "bolsa", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
 }
 const ir = (c) => { if (location.hash === `#/${c}`) encaminhar(); else location.hash = `#/${c}`; };
 window.addEventListener("hashchange", () => { if (eu) encaminhar(); });
@@ -156,7 +157,7 @@ async function encaminhar() {
   const vista = $("el-vista");
   vista.replaceChildren(el("p", "vazio", "A carregar…"));
   try {
-    const partes = aba === "ajuda" ? ajuda() : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
+    const partes = aba === "ajuda" ? ajuda() : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
     if (minha !== geracao) return;
     vista.replaceChildren(...partes);
     $("conteudo").scrollTo?.(0, 0);
@@ -322,7 +323,8 @@ async function trabalhosLista() {
   }
   return out;
 }
-const seloEstado = (t) => (!t.aberto ? selo("Fechado") : t.estado === "concluida_eletricista" ? selo("A aguardar o cliente", "aviso")
+const seloEstado = (t) => (t.estado === "paga" ? selo("Pago", "bom") : t.estado === "aprovada" ? selo("Aprovado", "bom") : !t.aberto ? selo("Fechado")
+  : t.estado === "concluida_eletricista" ? selo("A aguardar o cliente", "aviso") : t.estado === "confirmada" ? selo("A aguardar aprovação", "aviso")
   : t.estado === "aceite" ? selo("Marcar visita", "aviso") : selo(`Visita ${visitaTxt(t.visita)}`, "bom"));
 
 let abaFicha = "cliente";
@@ -361,12 +363,29 @@ function desenharFicha(t) {
     com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação` : "")];
   if (!t.aberto) {
     out.push(el("p", "nota calma", "Trabalho fechado: os dados do cliente já não estão disponíveis."));
+    if (["aprovada", "paga"].includes(t.estado)) {
+      const b = el("button", "btn sec", "Ver em Pagamentos");
+      b.type = "button";
+      b.addEventListener("click", () => ir("pagamentos"));
+      out.push(b);
+    }
     return out;
   }
-  if (t.estado === "concluida_eletricista") {
+  if (t.estado === "concluida_eletricista" || t.estado === "confirmada") {
     const n = el("p", "nota calma");
     n.id = "obra-estado";
-    com(n, el("b", null, `Deu o trabalho por concluído em ${dataCurta(t.concluida)}.`), " A aguardar confirmação do cliente.");
+    com(n, el("b", null, `Deu o trabalho por concluído em ${dataCurta(t.concluida)}.`),
+      t.estado === "confirmada" ? " O cliente confirmou: falta a aprovação da Domus Energia." : " A aguardar confirmação do cliente.");
+    out.push(n);
+  }
+  // O trabalho voltou: o que o cliente disse que falta, ou o motivo da Domus Energia.
+  if (t.reclamacao) {
+    const n = el("div", "nota alarme");
+    n.id = "trabalho-voltou";
+    com(n, el("p", null, t.reclamacao.de === "cliente" ? "O cliente diz que o trabalho não ficou concluído:" : "A Domus Energia devolveu-lhe o trabalho:"),
+      el("p", null, `«${t.reclamacao.texto}»`),
+      t.reclamacao.decisao === "defeito" ? el("p", "pequeno", "Ficou decidido que é para corrigir: a ida não é paga à parte.") : null,
+      el("p", "pequeno", "Combine a ida com o cliente e volte a dar o trabalho por concluído."));
     out.push(n);
   }
   const abas = el("div", "ficha-abas");
@@ -405,8 +424,9 @@ function partesFeitas(t) {
   return {
     cliente: Boolean(t.visita),
     trabalho: (t.material ?? []).length > 0 && t.material.every((m) => m.recebido),
-    ensaios: t.tipo === "avaria" ? Boolean(t.diagnostico?.atual?.conclusao) : ["isolamento", "diferencial", "terra"].every((k) => e[k] !== null && e[k] !== undefined),
-    fotos: t.tipo === "obra" ? tem("quadro_antes", "pontos_antes") && tem("quadro_depois", "pontos_depois") : tem("quadro_antes", "pontos_antes"),
+    // O mesmo para a obra, a visita técnica e a avaria: os três ensaios (e, na avaria, a conclusão do diagnóstico).
+    ensaios: ["isolamento", "diferencial", "terra"].every((k) => e[k] !== null && e[k] !== undefined) && (t.tipo !== "avaria" || Boolean(t.diagnostico?.atual?.conclusao)),
+    fotos: tem("quadro_antes", "pontos_antes") && tem("quadro_depois", "pontos_depois"),
   };
 }
 const dataCurta = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : `${p2(d.getDate())}/${p2(d.getMonth() + 1)}`; };
@@ -655,7 +675,7 @@ function parteFotos(t) {
   const max = t.fotos_max ?? 4;
   const grelha = el("div", "fotos-grelha");
   grelha.id = "fotos-obra";
-  const obrigatoria = (grupo) => (grupo.endsWith("_antes") ? !fotos.some((f) => f.grupo.endsWith("_antes")) : t.tipo === "obra" && !fotos.some((f) => f.grupo.endsWith("_depois")));
+  const obrigatoria = (grupo) => !fotos.some((f) => f.grupo.endsWith(grupo.endsWith("_antes") ? "_antes" : "_depois"));
   for (const g of t.grupos_fotos ?? []) {
     const doGrupo = fotos.filter((f) => f.grupo === g.grupo);
     const [onde, quando] = g.nome.split(" — ");
@@ -709,13 +729,16 @@ function parteFotos(t) {
     }
     grelha.append(peca);
   }
-  return [grelha, el("p", "pequeno suave", t.tipo === "obra" ? `Para fechar a obra: pelo menos uma foto de antes e uma de depois; até ${max} por grupo.` : `Para fechar o trabalho: pelo menos uma foto de antes; até ${max} por grupo.`)];
+  return [grelha, el("p", "pequeno suave", `Para fechar ${t.tipo === "obra" ? "a obra" : "o trabalho"}: pelo menos uma foto de antes e uma de depois; até ${max} por grupo.`)];
 }
 
 // ---- Fecho: o que falta, "Obra concluída" e "Largar trabalho"
 function parteFim(t) {
   if (t.estado === "concluida_eletricista") {
-    return com(el("div", "pilha"), el("p", "pequeno suave", "Quando o cliente confirmar, a Domus Energia aprova a obra e o pagamento. Se for preciso corrigir alguma coisa, avisamos."));
+    return com(el("div", "pilha"), el("p", "pequeno suave", "Quando o cliente confirmar (ou ao fim de 7 dias sem resposta), a Domus Energia aprova o trabalho e o pagamento. Se for preciso corrigir alguma coisa, avisamos."));
+  }
+  if (t.estado === "confirmada") {
+    return com(el("div", "pilha"), el("p", "pequeno suave", "Depois da aprovação, envie a fatura-recibo em Pagamentos."));
   }
   const falta = t.falta ?? [];
   const nomeFim = t.tipo === "obra" ? "Obra concluída" : "Trabalho concluído";
@@ -753,11 +776,149 @@ function parteFim(t) {
     largar);
 }
 
+// ---------------------------------------------------------------- Pagamentos (ronda 3)
+const dataLonga = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`; };
+const TIPOS_FATURA = { "application/pdf": "PDF", "image/jpeg": "JPG", "image/png": "PNG" };
+const FATURA_MAX = 5 * 1024 * 1024;
+/** IBAN português: "PT50" + 21 algarismos, resto 1 na divisão por 97 (ISO 13616). O servidor valida outra vez. */
+function ibanValido(iban) {
+  if (!/^PT50\d{21}$/.test(iban)) return false;
+  let resto = 0;
+  for (const d of `${iban.slice(4)}2529${iban.slice(2, 4)}`) resto = (resto * 10 + Number(d)) % 97;
+  return resto === 1;
+}
+function estadoPagamentoTxt(x) {
+  if (x.pagamento === "a_pagar") return x.prazo ? `A pagar até ${dataLonga(x.prazo)}` : "A pagar";
+  if (x.pagamento === "pago") return x.pago_em ? `Pago em ${dataLonga(x.pago_em)}` : "Pago";
+  return x.pagamento_texto;
+}
+const SELO_PAGAMENTO = { pago: "bom", a_pagar: "bom", fatura_em_falta: "mau", sem_pagamento: "mau" };
+
+function desenharPagamentos(r) {
+  const out = [el("h2", null, "Pagamentos"),
+    el("p", "suave pequeno", `Pagamos por transferência até ${r.prazo_dias ?? PRAZO_DIAS} dias depois de: o cliente confirmar o trabalho, a Domus Energia o aprovar e, nas obras, o cliente pagar o restante. Contra fatura-recibo, sem IVA incluído nos valores.`),
+    cartaoIban(r.iban)];
+  if (!r.trabalhos.length) {
+    out.push(com(el("div", "cartao"), el("p", null, "Ainda sem pagamentos."), el("p", "suave pequeno", "Os trabalhos que der por concluídos aparecem aqui.")));
+    return out;
+  }
+  for (const x of r.trabalhos) out.push(cartaoPagamento(x));
+  return out;
+}
+
+function cartaoIban(iban) {
+  const c = com(el("div", "cartao pilha"), el("p", "rotulo", "IBAN para a transferência"));
+  c.id = "cartao-iban";
+  const atual = el("p", null, iban ?? "Ainda não indicou o IBAN.");
+  atual.id = "iban-atual";
+  const i = el("input");
+  i.id = "iban";
+  i.autocomplete = "off";
+  i.inputMode = "text";
+  i.maxLength = 34;
+  i.placeholder = "PT50 0000 0000 0000 0000 0000 0";
+  const msg = el("p", "msg erro");
+  msg.hidden = true;
+  msg.setAttribute("role", "alert");
+  const b = el("button", "btn cheio", iban ? "Mudar IBAN" : "Guardar IBAN");
+  b.type = "button";
+  b.id = "guardar-iban";
+  b.addEventListener("click", async () => {
+    const v = i.value.replace(/\s+/g, "").toUpperCase();
+    msg.hidden = true;
+    if (!ibanValido(v)) { msg.textContent = "O IBAN não parece certo: PT50 seguido de 21 algarismos."; msg.hidden = false; i.focus(); return; }
+    b.disabled = true;
+    try {
+      const j = await pedir("iban", { iban: v });
+      i.value = "";
+      atual.textContent = j.iban;
+      b.textContent = "Mudar IBAN";
+      aviso("IBAN guardado.");
+    } catch (e) { if (e.estado !== 401) { msg.textContent = e.message; msg.hidden = false; } }
+    finally { b.disabled = false; }
+  });
+  return com(c, atual, com(el("label", "campo"), el("span", null, iban ? "Novo IBAN" : "IBAN (conta em seu nome)"), i), msg, b,
+    el("p", "pequeno suave", "Só aparece mascarado. Usamos o IBAN apenas para lhe pagar."));
+}
+
+const sufixo = (x) => (x.parte === "regresso" ? `${x.id}-regresso` : String(x.id));
+function cartaoPagamento(x) {
+  const v = x.valor;
+  const c = com(el("div", "cartao pilha pagamento"), com(el("div", "selos"), selo(x.concelho), selo(NOME_TIPO[x.tipo] ?? x.tipo), selo(estadoPagamentoTxt(x), SELO_PAGAMENTO[x.pagamento] ?? "aviso")),
+    el("h3", null, x.titulo), el("p", "valor-grande", v ? euro(v.total) : "—"));
+  c.id = `pagamento-${sufixo(x)}`;
+  // A ida sem defeito (o cliente disse "Não" e não havia defeito): uma linha própria, com a sua fatura-recibo.
+  if (x.parte === "regresso") c.append(el("p", "pequeno suave", "Voltou ao cliente e não havia defeito: esta ida paga-se à parte, depois de o cliente pagar a visita."));
+  if (v) {
+    const dl = el("dl", "dados");
+    for (const [k, val] of [["Mão de obra (sem IVA)", euro(v.mao_obra)], [`${decimal(v.percentagem)} % da mão de obra`, euro(v.parte_mao_obra)], ["Deslocação (sem IVA)", euro(v.deslocacao)], ["Total", euro(v.total)]]) dl.append(el("dt", null, k), el("dd", "num", val));
+    c.append(dl);
+    if (!x.valor_fixado) c.append(el("p", "pequeno suave", "Estimativa: o valor fica fixado quando a Domus Energia aprovar o trabalho."));
+    if (x.tipo === "avaria" && x.parte !== "regresso") c.append(el("p", "pequeno suave", "A taxa de diagnóstico fica na Domus Energia."));
+  }
+  if (x.fatura) {
+    const a = el("a", null, `Ver a fatura-recibo (${TIPOS_FATURA[x.fatura.tipo] ?? "ficheiro"})`);
+    a.href = urlServidor(x.fatura.url);
+    a.target = "_blank";
+    a.rel = "noopener";
+    c.append(com(el("p", "pequeno"), `Fatura-recibo enviada em ${dataLonga(x.fatura.quando)}. `, a));
+  } else if (x.pode_fatura) c.append(el("p", "nota", `Fatura em falta: envie a fatura-recibo ${x.parte === "regresso" ? "desta ida" : "deste trabalho"}, com o valor acima.`));
+  if (x.pode_fatura) c.append(...envioFatura(x));
+  return c;
+}
+
+/** Enviar a fatura-recibo: PDF, JPG ou PNG até 5 MB (o servidor confirma o tipo pelos bytes). */
+function envioFatura(x) {
+  const ficheiro = el("input");
+  ficheiro.type = "file";
+  ficheiro.accept = "application/pdf,image/jpeg,image/png";
+  ficheiro.hidden = true;
+  ficheiro.id = `fatura-ficheiro-${sufixo(x)}`;
+  const msg = el("p", "msg erro");
+  msg.hidden = true;
+  msg.setAttribute("role", "alert");
+  const texto = x.fatura ? "Substituir a fatura-recibo" : "Enviar a fatura-recibo";
+  const b = el("button", x.fatura ? "btn sec" : "btn cheio", texto);
+  b.type = "button";
+  b.id = `enviar-fatura-${sufixo(x)}`;
+  b.addEventListener("click", () => ficheiro.click());
+  ficheiro.addEventListener("change", async () => {
+    const f = ficheiro.files[0];
+    ficheiro.value = "";
+    if (!f) return;
+    msg.hidden = true;
+    if (!TIPOS_FATURA[f.type]) { msg.textContent = "A fatura-recibo tem de ser PDF, JPG ou PNG."; msg.hidden = false; return; }
+    if (f.size > FATURA_MAX) { msg.textContent = "A fatura-recibo é demasiado grande (máx. 5 MB)."; msg.hidden = false; return; }
+    b.disabled = true;
+    b.textContent = "A enviar…";
+    try {
+      const dados = await new Promise((ok, falha) => {
+        const leitor = new FileReader();
+        leitor.onload = () => ok(String(leitor.result).replace(/^data:[^,]*,/, ""));
+        leitor.onerror = () => falha(new Error("Não foi possível ler o ficheiro."));
+        leitor.readAsDataURL(f);
+      });
+      const r = await pedir(`trabalhos/${x.id}/fatura`, { tipo: f.type, dados, ...(x.parte === "regresso" ? { parte: "regresso" } : {}) });
+      aviso("Fatura-recibo enviada.");
+      const y = window.scrollY;
+      $("el-vista").replaceChildren(...desenharPagamentos(r));
+      window.scrollTo(0, y);
+    } catch (e) {
+      if (e?.estado === 401) return;
+      msg.textContent = e?.message || "Não foi possível enviar.";
+      msg.hidden = false;
+      b.disabled = false;
+      b.textContent = texto;
+    }
+  });
+  return [ficheiro, msg, b];
+}
+
 // ---------------------------------------------------------------- Ajuda técnica (guia rápido; textos nossos)
 function ajuda() {
   const li = (itens) => com(el("ul", "simples"), itens.map((x) => (Array.isArray(x) ? com(el("li"), el("b", null, x[0]), ` ${x[1]}`) : el("li", null, x))));
   const dl = el("dl", "dados");
-  for (const [k, v] of [["Isolamento", "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados"], ["Terra", "< 100 Ω em habitação"], ["Diferencial", "dispara a ≤ IΔn; referência de tempo ≤ 300 ms"],
+  for (const [k, v] of [["Isolamento", "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados"], ["Terra", "≤ 100 Ω em habitação"], ["Diferencial", "dispara a ≤ IΔn; referência de tempo ≤ 300 ms"],
     ["PE", "registar o valor medido, tomada → quadro"], ["Tensão", "230 V ± 10 %"]]) dl.append(el("dt", null, k), el("dd", null, v));
   const fechada = (...a) => { const s = seccao(...a); s.open = false; return s; };
   const primeira = seccao("Segurança, antes de tudo", null, li(["Cortar o circuito no quadro e sinalizar o disjuntor.", "Confirmar a ausência de tensão no ponto de trabalho.",

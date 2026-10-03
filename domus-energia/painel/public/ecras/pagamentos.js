@@ -1,4 +1,6 @@
 // Pagamentos (CEO): totais por mês, tabela das linhas do CSV dos pagamentos e "Exportar CSV".
+// Com o módulo dos eletricistas (docs/ELETRICISTAS.md): "Pagamentos a eletricistas" — valor, prazo, fatura-recibo e IBAN
+// de cada trabalho, e "Pago"; e o que se deve / pagou aos eletricistas numa linha à parte dos pagamentos dos pedidos.
 import { pedir, campo, lista, numero, BASE } from "../api.js";
 import { h, PLANOS, euros, data, mes, nomeDe, carregando, erroEcra, txt, avisar, selo } from "../ui.js";
 
@@ -30,7 +32,7 @@ export function celulaCsv(v) {
   return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-export default function pagamentos(el) {
+export default function pagamentos(el, ctx = {}) {
   const ctrl = new AbortController();
   let linhas = [];
   const fMes = h("select", { name: "mes", "aria-label": "Mês da tabela" });
@@ -104,6 +106,50 @@ export default function pagamentos(el) {
       h("tbody", {}, ...ls.map((l) => h("tr", { dataset: { estado: campo(l, "estado") } }, ...col.map(([n, f, c]) => h("td", { class: c ?? "", "data-rotulo": n, text: f(l) })),
         h("td", { "data-rotulo": "Pedido" }, campo(l, "orcamento_id") ? h("a", { href: `#/orcamentos/${encodeURIComponent(campo(l, "orcamento_id"))}`, text: `n.º ${campo(l, "orcamento_id")}` }) : "—")))),
       t ? h("tfoot", {}, h("tr", {}, h("th", { scope: "row", colspan: "3", text: `Pagos (${campo(t, "pagamentos")})` }), h("td", { class: "num", text: euros(campo(t, "base")) }), h("td", { class: "num", text: euros(campo(t, "iva")) }), h("td", { class: "num", text: euros(campo(t, "total")) }), h("td", { colspan: "2" }))) : null));
+    // Eletricistas externos: uma despesa (sem IVA), à parte da receita dos clientes.
+    const el2 = campo(r, "eletricistas");
+    if (el2) zonaPed.append(h("p", { class: "ajuda", id: "pagamentos-eletricistas-total", text: `Eletricistas externos (sem IVA, à parte destes totais): pagos ${euros(el2.pago.total)} (${el2.pago.trabalhos}) · por pagar ${euros(el2.a_pagar.total)} (${el2.a_pagar.trabalhos}).` }));
+  }
+
+  // "Pagamentos a eletricistas" (só com o módulo ligado): os trabalhos concluídos, o estado do pagamento (as três
+  // condições: cliente confirmou, CEO aprovou, restante pago), o prazo de 7 dias, a fatura-recibo e o IBAN inteiro.
+  const zonaEl = h("section", { class: "bloco-lista", id: "pagamentos-eletricistas", "aria-labelledby": "pe-titulo", hidden: !ctx.eletricistas },
+    h("div", { class: "seccao-topo" }, h("h2", { id: "pe-titulo", text: "Pagamentos a eletricistas" })), carregando());
+  el.querySelector("#pagamentos-pedidos").after(zonaEl);
+  const ESTADO_SELO = { a_pagar: "grav-critica", fatura_em_falta: "aviso", pago: "estado-ativo" };
+  async function carregarEletricistas() {
+    if (!ctx.eletricistas) return;
+    let r;
+    try { r = await pedir("pagamentos-eletricistas", { sinal: ctrl.signal }); }
+    catch (e) { if (e.name !== "AbortError") zonaEl.replaceChildren(zonaEl.firstChild, erroEcra(e, carregarEletricistas)); return; }
+    const ts = r.trabalhos ?? [];
+    const topo = zonaEl.firstChild;
+    const resumo = h("p", { class: "ajuda", text: `Por pagar (aprovados): ${euros(r.a_pagar.total)} (${r.a_pagar.trabalhos}) · pagos: ${euros(r.pago.total)} (${r.pago.trabalhos}). Paga-se até ${r.prazo_dias} dias depois da última condição: cliente confirmou, trabalho aprovado e, nas obras, restante pago pelo cliente. Valores sem IVA.` });
+    if (!ts.length) { zonaEl.replaceChildren(topo, resumo, h("p", { class: "vazio", text: "Ainda não há trabalhos de eletricistas concluídos." })); return; }
+    zonaEl.replaceChildren(topo, resumo, h("ul", { class: "linhas-simples", id: "lista-pagamentos-eletricistas" }, ...ts.map((t) => {
+      const v = t.valor;
+      const ida = t.parte === "regresso";
+      const idBotao = `pago-${t.id}${ida ? "-regresso" : ""}`;
+      return h("li", { dataset: { trabalho: String(t.id), parte: t.parte, pagamento: t.pagamento } },
+        h("strong", { text: `${v ? euros(v.total) : "—"} — ${t.eletricista.nome}${ida ? " · ida sem defeito" : ""}` }), " ",
+        h("a", { href: `#/orcamentos/${encodeURIComponent(t.orcamento_id)}`, text: `pedido n.º ${t.orcamento_id}` }), " ",
+        selo(`${t.pagamento_texto}${t.pagamento === "a_pagar" && t.prazo ? ` até ${data(t.prazo)}` : ""}${t.pago_em ? ` em ${data(t.pago_em)}` : ""}`, ESTADO_SELO[t.pagamento] ?? "info"),
+        h("span", { class: "bloco-ajuda", text: `${ida ? "Ida sem defeito (visita paga pelo cliente)" : t.tipo_nome} em ${t.concelho}${v ? ` · ${String(v.percentagem).replace(".", ",")} % de ${euros(v.mao_obra)} + ${euros(v.deslocacao)} de deslocação${t.valor_fixado ? "" : " (estimativa até aprovar)"}` : ""}` }),
+        ["a_pagar", "fatura_em_falta", "pago"].includes(t.pagamento) ? h("span", { class: "bloco-ajuda num", text: `IBAN ${t.iban ?? "por indicar"}${t.eletricista.nif ? ` · NIF ${t.eletricista.nif}` : ""}` }) : null,
+        t.fatura ? h("a", { class: "btn sec pequeno", href: t.fatura.url, target: "_blank", rel: "noopener", text: "Fatura-recibo" }) : null,
+        t.pagamento === "a_pagar" ? h("button", { class: "btn sec pequeno", type: "button", id: idBotao, text: "Pago", "aria-label": `Marcar como pago: ${euros(v.total)} a ${t.eletricista.nome}${ida ? " (ida sem defeito)" : ""}`,
+          onclick: async (e) => {
+            const b = e.currentTarget;
+            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; return; }
+            b.disabled = true;
+            try {
+              await pedir(`trabalhos-eletricista/${encodeURIComponent(t.id)}/pago`, { corpo: ida ? { parte: "regresso" } : {} });
+              avisar("Pagamento ao eletricista registado.");
+              carregarEletricistas();
+              carregarPedidos();
+            } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+          } }) : null);
+    })));
   }
 
   async function carregar() {
@@ -168,6 +214,7 @@ export default function pagamentos(el) {
 
   carregar();
   carregarPedidos();
+  carregarEletricistas();
   return { desmontar: () => ctrl.abort() };
 }
 

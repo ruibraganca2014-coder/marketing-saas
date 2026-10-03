@@ -5,6 +5,7 @@
 // Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: o relatório básico (grátis, logo ao enviar); comprar o relatório
 // pormenorizado (revisto antes de o vermos) e a visita técnica (a data aparece quando a marcarmos); estado e recibo de
 // cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
+// Fase 4, ronda 3: "O trabalho ficou concluído?" (Sim com 1 a 5 estrelas / Não com o que falta) e a visita sem defeito.
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao, marcarSessao } from "./conta-comum.js";
 import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simulador/fotos.js";
 import { formatarEuroRedondo, textoDias } from "./simulador/preco.js";
@@ -136,6 +137,8 @@ function cartaoPedido(p) {
   // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
   if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", "Não o encontrámos na visita: a visita não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova."));
   for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
+  if (p.confirmacao) c.append(blocoConfirmacao(p));
+  if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
   if (p.proposta) c.append(blocoProposta(p));
   if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
   if (p.relatorio_basico) c.append(blocoBasico(p));
@@ -260,6 +263,144 @@ function blocoRestante(p) {
 }
 
 /**
+ * "O trabalho ficou concluído?" (docs/ELETRICISTAS.md): o técnico deu o trabalho por concluído e o cliente confirma —
+ * Sim (de 1 a 5 estrelas, comentário opcional, "podem usar o meu comentário no site") ou Não (o que falta). Sem
+ * resposta em 7 dias fica aceite. Depois mostra o que respondeu.
+ */
+function blocoConfirmacao(p) {
+  const x = p.confirmacao;
+  const b = el("section", "conta-proposta conta-confirmacao");
+  b.setAttribute("aria-label", "Confirmação do trabalho");
+  const oque = x.tipo === "Obra" ? "o trabalho" : x.tipo === "Visita técnica" ? "a visita técnica" : "o diagnóstico da avaria";
+  const concluidoTxt = x.tipo === "Visita técnica" ? "concluída" : "concluído";
+  if (x.estado === "confirmada") {
+    b.append(el("h4", null, "Trabalho concluído"));
+    if (x.sem_defeito) b.append(el("p", "msg info", "Voltámos a ver o trabalho e não encontrámos defeito: ficou dado como concluído."));
+    else if (x.automatica) b.append(el("p", "msg ok", `Não recebemos resposta em 7 dias: ${oque} ficou dad${concluidoTxt.endsWith("a") ? "a" : "o"} como ${concluidoTxt} em ${dataTxt(x.quando)}.`));
+    else {
+      b.append(el("p", "msg ok", `Confirmou em ${dataTxt(x.quando, true)}. Obrigado!`));
+      if (x.estrelas) { const e = el("p", "conta-estrelas-dadas", `${"★".repeat(x.estrelas)}${"☆".repeat(5 - x.estrelas)}`); e.setAttribute("aria-label", `${x.estrelas} em 5 estrelas`); b.append(e); }
+      if (x.comentario) b.append(el("p", "ajuda", `«${x.comentario}»${x.site ? " — pode ser usado no site." : ""}`));
+    }
+    return b;
+  }
+  if (x.estado === "contestada") {
+    b.append(el("h4", null, "O trabalho ainda não está concluído"), el("p", "msg info", `Disse-nos em ${dataTxt(x.quando, true)} que faltava: «${x.descricao ?? ""}». O técnico vai voltar; combinamos a data consigo.`));
+    return b;
+  }
+  // Por confirmar.
+  b.append(el("h4", null, "O trabalho ficou concluído?"),
+    el("p", null, `O nosso técnico deu ${oque} por ${concluidoTxt} em ${dataTxt(x.concluida, true)}. Confirme, por favor, que ficou tudo bem.`),
+    el("p", "ajuda", `Sem resposta até ${dataTxt(x.prazo)}, damos ${oque} por ${concluidoTxt}.`));
+  const msg = msgPequena();
+  const sim = el("button", "btn", "Sim");
+  sim.type = "button";
+  sim.id = `confirmar-sim-${p.id}`;
+  const nao = el("button", "btn sec", "Não, falta alguma coisa");
+  nao.type = "button";
+  nao.id = `confirmar-nao-${p.id}`;
+  const bs = el("div", "form-botoes");
+  bs.append(sim, nao);
+  const zona = el("div", "conta-confirmar-zona");
+  const erro = (t, foco) => { msg.textContent = t; msg.className = "msg erro"; msg.hidden = false; foco?.focus(); };
+  const enviar = async (botao, corpo) => {
+    botao.disabled = true;
+    try {
+      await pedirConta(`pedidos/${p.id}/confirmar-trabalho`, { corpo });
+      await carregar();
+      mensagem(corpo.concluido ? "Obrigado! Registámos que ficou tudo concluído." : "Recebemos. O técnico vai voltar para terminar; combinamos a data consigo.", "ok");
+    } catch (e) {
+      botao.disabled = false;
+      erro(e.message);
+      if (e instanceof ErroConta && e.estado === 409) carregar();
+    }
+  };
+  sim.addEventListener("click", () => {
+    msg.hidden = true;
+    const f = el("form", "conta-confirmar-form");
+    f.noValidate = true;
+    const estrelas = el("fieldset", "conta-estrelas");
+    estrelas.append(el("legend", null, "A sua avaliação (obrigatória)"));
+    const linha = el("div", "conta-estrelas-linha");
+    for (let n = 1; n <= 5; n++) {
+      const l = el("label");
+      const i = document.createElement("input");
+      i.type = "radio";
+      i.name = `estrelas-${p.id}`;
+      i.value = String(n);
+      i.id = `estrelas-${p.id}-${n}`;
+      i.setAttribute("aria-label", `${n} em 5 estrelas`);
+      l.append(i, el("span", null, "★"));
+      l.title = `${n} em 5`;
+      i.addEventListener("change", () => linha.querySelectorAll("label").forEach((x, k) => x.classList.toggle("ativa", k < n)));
+      linha.append(l);
+    }
+    estrelas.append(linha);
+    const lc = el("label", "campo");
+    const t = document.createElement("textarea");
+    t.id = `comentario-${p.id}`;
+    t.maxLength = 1000;
+    t.rows = 3;
+    lc.append(el("span", null, "Comentário (opcional)"), t);
+    const site = el("label", "caixa");
+    const cs = document.createElement("input");
+    cs.type = "checkbox";
+    cs.id = `comentario-site-${p.id}`;
+    site.append(cs, " Podem usar o meu comentário no site");
+    const ok = el("button", "btn", "Enviar");
+    ok.type = "submit";
+    ok.id = `confirmar-enviar-${p.id}`;
+    f.append(estrelas, lc, site, ok);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const n = Number(f.querySelector(`input[name="estrelas-${p.id}"]:checked`)?.value);
+      if (!n) return erro("Escolha a avaliação: de 1 a 5 estrelas.", linha.querySelector("input"));
+      enviar(ok, { concluido: true, estrelas: n, comentario: t.value.trim() || null, site: cs.checked });
+    });
+    zona.replaceChildren(f);
+    linha.querySelector("input").focus();
+  });
+  nao.addEventListener("click", () => {
+    msg.hidden = true;
+    const f = el("form", "conta-confirmar-form");
+    f.noValidate = true;
+    const lc = el("label", "campo");
+    const t = document.createElement("textarea");
+    t.id = `falta-${p.id}`;
+    t.maxLength = 1000;
+    t.rows = 3;
+    t.required = true;
+    lc.append(el("span", null, "O que falta ou não ficou bem? (obrigatório)"), t);
+    const ok = el("button", "btn", "Enviar");
+    ok.type = "submit";
+    ok.id = `confirmar-falta-${p.id}`;
+    f.append(lc, el("p", "ajuda", "O técnico volta para terminar. Se voltarmos e não houver defeito, essa visita é paga (Termos e Condições)."), ok);
+    f.addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      if (t.value.trim().length < 5) return erro("Escreva o que falta (pelo menos umas palavras).", t);
+      enviar(ok, { concluido: false, descricao: t.value.trim() });
+    });
+    zona.replaceChildren(f);
+    t.focus();
+  });
+  b.append(bs, zona, msg);
+  return b;
+}
+
+/** Visita sem defeito (decisão 8): voltámos depois de um "Não" e não havia defeito — a visita paga-se e não desconta na obra. */
+function blocoVisitaSemDefeito(p) {
+  const v = p.visita_sem_defeito;
+  const b = el("section", "conta-proposta conta-visita-sem-defeito");
+  b.setAttribute("aria-label", "Visita sem defeito");
+  b.append(el("h4", null, "Visita sem defeito"));
+  if (v.paga) { b.append(el("p", "msg ok", `Visita paga (${euro(v.valor)}). Obrigado!`)); return b; }
+  const msg = msgPequena();
+  b.append(el("p", null, `Voltámos ao trabalho e não encontrámos defeito. Como nos Termos e Condições, esta visita é paga: ${euro(v.valor)} com IVA (não é descontada na obra).`),
+    botaoPagar(p, "visita_sem_defeito", `Pagar a visita (${euro(v.valor)})`, msg), msg);
+  return b;
+}
+
+/**
  * Cancelar a visita técnica paga (decisão 10): com mais de 24 h de antecedência devolvemos a visita; com menos já não
  * há devolução; se faltou, a visita não é devolvida.
  */
@@ -375,6 +516,7 @@ function blocoPagamentos(p) {
     li.dataset.fase = x.fase;
     li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)} com IVA`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
     if (x.nao_realizada) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita não realizada — não desconta"));
+    if (x.sem_defeito) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita sem defeito — não desconta"));
     if (x.a_devolver != null) li.append(el("span", "conta-recibo", `A devolver por transferência: ${euro(x.a_devolver)}`));
     if (x.devolvido != null) li.append(el("span", "conta-recibo", `Devolvidos ${euro(x.devolvido)}${x.devolvido_em ? ` em ${dataTxt(x.devolvido_em, true)}` : ""}${x.modo === "simulado" ? " · SIMULAÇÃO" : ""}`));
     if (x.recibo) {

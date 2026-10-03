@@ -19,7 +19,11 @@
 // pedido, `orcamentos.ensaios`; fora do limite pede uma nota), diagnóstico da avaria (`orcamentos.diagnostico`) e "Obra
 // concluída" (`concluida_eletricista`: avisa os CEO e o cliente e fica à espera da confirmação do cliente). A bolsa
 // avisa por email os eletricistas do concelho (um email por trabalho e eletricista). Apagar um eletricista (RGPD).
-// A confirmação e a avaliação do cliente, a aprovação do CEO e o pagamento (fatura-recibo) são da ronda 3.
+// Ronda 3 — confirmação, aprovação e pagamento: o cliente confirma na conta ("Sim" com 1 a 5 estrelas, ou "Não" com o
+// que falta; 7 dias sem resposta = aceite), o CEO aprova (a obra fica concluída no painel e o valor a pagar fica FIXADO)
+// ou devolve ao eletricista, o eletricista envia a fatura-recibo e indica o IBAN, e o CEO marca "Pago". Só fica "a
+// pagar" com as três condições: cliente confirmou, restante pago (obras) e CEO aprovou; prazo de 7 dias depois da
+// última. Quem largou o trabalho ou o deixou caducar nunca recebe por ele.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { readFile, rm, unlink } from 'node:fs/promises';
@@ -59,8 +63,54 @@ const RENOVAR_MS = 60_000;
 const EXTENSAO = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 const TIPOS_CASA = { apartamento: 'Apartamento', moradia: 'Moradia', alojamento_local: 'Alojamento local', servicos: 'Serviços', industrial: 'Industrial' };
-const ATIVOS = "('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista')";
-const DO_ELETRICISTA = "('aceite', 'visita_marcada', 'concluida_eletricista')";   // o trabalho é de alguém
+// Um trabalho ATIVO ocupa o pedido (não se atribui outro) até ser aprovado; EM CURSO = de alguém e ainda por pagar.
+const ATIVOS = "('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada')";
+const LISTA_DO_ELETRICISTA = ['aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada', 'aprovada', 'paga'];   // o trabalho é de alguém
+const DO_ELETRICISTA = `(${LISTA_DO_ELETRICISTA.map((x) => `'${x}'`).join(', ')})`;
+const EM_CURSO = "('aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada', 'aprovada')";
+const LISTA_CONCLUIDOS = ['concluida_eletricista', 'confirmada', 'aprovada', 'paga'];   // aparecem nos pagamentos
+const CONCLUIDOS = `(${LISTA_CONCLUIDOS.map((x) => `'${x}'`).join(', ')})`;
+const EDITAVEIS = ['aceite', 'visita_marcada'];                                      // ainda se mexe na ficha
+export const PRAZO_CONFIRMAR_MS = 7 * 24 * 3600_000;   // sem resposta do cliente: o trabalho fica aceite
+export const PRAZO_PAGAMENTO_MS = 7 * 24 * 3600_000;   // pagar até 7 dias depois da última das três condições
+export const TEXTO_PAGAMENTO = {
+  sem_pagamento: 'Sem pagamento (largou o trabalho)', a_aguardar_cliente: 'A aguardar o cliente', a_aguardar_aprovacao: 'A aguardar aprovação',
+  a_aguardar_visita: 'A aguardar o pagamento da visita pelo cliente',
+  a_aguardar_restante: 'A aguardar o restante do cliente', fatura_em_falta: 'Fatura em falta', a_pagar: 'A pagar', pago: 'Pago',
+};
+
+/**
+ * O estado do pagamento de um trabalho ao eletricista. Só fica `a_pagar` com TODAS as condições: o cliente confirmou
+ * (ou passaram os 7 dias), o CEO aprovou e o cliente pagou o restante (nas obras; a visita e o diagnóstico já estão
+ * pagos) — e com a fatura-recibo enviada. Quem largou o trabalho ou o deixou caducar nunca recebe (`sem_pagamento`).
+ */
+export function estadoPagamento({ largou = false, paga = false, confirmada = false, aprovada = false, restantePago = false, fatura = false }) {
+  if (largou) return 'sem_pagamento';
+  if (paga) return 'pago';
+  if (!confirmada) return 'a_aguardar_cliente';
+  if (!aprovada) return 'a_aguardar_aprovacao';
+  if (!restantePago) return 'a_aguardar_restante';
+  return fatura ? 'a_pagar' : 'fatura_em_falta';
+}
+
+/**
+ * O estado da ida sem defeito (decisão do dono): o eletricista voltou depois de um "Não" do cliente e o CEO decidiu
+ * "sem defeito". Fica `a_pagar` só com a visita paga pelo cliente, o trabalho aprovado pelo CEO e a fatura-recibo
+ * desta ida; quem largou o trabalho nunca recebe.
+ */
+export function estadoRegresso({ largou = false, paga = false, visitaPaga = false, aprovada = false, fatura = false }) {
+  if (largou) return 'sem_pagamento';
+  if (paga) return 'pago';
+  if (!visitaPaga) return 'a_aguardar_visita';
+  if (!aprovada) return 'a_aguardar_aprovacao';
+  return fatura ? 'a_pagar' : 'fatura_em_falta';
+}
+
+/** O prazo do pagamento: 7 dias depois da ÚLTIMA das datas (confirmação, aprovação, restante pago); null sem nenhuma. */
+export function prazoPagamento(datas) {
+  const ms = datas.map((d) => Date.parse(d ?? '')).filter(Number.isFinite);
+  return ms.length ? iso(Math.max(...ms) + PRAZO_PAGAMENTO_MS) : null;
+}
 
 const sha = (t) => createHash('sha256').update(t).digest('hex');
 const hashCodigo = (id, codigo) => sha(`eletricista:${id}:${codigo}`);
@@ -90,8 +140,9 @@ function hostLocal(req) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, correio: object, pagamentos: () => object}} ctx
  *   `pagamentos()`: os pagamentos do pedido (pagamentos-pedido.js): visita paga, proposta em partes, relatório.
+ *   `concluirObra(o, u, ip)`: a ação "Obra concluída" do painel (api.js), usada ao aprovar o trabalho de uma obra.
  */
-export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos }) {
+export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {} }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -131,20 +182,36 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const pasta = (id) => join(config.eletricistasDir, String(id));
   const ficheiro = (e) => join(pasta(e.id), `${e.seguro_id}.${EXTENSAO[e.seguro_tipo]}`);
 
-  /** `{tipo, dados}` (base64) → {tipo, bytes: Buffer}; o tipo declarado tem de ser o dos bytes. */
-  function documentoSeguro(v) {
-    if (!v || typeof v !== 'object' || Array.isArray(v)) falha('Junte o documento do seguro de responsabilidade civil (PDF, JPG ou PNG).');
-    for (const k of Object.keys(v)) if (!['tipo', 'dados'].includes(k)) falha(`Documento do seguro: campo desconhecido "${k}".`);
-    if (typeof v.tipo !== 'string' || !EXTENSAO[v.tipo]) throw new ErroApi(415, 'O documento do seguro tem de ser PDF, JPG ou PNG.');
-    if (typeof v.dados !== 'string' || !v.dados) falha('O documento do seguro está vazio.');
-    if (v.dados.length > Math.ceil(SEGURO_MAX_BYTES / 3) * 4) throw new ErroApi(413, 'O documento do seguro é demasiado grande (máx. 5 MB).');
-    if (!RE_BASE64.test(v.dados)) falha('O documento do seguro não está bem codificado.');
+  /**
+   * `{tipo, dados}` (base64) → {tipo, bytes: Buffer}; o tipo declarado tem de ser o dos bytes. As mesmas regras para o
+   * documento do seguro e para a fatura-recibo (PDF, JPG ou PNG até 5 MB); `m` = as mensagens de cada um.
+   */
+  function documento(v, m) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) falha(m.junte);
+    for (const k of Object.keys(v)) if (!['tipo', 'dados'].includes(k)) falha(`${m.nome}: campo desconhecido "${k}".`);
+    if (typeof v.tipo !== 'string' || !EXTENSAO[v.tipo]) throw new ErroApi(415, m.tipo);
+    if (typeof v.dados !== 'string' || !v.dados) falha(m.vazio);
+    if (v.dados.length > Math.ceil(SEGURO_MAX_BYTES / 3) * 4) throw new ErroApi(413, m.grande);
+    if (!RE_BASE64.test(v.dados)) falha(m.codificado);
     const bytes = Buffer.from(v.dados, 'base64');
-    if (!bytes.length) falha('O documento do seguro está vazio.');
-    if (bytes.length > SEGURO_MAX_BYTES) throw new ErroApi(413, 'O documento do seguro é demasiado grande (máx. 5 MB).');
-    if (tipoDoDocumento(bytes) !== v.tipo) throw new ErroApi(415, 'O documento do seguro não é um PDF, JPG ou PNG válido.');
+    if (!bytes.length) falha(m.vazio);
+    if (bytes.length > SEGURO_MAX_BYTES) throw new ErroApi(413, m.grande);
+    if (tipoDoDocumento(bytes) !== v.tipo) throw new ErroApi(415, m.invalido);
     return { tipo: v.tipo, bytes };
   }
+  const MSG_SEGURO = {
+    junte: 'Junte o documento do seguro de responsabilidade civil (PDF, JPG ou PNG).', nome: 'Documento do seguro',
+    tipo: 'O documento do seguro tem de ser PDF, JPG ou PNG.', vazio: 'O documento do seguro está vazio.',
+    grande: 'O documento do seguro é demasiado grande (máx. 5 MB).', codificado: 'O documento do seguro não está bem codificado.',
+    invalido: 'O documento do seguro não é um PDF, JPG ou PNG válido.',
+  };
+  const MSG_FATURA = {
+    junte: 'Junte a fatura-recibo (PDF, JPG ou PNG).', nome: 'Fatura-recibo',
+    tipo: 'A fatura-recibo tem de ser PDF, JPG ou PNG.', vazio: 'A fatura-recibo está vazia.',
+    grande: 'A fatura-recibo é demasiado grande (máx. 5 MB).', codificado: 'A fatura-recibo não está bem codificada.',
+    invalido: 'A fatura-recibo não é um PDF, JPG ou PNG válido.',
+  };
+  const documentoSeguro = (v) => documento(v, MSG_SEGURO);
 
   // ------------------------------------------------------------ candidatura (pública)
   function listaConcelhos(v) {
@@ -251,7 +318,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return { ...s, sessaoExpira: iso(expira) };
   }
 
-  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e) });
+  // O IBAN sai sempre mascarado ("PT50 •••• 0154"), mesmo para o próprio; inteiro só para o CEO, nos pagamentos.
+  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e), iban: pagamentos().ibanMascarado(e.iban ?? null) });
 
   // ------------------------------------------------------------ entrar com código
   function novoCodigo(id) {
@@ -326,7 +394,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * O que se pode atribuir num pedido AGORA: 'obra' (pedido aceite com a obra por fazer), 'visita' (visita técnica paga)
    * ou 'avaria' (diagnóstico pago), ou null. Um trabalho está ABERTO enquanto isto for o tipo dele: com a obra
    * concluída ou cancelada, a proposta enviada depois da visita, ou o pedido perdido, fecha (e os dados do cliente
-   * deixam de sair para o eletricista).
+   * deixam de sair para o eletricista). Um trabalho aprovado pelo CEO (ou já pago) está sempre fechado.
    */
   function tipoAtribuivel(o) {
     if (!o || o.anonimizado || o.estado === ESTADO_ARQUIVADO) return null;
@@ -337,7 +405,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (['novo', 'contactado', 'visita_marcada'].includes(o.estado) && pagamentos().temVisita(o)) return simDe(o)?.funil === 'avaria' ? 'avaria' : 'visita';
     return null;
   }
-  const aberto = (t, o) => tipoAtribuivel(o) === t.tipo;
+  const aberto = (t, o) => !['aprovada', 'paga'].includes(t.estado) && tipoAtribuivel(o) === t.tipo;
 
   /** "Obra — Apartamento T2": só de dados estruturados (nunca o texto livre do pedido). */
   function titulo(o, tipo) {
@@ -431,13 +499,16 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.relatorio = estaAberto ? relatorioTecnico(rel, true) : null;
     r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
     // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
-    r.editavel = estaAberto && ['aceite', 'visita_marcada'].includes(t.estado);
+    r.editavel = estaAberto && EDITAVEIS.includes(t.estado);
+    // O trabalho voltou: o que o cliente disse que falta, ou o motivo da devolução da Domus (ronda 3).
+    r.reclamacao = estaAberto && EDITAVEIS.includes(t.estado) && t.reclamacao
+      ? { texto: t.reclamacao, de: t.reclamacao_de, quando: t.reclamacao_quando, decisao: t.reclamacao_decisao ?? null } : null;
     r.fotos = estaAberto ? fotosDe(t.id).map((f) => fotoPublica(f, `/api/eletricista/trabalhos/${t.id}/fotos/`)) : [];
     r.grupos_fotos = GRUPOS_FOTO_TRABALHO.map((g) => ({ grupo: g, nome: NOME_GRUPO_FOTO[g] }));
     r.fotos_max = FOTOS_POR_GRUPO;
     r.ensaios = estaAberto ? ensaiosDoPedido(o) : null;
     r.diagnostico = estaAberto && t.tipo === 'avaria' ? { modelo: MODELO_DIAGNOSTICO, atual: diagnosticoDoPedido(o) } : null;
-    r.falta = estaAberto && t.estado !== 'concluida_eletricista' ? faltaParaConcluir(t, o) : [];
+    r.falta = r.editavel ? faltaParaConcluir(t, o) : [];
     return r;
   }
 
@@ -485,19 +556,18 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
 
   /**
-   * O que falta para "Obra concluída" (lista vazia = pode): a visita marcada e pelo menos uma foto de antes; na obra,
-   * também uma foto de depois e os três ensaios (isolamento, diferencial e terra); na avaria, a conclusão do diagnóstico.
+   * O que falta para dar o trabalho por concluído (lista vazia = pode), igual na obra, na visita técnica e no
+   * diagnóstico: a visita marcada, pelo menos uma foto de antes e uma de depois e os três ensaios (isolamento,
+   * diferencial e terra); na avaria, também a conclusão do diagnóstico.
    */
   function faltaParaConcluir(t, o) {
     const falta = [];
     if (t.estado === 'aceite') falta.push('marcar a visita');
     const n = (grupos) => db.prepare(`SELECT COUNT(*) AS n FROM trabalhos_eletricista_fotos WHERE trabalho_id = ? AND grupo IN (${grupos.map(() => '?').join(', ')})`).get(t.id, ...grupos).n;
     if (!n(['quadro_antes', 'pontos_antes'])) falta.push('uma foto de antes');
-    if (t.tipo === 'obra') {
-      if (!n(['quadro_depois', 'pontos_depois'])) falta.push('uma foto de depois');
-      const e = pagamentos().ensaiosDe(o) ?? {};
-      for (const k of ENSAIOS_OBRIGATORIOS) if (e[k] === null || e[k] === undefined) falta.push(`ensaio: ${NOME_ENSAIO[k]}`);
-    }
+    if (!n(['quadro_depois', 'pontos_depois'])) falta.push('uma foto de depois');
+    const e = pagamentos().ensaiosDe(o) ?? {};
+    for (const k of ENSAIOS_OBRIGATORIOS) if (e[k] === null || e[k] === undefined) falta.push(`ensaio: ${NOME_ENSAIO[k]}`);
     if (t.tipo === 'avaria' && !diagnosticoDoPedido(o)?.conclusao) falta.push('a conclusão do diagnóstico');
     return falta;
   }
@@ -552,23 +622,31 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     avisarEmpresa('Domus Energia: um eletricista deixou um trabalho', [
       `${nomeEvento === 'expirou' ? 'Passaram 48 h sem visita marcada' : 'O eletricista largou o trabalho'} do pedido n.º ${t.orcamento_id}.`,
       t.modo === 'bolsa' ? 'O trabalho voltou à bolsa.' : 'O trabalho voltou a ficar por atribuir.']);
-    // De volta à bolsa: quem ainda não foi avisado deste trabalho (ex.: aprovado entretanto) recebe o email.
-    if (t.modo === 'bolsa') avisarBolsa(trabalho(t.id));
+    // De volta à bolsa: os outros eletricistas da zona recebem "voltou à bolsa" (nunca quem o largou ou deixou caducar).
+    if (t.modo === 'bolsa') avisarBolsa(trabalho(t.id), true);
     return true;
   }
 
   /**
    * Aviso da bolsa: um email a cada eletricista aprovado com o concelho do trabalho — "Novo trabalho em <concelho>" e a
-   * ligação para a área, sem nada do cliente nem valores. UM email por trabalho e por eletricista
-   * (`trabalhos_eletricista_avisos`): se o trabalho voltar à bolsa, quem já foi avisado (incluindo quem o largou) não
-   * recebe outro. Devolve quantos emails saíram.
+   * ligação para a área, sem nada do cliente nem valores. UM email "novo trabalho" por trabalho e por eletricista
+   * (`trabalhos_eletricista_avisos`). Quando o trabalho VOLTA à bolsa (`voltou`), quem já tinha sido avisado recebe
+   * "voltou à bolsa" — menos quem o largou ou o deixou caducar, que nunca mais é avisado dele. Devolve quantos emails saíram.
    */
-  function avisarBolsa(t) {
+  function avisarBolsa(t, voltou = false) {
     if (!t || t.estado !== 'na_bolsa') return 0;
     const ins = db.prepare('INSERT OR IGNORE INTO trabalhos_eletricista_avisos (trabalho_id, eletricista_id, quando) VALUES (?, ?, ?)');
     let n = 0;
     for (const e of aprovadosEm(t.concelho).slice(0, 500)) {
-      if (!ins.run(t.id, e.id, agoraIso()).changes) continue;
+      if (largouOuExpirou(t, e)) continue;
+      if (!ins.run(t.id, e.id, agoraIso()).changes) {
+        if (!voltou) continue;
+        n += 1;
+        correio.enviar({ para: e.email, assunto: `Domus Energia: um trabalho voltou à bolsa em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} voltou, ao eletricista ${e.id}`,
+          texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) voltou à bolsa e está outra vez disponível.`,
+            'Veja o relatório técnico e o valor que recebe na área do eletricista. O primeiro a aceitar fica com o trabalho.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+        continue;
+      }
       n += 1;
       correio.enviar({ para: e.email, assunto: `Domus Energia: novo trabalho em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
         texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
@@ -577,13 +655,28 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return n;
   }
 
-  /** 48 h depois de aceite sem visita marcada: o trabalho volta (corre em cada leitura e de 15 em 15 minutos). */
+  /**
+   * Os prazos, verificados em cada leitura e de 15 em 15 minutos: 48 h depois de aceite sem visita marcada o trabalho
+   * volta; 7 dias depois de dado por concluído sem resposta do cliente fica aceite (sem avaliação). Devolve quantos
+   * trabalhos voltaram (48 h).
+   */
   function expirar() {
     const idos = db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'aceite' AND aceite_em <= ?").all(relogio() - PRAZO_VISITA_MS);
     for (const t of idos) devolver(t, 'expirou', 'sistema');
+    const calados = db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'concluida_eletricista' AND concluida <= ?").all(iso(relogio() - PRAZO_CONFIRMAR_MS));
+    for (const t of calados) {
+      // A data da confirmação é o fim dos 7 dias (não o momento em que alguém leu): é dela que conta o prazo do pagamento.
+      const quando = iso(Date.parse(t.concluida) + PRAZO_CONFIRMAR_MS);
+      if (!db.prepare("UPDATE trabalhos_eletricista SET estado = 'confirmada', confirmada = ?, confirmada_auto = 1, atualizado = ? WHERE id = ? AND estado = 'concluida_eletricista'").run(quando, agoraIso(), t.id).changes) continue;
+      evento(t, 'confirmada', t.eletricista_id, 'sistema');
+      auditar(null, 'trabalho_confirmado_auto', `orcamento:${t.orcamento_id}`, { trabalho: t.id, criterio: '7 dias sem resposta do cliente' });
+      avisarEmpresa('Domus Energia: um trabalho ficou aceite (7 dias sem resposta)', [
+        `O cliente do pedido n.º ${t.orcamento_id} não respondeu em 7 dias: o trabalho ficou aceite.`, 'Falta a sua aprovação, na ficha do pedido.']);
+    }
     return idos.length;
   }
 
+  // Quem largou o trabalho ou o deixou caducar: não o volta a ver na bolsa, e NUNCA recebe por ele.
   const largouOuExpirou = (t, e) => Boolean(db.prepare("SELECT 1 FROM trabalhos_eletricista_eventos WHERE trabalho_id = ? AND eletricista_id = ? AND evento IN ('largou', 'expirou') LIMIT 1").get(t.id, e.id));
   /** O eletricista vê este trabalho na bolsa? Concelho dele, pedido aberto, e nunca o largou nem deixou caducar. */
   const visivelNaBolsa = (t, e, o) => t.estado === 'na_bolsa' && concelhosDe(e).includes(t.concelho) && Boolean(o) && aberto(t, o) && !largouOuExpirou(t, e);
@@ -600,7 +693,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const t = trabalho(idNum(idTexto));
     const o = t ? pedidoDe(t.orcamento_id) : null;
     if (!t || !o || !concelhosDe(e).includes(t.concelho)) throw new ErroApi(404, 'Trabalho não encontrado.');
-    if (['aceite', 'visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.eletricista_id !== e.id && t.modo === 'bolsa') throw new ErroApi(409, 'Outro eletricista aceitou este trabalho primeiro.');
+    if (LISTA_DO_ELETRICISTA.includes(t.estado) && t.eletricista_id !== e.id && t.modo === 'bolsa') throw new ErroApi(409, 'Outro eletricista aceitou este trabalho primeiro.');
     if (!visivelNaBolsa(t, e, o)) throw new ErroApi(404, 'Trabalho não encontrado.');
     return { t, o };
   }
@@ -634,18 +727,19 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     responder(res, 200, { trabalhos: lista });
   };
 
-  /** Trabalho deste eletricista, em curso (404 para os outros). */
+  /** Trabalho deste eletricista (404 para os outros). */
   function meu(e, idTexto) {
     const t = trabalho(idNum(idTexto));
     const o = t ? pedidoDe(t.orcamento_id) : null;
-    if (!t || !o || t.eletricista_id !== e.id || !['aceite', 'visita_marcada', 'concluida_eletricista'].includes(t.estado)) throw new ErroApi(404, 'Trabalho não encontrado.');
+    if (!t || !o || t.eletricista_id !== e.id || !LISTA_DO_ELETRICISTA.includes(t.estado)) throw new ErroApi(404, 'Trabalho não encontrado.');
     return { t, o };
   }
+  const JA_CONCLUIDO = 'Já deu este trabalho por concluído: está a aguardar a confirmação do cliente.';
   /** … e que ainda se pode mexer: aberto e ainda não dado por concluído. */
   function meuEditavel(e, idTexto) {
     const { t, o } = meu(e, idTexto);
-    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, 'Já deu este trabalho por concluído: está a aguardar a confirmação do cliente.');
-    if (!aberto(t, o)) throw new ErroApi(409, 'Este trabalho já está fechado.');
+    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, JA_CONCLUIDO);
+    if (!EDITAVEIS.includes(t.estado) || !aberto(t, o)) throw new ErroApi(409, 'Este trabalho já está fechado.');
     return { t, o };
   }
   const fichaAtual = (t) => ({ trabalho: paraEletricista(trabalho(t.id), pedidoDe(t.orcamento_id), true) });
@@ -691,7 +785,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     contar([[L.acoes, String(e.id)]]);
     expirar();
     const { t } = meu(e, params.id);
-    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, 'Já deu este trabalho por concluído: está a aguardar a confirmação do cliente.');
+    if (t.estado === 'concluida_eletricista') throw new ErroApi(409, JA_CONCLUIDO);
+    if (!EDITAVEIS.includes(t.estado)) throw new ErroApi(409, 'Este trabalho já está fechado.');
     if (!devolver(t, 'largou', `eletricista:${e.id}`)) throw new ErroApi(409, 'Este trabalho já não é seu.');
     responder(res, 200, { ok: true });
   };
@@ -807,7 +902,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   };
 
   // "Obra concluída": só com a visita marcada, as fotos e os ensaios (faltaParaConcluir). O trabalho fica
-  // `concluida_eletricista`, os CEO e o cliente são avisados e fica a aguardar a confirmação do cliente (ronda 3).
+  // `concluida_eletricista`, os CEO e o cliente são avisados e fica a aguardar a confirmação do cliente (7 dias).
   h.concluir = async ({ req, res, e, params, ip }) => {
     await lerJson(req, []);
     esperar([[L.acoes, String(e.id)]]);
@@ -829,10 +924,369 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: o trabalho em sua casa está concluído', resumo: `trabalho do pedido ${o.id} concluído pelo técnico`,
         texto: ['Olá,', '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id}.`,
-          'Pedimos-lhe que confirme na sua conta que ficou tudo bem. Se faltar alguma coisa, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+          'Pedimos-lhe que confirme na sua conta que ficou tudo bem, ou que nos diga o que falta. Sem resposta em 7 dias, o trabalho fica aceite.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, fichaAtual(t));
   };
+
+  // ------------------------------------------------------------ pagamento ao eletricista (ronda 3)
+  const pastaFatura = (trabalhoId) => join(config.eletricistasDir, 'faturas', String(trabalhoId));
+  const ficheiroFatura = (t) => join(pastaFatura(t.id), `${t.fatura_id}.${EXTENSAO[t.fatura_tipo]}`);
+  const detalheDe = (t) => { try { const v = JSON.parse(t.valor_detalhe ?? 'null'); return v && typeof v === 'object' ? v : null; } catch { return null; } };
+
+  /**
+   * O pagamento de um trabalho ao eletricista: estado (estadoPagamento), o valor (o FIXADO ao aprovar; antes disso a
+   * estimativa), o prazo (7 dias depois da última das três condições) e a fatura-recibo. `urlFatura`: de onde se
+   * descarrega (área do eletricista ou painel).
+   */
+  function pagamentoDe(t, o, urlFatura) {
+    const restante = t.tipo === 'obra' ? pagamentos().restantePago(o) : { pago: true, quando: null };
+    const estado = estadoPagamento({
+      largou: !t.eletricista_id || largouOuExpirou(t, { id: t.eletricista_id }), paga: t.estado === 'paga',
+      confirmada: Boolean(t.confirmada), aprovada: Boolean(t.aprovada), restantePago: restante.pago, fatura: Boolean(t.fatura_id),
+    });
+    return {
+      pagamento: estado, pagamento_texto: TEXTO_PAGAMENTO[estado],
+      valor: detalheDe(t) ?? estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
+      prazo: t.confirmada && t.aprovada && restante.pago ? prazoPagamento([t.confirmada, t.aprovada, restante.quando]) : null,
+      pago_em: t.paga ?? null,
+      fatura: t.fatura_id ? { tipo: t.fatura_tipo, bytes: t.fatura_bytes, quando: t.fatura_quando, url: urlFatura } : null,
+      pode_fatura: t.estado === 'aprovada',
+    };
+  }
+
+  /** A ida sem defeito de um trabalho (ou null): valor fixado na decisão do CEO, estado, prazo e a sua fatura-recibo. */
+  function regressoDe(t, o, urlFatura) {
+    if (t.regresso_cent === null || t.regresso_cent === undefined) return null;
+    const visitaPaga = pagamentos().visitaExtraPaga(o, t.regresso_desde);
+    const estado = estadoRegresso({
+      largou: !t.eletricista_id || largouOuExpirou(t, { id: t.eletricista_id }), paga: Boolean(t.regresso_paga),
+      visitaPaga: Boolean(visitaPaga), aprovada: Boolean(t.aprovada), fatura: Boolean(t.regresso_fatura_id),
+    });
+    let valor = null;
+    try { valor = JSON.parse(t.regresso_detalhe ?? 'null'); } catch { valor = null; }
+    return {
+      pagamento: estado, pagamento_texto: TEXTO_PAGAMENTO[estado], valor, valor_fixado: true,
+      prazo: visitaPaga && t.aprovada ? prazoPagamento([visitaPaga, t.aprovada]) : null, pago_em: t.regresso_paga ?? null, pago_por: t.regresso_paga_por ?? null,
+      fatura: t.regresso_fatura_id ? { tipo: t.regresso_fatura_tipo, bytes: t.regresso_fatura_bytes, quando: t.regresso_fatura_quando, url: `${urlFatura}?parte=regresso` } : null,
+      pode_fatura: ['aprovada', 'paga'].includes(t.estado) && !t.regresso_paga,
+    };
+  }
+  /** As linhas de pagamento de um trabalho: a do trabalho e, havendo, a da ida sem defeito (`parte: 'regresso'`). */
+  function linhasDe(t, o, base, urlFatura) {
+    const linhas = [{ ...base, parte: 'trabalho', ...pagamentoDe(t, o, urlFatura) }];
+    const r = regressoDe(t, o, urlFatura);
+    if (r) linhas.push({ ...base, parte: 'regresso', titulo: 'Ida sem defeito (visita)', ...r });
+    return linhas;
+  }
+
+  function pagamentosDoEletricista(e) {
+    expirar();
+    const lista = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${CONCLUIDOS} ORDER BY id DESC LIMIT 200`).all(e.id)
+      .map((t) => [t, pedidoDe(t.orcamento_id)]).filter(([, o]) => o)
+      .flatMap(([t, o]) => linhasDe(t, o, { id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), concluida: t.concluida ?? null }, `/api/eletricista/trabalhos/${t.id}/fatura`));
+    return { iban: pagamentos().ibanMascarado(linha(e.id)?.iban ?? null), prazo_dias: PRAZO_PAGAMENTO_MS / (24 * 3600_000), trabalhos: lista };
+  }
+
+  h.pagamentos = ({ res, e }) => responder(res, 200, pagamentosDoEletricista(e));
+
+  // O IBAN para a transferência: português, validado (módulo 97); vazio apaga. Nunca vai para o registo nem para a auditoria.
+  h.iban = async ({ req, res, e, ip }) => {
+    const v = await lerJson(req, ['iban']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    const vazio = v.iban === null || v.iban === undefined || v.iban === '';
+    const limpo = vazio ? null : pagamentos().ibanPt(v.iban);
+    if (!vazio && !limpo) falha('O IBAN não parece certo: PT50 seguido de 21 algarismos.');
+    db.prepare('UPDATE eletricistas SET iban = ?, atualizado = ? WHERE id = ?').run(limpo, agoraIso(), e.id);
+    auditar(quem(e), 'eletricista_iban', `eletricista:${e.id}`, { definido: Boolean(limpo) }, ip);
+    responder(res, 200, { iban: pagamentos().ibanMascarado(limpo) });
+  };
+
+  // A fatura-recibo do trabalho (PDF, JPG ou PNG até 5 MB, as regras do documento do seguro): depois de aprovado (o
+  // valor fica fixado nessa altura) e até estar pago; enviar outra substitui a anterior.
+  h.fatura = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['tipo', 'dados', 'parte'], Math.ceil(SEGURO_MAX_BYTES / 3) * 4 + 64 * 1024);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    const parte = opcao(v.parte ?? 'trabalho', 'parte', ['trabalho', 'regresso']);
+    if (parte === 'regresso') return faturaRegresso(req, res, e, params, ip, v);
+    const { t } = meu(e, params.id);
+    if (t.estado !== 'aprovada') throw new ErroApi(409, t.estado === 'paga' ? 'Este trabalho já está pago.' : 'A fatura-recibo envia-se depois de o trabalho estar aprovado (é aí que o valor fica fixado).');
+    const doc = documento({ tipo: v.tipo, dados: v.dados }, MSG_FATURA);
+    const nova = { id: t.id, fatura_id: randomBytes(12).toString('hex'), fatura_tipo: doc.tipo };
+    await escreverAtomico(ficheiroFatura(nova), doc.bytes);
+    const agora = agoraIso();
+    const r = db.prepare("UPDATE trabalhos_eletricista SET fatura_id = ?, fatura_tipo = ?, fatura_bytes = ?, fatura_quando = ?, atualizado = ? WHERE id = ? AND eletricista_id = ? AND estado = 'aprovada'")
+      .run(nova.fatura_id, doc.tipo, doc.bytes.length, agora, agora, t.id, e.id);
+    if (!r.changes) { await unlink(ficheiroFatura(nova)).catch(() => {}); throw new ErroApi(409, 'Este trabalho já não aceita a fatura-recibo.'); }
+    if (t.fatura_id) await unlink(ficheiroFatura(t)).catch(() => {});
+    auditar(quem(e), 'fatura_eletricista', `orcamento:${t.orcamento_id}`, { trabalho: t.id, documento: doc.tipo, substitui: Boolean(t.fatura_id) }, ip);
+    if (!t.fatura_id) avisarEmpresa('Domus Energia: fatura-recibo de um eletricista', [`Chegou a fatura-recibo do trabalho do pedido n.º ${t.orcamento_id}.`, 'Veja em Pagamentos, em "Pagamentos a eletricistas".']);
+    responder(res, 201, pagamentosDoEletricista(e));
+  };
+
+  // A fatura-recibo da ida sem defeito: as mesmas regras; depois de o trabalho estar aprovado e até essa ida estar paga.
+  async function faturaRegresso(req, res, e, params, ip, v) {
+    const { t } = meu(e, params.id);
+    if (t.regresso_cent === null || t.regresso_cent === undefined) throw new ErroApi(409, 'Este trabalho não tem uma ida sem defeito a pagar.');
+    if (t.regresso_paga) throw new ErroApi(409, 'Esta ida já está paga.');
+    if (!['aprovada', 'paga'].includes(t.estado)) throw new ErroApi(409, 'A fatura-recibo envia-se depois de o trabalho estar aprovado.');
+    const doc = documento({ tipo: v.tipo, dados: v.dados }, MSG_FATURA);
+    const nova = { id: t.id, fatura_id: randomBytes(12).toString('hex'), fatura_tipo: doc.tipo };
+    await escreverAtomico(ficheiroFatura(nova), doc.bytes);
+    const agora = agoraIso();
+    const r = db.prepare(`UPDATE trabalhos_eletricista SET regresso_fatura_id = ?, regresso_fatura_tipo = ?, regresso_fatura_bytes = ?, regresso_fatura_quando = ?, atualizado = ?
+      WHERE id = ? AND eletricista_id = ? AND regresso_cent IS NOT NULL AND regresso_paga IS NULL`).run(nova.fatura_id, doc.tipo, doc.bytes.length, agora, agora, t.id, e.id);
+    if (!r.changes) { await unlink(ficheiroFatura(nova)).catch(() => {}); throw new ErroApi(409, 'Esta ida já não aceita a fatura-recibo.'); }
+    if (t.regresso_fatura_id) await unlink(ficheiroFatura({ id: t.id, fatura_id: t.regresso_fatura_id, fatura_tipo: t.regresso_fatura_tipo })).catch(() => {});
+    auditar(quem(e), 'fatura_eletricista', `orcamento:${t.orcamento_id}`, { trabalho: t.id, parte: 'regresso', documento: doc.tipo, substitui: Boolean(t.regresso_fatura_id) }, ip);
+    responder(res, 201, pagamentosDoEletricista(e));
+  }
+
+  async function lerFatura(t, parte = 'trabalho') {
+    const regresso = parte === 'regresso';
+    const f = t && (regresso ? { id: t.id, fatura_id: t.regresso_fatura_id, fatura_tipo: t.regresso_fatura_tipo } : t);
+    if (!f?.fatura_id || !EXTENSAO[f.fatura_tipo]) throw new ErroApi(404, 'Fatura não encontrada.');
+    let corpo;
+    try { corpo = await readFile(ficheiroFatura(f)); } catch { throw new ErroApi(404, 'Fatura não encontrada.'); }
+    return { id: t.id, tipo: f.fatura_tipo, extensao: EXTENSAO[f.fatura_tipo], corpo, regresso };
+  }
+  const parteFatura = (texto) => (texto === null || texto === undefined ? 'trabalho' : opcao(texto, 'parte', ['trabalho', 'regresso']));
+  // A fatura só sai para o eletricista do trabalho (e para o CEO, no painel): nosniff, CSP sandbox, PDF como anexo.
+  h.verFatura = async ({ res, e, params, url }) => {
+    const d = await lerFatura(meu(e, params.id).t, parteFatura(url.searchParams.get('parte')));
+    res.writeHead(200, {
+      'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin',
+      'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Type': d.tipo, 'Content-Length': d.corpo.length,
+      'Content-Disposition': `${d.tipo === 'application/pdf' ? 'attachment' : 'inline'}; filename="fatura-recibo-${d.regresso ? 'ida-' : ''}trabalho-${d.id}.${d.extensao}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    res.end(d.corpo);
+  };
+
+  // ------------------------------------------------------------ o cliente confirma (conta.js) e o CEO decide (painel)
+  /**
+   * O que a conta do cliente mostra do trabalho feito em casa dele — NUNCA quem o fez: por confirmar (com o prazo dos 7
+   * dias), confirmado (com a avaliação que deu) ou contestado (o que disse que faltava). null sem nada para mostrar.
+   */
+  function paraCliente(o) {
+    const t = db.prepare("SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado != 'retirado' ORDER BY id DESC LIMIT 1").get(o.id);
+    if (!t) return null;
+    const tipo = NOME_TIPO_TRABALHO[t.tipo];
+    if (t.estado === 'concluida_eletricista') return { estado: 'por_confirmar', tipo, concluida: t.concluida, prazo: iso(Date.parse(t.concluida) + PRAZO_CONFIRMAR_MS) };
+    if (t.confirmada) {
+      return { estado: 'confirmada', tipo, quando: t.confirmada, automatica: Boolean(t.confirmada_auto), sem_defeito: t.reclamacao_decisao === 'sem_defeito',
+        estrelas: t.estrelas ?? null, comentario: t.comentario ?? null, site: Boolean(t.comentario_site) };
+    }
+    if (t.reclamacao_de === 'cliente' && ['na_bolsa', ...EDITAVEIS].includes(t.estado)) {
+      return { estado: 'contestada', tipo, quando: t.reclamacao_quando, descricao: t.reclamacao ?? null, decisao: t.reclamacao_decisao ?? null };
+    }
+    return null;
+  }
+
+  /**
+   * "O trabalho ficou concluído?" (conta do cliente): Sim — 1 a 5 estrelas (obrigatórias), comentário e "podem usar o
+   * meu comentário no site" opcionais — ou Não, com o que falta (obrigatório): o trabalho volta ao eletricista com esse
+   * texto e o CEO decide (defeito / sem defeito). Só com um trabalho à espera de confirmação.
+   */
+  function confirmarCliente(o, v, c, ip) {
+    expirar();
+    const t = db.prepare("SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado = 'concluida_eletricista' ORDER BY id DESC LIMIT 1").get(o.id);
+    if (!t) throw new ErroApi(409, 'Não há nenhum trabalho à espera da sua confirmação.');
+    const cliente = { id: null, email: `conta:${c.id}` };
+    const agora = agoraIso();
+    const e = t.eletricista_id ? linha(t.eletricista_id) : null;
+    if (v.concluido === true) {
+      const estrelas = v.estrelas;
+      if (!Number.isInteger(estrelas) || estrelas < 1 || estrelas > 5) falha('Escolha a avaliação: de 1 a 5 estrelas.');
+      const comentario = texto(v.comentario, 'o comentário', { max: 1000, multilinha: true });
+      if (v.site !== undefined && typeof v.site !== 'boolean') falha('Pode usar no site: tem de ser true ou false.');
+      const site = Boolean(v.site) && Boolean(comentario);
+      const r = db.prepare("UPDATE trabalhos_eletricista SET estado = 'confirmada', confirmada = ?, confirmada_auto = 0, estrelas = ?, comentario = ?, comentario_site = ?, atualizado = ? WHERE id = ? AND estado = 'concluida_eletricista'")
+        .run(agora, estrelas, comentario, site ? 1 : 0, agora, t.id);
+      if (!r.changes) throw new ErroApi(409, 'Não há nenhum trabalho à espera da sua confirmação.');
+      evento(t, 'confirmada', t.eletricista_id, 'cliente');
+      auditar(cliente, 'trabalho_confirmado_cliente', `orcamento:${o.id}`, { trabalho: t.id, estrelas, comentario: Boolean(comentario), site }, ip);
+      avisarEmpresa('Domus Energia: o cliente confirmou um trabalho', [
+        `O cliente do pedido n.º ${o.id} confirmou que o trabalho ficou concluído (${estrelas} em 5 estrelas).`, 'Falta a sua aprovação, na ficha do pedido.']);
+      return;
+    }
+    if (v.concluido !== false) falha('Diga se o trabalho ficou concluído.');
+    const descricao = texto(v.descricao, 'o que ficou por fazer', { max: 1000, min: 5, multilinha: true, obrigatorio: true });
+    // Uma decisão "sem defeito" anterior deixa de valer: a visita ainda por pagar sai, e a ida do eletricista com ela
+    // (se o cliente já a pagou, a ida fica).
+    if (t.regresso_cent !== null && t.regresso_cent !== undefined && !pagamentos().visitaExtraPaga(o, t.regresso_desde) && !t.regresso_paga) {
+      db.prepare('UPDATE trabalhos_eletricista SET regresso_desde = NULL, regresso_cent = NULL, regresso_detalhe = NULL, regresso_fatura_id = NULL, regresso_fatura_tipo = NULL, regresso_fatura_bytes = NULL, regresso_fatura_quando = NULL WHERE id = ?').run(t.id);
+      if (t.regresso_fatura_id) unlink(ficheiroFatura({ id: t.id, fatura_id: t.regresso_fatura_id, fatura_tipo: t.regresso_fatura_tipo })).catch(() => {});
+    }
+    const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'visita_marcada', concluida = NULL, reclamacao = ?, reclamacao_de = 'cliente', reclamacao_quando = ?,
+      reclamacao_decisao = NULL, reclamacao_decidida = NULL, atualizado = ? WHERE id = ? AND estado = 'concluida_eletricista'`).run(descricao, agora, agora, t.id);
+    if (!r.changes) throw new ErroApi(409, 'Não há nenhum trabalho à espera da sua confirmação.');
+    evento(t, 'contestada', t.eletricista_id, 'cliente');
+    auditar(cliente, 'trabalho_contestado_cliente', `orcamento:${o.id}`, { trabalho: t.id }, ip);
+    avisarEmpresa('Domus Energia: o cliente diz que o trabalho não ficou concluído', [
+      `O cliente do pedido n.º ${o.id} respondeu que o trabalho não ficou concluído. O trabalho voltou ao eletricista.`,
+      'Veja o que o cliente escreveu na ficha do pedido e decida: defeito (o eletricista volta sem receber mais) ou sem defeito (o cliente paga uma visita).']);
+    if (e) {
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: um trabalho voltou para si', resumo: `trabalho ${t.id}: o cliente diz que não ficou concluído`,
+        texto: [`Olá ${e.nome},`, '', `O cliente do trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) respondeu que não ficou concluído.`,
+          'Veja o que falta na ficha do trabalho, combine a ida com o cliente e volte a dar o trabalho por concluído.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    }
+  }
+
+  /** A data em que o CEO decidiu "sem defeito: cobrar visita ao cliente" neste pedido (pagamentos-pedido.js: visitaExtra), ou null. */
+  const visitaSemDefeito = (o) => db.prepare("SELECT reclamacao_decidida FROM trabalhos_eletricista WHERE orcamento_id = ? AND reclamacao_decisao = 'sem_defeito' ORDER BY id DESC LIMIT 1").get(o.id)?.reclamacao_decidida ?? null;
+
+  /**
+   * As decisões do CEO sobre um trabalho dado por concluído (ficha do pedido):
+   * - `aprovar` (só depois de o cliente confirmar, ou dos 7 dias): numa obra, marca a obra concluída no painel (a ação
+   *   de sempre: sai o material do stock e o cliente passa a poder pagar o restante); o valor a pagar ao eletricista
+   *   fica FIXADO (percentagem × mão de obra sem IVA + deslocação sem IVA);
+   * - `devolver` (com o motivo): o trabalho volta ao eletricista e o cliente volta a confirmar no fim;
+   * - `defeito` / `sem_defeito`: a decisão sobre o "Não" do cliente (decisão 8) — com defeito o eletricista volta sem
+   *   receber mais; sem defeito o trabalho fica aceite e o cliente paga uma visita (o valor da visita técnica).
+   */
+  function decidir(o, acao, motivo, u, ip) {
+    expirar();
+    const t = ativoDoPedido(o.id);
+    const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
+    if (!t || !e) throw new ErroApi(409, 'Este pedido não tem um trabalho com um eletricista.');
+    const agora = agoraIso();
+    const nomeTrabalho = `${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()} em ${t.concelho}`;
+    if (acao === 'aprovar') {
+      if (t.estado !== 'confirmada') throw new ErroApi(409, t.estado === 'concluida_eletricista' ? 'O cliente ainda não confirmou o trabalho (fica aceite ao fim de 7 dias sem resposta).' : 'Só se aprova um trabalho dado por concluído e confirmado pelo cliente.');
+      const valor = estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e));
+      if (!valor) throw new ErroApi(409, 'Não foi possível calcular o valor a pagar ao eletricista: preencha a proposta em três partes (mão de obra, material e deslocação).');
+      if (t.tipo === 'obra' && !o.obra_concluida) concluirObra(o, u, ip);
+      const r = db.prepare("UPDATE trabalhos_eletricista SET estado = 'aprovada', aprovada = ?, aprovada_por = ?, valor_cent = ?, valor_detalhe = ?, atualizado = ? WHERE id = ? AND estado = 'confirmada'")
+        .run(agora, u.email, Math.round(valor.total * 100), JSON.stringify({ ...valor, provisoria: undefined }), agora, t.id);
+      if (!r.changes) throw new ErroApi(409, 'Este trabalho já foi aprovado.');
+      evento(t, 'aprovada', e.id, u.email);
+      auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: valor.total, percentagem: valor.percentagem }, ip);
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: trabalho aprovado', resumo: `trabalho ${t.id} aprovado`,
+        texto: [`Olá ${e.nome},`, '', `O trabalho (${nomeTrabalho}) foi aprovado.`,
+          'Envie a fatura-recibo na área do eletricista, em "Pagamentos": o valor está lá. Confirme também o seu IBAN.',
+          `Pagamos por transferência até ${PRAZO_PAGAMENTO_MS / (24 * 3600_000)} dias depois de o trabalho estar confirmado pelo cliente, aprovado e (nas obras) com o restante pago pelo cliente.`,
+          ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+      return;
+    }
+    if (acao === 'devolver') {
+      if (!['concluida_eletricista', 'confirmada'].includes(t.estado)) throw new ErroApi(409, 'Só se devolve um trabalho dado por concluído e ainda não aprovado.');
+      const porque = texto(motivo, 'o motivo da devolução', { max: 1000, min: 5, multilinha: true, obrigatorio: true });
+      const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'visita_marcada', concluida = NULL, confirmada = NULL, confirmada_auto = NULL, estrelas = NULL, comentario = NULL, comentario_site = NULL,
+        reclamacao = ?, reclamacao_de = 'ceo', reclamacao_quando = ?, atualizado = ? WHERE id = ? AND estado IN ('concluida_eletricista', 'confirmada')`).run(porque, agora, agora, t.id);
+      if (!r.changes) throw new ErroApi(409, 'Só se devolve um trabalho dado por concluído e ainda não aprovado.');
+      evento(t, 'devolvida', e.id, u.email);
+      auditar(u, 'trabalho_devolvido', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, estava: t.estado }, ip);
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: um trabalho voltou para si', resumo: `trabalho ${t.id} devolvido ao eletricista ${e.id}`,
+        texto: [`Olá ${e.nome},`, '', `A Domus Energia devolveu-lhe o trabalho (${nomeTrabalho}): ainda falta alguma coisa.`,
+          'Veja o motivo na ficha do trabalho e volte a dar o trabalho por concluído quando estiver feito.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+      return;
+    }
+    // defeito / sem_defeito: a reclamação do cliente ainda por decidir, com o trabalho nas mãos do eletricista
+    if (t.reclamacao_de !== 'cliente' || t.reclamacao_decisao || !['visita_marcada', 'concluida_eletricista'].includes(t.estado)) {
+      throw new ErroApi(409, 'Não há nenhuma reclamação do cliente por decidir neste trabalho.');
+    }
+    if (acao === 'defeito') {
+      db.prepare("UPDATE trabalhos_eletricista SET reclamacao_decisao = 'defeito', reclamacao_decidida = ?, atualizado = ? WHERE id = ?").run(agora, agora, t.id);
+      auditar(u, 'reclamacao_defeito', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id }, ip);
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: trabalho por corrigir', resumo: `trabalho ${t.id}: defeito, o eletricista volta sem receber mais`,
+        texto: [`Olá ${e.nome},`, '', `No trabalho (${nomeTrabalho}) ficou confirmado que falta corrigir o que o cliente indicou.`,
+          'A ida para corrigir faz parte do trabalho: não é paga à parte.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+      return;
+    }
+    // A ida do eletricista (decisão do dono): percentagem × a meia hora sem IVA + deslocação sem IVA, como uma visita
+    // técnica; fixada agora, paga quando o cliente pagar esta visita e o CEO aprovar o trabalho.
+    const ida = estimativa(o, 'visita', Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e));
+    db.prepare(`UPDATE trabalhos_eletricista SET estado = 'confirmada', concluida = COALESCE(concluida, ?), confirmada = ?, confirmada_auto = 1,
+      reclamacao_decisao = 'sem_defeito', reclamacao_decidida = ?, regresso_desde = ?, regresso_cent = ?, regresso_detalhe = ?, atualizado = ? WHERE id = ?`)
+      .run(agora, agora, agora, agora, ida ? Math.round(ida.total * 100) : null, ida ? JSON.stringify({ ...ida, provisoria: undefined }) : null, agora, t.id);
+    evento(t, 'confirmada', e.id, u.email);
+    auditar(u, 'reclamacao_sem_defeito', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, ida: ida?.total ?? null }, ip);
+    const email = emailCliente(o);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: o trabalho em sua casa', resumo: `pedido ${o.id}: sem defeito, visita a cobrar ao cliente`,
+        texto: ['Olá,', '', `Voltámos a ver o trabalho do seu pedido n.º ${o.id} e não encontrámos defeito: o trabalho fica dado como concluído.`,
+          'Como combinado nos Termos e Condições, a visita em que não se encontra defeito é paga. Pode pagá-la na sua conta.',
+          'Se não concordar, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+  }
+
+  /** "Pagamentos a eletricistas" (painel, só CEO): cada trabalho concluído com o valor, o prazo, a fatura e o IBAN inteiro. */
+  function pagamentosPainel() {
+    expirar();
+    const trabalhos = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id IS NOT NULL AND estado IN ${CONCLUIDOS} ORDER BY id DESC LIMIT 500`).all()
+      .map((t) => [t, pedidoDe(t.orcamento_id), linha(t.eletricista_id)]).filter(([, o, e]) => o && e)
+      .flatMap(([t, o, e]) => linhasDe(t, o, {
+        id: t.id, orcamento_id: t.orcamento_id, tipo: t.tipo, tipo_nome: NOME_TIPO_TRABALHO[t.tipo], concelho: t.concelho,
+        eletricista: { id: e.id, nome: e.nome, nif: e.nif || null }, iban: e.iban ?? null,
+        concluida: t.concluida ?? null, confirmada: t.confirmada ?? null, confirmada_auto: Boolean(t.confirmada_auto), aprovada: t.aprovada ?? null, pago_por: t.paga_por ?? null,
+      }, `/painel/api/trabalhos-eletricista/${t.id}/fatura`));
+    return { trabalhos, ...totais(), prazo_dias: PRAZO_PAGAMENTO_MS / (24 * 3600_000) };
+  }
+
+  /** O que se deve (aprovado e por pagar) e o que já se pagou aos eletricistas, em € sem IVA; `mes` (AAAA-MM) filtra pela data. */
+  function resumoPagamentos(mes = null) {
+    const doMes = (d) => !mes || String(d ?? '').startsWith(mes);
+    const todos = db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado IN ('aprovada', 'paga') AND valor_cent IS NOT NULL ORDER BY id").all();
+    // Cada trabalho aprovado é uma linha; a ida sem defeito (havendo) é outra, com o seu valor e o seu "Pago".
+    const linhas = todos.flatMap((t) => [
+      { t, ref: `eletricista-${t.id}`, cent: t.valor_cent, paga: t.estado === 'paga' ? t.paga : null,
+        descricao: `Eletricista externo: ${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()} (trabalho n.º ${t.id})` },
+      ...(t.regresso_cent !== null && t.regresso_cent !== undefined ? [{ t, ref: `eletricista-${t.id}-ida`, cent: t.regresso_cent, paga: t.regresso_paga ?? null,
+        descricao: `Eletricista externo: ida sem defeito (trabalho n.º ${t.id})` }] : []),
+    ]);
+    const pagos = linhas.filter((l) => l.paga && doMes(l.paga));
+    const devidos = linhas.filter((l) => !l.paga && doMes(l.t.aprovada));
+    const total = (l) => ({ trabalhos: l.length, total: deCent(l.reduce((s, x) => s + x.cent, 0)) });
+    const linhaDe = (l, estado) => ({ data: l.paga ?? l.t.aprovada, ref: l.ref, orcamento_id: l.t.orcamento_id, estado, descricao: l.descricao, valor: deCent(l.cent) });
+    return { linhas: [...pagos.map((l) => linhaDe(l, 'eletricista_pago')), ...devidos.map((l) => linhaDe(l, 'eletricista_a_pagar'))], a_pagar: total(devidos), pago: total(pagos) };
+  }
+  const totais = () => { const r = resumoPagamentos(); return { a_pagar: r.a_pagar, pago: r.pago }; };
+
+  /**
+   * "Pago": o CEO fez a transferência. Só com as três condições e a fatura-recibo; nunca a quem largou o trabalho.
+   * `parte: 'regresso'`: a ida sem defeito (visita paga pelo cliente, trabalho aprovado e a fatura dessa ida).
+   */
+  function marcarPago(idTexto, u, ip, parteTexto) {
+    expirar();
+    const parte = parteFatura(parteTexto);
+    const t = trabalho(idNum(idTexto));
+    const o = t ? pedidoDe(t.orcamento_id) : null;
+    const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
+    if (!t || !o || !e) throw new ErroApi(404, 'Trabalho não encontrado.');
+    if (parte === 'regresso') {
+      const r = regressoDe(t, o, null);
+      if (!r) throw new ErroApi(409, 'Este trabalho não tem uma ida sem defeito a pagar.');
+      if (r.pagamento === 'pago') throw new ErroApi(409, 'Esta ida já está paga.');
+      if (r.pagamento === 'sem_pagamento') throw new ErroApi(409, 'Este eletricista largou o trabalho ou deixou-o caducar: não recebe por ele.');
+      if (r.pagamento !== 'a_pagar') throw new ErroApi(409, `Ainda não se pode pagar esta ida: ${TEXTO_PAGAMENTO[r.pagamento].toLowerCase()}.`);
+      const agora = agoraIso();
+      if (!db.prepare('UPDATE trabalhos_eletricista SET regresso_paga = ?, regresso_paga_por = ?, atualizado = ? WHERE id = ? AND regresso_paga IS NULL').run(agora, u.email, agora, t.id).changes) throw new ErroApi(409, 'Esta ida já está paga.');
+      auditar(u, 'eletricista_pago', `orcamento:${o.id}`, { trabalho: t.id, parte: 'regresso', eletricista: e.id, valor: deCent(t.regresso_cent) }, ip);
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: pagamento feito', resumo: `ida sem defeito do trabalho ${t.id} paga ao eletricista ${e.id}`,
+        texto: [`Olá ${e.nome},`, '', `Fizemos a transferência de ${deCent(t.regresso_cent).toFixed(2).replace('.', ',')} € da ida sem defeito do trabalho em ${t.concelho}.`,
+          ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+      return trabalho(t.id);
+    }
+    const p = pagamentoDe(t, o, null);
+    if (p.pagamento === 'pago') throw new ErroApi(409, 'Este trabalho já está pago.');
+    if (p.pagamento === 'sem_pagamento') throw new ErroApi(409, 'Este eletricista largou o trabalho ou deixou-o caducar: não recebe por ele.');
+    if (p.pagamento !== 'a_pagar') throw new ErroApi(409, `Ainda não se pode pagar este trabalho: ${TEXTO_PAGAMENTO[p.pagamento].toLowerCase()}.`);
+    const agora = agoraIso();
+    const r = db.prepare("UPDATE trabalhos_eletricista SET estado = 'paga', paga = ?, paga_por = ?, atualizado = ? WHERE id = ? AND estado = 'aprovada'").run(agora, u.email, agora, t.id);
+    if (!r.changes) throw new ErroApi(409, 'Este trabalho já está pago.');
+    evento(t, 'paga', e.id, u.email);
+    auditar(u, 'eletricista_pago', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, valor: deCent(t.valor_cent) }, ip);
+    correio.enviar({ para: e.email, assunto: 'Domus Energia: pagamento feito', resumo: `trabalho ${t.id} pago ao eletricista ${e.id}`,
+      texto: [`Olá ${e.nome},`, '', `Fizemos a transferência de ${deCent(t.valor_cent).toFixed(2).replace('.', ',')} € do trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
+        'Obrigado pelo trabalho.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    return trabalho(t.id);
+  }
+
+  /** A fatura-recibo de um trabalho, para o painel (só CEO; a rota é verificada em api.js). */
+  const faturaParaPainel = (idTexto, parte) => lerFatura(trabalho(idNum(idTexto)), parteFatura(parte));
 
   // ------------------------------------------------------------ painel (só CEO; rotas em api.js)
   function paraPainel(e) {
@@ -843,14 +1297,24 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       seguro: e.seguro_id ? { tipo: e.seguro_tipo, bytes: e.seguro_bytes, url: `/painel/api/eletricistas/${e.id}/seguro` } : null,
       consentimento: e.consentimento, criado: e.criado, decidido: e.decidido ?? null, ultimo_acesso: e.ultimo_acesso ?? null,
       anonimizado: e.anonimizado ?? null,
-      // Trabalhos em curso (aceites, com visita marcada ou concluídos à espera do cliente): o painel lista-os ao suspender.
+      // O IBAN vai mascarado nas listas e na ficha; inteiro só em "Pagamentos a eletricistas", para a transferência.
+      iban: pagamentos().ibanMascarado(e.iban ?? null),
+      // Avaliação dos clientes (ronda 3): média e n.º de avaliações, e os comentários (os que podem ir para o site vão marcados).
+      avaliacao: avaliacaoDe(e.id),
+      comentarios: db.prepare('SELECT orcamento_id, estrelas, comentario, comentario_site, confirmada FROM trabalhos_eletricista WHERE eletricista_id = ? AND estrelas IS NOT NULL ORDER BY confirmada DESC LIMIT 50').all(e.id)
+        .map((c) => ({ orcamento_id: c.orcamento_id, estrelas: c.estrelas, comentario: c.comentario ?? null, pode_site: Boolean(c.comentario_site) && Boolean(c.comentario), quando: c.confirmada })),
+      // Trabalhos em curso (aceites, com visita marcada, concluídos à espera do cliente ou da aprovação, ou por pagar): o painel lista-os ao suspender.
       trabalhos: emCurso(e.id).map((t) => ({ id: t.id, orcamento_id: t.orcamento_id, tipo: t.tipo, tipo_nome: NOME_TIPO_TRABALHO[t.tipo], estado: t.estado, concelho: t.concelho, visita: t.visita ?? null })),
       trabalhos_em_curso: emCurso(e.id).length,
       trabalhos_largados: db.prepare("SELECT COUNT(*) AS n FROM trabalhos_eletricista_eventos WHERE eletricista_id = ? AND evento IN ('largou', 'expirou')").get(e.id).n,
     };
   }
 
-  const emCurso = (id) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${DO_ELETRICISTA} ORDER BY id`).all(id);
+  const emCurso = (id) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${EM_CURSO} ORDER BY id`).all(id);
+  function avaliacaoDe(id) {
+    const r = db.prepare('SELECT COUNT(*) AS n, AVG(estrelas) AS media FROM trabalhos_eletricista WHERE eletricista_id = ? AND estrelas IS NOT NULL').get(id);
+    return { n: r.n, media: r.n ? Math.round(r.media * 10) / 10 : null };
+  }
 
   function listar() {
     expirar();
@@ -919,13 +1383,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /**
    * Apagar um eletricista (RGPD; só o CEO): saem as sessões, os códigos, os avisos da bolsa, o documento do seguro e o
    * histórico dele na auditoria. Sem trabalhos nenhuns, a linha é apagada; com histórico de trabalhos (necessário para
-   * a contabilidade e para a regra "quem larga não recebe") fica ANONIMIZADA: sem nome, email, telefone, NIF, DGEG,
-   * concelhos, experiência nem notas. Com trabalhos em curso recusa (o CEO retira-os primeiro).
+   * a contabilidade e para a regra "quem larga não recebe") fica ANONIMIZADA: sem nome, email, telefone, NIF, IBAN, DGEG,
+   * concelhos, experiência nem notas (as faturas-recibo dos trabalhos pagos ficam: são documentos de contabilidade).
+   * Com trabalhos em curso ou por pagar recusa (o CEO retira-os ou paga-os primeiro).
    */
   async function apagar(idTexto, u, ip) {
     const e = obter(idTexto);
     if (e.anonimizado) throw new ErroApi(409, 'Este eletricista já foi apagado (RGPD).');
-    if (emCurso(e.id).length) throw new ErroApi(409, 'Este eletricista tem trabalhos em curso: retire-os primeiro.');
+    const idaPorPagar = db.prepare("SELECT 1 FROM trabalhos_eletricista WHERE eletricista_id = ? AND regresso_cent IS NOT NULL AND regresso_paga IS NULL AND estado IN ('confirmada', 'aprovada', 'paga') LIMIT 1").get(e.id);
+    if (emCurso(e.id).length || idaPorPagar) throw new ErroApi(409, 'Este eletricista tem trabalhos em curso ou por pagar: retire-os ou pague-os primeiro.');
     const historico = Boolean(db.prepare(`SELECT 1 FROM trabalhos_eletricista WHERE eletricista_id = ?1 UNION ALL SELECT 1 FROM trabalhos_eletricista_eventos WHERE eletricista_id = ?1
       UNION ALL SELECT 1 FROM trabalhos_eletricista_fotos WHERE eletricista_id = ?1 LIMIT 1`).get(e.id));
     const agora = agoraIso();
@@ -938,7 +1404,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`eletricista:${e.id}`);
       if (historico) {
         db.prepare(`UPDATE eletricistas SET email = ?, nome = 'Eletricista apagado (RGPD)', telefone = '', nif = '', dgeg = '', concelhos = '[]', experiencia = NULL, notas = NULL,
-          estado = 'suspenso', percentagem = NULL, seguro_id = NULL, seguro_tipo = NULL, seguro_bytes = NULL, ultimo_acesso = NULL, anonimizado = ?, atualizado = ? WHERE id = ?`)
+          estado = 'suspenso', percentagem = NULL, seguro_id = NULL, seguro_tipo = NULL, seguro_bytes = NULL, iban = NULL, ultimo_acesso = NULL, anonimizado = ?, atualizado = ? WHERE id = ?`)
           .run(`apagado-${e.id}@anonimizado.invalid`, agora, agora, e.id);
       } else db.prepare('DELETE FROM eletricistas WHERE id = ?').run(e.id);
       db.exec('COMMIT');
@@ -959,8 +1425,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     try { return { tipo: f.tipo_mime, corpo: await readFile(ficheiroFoto(f)) }; } catch { throw new ErroApi(404, 'Foto não encontrada.'); }
   }
 
-  /** As fotos tiradas pelos eletricistas num pedido saem com ele (conta de cliente apagada, RGPD). */
+  /** As fotos tiradas pelos eletricistas num pedido saem com ele (conta de cliente apagada, RGPD), e o que o cliente escreveu (comentário, reclamação) também. */
   async function apagarFotosDoPedido(orcamentoId) {
+    db.prepare("UPDATE trabalhos_eletricista SET comentario = NULL, comentario_site = NULL, reclamacao = CASE WHEN reclamacao_de = 'cliente' THEN NULL ELSE reclamacao END WHERE orcamento_id = ?").run(orcamentoId);
     for (const { id } of db.prepare('SELECT id FROM trabalhos_eletricista WHERE orcamento_id = ?').all(orcamentoId)) {
       db.prepare('DELETE FROM trabalhos_eletricista_fotos WHERE trabalho_id = ?').run(id);
       await rm(pastaFotos(id), { recursive: true, force: true });
@@ -969,22 +1436,40 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   // ---- atribuição (ficha do pedido e da obra)
   const ativoDoPedido = (orcamentoId) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado IN ${ATIVOS} ORDER BY id DESC LIMIT 1`).get(orcamentoId) ?? null;
+  /** Um trabalho deste tipo já aprovado (ou pago) neste pedido: não se atribui outro igual (pagava-se duas vezes). */
+  const feitoDoPedido = (orcamentoId, tipo = null) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado IN ('aprovada', 'paga')${tipo ? ' AND tipo = ?' : ''} ORDER BY id DESC LIMIT 1`)
+    .get(...(tipo ? [orcamentoId, tipo] : [orcamentoId])) ?? null;
   const aprovadosEm = (nomeConcelho) => db.prepare("SELECT * FROM eletricistas WHERE estado = 'aprovado' ORDER BY nome COLLATE NOCASE").all().filter((e) => concelhosDe(e).includes(nomeConcelho));
 
   /** O bloco "Eletricista externo" de um pedido, para o painel. */
   function atribuicao(o) {
     expirar();
     const tipo = tipoAtribuivel(o);
-    const t = ativoDoPedido(o.id);
+    const ativo = ativoDoPedido(o.id);
+    const repetido = !ativo && tipo ? feitoDoPedido(o.id, tipo) : null;
+    // Sem trabalho ativo, o painel mostra o último já aprovado ou pago (valor, fatura, estado do pagamento).
+    const t = ativo ?? feitoDoPedido(o.id);
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
-    const alvo = t?.tipo ?? tipo;
-    const candidatos = alvo && (t?.concelho ?? c) ? aprovadosEm(t?.concelho ?? c) : [];
+    const alvo = ativo?.tipo ?? tipo ?? t?.tipo ?? null;
+    const pode = Boolean(tipo) && !ativo && !repetido && Boolean(c);
+    const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c) : [];
+    const doCliente = t && ['visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.reclamacao_de === 'cliente' && !t.reclamacao_decisao;
     return {
-      pode: Boolean(tipo) && !t && Boolean(c), tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: t?.concelho ?? c,
-      motivo: t || (tipo && c) ? null : !tipo ? 'Só se atribui um pedido aceite com a obra por fazer, ou com a visita técnica ou o diagnóstico pagos.'
+      pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
+      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido aceite com a obra por fazer, ou com a visita técnica ou o diagnóstico pagos.'
         : 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.',
       trabalho: t ? {
+        // Ronda 3: confirmação e avaliação do cliente, reclamação, aprovação e pagamento; e o que o CEO pode fazer agora.
+        ativo: Boolean(ativo), confirmada: t.confirmada ?? null, confirmada_auto: Boolean(t.confirmada_auto),
+        prazo_confirmacao: t.estado === 'concluida_eletricista' && t.concluida ? iso(Date.parse(t.concluida) + PRAZO_CONFIRMAR_MS) : null,
+        estrelas: t.estrelas ?? null, comentario: t.comentario ?? null, comentario_site: Boolean(t.comentario_site) && Boolean(t.comentario),
+        reclamacao: t.reclamacao || t.reclamacao_decisao ? { texto: t.reclamacao ?? null, de: t.reclamacao_de ?? null, quando: t.reclamacao_quando ?? null, decisao: t.reclamacao_decisao ?? null, decidida: t.reclamacao_decidida ?? null } : null,
+        aprovada: t.aprovada ?? null, aprovada_por: t.aprovada_por ?? null, pago_por: t.paga_por ?? null,
+        pagamento: e && LISTA_CONCLUIDOS.includes(t.estado) ? pagamentoDe(t, o, `/painel/api/trabalhos-eletricista/${t.id}/fatura`) : null,
+        visita_sem_defeito: t.reclamacao_decisao === 'sem_defeito' ? pagamentos().visitaExtra(o) : null,
+        regresso: e ? regressoDe(t, o, `/painel/api/trabalhos-eletricista/${t.id}/fatura`) : null,
+        pode_aprovar: t.estado === 'confirmada', pode_devolver: ['concluida_eletricista', 'confirmada'].includes(t.estado), pode_decidir: Boolean(doCliente),
         id: t.id, tipo: t.tipo, estado: t.estado, modo: t.modo, aberto: aberto(t, o), eletricista: e ? { id: e.id, nome: e.nome } : null,
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
         prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null, visita: t.visita ?? null,
@@ -995,9 +1480,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         fotos: fotosDe(t.id).map((f) => ({ ...fotoPublica(f, `/painel/api/trabalhos-eletricista/${t.id}/fotos/`), grupo_nome: NOME_GRUPO_FOTO[f.grupo] })),
         ensaios: ensaiosDoPedido(o),
         diagnostico: t.tipo === 'avaria' ? Boolean(diagnosticoDoPedido(o)?.conclusao) : null,
-        falta: e && t.estado !== 'concluida_eletricista' ? faltaParaConcluir(t, o) : [],
+        falta: e && EDITAVEIS.includes(t.estado) ? faltaParaConcluir(t, o) : [],
       } : null,
-      candidatos: candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
+      candidatos: !pode ? [] : candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
       historico: db.prepare(`SELECT v.evento, v.quando, v.por, e.nome FROM trabalhos_eletricista_eventos v JOIN trabalhos_eletricista t ON t.id = v.trabalho_id
         LEFT JOIN eletricistas e ON e.id = v.eletricista_id WHERE t.orcamento_id = ? ORDER BY v.id DESC LIMIT 50`).all(o.id)
         .map((x) => ({ evento: x.evento, quando: x.quando, eletricista: x.nome ?? null, por: x.por })),
@@ -1010,6 +1495,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const tipo = tipoAtribuivel(o);
     if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido aceite com a obra por fazer, ou com a visita técnica ou o diagnóstico pagos.');
     if (ativoDoPedido(o.id)) throw new ErroApi(409, 'Este pedido já está na bolsa ou atribuído a um eletricista: retire-o primeiro.');
+    if (feitoDoPedido(o.id, tipo)) throw new ErroApi(409, 'Este trabalho já foi feito e aprovado neste pedido.');
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     if (!c) throw new ErroApi(409, 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.');
     if (e && (e.estado !== 'aprovado' || !concelhosDe(e).includes(c))) throw new ErroApi(409, `Só se atribui a um eletricista aprovado que trabalhe em ${c}.`);
@@ -1040,7 +1526,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return t;
   }
 
-  /** O CEO retira o trabalho (da bolsa ou de quem o tem), em qualquer altura. As datas do pedido ficam como estão. */
+  /** O CEO retira o trabalho (da bolsa ou de quem o tem), em qualquer altura até o aprovar. As datas do pedido ficam como estão. */
   function retirar(o, u, ip) {
     expirar();
     const t = ativoDoPedido(o.id);
@@ -1105,10 +1591,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['GET', 'trabalhos/:id/fotos/:foto', true, 'foto'],
     ['POST', 'trabalhos/:id/fotos/:foto', true, 'receberFoto'],   // :foto = o grupo (quadro_antes…); o corpo são os bytes
     ['POST', 'trabalhos/:id/fotos/:foto/apagar', true, 'apagarFoto'],
+    ['GET', 'pagamentos', true, 'pagamentos'],
+    ['POST', 'iban', true, 'iban'],
+    ['GET', 'trabalhos/:id/fatura', true, 'verFatura'],
+    ['POST', 'trabalhos/:id/fatura', true, 'fatura'],   // {tipo, dados} em base64, como o documento do seguro
   ].map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
   // As páginas perguntam se o módulo existe (com ELETRICISTAS desligado isto dá 404 e elas mostram só uma linha).
-  h.aberta = ({ res }) => responder(res, 200, { aberta: true });
+  // Leva a percentagem da mão de obra em vigor (configuração), para a página "Trabalhe connosco" não a ter escrita à mão.
+  h.aberta = ({ res }) => responder(res, 200, { aberta: true, percentagem: percentagemOmissao() });
 
   async function tratar(req, res, url, ip) {
     const segs = url.pathname.slice(CAMINHO_API.length).split('/');
@@ -1138,6 +1629,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   return {
     tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
+    prazos: expirar, paraCliente, confirmarCliente, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };

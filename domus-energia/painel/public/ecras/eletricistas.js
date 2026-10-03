@@ -78,6 +78,7 @@ export default function eletricistas(el) {
   const fichaDados = (e) => dados([
     ["Telefone", e.telefone], ["Email", e.email], ["NIF", e.nif], ["Habilitação DGEG", e.dgeg], ["Concelhos", e.concelhos.join(", ") || "—"],
     ["Experiência", [e.experiencia, e.notas].filter(Boolean).join(" · ") || "—"], ["Candidatura", data(e.criado)],
+    ...(e.estado === "pendente" ? [] : [["IBAN", e.iban ?? "Por indicar"]]),
     e.decidido ? ["Decisão", data(e.decidido)] : null, e.ultimo_acesso ? ["Último acesso", data(e.ultimo_acesso)] : null,
   ]);
 
@@ -105,7 +106,8 @@ export default function eletricistas(el) {
       return h("li", { class: `linha conta ${e.estado === "aprovado" ? "" : "inativa"}`.trim(), dataset: { id: String(e.id) } },
         h("span", { class: "linha-principal" }, h("strong", { text: e.nome }), h("span", { class: "ajuda", text: e.concelhos.join(", ") || "Sem concelhos" }),
           h("span", { class: "ajuda", text: `${e.email} · ${e.telefone}` })),
-        h("span", { class: "linha-selos" }, selo(nomeEstado, tipo), selo("Média —", "valor"),
+        h("span", { class: "linha-selos" }, selo(nomeEstado, tipo),
+          selo(e.avaliacao?.n ? `Média ${String(e.avaliacao.media).replace(".", ",")} ★ (${e.avaliacao.n})` : "Sem avaliações", "valor"),
           selo(`${e.trabalhos_em_curso} ${e.trabalhos_em_curso === 1 ? "trabalho em curso" : "trabalhos em curso"}`, "info"),
           e.trabalhos_largados ? selo(`${e.trabalhos_largados} ${e.trabalhos_largados === 1 ? "largado" : "largados"}`, "aviso") : null),
         h("span", { class: "conta-acoes" },
@@ -161,8 +163,8 @@ export default function eletricistas(el) {
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const inp = h("input", { name: "email", type: "email", autocomplete: "off", spellcheck: "false", maxlength: "254", required: true, id: "apagar-eletricista-email" });
     const f = h("form", { class: "form-grelha", id: "form-apagar-eletricista", novalidate: true },
-      h("p", { text: `Apaga os dados pessoais de ${e.nome}: nome, contactos, NIF, habilitação, concelhos, o documento do seguro e as sessões. Se já teve trabalhos, fica só o histórico deles (sem a identidade), para a contabilidade. Não se pode desfazer.` }),
-      e.trabalhos?.length ? h("p", { class: "msg info", text: "Tem trabalhos em curso: retire-os primeiro (na ficha do pedido, ou em Suspender)." }) : null,
+      h("p", { text: `Apaga os dados pessoais de ${e.nome}: nome, contactos, NIF, IBAN, habilitação, concelhos, o documento do seguro e as sessões. Se já teve trabalhos, fica só o histórico deles (sem a identidade) e as faturas-recibo, para a contabilidade. Não se pode desfazer.` }),
+      e.trabalhos?.length ? h("p", { class: "msg info", text: "Tem trabalhos em curso ou por pagar: retire-os (na ficha do pedido, ou em Suspender) ou pague-os primeiro." }) : null,
       campoForm("Para confirmar, escreva o email do eletricista", inp, e.email),
       h("div", { class: "form-botoes" },
         h("button", { class: "btn perigo", type: "submit", text: "Apagar definitivamente" }),
@@ -208,8 +210,17 @@ export default function eletricistas(el) {
       if (await alterar(e, { concelhos: [...escolhidos] }, `Concelhos de ${e.nome} guardados.`, guardar)) j.fechar();
     } });
     const [nomeEstado, tipo] = ESTADOS[e.estado] ?? [e.estado, "info"];
+    // Avaliações dos clientes (ronda 3): as estrelas e os comentários; os que o cliente deixou usar ficam marcados
+    // "Pode ir para o site" (publicar é à mão, fora do painel).
+    const coms = e.comentarios ?? [];
+    const avaliacoes = coms.length ? h("details", { class: "eletricista-avaliacoes", id: "eletricista-avaliacoes" },
+      h("summary", { text: `Avaliações dos clientes: média ${String(e.avaliacao.media).replace(".", ",")} ★ em ${e.avaliacao.n}` }),
+      h("ul", { class: "linhas-simples" }, ...coms.map((c) => h("li", {}, h("strong", { text: `${"★".repeat(c.estrelas)}${"☆".repeat(5 - c.estrelas)}` }), " ",
+        h("a", { href: `#/orcamentos/${encodeURIComponent(c.orcamento_id)}`, text: `pedido n.º ${c.orcamento_id}` }), ` · ${data(c.quando)}`,
+        c.comentario ? h("span", { class: "bloco-ajuda", text: `«${c.comentario}»` }) : null, c.pode_site ? selo("Pode ir para o site", "estado-ativo") : null))))
+      : h("p", { class: "ajuda", text: "Ainda sem avaliações de clientes." });
     j.corpo.append(h("p", { class: "linha-selos" }, selo(nomeEstado, tipo), selo(`${pctTxt(e.percentagem_efetiva)} % da mão de obra`, "valor")),
-      fichaDados(e), h("div", { class: "form-botoes" }, documento(e)),
+      fichaDados(e), avaliacoes, h("div", { class: "form-botoes" }, documento(e)),
       h("fieldset", { class: "grupo" }, h("legend", { text: "Concelhos onde trabalha" }), campoForm("Procurar", procurar), caixas),
       h("div", { class: "form-botoes" }, guardar,
         h("button", { class: "btn perigo pequeno", type: "button", id: "apagar-eletricista", text: "Apagar (RGPD)", "aria-haspopup": "dialog", onclick: () => confirmarApagar(e, j) })),

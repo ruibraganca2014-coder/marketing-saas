@@ -195,7 +195,8 @@ export function valorVisitaCent(localidade, cfg) {
  * @param {{db, config, registo, relogio: () => number, auditar: Function, correio: object, fotos: object,
  *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
  */
-export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch }) {
+export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch,
+  visitaSemDefeito = () => null }) {
   const modo = config.pagamentosModo;
   const agoraIso = () => iso(relogio());
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
@@ -226,7 +227,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (p.devolvido_cent) { r.devolvido = deCent(p.devolvido_cent); r.devolvido_em = p.devolvido; }
     if (p.a_devolver) r.a_devolver = deCent(p.a_devolver);
     // "Visita não realizada — não desconta": o cliente faltou (o pagamento fica, mas não é descontado no sinal).
-    if (p.faltou) r.nao_realizada = true;
+    // "Visita sem defeito — não desconta": a visita cobrada depois de um "Não" do cliente sem defeito (visitaExtra).
+    if (p.faltou && eVisitaExtra(p)) r.sem_defeito = true;
+    else if (p.faltou) r.nao_realizada = true;
     if (p.estado === 'pago') {
       r.recibo = { data: p.pago, valor: deCent(p.valor_cent), base: r.base, iva: r.iva, iva_pct: iva, descricao: p.descricao, referencia: p.ref, simulado: p.modo === 'simulado' };
     }
@@ -285,6 +288,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     db.prepare('UPDATE pagamentos_pedido SET stripe_sessao = ?, stripe_url = ?, atualizado = ? WHERE id = ?').run(s.id, s.url, agoraIso(), p.id);
     return linha(p.ref);
   }
+
+  /** Pagamento da "visita sem defeito" (visitaExtra): fase `visita` sem visita por marcar (`com_visita` = 0) e que não desconta (`faltou`). */
+  const eVisitaExtra = (p) => p.fase === 'visita' && p.com_visita === 0 && Boolean(p.faltou);
 
   // ------------------------------------------------------------ criar
   const emailConta = (id) => db.prepare('SELECT email FROM contas WHERE id = ?').get(id)?.email ?? null;
@@ -391,7 +397,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     }
     if (!(valorCent > 0)) throw new ErroApi(409, 'Não há nada para pagar.');
     const descricao = `${partes.join(' e ').replace(/^./, (c) => c.toUpperCase())} do pedido n.º ${o.id} (descontado na obra)`;
-    const pend = db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ?
+    const pend = db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ? AND faltou IS NULL
       AND fase IN ('relatorio_pormenorizado', 'visita', 'pormenorizado_visita') ORDER BY id DESC`).all(o.id, relogio());
     let igual = null;
     for (const p of pend) {
@@ -409,7 +415,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const cfg = lerConfigOrc();
     const visitaCent = valorVisitaCent(localidadeDe(o), cfg);
     const semConcelho = !concelhoConhecido(localidadeDe(o));
-    const pendente = (fases) => db.prepare(`SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ?
+    const pendente = (fases) => db.prepare(`SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ? AND faltou IS NULL
       AND fase IN (${marcas(fases)}) LIMIT 1`).get(o.id, relogio(), ...fases)?.ref ?? null;
     return {
       ativas: Boolean(config.pagamentoPedido),
@@ -505,6 +511,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (v.total === null) return { pode: true, falta: null, aviso: 'Pedido sem valor de proposta: confirme por fora que a obra está paga antes de ligar a casa.' };
     return { pode: v.em_falta === 0, falta: deCent(v.em_falta), aviso: null };
   }
+
+  /** O restante da obra está pago? {pago, quando}: `quando` é a data do pagamento do restante (null sem pagamento online). */
+  const restantePago = (o) => ({ pago: ligacaoCasa(o).pode, quando: pagoDe(o.id, 'restante')?.pago ?? null });
 
   /**
    * Quando se reserva (encomenda) o material de um pedido aceite (decisão 11): já, se o cliente pediu para começar já
@@ -740,6 +749,41 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return publico(await novo({ contaId: conta.id, orcamentoId: o.id, fase, valorCent, descricao, retorno: 'conta', plano: fase === 'sinal' ? o.plano_escolhido : null, ivaPct: v.iva_pct }));
   }
 
+  /**
+   * "Visita sem defeito" (decisão 8 do dono; docs/ELETRICISTAS.md): o cliente disse que o trabalho não ficou concluído,
+   * o técnico voltou e o CEO decidiu que não havia defeito — o cliente paga uma visita (o mesmo valor da visita técnica:
+   * deslocação + 0,5 h). `visitaSemDefeito(o)` (eletricistas.js) dá a data da decisão. É um pagamento da fase `visita`
+   * que NÃO desconta na obra nem conta como visita por marcar: `com_visita` = 0 e `faltou`/`faltou_cent` preenchidos
+   * logo ao criar. Devolve {valor, paga, pendente} ou null (nada a cobrar).
+   */
+  function visitaExtra(o) {
+    const desde = visitaSemDefeito(o);
+    if (!desde) return null;
+    const linhas = db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = 'visita' AND com_visita = 0 AND faltou IS NOT NULL AND criado >= ? ORDER BY id DESC`).all(o.id, desde);
+    const paga = linhas.find((p) => p.estado === 'pago') ?? null;
+    const pend = linhas.find((p) => p.estado === 'pendente' && p.expira > relogio()) ?? null;
+    const valorCent = paga?.valor_cent ?? valorVisitaCent(localidadeDe(o), lerConfigOrc());
+    return { valor: deCent(valorCent), paga: Boolean(paga), pendente: pend?.ref ?? null, desde };
+  }
+  /** A data em que o cliente pagou a visita sem defeito decidida em `desde` (ou null): a ida do eletricista conta a partir dela. */
+  const visitaExtraPaga = (o, desde) => (desde ? db.prepare(`SELECT pago FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = 'visita' AND com_visita = 0 AND faltou IS NOT NULL
+    AND estado = 'pago' AND criado >= ? ORDER BY id LIMIT 1`).get(o.id, desde)?.pago ?? null : null);
+  async function pagarVisitaExtra(conta, o) {
+    expirar();
+    const x = visitaExtra(o);
+    if (!x) throw new ErroApi(409, 'Não há nada para pagar.');
+    if (x.paga) throw new ErroApi(409, 'Este pagamento já está feito.');
+    const valorCent = valorVisitaCent(localidadeDe(o), lerConfigOrc());
+    if (!(valorCent > 0)) throw new ErroApi(409, 'Não foi possível calcular o valor da visita. Fale connosco.');
+    const pend = x.pendente ? linha(x.pendente) : null;
+    if (pend && pend.valor_cent === valorCent && pend.modo === modo) return publico(pend);
+    if (pend) cancelar(pend, 'valor_mudou');
+    const p = await novo({ contaId: conta.id, orcamentoId: o.id, fase: 'visita', valorCent, retorno: 'conta', comVisita: false,
+      descricao: `Visita sem defeito encontrado (pedido n.º ${o.id}): não é descontada na obra` });
+    db.prepare('UPDATE pagamentos_pedido SET faltou = ?, faltou_cent = valor_cent WHERE id = ?').run(agoraIso(), p.id);
+    return publico(linha(p.ref));
+  }
+
   /** O cliente aceitou a proposta (conta.js): sinal por pagar, ou (sinal 0) aceite logo. Devolve o pagamento ou null. */
   async function aoAceitar(conta, o) {
     const v = valores(o);
@@ -844,7 +888,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const texto = tipo === 'pago' ? [
       'Olá,', '', `Recebemos o seu pagamento${sim}.`, '',
       `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`, `  Referência: ${p.ref}`, '',
-      TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
+      eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ] : [
       'Olá,', '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}. Não foi cobrado nada.`,
@@ -1016,7 +1060,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       lista: [
         { chave: 'continuidade_pe', nome: 'Continuidade do condutor de proteção (PE) e das ligações equipotenciais', referencia: 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', unidade: 'Ω', norma: 'RTIEBT 612.2', medido: m.continuidade_pe ?? null },
         { chave: 'isolamento', nome: 'Resistência de isolamento, entre cada condutor ativo e a terra, com os aparelhos desligados', referencia: `≥ ${fmt(iso)} MΩ, a 500 V DC`, unidade: 'MΩ', norma: 'RTIEBT 612.3 (Quadro 61A)', medido: m.isolamento ?? null },
-        { chave: 'terra', nome: 'Resistência de terra das massas (habitação com disjuntor de entrada diferencial)', referencia: `< ${fmt(terra)} Ω; e RA × IΔn ≤ 50 V`, unidade: 'Ω', norma: 'RTIEBT 801.5.6.1 e 413.1.4.2', medido: m.terra ?? null },
+        { chave: 'terra', nome: 'Resistência de terra das massas (habitação com disjuntor de entrada diferencial)', referencia: `≤ ${fmt(terra)} Ω; e RA × IΔn ≤ 50 V`, unidade: 'Ω', norma: 'RTIEBT 801.5.6.1 e 413.1.4.2', medido: m.terra ?? null },
         { chave: 'diferencial', nome: 'Disparo do diferencial de 30 mA (à corrente IΔn)', referencia: `dispara a uma corrente ≤ IΔn; tempo ≤ ${fmt(dif)} ms`, unidade: 'ms', norma: 'RTIEBT Anexo B (só exige disparo ≤ IΔn); o tempo é referência EN 61008/61009', medido: m.diferencial ?? null },
       ],
       notas: m.notas ?? null,
@@ -1281,7 +1325,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return {
       ref: p.ref, fase: p.fase, fase_texto: NOME_FASE[p.fase], valor: deCent(p.valor_cent), base: deCent(base), iva: deCent(ivaCent), iva_pct: iva,
       estado: p.estado, estado_texto: TEXTO_ESTADO[p.estado], modo: p.modo, criado: p.criado, pago: p.pago, plano: p.plano,
-      devolvido: p.devolvido_cent ? deCent(p.devolvido_cent) : null, devolvido_em: p.devolvido ?? null, nao_realizada: Boolean(p.faltou),
+      devolvido: p.devolvido_cent ? deCent(p.devolvido_cent) : null, devolvido_em: p.devolvido ?? null, nao_realizada: Boolean(p.faltou) && !eVisitaExtra(p), sem_defeito: eVisitaExtra(p),
       a_devolver: p.a_devolver ? deCent(p.a_devolver) : null, metodo: p.metodo ?? null,
       com_visita: p.com_visita === null ? null : Boolean(p.com_visita), descricao: p.descricao, orcamento_id: p.orcamento_id,
     };
@@ -1368,6 +1412,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       inicio_imediato: o.inicio_imediato ?? null,
       visita_cancelar: visitaCancelar(o),
       visita_faltou: o.visita_faltou ?? null,
+      // "Visita sem defeito" por pagar ou paga (depois de um "Não" do cliente sem defeito): {valor, paga, pendente} ou null.
+      visita_sem_defeito: visitaExtra(o),
       // Devoluções por transferência (pagou por Multibanco): a conta pede o IBAN; depois só se mostra o fim dele.
       devolucoes: devolucoesDoPedido(o.id),
       obra_paga: o.estado === 'aceite' && v.em_falta !== null ? v.em_falta === 0 : null,
@@ -1459,8 +1505,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   h.pagar = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
     const v = await lerJson(req, ['fase', 'inicio_imediato']);
-    const fase = opcao(v.fase, 'fase', ['sinal', 'restante', ...Object.keys(COMPRAS)]);
+    const fase = opcao(v.fase, 'fase', ['sinal', 'restante', ...Object.keys(COMPRAS), ...(config.eletricistas ? ['visita_sem_defeito'] : [])]);
     const o = pedidoDaConta(c, m[1]);
+    if (fase === 'visita_sem_defeito') return responder(res, 200, { pagamento: await pagarVisitaExtra(c, o) });
     // "Quero que comecem já" (decisão 11): vem com o pagamento do sinal.
     if (v.inicio_imediato !== undefined && fase === 'sinal') definirInicioImediato(o, booleano(v.inicio_imediato, 'inicio_imediato'), c.id, ip);
     responder(res, 200, { pagamento: COMPRAS[fase] ? await comprar(c, o, fase) : await pagarFase(c, o, fase) });
@@ -1557,7 +1604,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
-    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt,
+    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago,
     PLANOS: PLANOS_MENSAIS,
   };
 }

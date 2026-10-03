@@ -590,7 +590,7 @@ describe('modo simulado', () => {
     assert.deepEqual(rel.ensaios.lista.map((e) => [e.chave, e.referencia, e.medido]), [
       ['continuidade_pe', 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', null],
       ['isolamento', '≥ 0,5 MΩ, a 500 V DC', null],
-      ['terra', '< 100 Ω; e RA × IΔn ≤ 50 V', null],
+      ['terra', '≤ 100 Ω; e RA × IΔn ≤ 50 V', null],
       ['diferencial', 'dispara a uma corrente ≤ IΔn; tempo ≤ 300 ms', null],
     ]);
     assert.match(rel.ensaios.lista[3].norma, /EN 61008\/61009/);
@@ -655,7 +655,7 @@ describe('modo simulado', () => {
     assert.equal((await painel('POST', 'config-orcamento', 'ceo', { ensaio_terra_ohm: -1 })).estado, 400);
     try {
       let rel = (await painel('GET', `orcamentos/${id}/relatorio-cliente`)).json.relatorio;
-      assert.deepEqual(rel.ensaios.lista.map((e) => e.referencia), ['valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', '≥ 1 MΩ, a 500 V DC', '< 50 Ω; e RA × IΔn ≤ 50 V', 'dispara a uma corrente ≤ IΔn; tempo ≤ 200 ms']);
+      assert.deepEqual(rel.ensaios.lista.map((e) => e.referencia), ['valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', '≥ 1 MΩ, a 500 V DC', '≤ 50 Ω; e RA × IΔn ≤ 50 V', 'dispara a uma corrente ≤ IΔn; tempo ≤ 200 ms']);
       // Medidos: o comercial regista; a ficha e o relatório trazem-nos; um valor inválido dá 400; o técnico não pode (403).
       assert.equal((await painel('GET', `orcamentos/${id}`)).json.ensaios, null);
       assert.equal((await painel('POST', `orcamentos/${id}/ensaios`, 'tecnico', { terra: 12 })).estado, 403);

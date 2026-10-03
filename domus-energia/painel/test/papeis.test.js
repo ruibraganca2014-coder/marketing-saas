@@ -69,6 +69,9 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/eletricista', [C], {}],
   ['POST', 'eletricistas/999/apagar', [C], {}],
   ['GET', 'trabalhos-eletricista/999/fotos/0123456789abcdef01234567', [C]],
+  ['GET', 'pagamentos-eletricistas', [C]],
+  ['POST', 'trabalhos-eletricista/999/pago', [C], {}],
+  ['GET', 'trabalhos-eletricista/999/fatura', [C]],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 

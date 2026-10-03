@@ -132,7 +132,7 @@ export const VALORES = [
   { medicao: "Continuidade do condutor de proteção (PE) e das ligações equipotenciais", valor: "valor medido, sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A", fonte: "RTIEBT 612.2", nota: "Na prática, tomada → quadro abaixo de 0,5 Ω (referência prática)." },
   { medicao: "Resistência de isolamento (cada condutor ativo à terra)", valor: "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados", fonte: "RTIEBT 612.3 (Quadro 61A)", nota: "Circuitos até 500 V; TRS/TRP ≥ 0,25 MΩ a 250 V. Valores do DR original." },
   { medicao: "Disparo do diferencial", valor: "dispara a uma corrente ≤ IΔn", fonte: "RTIEBT Anexo B", nota: "A RTIEBT não fixa tempo; os ≤ 300 ms a IΔn (tipo geral) são das normas de produto EN 61008/61009 (referência prática)." },
-  { medicao: "Resistência de terra das massas (habitação com disjuntor de entrada diferencial)", valor: "< 100 Ω; e RA × IΔn ≤ 50 V", fonte: "RTIEBT 801.5.6.1 e 413.1.4.2", nota: "Com 30 mA o limite da fórmula é 1667 Ω; os 100 Ω são a exigência explícita para habitações." },
+  { medicao: "Resistência de terra das massas (habitação com disjuntor de entrada diferencial)", valor: "≤ 100 Ω; e RA × IΔn ≤ 50 V", fonte: "RTIEBT 801.5.6.1 e 413.1.4.2", nota: "Com 30 mA o limite da fórmula é 1667 Ω; os 100 Ω são a exigência explícita para habitações." },
   { medicao: "Ordem dos ensaios", valor: "inspeção visual; depois continuidade do PE → isolamento → separação de circuitos → corte automático (terra, malha, diferencial) → polaridade → funcionais", fonte: "RTIEBT 611.1 e 612.1", nota: "Um ensaio que falha repete-se depois da correção, com os anteriores que possa ter afetado." },
 ];
 

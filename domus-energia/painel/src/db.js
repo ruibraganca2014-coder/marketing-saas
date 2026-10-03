@@ -31,8 +31,9 @@ export const MOTIVOS_STOCK = ['entrada', 'reserva', 'libertacao', 'saida', 'acer
 /** Eletricistas externos (fase 4, migrações 27 e 28; docs/ELETRICISTAS.md). */
 export const ESTADOS_ELETRICISTA = ['pendente', 'aprovado', 'recusado', 'suspenso'];
 export const TIPOS_TRABALHO = ['obra', 'visita', 'avaria'];
-export const ESTADOS_TRABALHO = ['na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'retirado'];
-export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visita_marcada', 'largou', 'expirou', 'retirado', 'concluida'];
+export const ESTADOS_TRABALHO = ['na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada', 'aprovada', 'paga', 'retirado'];
+export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visita_marcada', 'largou', 'expirou', 'retirado', 'concluida',
+  'confirmada', 'contestada', 'devolvida', 'aprovada', 'paga'];
 /** Grupos das fotos que o eletricista tira na obra (migração 29): quadro e pontos, antes e depois. */
 export const GRUPOS_FOTO_TRABALHO = ['quadro_antes', 'pontos_antes', 'quadro_depois', 'pontos_depois'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
@@ -384,7 +385,7 @@ export const MIGRACOES = [
   (db) => semear(db, SEMENTES_PONTOS, true),
   // 16 — relatório pormenorizado, conteúdo técnico (docs/PAGAMENTOS-PEDIDO.md): a lista de ensaios com os valores de
   // referência editáveis no painel (`ensaio_isolamento_mohm` ≥ 0,5 MΩ a 500 V DC, RTIEBT 612.3; `ensaio_diferencial_ms`
-  // ≤ 300 ms a IΔn, referência EN 61008/61009; `ensaio_terra_ohm` < 100 Ω, 801.5.6.1) e a coluna `orcamentos.ensaios`
+  // ≤ 300 ms a IΔn, referência EN 61008/61009; `ensaio_terra_ohm` ≤ 100 Ω, 801.5.6.1) e a coluna `orcamentos.ensaios`
   // (JSON com os valores medidos na visita/obra, registados no painel). INSERT OR IGNORE: nunca mexe num valor editado.
   (db) => {
     db.exec('ALTER TABLE orcamentos ADD COLUMN ensaios TEXT');
@@ -674,6 +675,69 @@ export const MIGRACOES = [
       );
     `);
   }),
+  // 30 — fase 4, ronda 3 (docs/ELETRICISTAS.md): confirmação do cliente, aprovação do CEO e pagamento ao eletricista. O
+  // trabalho ganha os estados `confirmada` (o cliente disse "Sim", ou passaram 7 dias), `aprovada` (CEO) e `paga`, e os
+  // eventos correspondentes (recria as duas tabelas pelo procedimento da migração 29). Colunas novas: a confirmação e a
+  // avaliação do cliente (estrelas, comentário, se pode ir para o site), a reclamação ("Não" do cliente ou devolução do
+  // CEO) e a decisão do CEO sobre ela (defeito / sem defeito), a aprovação, o valor a pagar FIXADO ao aprovar (com o
+  // detalhe), a fatura-recibo do eletricista (os bytes ficam em ELETRICISTAS_DIR/faturas/) e o pagamento. No
+  // eletricista, o IBAN para a transferência.
+  semChaves((db) => {
+    const recriar = (tabela, de, para) => {
+      const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(tabela).sql;
+      const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, `CREATE TABLE ${tabela}_novo`).replace(de, para);
+      if (!novo.includes(para)) throw new Error(`migração 30: não foi possível ler o esquema de ${tabela}`);
+      const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL").all(tabela).map((x) => x.sql);
+      const seq = db.prepare('SELECT seq FROM sqlite_sequence WHERE name = ?').get(tabela)?.seq ?? null;
+      db.exec(novo);
+      db.exec(`INSERT INTO ${tabela}_novo SELECT * FROM ${tabela}`);
+      db.exec(`DROP TABLE ${tabela}`);
+      db.exec(`ALTER TABLE ${tabela}_novo RENAME TO ${tabela}`);
+      for (const i of indices) db.exec(i);
+      db.prepare('DELETE FROM sqlite_sequence WHERE name IN (?, ?)').run(tabela, `${tabela}_novo`);
+      if (seq !== null) db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(tabela, seq);
+    };
+    recriar('trabalhos_eletricista', /estado TEXT NOT NULL CHECK \(estado IN \([^)]*\)\)/i, `estado TEXT NOT NULL CHECK (estado IN (${lista(ESTADOS_TRABALHO)}))`);
+    recriar('trabalhos_eletricista_eventos', /evento TEXT NOT NULL CHECK \(evento IN \([^)]*\)\)/i, `evento TEXT NOT NULL CHECK (evento IN (${lista(EVENTOS_TRABALHO)}))`);
+    db.exec(`
+      ALTER TABLE trabalhos_eletricista ADD COLUMN confirmada TEXT;             -- quando o cliente confirmou (ou foi aceite ao fim de 7 dias)
+      ALTER TABLE trabalhos_eletricista ADD COLUMN confirmada_auto INTEGER;     -- 1 = aceite automaticamente (sem resposta do cliente)
+      ALTER TABLE trabalhos_eletricista ADD COLUMN estrelas INTEGER CHECK (estrelas IS NULL OR estrelas BETWEEN 1 AND 5);
+      ALTER TABLE trabalhos_eletricista ADD COLUMN comentario TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN comentario_site INTEGER;     -- 1 = o cliente deixa usar o comentário no site
+      ALTER TABLE trabalhos_eletricista ADD COLUMN reclamacao TEXT;             -- o que falta (cliente) ou o motivo da devolução (CEO)
+      ALTER TABLE trabalhos_eletricista ADD COLUMN reclamacao_de TEXT CHECK (reclamacao_de IS NULL OR reclamacao_de IN ('cliente', 'ceo'));
+      ALTER TABLE trabalhos_eletricista ADD COLUMN reclamacao_quando TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN reclamacao_decisao TEXT CHECK (reclamacao_decisao IS NULL OR reclamacao_decisao IN ('defeito', 'sem_defeito'));
+      ALTER TABLE trabalhos_eletricista ADD COLUMN reclamacao_decidida TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN aprovada TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN aprovada_por TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN valor_cent INTEGER;          -- a pagar ao eletricista (sem IVA), fixado ao aprovar
+      ALTER TABLE trabalhos_eletricista ADD COLUMN valor_detalhe TEXT;          -- JSON: percentagem, mão de obra, parte, deslocação, total
+      ALTER TABLE trabalhos_eletricista ADD COLUMN fatura_id TEXT;              -- 24 hex (nome do ficheiro da fatura-recibo)
+      ALTER TABLE trabalhos_eletricista ADD COLUMN fatura_tipo TEXT CHECK (fatura_tipo IS NULL OR fatura_tipo IN ('application/pdf', 'image/jpeg', 'image/png'));
+      ALTER TABLE trabalhos_eletricista ADD COLUMN fatura_bytes INTEGER;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN fatura_quando TEXT;
+      ALTER TABLE trabalhos_eletricista ADD COLUMN paga TEXT;                   -- quando o CEO marcou "Pago"
+      ALTER TABLE trabalhos_eletricista ADD COLUMN paga_por TEXT;
+      ALTER TABLE eletricistas ADD COLUMN iban TEXT;                            -- para a transferência (PT50…, validado)
+    `);
+  }),
+  // 31 — fase 4, ronda 3 (decisão do dono, docs/ELETRICISTAS.md "Ida sem defeito"): depois de um "Não" do cliente em que
+  // o CEO decide "sem defeito", o eletricista recebe essa ida (percentagem × a meia hora sem IVA + deslocação sem IVA)
+  // numa linha própria: valor fixado na decisão, com a sua fatura-recibo e o seu "Pago". `regresso_desde` é a data da
+  // decisão (o pagamento da visita pelo cliente conta a partir dela).
+  (db) => db.exec(`
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_desde TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_cent INTEGER;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_detalhe TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_fatura_id TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_fatura_tipo TEXT CHECK (regresso_fatura_tipo IS NULL OR regresso_fatura_tipo IN ('application/pdf', 'image/jpeg', 'image/png'));
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_fatura_bytes INTEGER;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_fatura_quando TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_paga TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_paga_por TEXT;
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

@@ -528,7 +528,7 @@ export default function orcamentos(el, ctx) {
         entrada("continuidade_pe", "Continuidade do PE (Ω)", "612.2: valor medido"),
         entrada("isolamento", "Isolamento (MΩ)", "612.3: ≥ referência, a 500 V DC")),
       h("div", { class: "duas" },
-        entrada("terra", "Resistência de terra (Ω)", "801.5.6.1: < referência"),
+        entrada("terra", "Resistência de terra (Ω)", "801.5.6.1: ≤ referência"),
         entrada("diferencial", "Disparo do diferencial (ms)", "a IΔn; referência EN 61008/61009")),
       campoForm("Notas", h("textarea", { name: "notas", maxlength: "1000", rows: "2" }, campo(e, "notas") ?? "")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", text: "Guardar ensaios" }),

@@ -825,6 +825,16 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-planos legend { font-weight: 700; margin-bottom: 4px; }
 .conta-planos label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .conta-relatorio { display: grid; gap: 8px; }
+/* "O trabalho ficou concluído?" (fase 4, ronda 3): estrelas de 1 a 5 (rádios: teclado e leitor de ecrã). */
+.conta-confirmar-form { display: grid; gap: 10px; }
+.conta-estrelas { border: 0; margin: 0; padding: 0; min-width: 0; }
+.conta-estrelas legend { font-weight: 700; margin-bottom: 4px; }
+.conta-estrelas-linha { display: flex; gap: 4px; flex-wrap: wrap; }
+.conta-estrelas-linha label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; font-size: 1.8rem; line-height: 1; color: #b9b2a3; cursor: pointer; border-radius: 8px; }
+.conta-estrelas-linha label.ativa { color: #c98f00; }
+.conta-estrelas-linha input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.conta-estrelas-linha label:has(input:focus-visible) { outline: 3px solid var(--musgo); outline-offset: 2px; }
+.conta-estrelas-dadas { color: #c98f00; font-size: 1.3rem; letter-spacing: 2px; }
 /* Num telemóvel a tabela do material rola dentro do cartão (não alarga a página). */
 .relatorio-cliente { min-width: 0; overflow-x: auto; }
 .relatorio-cliente table { width: 100%; border-collapse: collapse; font-size: .92rem; }

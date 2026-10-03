@@ -120,7 +120,7 @@ export default function catalogo(el) {
         h("p", { class: "ajuda", text: "Valores de referência da lista de ensaios do relatório completo, marcados \"a confirmar pelo técnico\". A continuidade do PE não tem limite (valor medido)." }),
         h("div", { class: "tres" },
           campoForm("Isolamento mínimo (MΩ)", entrada("ensaio_isolamento_mohm", campo(config, "ensaio_isolamento_mohm") ?? 0.5, "1000", "0.01"), "RTIEBT 612.3: ≥, a 500 V DC"),
-          campoForm("Terra máxima (Ω)", entrada("ensaio_terra_ohm", campo(config, "ensaio_terra_ohm") ?? 100, "100000", "1"), "RTIEBT 801.5.6.1: < com disjuntor de entrada diferencial"),
+          campoForm("Terra máxima (Ω)", entrada("ensaio_terra_ohm", campo(config, "ensaio_terra_ohm") ?? 100, "100000", "1"), "RTIEBT 801.5.6.1: ≤ com disjuntor de entrada diferencial"),
           campoForm("Disparo do diferencial (ms)", entrada("ensaio_diferencial_ms", campo(config, "ensaio_diferencial_ms") ?? 300, "10000", "1"), "Referência EN 61008/61009 (a RTIEBT só exige disparo ≤ IΔn)"))),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar configuração" })), msg);
     f.addEventListener("submit", async (e) => {
