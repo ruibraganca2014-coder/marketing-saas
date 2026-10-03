@@ -360,9 +360,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   /** O cliente já pagou o relatório completo (ou os 19 € antigos)? */
   const temRelatorio = (o) => Boolean(pagoEm(o.id, FASES_RELATORIO));
   /** A visita técnica já está paga (visita, relatório + visita, avaria, ou os 19 € antigos com visita)? */
-  const temVisita = (o) => Boolean(db.prepare(`SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND COALESCE(com_visita, 1) = 1 AND faltou IS NULL
-    AND fase IN (${marcas(FASES_VISITA)}) LIMIT 1`).get(o.id, ...FASES_VISITA))
-    || Boolean(db.prepare('SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = \'relatorio\' AND estado = \'pago\' AND com_visita = 1').get(o.id));
+  const visitaPaga = db.prepare(`SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND COALESCE(com_visita, 1) = 1 AND faltou IS NULL
+    AND fase IN (${marcas(FASES_VISITA)}) LIMIT 1`);
+  const relatorioComVisita = db.prepare('SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = \'relatorio\' AND estado = \'pago\' AND com_visita = 1');
+  const temVisita = (o) => Boolean(visitaPaga.get(o.id, ...FASES_VISITA)) || Boolean(relatorioComVisita.get(o.id));
   const simDe = (o) => { try { const s = JSON.parse(o.simulacao ?? 'null'); return s && typeof s === 'object' ? s : null; } catch { return null; } };
   const localidadeDe = (o) => o.localidade || simDe(o)?.casa?.localidade || '';
   /** Ainda se compra o relatório ou a visita: com simulação, antes de aceitar a proposta e da obra. */

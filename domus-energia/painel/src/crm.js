@@ -138,7 +138,7 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
       ...r, valor_proposta: deCent(o.valor_proposta_cent), aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       responsavel_id: o.responsavel_id ?? null, responsavel_nome: nomeDe(o.responsavel_id),
       origem: o.origem, origem_contacto: o.origem_contacto ?? null, origem_entrada: o.origem_entrada ?? null,
-      motivo_perda_tipo: o.motivo_perda_tipo ?? null, motivo_perda: o.motivo_perda ?? null, tem_simulacao: o.simulacao !== null,
+      motivo_perda_tipo: o.motivo_perda_tipo ?? null, motivo_perda: o.motivo_perda ?? null, tem_simulacao: o.tem_simulacao !== undefined ? Boolean(o.tem_simulacao) : o.simulacao !== null,
       separado: o.crm_separado ?? null,
     };
   }
@@ -160,7 +160,10 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
     if (resp !== null && resp !== 'sem' && !/^[1-9]\d{0,9}$/.test(resp)) falha('Responsável inválido.');
     const de = q.get('de') ? diaHora(q.get('de'), 'a data inicial')?.slice(0, 10) : null;
     const ate = q.get('ate') ? diaHora(q.get('ate'), 'a data final')?.slice(0, 10) : null;
-    const todos = db.prepare('SELECT * FROM orcamentos WHERE estado != ? ORDER BY id DESC LIMIT 2000').all(ESTADO_ARQUIVADO).map((o) => pedidoCrm(o, u));
+    // Sem a coluna `simulacao` (dezenas de KB por pedido): a lista só precisa de saber se existe.
+    const todos = db.prepare(`SELECT id, criado, crm_cliente_id, nome, servico, localidade, estado, data_visita, valor_proposta_cent, proposta_aceite, responsavel_id,
+      origem, origem_contacto, origem_entrada, motivo_perda_tipo, motivo_perda, crm_separado, simulacao IS NOT NULL AS tem_simulacao
+      FROM orcamentos WHERE estado != ? ORDER BY id DESC LIMIT 2000`).all(ESTADO_ARQUIVADO).map((o) => pedidoCrm(o, u));
     const filtrados = todos.filter((p) => (!origem || (origem === 'sem' ? !p.origem_contacto : p.origem_contacto === origem))
       && (!concelho || p.concelho === concelho)
       && (!resp || (resp === 'sem' ? !p.responsavel_id : String(p.responsavel_id) === resp))
@@ -198,7 +201,7 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
     const q = semAcentos(url.searchParams.get('q') || '').slice(0, 100);
     const vistos = u.papel === 'tecnico' ? clientesDoTecnico(u.id) : null;
     const pedidos = new Map();
-    for (const o of db.prepare('SELECT * FROM orcamentos WHERE crm_cliente_id IS NOT NULL ORDER BY id DESC').all()) {
+    for (const o of db.prepare('SELECT id, crm_cliente_id, estado, localidade FROM orcamentos WHERE crm_cliente_id IS NOT NULL ORDER BY id DESC').all()) {
       if (!pedidos.has(o.crm_cliente_id)) pedidos.set(o.crm_cliente_id, []);
       pedidos.get(o.crm_cliente_id).push(o);
     }

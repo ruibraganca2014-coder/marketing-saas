@@ -125,10 +125,23 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
    * ter sido feito que volta a ser devido (o CEO mudou os prazos) reabre-se em vez de nascer outro.
    */
   function lembretes() {
+    // Nada foi escrito na base desde a última volta e o minuto (Lisboa) é o mesmo: o resultado seria igual. Poupa a volta
+    // inteira nas leituras seguidas (o selo do menu pede a contagem a cada mudança de ecrã).
+    const marca = `${alteracoes.get().n}:${agoraLisboa(relogio())}`;
+    if (marca === ultimaVolta) return 0;
+    const n = voltaDosLembretes();
+    ultimaVolta = `${alteracoes.get().n}:${agoraLisboa(relogio())}`;
+    return n;
+  }
+  const alteracoes = db.prepare('SELECT total_changes() AS n');
+  let ultimaVolta = null;
+  function voltaDosLembretes() {
     crm.ligarPedidos();
     const agora = relogio();
     const pz = prazos();
-    const pedidos = new Map(db.prepare(`SELECT * FROM orcamentos WHERE estado IN ('novo', 'contactado', 'visita_marcada', 'proposta_enviada') AND anonimizado IS NULL`).all().map((o) => [o.id, o]));
+    // Só as colunas que os lembretes usam: `simulacao` (dezenas de KB por pedido) fica de fora.
+    const pedidos = new Map(db.prepare(`SELECT id, nome, estado, criado, atualizado, data_visita, proposta_aceite, crm_cliente_id, responsavel_id FROM orcamentos
+      WHERE estado IN ('novo', 'contactado', 'visita_marcada', 'proposta_enviada') AND anonimizado IS NULL`).all().map((o) => [o.id, o]));
     const devidos = new Map();
     for (const o of pedidos.values()) { const l = lembreteDe(o, agora, pz); if (l) devidos.set(l.chave, { o, ...l }); }
     let n = 0;
