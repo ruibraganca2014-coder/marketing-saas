@@ -36,6 +36,8 @@ const LEMBRETES = {
  * chave única) e não se cancelam com a fase do pedido. `d`: os dias sem pagar, ou as estrelas da avaliação.
  */
 const AUTOMATICAS = {
+  obra_confirmar: { titulo: (n) => `Confirmar obra concluída — ${n}`, neutro: 'confirmar a obra concluída',
+    texto: () => 'O técnico marcou a obra como concluída no ecrã Obras. O cliente ainda não foi avisado: só depois de carregar em "Marcar obra concluída" na ficha do pedido é que o cliente é avisado, o restante é pedido e os emails automáticos (pagamento em falta, depois da obra) começam.' },
   pagamento_falta: { titulo: (n) => `Ligar a ${n} — pagamento em falta`, neutro: 'ligar ao cliente (pagamento em falta)',
     texto: (d) => `O cliente foi lembrado duas vezes por email e o pagamento continua por fazer há ${dias(d)}. Ligue-lhe. Já não saem mais lembretes automáticos.` },
   avaliacao_baixa: { titulo: (n) => `Avaliação baixa — ligar a ${n}`, neutro: 'ligar ao cliente (avaliação baixa)',
@@ -136,6 +138,8 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
       db.prepare('UPDATE tarefas SET cancelada = ?, atualizado = ? WHERE id = ? AND cancelada IS NULL').run(agoraIso(), agoraIso(), t.id);
       auditar(null, 'tarefa_cancelada', `tarefa:${t.id}`, { lembrete: t.lembrete.split(':')[1] ?? null, orcamento: t.orcamento_id, motivo: 'a fase do pedido avançou' });
     }
+    // "Confirmar obra concluída": sai sozinha quando o CEO confirma no pedido ou a obra deixa de estar concluída.
+    cancelarAutomaticas('obra_confirmar', new Set(db.prepare(POR_CONFIRMAR).all().map((x) => `${x.id}:obra_confirmar:${x.obra}`)), 'a obra foi confirmada no pedido ou deixou de estar concluída');
     const existe = db.prepare('SELECT id, cancelada, estado FROM tarefas WHERE lembrete = ?');
     const respAtivo = db.prepare('SELECT 1 FROM utilizadores WHERE id = ? AND ativo = 1');
     for (const { o, tipo, d, chave } of devidos.values()) {
@@ -164,16 +168,40 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
   crm.aoLer(() => lembretes());
 
   /**
-   * Tarefa automática fora do CRM (`AUTOMATICAS`), para os CEO (sem responsável) e com o prazo de hoje, ligada ao pedido
-   * e à ficha do cliente. Idempotente: a chave `<pedido>:<tipo>:…` é única (feita ou aberta, nunca nasce outra).
+   * As obras concluídas no ecrã Obras cujo pedido (aceite) ainda não tem "Obra concluída" confirmada pelo CEO: o cliente
+   * não foi avisado nem o restante pedido. Obras sem pedido (ou de um pedido anonimizado) ficam de fora.
    */
-  function criarAutomatica(tipo, o, chave, d) {
+  const POR_CONFIRMAR = `SELECT o.*, b.id AS obra FROM obras b JOIN orcamentos o ON o.id = b.orcamento_id
+    WHERE b.estado = 'concluida' AND o.estado = 'aceite' AND o.obra_concluida IS NULL AND o.anonimizado IS NULL`;
+
+  /**
+   * Tarefa automática fora do CRM (`AUTOMATICAS`), para os CEO (sem responsável) e com o prazo de hoje, ligada ao pedido,
+   * à ficha do cliente e (`obraId`) à obra. Idempotente: a chave `<pedido>:<tipo>:…` é única (feita ou aberta, nunca
+   * nasce outra); uma que foi cancelada sem ter sido feita e volta a ser devida reabre-se, como os lembretes do CRM.
+   */
+  function criarAutomatica(tipo, o, chave, d, obraId = null) {
     const agoraTxt = agoraIso();
-    const r = db.prepare(`INSERT OR IGNORE INTO tarefas (titulo, descricao, cliente_id, orcamento_id, responsavel_id, prazo, estado, lembrete, criado, criado_por, atualizado)
-      VALUES (?, ?, ?, ?, NULL, ?, 'a_fazer', ?, ?, 'sistema', ?)`).run(AUTOMATICAS[tipo].titulo(o.nome), AUTOMATICAS[tipo].texto(d), o.crm_cliente_id ?? null, o.id,
+    const ja = db.prepare('SELECT id, cancelada, estado FROM tarefas WHERE lembrete = ?').get(chave);
+    if (ja) {
+      if (!ja.cancelada || ja.estado === 'feito') return false;
+      db.prepare('UPDATE tarefas SET cancelada = NULL, prazo = ?, atualizado = ? WHERE id = ?').run(diaLisboa(new Date(relogio())), agoraTxt, ja.id);
+      auditar(null, 'tarefa_reaberta', `tarefa:${ja.id}`, { lembrete: tipo, orcamento: o.id, motivo: 'voltou a ser devida' });
+      return true;
+    }
+    const r = db.prepare(`INSERT OR IGNORE INTO tarefas (titulo, descricao, cliente_id, orcamento_id, obra_id, responsavel_id, prazo, estado, lembrete, criado, criado_por, atualizado)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, 'a_fazer', ?, ?, 'sistema', ?)`).run(AUTOMATICAS[tipo].titulo(o.nome), AUTOMATICAS[tipo].texto(d), o.crm_cliente_id ?? null, o.id, obraId,
       diaLisboa(new Date(relogio())), chave, agoraTxt, agoraTxt);
     if (r.changes) auditar(null, 'tarefa_criada', `tarefa:${r.lastInsertRowid}`, { lembrete: tipo, orcamento: o.id, responsavel_id: null });
     return Boolean(r.changes);
+  }
+  /**
+   * A obra passou a concluída no ecrã Obras (api.js atualizarObra): tarefa "Confirmar obra concluída — <cliente>" para
+   * os CEO, uma por obra. Daqui não se avisa o cliente nem se mexe no pedido: isso é o CEO que faz, na ficha do pedido.
+   */
+  function obraPorConfirmar(obraId) {
+    crm.ligarPedidos();
+    const o = db.prepare(`${POR_CONFIRMAR} AND b.id = ?`).get(obraId);
+    return o ? criarAutomatica('obra_confirmar', o, `${o.id}:obra_confirmar:${obraId}`, null, obraId) : false;
   }
   /** Cancela (como os lembretes do CRM) as tarefas automáticas abertas do `tipo` cuja chave já não está em `devidas`. */
   function cancelarAutomaticas(tipo, devidas, motivo) {
@@ -426,5 +454,5 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
   }
   const parar = () => { clearInterval(temporizador); clearInterval(temporizadorResumo); };
 
-  return { h, lembretes, resumoDiario, prazos, criarAutomatica, cancelarAutomaticas, aCadaVolta, iniciar, parar };
+  return { h, lembretes, resumoDiario, prazos, criarAutomatica, cancelarAutomaticas, obraPorConfirmar, aCadaVolta, iniciar, parar };
 }

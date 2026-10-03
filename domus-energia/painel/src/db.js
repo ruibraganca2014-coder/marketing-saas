@@ -860,6 +860,13 @@ export const MIGRACOES = [
     `);
     db.prepare('INSERT INTO emails_chave (id, chave) VALUES (1, ?)').run(randomBytes(32).toString('hex'));
   },
+  // 35 — os emails automáticos só contam a partir da publicação (decisão do dono; docs/EMAILS-AUTOMATICOS.md §2):
+  // `emails_chave.inicio` guarda o instante em que esta migração correu. O que aconteceu antes (pedido recebido,
+  // proposta aceite, obra concluída) nunca recebe um email automático nem a tarefa do pagamento em falta.
+  (db) => {
+    db.exec('ALTER TABLE emails_chave ADD COLUMN inicio TEXT');
+    db.prepare('UPDATE emails_chave SET inicio = ? WHERE id = 1').run(iso());
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

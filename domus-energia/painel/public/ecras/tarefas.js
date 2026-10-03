@@ -11,7 +11,7 @@ const CHAVE_VISTA = "domus.painel.tarefas.vista";
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
 const gravar = (v) => { try { localStorage.setItem(CHAVE_VISTA, v); } catch {} };
 const NOME_LEMBRETE = { novo_24h: "Pedido novo sem contacto", visita_2d: "Visita feita, proposta por enviar", proposta_3d: "Proposta sem resposta", proposta_7d: "Proposta sem resposta (2.º aviso)", proposta_14d: "Proposta: perdido?",
-  pagamento_falta: "Pagamento em falta", avaliacao_baixa: "Avaliação baixa" };
+  pagamento_falta: "Pagamento em falta", avaliacao_baixa: "Avaliação baixa", obra_confirmar: "Obra por confirmar" };
 /** Prazos dos lembretes automáticos (config-orcamento, só o CEO): [chave, etiqueta, omissão, mínimo, máximo]. */
 const PRAZOS_LEMBRETES = [
   ["lembrete_novo_dias_uteis", "Pedido novo sem contacto (dias úteis)", 1, 1, 10],
@@ -91,7 +91,12 @@ export default function tarefas(el, ctx) {
       ...PRAZOS_EMAILS.map(([k, etiqueta, omissao, min, max]) => campoForm(etiqueta, h("input", { type: "number", name: k, min: String(min), max: String(max), step: "1", inputmode: "numeric", value: String(omissao), required: true }))),
       campoForm("Ligação da avaliação no Google", google, "Depois de avaliar na conta, todos os clientes veem o convite para a avaliação pública no Google, com qualquer número de estrelas. Vazia: não há convite."),
       h("div", { class: "form-botoes" }, h("button", { class: "btn sec", type: "submit", text: "Guardar emails automáticos" })), msg);
+    // Só leitura: desde quando contam (o dia da publicação); o que aconteceu antes não recebe emails automáticos.
+    const desde = h("p", { class: "ajuda", id: "emails-inicio", hidden: true });
+    fr.prepend(desde);
     const preencher = (cfg) => {
+      const ini = campo(cfg, "emails_auto_inicio");
+      if (typeof ini === "string" && ini) { desde.textContent = `Ativos desde ${data(ini)}: pedidos, propostas aceites e obras concluídas antes dessa data não recebem emails automáticos (o lembrete da visita vale para todas as visitas futuras).`; desde.hidden = false; }
       for (const [k, , omissao] of PRAZOS_EMAILS) fr.elements[k].value = String(numero(campo(cfg, k)) ?? omissao);
       const g = campo(cfg, "google_avaliacao_url");
       google.value = typeof g === "string" ? g : "";

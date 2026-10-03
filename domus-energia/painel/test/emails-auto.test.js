@@ -3,7 +3,9 @@
 // pagamento em falta (3 dias → 7 dias → tarefa e mais nada; pago a meio pára), depois da obra (guia e pedido de
 // avaliação, com "Não quero receber" assinado), a avaliação na conta (tarefa com 1 a 3 estrelas; convite do Google a
 // todos, só com a ligação configurada), reiniciar o painel não repete nada, a configuração (só CEO, com limites), a
-// ficha do CRM e o RGPD (o registo dos envios e a recusa saem com a conta).
+// ficha do CRM e o RGPD (o registo dos envios e a recusa saem com a conta). Segunda ronda: a obra concluída pelo técnico
+// no ecrã Obras só cria a tarefa "Confirmar obra concluída" (o cliente não é avisado), e os emails só contam a partir da
+// publicação (`emails_chave.inicio`, migração 35).
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +14,8 @@ import { agoraLisboa } from '../src/crm.js';
 import { criarEmailsAuto, urlGoogle, ROTA_NAO_RECEBER } from '../src/emails-auto.js';
 import { montarMensagem } from '../src/email.js';
 import { somarDiasCivil } from '../src/util.js';
+import { DatabaseSync } from 'node:sqlite';
+import { MIGRACOES, migrar, versaoEsquema } from '../src/db.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { estadoNovo, montarSimulacao, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
@@ -529,5 +533,153 @@ describe('configuração e RGPD', () => {
     // A ligação antiga continua assinada, mas já não há a quem recusar: responde bem e não guarda nada.
     assert.equal((await p.pedir('POST', `${ROTA_NAO_RECEBER}?t=${E().token(a.id)}`, { site: false })).estado, 200);
     assert.equal(db().prepare('SELECT COUNT(*) AS n FROM emails_recusados WHERE email = ?').get(a.c.email).n, 0);
+  });
+});
+
+describe('obra concluída pelo técnico no ecrã Obras: o CEO confirma', () => {
+  const tarefasObra = (id) => tarefasDe(id, 'obra_confirmar');
+  const obra = (papel, id, corpo) => api(papel, 'POST', `obras/${id}`, corpo);
+
+  test('nasce uma tarefa para os CEO (uma por obra); o cliente não é avisado nem o pedido muda; confirmar no pedido cancela-a', async () => {
+    await ate('10:00');
+    const { id, c, ref } = await aguardaSinal();
+    await pagar(c, ref);   // sinal pago: a obra nasce
+    const obraId = db().prepare('SELECT obra_id AS b FROM orcamentos WHERE id = ?').get(id).b;
+    assert.equal((await obra('ceo', obraId, { tecnicos: [p.u.tecnico.id] })).estado, 200);
+    assert.equal((await obra('tecnico', obraId, { estado: 'em_curso' })).estado, 200);
+    assert.equal(tarefasObra(id).length, 0, 'em curso: nada');
+    const antes = p.emails.length;
+    assert.equal((await obra('tecnico', obraId, { estado: 'concluida' })).estado, 200);
+    let t = tarefasObra(id);
+    assert.equal(t.length, 1);
+    assert.equal(t[0].titulo, 'Confirmar obra concluída — Cliente Conta');
+    assert.match(t[0].descricao, /O técnico marcou a obra como concluída.*só depois de carregar em "Marcar obra concluída" na ficha do pedido/);
+    assert.deepEqual([t[0].orcamento_id, t[0].obra_id, t[0].responsavel_id, t[0].prazo, t[0].lembrete], [id, obraId, null, hojeLisboa(), `${id}:obra_confirmar:${obraId}`]);
+    assert.equal(t[0].cliente_id, db().prepare('SELECT crm_cliente_id AS k FROM orcamentos WHERE id = ?').get(id).k);
+    // Daqui o cliente não sabe de nada: sem email, sem "obra concluída" no pedido, sem restante por pagar na conta.
+    assert.equal(p.emails.slice(antes).filter((m) => m.para === c.email).length, 0);
+    assert.equal(db().prepare('SELECT obra_concluida AS q FROM orcamentos WHERE id = ?').get(id).q, null);
+    await avancar(4 * DIA);
+    E().verificar();
+    assert.equal(autos(c.email).filter((m) => /pagamento por fazer|como usar a sua conta/.test(m.assunto)).length, 0, 'sem confirmação não começam os emails');
+    // O quadro do CEO mostra-a (os lembretes do CRM não a cancelam); o técnico não a vê.
+    let q = (await api('ceo', 'GET', 'tarefas')).json.tarefas.filter((x) => x.orcamento_id === id && x.automatica === 'obra_confirmar');
+    assert.equal(q.length, 1);
+    assert.equal((await api('tecnico', 'GET', 'tarefas')).json.tarefas.filter((x) => x.automatica === 'obra_confirmar').length, 0);
+    // Guardar outra vez a obra concluída não duplica; sair de concluída cancela-a; voltar reabre a MESMA.
+    assert.equal((await obra('tecnico', obraId, { estado: 'concluida', notas: 'Tudo feito.' })).estado, 200);
+    assert.equal(tarefasObra(id).length, 1);
+    assert.equal((await obra('ceo', obraId, { estado: 'em_curso' })).estado, 200);
+    await api('ceo', 'GET', 'tarefas/contagem');
+    assert.ok(tarefasObra(id)[0].cancelada, 'a obra deixou de estar concluída');
+    assert.equal((await obra('tecnico', obraId, { estado: 'concluida' })).estado, 200);
+    t = tarefasObra(id);
+    assert.equal(t.length, 1);
+    assert.equal(t[0].cancelada, null, 'reaberta');
+    // O CEO confirma no pedido: o cliente é avisado (email de sempre) e a tarefa sai sozinha.
+    assert.equal((await api('ceo', 'POST', `orcamentos/${id}/obra-concluida`, {})).estado, 200);
+    assert.equal(p.emails.at(-1).assunto, 'Domus Energia: obra concluída');
+    q = (await api('ceo', 'GET', 'tarefas')).json.tarefas.filter((x) => x.orcamento_id === id && x.automatica === 'obra_confirmar');
+    assert.equal(q.length, 0);
+    assert.ok(tarefasObra(id)[0].cancelada);
+    // Depois de confirmada, concluir outra vez no ecrã Obras já não cria nada.
+    assert.equal((await obra('ceo', obraId, { estado: 'em_curso' })).estado, 200);
+    assert.equal((await obra('ceo', obraId, { estado: 'concluida' })).estado, 200);
+    assert.ok(tarefasObra(id)[0].cancelada);
+    assert.equal(tarefasObra(id).length, 1);
+  });
+
+  test('tarefa feita não volta a nascer; obra sem pedido ligado não cria tarefa', async () => {
+    await ate('10:00');
+    const { id, c, ref } = await aguardaSinal();
+    await pagar(c, ref);
+    const obraId = db().prepare('SELECT obra_id AS b FROM orcamentos WHERE id = ?').get(id).b;
+    assert.equal((await obra('ceo', obraId, { estado: 'concluida' })).estado, 200);
+    const t = tarefasObra(id)[0];
+    assert.equal((await api('ceo', 'POST', `tarefas/${t.id}`, { estado: 'feito' })).estado, 200);
+    assert.equal((await obra('ceo', obraId, { estado: 'em_curso' })).estado, 200);
+    assert.equal((await obra('ceo', obraId, { estado: 'concluida' })).estado, 200);
+    assert.deepEqual(tarefasObra(id).map((x) => [x.id, x.estado]), [[t.id, 'feito']]);
+    // Obra sem pedido (criada à mão para uma casa): nada.
+    const agora = new Date(p.relogio.agora()).toISOString();
+    const solta = Number(db().prepare("INSERT INTO obras (cliente, data, estado, material, criado, atualizado) VALUES ('casa-solta', ?, 'agendada', '[]', ?, ?)").run(hojeLisboa(), agora, agora).lastInsertRowid);
+    const n = db().prepare("SELECT COUNT(*) AS n FROM tarefas WHERE lembrete LIKE '%:obra_confirmar:%'").get().n;
+    assert.equal((await obra('ceo', solta, { estado: 'concluida' })).estado, 200);
+    assert.equal(db().prepare("SELECT COUNT(*) AS n FROM tarefas WHERE lembrete LIKE '%:obra_confirmar:%'").get().n, n);
+  });
+});
+
+describe('só conta a partir da publicação (migração 35)', () => {
+  const original = () => db().prepare('SELECT inicio FROM emails_chave WHERE id = 1').get().inicio;
+  /** Põe o início dos emails automáticos em "agora" (relógio falso), com um minuto de folga antes e depois. */
+  async function publicarAgora() {
+    await avancar(60_000);   // as datas guardam-se ao segundo: o que acabou de acontecer fica claramente antes
+    db().prepare('UPDATE emails_chave SET inicio = ? WHERE id = 1').run(new Date(p.relogio.agora()).toISOString().replace(/\.\d{3}Z$/, 'Z'));
+    await avancar(60_000);
+  }
+
+  test('migração 35 sobre uma base na 34: guarda o instante em que corre e não mexe no segredo das ligações', () => {
+    const base = new DatabaseSync(':memory:');
+    for (const m of MIGRACOES.slice(0, 34)) m(base);
+    base.exec('PRAGMA user_version = 34');
+    const chave = base.prepare('SELECT chave FROM emails_chave WHERE id = 1').get().chave;
+    const antes = Date.now() - 1000;
+    migrar(base);
+    assert.equal(versaoEsquema(base), MIGRACOES.length);
+    const l = base.prepare('SELECT * FROM emails_chave').all();
+    assert.equal(l.length, 1);
+    assert.equal(l[0].chave, chave);
+    assert.ok(Date.parse(l[0].inicio) >= antes && Date.parse(l[0].inicio) <= Date.now());
+    migrar(base);
+    assert.equal(base.prepare('SELECT inicio FROM emails_chave WHERE id = 1').get().inicio, l[0].inicio, 'reabrir não muda o início');
+    base.close();
+  });
+
+  test('o início fica guardado pela migração e o CEO vê-o (só leitura)', async () => {
+    assert.match(original(), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    assert.ok(Date.parse(original()) <= Date.now());
+    assert.equal(E().inicio(), original());
+    assert.equal((await api('ceo', 'GET', 'config-orcamento')).json.emails_auto_inicio, original());
+    assert.equal((await api('ceo', 'POST', 'config-orcamento', { emails_auto_inicio: '2020-01-01T00:00:00Z' })).estado, 400, 'não se edita');
+  });
+
+  test('antes do início: sem boas-vindas, sem lembretes de pagamento nem tarefa, sem email depois da obra; logo a seguir: tudo; a visita futura é lembrada', async () => {
+    const guardado = original();
+    try {
+      // Pedido recebido nas horas de silêncio, ainda sem boas-vindas, e a publicação acontece antes das 08:00.
+      await ate('22:30');
+      const velho = await pedidoSite();
+      await ate('09:00');
+      const sinalVelho = await aguardaSinal();   // proposta aceite antes
+      const obraVelha = await obraConcluida();   // obra concluída antes (restante por pagar)
+      const visita = await pedidoSite();         // visita marcada antes, para amanhã
+      assert.equal((await api('ceo', 'POST', `orcamentos/${visita.id}/marcar-visita`, { data_visita: `${somarDiasCivil(hojeLisboa(), 1)}T15:00` })).estado, 200);
+      const marca = p.emails.length;
+      await publicarAgora();
+      const sinalNovo = await aguardaSinal();    // tudo isto um minuto depois do início
+      const obraNova = await obraConcluida();
+      const novo = await pedidoSite();
+      assert.equal(autos(novo.email).length, 1, 'pedido depois do início: boas-vindas');
+      await ate('10:00');
+      E().verificar();
+      assert.equal(autos(velho.email).length, 0, 'pedido anterior ao início: sem boas-vindas');
+      assert.equal(autos(visita.email, marca).filter((m) => /a visita é amanhã/.test(m.assunto)).length, 1, 'a visita acontece depois do início: lembrete');
+      const pag = (x) => autos(x.c.email, marca).filter((m) => /pagamento por fazer/.test(m.assunto)).length;
+      const guia = (x) => autos(x.c.email, marca).filter((m) => /como usar a sua conta/.test(m.assunto)).length;
+      await avancar(2 * DIA + 5 * 60_000);
+      E().verificar();
+      assert.deepEqual([guia(obraVelha), guia(obraNova)], [0, 1]);
+      await avancar(DIA);
+      E().verificar();
+      assert.deepEqual([pag(sinalVelho), pag(obraVelha), pag(sinalNovo), pag(obraNova)], [0, 0, 1, 1]);
+      await avancar(4 * DIA);
+      E().verificar();
+      reiniciado().verificar();
+      assert.deepEqual([pag(sinalVelho), pag(obraVelha), pag(sinalNovo), pag(obraNova)], [0, 0, 2, 2]);
+      assert.deepEqual([sinalVelho, obraVelha, sinalNovo, obraNova].map((x) => tarefasDe(x.id, 'pagamento_falta').length), [0, 0, 1, 1], 'sem sequência de emails não há tarefa');
+      assert.deepEqual(registo(sinalVelho.id).map((x) => x.tipo), ['boas_vindas'], 'as boas-vindas saíram na altura; mais nada');
+    } finally {
+      db().prepare('UPDATE emails_chave SET inicio = ? WHERE id = 1').run(guardado);
+    }
   });
 });

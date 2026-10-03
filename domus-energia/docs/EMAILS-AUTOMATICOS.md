@@ -1,6 +1,6 @@
 # Emails automáticos ao cliente (onboarding automático)
 
-Decisões do dono de 2026-10-03: o cliente recebe **sozinho** quatro emails ao longo do pedido — **só email** (sem SMS nem WhatsApp). Código: `painel/src/emails-auto.js` (e `emFalta` em `pagamentos-pedido.js`, as tarefas automáticas em `tarefas.js`, a avaliação em `conta.js`); migração **34** (`painel/src/db.js`); ecrãs `painel/public/ecras/tarefas.js` (configuração) e `ecras/crm.js` (lista na ficha), `web/conta.js` (avaliação e convite do Google); testes `painel/test/emails-auto.test.js`.
+Decisões do dono de 2026-10-03: o cliente recebe **sozinho** quatro emails ao longo do pedido — **só email** (sem SMS nem WhatsApp). Código: `painel/src/emails-auto.js` (e `emFalta` em `pagamentos-pedido.js`, as tarefas automáticas em `tarefas.js`, a avaliação em `conta.js`); migrações **34** e **35** (`painel/src/db.js`); ecrãs `painel/public/ecras/tarefas.js` (configuração) e `ecras/crm.js` (lista na ficha), `web/conta.js` (avaliação e convite do Google); testes `painel/test/emails-auto.test.js`.
 
 ## 1. O que sai e quando
 | Email | Quando | A quem | Chave (`emails_automaticos.chave`) |
@@ -29,17 +29,18 @@ Os três primeiros são **emails de serviço**: saem sempre. Só o último leva 
 - **Multibanco e validade:** um pagamento aberto vale 24 h (`VALIDADE_MS`) e depois fica `expirado`; não existiam lembretes. O lembrete conta do pedido de pagamento, não da referência. **Enquanto houver um pagamento aberto ainda válido** (o cliente acabou de gerar uma referência Multibanco) não se lembra nem se cria a tarefa: espera-se que expire. O email avisa que, se já pagou por referência, a confirmação pode demorar.
 - **3 → 7 → tarefa e mais nada:** com o 2.º lembrete nasce a tarefa **"Ligar a &lt;cliente&gt; — pagamento em falta"** (para os CEO, prazo de hoje, ligada ao pedido e à ficha; chave `<pedido>:pagamento_falta:<fase>:<data>` em `tarefas.lembrete`, única). Depois não sai mais nenhum email. Se o 1.º não saiu a tempo (painel parado), aos 7 dias sai só o 2.º.
 - **Deixa de estar em falta** — pago, proposta mudada (o cliente aceita de novo: contagem nova), pedido perdido, sinal devolvido, pagamentos desligados: não sai nada e a tarefa ainda aberta é **cancelada** (como os lembretes do CRM).
-- Mais de 7 dias depois do 2.º prazo (ex.: dívidas antigas no dia em que isto é publicado) já não sai nada nem nasce tarefa.
+- Um pagamento pedido **antes da publicação** (§2, "Só a partir da publicação") não tem lembretes nem tarefa. Tolerância com o painel parado: mais de 7 dias depois do 2.º prazo já não sai nada nem nasce tarefa.
 
 ### Depois da obra
 - O guia: "A minha conta" (pedido, pagamentos, recibos, relatório) e, se o pedido tem plano mensal ou casa ligada, a "Área de cliente". O pedido de avaliação só vai se o cliente ainda não avaliou.
-- **Conta "obra concluída"** = `orcamentos.obra_concluida` (o botão "Obra concluída" do pedido, ou a aprovação do trabalho de um eletricista externo).
+- **Conta "obra concluída"** = `orcamentos.obra_concluida` (o botão "Obra concluída" do pedido, ou a aprovação do trabalho de um eletricista externo). Uma obra marcada concluída pelo técnico no ecrã **Obras** não conta: nasce a tarefa "Confirmar obra concluída — &lt;cliente&gt;" para os CEO e só depois de o CEO confirmar no pedido é que o cliente é avisado, o restante é pedido e estes emails começam (docs/CRM-TAREFAS.md §6).
 - O convite do Google **não** vai no email: aparece na conta depois de avaliar (§4).
 
 ## 2. Regras comuns
 - **Uma vez só, também depois de reiniciar:** cada envio é uma linha em `emails_automaticos` com a chave única, gravada **antes** de enviar (como o email diário das tarefas): um envio que falhe não se repete.
 - **Quando corre:** na volta dos lembretes do CRM (`tarefas.iniciar`, de 15 em 15 minutos, `tarefas.aCadaVolta`) e, as boas-vindas, logo ao receber o pedido.
 - **Horas de silêncio:** entre as **21:00 e as 08:00 de Lisboa** não sai nada; o que for devido sai na primeira volta depois das 08:00.
+- **Só a partir da publicação** (decisão do dono; migração 35): `emails_chave.inicio` guarda o instante em que a migração correu. O que aconteceu **antes** nunca recebe um email automático: boas-vindas de pedidos criados antes; pagamento em falta pedido antes (`proposta_aceite` / `obra_concluida` anteriores — também sem a tarefa); depois da obra com `obra_concluida` anterior. O **lembrete da visita** vale para todas as visitas que acontecem depois, mesmo marcadas antes. O CEO vê a data (só leitura) no bloco da configuração: "Ativos desde …" (`GET config-orcamento` → `emails_auto_inicio`; não se edita).
 - **Quem nunca recebe:** pedidos anonimizados ou arquivados; pedidos de contas apagadas (um pedido com simulação teve sempre conta: sem ela não se envia para o email antigo do pedido).
 - **Sem dados nos registos:** a tabela guarda o pedido, o tipo e a data — nem o endereço nem o texto. No registo do servidor fica "email automático (&lt;tipo&gt;) do pedido N" (sem SMTP, o texto do email é escrito no registo, como todos os outros). Nada disto vai para a auditoria, a não ser a recusa (`emails_recusados`, sem o email) e a avaliação (`avaliacao_cliente`, só as estrelas).
 
@@ -82,5 +83,5 @@ A **ficha do CRM** tem a secção "Emails automáticos": a lista dos emails envi
 | `GET` / `POST /api/conta/emails/nao-receber?t=` | público (token assinado) | página de confirmação / guarda a recusa (HTML; 404 com token inválido) |
 | `POST /api/conta/pedidos/:id/avaliar` | conta dona, email confirmado | `{estrelas}` → `{pedido}`; 409 sem obra concluída ou já avaliado |
 | `GET /api/conta/pedidos` | conta | (já existia) traz também `avaliacao` |
-| `GET` / `POST /painel/api/config-orcamento` | ceo | (já existiam) também `email_*` e `google_avaliacao_url` |
+| `GET` / `POST /painel/api/config-orcamento` | ceo | (já existiam) também `email_*` e `google_avaliacao_url`; o `GET` traz `emails_auto_inicio` (só leitura) |
 | `GET /painel/api/crm/clientes/:id` | ceo, comercial | (já existia) traz também `emails_automaticos` e `cliente.emails_recusados` |

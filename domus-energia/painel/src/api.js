@@ -1355,6 +1355,9 @@ export function criarApi(ctx) {
       if (orc && r.estado === 'concluida') stock.saida(orc, u.email);
       else if (orc && r.estado === 'cancelada') stock.libertar(orc.id, u.email, 'obra cancelada');
     }
+    // Concluída aqui (ecrã Obras) sem "Obra concluída" no pedido: o cliente NÃO é avisado nem o restante pedido; nasce a
+    // tarefa "Confirmar obra concluída" para os CEO (decisão do dono; docs/CRM-TAREFAS.md). Sai sozinha ao confirmar.
+    if (r.estado === 'concluida' && r.estado !== o.estado) tarefas.obraPorConfirmar(o.id);
     responder(res, 200, formatarObra(db.prepare('SELECT * FROM obras WHERE id = ?').get(o.id), fichas()));
   };
 
@@ -1626,7 +1629,8 @@ export function criarApi(ctx) {
     responder(res, 200, formatarArtigo(db.prepare('SELECT * FROM catalogo WHERE id = ?').get(a.id)));
   };
 
-  h.configOrcamento = ({ res }) => responder(res, 200, lerConfigOrcamento());
+  // `emails_auto_inicio` (só leitura): desde quando contam os emails automáticos ao cliente (migração 35).
+  h.configOrcamento = ({ res }) => responder(res, 200, { ...lerConfigOrcamento(), emails_auto_inicio: emailsAuto.inicio() });
 
   h.atualizarConfigOrcamento = async ({ req, res, u, ip }) => {
     const v = await lerJson(req, [...Object.keys(CONFIG_ORCAMENTO), 'deslocacao_base', CHAVE_GOOGLE]);

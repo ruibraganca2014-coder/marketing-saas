@@ -8,7 +8,8 @@
 // Cada envio fica em `emails_automaticos` com uma chave única, ANTES de enviar (nunca sai duas vezes, também depois de
 // reiniciar o painel; um envio falhado não se repete) e sem o endereço nem o corpo. Corre na volta dos lembretes do CRM
 // (tarefas.js, de 15 em 15 minutos) e, as boas-vindas, logo ao receber o pedido. Entre as 21:00 e as 08:00 de Lisboa não
-// sai nada: fica para as 08:00. Pedidos anonimizados ou arquivados e contas apagadas nunca recebem nada.
+// sai nada: fica para as 08:00. Pedidos anonimizados ou arquivados e contas apagadas nunca recebem nada. Só conta o que
+// aconteceu depois da publicação (`emails_chave.inicio`, migração 35); o lembrete da visita vale para qualquer visita futura.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerCorpo, CABECALHOS_SEGURANCA } from './http.js';
@@ -64,6 +65,11 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const cfg = Object.fromEntries(db.prepare("SELECT chave, valor FROM config_orcamento WHERE chave LIKE 'email_%'").all().map((r) => [r.chave, r.valor]));
     return Object.fromEntries(Object.entries(PRAZOS_EMAILS).map(([k, omissao]) => [k, Number.isInteger(cfg[k]) && cfg[k] >= 1 ? cfg[k] : omissao]));
   }
+  /**
+   * Desde quando contam os emails automáticos (ISO; o instante da publicação, migração 35): o que aconteceu antes —
+   * pedido recebido, proposta aceite, obra concluída — nunca recebe um email automático nem a tarefa do pagamento.
+   */
+  const inicio = () => db.prepare('SELECT inicio FROM emails_chave WHERE id = 1').get().inicio;
   /** A ligação da avaliação no Google que o CEO guardou (validada outra vez ao ler), ou null. */
   const google = () => urlGoogle(db.prepare('SELECT valor FROM config_orcamento WHERE chave = ?').get(CHAVE_GOOGLE)?.valor);
 
@@ -157,7 +163,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
    */
   function boasVindas(o) {
     const chave = `${o.id}:boas_vindas`;
-    if (jaEnviado.get(chave) || o.origem !== 'site' || !ABERTOS.includes(o.estado) || avariaPaga.get(o.id)) return false;
+    if (jaEnviado.get(chave) || o.origem !== 'site' || o.criado < inicio() || !ABERTOS.includes(o.estado) || avariaPaga.get(o.id)) return false;
     const para = destinatario(o);
     if (!para) return false;
     const comConta = Boolean(o.conta_id);
@@ -235,10 +241,12 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const candidatos = db.prepare(`SELECT * FROM orcamentos WHERE anonimizado IS NULL AND conta_id IS NOT NULL
       AND ((estado = 'proposta_enviada' AND proposta_aceite IS NOT NULL) OR (estado = 'aceite' AND obra_concluida IS NOT NULL))`).all();
     const tarefasDevidas = new Set();
+    const desde = inicio();
     let n = 0;
     for (const o of candidatos) {
       const f = pagamentos().emFalta(o);
-      if (!f) continue;
+      // Pedido de pagamento anterior à publicação dos emails automáticos: sem lembretes e sem tarefa.
+      if (!f || f.desde < desde) continue;
       const passou = agora - Date.parse(f.desde);
       const etapa = passou >= pz.email_pagamento_2_dias * DIA_MS ? 2 : passou >= pz.email_pagamento_1_dias * DIA_MS ? 1 : 0;
       const tarefa = `${o.id}:pagamento_falta:${f.fase}:${f.desde}`;
@@ -270,8 +278,8 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
    */
   function depoisDaObra(agora, pz) {
     if (!basePainel) return 0;   // sem endereço público não há ligação "Não quero receber": não se envia
-    const obras = db.prepare(`SELECT * FROM orcamentos WHERE estado = 'aceite' AND anonimizado IS NULL AND obra_concluida > ? AND obra_concluida <= ?`)
-      .all(iso(agora - pz.email_obra_dias * DIA_MS - JANELA_MS), iso(agora - pz.email_obra_dias * DIA_MS));
+    const obras = db.prepare(`SELECT * FROM orcamentos WHERE estado = 'aceite' AND anonimizado IS NULL AND obra_concluida > ? AND obra_concluida <= ? AND obra_concluida >= ?`)
+      .all(iso(agora - pz.email_obra_dias * DIA_MS - JANELA_MS), iso(agora - pz.email_obra_dias * DIA_MS), inicio());
     let n = 0;
     for (const o of obras) {
       const chave = `${o.id}:obra`;
@@ -342,5 +350,5 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     return db.prepare(`SELECT orcamento_id, tipo, quando FROM emails_automaticos WHERE orcamento_id IN (${ids.map(() => '?').join(', ')}) ORDER BY quando DESC, id DESC`).all(...ids);
   }
 
-  return { verificar, aoReceber, tratar, paraCliente, avaliar, aposAvaliar, enviados, recusou, prazos, token, pedidoDoToken };
+  return { verificar, aoReceber, tratar, paraCliente, avaliar, aposAvaliar, enviados, recusou, prazos, inicio, token, pedidoDoToken };
 }
