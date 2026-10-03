@@ -163,9 +163,17 @@ export async function enviarSmtp(smtp, { de, para, assunto, texto, cabecalhos })
  * Correio das contas: `enviar({para, assunto, texto, cabecalhos?})` devolve uma Promise que nunca rejeita (o erro vai para o
  * registo). Sem SMTP (ou `local`), escreve o email no registo — é assim que se lê o código no modo local.
  */
+/**
+ * O endereço de um remetente escrito como "Nome <endereco@dominio>" (o formato habitual do EMAIL_REMETENTE); um
+ * endereço simples fica igual. O nome à vista é sempre "Domus Energia" (montarMensagem).
+ */
+export const enderecoRemetente = (s) => (/<\s*([^<>\s]+)\s*>\s*$/.exec(String(s ?? ''))?.[1] ?? String(s ?? '')).trim();
+
 export function criarCorreio({ config, registo, local = false }) {
   const smtp = local ? null : config.smtp;
-  const de = config.emailRemetente || (config.smtp?.utilizador && RE_EMAIL.test(config.smtp.utilizador) ? config.smtp.utilizador : 'nao-responder@domus.localhost');
+  const de = enderecoRemetente(config.emailRemetente) || (config.smtp?.utilizador && RE_EMAIL.test(config.smtp.utilizador) ? config.smtp.utilizador : 'nao-responder@domus.localhost');
+  // Um remetente mal escrito fazia falhar todos os envios sem ninguém dar por isso: fica à vista no arranque.
+  if (smtp && !RE_EMAIL.test(de)) registo.erro('EMAIL_REMETENTE inválido: nenhum email vai ser enviado (use nome@dominio ou "Nome <nome@dominio>")');
   const emCurso = new Set();
   function enviar({ para, assunto, texto, resumo, cabecalhos }) {
     if (!smtp) {

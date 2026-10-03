@@ -6,7 +6,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { readFileSync } from 'node:fs';
-import { enviarSmtp, criarCorreio, montarMensagem } from '../src/email.js';
+import { enviarSmtp, criarCorreio, montarMensagem, enderecoRemetente } from '../src/email.js';
 import { lerConfig } from '../src/config.js';
 
 const SENHA_SMTP = 'segredo-smtp-123';
@@ -138,6 +138,23 @@ describe('cliente SMTP (servidor falso em memória)', () => {
     assert.ok(!linhas.join('\n').includes(SENHA_SMTP), 'a palavra-passe SMTP nunca vai para o registo');
     assert.ok(!linhas.join('\n').includes('654321'), 'com SMTP o código não vai para o registo');
     assert.ok(!/777888|999000/.test(linhas.join('\n')), 'com SMTP nem o assunto vai para o registo (também no erro)');
+  });
+
+  test('EMAIL_REMETENTE como "Nome <endereço>": envia com o endereço no envelope; inválido fica à vista no arranque', async () => {
+    assert.equal(enderecoRemetente('Domus Energia <noreply@exemplo.pt>'), 'noreply@exemplo.pt');
+    assert.equal(enderecoRemetente('noreply@exemplo.pt'), 'noreply@exemplo.pt');
+    assert.equal(enderecoRemetente(''), '');
+    const f = await servidorFalso();
+    abertos.push(f.srv);
+    const linhas = [];
+    const registo = { info: (m) => linhas.push(m), aviso: (m) => linhas.push(m), erro: (m) => linhas.push(m) };
+    const c = criarCorreio({ config: { smtp: smtp(f.porta), emailRemetente: 'Domus Energia <noreply@exemplo.pt>' }, registo });
+    assert.equal(await c.enviar({ para: 'rui_teste@exemplo.pt', assunto: 'Assunto', texto: 'x' }), true);
+    assert.ok(f.sessoes[0].comandos.some((l) => /^MAIL FROM:<noreply@exemplo\.pt>$/i.test(l)), f.sessoes[0].comandos.join(' | '));
+    assert.match(f.sessoes[0].dados, /^From: Domus Energia <noreply@exemplo\.pt>\r$/m);
+    assert.ok(!linhas.some((l) => /inválido/.test(l)));
+    criarCorreio({ config: { smtp: smtp(f.porta), emailRemetente: 'sem arroba' }, registo });
+    assert.ok(linhas.some((l) => /EMAIL_REMETENTE inválido/.test(l)));
   });
 });
 
