@@ -75,7 +75,7 @@ A **ficha do CRM** tem a secção "Emails automáticos": a lista dos emails envi
 ## 7. RGPD
 - Apagar a conta (pelo cliente, pelo CEO ou pela retenção; `conta.js apagar`, na mesma transação): sai o **registo dos envios** de todos os pedidos da conta (apagados, anonimizados ou mantidos) e a **recusa** desse email; o histórico do pedido na auditoria (com `emails_recusados` e `avaliacao_cliente`) sai com o resto. Um pedido apagado leva as suas linhas (`ON DELETE CASCADE`). As tarefas automáticas ficam com o título neutro, como as outras (docs/CRM-TAREFAS.md §7).
 - A avaliação da conta são só as estrelas (sem texto): fica no pedido anonimizado, sem nada que identifique a pessoa.
-- `web/privacidade.html` não foi alterada: a frase "Só lhe escrevemos sobre o seu pedido, a sua conta ou a sua casa" continua verdadeira. Por decidir com o dono: uma linha sobre o email depois da obra (e como o recusar), a recusa guardada por email e a avaliação por estrelas das obras da equipa própria.
+- `web/privacidade.html` (texto aprovado pelo dono em 2026-10-03): a avaliação por estrelas e o convite para o Google em "Pedido de orçamento"; três linhas na tabela das finalidades (avisos sobre o pedido: execução do contrato; email depois da obra e avaliação: interesse legítimo, com recusa de um clique); a frase sobre o email único depois da obra e o "Não quero receber"; e o prazo do registo dos envios e da recusa (apagados com a conta; sem conta, a pedido).
 
 ## 8. API
 | Método e caminho | Quem | O quê |
