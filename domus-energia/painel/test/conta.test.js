@@ -350,6 +350,68 @@ describe('conta de cliente', () => {
     assert.equal(d.morada, 'Rua B, 2');
   });
 
+  test('pré-visualização da Área de cliente (conta sem casa): a planta do pedido só para a conta dona, sem o técnico; com casa nada muda; por confirmar 403', async () => {
+    const a = await p.contaConfirmada(email());
+    const b = await p.contaConfirmada(email());
+    const png = `data:image/png;base64,${Buffer.from('fundo').toString('base64')}`;
+    const planta = {
+      escala_cm: 50, largura_cm: 900, altura_cm: 600, fundo: { imagem: png, x_cm: 0, y_cm: 0, largura_cm: 900, opacidade: 0.5 },
+      divisoes: [{ id: 'd1', nome: 'Sala', piso: 0, x_cm: 50, y_cm: 50, largura_cm: 500, altura_cm: 400 }, { id: 'd2', nome: 'Quarto', piso: 1, x_cm: 50, y_cm: 50, largura_cm: 350, altura_cm: 300 }],
+      elementos: [
+        { id: 'e1', tipo: 'interruptor', x_cm: 100, y_cm: 440, rot: 0, piso: 0, divisao: 'd1', props: { botoes: 2, comando: 'simples' }, acao: 'substituir', inteligente: true, altura_tipica_cm: 110 },
+        { id: 'e2', tipo: 'tomada', x_cm: 60, y_cm: 200, rot: 90, piso: 0, divisao: 'd1', props: { caixas: 2, dupla: true, inteligente: false }, acao: 'reparar', avaria: 'sem corrente' },
+      ],
+    };
+    const inventario = [{ divisao: 'd1', nome: 'Sala', piso: 0, interruptores: [2], tomadas: [2] }, { divisao: 'd2', nome: 'Quarto', piso: 1, interruptores: null, tomadas: [] }];
+    const { id } = await pedidoComConta(a, { simulacao: { ...SIM, planta, inventario } });
+    const { id: semPlanta } = await pedidoComConta(a);
+    // A conta sem casa: GET eu diz que não tem casa (o cliente.js abre a pré-visualização) e GET casa continua 404.
+    assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.tem_casa, false);
+    assert.equal((await conta('GET', 'casa', { cookie: a.cookie })).estado, 404);
+    // Os pedidos dizem se têm planta (o andamento e as compras já lá estavam).
+    const l = (await conta('GET', 'pedidos', { cookie: a.cookie })).json.pedidos;
+    assert.deepEqual(l.map((x) => [x.id, x.tem_planta]), [[semPlanta, false], [id, true]]);
+    assert.deepEqual(l[1].passos.map((x) => x.chave), ['recebido', 'visita', 'proposta', 'aceite', 'obra']);
+    assert.ok(!('planta' in l[1]), 'a planta não vai na lista');
+    // A planta: só o desenho (sem a imagem de fundo, sem ações, avarias nem alturas) e o inventário.
+    const r = await conta('GET', `pedidos/${id}/planta`, { cookie: a.cookie });
+    assert.equal(r.estado, 200, r.texto);
+    assert.deepEqual(Object.keys(r.json), ['pedido', 'planta', 'inventario']);
+    assert.deepEqual([r.json.pedido, r.json.planta.largura_cm, r.json.planta.altura_cm], [id, 900, 600]);
+    assert.deepEqual(r.json.planta.divisoes.map((d) => [d.id, d.nome, d.piso]), [['d1', 'Sala', 0], ['d2', 'Quarto', 1]]);
+    assert.deepEqual(r.json.planta.elementos, [
+      { id: 'e1', tipo: 'interruptor', x_cm: 100, y_cm: 440, rot: 0, piso: 0, divisao: 'd1', props: { comando: 'simples' } },
+      { id: 'e2', tipo: 'tomada', x_cm: 60, y_cm: 200, rot: 90, piso: 0, divisao: 'd1', props: { dupla: true, caixas: 2 } },
+    ]);
+    assert.equal(/fundo|base64|avaria|acao|sem corrente/.test(r.texto), false);
+    assert.deepEqual(r.json.inventario, [{ divisao: 'd1', interruptores: [2], tomadas: [2] }, { divisao: 'd2', interruptores: null, tomadas: [] }]);
+    // Um pedido sem planta: planta e inventário null (a pré-visualização mostra "Ainda não temos a planta…").
+    assert.deepEqual((await conta('GET', `pedidos/${semPlanta}/planta`, { cookie: a.cookie })).json, { pedido: semPlanta, planta: null, inventario: null });
+    // Só da própria conta: a outra conta, sem sessão, id que não existe ou mal formado.
+    assert.equal((await conta('GET', `pedidos/${id}/planta`, { cookie: b.cookie })).estado, 404);
+    assert.equal((await conta('GET', `pedidos/${id}/planta`)).estado, 401);
+    assert.equal((await conta('GET', 'pedidos/999999/planta', { cookie: a.cookie })).estado, 404);
+    assert.equal((await conta('GET', 'pedidos/abc/planta', { cookie: a.cookie })).estado, 404);
+    assert.equal((await conta('POST', `pedidos/${id}/planta`, { cookie: a.cookie, corpo: {} })).estado, 405);
+    // O rascunho (simulação por enviar) é o da própria conta, como sempre.
+    assert.equal((await conta('POST', 'simulacao', { cookie: a.cookie, corpo: { estado: { versao: 1, passo: 5, planta } } })).estado, 200);
+    assert.equal((await conta('GET', 'simulacao', { cookie: a.cookie })).json.estado.planta.divisoes.length, 2);
+    assert.equal((await conta('GET', 'simulacao', { cookie: b.cookie })).json.estado, null);
+    // Conta com o email por confirmar (sessão antiga): 403 com a mensagem que diz o que fazer, como GET casa e GET pedidos.
+    const e = email();
+    await conta('POST', 'criar', { corpo: { email: e } });
+    const antiga = sessaoAntiga(e);
+    for (const caminho of [`pedidos/${id}/planta`, 'pedidos', 'casa']) {
+      const x = await conta('GET', caminho, { cookie: antiga });
+      assert.equal(x.estado, 403, caminho);
+      assert.match(x.json.erro, /Confirme primeiro o seu email/);
+    }
+    assert.equal((await conta('GET', 'eu', { cookie: antiga })).json.conta.confirmado, false);
+    // Com a casa ligada nada muda: tem_casa e as credenciais (a área de cliente de sempre).
+    p.app.db.prepare("UPDATE contas SET casa_codigo = 'casa-previsao' WHERE email = ?").run(a.email);
+    assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.tem_casa, true);
+  });
+
   test('acesso cruzado: cada conta só vê os seus pedidos, fotos e propostas; conta ≠ painel', async () => {
     const a = await p.contaConfirmada(email());
     const b = await p.contaConfirmada(email());

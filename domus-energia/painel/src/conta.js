@@ -555,6 +555,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       // (docs/EMAILS-AUTOMATICOS.md): {pode, estrelas, do_pedido, google} ou null.
       avaliacao: emails()?.paraCliente(o, confirmacao) ?? null,
       resumo: resumoSimulacao(o.simulacao),
+      // Pré-visualização da Área de cliente (decisão do dono, 2026-10-03): o pedido tem uma planta com divisões? (a planta
+      // em si vem de GET pedidos/:id/planta, só quando é precisa.)
+      tem_planta: sim?.funil !== 'avaria' && Array.isArray(sim?.planta?.divisoes) && sim.planta.divisoes.length > 0,
       fotos: fotos.listar(o, sim, `/api/conta/pedidos/${o.id}/fotos/`).map((f) => ({ id: f.id, chave: f.chave, legenda: f.legenda, url: f.url, criado: f.criado })),
       fotos_max: 40,
     };
@@ -564,6 +567,25 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     eletricistas()?.prazos();   // 7 dias sem resposta do cliente: o trabalho fica aceite (verificado ao ler)
     const linhas = db.prepare('SELECT * FROM orcamentos WHERE conta_id = ? ORDER BY id DESC LIMIT 50').all(c.id);
     responder(res, 200, { pedidos: linhas.map(pedidoParaCliente) });
+  };
+
+  /**
+   * Pré-visualização da Área de cliente (decisão do dono, 2026-10-03; conta sem casa ligada): a planta que o cliente
+   * desenhou neste pedido — só o desenho (divisões e aparelhos, sem a imagem de fundo nem nada técnico: o mesmo filtro
+   * do relatório, pagamentos-pedido.js plantaParaRelatorio) — e o que ele disse que a casa tem (`inventario` do passo
+   * "Divisões": botões de cada interruptor, tipo de cada tomada; null por responder). Só da própria conta (404 nos outros).
+   */
+  h.plantaPedido = ({ res, c, params }) => {
+    const o = pedidoDaConta(c, params.id);
+    let sim = null;
+    try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
+    const planta = sim && sim.funil !== 'avaria' ? pagamentos()?.plantaParaCliente(sim.planta) ?? null : null;
+    const lista = (v, max) => (Array.isArray(v) ? v.slice(0, 400).map((x) => Math.min(max, Math.max(1, Math.round(Number(x)) || 1))) : null);
+    const inventario = planta && Array.isArray(sim.inventario)
+      ? sim.inventario.slice(0, 40).filter((d) => d && typeof d === 'object' && typeof d.divisao === 'string')
+        .map((d) => ({ divisao: d.divisao.slice(0, 40), interruptores: lista(d.interruptores, 4), tomadas: lista(d.tomadas, 3) }))
+      : null;
+    responder(res, 200, { pedido: o.id, planta, inventario });
   };
 
   /** Pedido desta conta (404 para os outros — o cliente nem fica a saber que existe). */
@@ -924,6 +946,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['GET', 'simulacao', 'sessao', 'lerSimulacao'],
     ['POST', 'simulacao', 'sessao', 'guardarSimulacao'],
     ['GET', 'pedidos', 'confirmada', 'pedidos'],
+    ['GET', 'pedidos/:id/planta', 'confirmada', 'plantaPedido'],
     ['GET', 'pedidos/:id/fotos/:foto', 'confirmada', 'foto'],
     ['POST', 'pedidos/:id/fotos', 'confirmada', 'acrescentarFoto'],
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],

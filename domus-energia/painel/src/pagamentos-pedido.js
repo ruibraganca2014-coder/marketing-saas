@@ -1635,6 +1635,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
     marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta,
+    // Pré-visualização da Área de cliente (conta.js plantaPedido): a planta do cliente só com o desenho.
+    plantaParaCliente: plantaParaRelatorio,
     PLANOS: PLANOS_MENSAIS,
   };
 }

@@ -61,9 +61,14 @@
           <button class="btn" type="submit">Entrar</button>
         </form>
         <div class="msg erro" id="login-erro" hidden></div>
+        <div class="msg info" id="login-aviso" role="status" hidden></div>
         <button class="link-botao" id="login-sem-senha" type="button">Entrar com código (sem palavra-passe)</button>
         <button class="link-botao" id="login-modo" type="button">Entrar com o código de cliente</button>
       </div>
+
+      <!-- Pré-visualização (decisão do dono, 2026-10-03): conta com sessão e ainda sem casa ligada — a planta que desenhou,
+           as divisões, o andamento do pedido e os botões para o sítio certo; sem aparelhos (cliente-previsao.js). -->
+      <div class="previsao" id="vista-previsao" hidden></div>
 
       <!-- Subscrição suspensa / cancelada (PROTOCOLO-PLANOS §3): substitui toda a área de cliente -->
       <div class="suspensa" id="vista-suspensa" hidden>

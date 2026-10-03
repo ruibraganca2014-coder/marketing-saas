@@ -778,6 +778,24 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .conta-entrou { overflow-wrap: anywhere; }
 .link-botao { font: inherit; font-weight: 700; background: none; border: 0; padding: 10px 4px; min-height: 44px; color: var(--musgo-texto); text-decoration: underline; cursor: pointer; }
 .link-botao:disabled { opacity: .55; cursor: default; }
+/* Área de cliente — pré-visualização (conta sem casa ligada; cliente-previsao.js): cartões numa coluna, a planta à largura
+   do cartão (nunca desliza para o lado), as divisões em lista. */
+.previsao, .previsao-corpo { display: grid; gap: 16px; min-width: 0; }
+.previsao { max-width: 860px; margin: 24px auto; }
+.previsao .cartao { display: grid; gap: 12px; min-width: 0; }
+.previsao h1, .previsao h2, .previsao h3, .previsao p { margin: 0; }
+.previsao h1 { font-size: clamp(1.7rem, 3.8vw, 2.4rem); }
+.previsao-selo { justify-self: start; white-space: normal; }
+.previsao-svg { display: block; width: 100%; height: auto; max-height: 70vh; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); }
+.previsao-pisos { display: flex; flex-wrap: wrap; gap: 6px; }
+.previsao-pisos .btn[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.previsao-fonte { display: grid; gap: 4px; font-weight: 700; }
+.previsao-fonte select { max-width: 100%; }
+.previsao-divisoes { list-style: none; margin: 0; padding: 0; display: grid; }
+.previsao-divisoes li { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid var(--borda); overflow-wrap: anywhere; }
+.previsao-divisoes li span { color: var(--texto-suave); }
+.previsao-botoes .btn { text-align: center; }
+@media (max-width: 479px) { .previsao-botoes .btn { flex: 1 1 100%; } }
 .conta-passos { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .conta-passos li { color: var(--texto-suave); }
 .conta-passos li.feito { color: var(--texto); font-weight: 700; }

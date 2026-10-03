@@ -117,11 +117,16 @@ async function carregar() {
     return;
   }
   zona.replaceChildren(...pedidos.map(cartaoPedido));
+  // Veio da pré-visualização da Área de cliente (conta.html#pedido-<id>): mostra esse pedido (uma vez).
+  const alvo = /^#pedido-\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
+  if (alvo && !alvoMostrado) { alvoMostrado = true; alvo.scrollIntoView({ block: "start" }); }
 }
+let alvoMostrado = false;
 
 function cartaoPedido(p) {
   const c = el("article", "cartao conta-pedido");
   c.dataset.id = String(p.id);
+  c.id = `pedido-${p.id}`;   // "Ver o pedido e o relatório" da pré-visualização da Área de cliente (conta.html#pedido-<id>)
   c.append(el("h3", null, `Pedido n.º ${p.id} · ${dataTxt(p.criado)}`), el("p", "conta-estado", p.estado_texto));
   const passos = el("ol", "conta-passos");
   passos.setAttribute("aria-label", "Andamento do pedido");

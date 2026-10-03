@@ -112,6 +112,7 @@
 .ar-lista { flex: 0 0 100%; display: grid; gap: 6px; max-height: 220px; overflow-y: auto; padding: 2px; }
 .ar-conta { border-radius: 12px; text-align: left; overflow-wrap: anywhere; }
 .ar-conta small { display: block; font-weight: 400; opacity: .8; }
+.ar-casa-teste { margin-left: 18px; font-weight: 400; min-height: 28px; }
 /* Os avisos do painel (pedidos pendentes) também ficam em baixo, à esquerda: sobem para cima do botão. */
 body.ar-presente .pedidos-pendentes { bottom: 48px; }
 @media print { .ar, .ar-faixa { display: none !important; } }
@@ -209,18 +210,24 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
     try {
       await enviar("/api/conta/dev/entrar", { id: c.id });
       guardar(MARCA_CONTA, "1");
-      // Com a casa ligada, o cliente.js entra sozinho ao recarregar (sessão da conta com casa).
-      if (c.tem_casa) { location.reload(); return; }
-      // Sem casa ligada (no lançador local o domus.sh não corre: os pedidos nunca chegam a ter casa): abre a casa de
-      // teste desta conta pelo "código de cliente" — o broker local aceita qualquer código e palavra-passe.
-      const f = document.getElementById("form-login");
-      if (f.hidden) document.getElementById("login-modo").click();
-      f.elements.codigo.value = `conta-${c.id}`;
-      f.elements.password.value = "teste-local";
-      f.requestSubmit();
+      // O cliente.js entra sozinho ao recarregar: com a casa ligada, na casa; sem casa ligada, na pré-visualização (a
+      // planta e o pedido da conta) — o que um cliente verdadeiro vê.
+      location.reload();
     } catch (e) {
       avisar(e?.message || "Não foi possível entrar.");
     }
+  }
+  /**
+   * "Casa de teste" de uma conta sem casa ligada (no lançador local o domus.sh não corre: os pedidos nunca chegam a ter
+   * casa): abre a área de cliente com aparelhos pelo "código de cliente" — o broker local aceita qualquer código e
+   * palavra-passe. Não abre a sessão da conta (com ela aberta, ao recarregar volta a pré-visualização).
+   */
+  function casaDeTeste(c) {
+    avisar(null);
+    const f = document.getElementById("form-login");
+    f.elements.codigo.value = `conta-${c.id}`;
+    f.elements.password.value = "teste-local";
+    f.requestSubmit();
   }
   const loginCliente = document.getElementById("form-login-email")?.closest("#vista-login");
   if (loginCliente) {
@@ -236,9 +243,16 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
       for (const c of contas) {
         const b = el("button", "ar-botao ar-conta");
         b.type = "button";
-        b.append(el("span", null, c.nome ? `${c.nome} · ${c.email}` : c.email), el("small", null, c.tem_casa ? "entra na casa desta conta" : "sem casa ligada: abre uma casa de teste"));
+        b.append(el("span", null, c.nome ? `${c.nome} · ${c.email}` : c.email), el("small", null, c.tem_casa ? "entra na casa desta conta" : "sem casa ligada: abre a pré-visualização"));
         b.addEventListener("click", () => entrarNaConta(c));
         lista.append(b);
+        if (!c.tem_casa) {
+          const t = el("button", "ar-botao ar-conta ar-casa-teste", "↳ casa de teste (com aparelhos)");
+          t.type = "button";
+          t.setAttribute("aria-label", `Casa de teste (com aparelhos) de ${c.email}`);
+          t.addEventListener("click", () => casaDeTeste(c));
+          lista.append(t);
+        }
       }
     }).catch((e) => avisar(e?.message || "Não foi possível ler as contas."));
   }

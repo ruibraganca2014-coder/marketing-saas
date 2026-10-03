@@ -108,6 +108,7 @@ function modoLogin(comEmail) {
     : semSenha ? "Escreva o email da sua conta Domus Energia: enviamos-lhe um código de 6 algarismos para entrar."
       : "Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento).";
   erroLogin(null);
+  avisoLogin(null);
 }
 const comEmailAVista = () => $("form-login").hidden;
 const formEmailAVista = () => (semSenha ? $("form-login-codigo") : $("form-login-email"));
@@ -201,16 +202,41 @@ $("form-login-email").addEventListener("submit", async (e) => {
     b.textContent = "Entrar";
   }
 });
-/** Credenciais da casa da conta com sessão (404 sem casa ligada; 403 com o email por confirmar) → entrar. */
+/**
+ * Entrar com a conta que tem a sessão aberta. Com a casa ligada: as credenciais da casa (GET casa) → a área de cliente
+ * de sempre. Sem casa ligada (decisão do dono, 2026-10-03): a pré-visualização, em vez da porta fechada com a mensagem a
+ * vermelho. Com o email por confirmar (só sessões antigas: entrar com palavra-passe ou com código já o confirma): fica no
+ * ecrã de entrada, no "Entrar com código", com um aviso que diz o que fazer.
+ */
 async function entrarComConta(automatico = false) {
+  const eu = await contaAtual();
+  if (eu?.conta && !eu.conta.confirmado) {
+    if (!semSenha) $("login-sem-senha").click();
+    $("form-login-codigo").elements.email.value = eu.conta.email;
+    avisoLogin("Falta confirmar o seu email: carregue em \"Enviar código\" e escreva o código que lhe enviamos.");
+    return;
+  }
+  if (eu?.conta && !eu.tem_casa) { await abrirPrevisao(eu); return; }
   const casa = await pedirConta("casa");
   entrar(casa.codigo, casa.password, { lembrar: false, automatico });
+}
+/** A pré-visualização da conta `eu` (sem casa ligada): substitui o ecrã de entrada; "Sair" fecha a sessão da conta. */
+async function abrirPrevisao(eu) {
+  terminar();
+  emPrevisao = true;
+  mostrarVista(false);
+  const { mostrarPrevisao } = await import("./cliente-previsao.js");
+  const pronto = mostrarPrevisao($("vista-previsao"), eu);
+  $("previsao-titulo")?.focus({ preventScroll: true });
+  await pronto;
 }
 
 $("sair").addEventListener("click", () => {
   apagarLembrar();
   pedirConta("sair", { corpo: {} }).catch(() => {});   // também a sessão da conta (senão voltava a entrar sozinho)
   credenciais = null;
+  emPrevisao = false;
+  $("vista-previsao").replaceChildren();
   terminar();
   $("form-login").reset();
 });
@@ -277,17 +303,23 @@ setInterval(() => {
 }, 1000);
 
 // Com a subscrição suspensa ou cancelada (§3) só se mostra o ecrã de suspensão.
+// Pré-visualização (decisão do dono, 2026-10-03): conta com sessão e ainda sem casa ligada — entra na mesma e vê a planta
+// que desenhou e o andamento do pedido (cliente-previsao.js), sem aparelhos nem MQTT.
+let emPrevisao = false;
 function mostrarVista(sim = autenticado) {
   autenticado = sim;
+  if (sim) emPrevisao = false;
   const basico = sim && PL.modoBasico(plano);
-  $("vista-login").hidden = sim;
+  $("vista-login").hidden = sim || emPrevisao;
+  $("vista-previsao").hidden = !emPrevisao;
   $("vista-painel").hidden = !sim || basico;
   $("vista-suspensa").hidden = !basico;
-  $("sair").hidden = !sim;
+  $("sair").hidden = !sim && !emPrevisao;
   if (basico) subscricao.desenharSuspensa();
 }
 
 function entrar(cod, password, { lembrar, automatico = false }) {
+  emPrevisao = false;   // (a casa de teste do lançador local entra por aqui a partir da pré-visualização)
   terminar();
   codigo = cod;
   credenciais = { codigo: cod, password: String(password ?? "") };
@@ -440,6 +472,12 @@ function repor() {
 function erroLogin(texto) {
   $("login-erro").hidden = !texto;
   $("login-erro").textContent = texto ?? "";
+  if (texto) avisoLogin(null);
+}
+/** Aviso do ecrã de entrada que não é um erro (ex.: falta confirmar o email): caixa de informação, não a vermelha. */
+function avisoLogin(texto) {
+  $("login-aviso").hidden = !texto;
+  $("login-aviso").textContent = texto ?? "";
 }
 
 function estadoLigacao(ligado) {
@@ -1346,7 +1384,8 @@ lerLembrar().then(async (guardado) => {
     entrar(guardado.codigo, guardado.password, { lembrar: true, automatico: true });
     return;
   }
-  // Sessão da conta de cliente já aberta (ex.: veio de "A minha conta") com a casa ligada: entra sozinho.
+  // Sessão da conta de cliente já aberta (ex.: veio de "A minha conta"): entra sozinho — na casa, se já está ligada;
+  // senão na pré-visualização (com o email por confirmar, o aviso do ecrã de entrada).
   const eu = await contaAtual();
-  if (eu?.conta?.confirmado && eu.tem_casa && !cliente) entrarComConta(true).catch(() => {});
+  if (eu?.conta && !cliente) entrarComConta(true).catch(() => {});
 });
