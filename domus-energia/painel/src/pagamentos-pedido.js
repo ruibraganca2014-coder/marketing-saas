@@ -201,7 +201,17 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const agoraIso = () => iso(relogio());
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
   const linha = (ref) => db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
-  const lerConfigOrc = () => Object.fromEntries(db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor]));
+  // Consultas preparadas uma só vez por texto (as listas chamam-nas pedido a pedido).
+  const preparadas = new Map();
+  const prep = (sql) => preparadas.get(sql) ?? preparadas.set(sql, db.prepare(sql)).get(sql);
+  // A configuração só se volta a ler quando alguma coisa foi escrita na base (`total_changes()` da ligação).
+  const alteracoes = db.prepare('SELECT total_changes() AS n');
+  let cfgOrc = null, cfgOrcMarca = -1;
+  const lerConfigOrc = () => {
+    const n = alteracoes.get().n;
+    if (n !== cfgOrcMarca) { cfgOrc = Object.fromEntries(db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor])); cfgOrcMarca = n; }
+    return { ...cfgOrc };
+  };
   /** Taxa de IVA atual (%): a da configuração do painel ("iva_pct"), senão IVA_TAXA (omissão 23). */
   function ivaAtual() {
     const v = Number(lerConfigOrc().iva_pct);
@@ -349,13 +359,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const diagnosticoPorFuncao = () => db.prepare(`SELECT nome, preco_venda_iva_cent, horas_instalacao, horas_troca FROM catalogo
     WHERE ativo = 1 AND json_extract(especificacoes, '$.funcao') = 'diagnostico' ORDER BY id LIMIT 1`).get() ?? null;
 
-  const pagoDe = (orcamentoId, fase) => db.prepare('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = ? AND estado = \'pago\'').get(orcamentoId, fase);
+  const pagoDe = (orcamentoId, fase) => prep('SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = ? AND estado = \'pago\'').get(orcamentoId, fase);
   const marcas = (v) => v.map(() => '?').join(', ');
-  const pagoEm = (orcamentoId, fases) => db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND fase IN (${marcas(fases)}) ORDER BY id LIMIT 1`).get(orcamentoId, ...fases);
-  const totalPago = (orcamentoId) => db.prepare('SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(orcamentoId).s;
+  const pagoEm = (orcamentoId, fases) => prep(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND fase IN (${marcas(fases)}) ORDER BY id LIMIT 1`).get(orcamentoId, ...fases);
+  const totalPago = (orcamentoId) => prep('SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = \'pago\'').get(orcamentoId).s;
   // O que foi devolvido (visita cancelada) não conta: por inteiro o pagamento fica `devolvido`; em parte, `devolvido_cent`.
   // Uma visita a que o cliente faltou também não (`faltou_cent`): fica paga, mas não se desconta no sinal nem na obra.
-  const pagoAntes = (orcamentoId) => db.prepare(`SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago'
+  const pagoAntes = (orcamentoId) => prep(`SELECT COALESCE(SUM(valor_cent - COALESCE(devolvido_cent, 0) - COALESCE(a_devolver, 0) - COALESCE(faltou_cent, 0)), 0) AS s FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago'
     AND fase IN (${marcas(FASES_ANTES)})`).get(orcamentoId, ...FASES_ANTES).s;
   /** O cliente já pagou o relatório completo (ou os 19 € antigos)? */
   const temRelatorio = (o) => Boolean(pagoEm(o.id, FASES_RELATORIO));
@@ -416,7 +426,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const cfg = lerConfigOrc();
     const visitaCent = valorVisitaCent(localidadeDe(o), cfg);
     const semConcelho = !concelhoConhecido(localidadeDe(o));
-    const pendente = (fases) => db.prepare(`SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ? AND faltou IS NULL
+    const pendente = (fases) => prep(`SELECT ref FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pendente' AND expira > ? AND faltou IS NULL
       AND fase IN (${marcas(fases)}) LIMIT 1`).get(o.id, relogio(), ...fases)?.ref ?? null;
     return {
       ativas: Boolean(config.pagamentoPedido),
