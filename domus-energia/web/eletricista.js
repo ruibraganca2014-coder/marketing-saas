@@ -5,7 +5,9 @@
 // diagnóstico da avaria, "Obra concluída" (fica a aguardar a confirmação do cliente) e a Ajuda técnica. Ronda 3 — os
 // Pagamentos: o valor de cada trabalho (fixado quando a Domus aprova), o estado (a aguardar o cliente / a aprovação / o
 // restante, fatura em falta, a pagar até, pago em), o envio da fatura-recibo e o IBAN (só se vê mascarado).
-// Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda. Só textContent (nunca HTML com dados).
+// Procedimentos (docs/PROCEDIMENTOS.md): os publicados leem-se na Ajuda técnica; numa obra, as checklists estão no
+// separador "Trabalho" da ficha (começar a checklist de um procedimento e marcar os passos).
+// Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
 import { reduzirFoto } from "./simulador/fotos.js";
@@ -157,7 +159,7 @@ async function encaminhar() {
   const vista = $("el-vista");
   vista.replaceChildren(el("p", "vazio", "A carregar…"));
   try {
-    const partes = aba === "ajuda" ? ajuda() : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
+    const partes = aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
     if (minha !== geracao) return;
     vista.replaceChildren(...partes);
     $("conteudo").scrollTo?.(0, 0);
@@ -165,7 +167,7 @@ async function encaminhar() {
     iniciarContagem();
   } catch (e) {
     if (minha !== geracao || e?.estado === 401) return;
-    const voltar = id ? botaoVoltar(aba === "bolsa" ? "Bolsa" : "Os meus trabalhos", aba) : null;
+    const voltar = id ? botaoVoltar(aba === "bolsa" ? "Bolsa" : aba === "ajuda" ? "Ajuda técnica" : "Os meus trabalhos", aba) : null;
     vista.replaceChildren(...[voltar, com(el("div", "msg erro"), el("p", null, e.message))].filter(Boolean));
   }
 }
@@ -537,7 +539,55 @@ function parteTrabalho(t) {
     seccao("Material a levantar", selo(`${nRec}/${mat.length}`, mat.length && nRec === mat.length ? "bom" : ""),
       el("p", "nota calma", "Material fornecido pela Domus Energia: combinamos consigo onde o levanta ou se segue para a obra. Marque o que já levantou ou recebeu."),
       mat.length ? acoes : null, mat.length ? lista : el("p", "suave", "Sem lista de material.")),
-  ];
+    seccaoChecklists(t),
+  ].filter(Boolean);
+}
+
+// ---- Procedimentos da obra: as checklists (cada passo é uma caixa; fica quem marcou e quando) e "Começar checklist"
+const quandoTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : `${p2(d.getDate())}/${p2(d.getMonth() + 1)} às ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const selosPasso = (x) => [x.seguranca ? selo("Segurança", "mau") : null, x.obrigatorio ? selo("Obrigatório", "aviso") : null];
+const faltaTxt = (n) => `${n} ${n === 1 ? "obrigatório" : "obrigatórios"} em falta`;
+function seccaoChecklists(t) {
+  const c = t.checklists;
+  if (!c) return null;   // só as obras têm checklists
+  const corpo = [];
+  let feitos = 0, total = 0;
+  for (const l of c.checklists) {
+    feitos += l.feitos; total += l.total;
+    const ul = el("ul", "lista-passos");
+    ul.id = `checklist-${l.id}`;
+    l.passos.forEach((x, i) => {
+      const caixa = el("input");
+      caixa.type = "checkbox";
+      caixa.id = `passo-${l.id}-${i}`;
+      caixa.checked = x.feito;
+      caixa.disabled = !t.editavel;
+      caixa.addEventListener("change", async () => {
+        const ok = await acaoFicha(t, `checklists/${l.id}`, { passo: i, feito: caixa.checked });
+        if (ok) $(caixa.id)?.focus(); else caixa.checked = !caixa.checked;
+      });
+      const rotulo = com(el("label"), caixa, com(el("span"), el("span", "passo-texto", x.texto), " ", selosPasso(x)));
+      rotulo.htmlFor = caixa.id;
+      ul.append(com(el("li"), rotulo, x.nota ? el("p", "pequeno suave passo-nota", x.nota) : null,
+        x.feito ? el("p", "pequeno suave passo-nota", `Feito${x.por ? ` por ${x.por}` : ""}${x.quando ? `, ${quandoTxt(x.quando)}` : ""}`) : null));
+    });
+    corpo.push(com(el("div", "pilha"), el("h4", null, `${l.titulo} (versão ${l.versao})`),
+      com(el("div", "selos"), selo(`${l.feitos}/${l.total}`, l.feitos === l.total ? "bom" : ""), l.obrigatorios_falta ? selo(faltaTxt(l.obrigatorios_falta), "mau") : null), ul));
+  }
+  if (!c.checklists.length) corpo.push(el("p", "suave", "Esta obra ainda não tem checklists."));
+  if (t.editavel && c.disponiveis.length) {
+    const escolha = el("select");
+    escolha.id = "checklist-procedimento";
+    escolha.setAttribute("aria-label", "Procedimento");
+    for (const p of c.disponiveis) { const o = el("option", null, `${p.titulo} (${p.n_passos} passos)`); o.value = String(p.id); escolha.append(o); }
+    const b = el("button", "btn sec mini", "Começar checklist");
+    b.type = "button";
+    b.id = "comecar-checklist";
+    b.addEventListener("click", () => acaoFicha(t, "checklists", { procedimento_id: Number(escolha.value) }, { botao: b, texto: "Checklist começada." }));
+    corpo.push(com(el("label", "campo"), el("span", null, "Começar a checklist de um procedimento"), escolha), com(el("div", "fila"), b));
+  }
+  return seccao("Procedimentos da obra", total ? selo(`${feitos}/${total}`, feitos === total ? "bom" : "") : null,
+    el("p", "nota calma", "Siga os passos pela ordem e marque cada um quando o fizer. Os de segurança fazem-se sempre antes de tocar na instalação."), ...corpo);
 }
 
 // ---- Ensaios medidos (fora do limite: assinalado, com nota obrigatória) e diagnóstico da avaria
@@ -914,8 +964,37 @@ function envioFatura(x) {
   return [ficheiro, msg, b];
 }
 
+// ---------------------------------------------------------------- Procedimentos publicados (só leitura; docs/PROCEDIMENTOS.md)
+async function procedimento(id) {
+  const p = (await pedir(`procedimentos/${id}`)).procedimento;
+  const ol = el("ol", "passos-ler");
+  for (const x of p.passos) ol.append(com(el("li"), el("span", "passo-texto", x.texto), " ", selosPasso(x), x.nota ? el("p", "pequeno suave passo-nota", x.nota) : null));
+  return [botaoVoltar("Ajuda técnica", "ajuda"), com(el("div", "selos"), selo(p.tipo_nome), selo(`Versão ${p.versao}`)), el("h2", null, p.titulo),
+    p.descricao ? el("p", null, p.descricao) : null,
+    com(el("div", "cartao pilha"), el("h3", null, "Passos"), ol),
+    el("p", "pequeno suave", "Numa obra, a checklist deste procedimento começa-se na ficha do trabalho, em \"Trabalho\".")].filter(Boolean);
+}
+/** A lista dos procedimentos publicados, para o cimo da Ajuda técnica (sem ela, a ajuda aparece na mesma). */
+async function listaProcedimentos() {
+  let lista = [];
+  try { lista = (await pedir("procedimentos")).procedimentos ?? []; } catch (e) { if (e?.estado === 401) throw e; }
+  if (!lista.length) return null;
+  const ul = el("ul", "lista-proc");
+  for (const p of lista) {
+    const b = com(el("button", "link-proc"), el("b", null, p.titulo), el("span", "pequeno suave", `${p.tipo_nome} · ${p.n_passos} passos · versão ${p.versao}`));
+    b.type = "button";
+    b.id = `procedimento-${p.id}`;
+    b.addEventListener("click", () => ir(`ajuda/${p.id}`));
+    ul.append(com(el("li"), b));
+  }
+  const s = seccao("Procedimentos da Domus Energia", selo(String(lista.length)), el("p", "pequeno suave", "Como se faz cada tipo de trabalho, passo a passo."), ul);
+  s.id = "aj-procedimentos";
+  return s;
+}
+
 // ---------------------------------------------------------------- Ajuda técnica (guia rápido; textos nossos)
-function ajuda() {
+async function ajuda() {
+  const procedimentos = await listaProcedimentos();
   const li = (itens) => com(el("ul", "simples"), itens.map((x) => (Array.isArray(x) ? com(el("li"), el("b", null, x[0]), ` ${x[1]}`) : el("li", null, x))));
   const dl = el("dl", "dados");
   for (const [k, v] of [["Isolamento", "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados"], ["Terra", "≤ 100 Ω em habitação"], ["Diferencial", "dispara a ≤ IΔn; referência de tempo ≤ 300 ms"],
@@ -925,6 +1004,7 @@ function ajuda() {
     "Nunca trabalhar com tensão; medir só com pontas isoladas.", "Fumo, faíscas ou cheiro a queimado: cortar o geral e não religar."]));
   primeira.id = "aj-seguranca";
   return [el("h2", null, "Ajuda técnica"), el("p", "suave pequeno", "Guia rápido para a obra. Em caso de dúvida, ligue à Domus Energia."),
+    procedimentos,
     primeira,
     fechada("Valores de referência", null, dl),
     fechada("Ordem dos ensaios", null, li(["Inspeção visual.", "Continuidade do PE.", "Resistência de isolamento.", "Terra e diferencial.", "Polaridade e ensaio funcional com carga."])),
@@ -933,7 +1013,7 @@ function ajuda() {
       ["Fuga à terra:", "o diferencial dispara. Medir o isolamento circuito a circuito."],
       ["Sobrecarga:", "o disjuntor dispara com carga. Pinça amperimétrica e somar potências."]])),
     fechada("Quando parar e ligar à Domus", null, li(["Avaria antes do contador: é do distribuidor.", "Quadro com sinais de aquecimento generalizado.",
-      "Fuga à terra que não se localiza em canalização embebida.", "Trabalho diferente do que está no relatório."]))];
+      "Fuga à terra que não se localiza em canalização embebida.", "Trabalho diferente do que está no relatório."]))].filter(Boolean);
 }
 
 // ---------------------------------------------------------------- contagem das 48 h

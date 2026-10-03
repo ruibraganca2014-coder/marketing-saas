@@ -69,6 +69,7 @@ Na área do eletricista, a ficha de um trabalho tem quatro separadores:
 - **Cliente:** nome, morada e telefone, e a visita (contagem das 48 h, marcar, alterar).
 - **Trabalho:** o relatório técnico sem preços (lista de trabalho, planta técnica, esquemas, esquema do quadro — os mesmos desenhos do relatório do cliente) e a **lista do material** com uma caixa por artigo, "levantado ou recebido" (`trabalhos_eletricista.material_recebido`, por trabalho; não mexe na lista de material da obra do painel).
 - **Ensaios:** continuidade do PE, isolamento, terra e disparo do diferencial. Ficam em `orcamentos.ensaios` (migração 16), os mesmos que o painel regista e que o relatório completo do cliente mostra. Os limites são os da configuração: isolamento ≥ `ensaio_isolamento_mohm` (0,5 MΩ), diferencial ≤ `ensaio_diferencial_ms` (300 ms), terra ≤ `ensaio_terra_ohm` (100 Ω). Um valor **fora do limite não é recusado**, mas só se guarda com uma **nota** a explicar; fica assinalado na ficha e no painel. Nos trabalhos de avaria aparece também o **diagnóstico** (a lista de verificação de `diagnostico-conteudo.js`, o tipo de avaria e a conclusão; fica em `orcamentos.diagnostico`, com a mesma validação do painel).
+- **Procedimentos** ([PROCEDIMENTOS.md](PROCEDIMENTOS.md)): nos trabalhos do tipo `obra`, o separador "Trabalho" tem também "Procedimentos da obra" — as checklists dos procedimentos publicados (começar uma, marcar os passos; fica quem e quando), as mesmas que o painel vê na ficha da obra. Não contam para "Obra concluída". Os procedimentos publicados leem-se na "Ajuda técnica".
 - **Fotos:** quatro grupos — quadro antes, pontos antes, quadro depois, pontos depois — até 4 fotos por grupo. O telemóvel reduz a foto (como no simulador) e envia os bytes; o servidor aceita só JPEG ou PNG verdadeiros (pelos primeiros bytes), até 1 MB.
 
 **"Obra concluída"** (nas visitas e avarias, "Trabalho concluído") só fica ligado quando não falta nada (`falta` na ficha):
@@ -219,8 +220,11 @@ Os POST exigem a `Origin` do site (CSRF) e `Content-Type: application/json`.
 | `POST iban` | sim | `{iban}` (vazio apaga) → `{iban}` mascarado; `400` se não for um IBAN português válido. |
 | `POST trabalhos/:id/fatura` | sim | `{tipo, dados (base64), parte?: trabalho \| regresso}` → `201` com os pagamentos; `409` antes de aprovado ou depois de pago; `413`/`415` como o seguro. |
 | `GET trabalhos/:id/fatura[?parte=regresso]` | sim | a fatura-recibo dele (do trabalho ou da ida sem defeito). |
+| `GET procedimentos` / `GET procedimentos/:id` | sim | os procedimentos publicados, só leitura ([PROCEDIMENTOS.md](PROCEDIMENTOS.md)); os rascunhos não existem aqui (404). |
+| `POST trabalhos/:id/checklists` | sim | `{procedimento_id}`: começa a checklist de um procedimento publicado na obra do trabalho (só trabalhos de obra; `409` nos outros). |
+| `POST trabalhos/:id/checklists/:lista` | sim | `{passo, feito}`: marca ou desmarca um passo (fica quem e quando); `404` se a checklist não é da obra deste trabalho. |
 
-A ficha (`GET trabalhos/:id`) leva também `editavel`, `material[].recebido`, `fotos`, `grupos_fotos`, `fotos_max`, `ensaios` (com `limites` e `fora`), `diagnostico` (`{modelo, atual}`, só na avaria), `falta`, `concluida` e `reclamacao` (`{texto, de, quando, decisao}` quando o trabalho voltou). Depois de concluído, as rotas que alteram respondem `409`.
+A ficha (`GET trabalhos/:id`) leva também `checklists` (`{checklists, disponiveis}` nas obras; `null` nos outros tipos), `editavel`, `material[].recebido`, `fotos`, `grupos_fotos`, `fotos_max`, `ensaios` (com `limites` e `fora`), `diagnostico` (`{modelo, atual}`, só na avaria), `falta`, `concluida` e `reclamacao` (`{texto, de, quando, decisao}` quando o trabalho voltou). Depois de concluído, as rotas que alteram respondem `409`.
 
 ### Conta do cliente — `/api/conta/*`
 

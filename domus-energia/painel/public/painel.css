@@ -642,3 +642,33 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .mover-rotulo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .mover-rotulo select { width: auto; flex: 1 1 120px; min-width: 0; }
 #lista-minhas .cartao-tarefa { border-radius: 14px; }
+
+/* Procedimentos (docs/PROCEDIMENTOS.md): biblioteca, leitura, editor do CEO e checklists na ficha da obra */
+.lista-proc { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.cartao-proc { display: grid; gap: 4px; justify-items: start; min-width: 0; min-height: 44px; padding: 12px 14px; border-radius: 14px; background: var(--superficie); border: 1px solid var(--borda); border-left: 5px solid var(--musgo); color: var(--texto); text-decoration: none; overflow-wrap: anywhere; }
+.cartao-proc:hover { border-color: var(--musgo); }
+.procedimento { max-width: 860px; display: grid; gap: 10px; }
+.procedimento h1, .procedimento h2, .procedimento p { margin: 0; }
+.procedimento h2 { margin-top: 8px; }
+.proc-descricao { white-space: pre-line; }
+.proc-passos { margin: 0; padding-left: 26px; display: grid; gap: 10px; }
+.proc-passos li { overflow-wrap: anywhere; }
+.proc-texto { font-weight: 600; }
+.proc-nota, .proc-quem { margin: 2px 0 0; white-space: pre-line; }
+.proc-editor { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 12px; }
+.proc-passo { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--borda); border-radius: 12px; min-width: 0; }
+.proc-passo-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.proc-ordem { display: flex; gap: 6px; }
+.checklists-obra { margin-top: 18px; display: grid; gap: 10px; }
+.checklists-obra h3 { margin: 0; }
+.checklists-corpo { display: grid; gap: 12px; }
+.checklist-proc { display: grid; gap: 6px; }
+.checklist-proc p { margin: 0; }
+.checklist-passos { list-style: none; margin: 0; padding: 0; display: grid; }
+.checklist-passos li { border-bottom: 1px solid var(--borda); padding: 2px 0 6px; overflow-wrap: anywhere; }
+.checklist-passos li:last-child { border-bottom: 0; }
+.checklist-passos .caixa { align-items: flex-start; }
+.checklist-passos .caixa input { margin-top: 11px; }
+.checklist-passos .caixa > span { padding: 9px 0; }
+.checklist-passos .proc-nota, .checklist-passos .proc-quem { padding-left: 32px; }
+.aviso-tarefa { color: var(--alarme-texto); font-weight: 700; font-size: .92rem; }

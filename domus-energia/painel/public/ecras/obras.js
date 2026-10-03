@@ -3,9 +3,12 @@
 // Comercial: só leitura.
 // A obra nasce com o sinal pago (decisão do dono): aparece aqui "Por agendar" e com "Casa por ligar — falta o restante"
 // até a casa ser ligada na ficha do pedido (só com o restante pago).
+// Checklists dos procedimentos (docs/PROCEDIMENTOS.md): na ficha começa-se a checklist de um procedimento publicado e
+// marcam-se os passos (CEO e técnico da obra; fica quem e quando); a lista mostra o progresso e os obrigatórios em falta.
 import { pedir, campo, lista, numero } from "../api.js";
 import { h, ESTADOS_OBRA, KITS, PAPEIS, nomeDe, num, data, diaSemana, isoDia, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt } from "../ui.js";
 import { blocoEletricista } from "./atribuicao.js";
+import { selosPasso } from "./procedimentos.js";
 
 /** Técnicos de uma obra como [{id, nome}] (aceita ids, nomes ou objetos). */
 export function tecnicosDe(o) {
@@ -72,7 +75,16 @@ export default function obras(el, ctx) {
       h("span", { class: "ajuda", text: `${nomeDe(KITS, campo(o, "kit"))}${tecs ? ` · ${tecs}` : ""}` }),
       curto ? (campo(o, "hora") ? h("span", { class: "ajuda num", text: String(campo(o, "hora")) }) : null) : h("span", { class: "ajuda num", text: `${campo(o, "por_agendar") === true ? "data provisória: " : ""}${data(campo(o, "data"))}${campo(o, "hora") ? ` ${campo(o, "hora")}` : ""}` }),
       // Por agendar (data provisória): só o selo "Por agendar", não também "Agendada".
-      h("span", { class: "linha-selos" }, porAgendar(o) ? null : selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`), ...selosCasa(o)));
+      h("span", { class: "linha-selos" }, porAgendar(o) ? null : selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`), ...selosCasa(o), ...(curto ? [] : selosChecklists(o))));
+  }
+
+  /** Progresso das checklists da obra ("Checklists 7/9") e os passos obrigatórios por marcar. */
+  function selosChecklists(o) {
+    const c = campo(o, "checklists");
+    if (!c || !c.total) return [];
+    const falta = Number(c.obrigatorios_falta) || 0;
+    return [selo(`Checklists ${c.feitos}/${c.total}`, c.feitos === c.total ? "orc-aceite" : "valor"),
+      falta ? selo(`${falta} ${falta === 1 ? "obrigatório" : "obrigatórios"} em falta`, "grav-critica") : null].filter(Boolean);
   }
 
   const porAgendar = (o) => campo(o, "por_agendar") === true && (campo(o, "estado") ?? "agendada") === "agendada";
@@ -144,6 +156,7 @@ export default function obras(el, ctx) {
     ];
     // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir a obra do pedido ou pô-la na bolsa.
     if (ceo && ctx.eletricistas && campo(o, "orcamento_id")) partes.push(blocoEletricista(campo(o, "orcamento_id")));
+    const checklists = blocoChecklists(o);
     if (!edita) {
       const estado = campo(o, "estado") ?? "agendada";
       const mat = materialDe(o);
@@ -152,7 +165,8 @@ export default function obras(el, ctx) {
         h("h3", { text: "Material" }),
         mat.length ? h("ul", { class: "lista-simples" }, ...mat.map((m) => h("li", { text: `${m.feito ? "✓ " : ""}${rotuloMat(m)}` }))) : h("p", { class: "vazio", text: "Sem material registado." }),
         dados([["Horas reais", campo(o, "horas_reais") == null ? "—" : `${num(campo(o, "horas_reais"))} h`], ["Notas", txt(o, "notas")]]),
-        h("p", { class: "ajuda so-leitura", text: ctx.pode("tecnico") ? "Só pode alterar as obras em que é técnico." : "Só leitura." }));
+        h("p", { class: "ajuda so-leitura", text: ctx.pode("tecnico") ? "Só pode alterar as obras em que é técnico." : "Só leitura." }),
+        checklists);
       j.corpo.replaceChildren(...partes);
       return;
     }
@@ -206,8 +220,70 @@ export default function obras(el, ctx) {
         b.disabled = false;
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
     });
-    partes.push(f);
+    partes.push(f, checklists);
     j.corpo.replaceChildren(...partes);
+  }
+
+  // ---------- Checklists dos procedimentos (docs/PROCEDIMENTOS.md) ----------
+  /** Bloco "Procedimentos" da ficha: as checklists da obra (cada passo é uma caixa) e "Começar checklist". Carrega sozinho. */
+  function blocoChecklists(o) {
+    const id = String(campo(o, "id"));
+    const corpo = h("div", { class: "checklists-corpo" }, carregando());
+    const bloco = h("section", { class: "checklists-obra", id: "checklists-obra", "aria-labelledby": "checklists-titulo" }, h("h3", { id: "checklists-titulo", text: "Procedimentos" }), corpo);
+    const caminho = `obras/${encodeURIComponent(id)}/checklists`;
+    /** Guarda o resumo novo na obra da lista (os selos "Checklists 7/9" atualizam-se sem recarregar). */
+    const aplicar = (r) => {
+      const x = todas.find((y) => String(campo(y, "id")) === id);
+      if (x) { x.checklists = r.resumo ?? null; desenharLista(); }
+      desenhar(r);
+    };
+    function desenhar(r) {
+      const listas = lista(r, "checklists");
+      const disponiveis = lista(r, "disponiveis");
+      const pode = r.pode === true;
+      const msg = h("div", { class: "msg", role: "alert", hidden: true });
+      const partes = listas.map((c) => {
+        const falta = Number(c.obrigatorios_falta) || 0;
+        return h("fieldset", { class: "grupo checklist-proc", dataset: { lista: String(c.id) } },
+          h("legend", {}, h("a", { href: `#/procedimentos/${encodeURIComponent(c.procedimento_id)}`, text: c.titulo }), ` (versão ${c.versao})`),
+          h("p", { class: "linha-selos" }, selo(`${c.feitos}/${c.total}`, c.feitos === c.total ? "orc-aceite" : "valor"),
+            falta ? selo(`${falta} ${falta === 1 ? "obrigatório" : "obrigatórios"} em falta`, "grav-critica") : null),
+          c.versao_recente ? h("p", { class: "ajuda", text: `O procedimento já vai na versão ${c.versao_recente}; esta checklist fica com a versão ${c.versao}, com que começou.` }) : null,
+          h("ul", { class: "checklist-passos" }, ...c.passos.map((x, i) => {
+            const caixa = h("input", { type: "checkbox", checked: x.feito, disabled: !pode, dataset: { passo: String(i) } });
+            caixa.addEventListener("change", async () => {
+              caixa.disabled = true; mensagem(msg, null);
+              try {
+                const novo = await pedir(`${caminho}/${encodeURIComponent(c.id)}`, { corpo: { passo: i, feito: caixa.checked } });
+                aplicar(novo);
+                bloco.querySelector(`[data-lista="${c.id}"] input[data-passo="${i}"]`)?.focus();
+              } catch (e) { caixa.checked = !caixa.checked; caixa.disabled = false; mensagem(msg, e.message); }
+            });
+            return h("li", {},
+              h("label", { class: "caixa" }, caixa, h("span", {}, h("span", { class: "proc-texto", text: x.texto }), " ", ...selosPasso(x))),
+              x.nota ? h("p", { class: "ajuda proc-nota", text: x.nota }) : null,
+              x.feito ? h("p", { class: "ajuda proc-quem", text: `Feito${x.por ? ` por ${x.por}` : ""} em ${data(x.quando)}` }) : null);
+          })),
+          h("p", { class: "ajuda", text: `Começada em ${data(c.iniciada)}${c.iniciada_por ? ` por ${c.iniciada_por}` : ""}.` }));
+      });
+      if (!listas.length) partes.push(h("p", { class: "vazio", text: "Esta obra ainda não tem checklists." }));
+      if (pode && disponiveis.length) {
+        const s = escolha("procedimento", Object.fromEntries(disponiveis.map((p) => [String(p.id), `${p.titulo} (${p.n_passos} passos)`])), String(disponiveis[0].id), { "aria-label": "Procedimento" });
+        const b = h("button", { class: "btn sec pequeno", type: "button", id: "comecar-checklist", text: "Começar checklist" });
+        b.addEventListener("click", async () => {
+          b.disabled = true; mensagem(msg, null);
+          try {
+            aplicar(await pedir(caminho, { corpo: { procedimento_id: Number(s.value) } }));
+            avisar("Checklist começada.");
+          } catch (e) { b.disabled = false; mensagem(msg, e.message); }
+        });
+        partes.push(h("div", { class: "linha-juntar" }, s, b));
+      } else if (pode && !listas.length) partes.push(h("p", { class: "ajuda", text: "Ainda não há procedimentos publicados." }));
+      partes.push(msg);
+      corpo.replaceChildren(...partes);
+    }
+    pedir(caminho, { sinal: ctrl.signal }).then((r) => desenhar(r), (e) => { if (e.name !== "AbortError") corpo.replaceChildren(h("p", { class: "msg erro", text: e.message })); });
+    return bloco;
   }
 
   // Ids de utilizador podem ser números: devolve-os como vieram.

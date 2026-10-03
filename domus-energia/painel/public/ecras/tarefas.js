@@ -191,6 +191,8 @@ export default function tarefas(el, ctx) {
         t.prazo ? selo(`${t.atrasada ? "Atrasada: " : t.hoje ? "Hoje" : ""}${t.hoje && !t.atrasada ? "" : data(t.prazo)}${t.prazo_hora ? ` ${t.prazo_hora}` : ""}`, t.atrasada ? "grav-critica" : t.hoje ? "aviso" : "valor") : null,
         t.automatica ? selo(`Automática: ${NOME_LEMBRETE[t.automatica] ?? "lembrete"}`, "info") : null,
         t.checklist?.length ? selo(`${feitos}/${t.checklist.length}`, "valor") : null),
+      // "Confirmar obra concluída": passos obrigatórios por marcar nas checklists da obra (docs/PROCEDIMENTOS.md).
+      t.aviso ? h("span", { class: "aviso-tarefa", text: t.aviso }) : null,
       h("span", { class: "ajuda", text: t.responsavel_nome ?? (t.responsavel_id === null ? "CEO" : "—") }),
       h("label", { class: "mover-rotulo" }, h("span", { class: "ajuda", text: "Mover para" }), sMover));
   }
@@ -282,6 +284,8 @@ export default function tarefas(el, ctx) {
     if (t.obra_id && !opObras[String(t.obra_id)]) opObras[String(t.obra_id)] = `n.º ${t.obra_id}`;
     const f = h("form", { class: "form-grelha", id: "form-tarefa", novalidate: true },
       t.automatica ? h("p", { class: "msg info", text: "Lembrete automático do CRM: some sozinho quando a fase do pedido avança. Marque-o como feito quando tratar dele." }) : null,
+      t.aviso ? h("p", { class: "msg erro", id: "aviso-checklists", role: "note" }, t.aviso, t.obra_id ? " " : null,
+        t.obra_id ? h("a", { href: `#/obras/${encodeURIComponent(t.obra_id)}`, text: "Ver a obra" }) : null) : null,
       campoForm("Título", h("input", { name: "titulo", maxlength: "160", required: true, value: t.titulo ?? "" })),
       campoForm("Descrição", h("textarea", { name: "descricao", rows: "3", maxlength: "4000" }, t.descricao ?? "")),
       h("div", { class: "tres" },

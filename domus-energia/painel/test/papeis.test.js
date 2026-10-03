@@ -90,6 +90,17 @@ const MATRIZ = [
   ['GET', 'tarefas/contagem', TODOS],
   ['POST', 'tarefas/999', TODOS, {}],
   ['POST', 'tarefas/999/apagar', TODOS, {}],
+  // Procedimentos e checklists por obra (docs/PROCEDIMENTOS.md): todos leem os publicados (os rascunhos só o CEO: 404
+  // para os outros; procedimentos.test.js); só o CEO cria, edita, publica e arquiva. Nas checklists de uma obra leem
+  // todos os que veem a obra; começam e marcam o CEO e o técnico (só o da obra).
+  ['GET', 'procedimentos', TODOS],
+  ['POST', 'procedimentos', [C], {}],
+  ['GET', 'procedimentos/999', TODOS],
+  ['POST', 'procedimentos/999', [C], {}],
+  ['POST', 'procedimentos/999/estado', [C], {}],
+  ['GET', 'obras/999/checklists', TODOS],
+  ['POST', 'obras/999/checklists', [C, T], {}],
+  ['POST', 'obras/999/checklists/998', [C, T], {}],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 
@@ -104,7 +115,7 @@ before(async () => {
 after(() => p.fechar());
 
 const padrao = (caminho) => caminho.replace(/^clientes\/joao/, 'clientes/:c').replace(/aparelhos\/sala/, 'aparelhos/:a')
-  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto');
+  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista');
 
 test('a matriz cobre exatamente as rotas do servidor', () => {
   const doServidor = ROTAS.map((r) => `${r.metodo} ${r.caminho}`).sort();

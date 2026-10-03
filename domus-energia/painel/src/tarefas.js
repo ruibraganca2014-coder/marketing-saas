@@ -81,7 +81,7 @@ export function aposDiasUteis(local, n) {
   return `${d}T${hm}`;
 }
 
-export function criarTarefas({ db, config, relogio, auditar, crm, registo, correio }) {
+export function criarTarefas({ db, config, relogio, auditar, crm, registo, correio, procedimentos = null }) {
   const agoraIso = () => iso(relogio());
 
   /** Os prazos dos lembretes em vigor (o que o CEO guardou; senão o valor por omissão). */
@@ -229,6 +229,9 @@ export function criarTarefas({ db, config, relogio, auditar, crm, registo, corre
       orcamento_id: t.orcamento_id, obra_id: t.obra_id,
       responsavel_id: t.responsavel_id, responsavel_nome: t.responsavel_id ? crm.nomeDe(t.responsavel_id) : null,
       automatica: t.lembrete ? t.lembrete.split(':')[1] ?? true : null, cancelada: t.cancelada ?? null,
+      // "Confirmar obra concluída": diz quando faltam passos obrigatórios nas checklists da obra (calculado ao ler; a
+      // obra conclui-se na mesma — docs/PROCEDIMENTOS.md). Sem os textos dos passos: só a contagem.
+      aviso: t.obra_id && t.lembrete?.split(':')[1] === 'obra_confirmar' ? procedimentos?.avisoObra(t.obra_id) ?? null : null,
       criado: t.criado, criado_por: t.criado_por, feito: t.feito ?? null, feito_por: t.feito_por ?? null, atualizado: t.atualizado,
       ...estadoPrazo(t),
     };

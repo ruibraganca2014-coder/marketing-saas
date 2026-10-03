@@ -30,6 +30,7 @@ import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
 import { criarNegocio, PERIODOS } from './negocio.js';
+import { criarProcedimentos } from './procedimentos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -177,6 +178,16 @@ export const ROTAS = [
   ['GET', 'tarefas/contagem', TODOS, 'contagemTarefas'],
   ['POST', 'tarefas/:id', TODOS, 'atualizarTarefa'],
   ['POST', 'tarefas/:id/apagar', TODOS, 'apagarTarefa'],
+  // Procedimentos (SOP) e checklists por obra (docs/PROCEDIMENTOS.md; procedimentos.js): todos leem os publicados, só o
+  // CEO vê os rascunhos, edita, publica e arquiva; nas checklists de uma obra marcam o CEO e o técnico dessa obra.
+  ['GET', 'procedimentos', TODOS, 'procedimentos'],
+  ['POST', 'procedimentos', ['ceo'], 'criarProcedimento'],
+  ['GET', 'procedimentos/:id', TODOS, 'procedimento'],
+  ['POST', 'procedimentos/:id', ['ceo'], 'atualizarProcedimento'],
+  ['POST', 'procedimentos/:id/estado', ['ceo'], 'estadoProcedimento'],
+  ['GET', 'obras/:id/checklists', TODOS, 'checklistsObra'],
+  ['POST', 'obras/:id/checklists', ['ceo', 'tecnico'], 'iniciarChecklist'],
+  ['POST', 'obras/:id/checklists/:lista', ['ceo', 'tecnico'], 'marcarPassoChecklist'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -280,12 +291,14 @@ export function criarApi(ctx) {
     visitaSemDefeito: (o) => (config.eletricistas ? eletricistas.visitaSemDefeito(o) : null),
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
+  // Procedimentos (SOP) e checklists por obra (procedimentos.js; docs/PROCEDIMENTOS.md).
+  const procedimentos = criarProcedimentos({ db, relogio, auditar });
   // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed,
-    concluirObra: (o, u, ip) => concluirObra(o, u, ip) });
+    concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos });
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
   crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed, emails: () => emailsAuto });
-  const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio });
+  const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio, procedimentos });
   // Emails automáticos ao cliente (emails-auto.js; docs/EMAILS-AUTOMATICOS.md): correm na volta dos lembretes do CRM.
   emailsAuto = criarEmailsAuto({ db, config, relogio, auditar, correio, crm, tarefas, pagamentos: () => pagPed });
   tarefas.aCadaVolta(() => emailsAuto.verificar());
@@ -416,6 +429,8 @@ export function criarApi(ctx) {
       data: o.data, hora: o.hora, kit: o.kit, estado: o.estado, material,
       horas_estimadas: o.horas_estimadas, horas_reais: o.horas_reais, notas: o.notas,
       tecnicos: tecnicosDe.all(o.id).map((t) => ({ id: t.id, nome: t.nome })),
+      // Checklists dos procedimentos (docs/PROCEDIMENTOS.md): {n, feitos, total, obrigatorios_falta}, ou null sem nenhuma.
+      checklists: procedimentos.resumoObra(o.id),
       criado: o.criado, atualizado: o.atualizado,
     };
   }
@@ -505,7 +520,7 @@ export function criarApi(ctx) {
   }
 
   // ------------------------------------------------------------ handlers
-  const h = { ...crm.h, ...tarefas.h };
+  const h = { ...crm.h, ...tarefas.h, ...procedimentos.h };
 
   h.entrar = async ({ req, res, ip }) => {
     const v = await lerJson(req, ['email', 'password']);
@@ -1965,6 +1980,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas, emailsAuto };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas, emailsAuto, procedimentos };
 }
 

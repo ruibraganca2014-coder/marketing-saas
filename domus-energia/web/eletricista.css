@@ -209,3 +209,16 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 #aviso { position: fixed; top: 72px; left: 16px; right: 16px; z-index: 50; max-width: 528px; margin: 0 auto; padding: 10px 18px; border-radius: 14px; background: var(--texto); color: var(--fundo); font-weight: 700; font-size: .95rem; text-align: center; opacity: 0; pointer-events: none; transform: translateY(-12px); transition: opacity .2s, transform .2s; }
 #aviso.visivel { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* Procedimentos (docs/PROCEDIMENTOS.md): a lista na Ajuda técnica, a leitura de um procedimento e as checklists da obra */
+.lista-proc { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.link-proc { width: 100%; min-height: 48px; display: grid; gap: 2px; justify-items: start; text-align: left; padding: 8px 12px; border: 1px solid var(--borda); border-radius: 12px; background: var(--fundo); color: var(--texto); font: inherit; cursor: pointer; }
+.passos-ler { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: .96rem; overflow-wrap: anywhere; }
+.passo-texto { font-weight: 600; }
+.passo-nota { margin: 2px 0 0; white-space: pre-line; }
+.lista-passos { list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere; }
+.lista-passos li { padding: 2px 0 8px; border-bottom: 1px solid var(--borda); }
+.lista-passos li:last-child { border-bottom: 0; }
+.lista-passos label { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 10px 0 2px; cursor: pointer; font-size: .96rem; line-height: 1.3; }
+.lista-passos input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--musgo); }
+.lista-passos .selo { white-space: nowrap; font-size: .76rem; padding: 1px 8px; }
+.lista-passos .passo-nota { padding-left: 32px; }

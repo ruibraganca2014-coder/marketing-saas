@@ -1,6 +1,7 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio, #/tarefas, #/tarefas/<id>, #/tarefas/nova, #/crm, #/crm/<id> (ficha do cliente), #/clientes, #/clientes/<codigo> (ecrã "Casas e planos"), #/alertas, #/orcamentos, #/orcamentos/<id>,
-// #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
+// #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/procedimentos, #/procedimentos/<id>,
+// #/procedimentos/<id>/editar, #/procedimentos/novo, #/ajuda (Ajuda técnica: diagnóstico de avarias).
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
@@ -18,6 +19,7 @@ import eletricistas from "./ecras/eletricistas.js";
 import ajuda from "./ecras/ajuda.js";
 import crm from "./ecras/crm.js";
 import tarefas from "./ecras/tarefas.js";
+import procedimentos from "./ecras/procedimentos.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
@@ -38,6 +40,8 @@ const ECRAS = [
   // Só com o módulo ligado no servidor (ELETRICISTAS=1; o "eu" diz `eletricistas`): docs/ELETRICISTAS.md.
   { id: "eletricistas", nome: "Eletricistas", papeis: ["ceo"], m: eletricistas, se: "eletricistas" },
   { id: "auditoria", nome: "Auditoria", papeis: ["ceo"], m: auditoria },
+  // Procedimentos (docs/PROCEDIMENTOS.md): todos leem os publicados; só o CEO vê os rascunhos, edita e publica.
+  { id: "procedimentos", nome: "Procedimentos", papeis: ["ceo", "tecnico", "comercial"], m: procedimentos },
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
 ];
 

@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO } from './catalogo-sementes.js';
+import { SEMENTES_PROCEDIMENTOS } from './procedimentos-sementes.js';
 import { iso } from './util.js';
 
 export const ESTADOS_ORCAMENTO = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada', 'aceite', 'perdido'];
@@ -48,6 +49,12 @@ export const TIPOS_REGISTO = ['nota', 'chamada', 'email', 'whatsapp', 'visita'];
 export const ESTADOS_TAREFA = ['a_fazer', 'em_curso', 'feito'];
 /** Emails automáticos ao cliente (migração 34; docs/EMAILS-AUTOMATICOS.md): os tipos que ficam no registo dos envios. */
 export const TIPOS_EMAIL_AUTO = ['boas_vindas', 'visita', 'pagamento_1', 'pagamento_2', 'obra'];
+/**
+ * Procedimentos (SOP) e checklists por obra (migração 36; docs/PROCEDIMENTOS.md): o tipo de trabalho de cada
+ * procedimento e o estado (só o `publicado` é visto pela equipa e pelos eletricistas externos).
+ */
+export const TIPOS_PROCEDIMENTO = ['visita', 'diagnostico', 'quadro', 'aparelhos', 'carregador', 'entrega', 'outro'];
+export const ESTADOS_PROCEDIMENTO = ['rascunho', 'publicado', 'arquivado'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -866,6 +873,65 @@ export const MIGRACOES = [
   (db) => {
     db.exec('ALTER TABLE emails_chave ADD COLUMN inicio TEXT');
     db.prepare('UPDATE emails_chave SET inicio = ? WHERE id = 1').run(iso());
+  },
+  // 36 — procedimentos (SOP / base de conhecimento) e checklists por obra (decisões do dono de 2026-10-03;
+  // docs/PROCEDIMENTOS.md). `procedimentos`: a cópia de trabalho do CEO (título, tipo de trabalho, descrição e os passos
+  // em JSON), o estado e o número da última versão publicada (0 = nunca). `procedimentos_versoes`: cada publicação,
+  // imutável — é o que a equipa e os eletricistas leem, e o que uma checklist já começada continua a usar.
+  // `obra_checklists`: a checklist de um procedimento numa obra (cada procedimento uma vez por obra), presa à versão com
+  // que começou. `obra_checklist_passos`: os passos marcados (o índice do passo nessa versão), com quem e quando — um
+  // utilizador do painel ou um eletricista externo. As sementes (um rascunho por tipo de trabalho, `por_rever`) só
+  // entram com a tabela vazia.
+  (db) => {
+    db.exec(`
+      CREATE TABLE procedimentos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        tipo TEXT NOT NULL CHECK (tipo IN (${lista(TIPOS_PROCEDIMENTO)})),
+        descricao TEXT,
+        passos TEXT NOT NULL DEFAULT '[]',        -- JSON: [{texto, nota, obrigatorio, seguranca}]
+        estado TEXT NOT NULL DEFAULT 'rascunho' CHECK (estado IN (${lista(ESTADOS_PROCEDIMENTO)})),
+        versao INTEGER NOT NULL DEFAULT 0,        -- a última versão publicada (0 = nunca publicado)
+        por_rever INTEGER NOT NULL DEFAULT 0 CHECK (por_rever IN (0, 1)),   -- rascunho de arranque ainda não revisto
+        criado TEXT NOT NULL,
+        criado_por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+        atualizado TEXT NOT NULL
+      );
+      CREATE TABLE procedimentos_versoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        procedimento_id INTEGER NOT NULL REFERENCES procedimentos(id) ON DELETE CASCADE,
+        versao INTEGER NOT NULL,
+        titulo TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        descricao TEXT,
+        passos TEXT NOT NULL,
+        publicado TEXT NOT NULL,
+        publicado_por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+        UNIQUE (procedimento_id, versao)
+      );
+      CREATE TABLE obra_checklists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        obra_id INTEGER NOT NULL REFERENCES obras(id) ON DELETE CASCADE,
+        procedimento_id INTEGER NOT NULL REFERENCES procedimentos(id),
+        versao_id INTEGER NOT NULL REFERENCES procedimentos_versoes(id),
+        iniciada TEXT NOT NULL,
+        iniciada_por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+        iniciada_por_eletricista_id INTEGER REFERENCES eletricistas(id) ON DELETE SET NULL,
+        UNIQUE (obra_id, procedimento_id)
+      );
+      CREATE TABLE obra_checklist_passos (
+        checklist_id INTEGER NOT NULL REFERENCES obra_checklists(id) ON DELETE CASCADE,
+        passo INTEGER NOT NULL,                   -- índice do passo na versão da checklist (0, 1, 2…)
+        quando TEXT NOT NULL,
+        por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+        por_eletricista_id INTEGER REFERENCES eletricistas(id) ON DELETE SET NULL,
+        PRIMARY KEY (checklist_id, passo)
+      );
+    `);
+    if (db.prepare('SELECT COUNT(*) AS n FROM procedimentos').get().n) return;
+    const ins = db.prepare("INSERT INTO procedimentos (titulo, tipo, descricao, passos, estado, versao, por_rever, criado, atualizado) VALUES (?, ?, ?, ?, 'rascunho', 0, 1, ?, ?)");
+    const agora = iso();
+    for (const p of SEMENTES_PROCEDIMENTOS) ins.run(p.titulo, p.tipo, p.descricao, JSON.stringify(p.passos), agora, agora);
   },
 ];
 

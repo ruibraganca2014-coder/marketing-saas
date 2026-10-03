@@ -142,7 +142,7 @@ function hostLocal(req) {
  *   `pagamentos()`: os pagamentos do pedido (pagamentos-pedido.js): visita paga, proposta em partes, relatório.
  *   `concluirObra(o, u, ip)`: a ação "Obra concluída" do painel (api.js), usada ao aprovar o trabalho de uma obra.
  */
-export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {} }) {
+export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {}, procedimentos = null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -509,6 +509,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.ensaios = estaAberto ? ensaiosDoPedido(o) : null;
     r.diagnostico = estaAberto && t.tipo === 'avaria' ? { modelo: MODELO_DIAGNOSTICO, atual: diagnosticoDoPedido(o) } : null;
     r.falta = r.editavel ? faltaParaConcluir(t, o) : [];
+    // Checklists dos procedimentos (docs/PROCEDIMENTOS.md): só numa obra, com a obra do pedido, enquanto está aberta.
+    r.checklists = estaAberto && t.tipo === 'obra' && o.obra_id && procedimentos ? procedimentos.daObra(o.obra_id, { eletricista: t.eletricista_id }) : null;
     return r;
   }
 
@@ -802,6 +804,37 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const nomes = new Set(materialDe(o, t.tipo, relatorioDe(o)).map((m) => m.nome));
     if (!Array.isArray(v.recebido) || v.recebido.length > 500 || v.recebido.some((x) => typeof x !== 'string' || !nomes.has(x))) falha('Material: indique os artigos da lista deste trabalho.');
     db.prepare('UPDATE trabalhos_eletricista SET material_recebido = ?, atualizado = ? WHERE id = ?').run(JSON.stringify([...new Set(v.recebido)]), agoraIso(), t.id);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // ---- procedimentos (docs/PROCEDIMENTOS.md): os publicados, só de leitura, e as checklists da obra do próprio trabalho
+  h.procedimentos = ({ res }) => responder(res, 200, { procedimentos: procedimentos.publicados(false) });
+  h.procedimento = ({ res, params }) => responder(res, 200, { procedimento: procedimentos.publicado(params.id, false) });
+
+  /** A obra do trabalho, para as checklists: só num trabalho de obra, deste eletricista e ainda por concluir. */
+  function obraDoMeu(e, idTexto) {
+    const { t, o } = meuEditavel(e, idTexto);
+    if (t.tipo !== 'obra' || !o.obra_id) throw new ErroApi(409, 'As checklists são das obras: este trabalho não tem obra.');
+    return { t, o };
+  }
+  // Começar a checklist de um procedimento publicado na obra deste trabalho.
+  h.iniciarChecklist = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['procedimento_id']);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    expirar();
+    const { t, o } = obraDoMeu(e, params.id);
+    procedimentos.iniciar(o.obra_id, v.procedimento_id, { eletricista: e }, ip);
+    responder(res, 201, fichaAtual(t));
+  };
+  // Marcar ou desmarcar um passo (fica quem e quando).
+  h.marcarPasso = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['passo', 'feito']);
+    esperar([[L.ficha, String(e.id)]]);
+    contar([[L.ficha, String(e.id)]]);
+    expirar();
+    const { t, o } = obraDoMeu(e, params.id);
+    procedimentos.marcar(o.obra_id, params.lista, v, { eletricista: e }, ip);
     responder(res, 200, fichaAtual(t));
   };
 
@@ -1597,6 +1630,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'iban', true, 'iban'],
     ['GET', 'trabalhos/:id/fatura', true, 'verFatura'],
     ['POST', 'trabalhos/:id/fatura', true, 'fatura'],   // {tipo, dados} em base64, como o documento do seguro
+    ['GET', 'procedimentos', true, 'procedimentos'],   // os procedimentos publicados (só leitura)
+    ['GET', 'procedimentos/:id', true, 'procedimento'],
+    ['POST', 'trabalhos/:id/checklists', true, 'iniciarChecklist'],   // {procedimento_id}: começa a checklist na obra do trabalho
+    ['POST', 'trabalhos/:id/checklists/:lista', true, 'marcarPasso'],   // {passo, feito}
   ].map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
   // As páginas perguntam se o módulo existe (com ELETRICISTAS desligado isto dá 404 e elas mostram só uma linha).
