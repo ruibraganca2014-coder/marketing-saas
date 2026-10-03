@@ -51,7 +51,7 @@ test('migrações: versão do esquema = n.º de migrações; reabrir não repete
   assert.equal(versaoEsquema(p.app.db), MIGRACOES.length);
   const db2 = abrirDb(p.config.db);
   assert.equal(versaoEsquema(db2), MIGRACOES.length);
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 20, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16 + obra mínima e limite do cartão da 23 + horas por dia da 24 + teto da deslocação da 25 + a percentagem dos eletricistas da 27)');
+  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 25, 'sementes não duplicadas (7 + margem_pacotes_pct + iva_pct, semeado no arranque, + os 3 da migração 14 + os 3 ensaios da 16 + obra mínima e limite do cartão da 23 + horas por dia da 24 + teto da deslocação da 25 + a percentagem dos eletricistas da 27 + os 5 prazos dos lembretes da 33)');
   db2.close();
   const mem = abrirDb(':memory:');
   assert.equal(versaoEsquema(mem), MIGRACOES.length);
@@ -73,12 +73,13 @@ test('migração 4 (deslocação por distância): base existente recebe os valor
     intervalo_menos_pct: 10, intervalo_mais_pct: 20, preco_relatorio_iva: 29,
     ensaio_isolamento_mohm: 0.5, ensaio_diferencial_ms: 300, ensaio_terra_ohm: 100,
     obra_minima_iva: 100, cartao_max_iva: 500, horas_por_dia: 8, deslocacao_max_dias: 5, eletricista_pct: 70,
+    lembrete_novo_dias_uteis: 1, lembrete_visita_dias: 2, lembrete_proposta_1_dias: 3, lembrete_proposta_2_dias: 7, lembrete_proposta_3_dias: 14,
   });
   // Com valores do CEO: a migração outra vez não os muda nem duplica.
   db.prepare("UPDATE config_orcamento SET valor = 'Porto' WHERE chave = 'deslocacao_base'").run();
   MIGRACOES[3](db);
   assert.equal(db.prepare("SELECT valor FROM config_orcamento WHERE chave = 'deslocacao_base'").get().valor, 'Porto');
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 19, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16) + 2 (migração 23) + horas por dia (migração 24) + teto da deslocação (migração 25) + percentagem dos eletricistas (migração 27)');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM config_orcamento').get().n, 24, '7 + margem_pacotes_pct (migração 13) + 3 (migração 14) + 3 ensaios (migração 16) + 2 (migração 23) + horas por dia (migração 24) + teto da deslocação (migração 25) + percentagem dos eletricistas (migração 27) + 5 prazos dos lembretes (migração 33)');
   db.close();
 });
 
@@ -191,7 +192,7 @@ test('migração 8 (ids nunca reutilizados): base existente mantém dados, índi
   assert.deepEqual(db.prepare('SELECT id, nome, conta_id FROM orcamentos ORDER BY id').all().map((x) => ({ ...x })),
     [{ id: 1, nome: 'A', conta_id: 1 }, { id: 2, nome: 'B', conta_id: 2 }, { id: 3, nome: 'C', conta_id: null }]);
   const indices = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'orcamentos'").all().map((x) => x.name).sort();
-  assert.deepEqual(indices, ['orcamentos_conta', 'orcamentos_estado']);
+  assert.deepEqual(indices, ['orcamentos_conta', 'orcamentos_crm_cliente', 'orcamentos_estado']);   // + o da ficha do cliente (CRM, migração 32)
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM fotos').get().n, 1, 'o DROP não apagou em cascata');
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM contas_sessoes').get().n, 1);
   // Ids novos: nunca um já usado (nem o 4/3 que só ficou na auditoria), mesmo depois de apagar o último.

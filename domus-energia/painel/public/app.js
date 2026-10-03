@@ -1,5 +1,5 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
-// Rotas no endereço: #/inicio, #/clientes, #/clientes/<codigo>, #/alertas, #/orcamentos, #/orcamentos/<id>,
+// Rotas no endereço: #/inicio, #/tarefas, #/tarefas/<id>, #/tarefas/nova, #/crm, #/crm/<id> (ficha do cliente), #/clientes, #/clientes/<codigo> (ecrã "Casas e planos"), #/alertas, #/orcamentos, #/orcamentos/<id>,
 // #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/ajuda (Ajuda técnica: diagnóstico de avarias).
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
@@ -16,11 +16,17 @@ import stock from "./ecras/stock.js";
 import contas from "./ecras/contas.js";
 import eletricistas from "./ecras/eletricistas.js";
 import ajuda from "./ecras/ajuda.js";
+import crm from "./ecras/crm.js";
+import tarefas from "./ecras/tarefas.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
   { id: "inicio", nome: "Início", papeis: ["ceo", "tecnico", "comercial"], m: inicio },
-  { id: "clientes", nome: "Clientes", papeis: ["ceo", "tecnico", "comercial"], m: clientes },
+  // CRM e tarefas (docs/CRM-TAREFAS.md): o técnico vê só os clientes das suas obras; as tarefas de todos só o CEO.
+  // "Casas e planos" é o antigo ecrã "Clientes" (as casas com conta e plano; a rota #/clientes e a API não mudaram).
+  { id: "tarefas", nome: "Tarefas", papeis: ["ceo", "tecnico", "comercial"], m: tarefas },
+  { id: "crm", nome: "CRM", papeis: ["ceo", "tecnico", "comercial"], m: crm },
+  { id: "clientes", nome: "Casas e planos", papeis: ["ceo", "tecnico", "comercial"], m: clientes },
   { id: "alertas", nome: "Alertas", papeis: ["ceo", "tecnico"], m: alertas },
   { id: "orcamentos", nome: "Orçamentos", papeis: ["ceo", "comercial"], m: orcamentos },
   { id: "obras", nome: "Obras", papeis: ["ceo", "tecnico", "comercial"], m: obras },
@@ -150,7 +156,26 @@ function mostrarPainel() {
   faixaPagamentos();
   encaminhar();
   retomarPedidos();
+  contagemTarefas(true);
 }
+
+// Selo no menu "Tarefas": as minhas tarefas por fazer atrasadas ou para hoje (GET tarefas/contagem). Atualiza ao mudar
+// de ecrã (no máximo de minuto a minuto) e quando o ecrã Tarefas muda alguma coisa. Sem temporizador: um pedido
+// periódico renovava a sessão para sempre (como os pedidos-admin, que param ao fim de 30 min).
+let contagemEm = 0;
+async function contagemTarefas(forcar = false) {
+  if (!eu || (!forcar && Date.now() - contagemEm < 60_000)) return;
+  contagemEm = Date.now();
+  let r;
+  try { r = await pedir("tarefas/contagem"); } catch { return; }
+  const a = nav.querySelector('a[data-ecra="tarefas"]');
+  if (!a) return;
+  a.querySelector(".contagem-menu")?.remove();
+  const n = Number(r?.total) || 0;
+  if (n) a.append(h("span", { class: `contagem-menu${r.atrasadas ? " atrasadas" : ""}`, text: String(n), title: `${r.atrasadas} atrasadas, ${r.hoje} para hoje`,
+    "aria-label": `${n} ${n === 1 ? "tarefa" : "tarefas"} para tratar: ${r.atrasadas} ${r.atrasadas === 1 ? "atrasada" : "atrasadas"}, ${r.hoje} para hoje` }));
+}
+document.addEventListener("domus:tarefas", () => contagemTarefas(true));
 
 // A própria pessoa muda a palavra-passe (a conta é criada com uma gerada pelo servidor).
 function mudarPalavraPasse() {
@@ -237,7 +262,7 @@ function encaminhar() {
   marcarNav(id);
   if (!ecra) { conteudo.append(h("div", { class: "cartao" }, h("h1", { text: "Página não encontrada" }), h("a", { class: "btn sec pequeno", href: "#/inicio", text: "Ir para o início" }))); ecraAtual = null; return; }
   document.title = `${ecra.nome} — Painel Domus Energia`;
-  if (!permitido(ecra)) { conteudo.append(semAcesso()); ecraAtual = { id, ecra }; return; }
+  if (!permitido(ecra)) { conteudo.append(semAcesso(ecra.papeis)); ecraAtual = { id, ecra }; return; }
   const ctx = { eu, resto, navegar, acompanharPedido, pode: (...papeis) => papeis.includes(eu.papel), eletricistas: eu.eletricistas === true };
   const api = ecra.m(conteudo, ctx) ?? {};
   desmontar = api.desmontar ?? null;
@@ -251,6 +276,7 @@ function marcarNav(id) {
 window.addEventListener("hashchange", () => {
   const antes = ecraAtual?.id;
   encaminhar();
+  contagemTarefas();
   if (rota().id !== antes) conteudo.focus({ preventScroll: true });
 });
 

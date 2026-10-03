@@ -82,7 +82,7 @@ input, select { min-height: 44px; }
 .escolhas-grelha { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 720px) { .escolhas-grelha { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 /* Padding lateral curto e quebra com hífen: um rótulo comprido ("Apartamento") nunca sai do cartão, em nenhuma largura. */
-.escolha { position: relative; display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 10px 8px; border: 2px solid var(--borda); border-radius: 16px; background: var(--superficie); font-weight: 700; text-align: center; cursor: pointer; min-width: 0; hyphens: auto; overflow-wrap: anywhere; }
+.escolha { position: relative; display: flex; align-items: center; justify-content: center; min-height: 56px; padding: 10px 8px; border: 2px solid var(--borda); border-radius: 16px; background: var(--superficie); font-weight: 700; text-align: center; cursor: pointer; min-width: 0; hyphens: manual; overflow-wrap: break-word; }   /* QA final: sem partir palavras com hífen */
 .escolha input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
 .escolha:has(input:checked) { border-color: var(--musgo); background: var(--musgo-claro); }
 .escolha:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
@@ -116,7 +116,7 @@ input, select { min-height: 44px; }
 .casa-outras { display: grid; gap: 8px; margin-top: 4px; }
 .casa-outras[hidden] { display: none; }
 .casa-outra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.casa-outra input[type="text"] { flex: 1 1 160px; min-width: 0; }
+.casa-outra input[type="text"] { flex: 1 1 14em; min-width: 0; }   /* QA final: o exemplo inteiro à vista (no telemóvel o contador passa para baixo) */
 .casa-outra .contador-caixa { flex: none; }
 .casa-outras .form-botoes { justify-content: flex-start; margin: 0; }
 /* Passo "A casa": a planta é automática (as divisões vêm de "A casa tem…"); a linha das ferramentas fica escondida. */
@@ -443,7 +443,7 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
 @media (min-width: 600px) { :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 960px) { :is(#quer-maquinas, #quer-pequenas .escolhas-grelha, #quer-objetivos) { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .escolha.com-icone { justify-content: flex-start; align-items: flex-start; height: 100%; padding: 12px; text-align: left; }
-.escolha.com-icone > span { grid-template-columns: 44px minmax(0, 1fr); column-gap: 12px; align-items: center; align-content: start; width: 100%; overflow-wrap: break-word; hyphens: auto; }
+.escolha.com-icone > span { grid-template-columns: 44px minmax(0, 1fr); column-gap: 12px; align-items: center; align-content: start; width: 100%; overflow-wrap: break-word; hyphens: manual; }
 .escolha.com-icone .escolha-icone { grid-row: 1 / span 2; width: 44px; height: 44px; color: var(--texto); }
 .escolha.com-icone > span > small { grid-column: 2; font-size: .82rem; }
 /* "Equipamentos": marcada, quantas (− n +) DENTRO do cartão, em baixo à direita; o espaço do contador está
@@ -548,6 +548,12 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 /* O "⋯" fixo no fim da linha das ações (editor.js: o último grupo; a linha desliza por baixo dele). */
 .sim-planta .editor-acoes > .g-fundo { position: sticky; right: 0; z-index: 1; margin-left: auto; padding-left: 6px; background: var(--fundo); }
 .sim-planta .editor-acoes { scroll-padding-right: 56px; }
+/* QA final: no telemóvel, com uma divisão ou aparelho escolhido, os botões (Duplicar, ⋯, Apagar) passam para uma
+   2.ª fila em vez de ficarem fora do ecrã. */
+@media not all and (min-width: 480px) {
+  .sim-planta .editor-acoes { flex-wrap: wrap; overflow-x: visible; }
+  .sim-planta .editor-acoes > .g-fundo { position: static; margin-left: 0; padding-left: 0; }
+}
 .editor-acoes .btn.icone { min-width: 38px; padding: 0 7px; }
 .editor-acoes .btn.icone svg { width: 20px; height: 20px; }
 /* Separadores dos pisos junto à planta, compactos (nome e resumo numa linha). */

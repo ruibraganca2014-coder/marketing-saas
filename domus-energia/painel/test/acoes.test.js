@@ -311,8 +311,8 @@ test('planta mexida: acrescenta/tira só a máquina ou a divisão que mudou (div
   assert.equal(JSON.stringify(p.divisoes), antes);
   assert.equal(p.elementos.length, n + 1);
   const m = p.elementos.find((e) => e.tipo === 'maquina');
-  assert.equal(p.divisoes.find((d) => d.id === m.divisao).nome, 'Kitnet');
-  assert.deepEqual(dicas, ['Placa de cozinha: posta na Kitnet.']);
+  assert.equal(p.divisoes.find((d) => d.id === m.divisao).nome, 'Kitchenette');
+  assert.deepEqual(dicas, ['Placa de cozinha: posta na Kitchenette.']);
   acertarPlantaMexida(p, sinc(casa, placa), sinc(casa, []), { casa });
   assert.equal(p.elementos.length, n);
   // Mais um quarto e a garagem: aparecem ao lado, sem sobrepor; desmarcar tira só essas.

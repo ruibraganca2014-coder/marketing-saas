@@ -213,7 +213,8 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
       }));
       comEnter([email], criar);
       // Consentimento (RGPD): a conta e o pedido são necessários ao contrato, por isso basta a frase com as ligações.
-      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao enviar, aceita os ",
+      // QA final: "Ao criar a conta" (no passo Enviar do simulador a frase "Ao enviar…" do contacto só aparece com sessão).
+      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao criar a conta, aceita os ",
         el("a", { href: "termos.html", target: "_blank", rel: "noopener", texto: "Termos" }), " e a ",
         el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
       caixa.append(el("p", { texto: texto.fora ?? "Crie uma conta para enviar o pedido e acompanhá-lo depois." }), msg,

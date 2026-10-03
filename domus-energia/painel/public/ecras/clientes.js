@@ -1,5 +1,6 @@
-// Clientes: lista com filtros (plano, estado, texto) e ficha. "Novo cliente" (CEO, comercial) pede a
-// criação ao servidor (pedido-admin); a palavra-passe gerada aparece uma vez quando o pedido for feito.
+// Casas e planos (o antigo ecrã "Clientes": as casas com conta e plano; a rota #/clientes e a API `clientes` não
+// mudaram): lista com filtros (plano, estado, texto) e ficha, com a ligação à ficha da pessoa no CRM. "Novo cliente"
+// (CEO, comercial) pede a criação ao servidor (pedido-admin); a palavra-passe gerada aparece uma vez quando o pedido for feito.
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, PLANOS, ESTADOS_CLIENTE, ESTADOS_OBRA, KITS, GRAVIDADES, gravidadeDe, nomeDe, euros, num, data, selo, campoForm, escolha, dados,
   janela, mensagem, avisar, carregando, erroEcra, txt, mostrarPalavraPasse } from "../ui.js";
@@ -19,7 +20,7 @@ export default function clientes(el, ctx) {
   const novo = ctx.pode("ceo", "comercial") ? h("button", { class: "btn", type: "button", id: "novo-cliente", text: "Novo cliente", onclick: abrirNovo }) : null;
 
   el.append(
-    h("div", { class: "ecra-topo" }, h("h1", { text: "Clientes" }), novo),
+    h("div", { class: "ecra-topo" }, h("h1", { text: "Casas e planos" }), novo),
     h("div", { class: "filtros" }, fTexto, fPlano, fEstado),
     contagem, zona);
   for (const f of [fPlano, fEstado]) f.addEventListener("change", desenhar);
@@ -96,6 +97,9 @@ export default function clientes(el, ctx) {
         ["Aparelhos", num(nAparelhos)],
       ]),
     ];
+    // A ficha da mesma pessoa no CRM (contactos, pedidos, notas), quando há uma ligada a esta casa.
+    const crmId = campo(c, "crm_cliente_id");
+    if (crmId) partes.push(h("div", { class: "form-botoes" }, h("a", { class: "btn sec pequeno", id: "abrir-ficha-crm", href: `#/crm/${encodeURIComponent(crmId)}`, text: "Abrir a ficha no CRM" })));
     if (estado === "pendente") partes.push(h("p", { class: "msg info", text: "A conta ainda está a ser criada no servidor." }));
     if (Array.isArray(aparelhos) && aparelhos.length) {
       partes.push(h("h3", { text: "Aparelhos" }), h("ul", { class: "lista-simples" }, ...aparelhos.map((a) =>

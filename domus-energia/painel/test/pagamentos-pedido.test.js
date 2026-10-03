@@ -166,6 +166,12 @@ describe('modo simulado', () => {
     assert.deepEqual(rel.intervalo, { min: Math.round((total * 0.9) / 5) * 5, max: Math.round((total * 1.2) / 5) * 5 }, 'do total do servidor sem deslocação, −10 % / +20 %');
     assert.equal(rel.deslocacao, DESLOC_SINTRA, 'a deslocação à parte');
     assert.equal(rel.com_deslocacao, true);
+    assert.equal(rel.deslocacao_a_confirmar, false);
+    // QA final: localidade sem concelho reconhecido — a deslocação fica "a confirmar" (nunca "com deslocação").
+    const desconhecida = await enviar(c, { localidade: 'Aldeia Que Não Existe' });
+    const rd = (await p.pedir('GET', `/api/conta/pedidos/${desconhecida.pedido}/relatorio-basico`, { cookie: c.cookie })).json.relatorio;
+    assert.equal(rd.deslocacao_a_confirmar, true);
+    assert.deepEqual(rd.intervalo, rel.intervalo, 'o mesmo intervalo dos trabalhos');
     assert.deepEqual(rel.divisoes.map((d) => d.nome), ['Sala', 'Quarto', 'Quadro elétrico e geral']);
     assert.ok(rel.divisoes[0].trabalho.some((t) => /Novo: 2 interruptores/.test(t)));
     for (const proibido of ['material', 'preco_unitario', 'mao_obra', 'total', 'geral', 'artigo']) assert.ok(!b.texto.includes(`"${proibido}"`), `o básico não tem ${proibido}`);

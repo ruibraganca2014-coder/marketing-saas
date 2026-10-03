@@ -48,7 +48,7 @@ const MODELOS = {
 const COMANDOS = { lustre: "lustre", escada: "escada (comutador)", inversor: "inversor", botao: "botão de pressão" };
 const comandoTxt = (p) => (COMANDOS[obj(p).comando] ? ` ${COMANDOS[obj(p).comando]}` : "");
 // Passo "A casa" e "Equipamentos" do simulador (web/simulador/regras.js EXTRAS_CASA, OBJETIVOS).
-const EXTRAS_CASA = { jardim: "jardim", exterior: "exterior", garagem: "garagem", arrecadacao: "arrecadação", varanda: "varanda/terraço", kitnet: "kitnet", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
+const EXTRAS_CASA = { jardim: "jardim", exterior: "exterior", garagem: "garagem", arrecadacao: "arrecadação", varanda: "varanda/terraço", kitnet: "kitchenette", entrada: "entrada/hall", corredor: "corredor", escritorio: "escritório", lavandaria: "lavandaria", despensa: "despensa" };
 const OBJETIVOS = {
   poupar: "Poupar energia", alarme: "Alarme e segurança", estores: "Estores automáticos", luzes: "Luzes pelo telemóvel",
   distancia: "Controlar à distância", clima: "Aquecimento / ar condicionado",

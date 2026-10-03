@@ -1310,6 +1310,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // "≈ N dias de obra" e "(ida e volta, N dias)" / "(ida e volta; máximo N dias)", como no Orçamento do simulador.
       dias: avaria ? null : r.dias, deslocacao_dias: avaria ? null : r.deslocacao_dias, deslocacao_limitada: !avaria && r.deslocacao_limitada,
       com_deslocacao: r.deslocacao !== null,
+      // QA final: localidade sem concelho reconhecido — a deslocação confirma-se na visita (nunca "com deslocação" sem a saber).
+      deslocacao_a_confirmar: !avaria && r.deslocacao !== null && distancia(o.localidade ?? simDe(o)?.casa?.localidade ?? '', cfg).km === null,
       nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
     };
   }

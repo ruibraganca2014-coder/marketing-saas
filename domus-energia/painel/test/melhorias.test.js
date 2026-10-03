@@ -332,7 +332,7 @@ test('decisão C: sem porta da rua desenhada, 1 sensor de porta para a entrada; 
   const sp = (x) => porId(calcularMelhorias(x, CATALOGO, {})).seguranca.itens.find((i) => i.chave === 'sensor_porta')?.qtd ?? 0;
   assert.equal(e.planta.elementos.some((x) => x.tipo === 'janela' || (x.tipo === 'porta' && x.props.entrada)), false);
   assert.equal(sp(e), 1);
-  assert.match(porId(calcularMelhorias(e, CATALOGO, {})).seguranca.resumo, /^1 sensor de porta\/janela, 1 de movimento, 2 de água$/);
+  assert.match(porId(calcularMelhorias(e, CATALOGO, {})).seguranca.resumo, /^1 sensor de porta\/janela \(com a porta da rua\), 1 de movimento, 2 de água$/);
   // Com a porta da rua desenhada: a dela (e não mais uma).
   const sala = e.planta.divisoes.find((d) => d.nome === 'Sala');
   e.planta.elementos.find((x) => x.tipo === 'porta' && x.divisao === sala.id).props.entrada = true;
@@ -343,6 +343,7 @@ test('decisão C: sem porta da rua desenhada, 1 sensor de porta para a entrada; 
   // Janelas desenhadas contam uma a uma.
   e.planta.elementos.push({ id: 'j1', tipo: 'janela', divisao: sala.id, piso: 0, x_cm: 0, y_cm: 0, rot: 0, props: {} });
   assert.equal(sp(e), 1);
+  assert.match(porId(calcularMelhorias(e, CATALOGO, {})).seguranca.resumo, /^1 sensor de porta\/janela, /, 'a porta da rua já tem sensor: o da janela');
 });
 
 test('decisão D: "Já tenho a planta" — o que a casa guardada já instalou não se cobra outra vez (e as casas antigas ficam como antes)', () => {

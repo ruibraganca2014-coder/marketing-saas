@@ -226,7 +226,7 @@ function pouparEnergia(estado, medidorNoQuadro) {
  */
 function seguranca(estado) {
   const divs = divisoesDe(estado);
-  let portas = 0, movimento = 0, agua = 0, sobra = 0, rua = 0;
+  let portas = 0, movimento = 0, agua = 0, sobra = 0, rua = 0, ruaSem = 0;
   for (const d of divs) {
     const conta = (f) => d.els.filter(f).length;
     const entrada = conta((e) => e.tipo === "porta" && e.props?.entrada);
@@ -234,14 +234,15 @@ function seguranca(estado) {
     const ha = Math.max(conta((e) => e.tipo === "sensor_porta"), d.linha?.sensores_porta ?? 0);
     rua += entrada;
     portas += Math.max(0, precisa - ha);
+    ruaSem += Math.max(0, entrada - ha);   // QA final: a porta da rua sem sensor (já não vai no preço base; os que há cobrem-na primeiro)
     sobra += Math.max(0, ha - precisa);
     if (COM_MOVIMENTO.includes(d.tipo) && !conta((e) => e.tipo === "sensor_movimento") && !(d.linha?.sensores_movimento > 0)) movimento++;
     if (COM_AGUA.includes(d.tipo)) agua++;
   }
   // A casa tem sempre porta da rua: sem nenhuma desenhada (nem um sensor de porta a mais), 1 sensor para a entrada.
-  if (divs.length && !rua && !sobra) portas++;
-  // "2 sensores de porta/janela, 1 de movimento, 2 de água" (só o 1.º diz "sensor").
-  const partes = [[portas, "porta/janela"], [movimento, "movimento"], [agua, "água"]].filter(([n]) => n);
+  if (divs.length && !rua && !sobra) { portas++; ruaSem++; }
+  // "2 sensores de porta/janela (com a porta da rua), 1 de movimento, 2 de água" (só o 1.º diz "sensor").
+  const partes = [[portas, ruaSem ? "porta/janela (com a porta da rua)" : "porta/janela"], [movimento, "movimento"], [agua, "água"]].filter(([n]) => n);
   return {
     itens: [{ chave: "sensor_porta", qtd: portas }, { chave: "sensor_movimento", qtd: movimento }, { chave: "sensor_agua", qtd: agua }],
     resumo: partes.map(([n, t], i) => (i ? `${n} de ${t}` : `${plural(n, "sensor", "sensores")} de ${t}`)),

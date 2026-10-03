@@ -63,7 +63,7 @@ export const perguntaMedicao = (tipo, props = {}) => tipo === "maquina" && CARRE
 
 /**
  * Ação de um elemento: a escolhida ou a omissão do serviço. Os elementos sem ação (porta, quadro, janela sem estore)
- * seguem o serviço: entram como novos só com "Instalação nova" (a porta da rua sugere um sensor, como antes).
+ * seguem o serviço: entram como novos só com "Instalação nova" (QA final: a porta da rua já não leva sensor no preço base; sugere-o o pacote Segurança).
  */
 export function acaoDe(e, servicos) {
   if (!e) return acaoOmissao(servicos);

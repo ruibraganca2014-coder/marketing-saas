@@ -18,7 +18,7 @@ const MAX_LUZES = 8;
 
 /** Tamanhos (cm) das divisões que não têm botão no editor; as outras vêm dos botões (TIPOS_DIVISAO…). */
 const TAMANHOS = {
-  "Sala de estar": [500, 400], "Sala de jantar": [400, 350], "Kitnet": [650, 400],
+  "Sala de estar": [500, 400], "Sala de jantar": [400, 350], "Kitchenette": [650, 400], "Kitnet": [650, 400],
   "Estúdio": [600, 450], "Escadas": [200, 300], "Exterior": [500, 300], "Oficina": [800, 600], "Arrecadação": [250, 200],
 };
 /** Tamanho típico pelo nome; os botões do tipo de imóvel da casa têm prioridade (ex.: Escritório). */
@@ -39,8 +39,9 @@ const semAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "
  */
 export function tipoDivisao(nome) {
   const s = semAcentos(nome);
-  if (/^kitnet/.test(s) || (/cozinha/.test(s) && /sala|estudio/.test(s))) return "sala_cozinha";
-  if (/^(cozinha|kitchenette|copa)/.test(s)) return "cozinha";
+  // QA final: "Kitchenette" é a sala com cozinha (antes "Kitnet", que continua a contar nos estados antigos).
+  if (/^(kitnet|kitchenette)/.test(s) || (/cozinha/.test(s) && /sala|estudio/.test(s))) return "sala_cozinha";
+  if (/^(cozinha|copa)/.test(s)) return "cozinha";
   if (/^(loja|sala aberta|restaurante)/.test(s)) return "loja";
   if (/^(sala|estudio|living)/.test(s)) return "sala";
   if (/^(quarto|suite)/.test(s)) return "quarto";
@@ -275,10 +276,10 @@ export function outrasDaCasa(casa) {
 /**
  * Divisões de uma casa com tipologia, piso a piso (`pp`: valores de cada piso, valoresPiso; 0 = r/c). Em cada
  * piso, por esta ordem: Entrada, as salas ("Sala"; 2 na casa, "Sala de estar" + "Sala de jantar"; 3–4, "Sala
- * 3"…, numeradas na casa toda) — com kitnet marcada nesse piso, uma delas é a "Kitnet" (a cozinha aberta: a
- * única sala, senão a de jantar, senão a última do piso; sem salas no piso, a Kitnet sozinha) —, a Cozinha
+ * 3"…, numeradas na casa toda) — com kitnet marcada nesse piso, uma delas é a "Kitchenette" (a cozinha aberta: a
+ * única sala, senão a de jantar, senão a última do piso; sem salas no piso, a Kitchenette sozinha) —, a Cozinha
  * (sem kitnet em nenhum piso: no 1.º piso com salas), Corredor, Quarto, Quarto 2…n, Casa de banho (2…n), Escadas (com
- * 2 ou mais pisos), Escritório, Lavandaria, Despensa, Garagem, Arrecadação, Varanda, Jardim, Exterior. T0: um "Estúdio" (ou "Kitnet")
+ * 2 ou mais pisos), Escritório, Lavandaria, Despensa, Garagem, Arrecadação, Varanda, Jardim, Exterior. T0: um "Estúdio" (ou "Kitchenette")
  * no r/c, sem salas. Divisões iguais em pisos diferentes numeram-se ("Garagem 2", "Corredor 2").
  */
 function divisoesPorPiso(pp, tipologia) {
@@ -298,16 +299,16 @@ function divisoesPorPiso(pp, tipologia) {
     const x = f.extras;
     if (x.entrada) add(numerado("entrada", "Entrada"), p);
     if (t0) {
-      if (p === 0) add(x.kitnet ? numerado("kitnet", "Kitnet") : "Estúdio", p);   // sala e quarto na mesma divisão
-      else if (x.kitnet) add(numerado("kitnet", "Kitnet"), p);
+      if (p === 0) add(x.kitnet ? numerado("kitnet", "Kitchenette") : "Estúdio", p);   // sala e quarto na mesma divisão
+      else if (x.kitnet) add(numerado("kitnet", "Kitchenette"), p);
     } else {
       const s0 = s, fim = s0 + f.salas;
       const comCozinha = !x.kitnet || !f.salas ? -1 : S === 1 ? 1 : s0 < 2 && fim >= 2 ? 2 : fim;
       for (let i = s0 + 1; i <= fim; i++) {
         s = i;
-        add(i === comCozinha ? numerado("kitnet", "Kitnet") : S === 1 ? "Sala" : i === 1 ? "Sala de estar" : i === 2 ? "Sala de jantar" : `Sala ${i}`, p);
+        add(i === comCozinha ? numerado("kitnet", "Kitchenette") : S === 1 ? "Sala" : i === 1 ? "Sala de estar" : i === 2 ? "Sala de jantar" : `Sala ${i}`, p);
       }
-      if (x.kitnet && !f.salas) add(numerado("kitnet", "Kitnet"), p);
+      if (x.kitnet && !f.salas) add(numerado("kitnet", "Kitchenette"), p);
     }
     if (p === pisoCozinha) add("Cozinha", p);
     if (x.corredor) add(numerado("corredor", "Corredor"), p);
@@ -379,7 +380,9 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
     const curto = ((fila + 0.5) / filas) * (longoW ? h : w);
     add("luz", longoW ? ao : curto, longoW ? curto : ao);
   }
-  const tomadas = [[10, h / 2, 90], [w - 10, h / 2, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.2), 10, 0]];
+  // QA final: as das paredes da esquerda/direita a alturas diferentes (h/3 e 2h/3) e a de cima mais para dentro do
+  // que a de baixo: duas divisões encostadas não ficam com tomadas umas por cima das outras na parede partilhada.
+  const tomadas = [[10, h / 3, 90], [w - 10, (2 * h) / 3, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.35), 10, 0]];
   for (const [dx, dy, rot] of tomadas.slice(0, TOMADAS_TIPO[tipoDivisao(nome)] ?? 0)) add("tomada", dx, dy, rot);
   return r;
 }
@@ -406,7 +409,7 @@ const DESTINO = {
   placa: COZINHA, forno: COZINHA, maquina_loica: COZINHA,
   maquina_lavar: ["lavandaria", "cozinha", "sala_cozinha", "garagem", "sala"],
   maquina_secar: ["lavandaria", "cozinha", "sala_cozinha", "garagem", "sala"],
-  // Termoacumulador: na cozinha (também a "Kitnet"), senão na garagem.
+  // Termoacumulador: na cozinha (também a "Kitchenette"), senão na garagem.
   termoacumulador: ["cozinha", "sala_cozinha", "garagem", "lavandaria", "wc", "sala"],
   // Com mais de um, os outros vão para os quartos (um por divisão).
   ar_condicionado: ["sala", "sala_cozinha", "loja", "escritorio", "rececao", "nave", "quarto"],
@@ -547,9 +550,58 @@ export function marcarPortaDaRua(p) {
   if (!portas.length || portas.some((e) => e.props?.entrada)) return null;
   const rc = portas.filter((e) => (e.piso ?? 0) === 0);
   const tipoDe = (e) => { const d = p.divisoes.find((x) => x.id === e.divisao); return d ? tipoDivisao(d.nome) : null; };
-  const porta = DIVISOES_DA_RUA.map((t) => rc.find((e) => tipoDe(e) === t)).find(Boolean) ?? rc[0] ?? portas[0];
+  // QA final: de cada tipo, primeiro uma porta numa parede de fora; se só houver em paredes interiores, a porta passa
+  // para uma parede de fora da mesma divisão (com o interruptor dela).
+  const deFora = (e) => !paredeInterior(p, e);
+  const doTipo = (t) => { const l = rc.filter((e) => tipoDe(e) === t); return l.find(deFora) ?? l[0]; };
+  const porta = DIVISOES_DA_RUA.map(doTipo).find(Boolean) ?? rc.find(deFora) ?? rc[0] ?? portas[0];
   porta.props = { ...porta.props, entrada: true };
+  if (!deFora(porta)) paraParedeDeFora(p, porta);
   return porta;
+}
+
+/** Parede (baixo, cima, esquerda, direita) onde está um aparelho de uma divisão retangular (10 cm para dentro), ou null. */
+function paredeDe(d, e) {
+  const perto = (a, b) => Math.abs(a - b) <= 2;
+  if (perto(e.y_cm, d.y_cm + d.altura_cm - 10)) return "baixo";
+  if (perto(e.y_cm, d.y_cm + 10)) return "cima";
+  if (perto(e.x_cm, d.x_cm + 10)) return "esquerda";
+  if (perto(e.x_cm, d.x_cm + d.largura_cm - 10)) return "direita";
+  return null;
+}
+/** Outra divisão do mesmo piso encosta a esta parede de `d` (≥ 20 cm em comum)? */
+function encostada(p, d, lado) {
+  const comum = (a1, a2, b1, b2) => Math.min(a2, b2) - Math.max(a1, b1) >= 20;
+  return p.divisoes.some((o) => o !== d && (o.piso ?? 0) === (d.piso ?? 0) && (
+    lado === "baixo" ? Math.abs(o.y_cm - (d.y_cm + d.altura_cm)) <= 2 && comum(d.x_cm, d.x_cm + d.largura_cm, o.x_cm, o.x_cm + o.largura_cm)
+      : lado === "cima" ? Math.abs(o.y_cm + o.altura_cm - d.y_cm) <= 2 && comum(d.x_cm, d.x_cm + d.largura_cm, o.x_cm, o.x_cm + o.largura_cm)
+        : lado === "esquerda" ? Math.abs(o.x_cm + o.largura_cm - d.x_cm) <= 2 && comum(d.y_cm, d.y_cm + d.altura_cm, o.y_cm, o.y_cm + o.altura_cm)
+          : Math.abs(o.x_cm - (d.x_cm + d.largura_cm)) <= 2 && comum(d.y_cm, d.y_cm + d.altura_cm, o.y_cm, o.y_cm + o.altura_cm)));
+}
+/** A porta `e` está numa parede que dá para outra divisão (planta automática: divisões retangulares)? */
+function paredeInterior(p, e) {
+  const d = p.divisoes.find((x) => x.id === e.divisao);
+  const lado = d && !d.pontos ? paredeDe(d, e) : null;
+  return !!lado && encostada(p, d, lado);
+}
+/** Passa a porta (e o interruptor ao lado dela) para a 1.ª parede de fora da divisão; sem nenhuma, fica onde está. */
+function paraParedeDeFora(p, porta) {
+  const d = p.divisoes.find((x) => x.id === porta.divisao);
+  const de = d ? paredeDe(d, porta) : null;
+  const para = d && ["baixo", "cima", "esquerda", "direita"].find((l) => l !== de && !encostada(p, d, l));
+  if (!para) return;
+  const int = p.elementos.find((e) => e.tipo === "interruptor" && e.divisao === d.id && paredeDe(d, e) === de && Math.hypot(e.x_cm - porta.x_cm, e.y_cm - porta.y_cm) <= 80);
+  const dx = int ? int.x_cm - porta.x_cm : 0, dy = int ? int.y_cm - porta.y_cm : 0;
+  const ao = Math.round(Math.max(60, (["baixo", "cima"].includes(para) ? d.largura_cm : d.altura_cm) * 0.3));
+  const [x, y, rot] = para === "baixo" ? [d.x_cm + ao, d.y_cm + d.altura_cm - 10, 0] : para === "cima" ? [d.x_cm + ao, d.y_cm + 10, 0]
+    : para === "esquerda" ? [d.x_cm + 10, d.y_cm + ao, 90] : [d.x_cm + d.largura_cm - 10, d.y_cm + ao, 90];
+  Object.assign(porta, { x_cm: x, y_cm: y, rot });
+  if (!int) return;
+  // O interruptor ao lado (70 cm), ao longo da parede nova.
+  const passo = Math.hypot(dx, dy) || 70;
+  const sinal = (dx || dy) < 0 ? -1 : 1;
+  if (rot === 0) Object.assign(int, { x_cm: x + sinal * passo >= d.x_cm + 30 && x + sinal * passo <= d.x_cm + d.largura_cm - 30 ? x + sinal * passo : x - sinal * passo, y_cm: y, rot: 0 });
+  else Object.assign(int, { x_cm: x, y_cm: Math.min(d.y_cm + d.altura_cm - 30, y + passo), rot: 0 });
 }
 
 /**
@@ -619,7 +671,7 @@ const numeroId = (x) => Number(String(x.id).slice(1)) || 0;
 const novoId = (pre, lista) => `${pre}${Math.max(0, ...lista.map(numeroId)) + 1}`;
 const areaDe = (d) => d.largura_cm * d.altura_cm;
 /** "a"/"o" pelo nome (as máquinas e as divisões com nomes femininos acabam quase todas em -a, -em, -ão). */
-const feminino = (nome) => /(a|em|ão|kitnet)$/.test(semAcentos(nome).split(/[ /]/)[0]) || /^(kitnet|televis)/.test(semAcentos(nome));
+const feminino = (nome) => /(a|em|ão|kitnet|kitchenette)$/.test(semAcentos(nome).split(/[ /]/)[0]) || /^(kitnet|kitchenette|televis)/.test(semAcentos(nome));
 
 /**
  * Canto de cima à esquerda para uma divisão nova w × h no piso: encostada à direita ou por baixo de uma divisão

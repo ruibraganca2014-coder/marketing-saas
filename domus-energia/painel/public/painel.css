@@ -274,7 +274,8 @@ a.linha:hover { border-color: var(--musgo); }
 .linha-juntar input { flex: 1 1 180px; width: auto; }
 
 /* Tabelas (pagamentos, auditoria) */
-.tabela-rolar { overflow-x: auto; }
+/* position: relative — o texto só para leitores de ecrã (.so-leitor, absoluto) fica dentro do contentor e não alarga a página. */
+.tabela-rolar { overflow-x: auto; position: relative; }
 .tabela { width: 100%; border-collapse: collapse; background: var(--superficie); border-radius: 14px; overflow: hidden; }
 .tabela th, .tabela td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--borda); vertical-align: top; }
 .tabela thead th { font-size: .88rem; color: var(--texto-suave); background: color-mix(in srgb, var(--musgo-claro) 50%, var(--superficie)); }
@@ -371,6 +372,13 @@ a.linha:hover { border-color: var(--musgo); }
 #tabela-catalogo tr.inativo td { color: var(--texto-suave); }
 #tabela-catalogo tr.inativo td strong { color: var(--texto); }
 #tabela-catalogo .acoes { text-align: right; white-space: nowrap; }
+/* Ecrãs médios (1280 px com o menu): a tabela rola na horizontal e a coluna das ações fica sempre à vista, à direita.
+   overflow: clip (e não hidden) para a tabela não ser ela própria o contentor do "sticky". */
+@media (min-width: 701px) {
+  #tabela-catalogo { overflow: clip; }
+  #tabela-catalogo td.acoes, #tabela-catalogo thead th:last-child { position: sticky; right: 0; box-shadow: -1px 0 0 var(--borda); }
+  #tabela-catalogo td.acoes { background: var(--superficie); }
+}
 .celula-margem .linha-selos { gap: 4px 6px; }
 .margem-valor { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .margem-artigo { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding: 10px 14px; border-radius: 12px; background: var(--musgo-claro); }
@@ -590,3 +598,29 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .eletricista-externo select { width: auto; max-width: 100%; flex: 1 1 220px; min-width: 0; }
 .eletricista-externo p { margin: 0; }
 .eletricista-historico summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }
+
+/* ---------- CRM e tarefas (docs/CRM-TAREFAS.md; ecras/crm.js, ecras/tarefas.js) ---------- */
+.navegacao a .contagem-menu { margin-left: auto; min-width: 26px; padding: 2px 8px; border-radius: 999px; background: var(--areia-suave); color: var(--texto); font-size: .82rem; font-weight: 800; text-align: center; }
+.navegacao a .contagem-menu.atrasadas { background: var(--alarme-suave); color: var(--alarme-texto); }
+.navegacao a[aria-current="page"] .contagem-menu { background: var(--sobre-musgo); color: var(--musgo-texto); }
+.filtros-crm input[type="date"] { min-height: 44px; }
+.total-fase { font-weight: 700; margin: -4px 0 8px; }
+.pedidos-crm .linha { grid-template-columns: minmax(0, 1fr); }
+.pedido-crm { margin-top: 6px; }
+.registos-crm { margin-top: 14px; display: grid; gap: 10px; }
+.registos-crm h3 { margin: 0; }
+.registos .texto-registo { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fundir-crm, .lembretes-config { margin-top: 14px; }
+.fundir-crm summary, .lembretes-config summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 700; }
+.fundir-crm select { width: auto; flex: 1 1 220px; min-width: 0; }
+.quadro-tarefas { grid-auto-columns: minmax(240px, 1fr); }
+#funil-crm { grid-auto-columns: minmax(200px, 1fr); }
+.quadro-tarefas .coluna.largar { outline: 3px dashed var(--musgo); outline-offset: -3px; }
+.quadro-tarefas li[draggable] { cursor: grab; }
+.cartao-tarefa { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--superficie); border: 1px solid var(--borda); border-left: 5px solid var(--musgo); min-width: 0; overflow-wrap: anywhere; }
+.cartao-tarefa.atrasada { border-left-color: var(--alarme); }
+.cartao-tarefa.feita { opacity: .8; border-left-color: var(--texto-suave); }
+.cartao-tarefa .titulo-tarefa { font-weight: 800; color: var(--texto); display: inline-flex; align-items: center; min-height: 44px; }
+.mover-rotulo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mover-rotulo select { width: auto; flex: 1 1 120px; min-width: 0; }
+#lista-minhas .cartao-tarefa { border-radius: 14px; }

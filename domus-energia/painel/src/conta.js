@@ -161,7 +161,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null, crm = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -771,6 +771,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const mantidos = db.prepare('SELECT COUNT(*) AS n FROM orcamentos WHERE conta_id = ?').get(c.id).n - semObra.length;
     // … com as fotos do pedido saem as que o eletricista externo tirou na casa (docs/ELETRICISTAS.md).
     for (const id of semObra) { await fotos.apagarTodas(id); await aoApagarPedido(id); }
+    // CRM (docs/CRM-TAREFAS.md): as fichas de cliente desta conta, lidas antes de os pedidos saírem.
+    const fichasCrm = crm()?.clientesDaConta(c.id) ?? [];
     db.exec('BEGIN IMMEDIATE');
     try {
       // Auditoria: o histórico dos pedidos apagados/anonimizados e da conta sai (com os IPs e os detalhes); de cada
@@ -800,6 +802,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { estado: ESTADO_ARQUIVADO, pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
       }
+      // CRM: as notas e os contactos saem, as tarefas ficam só com um título neutro e a ficha é anonimizada.
+      crm()?.aoApagarConta(fichasCrm, semObra, c.id);
       db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`conta:${c.id}`);
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`conta:${c.id}`);
       db.prepare('DELETE FROM contas WHERE id = ?').run(c.id);

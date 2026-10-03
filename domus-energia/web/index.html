@@ -324,6 +324,18 @@
                 </select>
               </label>
               <label>Descreva o que precisa<textarea name="mensagem" maxlength="2000"></textarea></label>
+              <!-- Origem do contacto (web/origem.js): opcional; vai só a categoria escolhida. -->
+              <label>Como nos conheceu? (opcional)
+                <select name="conheceu">
+                  <option value="">Escolha…</option>
+                  <option value="google">Google</option>
+                  <option value="facebook_instagram">Facebook / Instagram</option>
+                  <option value="recomendacao">Recomendação de um amigo</option>
+                  <option value="eletricista_parceiro">Eletricista parceiro</option>
+                  <option value="carrinha_rua">Vi a carrinha / passei na rua</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </label>
               <!-- Campo-armadilha para robôs: as pessoas não o veem nem o preenchem. -->
               <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Website<input name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
               <button class="btn" type="submit">Enviar pedido</button>

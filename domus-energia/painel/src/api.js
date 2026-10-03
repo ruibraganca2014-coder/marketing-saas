@@ -11,7 +11,7 @@ import {
   RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro, diagnostico as validarDiagnostico,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
-import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, ESTADOS_PAGAMENTO, PAPEIS, CATEGORIAS, transacao } from './db.js';
+import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, ESTADOS_PAGAMENTO, PAPEIS, CATEGORIAS, ORIGENS_CONTACTO, MOTIVOS_PERDA, transacao } from './db.js';
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
@@ -26,6 +26,8 @@ import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_ELETRICISTA } from './acesso-rapido.js';
 import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
+import { criarCrm, ENTRADAS } from './crm.js';
+import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -63,12 +65,19 @@ const CONFIG_ORCAMENTO = {
   ensaio_terra_ohm: { min: 0, max: 100_000, rotulo: 'a resistência de terra máxima (Ω)' },
   // Eletricistas externos (migração 27; docs/ELETRICISTAS.md): % da mão de obra sem IVA que recebem, por omissão.
   eletricista_pct: { min: 0, max: 100, rotulo: 'a percentagem da mão de obra dos eletricistas externos (%)' },
+  // Prazos dos lembretes automáticos do CRM (migração 33; docs/CRM-TAREFAS.md; tarefas.js PRAZOS_LEMBRETES): dias
+  // inteiros; os três da proposta têm de ser crescentes.
+  lembrete_novo_dias_uteis: { min: 1, max: 10, inteiro: true, rotulo: 'o prazo do lembrete do pedido novo (dias úteis)' },
+  lembrete_visita_dias: { min: 1, max: 30, inteiro: true, rotulo: 'o prazo do lembrete da proposta por enviar (dias depois da visita)' },
+  lembrete_proposta_1_dias: { min: 1, max: 30, inteiro: true, rotulo: 'o prazo do primeiro lembrete da proposta (dias)' },
+  lembrete_proposta_2_dias: { min: 2, max: 60, inteiro: true, rotulo: 'o prazo do segundo lembrete da proposta (dias)' },
+  lembrete_proposta_3_dias: { min: 3, max: 90, inteiro: true, rotulo: 'o prazo do lembrete "Perdido?" (dias)' },
 };
 const CHAVES_ENSAIOS = ['continuidade_pe', 'isolamento', 'terra', 'diferencial'];
 // Base da deslocação: um dos 308 concelhos (nome exato de painel/public/vendor/concelhos.js).
 const NOMES_CONCELHOS = new Set(CONCELHOS.map((c) => c[0]));
 // O que o /api/catalogo (público) mostra da configuração: só o que o simulador usa no preço.
-const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && k !== 'eletricista_pct' && !k.startsWith('ensaio_')), 'deslocacao_base'];
+const CONFIG_PUBLICA = [...Object.keys(CONFIG_ORCAMENTO).filter((k) => k !== 'iva_pct' && k !== 'cartao_max_iva' && k !== 'eletricista_pct' && !k.startsWith('ensaio_') && !k.startsWith('lembrete_')), 'deslocacao_base'];
 
 /**
  * Tabela de rotas: método, caminho (":x" = parâmetro), papéis. "publico" =
@@ -141,6 +150,22 @@ export const ROTAS = [
   ['GET', 'pagamentos-eletricistas', ['ceo'], 'pagamentosEletricistas'],
   ['POST', 'trabalhos-eletricista/:id/pago', ['ceo'], 'pagoEletricista'],
   ['GET', 'trabalhos-eletricista/:id/fatura', ['ceo'], 'faturaEletricista'],
+  // CRM e tarefas (docs/CRM-TAREFAS.md; crm.js, tarefas.js): o técnico só vê os clientes das suas obras; as tarefas de
+  // todos só o CEO (o comercial e o técnico: as suas).
+  ['GET', 'crm/pedidos', ['ceo', 'comercial'], 'crmPedidos'],
+  ['POST', 'crm/pedidos/:id', ['ceo', 'comercial'], 'crmAtualizarPedido'],
+  ['POST', 'crm/pedidos/:id/separar', ['ceo'], 'crmSeparar'],
+  ['GET', 'crm/clientes', TODOS, 'crmClientes'],
+  ['GET', 'crm/clientes/:id', TODOS, 'crmCliente'],
+  ['POST', 'crm/clientes/:id', ['ceo', 'comercial'], 'crmAtualizarCliente'],
+  ['POST', 'crm/clientes/:id/fundir', ['ceo'], 'crmFundir'],
+  ['POST', 'crm/clientes/:id/registos', TODOS, 'crmRegisto'],
+  ['GET', 'tarefas', TODOS, 'tarefas'],
+  ['POST', 'tarefas', TODOS, 'criarTarefa'],
+  ['GET', 'tarefas/calendario', TODOS, 'calendarioTarefas'],
+  ['GET', 'tarefas/contagem', TODOS, 'contagemTarefas'],
+  ['POST', 'tarefas/:id', TODOS, 'atualizarTarefa'],
+  ['POST', 'tarefas/:id/apagar', TODOS, 'apagarTarefa'],
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -229,8 +254,9 @@ export function criarApi(ctx) {
   // Pagamentos do pedido (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
   let pagPed = null;
   let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
+  let crm = null;            // idem (CRM: a conta apagada leva as notas e os contactos da ficha, RGPD)
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
-    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null) });
+    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
@@ -244,6 +270,9 @@ export function criarApi(ctx) {
   // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed,
     concluirObra: (o, u, ip) => concluirObra(o, u, ip) });
+  // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
+  crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed });
+  const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
   const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
@@ -305,6 +334,9 @@ export function criarApi(ctx) {
       // Devoluções por transferência (pagamentos por Multibanco): estado e valor; o IBAN só mascarado.
       devolucoes: pagPed.devolucoesDoPedido(o.id),
       anonimizado: o.anonimizado ?? null,
+      // CRM (migração 32): a ficha do cliente, a fase do negócio, o responsável, a origem do contacto e o tipo do motivo de perda.
+      crm_cliente_id: o.crm_cliente_id ?? null, fase: crm.faseDe(o), responsavel_id: o.responsavel_id ?? null,
+      origem_contacto: o.origem_contacto ?? null, origem_entrada: o.origem_entrada ?? null, motivo_perda_tipo: o.motivo_perda_tipo ?? null,
     };
     if (completo) {
       // As três partes sugeridas pela simulação (catálogo do servidor) para o CEO abrir a proposta, e o stock do pedido.
@@ -455,7 +487,7 @@ export function criarApi(ctx) {
   }
 
   // ------------------------------------------------------------ handlers
-  const h = {};
+  const h = { ...crm.h, ...tarefas.h };
 
   h.entrar = async ({ req, res, ip }) => {
     const v = await lerJson(req, ['email', 'password']);
@@ -593,6 +625,9 @@ export function criarApi(ctx) {
         : db.prepare('SELECT * FROM orcamentos WHERE cliente = ? ORDER BY id LIMIT 1').get(c);
       r.orcamento_origem = o ? { id: o.id, criado: o.criado, servico: o.servico, estado: o.estado, valor_proposta: deCent(o.valor_proposta_cent) } : null;
     }
+    // A ficha da pessoa no CRM (docs/CRM-TAREFAS.md), quando há uma ligada a esta casa e o utilizador a pode abrir.
+    crm.ligarPedidos();
+    r.crm_cliente_id = crm.fichaAberta(u, db.prepare('SELECT crm_cliente_id AS k FROM orcamentos WHERE cliente = ? AND crm_cliente_id IS NOT NULL ORDER BY id LIMIT 1').get(c)?.k);
     r.pedidos = db.prepare('SELECT * FROM pedidos_admin WHERE cliente = ? ORDER BY criado DESC LIMIT 20').all(c)
       .filter((p) => u.papel === 'ceo' || p.por_id === u.id || p.estado === 'pendente')
       .map((p) => { const f = formatarPedido(p); if (u.papel !== 'ceo' && p.por_id !== u.id) delete f.resultado_disponivel; return f; });
@@ -705,6 +740,7 @@ export function criarApi(ctx) {
   // ---- orçamentos
   // Os arquivados (RGPD) não vêm por omissão: só com ?estado=arquivado, e só para o CEO.
   h.orcamentos = ({ res, u, url }) => {
+    crm.ligarPedidos();
     const estado = url.searchParams.get('estado') || null;
     if (estado === ESTADO_ARQUIVADO) { if (u.papel !== 'ceo') throw new ErroApi(403, 'Só o CEO vê os pedidos arquivados.'); }
     else if (estado !== null) opcao(estado, 'estado', ESTADOS_ORCAMENTO);
@@ -727,6 +763,7 @@ export function criarApi(ctx) {
   };
 
   h.orcamento = ({ res, u, params }) => {
+    crm.ligarPedidos();
     const o = obterOrcamento(params.id);
     if (o.estado === ESTADO_ARQUIVADO && u.papel !== 'ceo') throw new ErroApi(404, 'Pedido de orçamento não encontrado.');
     responder(res, 200, formatarOrcamento(o, true));
@@ -798,7 +835,7 @@ export function criarApi(ctx) {
 
   h.atualizarOrcamento = async ({ req, res, u, params, ip }) => {
     const o = naoArquivado(obterOrcamento(params.id));
-    const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'proposta_texto', 'motivo_perda',
+    const v = await lerJson(req, ['estado', 'notas', 'data_visita', 'valor_proposta', 'proposta_texto', 'motivo_perda', 'motivo_perda_tipo',
       'nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', ...PARTES_PROPOSTA]);
     const mud = camposContacto(v, false);
     if (v.estado !== undefined) mud.estado = opcao(v.estado, 'estado', ESTADOS_ORCAMENTO);
@@ -808,6 +845,8 @@ export function criarApi(ctx) {
     // Texto da proposta que o cliente vê na conta (com o valor), a partir do estado "proposta_enviada".
     if (v.proposta_texto !== undefined) mud.proposta_texto = texto(v.proposta_texto, 'o texto da proposta', { max: 4000, multilinha: true });
     if (v.motivo_perda !== undefined) mud.motivo_perda = texto(v.motivo_perda, 'o motivo da perda', { max: 500, multilinha: true });
+    // CRM: o motivo de perda escolhido (preço, prazo, sem resposta, outro); o texto continua a ser o pormenor.
+    if (v.motivo_perda_tipo !== undefined) mud.motivo_perda_tipo = opcao(v.motivo_perda_tipo, 'motivo da perda', MOTIVOS_PERDA, { obrigatorio: false });
     // Proposta em três partes (sem IVA; decisão 15): as três ou nenhuma. Com elas o valor da proposta é a soma; mudar só
     // o valor (como antes) volta a uma proposta de um só valor.
     const dadas = PARTES_PROPOSTA.filter((k) => v[k] !== undefined);
@@ -823,7 +862,8 @@ export function criarApi(ctx) {
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     const final = { ...o, ...mud };
     if (!final.telefone && !final.email) falha('Indique um telefone ou um email.');
-    if (final.estado === 'perdido' && !final.motivo_perda) falha('Indique o motivo da perda.');
+    if (final.estado === 'perdido' && !final.motivo_perda && !final.motivo_perda_tipo) falha('Indique o motivo da perda.');
+    if (final.estado === 'perdido' && final.motivo_perda_tipo === 'outro' && !final.motivo_perda) falha('Com o motivo "Outro", escreva qual foi.');
     if (final.estado === 'visita_marcada' && !final.data_visita) falha('Indique a data da visita.');
     if (o.cliente && mud.estado && mud.estado !== 'aceite') falha('Este pedido já foi convertido em cliente e obra.');
     const cols = Object.keys(mud);
@@ -1580,6 +1620,12 @@ export function criarApi(ctx) {
     const mud = {};
     for (const [k, { rotulo, ...lim }] of Object.entries(CONFIG_ORCAMENTO)) {
       if (v[k] !== undefined) mud[k] = numero(v[k], rotulo, { ...lim, nulo: false });
+      if (lim.inteiro && mud[k] !== undefined && !Number.isInteger(mud[k])) falha(`${rotulo[0].toUpperCase()}${rotulo.slice(1)}: tem de ser um número inteiro.`);
+    }
+    // Lembretes da proposta (CRM): cada etapa depois da anterior, contando com os valores que não mudam.
+    if (Object.keys(mud).some((k) => k.startsWith('lembrete_proposta_'))) {
+      const p = { ...PRAZOS_LEMBRETES, ...lerConfigOrcamento(), ...mud };
+      if (!(p.lembrete_proposta_1_dias < p.lembrete_proposta_2_dias && p.lembrete_proposta_2_dias < p.lembrete_proposta_3_dias)) falha('Os três prazos da proposta têm de ser crescentes (ex.: 3, 7 e 14 dias).');
     }
     if (v.deslocacao_base !== undefined) {
       if (typeof v.deslocacao_base !== 'string' || !NOMES_CONCELHOS.has(v.deslocacao_base)) falha('A base da deslocação tem de ser um dos 308 concelhos (nome da lista).');
@@ -1716,7 +1762,8 @@ export function criarApi(ctx) {
       porIpOrcamento.registar(ip);
       global.registar('*');
     }
-    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao', 'compra'], LIMITE_ORCAMENTO);
+    const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao', 'compra',
+      'origem_contacto', 'origem_entrada'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
@@ -1743,16 +1790,23 @@ export function criarApi(ctx) {
     if (compra !== 'basico' && !(conta && sim)) falha('Só se compra o relatório com a simulação.');
     let simObj = null;
     if (sim) { try { simObj = JSON.parse(sim); } catch { simObj = null; } }
+    // Origem do contacto (CRM): só a categoria do canal (google, facebook, instagram, direto, outro), calculada no
+    // navegador a partir do document.referrer, e a página de anúncio de entrada (`?servico=`). Nunca o endereço de onde
+    // veio. Um valor desconhecido é ignorado (o pedido nunca falha por isto).
+    const origem = {
+      contacto: ORIGENS_CONTACTO.includes(v.origem_contacto) ? v.origem_contacto : null,
+      entrada: ENTRADAS.includes(v.origem_entrada) ? v.origem_entrada : null,
+    };
     // Avaria rápida = pagar o diagnóstico e a deslocação ao enviar: fica "a aguardar pagamento" (não aparece no painel)
     // e só passa a orçamento quando o pagamento for confirmado. Fora da área servida: 409 (fale connosco).
     if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria') {
       const local = c.localidade ?? simObj?.casa?.localidade ?? null;
-      const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip }, localidade: local });
+      const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip, origem }, localidade: local });
       registo.info(`avaria a aguardar pagamento (${pagamento.ref})`);
       return responder(res, 202, { ok: true, pagamento });
     }
     // O resto é grátis: passa logo a orçamento ("novo"), com o relatório básico na conta.
-    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip });
+    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem });
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
     const r = { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX };
     if (conta) r.pedido = id;
@@ -1769,11 +1823,13 @@ export function criarApi(ctx) {
   }
 
   /** Grava um pedido do site (formulário ou simulador); também quando o pagamento da avaria é confirmado. */
-  function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null }) {
+  function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null, origem = null }) {
     const agora = agoraIso();
-    const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id)
-      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
-      c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli ?? null, sim ?? null, contaId).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id,
+      origem_contacto, origem_entrada)
+      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
+      c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli ?? null, sim ?? null, contaId,
+      ORIGENS_CONTACTO.includes(origem?.contacto) ? origem.contacto : null, ENTRADAS.includes(origem?.entrada) ? origem.entrada : null).lastInsertRowid);
     if (contaId) contas.aposOrcamento(contaId, c);
     auditar(contaId ? { id: null, email: `conta:${contaId}` } : null, 'orcamento_recebido', `orcamento:${id}`,
       { origem: 'site', simulacao: Boolean(sim), conta: Boolean(contaId), ...(pagamento ? { pagamento, visita: comVisita } : {}) }, ip);
@@ -1862,6 +1918,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas };
 }
 

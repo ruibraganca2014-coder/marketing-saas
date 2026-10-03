@@ -72,6 +72,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   api.contas.iniciar();
   api.pagamentosPedido.iniciar();
   if (config.eletricistas) api.eletricistas.iniciar();
+  api.tarefas.iniciar();   // lembretes automáticos do CRM (docs/CRM-TAREFAS.md)
 
   return {
     servidor, db, auth, dados, alertas, pedidos, api,
@@ -82,6 +83,7 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
       api.contas.parar();
       api.pagamentosPedido.parar();
       api.eletricistas.parar();
+      api.tarefas.parar();
       auth.fechar();
       await alertas.fechar();
       await new Promise((r) => { servidor.close(() => r()); servidor.closeAllConnections?.(); });

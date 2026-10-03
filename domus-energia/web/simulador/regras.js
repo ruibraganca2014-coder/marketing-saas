@@ -88,7 +88,7 @@ export const EXTRAS_CASA = {
   garagem: "Garagem",
   arrecadacao: "Arrecadação",
   varanda: "Varanda / terraço",
-  kitnet: "Kitnet",
+  kitnet: "Kitchenette",   // a chave `kitnet` fica (estados guardados); o nome mostrado mudou (QA final)
   entrada: "Entrada / hall",
   corredor: "Corredor",
   escritorio: "Escritório",
@@ -688,7 +688,10 @@ const potencia = (p) => {
 /** A máquina de um elemento da planta como a contagem a vê ({modelo, potencia_w}: a potência escrita ou a típica do modelo). */
 export const maquinaDaPlanta = (props) => ({ modelo: MODELOS[props?.modelo] ? props.modelo : "outro", potencia_w: potencia(props ?? {}) });
 
-/** Linhas do passo "Divisões" a partir da contagem (porta da rua → sensor sugerido); "Fora das divisões" não é uma divisão. */
+/**
+ * Linhas do passo "Divisões" a partir da contagem; "Fora das divisões" não é uma divisão. QA final (decisão do dono): a
+ * porta da rua já não acrescenta um sensor ao preço base — o sensor dela é sugerido no pacote Segurança (melhorias.js).
+ */
 export function divisoesDaContagem(contagem) {
   return contagem.filter((c) => !c.fora).map((c) => ({
     nome: c.nome,
@@ -697,7 +700,7 @@ export function divisoesDaContagem(contagem) {
     interruptores: [...c.interruptores],
     estores: c.estores,
     estores_sem_motor: c.estores_sem_motor,
-    sensores_porta: c.sensores_porta + c.portas_entrada_sem_sensor,
+    sensores_porta: c.sensores_porta,
     sensores_movimento: c.sensores_movimento,
     luzes_regulaveis: c.luzes_regulaveis,
     tomadas_inteligentes: c.tomadas_inteligentes ?? 0,   // "Tomada inteligente?" na janela da tomada

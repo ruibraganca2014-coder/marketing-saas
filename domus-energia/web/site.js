@@ -1,3 +1,5 @@
+import { origemContacto } from "./origem.js";
+
 const cfg = window.DOMUS;
 
 // Contactos a partir do config.js. Números de exemplo (só zeros, ex. 351900000000) ficam escondidos,
@@ -76,7 +78,8 @@ function corpoOrcamento(dados) {
   const t = (v) => String(v ?? "").trim();
   const corpo = { nome: t(dados.nome), servico: t(dados.servico) || "Outro" };
   for (const k of ["telefone", "email", "localidade", "mensagem", "website"]) if (t(dados[k])) corpo[k] = t(dados[k]);
-  return corpo;
+  // Só a categoria de onde a pessoa veio (web/origem.js): a resposta a "Como nos conheceu?", senão o canal; nunca o endereço.
+  return { ...corpo, ...origemContacto(t(dados.conheceu)) };
 }
 
 form?.addEventListener("submit", async (e) => {   // as páginas de anúncio não têm o formulário

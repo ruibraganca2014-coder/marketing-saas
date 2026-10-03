@@ -36,12 +36,12 @@ export default function pagamentos(el, ctx = {}) {
   const ctrl = new AbortController();
   let linhas = [];
   const fMes = h("select", { name: "mes", "aria-label": "Mês da tabela" });
-  const exportar = h("button", { class: "btn sec", type: "button", id: "exportar-csv", text: "Exportar CSV", disabled: true });
+  const exportar = h("button", { class: "btn sec", type: "button", id: "exportar-csv", text: "Exportar CSV", "aria-label": "Exportar CSV dos pagamentos dos planos", disabled: true });
   const zonaTotais = h("section", { class: "cartao", "aria-labelledby": "totais-titulo" }, h("h2", { id: "totais-titulo", text: "Totais por mês" }), carregando());
   const zonaTabela = h("div", { class: "tabela-rolar" });
   // Pagamentos dos pedidos (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md), com base, IVA e total e o pedido
   // (também os anonimizados pelo RGPD). CSV do servidor: data;referencia;descricao;base;iva;total;estado;pedido.
-  const exportarPed = h("button", { class: "btn sec pequeno", type: "button", id: "exportar-csv-pedidos", text: "Exportar CSV", disabled: true });
+  const exportarPed = h("button", { class: "btn sec pequeno", type: "button", id: "exportar-csv-pedidos", text: "Exportar CSV", "aria-label": "Exportar CSV dos pagamentos dos pedidos", disabled: true });
   const zonaPed = h("div", { class: "tabela-rolar" }, carregando());
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Pagamentos" }), exportar),

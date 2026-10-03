@@ -1453,7 +1453,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
     const alvo = ativo?.tipo ?? tipo ?? t?.tipo ?? null;
     const pode = Boolean(tipo) && !ativo && !repetido && Boolean(c);
-    const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c) : [];
+    // Na bolsa, os candidatos são quem a vê agora (o mesmo filtro da área do eletricista: quem largou ou deixou caducar já não a vê).
+    const naBolsa = ativo?.estado === 'na_bolsa';
+    const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c).filter((x) => !naBolsa || visivelNaBolsa(ativo, x, o)) : [];
     const doCliente = t && ['visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.reclamacao_de === 'cliente' && !t.reclamacao_decisao;
     return {
       pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
@@ -1482,7 +1484,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         diagnostico: t.tipo === 'avaria' ? Boolean(diagnosticoDoPedido(o)?.conclusao) : null,
         falta: e && EDITAVEIS.includes(t.estado) ? faltaParaConcluir(t, o) : [],
       } : null,
-      candidatos: !pode ? [] : candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
+      candidatos: !pode && !naBolsa ? [] : candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
       historico: db.prepare(`SELECT v.evento, v.quando, v.por, e.nome FROM trabalhos_eletricista_eventos v JOIN trabalhos_eletricista t ON t.id = v.trabalho_id
         LEFT JOIN eletricistas e ON e.id = v.eletricista_id WHERE t.orcamento_id = ? ORDER BY v.id DESC LIMIT 50`).all(o.id)
         .map((x) => ({ evento: x.evento, quando: x.quando, eletricista: x.nome ?? null, por: x.por })),

@@ -619,8 +619,11 @@ function blocoBasico(p) {
 
 function desenharBasico(r) {
   const out = [];
-  // Como no Orçamento do simulador: o intervalo sem a deslocação e "+ deslocação X €" (fora da área: sem deslocação).
-  if (r.intervalo) out.push(el("p", "valor num", `${r.intervalo.min === r.intervalo.max ? formatarEuroRedondo(r.intervalo.min) : `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`}${r.deslocacao != null ? ` + deslocação ${euro(r.deslocacao)}${idaEVolta(r)}` : ""}`),
+  // Como no Orçamento do simulador: o intervalo sem a deslocação e "+ deslocação X €" (fora da área: sem deslocação;
+  // sem concelho reconhecido: "+ deslocação a confirmar"; 0 €: "sem custo de deslocação").
+  const desl = r.deslocacao == null ? "" : r.deslocacao_a_confirmar ? " + deslocação a confirmar"
+    : r.deslocacao > 0 ? ` + deslocação ${euro(r.deslocacao)}${idaEVolta(r)}` : " (sem custo de deslocação)";
+  if (r.intervalo) out.push(el("p", "valor num", `${r.intervalo.min === r.intervalo.max ? formatarEuroRedondo(r.intervalo.min) : `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`}${desl}`),
     el("p", "ajuda", `${r.deslocacao != null ? "Com IVA." : "Com IVA, sem deslocação."}${r.dias ? ` ${textoDias(r.dias)}.` : ""}${r.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(r.obra_minima)}.` : ""}`));
   const a = r.acoes ?? {};
   const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]

@@ -418,6 +418,9 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.equal(posto.estado, 200, posto.texto);
     assert.deepEqual([posto.json.trabalho.estado, posto.json.trabalho.modo, posto.json.trabalho.eletricista, posto.json.pode], ['na_bolsa', 'bolsa', null, false]);
     assert.equal((await atribuicao(id, { acao: 'bolsa' })).estado, 409, 'já está na bolsa');
+    // O painel diz quem vê o trabalho na bolsa: os aprovados do concelho (QA: dizia "Visível para 0: ninguém").
+    const quem = posto.json.candidatos.map((x) => x.id);
+    assert.ok(quem.includes(sintra.id) && !quem.includes(almada.id), JSON.stringify(quem));
     const tid = posto.json.trabalho.id;
     assert.deepEqual(await bolsa(almada), [], 'fora dos concelhos: não vê');
     assert.equal((await area(almada, 'GET', `bolsa/${tid}`)).estado, 404);
@@ -587,6 +590,8 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.equal((await area(a, 'GET', `trabalhos/${tid}`)).estado, 404);
     assert.deepEqual(await bolsa(a), []);
     assert.deepEqual((await bolsa(b)).map((x) => x.id), [tid]);
+    const veem = (await atribuicao(id)).json.candidatos.map((x) => x.id);
+    assert.ok(veem.includes(b.id) && !veem.includes(a.id), 'no painel, quem largou já não conta como quem vê a bolsa');
     assert.deepEqual(eventos(tid).at(-1), { evento: 'largou', eletricista_id: a.id });
     assert.equal(p.app.db.prepare('SELECT por_agendar FROM obras WHERE orcamento_id = ?').get(id).por_agendar, 1, 'a obra volta a "por agendar"');
     assert.ok(p.emails.some((m) => m.para === 'cliente.obra@exemplo.pt' && /desmarcada/.test(m.texto)));

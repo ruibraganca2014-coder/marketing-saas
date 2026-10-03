@@ -72,6 +72,23 @@ const MATRIZ = [
   ['GET', 'pagamentos-eletricistas', [C]],
   ['POST', 'trabalhos-eletricista/999/pago', [C], {}],
   ['GET', 'trabalhos-eletricista/999/fatura', [C]],
+  // CRM e tarefas (docs/CRM-TAREFAS.md): o técnico entra, mas só vê os clientes das suas obras (404 nos outros). Nas
+  // tarefas entram todos, mas só o CEO vê e atribui as de todos: o comercial e o técnico só as suas (404 nas outras;
+  // crm-tarefas.test.js). Separar um pedido da ficha: só o CEO.
+  ['GET', 'crm/pedidos', [C, M]],
+  ['POST', 'crm/pedidos/999', [C, M], {}],
+  ['POST', 'crm/pedidos/999/separar', [C], {}],
+  ['GET', 'crm/clientes', TODOS],
+  ['GET', 'crm/clientes/999', TODOS],
+  ['POST', 'crm/clientes/999', [C, M], {}],
+  ['POST', 'crm/clientes/999/fundir', [C], {}],
+  ['POST', 'crm/clientes/999/registos', TODOS, {}],
+  ['GET', 'tarefas', TODOS],
+  ['POST', 'tarefas', TODOS, {}],
+  ['GET', 'tarefas/calendario', TODOS],
+  ['GET', 'tarefas/contagem', TODOS],
+  ['POST', 'tarefas/999', TODOS, {}],
+  ['POST', 'tarefas/999/apagar', TODOS, {}],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 

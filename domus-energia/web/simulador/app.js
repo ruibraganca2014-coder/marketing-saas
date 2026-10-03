@@ -16,7 +16,7 @@ import {
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
-  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoDias,
+  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoIntervaloTrabalhos, textoDias,
 } from "./preco.js";
 import {
   SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, soReparacoes, precisaEscolher, temAcao,
@@ -30,7 +30,7 @@ import {
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
-  divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO,
+  divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes,
 } from "./estado.js";
 import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
@@ -47,6 +47,7 @@ import {
 } from "./fotos.js";
 import { criarBlocoConta, pedirConta, urlPainelApi, credenciais, faixaDemonstracao } from "../conta-comum.js";
 import { aplicarEntrada } from "./entrada.js";
+import { origemContacto } from "../origem.js";
 import { ehTelemovel, abrirFotoRemota } from "./fotos-remotas.js";
 
 const cfg = window.DOMUS ?? {};
@@ -131,7 +132,7 @@ let configOrc = null;
 let aEnviar = false;
 let ultimoPreco = null;
 let enviado = false;
-let dicaPlanta = "";   // "Pusemos a placa na Kitnet — arraste se for noutro sítio." (até à próxima mudança na planta)
+let dicaPlanta = "";   // "Pusemos a placa na Kitchenette — arraste se for noutro sítio." (até à próxima mudança na planta)
 let plantaAutoJson = null;   // a planta que desenhámos, como está no editor (para "Anular" até ela voltar a ser a nossa)
 
 const editor = criarEditor($("editor"), {
@@ -271,7 +272,12 @@ function desenharProgresso() {
       b.setAttribute("aria-label", `Passo ${k + 1}: ${nome}${extra}`);
       // Para lá do Início só com o caso (e, na primeira vez, um serviço) escolhido; para lá de "Trocar e reparar" só
       // com o que fazer a cada aparelho respondido (bloquearTrocar). As Divisões não bloqueiam (é só contar).
-      b.addEventListener("click", () => { if (podeIrPara(i)) irPara(i); });
+      // QA final: sair de "A casa" para a frente pela barra passa pela mesma pergunta do Seguinte (confirmarCasa).
+      b.addEventListener("click", () => {
+        if (!podeIrPara(i)) return;
+        if (estado.passo === P.casa && ordemPasso(i) > ordemPasso(P.casa) && confirmarCasa(i)) return;
+        irPara(i);
+      });
       li.append(b);
     } else {
       // Sem botão (o atual, os que faltam e os que não precisa): o nome acessível vai num texto só para leitores de ecrã
@@ -298,7 +304,8 @@ function desenharProgresso() {
 /**
  * Fase 3 da auditoria — estimativa provisória por baixo da barra: a partir do passo a seguir aos Equipamentos (no "Já
  * tenho a planta" desde "Trocar e reparar"), "Estimativa: X–Y € · afina nos passos seguintes", com o estado de agora
- * (a planta automática se ainda não a desenhou: plantaParaContar) e sem deslocação, como o Orçamento; às dezenas.
+ * (a planta automática se ainda não a desenhou: plantaParaContar) e sem deslocação, com os mesmos números do Orçamento
+ * (QA final: um só arredondamento, a 5 €, em preco.js).
  * Escondida no Início, em "A casa" e nos Equipamentos (ainda não há dados), na avaria mostra o diagnóstico. Não redesenha nada.
  */
 function estimativaProvisoria() {
@@ -309,8 +316,7 @@ function estimativaProvisoria() {
   if (!pedidos.length) return null;
   const p = comObraMinima(calcularPreco(pedidos, catalogo, configOrc, { valor_iva: 0 }, aceites.reduce((t, m) => t + (m.margem ?? 0), 0)));
   if (p.min === null) return null;
-  const dez = (x) => Math.round(x / 10) * 10;
-  return { min: dez(p.min), max: Math.max(dez(p.min), dez(p.max)) };
+  return { min: p.trabalhos_min, max: p.trabalhos_max };
 }
 function desenharEstimativaProvisoria() {
   const e = $("sim-estimativa");
@@ -726,13 +732,14 @@ function bloquearCasa() {
  * que falta preencher; com tudo preenchido, pergunta se a planta ao lado está parecida com a casa — só o "Sim,
  * continuar" avança. A resposta vale enquanto as divisões não mudarem (mudar a casa ou a planta volta a perguntar).
  */
-let plantaConfirmada = null;   // as divisões (JSON) a que o cliente disse "Sim, continuar"
+// QA final: a resposta fica no estado (`estado.plantaConfirmada`, gravada): recarregar a página não volta a perguntar
+// enquanto as divisões não mudarem. `destino`: o passo a que se ia (o Seguinte ou um passo da barra).
 let janelaCasa = null;
-const assinaturaPlanta = () => JSON.stringify(estado.planta?.divisoes ?? []);
-function confirmarCasa() {
+const assinaturaPlanta = () => assinaturaDivisoes(estado.planta);
+function confirmarCasa(destino = null) {
   if (codigoCliente) return false;
   const falta = casaPorEscolher();
-  if (!falta && plantaConfirmada === assinaturaPlanta()) return false;
+  if (!falta && estado.plantaConfirmada === assinaturaPlanta()) return false;
   const dlg = janelaCasa ?? (() => {
     const j = el("dialog", "editor-dialogo editor-mais janela-casa");
     j.id = "casa-janela";
@@ -776,7 +783,7 @@ function confirmarCasa() {
     corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório e o orçamento. Confirme:"), passos);
     bs.replaceChildren(
       botao("btn sec", "Ainda não, vou ajustar", "casa-janela-ajustar", () => focar("titulo-1")),
-      botao("btn", "Sim, continuar", "casa-janela-sim", () => { plantaConfirmada = assinaturaPlanta(); irPara(passoAo(estado.passo, 1)); }),
+      botao("btn", "Sim, continuar", "casa-janela-sim", () => { estado.plantaConfirmada = assinaturaPlanta(); irPara(destino ?? passoAo(estado.passo, 1)); }),
     );
   }
   dlg.showModal();
@@ -1121,6 +1128,7 @@ function mudarPisoCasa(p) {
   if (p === pisoCasa) return;
   pisoCasa = p;
   sincronizarCasa();
+  editor.mudarPiso(p, { anunciar: false });   // QA final: a planta ao lado mostra o mesmo piso
 }
 
 $("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value) ?? POTENCIA_OMISSAO_KVA; agendarGravacao(); });
@@ -1328,6 +1336,7 @@ function mudarPisoQuer(p) {
   if (p === pisoQuer) return;
   pisoQuer = p;
   desenharQuer();
+  editor.mudarPiso(p, { anunciar: false });   // QA final: a planta ao lado mostra o mesmo piso
 }
 
 /** Quantidade (− n +) de uma máquina marcada em "O que quer", no piso à vista; escondido se não está marcada nele. */
@@ -1459,7 +1468,7 @@ function sincAtual(f = fasePlanta()) {
  * Planta em que o cliente mexeu (decisão do dono): a casa ou as máquinas mudaram → acrescenta ou tira só essa divisão
  * ou essa máquina (casa.js acertarPlantaMexida); o resto fica como o cliente o deixou. Estados sem `plantaSinc`: se
  * nada mudou desde a planta desenhada, passa a ser o que ela tem; senão conta o que a planta já tem de cada coisa (só
- * acrescenta o que falta). A dica ("Pusemos a placa na Kitnet — arraste…") aparece na cabeça da planta.
+ * acrescenta o que falta). A dica ("Pusemos a placa na Kitchenette — arraste…") aparece na cabeça da planta.
  */
 function acertarMexida() {
   if (!plantaDaFaseTemAlgo()) return false;
@@ -1567,7 +1576,7 @@ function atualizarPlanta() {
 const plantaMexida = () => !estado.plantaAuto && plantaTemConteudo(estado.planta) && plantaDaFaseTemAlgo();
 
 /**
- * Cabeça da planta: a dica da última máquina posta fora da divisão certa ("Pusemos a placa na Kitnet — arraste se for
+ * Cabeça da planta: a dica da última máquina posta fora da divisão certa ("Pusemos a placa na Kitchenette — arraste se for
  * noutro sítio."). Decisão do dono: saiu o aviso "Mudou a casa ou as máquinas…"; "Refazer planta" fica no "⋯" (com
  * confirmação) sempre que a planta foi mexida.
  */
@@ -3952,6 +3961,7 @@ function aoMudarConta(eu) {
   preencherDoPerfil();
   $("contacto-email").readOnly = true;
   $("contacto-email-ajuda").textContent = c ? "O da sua conta." : "Fica o da sua conta.";
+  $("enviar-consentimento").hidden = !c;   // QA final: sem sessão, a aceitação dos Termos já está no bloco "Criar conta" (uma só vez)
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharEnviar();
   const primeira = !contaVista;
   contaVista = true;
@@ -4079,8 +4089,20 @@ function desenharDeslocacao() {
     // A avaria paga-se ao enviar: o diagnóstico e a deslocação (o servidor confirma o valor).
     if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(preco.total)} (descontado na reparação)`));
   }
-  else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total com deslocação"}: ${textoIntervalo(preco)}`));
+  else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total"}: ${textoComDeslocacao(preco)}`));
   caixa.hidden = false;
+}
+/**
+ * QA final: o intervalo dos trabalhos (o mesmo do Orçamento e da conta) e a deslocação somada à parte, fixa —
+ * "610 € – 815 € + deslocação 92,80 €"; sem concelho reconhecido "+ deslocação a confirmar" (nunca "com deslocação"
+ * sem a saber); fora da área, só os trabalhos.
+ */
+function textoComDeslocacao(preco) {
+  const d = preco.deslocacao;
+  const t = textoIntervaloTrabalhos(preco);
+  if (d?.estado === "fora_area") return t;
+  if (d?.estado === "estimada") return preco.deslocacao_iva > 0 ? `${t} + deslocação ${formatarEuro(preco.deslocacao_iva)}` : `${t} (sem custo de deslocação)`;
+  return `${t} + deslocação a confirmar`;
 }
 
 // Contactos configurados de verdade (não os valores de exemplo): os mesmos botões de mostrarEnvio.
@@ -4106,7 +4128,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
     const loc = estado.contacto.localidade.trim() || estado.casa.localidade.trim();
     if (loc) partes.push(`Localidade: ${loc}`);
     if (codigoCliente) partes.push(`Cliente: ${codigoCliente}`);
-    if (preco?.min != null) partes.push(funilAvaria() ? textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva) : `Estimativa: ${textoIntervalo(preco)}`);
+    if (preco?.min != null) partes.push(funilAvaria() ? textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva) : `Estimativa: ${textoComDeslocacao(preco)}`);
     partes.push(`${estado.divisoes.length} ${estado.divisoes.length === 1 ? "divisão" : "divisões"}.`);
     const texto2 = partes.join("\n").slice(0, 1500);
     if (temWhatsapp()) {
@@ -4373,6 +4395,7 @@ async function enviar() {
   }
   const corpo = montarPedido(estado, sim, { codigo: codigoCliente, website: $("contacto-website").value });
   if (chaveCompra(compra) !== "basico") corpo.compra = chaveCompra(compra);
+  Object.assign(corpo, origemContacto($("contacto-conheceu")?.value ?? ""));   // CRM: só a categoria ("Como nos conheceu?", senão o canal) e o ?servico= (web/origem.js)
   const botao = $("sim-seguinte");
   aEnviar = true;
   botao.disabled = true;
@@ -4516,7 +4539,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
     : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
-    : `Estimativa enviada: ${textoIntervalo(preco)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
+    : `Estimativa enviada: ${textoComDeslocacao(preco)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).
   const ff = $("fim-fotos");

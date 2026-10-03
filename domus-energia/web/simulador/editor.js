@@ -2256,7 +2256,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     },
     /** Piso visível (0 = r/c). */
     get piso() { return pisoAtual; },
-    mudarPiso: (p) => mudarPiso(p),
+    mudarPiso: (p, o) => mudarPiso(p, o),
     /**
      * Tipos de divisão do tipo de imóvel (regras.js tiposDivisaoPara): na linha só os que a casa tem (as divisões da
      * planta neste piso e `casa`, os nomes das divisões de "A casa tem…"); todos na janela "Outra divisão".

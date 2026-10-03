@@ -71,14 +71,16 @@ export default function obras(el, ctx) {
       h("strong", { text: txt(o, "cliente_nome", "cliente") }),
       h("span", { class: "ajuda", text: `${nomeDe(KITS, campo(o, "kit"))}${tecs ? ` · ${tecs}` : ""}` }),
       curto ? (campo(o, "hora") ? h("span", { class: "ajuda num", text: String(campo(o, "hora")) }) : null) : h("span", { class: "ajuda num", text: `${campo(o, "por_agendar") === true ? "data provisória: " : ""}${data(campo(o, "data"))}${campo(o, "hora") ? ` ${campo(o, "hora")}` : ""}` }),
-      h("span", { class: "linha-selos" }, selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`), ...selosCasa(o)));
+      // Por agendar (data provisória): só o selo "Por agendar", não também "Agendada".
+      h("span", { class: "linha-selos" }, porAgendar(o) ? null : selo(ESTADOS_OBRA[estado] ?? estado, `obra-${estado}`), ...selosCasa(o)));
   }
 
+  const porAgendar = (o) => campo(o, "por_agendar") === true && (campo(o, "estado") ?? "agendada") === "agendada";
   /** "Por agendar" (data provisória) e "Casa por ligar — falta o restante" (a obra existe antes da casa). */
   function selosCasa(o) {
     if (["cancelada"].includes(campo(o, "estado"))) return [];
     const casa = campo(o, "casa");
-    return [campo(o, "por_agendar") === true ? selo("Por agendar", "aviso") : null,
+    return [porAgendar(o) ? selo("Por agendar", "aviso") : null,
       casa === "falta_restante" ? selo("Casa por ligar — falta o restante", "info") : casa === "por_ligar" ? selo("Casa por ligar", "info") : null].filter(Boolean);
   }
 
@@ -168,7 +170,8 @@ export default function obras(el, ctx) {
     const extraCeo = ceo ? [
       h("div", { class: "duas" },
         campoForm("Data", h("input", { name: "data", type: "date", value: diaDe(o) })),
-        campoForm("Kit", escolha("kit", Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])), kit ?? "conforto"))),
+        // Obra sem kit (as do pedido com simulação): "Sem kit", e grava-se assim (não vira "Conforto" ao guardar).
+        campoForm("Kit", escolha("kit", { "": "Sem kit", ...Object.fromEntries(Object.entries(KITS).map(([k, v]) => [k, `${v.nome} (${v.horas} h)`])) }, kit ?? ""))),
       escolherTecnicos(tecs.map((t) => String(t.id))),
     ] : [];
     const f = h("form", { class: "form-grelha", id: "form-obra", novalidate: true },
@@ -190,7 +193,7 @@ export default function obras(el, ctx) {
       const corpo = { estado: el.estado.value, horas_reais: horas, material: material.map((m) => ({ ...m })), notas: el.notas.value.trim() };
       if (ceo) {
         if (!el.data.value) { mensagem(msg, "Escolha a data da obra."); el.data.focus(); return; }
-        Object.assign(corpo, { data: el.data.value, kit: el.kit.value, tecnicos: [...f.querySelectorAll("input[name=tecnico]:checked")].map((c) => idTec(c.value)) });
+        Object.assign(corpo, { data: el.data.value, kit: el.kit.value || null, tecnicos: [...f.querySelectorAll("input[name=tecnico]:checked")].map((c) => idTec(c.value)) });
       }
       const b = f.querySelector("button[type=submit]"); b.disabled = true; mensagem(msg, null);
       try {

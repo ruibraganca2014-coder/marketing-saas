@@ -9,7 +9,7 @@
 // estado; "Libertar relatório ao cliente" (CEO, depois de o cliente o comprar); "Marcar visita" (data e hora, com a
 // disponibilidade do cliente); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída".
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
-import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
+import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, MOTIVOS_PERDA, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
 import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, blocoDiagnostico } from "./simulacao.js";
 import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from "./diagnostico-conteudo.js";
@@ -153,7 +153,8 @@ export default function orcamentos(el, ctx) {
       tel ? h("a", { class: "btn sec pequeno", href: `tel:${String(tel).replace(/[^\d+]/g, "")}`, text: `Ligar ${tel}` }) : null,
       email ? h("a", { class: "btn sec pequeno", href: `mailto:${encodeURIComponent(email).replace(/%40/g, "@")}`, text: "Enviar email" }) : null,
       simulacaoDe(o) || campo(o, "tem_simulacao") === true
-        ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null);
+        ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null,
+      campo(o, "crm_cliente_id") ? h("a", { class: "btn sec pequeno", id: "abrir-crm", href: `#/crm/${encodeURIComponent(campo(o, "crm_cliente_id"))}`, text: "Ficha do cliente (CRM)" }) : null);
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
@@ -194,6 +195,8 @@ export default function orcamentos(el, ctx) {
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const sEstado = escolha("estado", ESTADOS_ORC, estado);
     const motivo = campoForm("Motivo da perda", h("input", { name: "motivo_perda", maxlength: "300", value: campo(o, "motivo_perda") ?? "" }));
+    // CRM (docs/CRM-TAREFAS.md): o motivo escolhido (preço, prazo, sem resposta, outro); o texto fica como pormenor.
+    const motivoTipo = campoForm("Motivo (tipo)", escolha("motivo_perda_tipo", { "": "Escolha…", ...MOTIVOS_PERDA }, campo(o, "motivo_perda_tipo") ?? ""));
     // Proposta em três partes (sem IVA; decisão 15): mão de obra, material e deslocação; o valor da proposta é a soma.
     // Vazias = proposta de um só valor (como antes). "Preencher pela simulação" (ou escolher "Proposta enviada" sem
     // valores) põe as partes recalculadas pelo servidor a partir do catálogo; o CEO acerta-as depois da visita.
@@ -203,9 +206,15 @@ export default function orcamentos(el, ctx) {
     const pMao = parte("proposta_mao_obra", pPartes?.mao_obra), pMat = parte("proposta_material", pPartes?.material), pDes = parte("proposta_deslocacao", pPartes?.deslocacao);
     const iValor = h("input", { name: "valor_proposta", type: "number", min: "0", step: "0.01", inputmode: "decimal", value: campo(o, "valor_proposta") ?? "" });
     const temPartes = () => [pMao, pMat, pDes].some((i) => i.value.trim() !== "");
+    // Apagadas as três partes, o valor volta ao valor único de antes (vazio se o pedido já tinha partes: era a soma delas).
+    const valorUnico = pPartes ? "" : iValor.value;
+    const faltaParte = h("p", { class: "msg info", id: "proposta-partes-falta", "aria-live": "polite", hidden: true, text: "Preencha as três partes (0 se não houver) ou deixe as três vazias." });
     const somar = () => {
-      iValor.readOnly = temPartes();
-      if (temPartes()) iValor.value = (Math.round([pMao, pMat, pDes].reduce((t, i) => t + (numero(i.value) ?? 0), 0) * 100) / 100).toFixed(2);
+      const com = temPartes();
+      if (!com && iValor.readOnly) iValor.value = valorUnico;
+      iValor.readOnly = com;
+      faltaParte.hidden = !com || [pMao, pMat, pDes].every((i) => i.value.trim() !== "");
+      if (com) iValor.value = (Math.round([pMao, pMat, pDes].reduce((t, i) => t + (numero(i.value) ?? 0), 0) * 100) / 100).toFixed(2);
     };
     for (const i of [pMao, pMat, pDes]) i.addEventListener("input", somar);
     const preencher = () => {
@@ -216,6 +225,7 @@ export default function orcamentos(el, ctx) {
     const bPreencher = sugerida ? h("button", { class: "btn sec pequeno", type: "button", id: "preencher-proposta", text: "Preencher pela simulação", onclick: preencher }) : null;
     const blocoPartes = h("fieldset", { class: "grupo", id: "proposta-partes" }, h("legend", { text: "Proposta (€, sem IVA)" }),
       h("div", { class: "tres" }, campoForm("Mão de obra", pMao), campoForm("Material", pMat), campoForm("Deslocação", pDes)),
+      faltaParte,
       h("p", { class: "ajuda", text: `O total é a soma das três partes; o cliente vê o detalhe. Vazias = um só valor.${sugerida?.horas ? ` A simulação dá cerca de ${String(sugerida.horas).replace(".", ",")} h de mão de obra.` : ""}` }),
       bPreencher);
     const f = h("form", { class: "form-grelha", id: "form-orcamento", novalidate: true },
@@ -227,7 +237,7 @@ export default function orcamentos(el, ctx) {
       campoForm("Valor da proposta (€, sem IVA)", iValor),
       campoForm("Texto da proposta (o cliente vê-o na conta)", h("textarea", { name: "proposta_texto", maxlength: "4000", rows: "3" }, campo(o, "proposta_texto") ?? ""),
         campo(o, "conta") ? "Com o estado \"Proposta enviada\" e o valor, o cliente vê a proposta na conta e pode carregar em \"Aceito a proposta\" (valor + IVA)." : "Este pedido não tem conta de cliente: a proposta vai por email ou em mão."),
-      motivo,
+      motivoTipo, motivo,
       campoForm("Notas", h("textarea", { name: "notas", maxlength: "4000", rows: "4" }, campo(o, "notas") ?? "")),
       h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar" })),
       msg);
@@ -240,7 +250,7 @@ export default function orcamentos(el, ctx) {
       j.corpo.replaceChildren(...partes);
       return;
     }
-    const mostrarMotivo = () => { motivo.hidden = sEstado.value !== "perdido"; };
+    const mostrarMotivo = () => { motivo.hidden = motivoTipo.hidden = sEstado.value !== "perdido"; };
     sEstado.addEventListener("change", mostrarMotivo); mostrarMotivo();
     // Abrir a proposta ("Proposta enviada") ainda sem valores: as três partes vêm pré-preenchidas pela simulação.
     sEstado.addEventListener("change", () => { if (sEstado.value === "proposta_enviada" && !temPartes() && iValor.value.trim() === "") preencher(); });
@@ -252,7 +262,7 @@ export default function orcamentos(el, ctx) {
       const valor = v === "" ? null : numero(v);
       if (v !== "" && (valor === null || valor < 0)) { mensagem(msg, "O valor da proposta tem de ser um número igual ou maior que 0."); el.valor_proposta.focus(); return; }
       if (el.estado.value === "visita_marcada" && !el.data_visita.value) { mensagem(msg, "Indique a data da visita."); el.data_visita.focus(); return; }
-      if (el.estado.value === "perdido" && !el.motivo_perda.value.trim()) { mensagem(msg, "Indique o motivo da perda."); el.motivo_perda.focus(); return; }
+      if (el.estado.value === "perdido" && !el.motivo_perda.value.trim() && (!el.motivo_perda_tipo.value || el.motivo_perda_tipo.value === "outro")) { mensagem(msg, "Indique o motivo da perda."); el.motivo_perda.focus(); return; }
       const corpo = {
         estado: el.estado.value,
         notas: el.notas.value.trim(),
@@ -260,6 +270,7 @@ export default function orcamentos(el, ctx) {
         valor_proposta: valor,
         proposta_texto: el.proposta_texto.value.trim() || null,
         motivo_perda: el.estado.value === "perdido" ? el.motivo_perda.value.trim() : null,
+        ...(el.estado.value === "perdido" ? { motivo_perda_tipo: el.motivo_perda_tipo.value || null } : {}),
       };
       // As três partes ou nenhuma: com elas o servidor faz a soma; sem elas (e se as havia) passa a um só valor.
       if (temPartes()) {
@@ -375,7 +386,7 @@ export default function orcamentos(el, ctx) {
       const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
       if (pp) linhas.push(h("p", { class: "ajuda", id: "valores-partes", text: `Mão de obra ${euros(pp.mao_obra)} · material ${euros(pp.material)} · deslocação ${euros(pp.deslocacao)} (sem IVA).` }));
       if (vp.minima != null) linhas.push(h("p", { class: "msg info", id: "obra-minima", text: `Obra mínima: ${euros(vp.minima)} com IVA. A proposta fica abaixo: cobra-se o mínimo${pp && pp.deslocacao > 0 ? " (mais a deslocação)" : ""} e o que o cliente pagou antes não é descontado.` }));
-      linhas.push(h("p", { class: "ajuda", id: "sinal-material", text: "O sinal cobre o material: é o maior entre 30 % do total e o custo do material." }));
+      if (vp.sinal_material) linhas.push(h("p", { class: "ajuda", id: "sinal-material", text: "O sinal cobre o material: é o maior entre 30 % do total e o custo do material." }));
       // Material (decisão 11): reservar já, se o cliente pediu para começar já; senão passados os 14 dias de livre resolução.
       const mr = campo(o, "material_reserva");
       if (mr) linhas.push(h("p", { class: "ajuda", id: "material-reserva", text: mr.ja ? `Material: reservar já${mr.inicio_imediato ? ` (o cliente pediu para começar já em ${data(mr.inicio_imediato)})` : ""}.` : `Reservar a partir de ${data(mr.a_partir, { hora: false })} (14 dias).` }));

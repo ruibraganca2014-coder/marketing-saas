@@ -244,6 +244,7 @@ export function estadoNovo() {
     plantaBase: null,          // assinaturaCasa() da casa e das máquinas com que a planta foi desenhada
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
+    plantaConfirmada: null,    // QA final: assinaturaDivisoes() da planta a que o cliente disse "Sim, continuar" em "A casa"
     // + pacote, proteções, para-raios, quadro novo (quadro.js). Ronda B: o esquema do quadro já não se faz no simulador
     // (`leitura`/`sugestoes` dos estados antigos caem em normalizarEstado); fica só a foto.
     quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },
@@ -287,6 +288,12 @@ const lista = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 const outrasDaCasa = (v) => lista(v, LIMITES_OUTRAS.linhas)
   .filter((o) => o && typeof o === "object")
   .map((o) => ({ nome: textoSeguro(o.nome, LIMITES_OUTRAS.nome), qtd: int(o.qtd, ...LIMITES_OUTRAS.qtd, 1) }));
+
+/**
+ * QA final: a divisão sala + cozinha chama-se "Kitchenette" (antes "Kitnet", termo do Brasil). Os estados guardados com o
+ * nome antigo carregam com o novo (planta, divisões, circuitos, sincronização e divisões vistas); a chave `kitnet` fica.
+ */
+export const renomearKitnet = (nome) => (typeof nome === "string" ? nome.replace(/\bKitnet\b/g, "Kitchenette") : nome);
 
 /** Nome das escadas numeradas a partir de 1 (estados antigos) → a partir do r/c: "Escadas (piso 1)" → "Escadas (r/c)". */
 const RE_ESCADAS_ANTIGAS = /^Escadas \(piso (\d+)\)$/;
@@ -359,7 +366,7 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   for (const d of lista(p.divisoes, MAX_DIVISOES)) {
     if (!d || typeof d !== "object" || !idOk(d.id, "d")) continue;
     ids.add(d.id);
-    const n = { id: d.id, nome: txt(d.nome, 60), piso: pisoDe(d), x_cm: int(d.x_cm, 0, MAX_LADO_CM), y_cm: int(d.y_cm, 0, MAX_LADO_CM), largura_cm: int(d.largura_cm, 50, MAX_LADO_CM, 400), altura_cm: int(d.altura_cm, 50, MAX_LADO_CM, 300) };
+    const n = { id: d.id, nome: renomearKitnet(txt(d.nome, 60)).slice(0, 60), piso: pisoDe(d), x_cm: int(d.x_cm, 0, MAX_LADO_CM), y_cm: int(d.y_cm, 0, MAX_LADO_CM), largura_cm: int(d.largura_cm, 50, MAX_LADO_CM, 400), altura_cm: int(d.altura_cm, 50, MAX_LADO_CM, 300) };
     // Polígono (paredes oblíquas): 3–24 cantos dentro da planta, sem paredes cruzadas; senão fica o retângulo.
     // Com cantos válidos, a caixa envolvente passa a ser a deles (um retângulo "normal" fica sem `pontos`).
     const pts = d.pontos === undefined ? null : validarPontos(d.pontos, r.largura_cm, r.altura_cm);
@@ -417,9 +424,9 @@ export function normalizarCircuito(c, i) {
     n: i + 1,
     amperes: AMPERES.includes(c.amperes) ? c.amperes : 16,
     tipo: TIPOS_CIRCUITO[c.tipo] ? c.tipo : "misto",
-    nome: txt(c.nome, 60),
+    nome: renomearKitnet(txt(c.nome, 60)).slice(0, 60),
     // "Fora das divisões" não é uma divisão (circuitos de estados antigos podiam trazê-la).
-    divisoes: lista(c.divisoes, MAX_DIVISOES).filter((x) => typeof x === "string" && x !== NOME_FORA).map((x) => x.slice(0, 60)),
+    divisoes: lista(c.divisoes, MAX_DIVISOES).filter((x) => typeof x === "string" && x !== NOME_FORA).map((x) => renomearKitnet(x).slice(0, 60)),
     itens: {
       luzes: int(it.luzes, 0, 99),
       tomadas: int(it.tomadas, 0, 99),
@@ -440,7 +447,7 @@ export function normalizarDivisao(d) {
   const b = divisaoVazia();
   if (!d || typeof d !== "object") return b;
   return {
-    nome: txt(d.nome, 60),
+    nome: renomearKitnet(txt(d.nome, 60)).slice(0, 60),
     planta_id: typeof d.planta_id === "string" ? d.planta_id.slice(0, 10) : null,
     piso: pisoDe(d),
     interruptores: lista(d.interruptores, 30).map((x) => int(x, 1, 4, 1)),
@@ -460,10 +467,21 @@ export function normalizarDivisao(d) {
 function normalizarSinc(v) {
   if (!v || typeof v !== "object" || !Array.isArray(v.divisoes) || !Array.isArray(v.maquinas) || !FASES_PLANTA.includes(v.fase)) return null;
   return {
-    divisoes: lista(v.divisoes, MAX_DIVISOES).filter((d) => d && typeof d.nome === "string").map((d) => ({ nome: d.nome.slice(0, 60), piso: int(d.piso, 0, MAX_PISO, 0) })),
+    divisoes: lista(v.divisoes, MAX_DIVISOES).filter((d) => d && typeof d.nome === "string").map((d) => ({ nome: renomearKitnet(d.nome).slice(0, 60), piso: int(d.piso, 0, MAX_PISO, 0) })),
     maquinas: lista(v.maquinas, 200).filter((m) => m && typeof m.modelo === "string").map((m) => ({ modelo: m.modelo.slice(0, 40), qtd: int(m.qtd, 0, 100, 1), piso: m.piso === null || m.piso === undefined ? null : int(m.piso, 0, MAX_PISO, 0) })),
     fase: v.fase,
   };
+}
+
+/**
+ * Assinatura curta (FNV-1a de 32 bits, em hexadecimal) das divisões de uma planta: o que o cliente confirmou em "A casa"
+ * ("A planta está parecida…?", app.js confirmarCasa). Muda quando muda uma divisão (nome, sítio, tamanho, piso).
+ */
+export function assinaturaDivisoes(planta) {
+  const t = JSON.stringify(Array.isArray(planta?.divisoes) ? planta.divisoes : []);
+  let h = 0x811c9dc5;
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
 }
 
 /** Estado lido do navegador (pode vir estragado ou de outra versão): sempre um estado válido. */
@@ -577,6 +595,9 @@ export function normalizarEstado(v) {
   // Planta que vai aparecendo (vazia → divisões → aparelhos); um estado de antes disto tinha-a sempre completa.
   e.plantaFase = FASES_PLANTA.includes(v.plantaFase) ? v.plantaFase : "tudo";
   e.plantaSinc = normalizarSinc(v.plantaSinc);
+  // "A planta está parecida…?" (QA final): a resposta guardada vale se as divisões gravadas ainda são as confirmadas; passa
+  // à assinatura da planta normalizada (um estado de antes, sem o campo, volta a perguntar uma vez).
+  e.plantaConfirmada = typeof v.plantaConfirmada === "string" && v.plantaConfirmada === assinaturaDivisoes(v.planta) ? assinaturaDivisoes(e.planta) : null;
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
   e.plantaBase = guardavaVisitado && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;
@@ -615,7 +636,7 @@ export function normalizarEstado(v) {
   e.verificadas = [...new Set(lista(v.verificadas, MAX_DIVISOES + 1).filter((x) => typeof x === "string" && RE_ID_PLANTA.test(x)))];
   // Divisão a divisão: estados de antes da regra ficam sem nenhuma vista, mas não prendem quem já passou do passo.
   const vs = v.vistas && typeof v.vistas === "object" ? v.vistas : null;
-  for (const k of PASSOS_POR_DIVISAO) e.vistas[k] = [...new Set(lista(vs?.[k], MAX_DIVISOES + 1).filter((x) => typeof x === "string" && x.length <= 110))];
+  for (const k of PASSOS_POR_DIVISAO) e.vistas[k] = [...new Set(lista(vs?.[k], MAX_DIVISOES + 1).filter((x) => typeof x === "string" && x.length <= 110).map(renomearKitnet))];
   e.vistasLivres = vs ? PASSOS_POR_DIVISAO.filter((k) => lista(v.vistasLivres, 2).includes(k))
     : PASSOS_POR_DIVISAO.filter((k) => ordemPasso(e.visitado) > ordemPasso(PASSO[k]));
   e.fotosId = typeof v.fotosId === "string" && /^[a-f0-9]{8,40}$/.test(v.fotosId) ? v.fotosId : null;

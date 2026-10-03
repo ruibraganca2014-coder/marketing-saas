@@ -36,6 +36,15 @@ export const EVENTOS_TRABALHO = ['posto_na_bolsa', 'atribuido', 'aceite', 'visit
   'confirmada', 'contestada', 'devolvida', 'aprovada', 'paga'];
 /** Grupos das fotos que o eletricista tira na obra (migração 29): quadro e pontos, antes e depois. */
 export const GRUPOS_FOTO_TRABALHO = ['quadro_antes', 'pontos_antes', 'quadro_depois', 'pontos_depois'];
+/**
+ * CRM e tarefas (migrações 32 e 33; docs/CRM-TAREFAS.md). Origem do contacto: as categorias do canal (calculadas no
+ * navegador) e, desde a migração 33, as respostas a "Como nos conheceu?" (facebook_instagram, recomendacao,
+ * eletricista_parceiro, carrinha_rua; google e outro são comuns).
+ */
+export const ORIGENS_CONTACTO = ['google', 'facebook', 'instagram', 'facebook_instagram', 'recomendacao', 'eletricista_parceiro', 'carrinha_rua', 'direto', 'outro'];
+export const MOTIVOS_PERDA = ['preco', 'prazo', 'sem_resposta', 'outro'];
+export const TIPOS_REGISTO = ['nota', 'chamada', 'email', 'whatsapp', 'visita'];
+export const ESTADOS_TAREFA = ['a_fazer', 'em_curso', 'feito'];
 export const CATEGORIAS = ['disjuntor','interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central', 'acessorio', 'outro'];
 
 const lista = (v) => v.map((x) => `'${x}'`).join(',');
@@ -737,6 +746,85 @@ export const MIGRACOES = [
     ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_fatura_quando TEXT;
     ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_paga TEXT;
     ALTER TABLE trabalhos_eletricista ADD COLUMN regresso_paga_por TEXT;
+  `),
+  // 32 — CRM e quadro de tarefas (decisões do dono de 2026-10-03; docs/CRM-TAREFAS.md). A ficha do cliente
+  // (`crm_clientes`: uma por pessoa, derivada dos pedidos — mesma conta, email ou telefone — e fundível à mão pelo CEO),
+  // as notas e os contactos da equipa (`crm_registos`), e nos pedidos o responsável, a origem do contacto (categoria do
+  // canal e a página de anúncio de entrada, nunca o endereço de onde veio) e o tipo do motivo de perda. As fases do
+  // negócio são os estados que o pedido já tem (novo → contactado → visita → proposta → aceite → perdido). Tarefas com
+  // checklist (JSON), prazo e responsável (NULL = os CEO); os lembretes automáticos têm uma chave única (`lembrete`:
+  // pedido, tipo e o início da fase), por isso nunca se repetem.
+  (db) => db.exec(`
+    CREATE TABLE crm_clientes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT,
+      email TEXT COLLATE NOCASE,
+      telefone TEXT,
+      conta_id INTEGER REFERENCES contas(id) ON DELETE SET NULL,
+      responsavel_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+      anonimizado TEXT,                         -- quando os dados pessoais saíram (RGPD: conta apagada)
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL
+    );
+    ALTER TABLE orcamentos ADD COLUMN crm_cliente_id INTEGER REFERENCES crm_clientes(id) ON DELETE SET NULL;
+    ALTER TABLE orcamentos ADD COLUMN responsavel_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL;
+    ALTER TABLE orcamentos ADD COLUMN origem_contacto TEXT CHECK (origem_contacto IS NULL OR origem_contacto IN ('google','facebook','instagram','direto','outro'));
+    ALTER TABLE orcamentos ADD COLUMN origem_entrada TEXT;    -- ?servico= da página de anúncio (carregador, quadro-antigo)
+    ALTER TABLE orcamentos ADD COLUMN motivo_perda_tipo TEXT CHECK (motivo_perda_tipo IS NULL OR motivo_perda_tipo IN (${lista(MOTIVOS_PERDA)}));
+    CREATE INDEX orcamentos_crm_cliente ON orcamentos(crm_cliente_id);
+    CREATE TABLE crm_registos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente_id INTEGER NOT NULL REFERENCES crm_clientes(id) ON DELETE CASCADE,
+      orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+      tipo TEXT NOT NULL CHECK (tipo IN (${lista(TIPOS_REGISTO)})),
+      quando TEXT NOT NULL,                     -- quando foi o contacto ("AAAA-MM-DDTHH:MM", hora de Lisboa)
+      texto TEXT NOT NULL,
+      por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+      por_email TEXT,
+      criado TEXT NOT NULL
+    );
+    CREATE INDEX crm_registos_cliente ON crm_registos(cliente_id);
+    CREATE TABLE tarefas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      titulo TEXT NOT NULL,
+      descricao TEXT,
+      cliente_id INTEGER REFERENCES crm_clientes(id) ON DELETE SET NULL,
+      orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+      obra_id INTEGER REFERENCES obras(id) ON DELETE SET NULL,
+      responsavel_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,   -- NULL = os CEO
+      prazo TEXT,                               -- "AAAA-MM-DD" (dia de Lisboa)
+      prazo_hora TEXT,                          -- "HH:MM" (opcional)
+      estado TEXT NOT NULL DEFAULT 'a_fazer' CHECK (estado IN (${lista(ESTADOS_TAREFA)})),
+      checklist TEXT NOT NULL DEFAULT '[]',     -- JSON: [{texto, feito}]
+      lembrete TEXT UNIQUE,                     -- lembrete automático: "<pedido>:<tipo>:<início da fase>"; NULL nas feitas à mão
+      cancelada TEXT,                           -- lembrete cancelado sozinho (a fase avançou); sai do quadro
+      criado TEXT NOT NULL,
+      criado_por TEXT NOT NULL,                 -- email de quem criou, ou "sistema"
+      criado_por_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+      feito TEXT,
+      feito_por TEXT,
+      atualizado TEXT NOT NULL
+    );
+    CREATE INDEX tarefas_responsavel ON tarefas(responsavel_id, estado);
+    CREATE INDEX tarefas_prazo ON tarefas(prazo);
+    CREATE INDEX tarefas_orcamento ON tarefas(orcamento_id);
+  `),
+  // 33 — CRM e tarefas, segunda ronda (decisões do dono de 2026-10-03; docs/CRM-TAREFAS.md). Origem do contacto com as
+  // respostas a "Como nos conheceu?": a coluna é trocada por outra com a lista nova no CHECK (os valores guardados
+  // continuam válidos). `orcamentos.crm_separado`: quando o CEO separou o pedido da ficha onde estava (a ligação
+  // automática não o volta a juntar). `utilizadores.resumo_tarefas_dia`: o último dia (Lisboa) em que o email diário
+  // das tarefas foi tratado para esse utilizador (nunca dois no mesmo dia, mesmo com o painel reiniciado). Prazos dos
+  // lembretes automáticos, editáveis pelo CEO (Tarefas): pedido novo em dias úteis, proposta por enviar depois da
+  // visita e as três etapas da proposta sem resposta, em dias.
+  (db) => db.exec(`
+    ALTER TABLE orcamentos ADD COLUMN origem_contacto_33 TEXT CHECK (origem_contacto_33 IS NULL OR origem_contacto_33 IN (${lista(ORIGENS_CONTACTO)}));
+    UPDATE orcamentos SET origem_contacto_33 = origem_contacto;
+    ALTER TABLE orcamentos DROP COLUMN origem_contacto;
+    ALTER TABLE orcamentos RENAME COLUMN origem_contacto_33 TO origem_contacto;
+    ALTER TABLE orcamentos ADD COLUMN crm_separado TEXT;
+    ALTER TABLE utilizadores ADD COLUMN resumo_tarefas_dia TEXT;
+    INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('lembrete_novo_dias_uteis', 1), ('lembrete_visita_dias', 2),
+      ('lembrete_proposta_1_dias', 3), ('lembrete_proposta_2_dias', 7), ('lembrete_proposta_3_dias', 14);
   `),
 ];
 

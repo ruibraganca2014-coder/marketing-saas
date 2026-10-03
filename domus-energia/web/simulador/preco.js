@@ -234,12 +234,17 @@ export function calcularPreco(pedidos, catalogo, config, deslocacao = null, extr
     ? { ...deslocacao, dias: diasDesl, limitado: dias > diasDesl, valor_iva: deslocacao.valor_dia_iva === null ? null : cent(deslocacao.valor_dia_iva * diasDesl) } : deslocacao;
   const desloc = !linhas.length ? 0 : desl ? desl.valor_iva ?? 0 : cfg.deslocacao_iva;
   const margem = cent(Number(extra) > 0 ? Number(extra) : 0);
-  const total = cent(artigos + mao + desloc + margem);
+  const trabalhos = cent(artigos + mao + margem);
+  const total = cent(trabalhos + desloc);
   const menos = Math.min(cfg.intervalo_menos_pct, 100) / 100;
   const mais = cfg.intervalo_mais_pct / 100;
+  // O intervalo é só dos trabalhos (−10 % / +20 %, arredondado uma vez a 5 €); a deslocação soma-se por cima, fixa
+  // (`trabalhos_min`/`trabalhos_max`: o intervalo sem ela — o mesmo na barra, no Orçamento, no Enviar e na conta).
+  const tMin = Math.max(0, arredondar5(trabalhos * (1 - menos)));
+  const tMax = arredondar5(trabalhos * (1 + mais));
   return {
     linhas, horas, dias, mao_obra_iva: mao, mao_obra_incluida_iva: cent(soma(linhas, (l) => l.mao_obra_incluida_iva)), deslocacao_iva: desloc, artigos_iva: artigos, melhorias_margem_iva: margem, total,
-    min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)), completo, config: cfg, deslocacao: desl,
+    trabalhos_min: tMin, trabalhos_max: tMax, min: cent(tMin + desloc), max: cent(tMax + desloc), completo, config: cfg, deslocacao: desl,
   };
 }
 
@@ -253,10 +258,16 @@ export function comObraMinima(p) {
   const m = p?.config?.obra_minima_iva;
   if (!p || p.total === null || !p.linhas.length || !(m > 0)) return p;
   const piso = cent(m + p.deslocacao_iva);
-  return { ...p, obra_minima: p.total < piso ? m : null, total: Math.max(p.total, piso), min: Math.max(p.min, arredondar5(piso)), max: Math.max(p.max, arredondar5(piso)) };
+  // O mínimo conta nos trabalhos (arredondado a 5 €); a deslocação soma por cima, como em calcularPreco.
+  const tMin = Math.max(p.trabalhos_min ?? p.min, arredondar5(m));
+  const tMax = Math.max(p.trabalhos_max ?? p.max, arredondar5(m));
+  return { ...p, obra_minima: p.total < piso ? m : null, total: Math.max(p.total, piso), trabalhos_min: tMin, trabalhos_max: tMax, min: cent(tMin + p.deslocacao_iva), max: cent(tMax + p.deslocacao_iva) };
 }
-/** "1 820 € – 2 425 €", ou um só valor quando o mínimo e o máximo são iguais (obra mínima). */
-export const textoIntervalo = (p) => (p.min === p.max ? formatarEuroRedondo(p.min) : `${formatarEuroRedondo(p.min)} – ${formatarEuroRedondo(p.max)}`);
+/** "1 820 € – 2 425 €", ou um só valor quando o mínimo e o máximo são iguais (obra mínima); com cêntimos só se os houver. */
+const euroIntervalo = (x) => (Number.isInteger(x) ? formatarEuroRedondo(x) : formatarEuro(x));
+export const textoIntervalo = (p) => (p.min === p.max ? euroIntervalo(p.min) : `${euroIntervalo(p.min)} – ${euroIntervalo(p.max)}`);
+/** O intervalo só dos trabalhos (sem a deslocação): "610 € – 815 €". */
+export const textoIntervaloTrabalhos = (p) => textoIntervalo({ min: p.trabalhos_min ?? p.min, max: p.trabalhos_max ?? p.max });
 
 /**
  * Plano mensal sugerido (§5): central → Premium; sensores/alarme ou o objetivo "controlar à distância"
