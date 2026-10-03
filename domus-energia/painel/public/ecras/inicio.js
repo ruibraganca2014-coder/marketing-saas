@@ -2,6 +2,7 @@
 // aqui mostra-se o que vier, com nomes conhecidos para os campos do §3.
 import { pedir, campo, numero, lista } from "../api.js";
 import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt } from "../ui.js";
+import { blocoNegocio } from "./negocio.js";
 
 const saudacao = () => { const hr = new Date().getHours(); return hr < 13 ? "Bom dia" : hr < 20 ? "Boa tarde" : "Boa noite"; };
 
@@ -10,6 +11,9 @@ export default function inicio(el, ctx) {
   const zona = h("div", { class: "inicio" }, carregando());
   el.append(h("div", { class: "ecra-topo" }, titulo), zona);
   const ctrl = new AbortController();
+  // Dashboard do negócio (docs/DASHBOARD.md): só CEO e comercial; pede os seus dados à parte (GET resumo/negocio) e fica
+  // entre os números de sempre e os blocos. Criado uma vez: mudar de período não volta a carregar o resto do Início.
+  const negocio = ctx.pode("ceo", "comercial") ? blocoNegocio(ctrl.signal) : null;
 
   async function carregar() {
     zona.replaceChildren(carregando());
@@ -48,7 +52,7 @@ export default function inicio(el, ctx) {
     if (recebido !== undefined) {
       const obj = recebido && typeof recebido === "object";
       const n = obj ? numero(campo(recebido, "pagamentos")) : null;
-      kpi("Recebido este mês", euros(obj ? campo(recebido, "com_iva", "total") : recebido), {
+      kpi("Planos: recebido este mês", euros(obj ? campo(recebido, "com_iva", "total") : recebido), {
         href: ctx.pode("ceo") ? "#/pagamentos" : undefined,
         ajuda: obj ? `${n ?? 0} ${n === 1 ? "pagamento" : "pagamentos"} · ${euros(campo(recebido, "sem_iva"))} sem IVA` : undefined,
       });
@@ -101,6 +105,7 @@ export default function inicio(el, ctx) {
     }
     const out = [];
     if (kpis.length) out.push(h("div", { class: "kpis" }, ...kpis));
+    if (negocio) out.push(negocio);
     if (blocos.length) out.push(h("div", { class: "blocos" }, ...blocos));
     if (!out.length) out.push(h("p", { class: "vazio", text: "Sem dados para mostrar." }));
     return out;

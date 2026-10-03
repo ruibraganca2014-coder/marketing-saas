@@ -29,6 +29,7 @@ import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricista
 import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
+import { criarNegocio, PERIODOS } from './negocio.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -101,6 +102,8 @@ export const ROTAS = [
   ['GET', 'eu', TODOS, 'eu'],
   ['POST', 'eu/senha', TODOS, 'mudarSenha'],
   ['GET', 'resumo', TODOS, 'resumo'],
+  // Dashboard do negócio no Início (docs/DASHBOARD.md; negocio.js): os valores em euros só vão para o CEO; o técnico não entra.
+  ['GET', 'resumo/negocio', ['ceo', 'comercial'], 'resumoNegocio'],
   ['GET', 'clientes', TODOS, 'clientes'],
   ['GET', 'clientes/:c', TODOS, 'cliente'],
   ['POST', 'clientes', ['ceo', 'comercial'], 'criarCliente'],
@@ -286,6 +289,8 @@ export function criarApi(ctx) {
   // Emails automáticos ao cliente (emails-auto.js; docs/EMAILS-AUTOMATICOS.md): correm na volta dos lembretes do CRM.
   emailsAuto = criarEmailsAuto({ db, config, relogio, auditar, correio, crm, tarefas, pagamentos: () => pagPed });
   tarefas.aCadaVolta(() => emailsAuto.verificar());
+  // Dashboard do negócio (negocio.js; docs/DASHBOARD.md): indicadores por período, cortados por papel.
+  const negocio = criarNegocio({ db, config, relogio, stock, pagamentos: () => pagPed, dados });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
   const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
@@ -603,6 +608,11 @@ export function criarApi(ctx) {
         AND estado NOT IN ('perdido', '${ESTADO_ARQUIVADO}') ORDER BY data_visita`).all(inicio, fim).map((o) => formatarOrcamento(o));
     }
     responder(res, 200, r);
+  };
+
+  // Dashboard do negócio (Início): `?periodo=` semana | mes (omissão) | mes_passado | ano, comparado com o anterior equivalente.
+  h.resumoNegocio = async ({ res, u, url }) => {
+    responder(res, 200, await negocio.resumo(u, opcao(url.searchParams.get('periodo') ?? 'mes', 'período', PERIODOS)));
   };
 
   h.clientes = async ({ res, u, url }) => {

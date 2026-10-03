@@ -34,6 +34,15 @@ export function semanaLisboa(data = new Date()) {
   return { inicio, fim: somarDiasCivil(inicio, 6) };
 }
 
+/**
+ * Instante (ms desde 1970) da meia-noite de Lisboa do dia civil "AAAA-MM-DD". Lisboa está em UTC+0 (inverno) ou
+ * UTC+1 (verão) e a hora muda à 01:00 UTC: a meia-noite nunca é ambígua.
+ */
+export function meiaNoiteLisboa(dia) {
+  const utc = Date.parse(`${dia}T00:00:00Z`);
+  return diaLisboa(new Date(utc - 3600_000)) === dia ? utc - 3600_000 : utc;
+}
+
 /** Euros (número) → cêntimos inteiros. */
 export const paraCent = (v) => Math.round(v * 100);
 /** Cêntimos → euros (número com 2 casas). */

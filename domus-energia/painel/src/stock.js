@@ -140,5 +140,10 @@ export function criarStock({ db, relogio }) {
     return { itens, movimentos };
   }
 
-  return { materialDoPedido, custoMaterial, reservar, libertar, saida, movimentar, resumoPedido, listar, gerido };
+  /** Quantos artigos de stock gerido estão abaixo do mínimo (ou com o disponível negativo): a mesma regra de `listar`, numa só consulta. */
+  const abaixoDoMinimo = () => db.prepare(`SELECT COUNT(*) AS n FROM catalogo c
+    WHERE (c.stock_minimo > 0 OR EXISTS (SELECT 1 FROM stock_movimentos m WHERE m.artigo_id = c.id))
+      AND (c.stock_qtd - c.stock_reservado < c.stock_minimo OR c.stock_qtd - c.stock_reservado < 0)`).get().n;
+
+  return { materialDoPedido, custoMaterial, reservar, libertar, saida, movimentar, resumoPedido, listar, gerido, abaixoDoMinimo };
 }
