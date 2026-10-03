@@ -470,6 +470,40 @@ describe('conta de cliente', () => {
     assert.equal(r.estado, 200, r.texto);
     assert.deepEqual(r.json, { codigo: 'casa-conta', password: 'SenhaMqttGerada1' });
     assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.tem_casa, true);
+    // Área de cliente, "Entrar com código" (decisão do dono, 2026-10-03): o email recebe o código, confirmar abre a MESMA sessão da
+    // palavra-passe e a casa vem igual (a palavra-passe MQTT é cifrada com a CONTA_CHAVE do servidor, não com a da conta).
+    const ipC = '198.51.100.61';
+    const pc = await conta('POST', 'codigo', { corpo: { email: a.email }, ip: ipC });
+    const pn = await conta('POST', 'codigo', { corpo: { email: 'ninguem.casa@exemplo.pt' }, ip: ipC });
+    assert.equal(pc.estado, 200, pc.texto);
+    assert.deepEqual({ ...pc.json, email: 'x' }, { ...pn.json, email: 'x' }, 'a resposta não diz se o email tem conta');
+    const certo = p.codigo(a.email);
+    const errado = certo === '000000' ? '111111' : '000000';
+    const e1 = await conta('POST', 'confirmar', { corpo: { email: a.email, codigo: errado }, ip: ipC });
+    const e2 = await conta('POST', 'confirmar', { corpo: { email: 'ninguem.casa@exemplo.pt', codigo: errado }, ip: ipC });
+    assert.equal(e1.estado, 400);
+    assert.deepEqual([e2.estado, e2.json], [e1.estado, e1.json], 'código errado: igual com e sem conta');
+    assert.equal(e1.cabecalhos['set-cookie'], undefined, 'sem sessão');
+    const sc = await conta('POST', 'confirmar', { corpo: { email: a.email, codigo: certo }, ip: ipC });
+    assert.equal(sc.estado, 200, sc.texto);
+    assert.match(sc.cabecalhos['set-cookie'][0], /^domus_conta=[A-Za-z0-9_-]{43}; Path=\/api; HttpOnly;/);
+    assert.deepEqual((await conta('GET', 'casa', { cookie: ck(sc) })).json, { codigo: 'casa-conta', password: 'SenhaMqttGerada1' }, 'a casa, como com a palavra-passe');
+    assert.equal((await conta('GET', 'casa', { cookie: a.cookie })).estado, 200, 'a sessão da palavra-passe continua a valer');
+    // Com uma sessão já aberta (ex.: conta com a casa por ligar: a Área de cliente mostra a entrada): {email, codigo} entra na mesma.
+    assert.equal((await conta('POST', 'codigo', { corpo: { email: a.email }, ip: '198.51.100.63' })).estado, 200);
+    const cs = await conta('POST', 'confirmar', { corpo: { email: a.email, codigo: p.codigo(a.email) }, cookie: a.cookie, ip: '198.51.100.63' });
+    assert.equal(cs.estado, 200, cs.texto);
+    assert.match(cs.cabecalhos['set-cookie'][0], /^domus_conta=/, 'abre a sessão dessa conta');
+    p.relogio.avancar(61 * 60_000);   // a quota de 3 emails por hora da conta volta a zero
+    // Expirado (15 minutos): a mesma resposta do código errado.
+    assert.equal((await conta('POST', 'codigo', { corpo: { email: a.email }, ip: '198.51.100.62' })).estado, 200);
+    const tarde = p.codigo(a.email);
+    p.relogio.avancar(15 * 60_000 + 1000);
+    const ex = await conta('POST', 'confirmar', { corpo: { email: a.email, codigo: tarde }, ip: '198.51.100.62' });
+    assert.deepEqual([ex.estado, ex.json], [e1.estado, e1.json], 'código expirado');
+    // Limite por IP dos pedidos de código (10 por hora), também a partir daqui: 429 com Retry-After.
+    for (let i = 0; i < 10; i++) assert.equal((await conta('POST', 'codigo', { corpo: { email: `area${i}@exemplo.pt` }, ip: '198.51.100.63' })).estado, 200);
+    assert.equal((await conta('POST', 'codigo', { corpo: { email: a.email }, ip: '198.51.100.63' })).estado, 429);
     assert.equal((await conta('GET', 'casa', { cookie: b.cookie })).estado, 404, 'outra conta');
     assert.equal((await conta('GET', 'casa')).estado, 401, 'sem sessão');
     assert.ok(!JSON.stringify(p.app.db.prepare('SELECT detalhes FROM auditoria').all()).includes('SenhaMqttGerada1'), 'nunca na auditoria');

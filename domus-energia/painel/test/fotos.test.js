@@ -14,7 +14,7 @@ import { painelComEquipa } from './ajuda.js';
 import { MIGRACOES, migrar } from '../src/db.js';
 import { validarLeitura, MODELO_LEITURA } from '../src/leitura-quadro.js';
 
-const BASE = { nome: 'Ana Fotos', telefone: '912 345 678', servico: 'Casa inteligente', localidade: 'Oeiras' };
+const BASE = { nome: 'Ana Fotos', telefone: '912 345 678', servico: 'Casa inteligente', localidade: 'Oeiras', morada: 'Rua do Teste, 1' };
 const JPEG = (n = 2000, x = 1) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, x)]);
 const PNG = (n = 2000) => Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(n, 2)]);
 

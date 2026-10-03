@@ -255,3 +255,9 @@ export async function iniciarMosquitto() {
     },
   };
 }
+
+/**
+ * Planta com todos os aparelhos pedidos como trabalho novo (`acao: "novo"`; os que já têm ação ficam com ela). Desde a
+ * decisão do dono de 2026-10-03 a omissão é Manter em todos os serviços: os testes do preço dos Novos pedem-nos assim.
+ */
+export const tudoNovo = (planta) => ({ ...planta, elementos: planta.elementos.map((e) => (e.acao ? e : { ...e, acao: 'novo' })) });

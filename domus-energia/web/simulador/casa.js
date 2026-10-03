@@ -1,7 +1,7 @@
 // Simulador de orçamento — pré-preenchimento a partir dos passos "A casa" e "O que quer"
 // (docs/SIMULADOR-ORCAMENTO.md §1.1). Só lógica, sem DOM: lista de divisões pela tipologia (ou,
 // em serviços e industrial, pela área e o n.º de espaços), planta já desenhada (divisões em grelha,
-// sem sobreposição, os aparelhos base de cada uma — porta, interruptor, luz e tomadas — e as máquinas escolhidas,
+// sem sobreposição, os aparelhos base de cada uma — porta, interruptor e tomadas — e as máquinas escolhidas,
 // grandes e pequenas) e as dicas do passo 4 a partir dos objetivos (que já não acrescentam aparelhos).
 
 import {
@@ -13,8 +13,6 @@ import {
 const MARGEM = 50;            // cm à volta da planta
 const LARGURA_LINHA = 1500;   // cm: largura máxima de uma linha de divisões
 const PASSO_MAQUINA = 100;    // cm entre máquinas na mesma divisão (os ícones não se tocam)
-const M2_POR_LUZ = 20;        // divisões grandes (loja, nave): um ponto de luz por cada 20 m²
-const MAX_LUZES = 8;
 
 /** Tamanhos (cm) das divisões que não têm botão no editor; as outras vêm dos botões (TIPOS_DIVISAO…). */
 const TAMANHOS = {
@@ -324,8 +322,10 @@ function divisoesPorPiso(pp, tipologia) {
 }
 
 /**
- * Aparelhos por omissão de uma divisão nova (§2.2): só os base — porta, interruptor e ponto de luz em todas — e
- * as tomadas pelo tipo de divisão (decisão do dono: nada de janelas, sensores, quadro, TV ou outros automáticos).
+ * Aparelhos por omissão de uma divisão nova (§2.2): só os base — porta e interruptor em todas — e as tomadas pelo
+ * tipo de divisão (decisão do dono: nada de janelas, sensores, quadro, TV ou outros automáticos). Decisão do dono
+ * (2026-10-03): o ponto de luz também saiu — o passo "Divisões" só levanta os interruptores e as tomadas que a casa
+ * já tem; a luz (como os sensores e os estores) só entra quando o cliente a pede como trabalho novo.
  */
 const TOMADAS_TIPO = { quarto: 2, sala: 3, sala_cozinha: 3, cozinha: 3, escritorio: 2, wc: 1, garagem: 1, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2, outra: 2 };
 
@@ -341,9 +341,7 @@ export const comandoSugerido = (nome, portas = 1) => (portas >= 2 || PASSAGEM.in
 /**
  * Aparelhos por omissão de uma divisão retangular (nome → tipo; caixa em cm), em sítios plausíveis e
  * afastados uns dos outros (≥ 65 cm nas divisões de tamanho típico): porta na parede de baixo com o
- * interruptor ao lado, na face de dentro da parede (dentro da divisão, junto à porta); luz ao centro (com 2 ou
- * mais — uma por cada 20 m², até 8 — repartidas simetricamente à volta do centro ao longo do lado maior; a partir
- * de 5, em 2 filas) e tomadas nas paredes (esquerda, direita, baixo à direita, cima à direita). Corredor,
+ * interruptor ao lado, na face de dentro da parede (dentro da divisão, junto à porta) e tomadas nas paredes (esquerda, direita, baixo à direita, cima à direita). Corredor,
  * entrada/hall e escadas (comandoSugerido): 2.ª porta na parede de cima, com o seu interruptor, os 2 com comando
  * "escada". Os que têm pergunta nascem por responder (`por_responder`, passo 4).
  * Ficam 10 cm para dentro das paredes: numa parede partilhada contam nesta divisão. Usada pelo editor
@@ -368,18 +366,6 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
     add("porta", porta2, 10);
     add("interruptor", ladoInt(porta2), 10, 0, { comando });
   }
-  const luzes = Math.min(MAX_LUZES, Math.max(1, Math.round((w * h) / (M2_POR_LUZ * 1e4))));
-  // Ao centro; várias: simétricas em relação ao centro ao longo do lado maior (2 filas a partir de 5).
-  const filas = luzes > 4 ? 2 : 1;
-  const porFila = Math.ceil(luzes / filas);
-  const longoW = w >= h;
-  for (let i = 0; i < luzes; i++) {
-    const fila = Math.floor(i / porFila), col = i % porFila;
-    const n = Math.min(porFila, luzes - fila * porFila);
-    const ao = ((col + 0.5) / n) * (longoW ? w : h);
-    const curto = ((fila + 0.5) / filas) * (longoW ? h : w);
-    add("luz", longoW ? ao : curto, longoW ? curto : ao);
-  }
   // QA final: as das paredes da esquerda/direita a alturas diferentes (h/3 e 2h/3) e a de cima mais para dentro do
   // que a de baixo: duas divisões encostadas não ficam com tomadas umas por cima das outras na parede partilhada.
   const tomadas = [[10, h / 3, 90], [w - 10, (2 * h) / 3, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.35), 10, 0]];
@@ -388,8 +374,8 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
 }
 
 /**
- * O que um botão de divisão traz (texto pequeno por baixo do nome): "porta, luz, interruptor, 2 tomadas".
- * `w`/`h`: o tamanho típico (as divisões grandes levam mais luzes).
+ * O que um botão de divisão traz (texto pequeno por baixo do nome): "porta, interruptor, 2 tomadas".
+ * `w`/`h`: o tamanho típico.
  */
 export function resumoAparelhos(nome, w = 400, h = 300) {
   const conta = {};
@@ -397,7 +383,6 @@ export function resumoAparelhos(nome, w = 400, h = 300) {
   const partes = [];
   const add = (k, um, varios) => { const n = conta[k] ?? 0; if (n) partes.push(n === 1 ? um : `${n} ${varios}`); };
   add("porta", "porta", "portas");
-  add("luz", "luz", "luzes");
   add("interruptor", "interruptor", "interruptores");
   add("tomada", "1 tomada", "tomadas");
   return partes.join(", ");
@@ -482,7 +467,7 @@ export function pisoTipicoMaquina(casa, modelo, maquinas = []) {
  * d2…), em linhas até 15 m, tamanhos típicos (o espaço principal de serviços/industrial com o tamanho que a
  * área dá), sem sobreposição; cada piso (`piso`, 0 = r/c) começa no mesmo canto da mesma folha (os pisos
  * ficam uns por cima dos outros, como na casa; a folha é a do maior). Cada divisão só com os aparelhos
- * base (aparelhosOmissao: porta, interruptor, luz, tomadas); cada máquina escolhida (grandes e pequenas; chaves
+ * base (aparelhosOmissao: porta, interruptor, tomadas); cada máquina escolhida (grandes e pequenas; chaves
  * ou {modelo, qtd, piso}) na divisão certa (DESTINO) do piso escolhido (sem piso: o típico), ao fundo, tantas
  * quantas pedidas (repartidas pelas divisões desse tipo). Sem janelas, sensores, quadro elétrico nem TV
  * automáticos (decisão do dono): o quadro é orçamentado no passo 5 sem precisar do ícone (quadro.js pisosDosQuadros).
@@ -847,8 +832,8 @@ export function assinaturaCasa(casa, maquinas = []) {
 }
 
 /**
- * "O que quer fazer" já não acrescenta aparelhos (decisão do dono): no passo 4 cada divisão mostra uma dica curta
- * do que o cliente pode acrescentar com os botões. `nome`: a divisão; `temTomadas`: a divisão tem tomadas.
+ * "O que quer fazer" já não acrescenta aparelhos (decisão do dono): em "Trocar e reparar" (antes: no passo 4, que
+ * desde 2026-10-03 só levanta o que a casa já tem) cada divisão mostra uma dica curta do que o cliente pode acrescentar com os botões. `nome`: a divisão; `temTomadas`: a divisão tem tomadas.
  * - alarme: sensores (salas, corredor, entrada, loja, receção, nave, armazém);
  * - estores: janelas com estore motorizado (salas e quartos);
  * - iluminação automática: sensor de movimento (divisões interiores);
@@ -861,9 +846,9 @@ export function dicasObjetivos(nome, objetivos = [], { temTomadas = false } = {}
   const t = tipoDivisao(nome);
   const interior = !["jardim", "varanda"].includes(t);
   const r = [];
-  if (quer("alarme") && ["sala", "sala_cozinha", "corredor", "entrada", "loja", "rececao", "nave", "armazem"].includes(t)) r.push("Para o alarme, acrescente sensores com \"Acrescentar outro aparelho\".");
+  if (quer("alarme") && ["sala", "sala_cozinha", "corredor", "entrada", "loja", "rececao", "nave", "armazem"].includes(t)) r.push("Para o alarme, acrescente sensores com \"Acrescentar um aparelho\".");
   if (quer("estores") && ["sala", "sala_cozinha", "quarto"].includes(t)) r.push("Para estores automáticos, acrescente as janelas e marque o estore motorizado.");
   if (quer("iluminacao_auto") && interior) r.push("Para a luz acender sozinha, acrescente um sensor de movimento.");
-  if ((quer("poupar") || quer("energia")) && temTomadas) r.push("Para poupar energia, torne tomadas inteligentes (toque no nome delas).");
+  if ((quer("poupar") || quer("energia")) && temTomadas) r.push("Para poupar energia, troque tomadas por inteligentes (Substituir).");
   return r;
 }

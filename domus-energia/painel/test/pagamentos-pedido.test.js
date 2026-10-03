@@ -106,13 +106,13 @@ describe('modo simulado', () => {
   const painel = (metodo, caminho, papel = 'ceo', corpo) => p.pedir(metodo, `/painel/api/${caminho}`, { cookie: p.cookies[papel], corpo });
   /** Enviar (grátis): 201 com o pedido; `compra` = pormenorizado | pormenorizado_visita traz também o pagamento. */
   async function enviar(c, extra = {}) {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', simulacao: SIM, ...extra } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM, ...extra } });
     assert.equal(r.estado, 201, r.texto);
     assert.ok(r.json.pedido, 'o pedido já existe');
     return r.json;
   }
   async function enviarAvaria(c, extra = {}) {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA, ...extra } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA, ...extra } });
     assert.equal(r.estado, 202, r.texto);
     return r.json.pagamento;
   }
@@ -134,8 +134,8 @@ describe('modo simulado', () => {
     const antes = nOrc();
     const novosAntes = (await painel('GET', 'resumo')).json.pedidos_novos;
     // O browser não escolhe o valor (campo desconhecido → 400) nem uma compra que não existe.
-    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', simulacao: SIM, valor: 1 } })).estado, 400);
-    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', simulacao: SIM, compra: 'tudo' } })).estado, 400);
+    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', localidade: 'Sintra', servico: 'S', morada: 'Rua do Teste, 1', simulacao: SIM, valor: 1 } })).estado, 400);
+    assert.equal((await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'A', telefone: '912 000 111', localidade: 'Sintra', servico: 'S', morada: 'Rua do Teste, 1', simulacao: SIM, compra: 'tudo' } })).estado, 400);
     assert.equal((await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'A', telefone: '912 000 111', servico: 'S', compra: 'pormenorizado' } })).estado, 400, 'sem simulação não se compra');
     const r = await enviar(c);
     assert.equal(r.pagamento, undefined, 'nada para pagar');
@@ -343,7 +343,7 @@ describe('modo simulado', () => {
     assert.deepEqual([l.relatorio, l.compras.pode, l.compras.avaria], [null, false, true]);
     assert.equal((await comprar(c, id, 'relatorio_pormenorizado')).estado, 409);
     // Fora da área: não se envia (fale connosco).
-    const rf = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'X', telefone: '912 000 111', servico: 'R', localidade: 'Funchal', simulacao: { ...SIM_AVARIA, casa: { ...SIM_AVARIA.casa, localidade: 'Funchal' } } } });
+    const rf = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'X', telefone: '912 000 111', servico: 'R', localidade: 'Funchal', morada: 'Rua do Teste, 1', simulacao: { ...SIM_AVARIA, casa: { ...SIM_AVARIA.casa, localidade: 'Funchal' } } } });
     assert.equal(rf.estado, 409, rf.texto);
     assert.match(rf.json.erro, /fora da área servida.*telefone ou WhatsApp/);
   });
@@ -842,14 +842,14 @@ describe('modo simulado', () => {
     const ip = '198.51.100.23';
     let pg = null;
     for (let i = 0; i < 8; i++) {
-      const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, ip, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'R', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+      const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, ip, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'R', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
       assert.equal(r.estado, 202, `tentativa ${i + 1}: ${r.texto}`);
       pg = r.json.pagamento;
       assert.equal((await simular(c, pg.ref, i % 2 ? 'cancelar' : 'falha')).estado, 200);
     }
     assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE ref = ? AND pedido IS NULL').get(pg.ref).n, 1, 'o pedido guardado sai ao falhar/cancelar');
     const d = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: d.cookie, ip, corpo: { nome: 'Outro', telefone: '912 000 112', servico: 'S', localidade: 'Sintra', simulacao: SIM } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: d.cookie, ip, corpo: { nome: 'Outro', telefone: '912 000 112', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM } });
     assert.equal(r.estado, 201, r.texto);
   });
 
@@ -906,7 +906,7 @@ describe('modo stripe', () => {
 
   test('Checkout com cartão/MB Way/Multibanco (compra no passo Enviar, volta à conta); a página simulada não existe; webhook assinado confirma (uma vez)', async () => {
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: SIM, compra: 'pormenorizado' } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM, compra: 'pormenorizado' } });
     assert.equal(r.estado, 201, r.texto);
     const pg = r.json.pagamento;
     assert.equal(pg.modo, 'stripe');
@@ -951,7 +951,7 @@ describe('modo stripe', () => {
     const q = await painelComEquipa({ env: { PAGAMENTO_PEDIDO: '1' } });
     try {
       const c = await q.contaConfirmada();
-      const r = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', simulacao: SIM, compra: 'pormenorizado' } });
+      const r = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', localidade: 'Sintra', servico: 'S', morada: 'Rua do Teste, 1', simulacao: SIM, compra: 'pormenorizado' } });
       assert.equal(r.estado, 201, 'enviado (grátis)');
       assert.equal(r.json.pagamento, undefined);
       assert.match(r.json.pagamento_erro, /pagamentos online estão desligados/);
@@ -960,7 +960,7 @@ describe('modo stripe', () => {
       assert.equal((await q.pedir('POST', `/api/conta/pedidos/${l.id}/pagar`, { cookie: c.cookie, corpo: { fase: 'relatorio_pormenorizado' } })).estado, 404);
       // Sem pagamentos o CEO pode libertar o relatório (não há compra).
       assert.equal((await q.pedir('POST', `/painel/api/orcamentos/${l.id}/libertar-relatorio`, { cookie: q.cookies.ceo, corpo: {} })).estado, 200);
-      const av = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'R', simulacao: SIM_AVARIA } });
+      const av = await q.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', localidade: 'Sintra', servico: 'R', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
       assert.equal(av.estado, 201, 'a avaria vai sem pagar');
       assert.deepEqual((await q.pedir('GET', '/api/catalogo')).json.pagamentos, { ativo: false, modo: null, demonstracao: false });
       const eu = (await q.pedir('GET', '/painel/api/eu', { cookie: q.cookies.ceo })).json.pagamentos;

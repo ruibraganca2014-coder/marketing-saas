@@ -262,6 +262,20 @@ input, select { min-height: 44px; }
 /* Detalhes obrigatórios (passo 4): o que falta responder e as dicas dos objetivos. */
 .divisao-falta { margin: 0; padding: 6px 10px; border-radius: 10px; background: var(--alarme-suave); color: var(--alarme-texto); font-weight: 700; }
 .divisao-dica { margin: 0; }
+/* Inventário das Divisões (decisão do dono, 2026-10-03): um bloco por tipo (interruptores, tomadas) — o nome, − n +,
+   "Não tem" e uma linha por aparelho com as escolhas. Tudo dobra: com 6 ou mais nunca há scroll para o lado. */
+.inventario { display: grid; gap: 8px; padding: 12px 0 2px; border-top: 1px solid var(--borda); min-width: 0; }
+.inventario-cabeca { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.inventario-titulo { display: flex; align-items: center; gap: 8px; margin: 0; flex: 1 1 9rem; min-width: 0; font-size: 1.05rem; }
+.inventario .ajuda { margin: 0; }
+.inventario-nao-tem { min-height: 44px; }
+.inventario-nao-tem[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.inventario-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.inventario-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; min-width: 0; }
+.inventario-nome { font-weight: 700; }
+.inventario-item.por-responder .inventario-opcoes { border-color: var(--alarme-texto); }
+.inventario-opcoes .acao-botao { min-height: 44px; min-width: 44px; }
+@media (max-width: 479px) { .inventario-opcoes { flex: 1 1 100%; } .inventario-opcoes .acao-botao { flex: 1 1 0; font-size: .9rem; } }
 .aparelho-texto small.falta-responder { color: var(--alarme-texto); font-weight: 800; }
 .aparelho-quais .por-responder { border-color: var(--alarme-texto); color: var(--alarme-texto); }
 .aparelhos { list-style: none; margin: 0; padding: 0; display: grid; }

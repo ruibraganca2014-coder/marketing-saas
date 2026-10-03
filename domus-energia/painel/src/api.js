@@ -24,7 +24,7 @@ import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
 import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
-import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_ELETRICISTA } from './acesso-rapido.js';
+import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_ELETRICISTA } from './acesso-rapido.js';
 import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
 import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
@@ -1838,6 +1838,14 @@ export function criarApi(ctx) {
     }
     const c = camposContacto(v, true);
     if (!c.telefone && !c.email) falha('Indique um telefone ou um email para o podermos contactar.');
+    // Pedidos do simulador (com simulação; decisão do dono, 2026-10-03): telefone, localidade (concelho) e morada da obra
+    // são obrigatórios, como no passo Enviar. O formulário de contacto do site (sem simulação) fica como estava: nome e
+    // telefone ou email. O telefone segue a regra de sempre (RE_TELEFONE: com ou sem +351/00351, com espaços).
+    if (conta) {
+      if (!c.telefone) falha('Falta o telefone: é obrigatório para enviar a simulação.');
+      if (!c.localidade) falha('Falta a localidade (concelho) da obra: é obrigatória para enviar a simulação.');
+      if (!c.morada) falha('Falta a morada da obra: é obrigatória para enviar a simulação.');
+    }
     const codigoCli = texto(v.codigo_cliente, 'o código de cliente', { max: 32, re: RE_ID, reMsg: 'Código de cliente inválido.' });
     const sim = validarSimulacao(v.simulacao);
     // Fase 3 (docs/PAGAMENTOS-PEDIDO.md): o que o cliente compra no passo Enviar — só o relatório básico (grátis), o
@@ -1932,8 +1940,8 @@ export function criarApi(ctx) {
       // Rotas públicas: CORS com credenciais só para o site público noutra origem (SITE_ORIGENS).
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
       if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
-      // Sem o acesso rápido (sempre, no servidor) estes dois endereços seguem em frente e dão 404 como qualquer outro desconhecido.
-      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
+      // Sem o acesso rápido (sempre, no servidor) estes endereços seguem em frente e dão 404 como qualquer outro desconhecido.
+      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_CONTAS || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
       // Sem ELETRICISTAS=1 o módulo não existe: /api/eletricista/* segue em frente e dá 404 como qualquer outro desconhecido.
       if (config.eletricistas && caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
       if (caminho.startsWith('/api/conta/')) {

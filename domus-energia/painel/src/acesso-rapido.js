@@ -2,6 +2,9 @@
 // palavra-passe com utilizadores e contas DE TESTE, pelos botões que o lançador local (local/iniciar.js) junta às páginas.
 //   POST /painel/api/dev/entrar {papel}  → sessão normal do painel (cookie domus_painel) como ceo | comercial | tecnico
 //   POST /api/conta/dev/entrar {n}       → sessão normal da conta de cliente (cookie domus_conta), conta de teste 1 | 2
+//   POST /api/conta/dev/entrar {id}      → o mesmo, para uma conta de cliente que já existe na base local (pelo id)
+//   POST /api/conta/dev/contas {}        → as contas de cliente da base local (só id, email, nome, tem_casa), para os
+//                                          botões do ecrã de entrada da Área de cliente (local/acesso-rapido.js)
 //   POST /api/eletricista/dev/entrar {n} → sessão normal da área do eletricista (cookie domus_eletricista), eletricista de teste 1
 // Num servidor a sério é impossível, por camadas:
 //   1. só existe com ACESSO_RAPIDO=1, que só o lançador local põe (o servidor/docker-compose.yml nunca);
@@ -21,6 +24,9 @@ import { iso } from './util.js';
 
 export const ROTA_EQUIPA = '/painel/api/dev/entrar';
 export const ROTA_CLIENTE = '/api/conta/dev/entrar';
+/** Lista das contas da base local (botões da Área de cliente). POST, como as outras: passa pela mesma porta (Origin, JSON). */
+export const ROTA_CONTAS = '/api/conta/dev/contas';
+export const MAX_CONTAS_LISTA = 200;
 export const ROTA_ELETRICISTA = '/api/eletricista/dev/entrar';
 
 // Perfis de teste: uma linha por botão. Para juntar outro acrescenta-se aqui e em local/acesso-rapido.js (ATALHOS).
@@ -114,9 +120,35 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
       { 'Set-Cookie': auth.cookie(token, Math.floor(config.sessaoMs / 1000)) });
   }
 
+  /**
+   * As contas de cliente que existem na base (decisão do dono, 2026-10-03: um botão por conta no ecrã de entrada da
+   * Área de cliente, só no lançador local): ativas e com o email confirmado, as mais recentes primeiro, até
+   * MAX_CONTAS_LISTA — só o que o botão precisa (id, email, nome, se tem casa ligada). Nada de telefones, moradas,
+   * pedidos nem credenciais.
+   */
+  async function listarContas(req, res) {
+    await lerJson(req, []);
+    const contasDaqui = db.prepare('SELECT id, email, nome, casa_codigo FROM contas WHERE ativo = 1 AND confirmado IS NOT NULL ORDER BY id DESC LIMIT ?').all(MAX_CONTAS_LISTA)
+      .map((c) => ({ id: c.id, email: c.email, nome: c.nome ?? null, tem_casa: Boolean(c.casa_codigo) }));
+    responder(res, 200, { contas: contasDaqui });
+  }
+
+  /** Uma conta que já existe (pelo id): a mesma sessão de sempre (contas.abrirSessao), sem lhe mexer; só ativa e confirmada. */
+  function entrarContaExistente(req, res, ip, id) {
+    const c = Number.isInteger(id) && id > 0 ? db.prepare('SELECT * FROM contas WHERE id = ?').get(id) : null;
+    if (!c) throw new ErroApi(400, 'Conta desconhecida.');
+    if (!c.ativo) throw new ErroApi(409, 'Esta conta foi desativada no painel (Contas).');
+    if (!c.confirmado) throw new ErroApi(409, 'Esta conta ainda não confirmou o email.');
+    const cookie = contas.abrirSessao(req, c.id);
+    auditar({ id: null, email: `conta:${c.id}` }, 'conta_entrou_teste', `conta:${c.id}`, { origem: 'acesso_rapido' }, ip);
+    responder(res, 200, { conta: contas.publico(c) }, { 'Set-Cookie': cookie });
+  }
+
   async function entrarCliente(req, res, ip) {
-    const v = await lerJson(req, ['n']);
-    const email = Number.isInteger(v.n) && Object.hasOwn(CLIENTES_TESTE, v.n) ? CLIENTES_TESTE[v.n] : null;
+    const v = await lerJson(req, ['n', 'id']);
+    // {id}: uma conta que já existe na base local; {n}: uma das contas de teste (criada na primeira vez). Só um dos dois.
+    if (v.id !== undefined && v.n === undefined) return entrarContaExistente(req, res, ip, v.id);
+    const email = v.id === undefined && Number.isInteger(v.n) && Object.hasOwn(CLIENTES_TESTE, v.n) ? CLIENTES_TESTE[v.n] : null;
     if (!email) throw new ErroApi(400, 'Cliente de teste desconhecido.');
     const ler = () => db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
     let c = ler();
@@ -157,7 +189,7 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
     responder(res, 200, { eletricista: eletricistas.publico(e) }, { 'Set-Cookie': cookie });
   }
 
-  /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
+  /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
   async function tratar(req, res, caminho, ip) {
     // Só neste computador: chega pelo lançador (127.0.0.1), vem de 127.0.0.1/::1 e com o Host e a Origin de localhost;
     // pela rede local ou de fora é como se não existisse.
@@ -166,6 +198,7 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
     if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     if (caminho === ROTA_ELETRICISTA) return entrarEletricista(req, res, ip);
+    if (caminho === ROTA_CONTAS) return listarContas(req, res);
     return caminho === ROTA_EQUIPA ? entrarEquipa(req, res, ip) : entrarCliente(req, res, ip);
   }
 

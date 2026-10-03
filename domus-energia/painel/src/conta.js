@@ -390,9 +390,11 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   // Confirmar o email. Sem sessão (depois de "Criar conta"): {email, password, codigo}, sempre a mesma resposta de
   // erro; as tentativas do código só contam com a palavra-passe certa (um terceiro não o gasta); abre a sessão.
   // Com sessão (contas por confirmar com sessão aberta antes desta versão): {codigo}, com as mensagens detalhadas.
+  // Com sessão e `email` no corpo ("Entrar com código" de outra conta, ou da mesma com a casa por ligar: a Área de
+  // cliente mostra a entrada com a sessão aberta) é uma entrada nova por código: abre a sessão dessa conta.
   h.confirmar = async ({ req, res, c, ip }) => {
-    if (!c) return confirmarSemSessao({ req, res, ip });
-    const v = await lerJson(req, ['codigo']);
+    const v = await lerJson(req, ['email', 'codigo']);
+    if (!c || v.email !== undefined) return confirmarSemSessao({ req, res, ip, v });
     if (c.confirmado) return responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) });
     esperar([[L.codigoIp, ip]]);
     contar([[L.codigoIp, ip]]);
@@ -409,8 +411,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
 
   // {email, codigo}: o código de confirmar (conta por confirmar: confirma o email) ou de entrar (conta confirmada);
   // abre a sessão. Sempre a mesma resposta de erro (um terceiro só fica a saber que errou).
-  async function confirmarSemSessao({ req, res, ip }) {
-    const v = await lerJson(req, ['email', 'codigo']);
+  async function confirmarSemSessao({ req, res, ip, v }) {
     const email = emailValido(v.email);
     esperar([[L.codigoIp, ip]]);
     contar([[L.codigoIp, ip]]);

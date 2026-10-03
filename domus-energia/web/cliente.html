@@ -44,6 +44,16 @@
           <button class="btn" type="submit">Entrar</button>
           <p class="ajuda"><a href="conta.html">A minha conta</a> (criar conta, confirmar o email, esqueci a palavra-passe).</p>
         </form>
+        <!-- Entrar com código (decisão do dono, 2026-10-03): sem palavra-passe — o email recebe um código de 6 algarismos (15 minutos), pelas mesmas rotas de "A minha conta" (POST /api/conta/codigo e confirmar); a sessão é a mesma da palavra-passe. -->
+        <form id="form-login-codigo" hidden novalidate>
+          <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" maxlength="254"></label>
+          <div id="login-codigo-passo" hidden>
+            <p class="msg info" id="login-codigo-msg" role="status"></p>
+            <label>Código de 6 algarismos<input name="codigo" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*"></label>
+          </div>
+          <button class="btn" type="submit" id="login-codigo-botao">Enviar código</button>
+          <button class="link-botao" id="login-codigo-outro" type="button" hidden>Outro email ou outro código</button>
+        </form>
         <form id="form-login" hidden>
           <label>Código de cliente<input name="codigo" type="text" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
           <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password"></label>
@@ -51,6 +61,7 @@
           <button class="btn" type="submit">Entrar</button>
         </form>
         <div class="msg erro" id="login-erro" hidden></div>
+        <button class="link-botao" id="login-sem-senha" type="button">Entrar com código (sem palavra-passe)</button>
         <button class="link-botao" id="login-modo" type="button">Entrar com o código de cliente</button>
       </div>
 

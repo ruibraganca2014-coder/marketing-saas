@@ -188,9 +188,10 @@
           </div>
         </section>
 
-        <!-- 6. Divisões: só contar o que existe (decisão do dono): separadores, um cartão por divisão com os aparelhos da planta (− n +) e "Acrescentar outro aparelho"; sem fotos, perguntas obrigatórias nem "Divisão verificada" (o que fazer a cada um e as fotos: passo 7) -->
+        <!-- 6. Divisões: o que a casa JÁ TEM, antes da obra (decisão do dono, 2026-10-03): separadores, um cartão por divisão só com os interruptores (quantos e os botões de cada um) e as tomadas (quantas e o tipo de cada uma), ou "Não tem"; o "Seguinte" só passa com todas as divisões respondidas (o que fazer a cada um e o trabalho novo: "Trocar e reparar") -->
         <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
           <h2 id="titulo-5" tabindex="-1">6. Divisões</h2>
+          <p class="ajuda">Diga o que a casa tem hoje, antes da obra: em cada divisão, os interruptores e as tomadas. O que quiser de novo pede-se mais à frente.</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
             <p id="divisoes-progresso" aria-live="polite"></p>
@@ -276,15 +277,15 @@
           <div class="cartao sim-enviar" id="enviar-contacto">
             <h3>Contacto</h3>
             <div class="msg" id="enviar-msg" role="status" hidden></div>
+            <!-- Decisão do dono (2026-10-03): sem o campo Email (o do pedido é o da conta, em "A sua conta"); duas linhas de dois campos (uma coluna no telemóvel, pela mesma ordem); Nome, Telefone, Localidade e Morada obrigatórios (também no servidor). -->
             <div class="duas">
               <label>Nome *<input id="contacto-nome" name="nome" maxlength="120" autocomplete="name" required></label>
-              <label>Telefone<input id="contacto-telefone" name="telefone" type="tel" maxlength="30" autocomplete="tel"></label>
+              <label>Telefone *<input id="contacto-telefone" name="telefone" type="tel" maxlength="30" autocomplete="tel" required></label>
             </div>
             <div class="duas">
-              <label>Email <small class="ajuda" id="contacto-email-ajuda">O da sua conta.</small><input id="contacto-email" name="email" type="email" maxlength="254" autocomplete="email" readonly></label>
-              <label>Localidade (concelho)<input id="contacto-localidade" name="localidade" maxlength="80" autocomplete="address-level2"></label>
+              <label>Localidade (concelho) *<input id="contacto-localidade" name="localidade" maxlength="80" autocomplete="address-level2" required></label>
+              <label>Morada da obra *<input id="contacto-morada" name="morada" maxlength="200" autocomplete="street-address" required></label>
             </div>
-            <label>Morada da obra (opcional)<input id="contacto-morada" name="morada" maxlength="200" autocomplete="street-address"></label>
             <div class="msg info" id="enviar-deslocacao" aria-live="polite" hidden></div>
             <label>Mensagem (opcional)<textarea id="contacto-mensagem" name="mensagem" maxlength="2000"></textarea></label>
             <!-- Origem do contacto (web/origem.js): opcional; vai só a categoria escolhida. -->

@@ -78,6 +78,56 @@ export function marcarVista(e, passo, d, divisoes) {
   e.vistas = { ...e.vistas, [passo]: depois };
   return true;
 }
+/**
+ * Inventário do passo "Divisões" (decisão do dono, 2026-10-03; vale sobre "Divisões = só contar"): o passo levanta só o
+ * que a casa JÁ TEM, antes da obra, em interruptores e tomadas. Nada se assume: em cada divisão, e para cada um dos
+ * dois tipos, o cliente diz quantos tem e como é cada um (interruptor: 1–4 botões, `props.botoes`; tomada: simples,
+ * dupla ou tripla, `props.caixas`) ou marca "Não tem". Um aparelho só conta como respondido quando o cliente escolheu
+ * o valor dele (`confirmado: true` no elemento da planta; os que a planta sugere nascem sem ele); "Não tem" fica em
+ * `naoTem[tipo]`, pela chave da divisão (chaveVista), e só vale enquanto a divisão não tiver nenhum desse tipo.
+ */
+export const TIPOS_INVENTARIO = ["interruptor", "tomada"];
+/** O cliente marcou "Não tem" para `tipo` na divisão `d`? */
+export const naoTem = (e, tipo, d) => !!e.naoTem?.[tipo]?.includes(chaveVista(d));
+/**
+ * O inventário da divisão `d` da `planta`: por tipo, {els (os aparelhos dela), falta (quantos por responder), sem ("Não
+ * tem" marcado e nenhum na planta), respondido}; `respondida` = os dois tipos respondidos (só então leva o ✓).
+ */
+export function inventarioDivisao(e, planta, d) {
+  const r = {};
+  for (const tipo of TIPOS_INVENTARIO) {
+    const els = (planta?.elementos ?? []).filter((x) => x.tipo === tipo && x.divisao === d.id);
+    const falta = els.filter((x) => x.confirmado !== true).length;
+    const sem = !els.length && naoTem(e, tipo, d);
+    r[tipo] = { els, falta, sem, respondido: els.length ? falta === 0 : sem };
+  }
+  r.respondida = TIPOS_INVENTARIO.every((t) => r[t].respondido);
+  return r;
+}
+/** As divisões de `divisoes` (pela ordem dada) com o inventário por responder. */
+export const divisoesPorInventariar = (e, planta, divisoes = planta?.divisoes ?? []) => divisoes.filter((d) => !inventarioDivisao(e, planta, d).respondida);
+/** Marca (ou tira, `sim` false) "Não tem" de `tipo` na divisão `d`; ficam só as divisões que ainda existem (`divisoes`). */
+export function marcarNaoTem(e, tipo, d, sim, divisoes) {
+  const existem = new Set(divisoes.map(chaveVista));
+  const antes = (e.naoTem?.[tipo] ?? []).filter((k) => existem.has(k) && k !== chaveVista(d));
+  e.naoTem = { ...Object.fromEntries(TIPOS_INVENTARIO.map((t) => [t, e.naoTem?.[t] ?? []])), [tipo]: sim ? [...antes, chaveVista(d)] : antes };
+}
+/**
+ * `simulacao.inventario` (§6): o que a casa já tem, divisão a divisão, como o cliente o disse — `interruptores` = os
+ * botões de cada um (1–4), `tomadas` = as caixas de cada uma (1 simples, 2 dupla, 3 tripla); [] = "Não tem"; null = por
+ * responder (funis sem o passo "Divisões": só reparações, "Já tenho a planta" com uma casa de antes). null sem planta.
+ */
+export function inventarioParaEnvio(e, planta) {
+  if (!planta || !plantaTemConteudo(planta)) return null;
+  return planta.divisoes.slice(0, MAX_DIVISOES).map((d) => {
+    const inv = inventarioDivisao(e, planta, d);
+    return {
+      divisao: d.id, nome: textoSeguro(d.nome, 60) || "Divisão", piso: pisoDe(d),
+      interruptores: inv.interruptor.respondido ? inv.interruptor.els.map((x) => int(x.props?.botoes, 1, 4, 1)) : null,
+      tomadas: inv.tomada.respondido ? inv.tomada.els.map((x) => caixasDe(x.props)) : null,
+    };
+  });
+}
 /** Serviços do funil "Já tenho a planta": automatizar e reparar (a omissão dos aparelhos é Manter). */
 export const SERVICO_PLANTA = ["automatizar", "reparar"];
 /**
@@ -140,8 +190,14 @@ export const FOTOS_AVARIA = [FOTO_AVARIA, "avaria:foto_2", "avaria:foto_3", "ava
  * - `ordem: 11` (13 passos, ronda A: o Quadro antes das Divisões e da Planta) e `ordem: 12` (o Quadro depois da Planta,
  *   com os dois relatórios): quem estava no Relatório completo (12) passa ao Relatório (11); o mais adiantado 12 passa
  *   às Melhorias (o último passo de então que ainda existe antes do Orçamento).
+ * - `ordem: 13` (antes do inventário do passo "Divisões", decisão do dono de 2026-10-03): os mesmos passos pela mesma
+ *   ordem. Os interruptores e as tomadas da planta ficam como sugestões por responder (nenhum tem `confirmado`), os
+ *   pontos de luz sem ação escolhida saem da planta (eram os que a casa desenhava: já não se levantam) e quem estava
+ *   para lá das Divisões fica no seu passo, mas o "Seguinte", a barra dos passos e o Enviar levam-no a elas enquanto
+ *   houver divisões por responder (app.js bloquearInventario). Os aparelhos sem ação escolhida passam a Manter
+ *   (acoes.js acaoOmissao); os que tinham uma escolha ficam com ela.
  */
-export const ORDEM = 13;
+export const ORDEM = 14;
 /** Até à ordem 10: a ordem dos passos e os passos de cada funil (antes dos relatórios; a Planta depois dos Equipamentos). */
 const ORDEM_10 = [0, 1, 2, 3, 4, 5, 6, 10, 7, 8, 9];
 const FUNIS_10 = { primeira: [0, 1, 2, 3, 4, 5, 6, 10, 7, 8], planta: [0, 6, 10, 7, 8], avaria: [0, 9, 8] };
@@ -254,6 +310,7 @@ export function estadoNovo() {
     verificadas: [],           // ids das divisões (da planta) que o cliente marcou "Divisão verificada" (lote 5)
     vistas: { divisoes: [], trocar: [] },   // divisão a divisão: as divisões já vistas em cada passo (chaveVista)
     vistasLivres: [],          // passos que um estado de antes da regra "divisão a divisão" já tinha passado
+    naoTem: { interruptor: [], tomada: [] },   // inventário das Divisões: "Não tem" por tipo (chaveVista da divisão)
     fotosId: null,             // liga as fotos guardadas no IndexedDB (fotos.js) a esta simulação
     extras: { central: false, termostatos: 0 },
     termostatosEditados: false, // o cliente mudou os termóstatos: o objetivo "aquecimento" já não os muda
@@ -382,8 +439,11 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
     if (nome) n.nome = nome;
     if (e.altura_cm !== undefined && e.altura_cm !== null && Number.isFinite(Number(e.altura_cm))) n.altura_cm = int(e.altura_cm, 0, ALTURA_MAX_CM);
     if (temPergunta(n.tipo, n.props) && (antigo ? porResponderAntigo(n.tipo, n.props) : e.por_responder === true)) n.por_responder = true;
-    // Ação por aparelho (lote 7, acoes.js): a escolhida, a descrição da avaria e "por um inteligente?".
-    if (temAcao(n.tipo, n.props)) {
+    // Inventário das Divisões (decisão do dono, 2026-10-03): o cliente escolheu os botões / o tipo deste aparelho.
+    if (TIPOS_INVENTARIO.includes(n.tipo) && e.confirmado === true) n.confirmado = true;
+    // Ação por aparelho (lote 7, acoes.js): a escolhida, a descrição da avaria e "por um inteligente?". A janela guarda
+    // a ação mesmo antes de ter estore (pedida como trabalho novo em "Trocar e reparar": o estore marca-se a seguir).
+    if (temAcao(n.tipo, n.props) || n.tipo === "janela") {
       if (ACOES[e.acao]) n.acao = e.acao;
       const av = txt(e.avaria, MAX_AVARIA).replace(CONTROLO_LINHA, " ");
       if (av.trim()) n.avaria = av;
@@ -492,7 +552,9 @@ export function normalizarEstado(v) {
   // o cliente pode voltar pela barra a qualquer passo que já tinha visto.
   // `ordem: 9` (antes das Melhorias) e `ordem: 10` (antes dos relatórios) têm os mesmos índices: carregam-se como um
   // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
-  const deAgora = v.ordem === ORDEM && v.passos === PASSOS.length;
+  // `ordem: 13` (antes do inventário das Divisões): os mesmos passos pela mesma ordem (`antesInventario`, mais abaixo).
+  const antesInventario = v.ordem !== ORDEM;
+  const deAgora = (v.ordem === ORDEM || v.ordem === 13) && v.passos === PASSOS.length;
   const de12 = v.ordem === 12 && v.passos === PASSOS.length;   // ronda A/B: os dois relatórios (o 12 depois das Melhorias), a ordem de agora
   const de11 = v.ordem === 11 && v.passos === PASSOS.length;   // ronda A: o Quadro ainda antes das Divisões e da Planta
   const atual = deAgora || de12 || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
@@ -588,6 +650,12 @@ export function normalizarEstado(v) {
   e.querSugerido = bool(v.querSugerido) || maquinasEscolhidas(e.quer).length > 0 || ordemPasso(e.visitado) > ordemPasso(PASSO.quer);
   if (e.casa.fases === null) { e.casa.fases = fasesSugeridas(e); e.fasesEditadas = false; }
   e.planta = normalizarPlanta(v.planta, { pisosAntigos });
+  // Estado de antes do inventário das Divisões (decisão do dono, 2026-10-03): nenhum interruptor nem tomada conta como
+  // respondido (são sugestões) e os pontos de luz sem ação escolhida saem (a casa já não os desenha nem os levanta).
+  if (antesInventario) {
+    e.planta.elementos = e.planta.elementos.filter((x) => x.tipo !== "luz" || ACOES[x.acao]);
+    for (const x of e.planta.elementos) delete x.confirmado;
+  }
   // Já não se salta a planta (está no topo de todos os passos): uma planta saltada num estado antigo volta a contar
   // (vazia, é desenhada a partir da casa).
   e.plantaSaltada = false;
@@ -639,6 +707,10 @@ export function normalizarEstado(v) {
   for (const k of PASSOS_POR_DIVISAO) e.vistas[k] = [...new Set(lista(vs?.[k], MAX_DIVISOES + 1).filter((x) => typeof x === "string" && x.length <= 110).map(renomearKitnet))];
   e.vistasLivres = vs ? PASSOS_POR_DIVISAO.filter((k) => lista(v.vistasLivres, 2).includes(k))
     : PASSOS_POR_DIVISAO.filter((k) => ordemPasso(e.visitado) > ordemPasso(PASSO[k]));
+  // Inventário das Divisões: "Não tem" por tipo (um estado de antes não tem nenhum: fica tudo por responder; quem já
+  // estava para lá das Divisões fica onde estava e é levado a elas pelo "Seguinte", a barra ou o Enviar: app.js bloquearInventario).
+  const nt = !antesInventario && v.naoTem && typeof v.naoTem === "object" ? v.naoTem : {};
+  for (const k of TIPOS_INVENTARIO) e.naoTem[k] = [...new Set(lista(nt[k], MAX_DIVISOES + 1).filter((x) => typeof x === "string" && x.length <= 110).map(renomearKitnet))];
   e.fotosId = typeof v.fotosId === "string" && /^[a-f0-9]{8,40}$/.test(v.fotosId) ? v.fotosId : null;
   const ex = v.extras && typeof v.extras === "object" ? v.extras : {};
   e.extras = { central: bool(ex.central), termostatos: int(ex.termostatos, 0, 20) };
@@ -841,7 +913,7 @@ export function temProgresso(e, passoInicial = 0) {
  */
 export const CHAVE_CASA = "domus.simulador.casa";
 const CAMPOS_CASA = ["pisosDesde0", "casa", "fasesEditadas", "quer", "planta", "plantaAuto", "plantaBase", "plantaFase", "plantaSinc",
-  "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados", "instalado"];
+  "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados", "instalado", "naoTem"];
 /** O estado tem uma casa que se possa guardar? (o tipo de imóvel e uma planta com divisões) */
 export const temCasa = (e) => !!e && !!e.casa?.tipo && Array.isArray(e.planta?.divisoes) && e.planta.divisoes.length > 0;
 /** Estado só com a casa (`soCasa`), sem o que era do pedido (ações, avarias, fotos, contacto, visita). */
@@ -1160,6 +1232,8 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     casa: casaParaEnvio(estado),
     quer: querParaEnvio(estado),
     planta: planta ? plantaParaEnvio(planta, servico) : null,
+    // Decisão do dono (2026-10-03): o que a casa já tem em interruptores e tomadas, como o cliente o disse nas Divisões.
+    inventario: inventarioParaEnvio(estado, planta),
     // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
     quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
     trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? []),
@@ -1279,13 +1353,18 @@ export const bytes = (s) => new TextEncoder().encode(s).length;
 /** Problema no contacto (as mesmas regras do painel) ou null. */
 export function problemaContacto(k) {
   const t = (v) => String(v ?? "").trim();
+  // Decisão do dono (2026-10-03): nome, telefone, localidade (concelho) e morada da obra são obrigatórios nos pedidos do
+  // simulador (o painel recusa sem eles: api.js orcamentoPublico); pela ordem do ecrã — o primeiro em falta fica com o
+  // foco. O telefone segue a regra do painel (RE_TELEFONE: com ou sem +351/00351, com espaços; números de fora também).
   if (!t(k.nome)) return { campo: "nome", texto: "Escreva o seu nome." };
   if (t(k.nome).length > 120) return { campo: "nome", texto: "O nome é demasiado longo (máx. 120 caracteres)." };
-  if (!t(k.telefone) && !t(k.email)) return { campo: "telefone", texto: "Indique um telefone ou um email para o podermos contactar." };
-  if (t(k.telefone) && !RE_TELEFONE.test(t(k.telefone))) return { campo: "telefone", texto: "O telefone não parece certo: escreva o número completo (ex.: 912 345 678)." };
-  if (t(k.email) && (t(k.email).length > 254 || !RE_EMAIL.test(t(k.email)))) return { campo: "email", texto: "O email não parece certo (ex.: nome@exemplo.pt)." };
+  if (!t(k.telefone)) return { campo: "telefone", texto: "Falta o telefone: escreva o número (ex.: 912 345 678)." };
+  if (!RE_TELEFONE.test(t(k.telefone))) return { campo: "telefone", texto: "O telefone não parece certo: escreva o número completo (ex.: 912 345 678)." };
+  if (!t(k.localidade)) return { campo: "localidade", texto: "Falta a localidade: escreva o concelho da obra." };
   if (t(k.localidade).length > 80) return { campo: "localidade", texto: "A localidade é demasiado longa (máx. 80 caracteres)." };
+  if (!t(k.morada)) return { campo: "morada", texto: "Falta a morada da obra." };
   if (t(k.morada).length > 200) return { campo: "morada", texto: "A morada é demasiado longa (máx. 200 caracteres)." };
+  if (t(k.email) && (t(k.email).length > 254 || !RE_EMAIL.test(t(k.email)))) return { campo: "email", texto: "O email não parece certo (ex.: nome@exemplo.pt)." };
   if (t(k.mensagem).length > 2000) return { campo: "mensagem", texto: "A mensagem é demasiado longa (máx. 2000 caracteres)." };
   return null;
 }

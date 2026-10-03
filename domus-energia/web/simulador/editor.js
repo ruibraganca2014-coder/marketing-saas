@@ -17,7 +17,7 @@ import {
   pontoEmPoligono, distanciaPoligono, TIPOS_PAREDE, TOLERANCIA_PORTA_CM, temPergunta, COMANDOS, comandoDe, caixasDe,
 } from "./regras.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
-import { aparelhosOmissao, resumoAparelhos, tipoDivisao as tipoDoNome } from "./casa.js";
+import { aparelhosOmissao, resumoAparelhos, lugarLivre, tipoDivisao as tipoDoNome } from "./casa.js";
 import { imprimirPlanta, guardarPdf } from "./imprimir.js";
 
 const HISTORICO_MAX = 100;
@@ -27,6 +27,10 @@ const PASSO_DIVISAO = ESCALA_CM;
 const TOQUE_LONGO_MS = 500;  // toque longo (sem mexer) = duplo clique
 const PAREDE_PX = { mouse: 10, toque: 18 };   // tolerância para acertar numa parede (duplo clique / toque longo)
 const MARGEM_VISTA = 1.08;   // "Ver tudo": o conteúdo ocupa ~93 % da vista
+// focarDivisao (decisão do dono, 2026-10-03): a divisão ocupa ~60 % da vista (as vizinhas ficam em parte à vista); uma
+// divisão pequena (WC) nunca aproxima abaixo de 4,5 m de largura de vista; uma enorme (jardim) nunca afasta para lá do "Ver tudo".
+const MARGEM_FOCO = 1.6;
+const MIN_LARGURA_FOCO = 450;
 const DESTAQUE_MS = 1500;    // a divisão nova pisca durante este tempo
 // Duplo clique feito por nós (o "dblclick" do navegador não chega: a planta é redesenhada a cada toque e o
 // elemento onde o clique começou já não existe, por isso o navegador não dá "click" nem "dblclick").
@@ -137,7 +141,7 @@ function numeroInput(valor, { min, max, step = 1, id }) {
  *   `aoSelecionar`: a divisão selecionada mudou (a do elemento selecionado; null sem seleção) — o passo Divisões destaca o cartão.
  *   `aoHistorico`: depois de anular ou refazer (o passo Divisões tira a mensagem da ação que deixou de valer).
  */
-export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null, aoSelecionarElemento = null, aoHistorico = null, aoDivisaoPresa = null }) {
+export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = null, aoSelecionarElemento = null, aoHistorico = null, aoDivisaoPresa = null, acaoAoPor = null }) {
   let planta = null;
   let selecionado = null;
   let vista = { cx: 1000, cy: 750, w: 2100 };
@@ -152,6 +156,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   let aspetoFundo = null;     // altura/largura da imagem de fundo (px)
   let nDivisoesVista = 0;   // n.º de divisões quando a vista foi ajustada (confirmar)
   let ajusteAuto = false;     // a vista foi ajustada sozinha e o cliente ainda não a mexeu: reajusta se o tamanho mudar
+  let focoAuto = null;        // id da divisão em que a vista está centrada (focarDivisao) enquanto o cliente não a mexer
   let toqueLongo = null;      // temporizador do toque longo
   let colocadoEm = 0;         // quando se pôs a última coisa com uma ferramenta (o 2.º clique não abre a janela)
   let tiposDivisao = TIPOS_DIVISAO;   // tipos de divisão do tipo de imóvel (definirTiposDivisao): na linha os que a casa tem, todos na janela "Outra divisão"
@@ -722,9 +727,26 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const c = caixaConteudo();
     vista = { cx: c.x + c.w / 2, cy: c.y + c.h / 2, w: limitar(Math.max(c.w, c.h / razao) * MARGEM_VISTA, 150, maxW()) };
     ajusteAuto = true;
+    focoAuto = null;
+  }
+  /**
+   * Centra a vista na divisão `d` e aproxima até ela caber com margem (MARGEM_FOCO: as vizinhas continuam em parte à
+   * vista; nada se esconde). Sem animação (vale igual com `prefers-reduced-motion`). Até o cliente mexer na vista,
+   * volta a centrar se o tamanho da planta no ecrã mudar (ex.: a planta acabou de abrir por cima, no telemóvel).
+   */
+  function verDivisao(d) {
+    const rr = rectSvg();
+    const razao = rr.width > 0 && rr.height > 0 ? rr.height / rr.width : 0.75;
+    const c = caixaConteudo();
+    const tudo = limitar(Math.max(c.w, c.h / razao) * MARGEM_VISTA, 150, maxW());
+    const w = Math.max(d.largura_cm, d.altura_cm / razao) * MARGEM_FOCO;
+    vista = { cx: d.x_cm + d.largura_cm / 2, cy: d.y_cm + d.altura_cm / 2, w: Math.min(Math.max(w, MIN_LARGURA_FOCO), Math.max(tudo, 150)) };
+    ajusteAuto = false;
+    focoAuto = d.id;
   }
   function zoom(f, clientX, clientY) {
     ajusteAuto = false;
+    focoAuto = null;
     const rr = rectSvg();
     const cx = clientX ?? rr.left + rr.width / 2;
     const cy = clientY ?? rr.top + rr.height / 2;
@@ -901,6 +923,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(tipo, modelo),
     };
     if (temPergunta(tipo, e.props)) e.por_responder = true;   // passo 4: por responder até guardar a janela dele
+    // Decisão do dono (2026-10-03): o que o cliente acrescenta a partir de "Trocar e reparar" é trabalho novo (`acao`
+    // "novo"; quem usa o editor decide pelo passo, `acaoAoPor`); antes disso é o que a casa já tem (sem ação: Manter).
+    const acao = acaoAoPor?.(tipo, e.props);
+    if (acao) e.acao = acao;
     planta.elementos.push(e);
     // Numa zona sobreposta: a divisão selecionada (ex.: "+" do passo Divisões); sem ela, a desenhada por cima.
     e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? divisaoDoElemento(planta, e);
@@ -1261,6 +1287,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     pararToqueLongo();
     if (ponteiros.size === 2) {
       ajusteAuto = false;   // pinça: o cliente escolheu a vista
+      focoAuto = null;
       // Dois dedos: aproximar/deslocar; cancela o arrasto (o que já mexeu fica memorizado).
       if (arrasto?.mexeu) terminarArrasto(); else arrasto = null;
       const [a, b] = [...ponteiros.values()];
@@ -1337,6 +1364,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       case "deslocar":
         if (arrasto.presa && !arrasto.avisou) { arrasto.avisou = true; divisaoPresa(); }
         ajusteAuto = false;   // deslocou a vista à mão
+        focoAuto = null;
         fixarPonto(arrasto.p0, ev.clientX, ev.clientY);
         desenhar();
         break;
@@ -1881,13 +1909,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       const dx = x - d.x_cm, dy = y - d.y_cm;
       memorizar();
       const nova = { ...structuredClone(d), id: novoId("d", planta.divisoes), nome: nomeCopia(d.nome), x_cm: x, y_cm: y };
+      // As cópias dos interruptores e das tomadas ficam por responder no inventário das Divisões (`confirmado` não se copia).
+      const semResposta = ({ confirmado, ...a }) => a;
       if (nova.pontos) nova.pontos = nova.pontos.map(([px, py]) => [px + dx, py + dy]);
       crescerFolha(x + d.largura_cm, y + d.altura_cm);
       planta.divisoes.push(nova);
       let n = 0;
       for (const a of planta.elementos.filter((q) => q.divisao === d.id)) {
         if (planta.elementos.length >= MAX_ELEMENTOS) break;
-        planta.elementos.push({ ...structuredClone(a), id: novoId("e", planta.elementos), x_cm: a.x_cm + dx, y_cm: a.y_cm + dy, divisao: nova.id });
+        planta.elementos.push({ ...semResposta(structuredClone(a)), id: novoId("e", planta.elementos), x_cm: a.x_cm + dx, y_cm: a.y_cm + dy, divisao: nova.id });
         n++;
       }
       ajustarFolha();
@@ -1903,6 +1933,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     memorizar();
     const dx = e.x_cm + 50 <= planta.largura_cm ? 50 : -50;
     const c = { ...structuredClone(e), id: novoId("e", planta.elementos), x_cm: limitar(e.x_cm + dx, 0, planta.largura_cm) };
+    delete c.confirmado;   // a cópia fica por responder no inventário das Divisões
     planta.elementos.push(c);   // fica na divisão do original enquanto lá couber (confirmar: atualizarDivisoes manter)
     selecionado = c.id;
     confirmar(`Duplicado: ${descreverElemento(c)} (ao lado).`);
@@ -2158,7 +2189,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   // O tamanho da planta no ecrã mudou (o passo apareceu, rodou o telemóvel…): se a vista foi ajustada
   // sozinha e o cliente ainda não lhe mexeu, volta a ajustá-la ao conteúdo.
-  if (typeof ResizeObserver === "function") new ResizeObserver(() => { if (ajusteAuto && planta) verTudo(); desenhar(); }).observe(area);
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => {
+      if (ajusteAuto && planta) verTudo();
+      else if (focoAuto && planta && obterDivisao(focoAuto)) verDivisao(obterDivisao(focoAuto));
+      desenhar();
+    }).observe(area);
+  }
 
   return {
     /** Mudou o passo: sai a mensagem que ficou na planta ("Anulado.", "Divisão … criada…"); a de uma ferramenta ativa fica. */
@@ -2297,7 +2334,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desfazer = []; refazer = [];
       selecionado = null; calibracao = null; aspetoFundo = null; destaque = null; rascunho = null;
       arrasto = null; pinca = null; ponteiros.clear(); ultimoToque = null;
-      pisoAtual = 0; pisosPedidos = 1; nDivisoesVista = 0; ajusteAuto = false;
+      pisoAtual = 0; pisosPedidos = 1; nDivisoesVista = 0; ajusteAuto = false; focoAuto = null;
       vista = { cx: 1000, cy: 750, w: 2100 };
       definirModo(null);
       mostrarFundoMsg("", "info");
@@ -2336,6 +2373,20 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         ...TIPOS_ELEMENTO.filter((t) => t !== "maquina").map((t) => ({ chave: t, tipo: t, modelo: null, nome: ELEMENTOS[t].nome, props: ELEMENTOS[t].props })),
         ...modelosMaq.map((m) => ({ chave: `maquina:${m}`, tipo: "maquina", modelo: m, nome: MODELOS[m].nome, props: { modelo: m } })),
       ];
+    },
+    /**
+     * Passo "Divisões" ("+" do inventário; decisão do dono, 2026-10-03): põe logo um aparelho `tipo` num sítio livre da
+     * divisão `divisao` (casa.js lugarLivre), sem escolher ferramenta nem abrir a planta (um passo de anular). Devolve
+     * o id dele, ou null (divisão que não existe; planta cheia).
+     */
+    por(tipo, divisao) {
+      const d = planta ? obterDivisao(divisao) : null;
+      if (!d || !ELEMENTOS[tipo]) return null;
+      if (pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
+      definirModo(null);
+      selecionado = d.id;   // numa zona sobreposta o aparelho fica nesta divisão (adicionarElemento: selecionadaEm)
+      const [x, y] = d.pontos ? pontoInterior(d.pontos) : lugarLivre(d, planta.elementos.filter(noPiso), divisoesPiso());
+      return adicionarElemento(tipo, x, y)?.id ?? null;
     },
     /** Passo "Divisões" ("−"): apaga um elemento (um passo de anular, como o botão Apagar). */
     apagar(id) {
@@ -2378,6 +2429,21 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       selecionado = d ? d.id : null;
       desenhar();
       desenharSelecao();
+    },
+    /**
+     * Passos com separadores por divisão ("Divisões" e "Trocar e reparar"; decisão do dono, 2026-10-03): mostra o piso
+     * da divisão `id`, seleciona-a e centra a vista nela, aproximada até caber com margem (verDivisao) — sempre, mesmo
+     * que o cliente tenha mexido na vista. Devolve false se a divisão não existir.
+     */
+    focarDivisao(id) {
+      const d = planta ? obterDivisao(id) : null;
+      if (!d) return false;
+      if (pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
+      selecionado = d.id;
+      verDivisao(d);
+      desenhar();
+      desenharSelecao();
+      return true;
     },
     /** Só para testes/depuração: estado da vista. */
     get vista() { return { ...vista }; },

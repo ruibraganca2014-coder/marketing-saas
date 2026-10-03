@@ -127,7 +127,27 @@ export function simulacao(v) {
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
   melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
+  inventarioSimulacao(v.inventario);
   return json;
+}
+
+/**
+ * Inventário do passo "Divisões" (decisão do dono, 2026-10-03; web/simulador/estado.js inventarioParaEnvio): opcional
+ * (os pedidos de antes não o têm; null sem planta) — lista até 40 de {divisao, nome, piso, interruptores, tomadas}, com
+ * `interruptores` = os botões de cada um (inteiros 1–4) e `tomadas` = as caixas de cada uma (1 simples, 2 dupla, 3
+ * tripla); [] = "Não tem"; null = por responder. O preço não sai daqui (sai dos `itens`): é só o que a casa já tem.
+ */
+function inventarioSimulacao(l) {
+  if (l === undefined || l === null) return;
+  if (!Array.isArray(l) || l.length > LIMITES_PLANTA.divisoes) falha(`Inventário: lista até ${LIMITES_PLANTA.divisoes} divisões.`);
+  for (const d of l) {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) falha('Inventário: cada divisão tem de ser um objeto.');
+    for (const [k, max, rot] of [['interruptores', 4, 'botões de cada interruptor entre 1 e 4'], ['tomadas', 3, 'tipo de cada tomada entre 1 (simples) e 3 (tripla)']]) {
+      const v = d[k];
+      if (v === undefined || v === null) continue;
+      if (!Array.isArray(v) || v.length > LIMITES_PLANTA.elementos || v.some((x) => !Number.isInteger(x) || x < 1 || x > max)) falha(`Inventário: ${rot}.`);
+    }
+  }
 }
 
 /**

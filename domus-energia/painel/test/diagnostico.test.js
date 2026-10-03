@@ -121,7 +121,7 @@ describe('POST /painel/api/orcamentos/:id/diagnostico', () => {
 
   test('relatório do cliente: o diagnóstico vai só no pormenorizado (sem o autor), nunca no básico; o técnico do painel também o tem', async () => {
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_REPARAR } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_REPARAR } });
     assert.equal(r.estado, 201, r.texto);
     const id = r.json.pedido;
     const semDiag = (await api('GET', `orcamentos/${id}/relatorio-cliente`, 'ceo')).json.relatorio;

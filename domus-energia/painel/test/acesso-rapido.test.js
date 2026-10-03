@@ -28,12 +28,17 @@ after(async () => { for (const p of paineis) await p.fechar(); });
 
 const equipa = (p, papel, opcoes = DO_LOCAL) => p.pedir('POST', '/painel/api/dev/entrar', { corpo: { papel }, ...opcoes });
 const cliente = (p, n, opcoes = DO_LOCAL) => p.pedir('POST', '/api/conta/dev/entrar', { corpo: { n }, ...opcoes });
+const contasDaqui = (p, opcoes = DO_LOCAL) => p.pedir('POST', '/api/conta/dev/contas', { corpo: {}, ...opcoes });
+const clientePorId = (p, id, opcoes = DO_LOCAL) => p.pedir('POST', '/api/conta/dev/entrar', { corpo: { id }, ...opcoes });
 const cookieDe = (r) => r.cabecalhos['set-cookie'][0].split(';')[0];
 
 async function rotasNaoExistem(p) {
   for (const opcoes of [{}, DO_LOCAL]) {
     assert.equal((await equipa(p, 'ceo', opcoes)).estado, 404);
     assert.equal((await cliente(p, 1, opcoes)).estado, 404);
+    assert.equal((await contasDaqui(p, opcoes)).estado, 404);
+    assert.equal((await clientePorId(p, 1, opcoes)).estado, 404);
+    assert.equal((await p.pedir('GET', '/api/conta/dev/contas', opcoes)).estado, 404);
     assert.equal((await p.pedir('GET', '/painel/api/dev/entrar', opcoes)).estado, 404);
     assert.equal((await p.pedir('GET', '/api/conta/dev/entrar', opcoes)).estado, 404);
   }
@@ -103,6 +108,12 @@ test('o servidor a sério nunca põe a variável (docker-compose.yml, .env.examp
     const texto = await readFile(join(AQUI, '..', '..', 'servidor', f), 'utf8');
     assert.equal(/ACESSO_RAPIDO/i.test(texto), false, f);
   }
+  // Os botões (também os das contas da base local, na Área de cliente) só existem no local/acesso-rapido.js: o site
+  // publicado (web/) e o painel (public/) nunca falam das rotas de testes.
+  for (const f of ['web/cliente.html', 'web/cliente.js', 'web/conta-comum.js', 'web/conta.js', 'painel/public/index.html']) {
+    assert.equal(/\/dev\/(entrar|contas)|acesso-rapido/.test(await readFile(join(AQUI, '..', '..', f), 'utf8')), false, f);
+  }
+  assert.match(await readFile(join(AQUI, '..', '..', 'local', 'acesso-rapido.js'), 'utf8'), /\/api\/conta\/dev\/contas/);
   // E o painel no Docker corre com NODE_ENV=production (um dos sinais que o desligam).
   assert.match(await readFile(join(AQUI, '..', 'Dockerfile'), 'utf8'), /ENV NODE_ENV=production/);
 });
@@ -189,6 +200,8 @@ test('ligado: só deste computador (pela rede local ou de fora 404), com a Origi
   for (const [nome, opcoes] of Object.entries(recusados)) {
     assert.equal((await equipa(p, 'ceo', opcoes)).estado, 404, nome);
     assert.equal((await cliente(p, 1, opcoes)).estado, 404, nome);
+    assert.equal((await contasDaqui(p, opcoes)).estado, 404, nome);
+    assert.equal((await clientePorId(p, 1, opcoes)).estado, 404, nome);
   }
   for (const ip of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.equal((await equipa(p, 'comercial', { ...DO_LOCAL, ip })).estado, 200, ip);
   // Outra origem de testes deste computador (ORIGENS_EXTRA do lançador).
@@ -202,4 +215,53 @@ test('ligado: só deste computador (pela rede local ou de fora 404), com a Origi
   assert.equal((await p.pedir('GET', '/painel/api/dev/entrar', DO_LOCAL)).estado, 405);
   assert.equal((await p.pedir('GET', '/api/conta/dev/entrar', DO_LOCAL)).estado, 405);
   assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas').get().n, 0);
+});
+
+test('ligado: lista das contas da base local (só o que o botão precisa) e entrar numa conta que já existe, pelo id', async () => {
+  const p = await painel(ENV_LOCAL);
+  assert.deepEqual((await contasDaqui(p)).json, { contas: [] });
+  // Contas que já existem na base (com palavra-passe e perfil), uma desativada e uma por confirmar.
+  const nova = (email) => p.app.db.prepare("INSERT INTO contas (email, hash, confirmado, criado, atualizado) VALUES (?, 'scrypt$x', '2026-10-01T10:00:00.000Z', '2026-10-01T10:00:00.000Z', '2026-10-01T10:00:00.000Z')").run(email);
+  for (const e of ['ana@exemplo.pt', 'bruno@exemplo.pt', 'carla@exemplo.pt']) nova(e);
+  const id = (email) => p.app.db.prepare('SELECT id FROM contas WHERE email = ?').get(email).id;
+  p.app.db.prepare("UPDATE contas SET nome = 'Ana Silva', telefone = '912 000 111', morada = 'Rua A, 1', casa_codigo = 'casa-ana' WHERE email = 'ana@exemplo.pt'").run();
+  p.app.db.prepare("UPDATE contas SET ativo = 0 WHERE email = 'bruno@exemplo.pt'").run();
+  p.app.db.prepare("UPDATE contas SET confirmado = NULL WHERE email = 'carla@exemplo.pt'").run();
+  nova('duarte@exemplo.pt');
+  const l = await contasDaqui(p);
+  assert.equal(l.estado, 200);
+  // Só as ativas e confirmadas, as mais recentes primeiro; só id, email, nome e tem_casa (nada de telefone, morada, hash, cifra).
+  assert.deepEqual(l.json, { contas: [
+    { id: id('duarte@exemplo.pt'), email: 'duarte@exemplo.pt', nome: null, tem_casa: false },
+    { id: id('ana@exemplo.pt'), email: 'ana@exemplo.pt', nome: 'Ana Silva', tem_casa: true },
+  ] });
+  assert.equal(/912|Rua A|casa-ana|hash|cifra/.test(l.texto), false);
+  // Entrar pelo id: a sessão normal da conta (o mesmo cookie e as mesmas permissões), sem lhe mexer.
+  const antes = p.app.db.prepare('SELECT * FROM contas WHERE id = ?').get(id('ana@exemplo.pt'));
+  const emails = p.emails.length;
+  const r = await clientePorId(p, id('ana@exemplo.pt'));
+  assert.equal(r.estado, 200);
+  assert.equal(r.json.conta.email, 'ana@exemplo.pt');
+  assert.match(r.cabecalhos['set-cookie'][0], /^domus_conta=[A-Za-z0-9_-]{43}; Path=\/api; HttpOnly; SameSite=Lax; Max-Age=\d+$/);
+  const eu = await p.pedir('GET', '/api/conta/eu', { cookie: cookieDe(r) });
+  assert.equal(eu.json.conta.email, 'ana@exemplo.pt');
+  assert.equal(eu.json.tem_casa, true);
+  assert.equal((await p.pedir('GET', '/painel/api/eu', { cookie: cookieDe(r) })).estado, 401, 'a sessão da conta não abre o painel');
+  // A conta fica como estava (palavra-passe, perfil, casa); só o último acesso muda, como em qualquer sessão.
+  assert.deepEqual({ ...p.app.db.prepare('SELECT * FROM contas WHERE id = ?').get(antes.id), ultimo_acesso: null }, { ...antes, ultimo_acesso: null });
+  assert.equal(p.emails.length, emails, 'nenhum email');
+  // Auditoria: como as outras entradas do acesso rápido.
+  const linhas = p.app.db.prepare("SELECT alvo FROM auditoria WHERE acao = 'conta_entrou_teste' AND detalhes LIKE '%acesso_rapido%'").all();
+  assert.deepEqual(linhas.map((x) => x.alvo), [`conta:${antes.id}`]);
+  // Desativada ou por confirmar: 409; desconhecida, mal formada ou com {n} e {id} juntos: 400.
+  assert.equal((await clientePorId(p, id('bruno@exemplo.pt'))).estado, 409);
+  assert.equal((await clientePorId(p, id('carla@exemplo.pt'))).estado, 409);
+  for (const x of [0, -1, 99999, '1', 1.5, null, 'constructor']) assert.equal((await clientePorId(p, x)).estado, 400, String(x));
+  assert.equal((await p.pedir('POST', '/api/conta/dev/entrar', { corpo: { n: 1, id: antes.id }, ...DO_LOCAL })).estado, 400);
+  // A lista só responde a POST JSON com a Origin do site (como as outras rotas) e não aceita campos.
+  assert.equal((await p.pedir('GET', '/api/conta/dev/contas', DO_LOCAL)).estado, 405);
+  assert.equal((await p.pedir('POST', '/api/conta/dev/contas', { corpo: { tudo: true }, ...DO_LOCAL })).estado, 400);
+  assert.equal((await contasDaqui(p, { cabecalhos: { Origin: 'http://outro.localhost:9999' }, ip: '127.0.0.1' })).estado, 403);
+  assert.equal((await contasDaqui(p, { ...DO_LOCAL, ip: '192.168.1.77' })).estado, 404, 'pela rede local não existe');
+  assert.equal((await contasDaqui(p, { ...DO_LOCAL, ip: '8.8.8.8' })).estado, 404, 'de fora não existe');
 });

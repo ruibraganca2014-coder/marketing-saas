@@ -93,18 +93,92 @@ $("form-login").addEventListener("submit", (e) => {
 // ---------- Entrar com email (conta de cliente, docs/CONTA-CLIENTE.md) ----------
 // A conta (sessão por cookie no painel) devolve o código e a palavra-passe MQTT da casa; daí em diante é igual
 // a "Entrar com código". "Entrar com o código de cliente" continua para quem não tem conta.
+// Decisão do dono (2026-10-03): com o email entra-se com a palavra-passe ou com um código de 6 algarismos enviado para o
+// email (`semSenha`; as mesmas rotas, limites e mensagens de "A minha conta": POST /api/conta/codigo e confirmar).
+let semSenha = false;
 function modoLogin(comEmail) {
-  $("form-login-email").hidden = !comEmail;
+  $("form-login-email").hidden = !comEmail || semSenha;
+  $("form-login-codigo").hidden = !comEmail || !semSenha;
   $("form-login").hidden = comEmail;
   $("login-modo").textContent = comEmail ? "Entrar com o código de cliente" : "Entrar com email";
-  $("login-texto").textContent = comEmail
-    ? "Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento)."
-    : "Entre com o código de cliente e a palavra-passe que recebeu da Domus Energia.";
+  $("login-sem-senha").hidden = !comEmail;
+  $("login-sem-senha").textContent = semSenha ? "Entrar com palavra-passe" : "Entrar com código (sem palavra-passe)";
+  $("login-texto").textContent = !comEmail
+    ? "Entre com o código de cliente e a palavra-passe que recebeu da Domus Energia."
+    : semSenha ? "Escreva o email da sua conta Domus Energia: enviamos-lhe um código de 6 algarismos para entrar."
+      : "Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento).";
   erroLogin(null);
 }
+const comEmailAVista = () => $("form-login").hidden;
+const formEmailAVista = () => (semSenha ? $("form-login-codigo") : $("form-login-email"));
 $("login-modo").addEventListener("click", () => {
-  modoLogin($("form-login-email").hidden);
-  ($("form-login-email").hidden ? $("form-login") : $("form-login-email")).querySelector("input").focus();
+  modoLogin(!comEmailAVista());
+  (comEmailAVista() ? formEmailAVista() : $("form-login")).querySelector("input").focus();
+});
+$("login-sem-senha").addEventListener("click", () => {
+  // O email já escrito passa para o outro formulário.
+  const email = formEmailAVista().elements.email.value;
+  semSenha = !semSenha;
+  passoCodigo(null);
+  modoLogin(true);
+  formEmailAVista().elements.email.value = email;
+  formEmailAVista().querySelector("input").focus();
+});
+
+/** Entrar com código: `email` = o código foi pedido para ele (falta escrevê-lo); null = falta pedir o código. */
+let emailDoCodigo = null;
+function passoCodigo(email, mensagem = null) {
+  emailDoCodigo = email;
+  const f = $("form-login-codigo");
+  $("login-codigo-passo").hidden = !email;
+  $("login-codigo-outro").hidden = !email;
+  f.elements.email.readOnly = !!email;
+  f.elements.codigo.value = "";
+  f.elements.codigo.required = !!email;
+  $("login-codigo-botao").textContent = email ? "Entrar" : "Enviar código";
+  $("login-codigo-msg").textContent = mensagem ?? "";
+}
+$("login-codigo-outro").addEventListener("click", () => {
+  passoCodigo(null);
+  erroLogin(null);
+  $("form-login-codigo").elements.email.focus();
+});
+$("form-login-codigo").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const b = $("login-codigo-botao");
+  erroLogin(null);
+  if (!emailDoCodigo) {
+    const email = f.elements.email.value.trim();
+    if (!email || !f.elements.email.checkValidity()) { erroLogin("O email não parece certo (ex.: nome@exemplo.pt)."); f.elements.email.focus(); return; }
+    b.disabled = true;
+    try {
+      // A resposta é sempre a mesma: o servidor não diz se o email tem conta.
+      const r = await pedirConta("codigo", { corpo: { email } });
+      passoCodigo(email, `${r?.mensagem ?? "Enviámos um código para o email."} Escreva-o aqui (vale 15 minutos).`);
+      f.elements.codigo.focus();
+    } catch (err) {
+      erroLogin(err.message);
+    } finally {
+      b.disabled = false;
+    }
+    return;
+  }
+  const codigo = f.elements.codigo.value.replace(/\s/g, "");
+  if (!/^\d{6}$/.test(codigo)) { erroLogin("O código tem 6 algarismos."); f.elements.codigo.focus(); return; }
+  b.disabled = true;
+  b.textContent = "A entrar…";
+  try {
+    await pedirConta("confirmar", { corpo: { email: emailDoCodigo, codigo } });
+    passoCodigo(null);
+    await entrarComConta();
+  } catch (err) {
+    erroLogin(err.message);
+    if (emailDoCodigo) f.elements.codigo.focus();
+  } finally {
+    b.disabled = false;
+    b.textContent = emailDoCodigo ? "Entrar" : "Enviar código";
+  }
 });
 $("form-login-email").addEventListener("submit", async (e) => {
   e.preventDefault();

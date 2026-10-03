@@ -394,7 +394,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
   test('avaria e visita técnica: concluir pede o mesmo que a obra (visita marcada, foto de antes, foto de depois e os três ensaios); a avaria também a conclusão do diagnóstico', async () => {
     const e = await aprovado();
     const c = await p.contaConfirmada();
-    const av = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+    const av = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
     assert.equal(av.estado, 202, av.texto);
     const pago = await p.pedir('POST', `/api/conta/pagamentos/${av.json.pagamento.ref}/simular`, { cookie: c.cookie, corpo: { resultado: 'sucesso' } });
     const id = pago.json.pagamento.orcamento_id;
@@ -430,7 +430,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal((await atribuicao(id)).json.trabalho.diagnostico, true);
     // Visita técnica paga: o mesmo que a obra (sem diagnóstico).
     const c2 = await p.contaConfirmada();
-    const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
+    const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
     await p.pedir('POST', `/api/conta/pagamentos/${vis.json.pagamento.ref}/simular`, { cookie: c2.cookie, corpo: { resultado: 'sucesso' } });
     const tv = (await atribuicao(vis.json.pedido, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
     assert.deepEqual((await ficha(e, tv)).falta, ['marcar a visita', 'uma foto de antes', 'uma foto de depois', ...ENSAIOS]);

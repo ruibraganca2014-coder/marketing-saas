@@ -25,7 +25,7 @@ describe('avaria: até 5 fotos no pedido (POST /api/orcamento/fotos)', () => {
     const chaves = ['avaria:foto', 'avaria:foto_2', 'avaria:foto_3', 'avaria:foto_4', 'avaria:foto_5'];
     const simulacao = { versao: 1, funil: 'avaria', avaria: { onde: ['sala', 'cozinha'], problema: ['faiscas', 'choque'], descricao: '' }, fotos: chaves.map((chave) => ({ chave, tipo: 'avaria', legenda: 'Avaria' })) };
     const { cookie } = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Ana Avaria', telefone: '912 345 678', servico: 'Reparação', localidade: 'Oeiras', simulacao }, cookie });
+    const r = await p.pedir('POST', '/api/orcamento', { corpo: { nome: 'Ana Avaria', telefone: '912 345 678', servico: 'Reparação', localidade: 'Oeiras', morada: 'Rua do Teste, 1', simulacao }, cookie });
     assert.equal(r.estado, 201, r.texto);
     for (const chave of chaves) {
       const f = await p.pedir('POST', '/api/orcamento/fotos', { corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Fotos-Token': r.json.fotos_token, 'X-Foto-Chave': chave } });

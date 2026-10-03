@@ -14,6 +14,7 @@ import { contarPlanta, divisoesDaContagem, sugerirCircuitos, COMANDOS, comandoDe
 import { pedidosQuadro, resumoQuadro, potenciaSugerida, compartimentosRtiebt, minimoRtiebt, avisosProtecoes, gruposDiferenciais } from '../../web/simulador/quadro.js';
 import { estadoNovo, normalizarEstado, montarSimulacao, normalizarProps } from '../../web/simulador/estado.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
+import { tudoNovo } from './ajuda.js';
 
 const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_PONTOS_20, ...SEMENTES_DINHEIRO].filter((a) => a.ativo !== false);
 const CATALOGO_ANTIGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES].filter((a) => a.ativo !== false);
@@ -26,6 +27,8 @@ function casaT2(servico = ['nova'], maquinas = []) {
   e.servico = servico;
   e.casa = { ...e.casa, tipo: 'apartamento', tipologia: 'T2', quartos: 2, casas_banho: 1, salas: 1, pisos: 1, extras: { ...e.casa.extras, corredor: true } };
   e.planta = plantaDaCasa(e.casa, maquinas);
+  // Decisão do dono (2026-10-03): a omissão é Manter; com "Instalação nova" estes testes pedem tudo como novo (ajuda.js).
+  if (servico.includes('nova')) e.planta = tudoNovo(e.planta);
   e.plantaFase = 'tudo';
   const cont = contarPlanta(plantaInteligentes(plantaNovos(e.planta, servico), []));
   e.divisoes = divisoesDaContagem(cont);
@@ -84,11 +87,16 @@ test('pontos novos: preço fechado por ponto; inteligente = o ponto + o aparelho
   // Só os Novos entram nos pontos.
   const planta = { elementos: [{ ...luz, acao: 'manter' }, { ...tom, acao: 'novo' }, { ...dupla, acao: 'substituir' }, { ...int, acao: 'novo' }, { ...int }] };
   assert.deepEqual(pedidosPontosNovos(planta, ['automatizar']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 1 }]);
-  assert.deepEqual(pedidosPontosNovos(planta, ['nova']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 2 }]);
+  // Decisão do dono (2026-10-03): sem ação escolhida é Manter também com "Instalação nova" (o interruptor sem ação não leva ponto).
+  assert.deepEqual(pedidosPontosNovos(planta, ['nova']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 1 }]);
 });
 
 test('T2 nova: o total sobe exatamente o preço dos pontos (45 / 40 / 35 €) e o pedido leva-os em itens e trabalho', () => {
   const e = casaT2(['nova']);
+  // Decisão do dono (2026-10-03): a casa já não desenha pontos de luz — só entram os que o cliente pede como novos.
+  assert.equal(e.planta.elementos.filter((x) => x.tipo === 'luz').length, 0, 'a casa não levanta pontos de luz');
+  const sala = e.planta.divisoes.find((d) => d.nome === 'Sala');
+  for (const id of ['e901', 'e902']) e.planta.elementos.push({ id, tipo: 'luz', x_cm: sala.x_cm + 100, y_cm: sala.y_cm + 100, rot: 0, piso: 0, divisao: sala.id, props: {}, acao: 'novo' });
   const pontos = pedidosPontosNovos(e.planta, e.servico);
   const n = (t) => e.planta.elementos.filter((x) => x.tipo === t).length;
   assert.equal(qtd(pontos, 'ponto_luz'), n('luz'));
@@ -102,6 +110,7 @@ test('T2 nova: o total sobe exatamente o preço dos pontos (45 / 40 / 35 €) e 
   const agora = calcularPreco(pedidos, CATALOGO, null).total;
   const esperado = n('luz') * 45 + n('tomada') * 40 + n('interruptor') * 35 + 2 * 14 + 2 * 0.15 * 38;
   assert.equal(Math.round((agora - antes) * 100) / 100, Math.round(esperado * 100) / 100);
+  assert.equal(n('luz'), 2, 'as 2 luzes pedidas como novas contam (45 € cada)');
   assert.ok(agora > antes + 500, `T2 nova: ${antes} → ${agora}`);
   // Sem os artigos no catálogo (servidor antigo) o preço fica incompleto, sem rebentar.
   const velho = calcularPreco(pedidos, CATALOGO_ANTIGO, null);
@@ -155,16 +164,10 @@ test('comandos: material por tipo, botões mínimos, estados antigos "simples", 
   assert.equal(i.props.comando, 'simples');
   assert.equal(i.y_cm, 290, 'na face de dentro da parede, como a porta (10 cm para dentro)');
   assert.ok(Math.abs(i.x_cm - p.x_cm) === 70, 'ao lado da porta');
-  // A luz ao centro; várias, simétricas em relação ao centro ao longo do lado maior.
-  assert.deepEqual([quarto.find((a) => a.tipo === 'luz').x_cm, quarto.find((a) => a.tipo === 'luz').y_cm], [175, 150]);
-  const loja = aparelhosOmissao('Loja / sala aberda', { x_cm: 0, y_cm: 0, largura_cm: 800, altura_cm: 500 });   // 40 m²: 2 luzes
-  const luzes = loja.filter((a) => a.tipo === 'luz').map((a) => [a.x_cm, a.y_cm]);
-  assert.deepEqual(luzes, [[200, 250], [600, 250]]);
-  const nave = aparelhosOmissao('Nave / oficina', { x_cm: 0, y_cm: 0, largura_cm: 1500, altura_cm: 1000 });   // 150 m²: 8 luzes em 2 filas
-  const xs = nave.filter((a) => a.tipo === 'luz').map((a) => a.x_cm);
-  assert.equal(xs.length, 8);
-  assert.deepEqual(xs.slice(0, 4), xs.slice(4), 'as 2 filas iguais');
-  xs.slice(0, 4).map((x) => 1500 - x).reverse().forEach((x, k) => assert.ok(Math.abs(x - xs[k]) <= 1, 'simétricas em relação ao centro'));
+  // Decisão do dono (2026-10-03): a casa já não desenha pontos de luz (nem nas divisões grandes): só porta, interruptor e tomadas.
+  assert.equal(quarto.some((a) => a.tipo === 'luz'), false);
+  const nave = aparelhosOmissao('Nave / oficina', { x_cm: 0, y_cm: 0, largura_cm: 1500, altura_cm: 1000 });
+  assert.deepEqual([...new Set(nave.map((a) => a.tipo))].sort(), ['interruptor', 'porta', 'tomada']);
   // O estado gravado mantém o comando; os antigos sem ele ficam simples.
   const e = casaT2(['nova']);
   const n = normalizarEstado(JSON.parse(JSON.stringify(e)));

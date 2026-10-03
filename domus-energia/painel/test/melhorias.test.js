@@ -19,6 +19,7 @@ import { blocosOrcamento } from '../../web/simulador/imprimir.js';
 import { simulacao as validarSimulacao } from '../src/validar.js';
 import { abrirDb, migrar, MIGRACOES } from '../src/db.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS } from '../src/catalogo-sementes.js';
+import { tudoNovo } from './ajuda.js';
 
 const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS].filter((a) => a.ativo !== false);
 const MAQUINAS = [{ modelo: 'termoacumulador', qtd: 1, piso: 0 }, { modelo: 'placa', qtd: 1, piso: 0 }, { modelo: 'maquina_lavar', qtd: 1, piso: 0 }];
@@ -30,6 +31,8 @@ function casaT2(servico = ['nova']) {
   e.servico = servico;
   e.casa = { ...e.casa, tipo: 'apartamento', tipologia: 'T2', quartos: 2, casas_banho: 1, salas: 1 };
   e.planta = plantaDaCasa(e.casa, MAQUINAS);
+  // Decisão do dono (2026-10-03): a omissão é Manter; com "Instalação nova" estes testes pedem tudo como novo (ajuda.js).
+  if (servico.includes('nova')) e.planta = tudoNovo(e.planta);
   e.plantaFase = 'tudo';
   const cont = contarPlanta(plantaInteligentes(plantaNovos(e.planta, servico), []));
   e.divisoes = divisoesDaContagem(cont);

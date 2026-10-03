@@ -697,7 +697,7 @@ test('casas e planos: a ficha da casa traz a ficha da pessoa no CRM quando há u
 
 test('RGPD: apagar a conta tira as notas e os contactos, anonimiza a ficha e deixa só um título neutro nas tarefas', async () => {
   const { cookie, email } = await p.contaConfirmada('rgpd.crm@exemplo.pt');
-  const r0 = await p.pedir('POST', '/api/orcamento', { cookie, corpo: { nome: 'Inês Apagar', email, telefone: '913 222 333', servico: 'Casa inteligente',
+  const r0 = await p.pedir('POST', '/api/orcamento', { cookie, corpo: { nome: 'Inês Apagar', email, telefone: '913 222 333', localidade: 'Sintra', morada: 'Rua do Teste, 1', servico: 'Casa inteligente',
     simulacao: { versao: 1, itens: [{ sku: 'TONGOU-SY2-JWT', qtd: 1 }] }, origem_contacto: 'facebook' } });
   assert.equal(r0.estado, 201, r0.texto);
   const id = r0.json.pedido;

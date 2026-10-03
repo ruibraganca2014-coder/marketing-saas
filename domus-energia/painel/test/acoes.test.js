@@ -14,6 +14,7 @@ import { simulacao as validarSimulacao } from '../src/validar.js';
 import { contarPlanta, divisoesDaContagem, temPergunta } from '../../web/simulador/regras.js';
 import { circuitosExistentes, existentesNoQuadroNovo, resumoQuadro, avisosProtecoes } from '../../web/simulador/quadro.js';
 import { listaTrabalho, aVerificarNaVisita, visitaTxt, urgenciaDe } from '../public/ecras/simulacao.js';
+import { tudoNovo } from './ajuda.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
 
 const CATALOGO = [...SEMENTES_CATALOGO, ...SEMENTES_QUADRO, ...SEMENTES_ACOES, ...SEMENTES_PONTOS, ...SEMENTES_DINHEIRO].filter((a) => a.ativo !== false);
@@ -33,25 +34,46 @@ function planta(acoes = {}) {
 }
 
 test('serviço: ação por omissão, fluxo curto e o que falta responder', () => {
-  assert.equal(acaoOmissao(['nova']), 'novo');
-  assert.equal(acaoOmissao(['nova', 'reparar']), 'novo', 'com Instalação nova junto de outro, a omissão é Novo');
+  // Decisão do dono (2026-10-03): a omissão é Manter em todos os serviços (o que a casa já tem fica como está) e conta
+  // como resposta — uma divisão com tudo em Manter está respondida sem nenhum toque.
+  assert.equal(acaoOmissao(['nova']), 'manter');
+  assert.equal(acaoOmissao(['nova', 'reparar']), 'manter');
   assert.equal(acaoOmissao(['automatizar']), 'manter');
   assert.equal(acaoOmissao(['reparar']), 'manter');
   assert.ok(soReparacoes(['reparar']) && !soReparacoes(['reparar', 'automatizar']));
-  assert.ok(!precisaEscolher(['nova']) && precisaEscolher(['automatizar']) && !precisaEscolher(['reparar']));
+  assert.ok(!precisaEscolher(['nova']) && !precisaEscolher(['automatizar']) && !precisaEscolher(['reparar']));
   const t = { tipo: 'tomada', props: {} };
-  assert.deepEqual(faltaAcao(t, ['nova']), [], 'Novo por omissão já conta como resposta');
-  assert.deepEqual(faltaAcao(t, ['automatizar']), ['acao'], 'sem Instalação nova tem de escolher');
+  assert.equal(acaoDe(t, ['nova']), 'manter', 'sem ação escolhida: Manter, também com Instalação nova');
+  assert.equal(acaoDe({ ...t, acao: 'novo' }, ['automatizar']), 'novo', 'pedido como trabalho novo: fica Novo');
+  assert.deepEqual(faltaAcao(t, ['nova']), [], 'Manter por omissão já conta como resposta');
+  assert.deepEqual(faltaAcao(t, ['automatizar']), [], 'sem Instalação nova também: já não tem de escolher');
   assert.deepEqual(faltaAcao({ ...t, acao: 'reparar' }, ['automatizar']), ['avaria']);
   assert.deepEqual(faltaAcao({ ...t, acao: 'reparar', avaria: 'queimada' }, ['automatizar']), []);
   assert.deepEqual(faltaAcao({ ...t, acao: 'substituir' }, ['nova']), ['inteligente']);
   assert.deepEqual(faltaAcao({ tipo: 'maquina', props: { modelo: 'placa' }, acao: 'substituir' }, ['nova']), [], 'máquinas: sem "por um inteligente?"');
   assert.deepEqual(faltaAcao({ tipo: 'porta', props: {} }, ['automatizar']), [], 'a porta não tem ação');
-  assert.equal(acaoDe({ tipo: 'janela', props: { estore: false }, acao: 'reparar' }, ['nova']), 'novo', 'janela sem estore: sem ação');
+  assert.equal(acaoDe({ tipo: 'janela', props: { estore: false }, acao: 'reparar' }, ['nova']), 'manter', 'janela sem estore: sem ação');
 });
 
-test('Instalação nova sem ações: os mesmos pedidos de antes mais os pontos novos (ronda regras)', () => {
-  const p = planta();
+test('omissão Manter (decisão do dono, 2026-10-03): sem ações nada entra no preço; as escolhas ficam; o que se pede como novo fica Novo', () => {
+  const base = { casa: null, quadro: { circuitos: [] }, extras: {} };
+  for (const servico of [['nova'], ['automatizar'], ['reparar'], ['nova', 'automatizar']]) {
+    const p = planta();
+    assert.deepEqual(contarAcoes(p, servico), { manter: 6, reparar: 0, substituir: 0, novo: 0 }, servico.join());
+    const divisoes = divisoesDaContagem(contarPlanta(plantaNovos(p, servico)));
+    assert.deepEqual(pedidosDaSelecao({ ...base, servico, planta: p, divisoes }), [], `${servico.join()}: tudo em Manter não soma nada`);
+  }
+  // Escolhas explícitas ficam (um estado de antes com elas não muda); o resto, que só tinha a omissão, passa a Manter.
+  const p = planta({ e1: { acao: 'novo' }, e3: { acao: 'substituir', inteligente: true }, e5: { acao: 'reparar', avaria: 'não acende' } });
+  assert.deepEqual(contarAcoes(p, ['nova']), { manter: 3, reparar: 1, substituir: 1, novo: 1 });
+  const pedidos = pedidosDaSelecao({ ...base, servico: ['nova'], planta: p, divisoes: divisoesDaContagem(contarPlanta(plantaNovos(p, ['nova']))) });
+  assert.deepEqual(pedidos.map(({ chave, qtd }) => [chave, qtd]).sort(), [['diagnostico', 1], ['interruptor_1', 1], ['ponto_tomada', 1]]);
+  const e = normalizarEstado({ ...estadoNovo(), servico: ['nova'], planta: p });
+  assert.deepEqual(e.planta.elementos.map((x) => x.acao ?? null), ['novo', null, 'substituir', null, 'reparar', null, null]);
+});
+
+test('Instalação nova com tudo pedido como novo: os mesmos pedidos de antes mais os pontos novos (ronda regras)', () => {
+  const p = tudoNovo(planta());
   const antes = divisoesDaContagem(contarPlanta(p));
   const agora = divisoesDaContagem(contarPlanta(plantaNovos(p, ['nova'])));
   assert.deepEqual(agora, antes);
@@ -428,9 +450,8 @@ test('"Outra divisão" (A casa tem…): planta automática com o kit genérico, 
   assert.ok(g && g.piso === 0);
   const dela = p.elementos.filter((e) => e.divisao === g.id);
   const conta = (t) => dela.filter((e) => e.tipo === t).length;
-  assert.deepEqual([conta('porta'), conta('interruptor'), conta('luz'), conta('tomada')], [1, 1, 1, 2]);
-  const luz = dela.find((e) => e.tipo === 'luz');
-  assert.deepEqual([luz.x_cm, luz.y_cm], [g.x_cm + g.largura_cm / 2, g.y_cm + g.altura_cm / 2], 'luz ao centro');
+  // Decisão do dono (2026-10-03): a casa já não desenha pontos de luz (só porta, interruptor e tomadas).
+  assert.deepEqual([conta('porta'), conta('interruptor'), conta('luz'), conta('tomada')], [1, 1, 0, 2]);
   // A assinatura só muda quando há outras divisões (as plantas guardadas não ficam "desatualizadas").
   const sem = { ...casa, outras: [] };
   assert.equal(assinaturaCasa(sem, []), assinaturaCasa({ ...sem, outras: undefined }, []));

@@ -84,7 +84,7 @@ async function pedidoSite(extra = {}) {
 /** Pedido do simulador (com conta); devolve {id, c}. */
 async function pedidoConta(c = null) {
   c ??= await p.contaConfirmada();
-  const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Conta', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', simulacao: SIM } });
+  const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Conta', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM } });
   assert.equal(r.estado, 201, r.texto);
   return { id: r.json.pedido, c };
 }
@@ -155,7 +155,7 @@ describe('boas-vindas', () => {
   test('avaria paga ao enviar: o email "pagamento recebido" já confirma o pedido — não sai um segundo email', async () => {
     await ate('10:00');
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
     assert.equal(r.estado, 202, r.texto);
     const antes = p.emails.length;
     await pagar(c, r.json.pagamento.ref);

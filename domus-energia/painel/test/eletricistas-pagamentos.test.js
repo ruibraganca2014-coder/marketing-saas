@@ -148,7 +148,7 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
   /** Pedido de um cliente com conta, proposta em três partes aceite e o sinal pago (a obra nasce). Devolve {c, id}. */
   async function obraDoCliente({ mao = 1000, material = 500, deslocacao = 30 } = {}) {
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Casa inteligente', localidade: 'Sintra', simulacao: sim() } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim() } });
     assert.equal(r.estado, 201, r.texto);
     const id = r.json.pedido;
     assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', proposta_mao_obra: mao, proposta_material: material, proposta_deslocacao: deslocacao })).estado, 200);
@@ -523,7 +523,7 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
       // Visita técnica (Sintra): o cliente pagou 0,5 h × 38 € + 7,20 € com IVA. Sem IVA a 6 %: 17,92 € e 6,79 €.
       // O eletricista: 65 % × 17,92 = 11,65 € + 6,79 € = 18,44 €.
       const c2 = await p.contaConfirmada();
-      const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
+      const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
       assert.equal((await conta(c2, 'POST', `pagamentos/${vis.json.pagamento.ref}/simular`, { resultado: 'sucesso' })).json.pagamento.estado, 'pago');
       const idV = vis.json.pedido;
       const tv = (await atribuicao(idV, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
@@ -546,7 +546,7 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
       // Avaria (Sintra): o cliente pagou 25 € de diagnóstico + 19 € de meia hora + 7,20 € de deslocação = 51,20 €. O
       // eletricista recebe 65 % da meia hora sem IVA + a deslocação sem IVA; os 25 € ficam na Domus.
       const c3 = await p.contaConfirmada();
-      const av = await p.pedir('POST', '/api/orcamento', { cookie: c3.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+      const av = await p.pedir('POST', '/api/orcamento', { cookie: c3.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
       assert.equal(av.json.pagamento.valor, 51.2);
       const idA = (await conta(c3, 'POST', `pagamentos/${av.json.pagamento.ref}/simular`, { resultado: 'sucesso' })).json.pagamento.orcamento_id;
       const ta = (await atribuicao(idA, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
@@ -752,7 +752,7 @@ describe('ronda 3 com o interruptor ELETRICISTAS desligado', () => {
       }
     }
     const c = await p.contaConfirmada();
-    const ped = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', simulacao: sim() } });
+    const ped = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim() } });
     assert.equal(ped.estado, 201, ped.texto);
     const id = ped.json.pedido;
     const r = await p.pedir('POST', `/api/conta/pedidos/${id}/confirmar-trabalho`, { cookie: c.cookie, corpo: { concluido: true, estrelas: 5 } });

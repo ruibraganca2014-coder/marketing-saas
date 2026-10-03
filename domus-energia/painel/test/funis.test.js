@@ -99,8 +99,8 @@ test('casa guardada: sem as ações do pedido; "Já tenho a planta" põe tudo em
   const n = usarCasa(estadoNovo(), c);
   assert.equal(n.funil, 'planta');
   assert.deepEqual(n.servico, ['automatizar', 'reparar']);
-  assert.ok(precisaEscolher(n.servico));
-  const comAcao = n.planta.elementos.filter((x) => ['tomada', 'interruptor', 'luz'].includes(x.tipo));
+  assert.ok(!precisaEscolher(n.servico), 'a omissão Manter já conta como resposta (decisão do dono, 2026-10-03)');
+  const comAcao = n.planta.elementos.filter((x) => ['tomada', 'interruptor'].includes(x.tipo));
   assert.ok(comAcao.length && comAcao.every((x) => acaoDe(x, n.servico) === 'manter' && !faltaAcao(x, n.servico).length), 'tudo Manter e respondido');
   n.planta.elementos.find((x) => x.tipo === 'tomada').acao = 'substituir';
   n.planta.elementos.find((x) => x.tipo === 'tomada').inteligente = true;

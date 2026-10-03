@@ -409,7 +409,7 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     const almada = await aprovado({ concelhos: ['Almada', 'Seixal'] });
     // Pedido com simulação (relatório técnico), de uma conta de cliente.
     const c = await p.contaConfirmada('cliente.bolsa@exemplo.pt');
-    const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Casa inteligente do Alberto', localidade: 'Sintra', mensagem: 'Ligar depois das 18h', simulacao: sim() } });
+    const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Casa inteligente do Alberto', localidade: 'Sintra', mensagem: 'Ligar depois das 18h', morada: 'Rua do Teste, 1', simulacao: sim() } });
     assert.equal(env.estado, 201, env.texto);
     const id = env.json.pedido;
     await painel('POST', `orcamentos/${id}`, 'ceo', { proposta_mao_obra: 1240, proposta_material: 615, proposta_deslocacao: 35, notas: 'Nota interna secreta' });
@@ -642,7 +642,7 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     // Avaria (Sintra): o cliente pagou 25 € de diagnóstico + 0,5 h × 38 € + 7,20 € de deslocação (com IVA). O
     // eletricista: 70 % × a meia hora SEM IVA (19 € ÷ 1,23 = 15,45 €) + a deslocação sem IVA (5,85 €); os 25 € ficam na Domus.
     const c = await p.contaConfirmada();
-    const av = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+    const av = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
     assert.equal(av.estado, 202, av.texto);
     assert.equal(av.json.pagamento.valor, 51.2);
     const pago = await conta(c, 'POST', `pagamentos/${av.json.pagamento.ref}/simular`, { resultado: 'sucesso' });
@@ -666,7 +666,7 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.deepEqual([ped2.estado, ped2.data_visita], ['contactado', null]);
     // Visita técnica paga (pedido com simulação): 70 % × 0,5 h sem IVA + deslocação — os mesmos valores em Sintra.
     const c2 = await p.contaConfirmada();
-    const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
+    const vis = await p.pedir('POST', '/api/orcamento', { cookie: c2.cookie, corpo: { ...CLIENTE, servico: 'Casa', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
     assert.equal(vis.estado, 201, vis.texto);
     const semPagar = await atribuicao(vis.json.pedido);
     assert.equal(semPagar.json.pode, false, 'a visita ainda não está paga');

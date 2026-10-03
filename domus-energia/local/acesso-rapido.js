@@ -5,7 +5,9 @@
 //   - barra fixa em baixo, à esquerda, em todas as páginas: os botões todos e "Sair";
 //   - no ecrã de entrada do painel: "Entrar como: CEO · Comercial · Técnico";
 //   - no bloco da conta (conta.html e passo "Enviar" do simulador): "Cliente de teste 1 · Cliente de teste 2";
-//   - no ecrã de entrada da área do eletricista (eletricista.html): "Eletricista de teste".
+//   - no ecrã de entrada da área do eletricista (eletricista.html): "Eletricista de teste";
+//   - no ecrã de entrada da Área de cliente (cliente.html): um botão por conta de cliente que existe na base local
+//     (POST /api/conta/dev/contas dá só id, email, nome e se tem casa; POST /api/conta/dev/entrar {id} abre a sessão).
 (() => {
   "use strict";
   if (document.getElementById("acesso-rapido")) return;
@@ -106,6 +108,10 @@
 .ar-faixa { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0 0; padding: 10px 12px; border: 1px dashed var(--texto, #283618); border-radius: 14px; font: 600 13px/1.3 system-ui, sans-serif; color: var(--texto, #283618); }
 .ar-faixa .ar-rotulo { font-size: 13px; }
 .ar-faixa .ar-msg { flex: 0 0 100%; }
+/* Contas da base local (Área de cliente): a lista pode ser comprida — caixa que desliza, um botão por linha. */
+.ar-lista { flex: 0 0 100%; display: grid; gap: 6px; max-height: 220px; overflow-y: auto; padding: 2px; }
+.ar-conta { border-radius: 12px; text-align: left; overflow-wrap: anywhere; }
+.ar-conta small { display: block; font-weight: 400; opacity: .8; }
 /* Os avisos do painel (pedidos pendentes) também ficam em baixo, à esquerda: sobem para cima do botão. */
 body.ar-presente .pedidos-pendentes { bottom: 48px; }
 @media print { .ar, .ar-faixa { display: none !important; } }
@@ -189,4 +195,51 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
   }
   // Ecrã de entrada da área do eletricista (web/eletricista.html).
   document.getElementById("el-entrar-bloco")?.after(faixa("Entrar como (testes, só neste computador):", "eletricista", false));
+
+  // Ecrã de entrada da Área de cliente (web/cliente.html; decisão do dono, 2026-10-03): um botão por conta de cliente
+  // que existe na base local, com o email (e o nome), para entrar na área de cliente dela sem palavra-passe.
+  async function contasDaBase() {
+    const r = await fetch("/api/conta/dev/contas", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: "{}" });
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(typeof j?.erro === "string" && j.erro ? j.erro : `Não foi possível (erro ${r.status}).`);
+    return Array.isArray(j?.contas) ? j.contas : [];
+  }
+  async function entrarNaConta(c) {
+    avisar(null);
+    try {
+      await enviar("/api/conta/dev/entrar", { id: c.id });
+      guardar(MARCA_CONTA, "1");
+      // Com a casa ligada, o cliente.js entra sozinho ao recarregar (sessão da conta com casa).
+      if (c.tem_casa) { location.reload(); return; }
+      // Sem casa ligada (no lançador local o domus.sh não corre: os pedidos nunca chegam a ter casa): abre a casa de
+      // teste desta conta pelo "código de cliente" — o broker local aceita qualquer código e palavra-passe.
+      const f = document.getElementById("form-login");
+      if (f.hidden) document.getElementById("login-modo").click();
+      f.elements.codigo.value = `conta-${c.id}`;
+      f.elements.password.value = "teste-local";
+      f.requestSubmit();
+    } catch (e) {
+      avisar(e?.message || "Não foi possível entrar.");
+    }
+  }
+  const loginCliente = document.getElementById("form-login-email")?.closest("#vista-login");
+  if (loginCliente) {
+    const f = el("div", "ar-faixa");
+    const lista = el("div", "ar-lista");
+    lista.setAttribute("role", "group");
+    lista.setAttribute("aria-label", "Contas de cliente da base local");
+    lista.tabIndex = 0;   // a caixa desliza com o teclado
+    f.append(el("span", "ar-rotulo", "Entrar como (testes, só neste computador) — contas de cliente desta base:"), lista, mensagem());
+    loginCliente.append(f);
+    contasDaBase().then((contas) => {
+      if (!contas.length) lista.append(el("span", "ar-nota", "Ainda sem contas de cliente nesta base: use \"Cliente de teste\" na barra em baixo ou crie uma em \"A minha conta\"."));
+      for (const c of contas) {
+        const b = el("button", "ar-botao ar-conta");
+        b.type = "button";
+        b.append(el("span", null, c.nome ? `${c.nome} · ${c.email}` : c.email), el("small", null, c.tem_casa ? "entra na casa desta conta" : "sem casa ligada: abre uma casa de teste"));
+        b.addEventListener("click", () => entrarNaConta(c));
+        lista.append(b);
+      }
+    }).catch((e) => avisar(e?.message || "Não foi possível ler as contas."));
+  }
 })();

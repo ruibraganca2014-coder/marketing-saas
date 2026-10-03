@@ -72,12 +72,12 @@ describe('obra, casa, faltas e devoluções (modo simulado)', () => {
   const painel = (metodo, caminho, papel = 'ceo', corpo) => p.pedir(metodo, `/painel/api/${caminho}`, { cookie: p.cookies[papel], corpo });
   const conta = (c, metodo, caminho, corpo) => p.pedir(metodo, `/api/conta/${caminho}`, { cookie: c.cookie, corpo });
   async function enviar(c, simulacao = sim(), localidade = 'Lisboa') {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Neves', telefone: '912 000 111', servico: 'Casa inteligente', localidade, simulacao } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Neves', telefone: '912 000 111', servico: 'Casa inteligente', localidade, morada: 'Rua do Teste, 1', simulacao } });
     assert.equal(r.estado, 201, r.texto);
     return r.json.pedido;
   }
   async function enviarAvaria(c, metodo) {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', simulacao: SIM_AVARIA } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Avaria', telefone: '912 000 111', servico: 'Reparação', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM_AVARIA } });
     assert.equal(r.estado, 202, r.texto);
     const ok = await conta(c, 'POST', `pagamentos/${r.json.pagamento.ref}/simular`, { resultado: 'sucesso', ...(metodo ? { metodo } : {}) });
     assert.equal(ok.json.pagamento.estado, 'pago', ok.texto);
@@ -417,7 +417,7 @@ describe('devolução manual (modo stripe)', () => {
   test('o método vem do Stripe (PaymentIntent): Multibanco → sem POST refunds, fica "à espera do IBAN"; MB Way → reembolso automático; evento assíncrono anota Multibanco', async () => {
     const pag = p.app.api.pagamentosPedido;
     async function visitaPaga(c, tipo = 'checkout.session.completed') {
-      const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
+      const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
       assert.equal(env.estado, 201, env.texto);
       const ref = env.json.pagamento.ref;
       const sessao = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(ref).stripe_sessao;

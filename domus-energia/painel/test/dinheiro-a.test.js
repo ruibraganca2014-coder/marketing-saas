@@ -65,7 +65,7 @@ describe('decisões do dinheiro (modo simulado)', () => {
   const painel = (metodo, caminho, papel = 'ceo', corpo) => p.pedir(metodo, `/painel/api/${caminho}`, { cookie: p.cookies[papel], corpo });
   const conta = (c, metodo, caminho, corpo) => p.pedir(metodo, `/api/conta/${caminho}`, { cookie: c.cookie, corpo });
   async function enviar(c, simulacao = sim(), localidade = 'Lisboa') {
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade, simulacao } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'Casa inteligente', localidade, morada: 'Rua do Teste, 1', simulacao } });
     assert.equal(r.estado, 201, r.texto);
     return r.json.pedido;
   }
@@ -461,7 +461,7 @@ describe('decisões do dinheiro (modo stripe)', () => {
 
   test('Checkout: acima de 500 € sem cartão (mb_way e multibanco); a visita cancelada com mais de 24 h é reembolsada pela API do Stripe', async () => {
     const c = await p.contaConfirmada();
-    const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', simulacao: sim(), compra: 'visita' } });
+    const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
     assert.equal(env.estado, 201, env.texto);
     const id = env.json.pedido;
     const visita = env.json.pagamento;

@@ -994,8 +994,29 @@ function aparelhosTxt(els) {
   return partes.join(" · ") || "—";
 }
 
+/**
+ * O que a casa já tem numa divisão, como o cliente o disse no passo "Divisões" (`simulacao.inventario[]`, decisão do
+ * dono de 2026-10-03): "2 interruptores (1 + 2 bot.) · 3 tomadas (2 simples, 1 dupla)"; uma lista vazia = "sem
+ * interruptores" / "sem tomadas"; null sem resposta nenhuma (pedidos antigos e funis sem esse passo).
+ */
+export function inventarioTxt(i) {
+  const o = obj(i);
+  const ints = Array.isArray(o.interruptores) ? o.interruptores.map((b) => Math.min(4, Math.max(1, numero(b) ?? 1))) : null;
+  const toms = Array.isArray(o.tomadas) ? o.tomadas.map((c) => Math.min(3, Math.max(1, numero(c) ?? 1))) : null;
+  if (!ints && !toms) return null;
+  const partes = [];
+  if (ints) partes.push(ints.length ? `${plural(ints.length, "interruptor", "interruptores")} (${ints.join(" + ")} bot.)` : "sem interruptores");
+  if (toms) {
+    const tipos = [[1, "simples", "simples"], [2, "dupla", "duplas"], [3, "tripla", "triplas"]].map(([c, um, varios]) => { const n = toms.filter((x) => x === c).length; return n ? `${num(n)} ${n === 1 ? um : varios}` : null; }).filter(Boolean);
+    partes.push(toms.length ? `${plural(toms.length, "tomada", "tomadas")} (${tipos.join(", ")})` : "sem tomadas");
+  }
+  return partes.join(" · ");
+}
+
 /** Divisões e aparelhos por piso (da planta): uma tabela por piso, com o equipamento inteligente do passo "Divisões". */
-function divisoesPorPiso(planta, divisoesSim) {
+function divisoesPorPiso(planta, divisoesSim, inventario = []) {
+  // "Tem hoje": o inventário do cliente para a divisão (pelo id da planta).
+  const temHoje = (d) => { const t = inventarioTxt(inventario.find((x) => obj(x).divisao === d.id)); return t ? [h("span", { class: "ajuda bloco-ajuda", text: `Tem hoje (dito pelo cliente): ${t}` })] : []; };
   const pisos = typeof desenho.pisosDaPlanta === "function" ? desenho.pisosDaPlanta(planta) : [0];
   const divDe = (e) => (e.divisao != null && e.divisao !== "" ? e.divisao : divisaoDoElemento(planta, e));
   const inteligente = (d) => {
@@ -1014,7 +1035,7 @@ function divisoesPorPiso(planta, divisoesSim) {
     const linhas = planta.divisoes.filter((d) => pisoDe(d) === p).map((d) => h("tr", {},
       h("th", { scope: "row", "data-rotulo": "Divisão", text: String(d.nome ?? d.id ?? "—") }),
       h("td", { class: "num", "data-rotulo": "Área" }, h("div", {}, m2(areaDivisao(d)), h("span", { class: "ajuda bloco-ajuda", text: formaLivre(d) ? "forma livre" : `${metros(d.largura_cm)} × ${metros(d.altura_cm)}` }))),
-      h("td", { "data-rotulo": "Na planta", text: aparelhosTxt(planta.elementos.filter((e) => divDe(e) === d.id)) }),
+      h("td", { "data-rotulo": "Na planta" }, h("div", {}, aparelhosTxt(planta.elementos.filter((e) => divDe(e) === d.id)), ...temHoje(d))),
       h("td", { "data-rotulo": "Inteligente", text: inteligente(d) })));
     return h("div", { class: "sim-bloco rel-piso", dataset: { piso: String(p) } }, h("h4", { text: pisos.length > 1 ? nomePiso(p) : "Divisões" }),
       linhas.length
@@ -1231,7 +1252,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   ];
   const maqs = maquinasPorPiso(s, planta);
   if (maqs) partes.push(seccao("Máquinas por piso", maqs));
-  const divs = temPlanta && planta.divisoes.length ? divisoesPorPiso(planta, divisoesSim) : divisoesSim.length ? [tabelaDivisoes(divisoesSim)] : [];
+  const divs = temPlanta && planta.divisoes.length ? divisoesPorPiso(planta, divisoesSim, arr(s.inventario)) : divisoesSim.length ? [tabelaDivisoes(divisoesSim)] : [];
   if (divs.length) partes.push(seccao("Divisões e aparelhos por piso", ...divs));
   if (temPlanta) partes.push(seccao("Planta", ...plantaRelatorio(planta, acoesDe(s))));
   const quadro = [];

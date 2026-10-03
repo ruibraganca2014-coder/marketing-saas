@@ -16,6 +16,8 @@ const BASE = { nome: 'Ana Silva', telefone: '912 345 678', servico: 'Casa inteli
 let conta = null;
 const enviar = async (corpo, opcoes = {}) => {
   if (corpo?.simulacao !== undefined && !opcoes.cookie) conta ??= await p.contaConfirmada('orcamento@exemplo.pt');
+  // Com simulação a morada da obra é obrigatória (decisão do dono, 2026-10-03; o telefone e a localidade já vêm na BASE).
+  if (corpo?.simulacao !== undefined && corpo?.simulacao !== null && typeof corpo === 'object' && corpo.morada === undefined) corpo = { ...corpo, morada: 'Rua do Teste, 1' };
   return p.pedir('POST', '/api/orcamento', { corpo, ...(corpo?.simulacao !== undefined && conta ? { cookie: conta.cookie } : {}), ...opcoes });
 };
 const contar = () => p.app.db.prepare('SELECT COUNT(*) AS n FROM orcamentos').get().n;
@@ -379,4 +381,30 @@ test('simulação com deslocação (localidade, concelho, distrito, km, €) é 
   const o = p.app.db.prepare("SELECT simulacao FROM orcamentos WHERE nome = 'Com deslocação'").get();
   assert.deepEqual(JSON.parse(o.simulacao).deslocacao, deslocacao);
   assert.equal((await enviar({ ...BASE, simulacao: { casa: { localidade: 'x'.repeat(81) } } })).estado, 400, 'casa.localidade ≤ 80');
+});
+
+test('pedido do simulador: telefone, localidade e morada obrigatórios (decisão do dono, 2026-10-03); o formulário do site fica como estava', async () => {
+  const ip = '198.51.100.31';
+  const sim = { nome: 'Rita Simulador', telefone: '912 345 678', servico: 'Simulador de orçamento', localidade: 'Sintra', morada: 'Rua das Flores, 3', simulacao: { versao: 1 } };
+  const antes = contar();
+  for (const [campo, re] of [['telefone', /Falta o telefone/], ['localidade', /Falta a localidade \(concelho\)/], ['morada', /Falta a morada da obra/]]) {
+    for (const vazio of [null, '', '   ']) {
+      const corpo = { ...sim, [campo]: vazio };
+      const r = await enviar(corpo, { ip: `198.51.100.${40 + ['telefone', 'localidade', 'morada'].indexOf(campo)}` });
+      assert.equal(r.estado, 400, `${campo} = ${JSON.stringify(vazio)}`);
+      assert.match(r.json.erro, re);
+    }
+  }
+  assert.equal(contar(), antes, 'nada ficou gravado');
+  // O telefone segue a regra de sempre: português com ou sem +351 / 00351 e com espaços; um número de fora também.
+  for (const [k, telefone] of ['912345678', '912 345 678', '+351 912 345 678', '00351 912 345 678', '+44 20 7946 0958'].entries()) {
+    assert.equal((await enviar({ ...sim, telefone }, { ip: `198.51.100.${50 + k}` })).estado, 201, telefone);
+  }
+  assert.equal((await enviar({ ...sim, telefone: 'não tenho' }, { ip })).estado, 400);
+  // O formulário de contacto do site (sem simulação): nome e telefone OU email, sem localidade nem morada — como antes.
+  assert.equal((await enviar({ nome: 'Só Email', email: 'so.email@exemplo.pt', servico: 'Casa inteligente' }, { ip })).estado, 201);
+  assert.equal((await enviar({ nome: 'Só Telefone', telefone: '912 345 678', servico: 'Casa inteligente' }, { ip })).estado, 201);
+  const r = await enviar({ nome: 'Sem Contacto', servico: 'Casa inteligente' }, { ip });
+  assert.equal(r.estado, 400);
+  assert.match(r.json.erro, /telefone ou um email/);
 });

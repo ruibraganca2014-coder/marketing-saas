@@ -3,7 +3,10 @@
 
 import { COMANDOS, comandoDe, caixasDe, circuitoProprio, maquinaDaPlanta } from "./regras.js";
 
-/** Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos. */
+/**
+ * Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos antes
+ * da decisão do dono de 2026-10-03 (fica só como registo: agora a omissão é sempre Manter, acaoOmissao).
+ */
 export const SERVICOS = {
   nova: { nome: "Instalação nova / remodelação total", ajuda: "Pomos tudo novo: aparelhos, fios e quadro.", omissao: "novo" },
   automatizar: { nome: "Automatizar o que já tenho", ajuda: "Tornamos inteligente o que já existe.", omissao: "manter" },
@@ -33,16 +36,22 @@ export function normalizarServico(v) {
   return CHAVES_SERVICO.filter((k) => v.includes(k));
 }
 
-/** Ação por omissão dos aparelhos: Novo se "Instalação nova" estiver escolhida (também com outros), senão Manter. */
-export const acaoOmissao = (servicos) => ((servicos ?? []).includes("nova") ? "novo" : "manter");
+/**
+ * Ação por omissão dos aparelhos (decisão do dono, 2026-10-03): sempre Manter, seja qual for o serviço — o que a casa
+ * JÁ TEM (os interruptores e as tomadas do passo "Divisões", as máquinas dos Equipamentos) fica como está e não soma
+ * nada à estimativa até o cliente escolher Reparar, Substituir ou Novo em "Trocar e reparar". Novo é só o que ele pede
+ * como trabalho novo ("Acrescentar um aparelho" a partir de "Trocar e reparar": app.js `acaoAoPor`). Antes: Novo com
+ * "Instalação nova". `servicos` fica na assinatura (quem chama não muda).
+ */
+export const acaoOmissao = (servicos) => "manter";
 /** Só "Reparações / avarias": fluxo curto (salta Equipamentos; não pede para verificar cada divisão). */
 export const soReparacoes = (servicos) => Array.isArray(servicos) && servicos.length === 1 && servicos[0] === "reparar";
 /**
- * A ação tem de ser escolhida aparelho a aparelho? Sem "Instalação nova" (automatizar e/ou reparar) a omissão
- * (Manter) não conta como resposta; com "Instalação nova" a omissão Novo já conta. No fluxo curto (só reparações)
- * o cliente só marca o que está avariado: o resto fica Manter.
+ * A ação tem de ser escolhida aparelho a aparelho? Já não (decisão do dono, 2026-10-03): a omissão Manter conta como
+ * resposta em todos os serviços — uma divisão com tudo em Manter está respondida sem nenhum toque. Antes: sem
+ * "Instalação nova" (e fora do fluxo curto) cada aparelho pedia a escolha.
  */
-export const precisaEscolher = (servicos) => !(servicos ?? []).includes("nova") && !soReparacoes(servicos);
+export const precisaEscolher = (servicos) => false;
 
 /**
  * O aparelho tem ação? Porta e quadro não (a porta não é elétrica; o quadro tem o seu passo); a janela só com
@@ -62,8 +71,9 @@ export const CARREGADORES_VE = ["carregador_ve", "carregador_ve_22"];
 export const perguntaMedicao = (tipo, props = {}) => tipo === "maquina" && CARREGADORES_VE.includes(props?.modelo);
 
 /**
- * Ação de um elemento: a escolhida ou a omissão do serviço. Os elementos sem ação (porta, quadro, janela sem estore)
- * seguem o serviço: entram como novos só com "Instalação nova" (QA final: a porta da rua já não leva sensor no preço base; sugere-o o pacote Segurança).
+ * Ação de um elemento: a escolhida ou a omissão (Manter: acaoOmissao). Os elementos sem ação (porta, quadro, janela
+ * sem estore) ficam sempre na omissão: são só desenho (QA final: a porta da rua já não leva sensor no preço base;
+ * sugere-o o pacote Segurança).
  */
 export function acaoDe(e, servicos) {
   if (!e) return acaoOmissao(servicos);
