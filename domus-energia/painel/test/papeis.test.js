@@ -83,6 +83,7 @@ const MATRIZ = [
   ['GET', 'crm/pedidos', [C, M]],
   ['POST', 'crm/pedidos/999', [C, M], {}],
   ['POST', 'crm/pedidos/999/separar', [C], {}],
+  ['GET', 'crm/casas', ['ceo', 'comercial']],
   ['GET', 'crm/clientes', TODOS],
   ['GET', 'crm/clientes/999', TODOS],
   ['POST', 'crm/clientes/999', [C, M], {}],

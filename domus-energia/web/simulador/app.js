@@ -436,14 +436,26 @@ const fimDaParteCasa = () => estado.passo === P.relatorio && funil() === "primei
  * Fim de "Descrever a minha casa": a casa fica guardada e o cliente escolhe — "Pedir um serviço agora" (passa ao funil
  * `planta`, no Início, a escolher o que precisa) ou "Fico por aqui" (volta ao site; a casa fica para quando quiser).
  */
+/** A casa descrita vai para a conta e fica "Casa registada" no painel (CRM), com aviso aos CEO na primeira vez. */
+async function registarCasaNaConta() {
+  if (!contaEu?.conta?.confirmado) return;
+  try {
+    let e = estadoParaConta();
+    if (!e) return;
+    if (JSON.stringify(e).length > 1_400_000 && e.planta?.fundo) e = { ...e, planta: { ...e.planta, fundo: null } };
+    await pedirConta("simulacao", { corpo: { estado: e } });
+    await pedirConta("casa-registada", { corpo: {} });
+  } catch { /* fica guardada no navegador; a conta recebe-a no passo seguinte (guardarNaConta) */ }
+}
 function concluirCasa() {
   gravar();
+  const registo = registarCasaNaConta();
   const j = janelaDeConfirmar();
   const botao = botaoDaJanela(j);
   j.querySelector("h2").textContent = "A sua casa está guardada";
   j.querySelector("#casa-janela-corpo").replaceChildren(el("p", null, "Quando precisar de obras, de trocar alguma coisa ou de automatizar, já não tem de a descrever outra vez."));
   j.querySelector("#casa-janela-botoes").replaceChildren(
-    botao("btn sec", "Fico por aqui", "casa-fim-sair", () => { gravar(); location.href = "index.html"; }),
+    botao("btn sec", "Fico por aqui", "casa-fim-sair", () => { gravar(); registo.finally(() => { location.href = "index.html"; }); }),
     botao("btn", "Pedir um serviço agora", "casa-fim-servico", () => {
       estado.funil = "planta";
       estado.caminho = null;
@@ -475,7 +487,11 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
   if (confirmarPasso()) return;   // "Está certo? Sim, continuar" nos passos em que o cliente preenche
-  if (fimDaParteCasa()) { concluirCasa(); return; }
+  if (fimDaParteCasa()) {
+    if (relatorioFechado()) { blocoContaRelatorio.mensagem("Deixe o seu email para ver o relatório e guardar a casa."); blocoContaRelatorio.focar(); return; }
+    concluirCasa();
+    return;
+  }
   irPara(passoAo(estado.passo, 1));
 });
 
@@ -4159,6 +4175,9 @@ function svgPlantaLeitura(planta, piso) {
 }
 /** Passo "Relatório básico" (grátis): a planta (um desenho por piso), as divisões com os aparelhos e o quadro. */
 function desenharRelatorio() {
+  // Saiu da conta noutro bloco (no Enviar): o bloco deste passo volta a ler a sessão antes de pedir o email.
+  if (relatorioFechado() && blocoContaRelatorio.eu()) blocoContaRelatorio.atualizar();
+  portaoRelatorio();
   const d = dadosRelatorio();
   const caixa = $("relatorio");
   caixa.replaceChildren();
@@ -4311,11 +4330,28 @@ const blocoConta = criarBlocoConta($("enviar-conta-bloco"), {
   texto: { fora: "Crie conta (ou entre) para enviar e acompanhar o pedido." },
   aoMudar: aoMudarConta,
 });
+/**
+ * Duas partes (decisão do dono, 2026-10-04): em "Descrever a minha casa" o relatório grátis só se vê com conta (o
+ * email confirmado pelo código). O segundo bloco de conta, no passo Relatório; ao entrar por ele, o do Enviar volta a
+ * ler a sessão (aoMudarConta: a casa vai para a conta).
+ */
+const blocoContaRelatorio = criarBlocoConta($("relatorio-conta-bloco"), {
+  prefixo: "conta-rel",
+  texto: { fora: "É grátis. Só o email: a sua casa fica guardada na conta, para a ver noutro aparelho e pedir serviços sem a descrever outra vez." },
+  aoMudar: () => { blocoConta.atualizar(); },
+});
+const relatorioFechado = () => funil() === "primeira" && !contaEu?.conta?.confirmado;
+function portaoRelatorio() {
+  const fechado = relatorioFechado();
+  $("relatorio-conta").hidden = !fechado;
+  $("relatorio-conteudo").hidden = fechado;
+}
 function aoMudarConta(eu) {
   const antes = contaEu;
   contaEu = eu;
   const c = eu?.conta;
   preencherDoPerfil();
+  portaoRelatorio();
   $("enviar-consentimento").hidden = !c;   // QA final: sem sessão, a aceitação dos Termos já está no bloco "Criar conta" (uma só vez)
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharEnviar();
   const primeira = !contaVista;

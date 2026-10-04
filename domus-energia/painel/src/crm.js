@@ -196,6 +196,32 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
   };
 
   // Lista das fichas de cliente (o técnico: só as dos clientes das suas obras).
+  /**
+   * Casas registadas (decisão do dono, 2026-10-04): as contas de cliente que descreveram a casa no simulador e ainda
+   * não têm nenhum pedido — o contacto e o resumo da casa. Com o primeiro pedido saem daqui (passam a ficha do CRM).
+   */
+  h.crmCasas = ({ res }) => {
+    const TIPOS = { apartamento: 'Apartamento', moradia: 'Moradia', alojamento_local: 'Alojamento local', servicos: 'Serviços', industrial: 'Industrial', outro: 'Imóvel' };
+    const casas = db.prepare(`SELECT c.id, c.email, c.nome, c.telefone, c.localidade, c.casa_registada, c.simulacao FROM contas c
+      WHERE c.casa_registada IS NOT NULL AND c.ativo = 1 AND NOT EXISTS (SELECT 1 FROM orcamentos o WHERE o.conta_id = c.id OR lower(o.email) = lower(c.email))
+      ORDER BY c.casa_registada DESC LIMIT 200`).all().map((c) => {
+      let s = null;
+      try { s = c.simulacao ? JSON.parse(c.simulacao) : null; } catch { s = null; }
+      const casa = s?.casa && typeof s.casa === 'object' ? s.casa : {};
+      const divisoes = Array.isArray(s?.planta?.divisoes) ? s.planta.divisoes : [];
+      const kva = Number(casa.potencia_contratada_kva);
+      return {
+        id: c.id, email: c.email, nome: c.nome ?? null, telefone: c.telefone ?? null, localidade: c.localidade ?? null, registada: c.casa_registada,
+        casa: s ? {
+          tipo: TIPOS[casa.tipo] ?? null, tipologia: typeof casa.tipologia === 'string' ? casa.tipologia.slice(0, 4) : null,
+          divisoes: divisoes.slice(0, 60).map((d) => String(d?.nome ?? '').slice(0, 60)).filter(Boolean),
+          potencia_kva: Number.isFinite(kva) && kva > 0 && kva < 100 ? kva : null,
+        } : null,
+      };
+    });
+    responder(res, 200, { casas });
+  };
+
   h.crmClientes = ({ res, u, url }) => {
     antesDeLer();
     const q = semAcentos(url.searchParams.get('q') || '').slice(0, 100);

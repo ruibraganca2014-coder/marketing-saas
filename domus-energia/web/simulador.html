@@ -166,6 +166,12 @@
         <section class="sim-passo" id="passo-11" aria-labelledby="titulo-11" data-passo="11" hidden>
           <h2 id="titulo-11" tabindex="-1">7. Relatório</h2>
           <p class="sub-passo">Grátis. O resumo da sua casa, sem preços.</p>
+          <!-- Duas partes (decisão do dono, 2026-10-04): em "Descrever a minha casa" o relatório vê-se com conta (só o email e um código) -->
+          <div class="cartao" id="relatorio-conta" hidden>
+            <h3>Deixe o seu email para ver o relatório</h3>
+            <div id="relatorio-conta-bloco"></div>
+          </div>
+          <div id="relatorio-conteudo">
           <div class="sim-relatorio" id="relatorio"></div>
           <div class="form-botoes"><button class="btn sec" id="relatorio-pdf" type="button">Guardar PDF</button></div>
           <p class="msg" id="relatorio-pdf-msg" role="status" hidden></p>
@@ -174,6 +180,7 @@
           <div class="cartao sim-completo-quero" id="completo-quero" hidden>
             <div class="escolhas-grelha compras-grelha" id="completo-opcao"></div>
             <p class="ajuda">Paga no fim, ao enviar. Entregue após revisão (até 24 h).</p>
+          </div>
           </div>
         </section>
 

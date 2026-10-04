@@ -954,6 +954,9 @@ export const MIGRACOES = [
   // 39: proposta do eletricista depois da visita (decisão do dono, 2026-10-04; docs/ELETRICISTAS.md "Proposta do
   // eletricista"): JSON {horas, material: [{sku, qtd}], notas, quando} — nunca valores em euros (o painel calcula-os).
   (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN proposta TEXT;'),
+  // 40: "Casa registada" (decisão do dono, 2026-10-04; docs/SIMULADOR-ORCAMENTO.md "Duas partes"): quando o cliente
+  // acabou de descrever a casa no simulador (com conta), antes de pedir qualquer serviço. A casa é a `simulacao` da conta.
+  (db) => db.exec('ALTER TABLE contas ADD COLUMN casa_registada TEXT;'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

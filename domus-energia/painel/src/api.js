@@ -174,6 +174,7 @@ export const ROTAS = [
   ['GET', 'crm/pedidos', ['ceo', 'comercial'], 'crmPedidos'],
   ['POST', 'crm/pedidos/:id', ['ceo', 'comercial'], 'crmAtualizarPedido'],
   ['POST', 'crm/pedidos/:id/separar', ['ceo'], 'crmSeparar'],
+  ['GET', 'crm/casas', ['ceo', 'comercial'], 'crmCasas'],
   ['GET', 'crm/clientes', TODOS, 'crmClientes'],
   ['GET', 'crm/clientes/:id', TODOS, 'crmCliente'],
   ['POST', 'crm/clientes/:id', ['ceo', 'comercial'], 'crmAtualizarCliente'],

@@ -21,13 +21,14 @@ const EMAILS_AUTO = { boas_vindas: "Pedido recebido (boas-vindas)", visita: "Lem
 export default function crm(el, ctx) {
   const ctrl = new AbortController();
   const vende = ctx.pode("ceo", "comercial");
-  let vista = vende ? (["funil", "lista", "clientes"].includes(ler()) ? ler() : "funil") : "clientes";
+  let vista = vende ? (["funil", "lista", "clientes", "casas"].includes(ler()) ? ler() : "funil") : "clientes";
   let resposta = null;     // GET crm/pedidos
   let clientes = null;     // GET crm/clientes
+  let casas = null;        // GET crm/casas (casas registadas no simulador, ainda sem pedido)
   let ficha = null;
 
   const segmentos = vende ? h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar" },
-    ...[["funil", "Funil"], ["lista", "Pedidos"], ["clientes", "Clientes"]].map(([v, t]) =>
+    ...[["funil", "Funil"], ["lista", "Pedidos"], ["clientes", "Clientes"], ["casas", "Casas registadas"]].map(([v, t]) =>
       h("button", { class: "segmento", type: "button", dataset: { vista: v }, text: t, "aria-pressed": "false", onclick: () => { vista = v; gravar(v); desenhar(); } }))) : null;
   const fFase = escolha("fase", { "": "Todas as fases", ...FASES_CRM }, "", { "aria-label": "Filtrar por fase" });
   const fOrigem = escolha("origem", { "": "Todas as origens", ...ORIGENS_CONTACTO, sem: "Sem origem" }, "", { "aria-label": "Filtrar por origem do contacto" });
@@ -66,11 +67,36 @@ export default function crm(el, ctx) {
     desenhar();
   }
 
+  async function carregarCasas() {
+    if (!vende) return;
+    try { casas = lista(await pedir("crm/casas", { sinal: ctrl.signal }), "casas"); }
+    catch (e) { if (e.name !== "AbortError" && vista === "casas") zona.replaceChildren(erroEcra(e, carregarCasas)); return; }
+    desenhar();
+  }
+  /** Uma casa registada: o contacto da conta, a casa em poucas palavras e quando ficou registada. */
+  function linhaCasa(c) {
+    const k = c.casa ?? {};
+    const casa = [[k.tipo, k.tipologia].filter(Boolean).join(" "), k.divisoes?.length ? `${k.divisoes.length} divisões: ${k.divisoes.join(", ")}` : null,
+      k.potencia_kva ? `${String(k.potencia_kva).replace(".", ",")} kVA` : null].filter(Boolean).join(" · ");
+    return h("li", {}, h("div", { class: "linha", dataset: { id: String(c.id) } },
+      h("span", { class: "linha-principal" }, h("strong", { text: c.nome || c.email }), h("span", { class: "ajuda", text: [c.nome ? c.email : null, c.telefone, c.localidade].filter(Boolean).join(" · ") || "Só o email" })),
+      h("span", { class: "linha-selos" }, selo("Casa registada", "info")),
+      h("span", { class: "linha-extra ajuda", text: `${casa || "Casa por descrever"} · Registada ${data(c.registada, { hora: false })}` }),
+      h("span", { class: "linha-extra" }, h("a", { href: `mailto:${c.email}`, text: "Enviar email" }))));
+  }
+
   function desenhar() {
     segmentos?.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.vista === vista)));
-    filtrosPedidos.hidden = vista === "clientes";
+    filtrosPedidos.hidden = vista === "clientes" || vista === "casas";
     fFase.hidden = vista !== "lista";
     filtrosClientes.hidden = vista !== "clientes";
+    if (vista === "casas") {
+      if (!casas) { zona.replaceChildren(carregando()); return; }
+      contagem.textContent = `${casas.length} ${casas.length === 1 ? "casa registada" : "casas registadas"} sem pedido`;
+      zona.replaceChildren(casas.length ? h("ul", { class: "linhas", id: "lista-casas-crm" }, ...casas.map(linhaCasa))
+        : h("p", { class: "vazio", text: "Ninguém descreveu a casa sem pedir um serviço." }));
+      return;
+    }
     if (vista === "clientes") {
       if (!clientes) { zona.replaceChildren(carregando()); return; }
       contagem.textContent = `${clientes.length} ${clientes.length === 1 ? "cliente" : "clientes"}`;
@@ -331,6 +357,7 @@ export default function crm(el, ctx) {
   // Arranque: o técnico só tem a lista de clientes; os outros carregam os dois (a fusão usa a lista de clientes).
   if (vende) carregarPedidos();
   carregarClientes();
+  carregarCasas();
   desenhar();
   const api = {
     rota(resto) { if (resto[0]) abrirFicha(resto[0]); else { ficha?.j.fechar(); ficha = null; } },

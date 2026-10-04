@@ -511,6 +511,28 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 200, { ok: true, atualizado: agora });
   };
 
+  /**
+   * "Casa registada" (decisão do dono, 2026-10-04): o cliente acabou de descrever a casa no simulador (a `simulacao` da
+   * conta) sem pedir serviço. Fica a data (só a primeira vez) e os CEO recebem um aviso, sem dados do cliente no email:
+   * a casa vê-se no painel (CRM → Casas registadas).
+   */
+  h.registarCasa = ({ res, c, ip }) => {
+    const r = db.prepare('SELECT simulacao, casa_registada FROM contas WHERE id = ?').get(c.id);
+    if (!r?.simulacao) falha('Descreva primeiro a sua casa no simulador.');
+    if (!r.casa_registada) {
+      db.prepare('UPDATE contas SET casa_registada = ? WHERE id = ?').run(agoraIso(), c.id);
+      auditar(quem(c), 'casa_registada', `conta:${c.id}`, null, ip);
+      // Quem já tem pedidos já é cliente no painel: sem aviso (nem entra nas "Casas registadas" do CRM).
+      const jaCliente = db.prepare('SELECT 1 FROM orcamentos WHERE conta_id = ? OR lower(email) = lower(?) LIMIT 1').get(c.id, c.email);
+      const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/crm`] : [];
+      for (const { email } of jaCliente ? [] : db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
+        correio.enviar({ para: email, assunto: 'Domus Energia: casa registada no simulador', resumo: `casa registada pela conta ${c.id}`,
+          texto: ['Olá,', '', 'Um cliente descreveu a casa no simulador e ficou com conta. Ainda não pediu nenhum serviço.', 'Veja o contacto e a casa no painel, em CRM → Casas registadas.', ...painel, '', 'Domus Energia'].join('\n') });
+      }
+    }
+    responder(res, 200, { ok: true });
+  };
+
   const obraDe = db.prepare('SELECT data, hora, estado, por_agendar FROM obras WHERE id = ?');
   function pedidoParaCliente(o) {
     // A obra nasce com o sinal pago, ainda sem data escolhida (`por_agendar`): só conta como "Instalação marcada" depois
@@ -982,6 +1004,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
     ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
     ['GET', 'casa', 'confirmada', 'casa'],
+    ['POST', 'casa-registada', 'confirmada', 'registarCasa'],
     ['POST', 'apagar', 'sessao', 'apagarConta'],
   ].map(([metodo, caminho, sessao, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao, nome }));
 
