@@ -53,9 +53,33 @@ export function textoInventario(i) {
   return partes.join(" · ");
 }
 
+/** Tipos de aparelho da planta que entram no resumo de uma divisão (a porta é só desenho): [tipo, singular, plural]. */
+const TIPOS_NA_PLANTA = [["interruptor", "interruptor", "interruptores"], ["tomada", "tomada", "tomadas"], ["luz", "ponto de luz", "pontos de luz"],
+  ["janela", "janela", "janelas"], ["sensor_movimento", "sensor de movimento", "sensores de movimento"],
+  ["sensor_porta", "sensor de porta ou janela", "sensores de porta ou janela"], ["maquina", "máquina ou aparelho", "máquinas e aparelhos"],
+  ["quadro", "quadro elétrico", "quadros elétricos"]];
+/**
+ * O que está desenhado na planta numa divisão (decisão do dono, 2026-10-04: os pedidos de antes do inventário do passo
+ * "Divisões" não trazem as respostas, e a lista tem de bater com o desenho): "1 interruptor · 3 tomadas · 2 máquinas e
+ * aparelhos"; null sem nada desenhado.
+ */
+export function textoDaPlanta(planta, divisaoId) {
+  const els = (Array.isArray(planta?.elementos) ? planta.elementos : []).filter((e) => e?.divisao === divisaoId);
+  const partes = TIPOS_NA_PLANTA.map(([tipo, um, varios]) => {
+    const doTipo = els.filter((e) => e.tipo === tipo);
+    if (!doTipo.length) return null;
+    // As máquinas pelo nome (o servidor manda-o: "Forno", "Placa de cozinha"), quando todas o têm e são poucas.
+    const nomes = tipo === "maquina" ? doTipo.map((e) => (typeof e.nome === "string" ? e.nome.trim().toLowerCase() : "")) : [];
+    if (nomes.length && nomes.length <= 6 && nomes.every(Boolean)) return [...new Set(nomes)].join(", ");
+    return plural(doTipo.length, um, varios);
+  }).filter(Boolean);
+  return partes.length ? partes.join(" · ") : null;
+}
+
 /**
  * As divisões da planta, por piso e pela ordem da planta, com o que o cliente disse de cada uma:
- * [{id, nome, piso, texto}] — `texto` = textoInventario, ou "Ainda por dizer o que tem." sem resposta.
+ * [{id, nome, piso, texto}] — `texto` = textoInventario; sem resposta, o que está desenhado na planta (textoDaPlanta);
+ * sem nada desenhado, "Sem aparelhos desenhados.".
  */
 export function divisoesDaPrevisao(planta, inventario = null) {
   if (!temPlanta(planta)) return [];
@@ -63,7 +87,7 @@ export function divisoesDaPrevisao(planta, inventario = null) {
   const inv = new Map((Array.isArray(inventario) ? inventario : []).map((x) => [x?.divisao, x]));
   return [...planta.divisoes].sort((a, b) => piso(a) - piso(b)).map((d) => ({
     id: d.id, nome: String(d.nome ?? "").trim() || "Divisão", piso: piso(d),
-    texto: textoInventario(inv.get(d.id)) ?? "Ainda por dizer o que tem.",
+    texto: textoInventario(inv.get(d.id)) ?? textoDaPlanta(planta, d.id) ?? "Sem aparelhos desenhados.",
   }));
 }
 

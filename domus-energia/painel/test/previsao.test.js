@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { temPlanta, fontesDePlanta, pedidoDoAndamento, textoInventario, divisoesDaPrevisao, botoesDaPrevisao } from '../../web/previsao.js';
+import { temPlanta, fontesDePlanta, pedidoDoAndamento, textoInventario, divisoesDaPrevisao, botoesDaPrevisao, textoDaPlanta } from '../../web/previsao.js';
 import { estadoNovo, normalizarEstado, inventarioParaEnvio, temProgresso, marcarNaoTem } from '../../web/simulador/estado.js';
 import { plantaDaCasa } from '../../web/simulador/casa.js';
 
@@ -46,10 +46,18 @@ test('as divisões e o que a casa tem: o inventário em palavras; "sem …" no "
   const l = divisoesDaPrevisao(PLANTA, [{ divisao: 'd1', interruptores: [2], tomadas: [3, 3] }, { divisao: 'd2', interruptores: null, tomadas: null }]);
   assert.deepEqual(l, [
     { id: 'd1', nome: 'Sala', piso: 0, texto: '1 interruptor (2 botões) · 2 tomadas (2 triplas)' },
-    { id: 'd3', nome: 'Divisão', piso: 0, texto: 'Ainda por dizer o que tem.' },
-    { id: 'd2', nome: 'Quarto', piso: 1, texto: 'Ainda por dizer o que tem.' },
+    { id: 'd3', nome: 'Divisão', piso: 0, texto: textoDaPlanta(PLANTA, 'd3') ?? 'Sem aparelhos desenhados.' },
+    { id: 'd2', nome: 'Quarto', piso: 1, texto: textoDaPlanta(PLANTA, 'd2') ?? 'Sem aparelhos desenhados.' },
   ]);
-  assert.equal(divisoesDaPrevisao(PLANTA, null).every((d) => d.texto === 'Ainda por dizer o que tem.'), true, 'pedido de antes, sem inventário');
+  // Pedido de antes, sem inventário (decisão do dono, 2026-10-04): o que está desenhado na planta, nunca "por dizer".
+  assert.equal(divisoesDaPrevisao(PLANTA, null).every((d) => d.texto === (textoDaPlanta(PLANTA, d.id) ?? 'Sem aparelhos desenhados.')), true);
+  const desenho = { divisoes: [{ id: 'a', nome: 'Cozinha' }, { id: 'b', nome: 'Hall' }], elementos: [{ tipo: 'interruptor', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' },
+    { tipo: 'maquina', divisao: 'a', props: { modelo: 'forno' } }, { tipo: 'maquina', divisao: 'a', props: { modelo: 'placa' } }, { tipo: 'luz', divisao: 'a' }, { tipo: 'porta', divisao: 'a' }, { tipo: 'porta', divisao: 'b' }] };
+  assert.equal(textoDaPlanta(desenho, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · 2 máquinas e aparelhos');
+  assert.equal(textoDaPlanta(desenho, 'b'), null, 'a porta é só desenho');
+  const comNomes = { ...desenho, elementos: desenho.elementos.map((e) => (e.tipo === 'maquina' ? { ...e, nome: e.props.modelo === 'forno' ? 'Forno' : 'Placa de cozinha' } : e)) };
+  assert.equal(textoDaPlanta(comNomes, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · forno, placa de cozinha', 'as máquinas pelo nome');
+  assert.deepEqual(divisoesDaPrevisao(desenho, null).map((d) => d.texto), ['1 interruptor · 3 tomadas · 1 ponto de luz · 2 máquinas e aparelhos', 'Sem aparelhos desenhados.']);
   assert.deepEqual(divisoesDaPrevisao(null), []);
 });
 
@@ -98,11 +106,11 @@ test('o rascunho guardado na conta lê-se como o simulador o lê: a planta e o i
   const l = divisoesDaPrevisao(lido.planta, inv);
   assert.equal(l.length, lido.planta.divisoes.length);
   assert.deepEqual([l[0].nome, l[0].texto], ['Sala', '1 interruptor (2 botões) · sem tomadas']);
-  assert.equal(l[1].texto, 'Ainda por dizer o que tem.');
+  assert.match(l[1].texto, /interruptor|tomada/, 'sem resposta: o que está desenhado');
   assert.deepEqual(fontesDePlanta([], { planta: lido.planta, atualizado: null }).map((f) => f.texto), ['Simulação por enviar']);
   // Um estado de antes do inventário (ordem 13): abre na mesma, com tudo por dizer.
   const velho = normalizarEstado({ ...JSON.parse(JSON.stringify(e)), ordem: 13 });
-  assert.equal(divisoesDaPrevisao(velho.planta, inventarioParaEnvio(velho, velho.planta)).every((d) => d.texto === 'Ainda por dizer o que tem.'), true);
+  assert.equal(divisoesDaPrevisao(velho.planta, inventarioParaEnvio(velho, velho.planta)).every((d) => !/por dizer/.test(d.texto)), true);
 });
 
 test('a página: a pré-visualização não liga ao MQTT nem tem controlos; a porta fechada a vermelho já não é o caminho da conta', async () => {
