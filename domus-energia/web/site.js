@@ -53,18 +53,6 @@ document.getElementById("ano").textContent = new Date().getFullYear();
   }
 }
 
-// ---------- Planos: "Pedir orçamento" escolhe o plano no formulário ----------
-document.querySelectorAll(".js-plano").forEach((a) => {
-  a.addEventListener("click", (e) => {
-    e.preventDefault();
-    const sel = form.elements.servico;
-    if ([...sel.options].some((o) => o.value === a.dataset.servico)) sel.value = a.dataset.servico;
-    const alvo = document.getElementById("orcamento");
-    alvo.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-    form.elements.nome.focus({ preventScroll: true });
-    try { history.replaceState(null, "", "#orcamento"); } catch {}
-  });
-});
 
 // Formulário de orçamento → POST /api/orcamento (servidor do painel da empresa, docs/PAINEL-EMPRESA.md §3).
 const form = document.getElementById("form-orcamento");

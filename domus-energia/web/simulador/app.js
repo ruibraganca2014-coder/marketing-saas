@@ -1650,8 +1650,9 @@ function atualizarPlanta() {
   editor.definirPermissoes({
     divisoes: estado.passo === P.casa || estado.passo === P.planta,
     aparelhos: estado.passo !== P.casa && (estado.passo !== P.inicio || fasePlanta() === "tudo"),
-    // Passo Planta (decisão do dono, 2026-10-04): sem duplo clique — aqui arrastam-se os aparelhos para o sítio.
-    duplo: estado.passo !== P.planta,
+    // Decisão do dono (2026-10-04): sem duplo clique (nem duplo toque ou toque longo) em nenhum passo — na planta
+    // arrasta-se; a janela de cada coisa abre-se no botão "Opções" (ou Enter).
+    duplo: false,
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
@@ -2853,6 +2854,44 @@ function desenhoTeclas(n) {
   }
   return s;
 }
+/** O mesmo para as tomadas (decisão do dono, 2026-10-04): `n` tomadas redondas, com os dois furos, lado a lado no espelho. */
+function desenhoTomadas(n) {
+  const NS = "http://www.w3.org/2000/svg";
+  const s = svgNovo();
+  s.setAttribute("viewBox", `0 0 ${6 + 24 * n} 32`);
+  s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
+  s.classList.add("teclas-desenho", "tomadas-desenho");
+  const novo = (nome, attrs) => {
+    const x = document.createElementNS(NS, nome);
+    for (const [k, v] of Object.entries(attrs)) x.setAttribute(k, v);
+    return x;
+  };
+  s.append(novo("rect", { x: 3, y: 3, width: 24 * n, height: 26, rx: 4 }));
+  for (let i = 0; i < n; i++) {
+    const cx = 15 + 24 * i;
+    s.append(novo("circle", { cx, cy: 16, r: 8 }), novo("circle", { cx: cx - 3, cy: 16, r: 1.2, class: "furo" }), novo("circle", { cx: cx + 3, cy: 16, r: 1.2, class: "furo" }));
+  }
+  return s;
+}
+/** O símbolo do "Inteligente" (decisão do dono, 2026-10-04): as ondas do Wi-Fi — comanda-se pelo telemóvel. */
+function desenhoInteligente() {
+  const NS = "http://www.w3.org/2000/svg";
+  const s = svgNovo();
+  s.setAttribute("viewBox", "0 0 32 32");
+  s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
+  s.classList.add("teclas-desenho", "inteligente-desenho");
+  for (const d of ["M4 13a17 17 0 0 1 24 0", "M8.5 17.5a10.6 10.6 0 0 1 15 0", "M13 22a4.3 4.3 0 0 1 6 0"]) {
+    const c = document.createElementNS(NS, "path");
+    c.setAttribute("d", d);
+    s.append(c);
+  }
+  const o = document.createElementNS(NS, "circle");
+  for (const [k, v] of [["cx", 16], ["cy", 26], ["r", 1.6], ["class", "furo"]]) o.setAttribute(k, v);
+  s.append(o);
+  return s;
+}
 const INVENTARIO = {
   interruptor: {
     titulo: "Interruptores", um: "Interruptor", pergunta: "Quantos botões (teclas) tem cada um?", desenho: desenhoTeclas,
@@ -2863,7 +2902,7 @@ const INVENTARIO = {
     falta: (n, k) => (!n ? "os interruptores (quantos tem, ou \"Não tem\")" : k === 1 ? "os botões de 1 interruptor" : `os botões de ${k} interruptores`),
   },
   tomada: {
-    titulo: "Tomadas", um: "Tomada", pergunta: "De que tipo é cada uma?",
+    titulo: "Tomadas", um: "Tomada", pergunta: "De que tipo é cada uma?", desenho: desenhoTomadas,
     opcoes: [[1, "Simples", "simples"], [2, "Dupla", "dupla"], [3, "Tripla", "tripla"]],
     valor: (p) => caixasDe(p),
     mudar: (e, v) => { e.props.caixas = v; e.props.dupla = v === 2; },
@@ -2978,7 +3017,8 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
     {
       const sim = e.props?.inteligente === true;
       const grupo = el("div", "acao-botoes inventario-inteligente");
-      const bi = el("button", "acao-botao", "Inteligente");
+      const bi = el("button", "acao-botao com-desenho");
+      bi.append(desenhoInteligente(), el("span", null, "Inteligente"));
       bi.type = "button";
       bi.id = `${base}-${i}-inteligente`;
       bi.setAttribute("aria-pressed", String(sim));
@@ -3142,13 +3182,19 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   const medicao = (e) => perguntaMedicao(e.tipo, e.props) && acaoDe(e, sv) === "novo";
   const pergunta = (e) => medicao(e) || (perguntaInteligente(e.tipo) && ["substituir", "novo"].includes(acaoDe(e, sv)));
   const textoPergunta = (e) => (medicao(e) ? "Com medição no telemóvel?" : "Por um inteligente?");
+  // O rótulo da pergunta: no "Por um inteligente?" leva o símbolo do Wi-Fi (o mesmo do botão "Inteligente" das Divisões).
+  const rotuloPergunta = (e, texto) => {
+    const s = el("span", "com-simbolo", texto);
+    if (!medicao(e)) s.prepend(desenhoInteligente());
+    return s;
+  };
   const valorInteligente = (e) => (medicao(e) ? e.inteligente === true : acaoDe(e, sv) === "novo" ? inteligenteDe(e, estado.quer.objetivos) : e.inteligente);
   const inteligenteTodos = !umAUm && els.length > 1 && pergunta(els[0]) && els.every((e) => acaoDe(e, sv) === acaoDe(els[0], sv));
   if (inteligenteTodos) {
     const g = el("div", "acao-inteligente");
     g.setAttribute("role", "group");
     g.setAttribute("aria-label", `${textoPergunta(els[0])} ${els.length} ${nomeL} (${onde}), todos`);
-    g.append(el("span", null, `${textoPergunta(els[0])} (${els.length === 2 ? "os 2" : `os ${els.length}`})`));
+    g.append(rotuloPergunta(els[0], `${textoPergunta(els[0])} (${els.length === 2 ? "os 2" : `os ${els.length}`})`));
     const comum = els.every((e) => valorInteligente(e) === valorInteligente(els[0])) ? valorInteligente(els[0]) : undefined;
     for (const [v, t] of [[true, "Sim"], [false, "Não"]]) {
       const b = el("button", "btn sec pequeno", t);
@@ -3202,7 +3248,7 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
       const g = el("div", "acao-inteligente");
       g.setAttribute("role", "group");
       g.setAttribute("aria-label", `${textoPergunta(e)} ${nomeE} (${onde})`);
-      g.append(el("span", null, `${textoPergunta(e)}${els.length > 1 ? ` (${nomeE.toLowerCase()})` : ""}`));
+      g.append(rotuloPergunta(e, `${textoPergunta(e)}${els.length > 1 ? ` (${nomeE.toLowerCase()})` : ""}`));
       for (const [v, t] of [[true, "Sim"], [false, "Não"]]) {
         const b = el("button", "btn sec pequeno", t);
         b.type = "button";
