@@ -40,7 +40,27 @@ describe('casa registada', () => {
     // No painel: CEO e comercial veem o contacto e o resumo da casa; o técnico não.
     const l = (await painel('GET', 'crm/casas')).json.casas;
     assert.equal(l.length, 1);
-    assert.deepEqual([l[0].email, l[0].registada, l[0].casa], ['com.casa@exemplo.pt', quando, { tipo: 'Apartamento', tipologia: 'T2', divisoes: ['Sala', 'Quarto'], potencia_kva: 6.9 }]);
+    assert.deepEqual([l[0].email, l[0].registada, l[0].casa], ['com.casa@exemplo.pt', quando, { tipo: 'Apartamento', tipologia: 'T2', n_divisoes: 2, divisoes: ['Sala', 'Quarto'], potencia_kva: 6.9 }]);
+    // A simulação é JSON do cliente: valores de outro tipo (objetos sem toString, listas, chaves herdadas) nunca deitam a lista abaixo.
+    const MAU = { toString: 1, valueOf: 1 };
+    for (const estado of [
+      { versao: 5, casa: { tipo: '__proto__', tipologia: 7, potencia_contratada_kva: MAU }, planta: { divisoes: [{ nome: MAU }, { nome: ['a'] }, { nome: 0 }, { nome: '   ' }, null, { nome: ' Sala ' }] } },
+      { versao: 5, casa: ['x'], planta: { divisoes: 'não' } },
+      { versao: 5, casa: { tipo: 'constructor', potencia_contratada_kva: '0x10' }, planta: null },
+    ]) {
+      assert.equal((await conta('POST', 'simulacao', { cookie: c.cookie, corpo: { estado } })).estado, 200);
+      const r = await painel('GET', 'crm/casas');
+      assert.equal(r.estado, 200, r.texto);
+      assert.deepEqual([r.json.casas[0].casa.tipo, r.json.casas[0].casa.potencia_kva], [null, null]);
+    }
+    assert.deepEqual((await painel('GET', 'crm/casas')).json.casas[0].casa.divisoes, []);
+    assert.equal((await conta('POST', 'simulacao', { cookie: c.cookie, corpo: { estado: { versao: 5, casa: {}, planta: { divisoes: [{ nome: MAU }, { nome: ' Sala ' }] } } } })).estado, 200);
+    assert.deepEqual((await painel('GET', 'crm/casas')).json.casas[0].casa.divisoes, ['Sala']);
+    // Já registada e sem simulação guardada (apagada): continua a responder 200 (idempotente).
+    assert.equal((await conta('POST', 'simulacao', { cookie: c.cookie, corpo: { estado: null } })).estado, 200);
+    assert.equal((await conta('POST', 'casa-registada', { cookie: c.cookie, corpo: {} })).estado, 200);
+    assert.equal((await painel('GET', 'crm/casas')).json.casas[0].casa, null);
+    assert.equal((await conta('POST', 'simulacao', { cookie: c.cookie, corpo: { estado: ESTADO } })).estado, 200);
     assert.equal((await painel('GET', 'crm/casas', 'comercial')).json.casas.length, 1);
     assert.equal((await painel('GET', 'crm/casas', 'tecnico')).estado, 403);
     // Com o primeiro pedido (da conta ou com o mesmo email) passa a ficha do CRM: sai das casas registadas.

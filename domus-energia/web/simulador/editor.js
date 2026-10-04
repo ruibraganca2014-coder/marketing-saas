@@ -911,7 +911,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     selecionado = d.id;
     destaque = { id: d.id, desde: performance.now() };
     setTimeout(() => { if (destaque?.id === d.id) { destaque = null; desenhar(); } }, DESTAQUE_MS);
-    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n && podeAparelhos ? ` com ${n === base.length ? resumoAparelhos(d.nome, d.largura_cm, d.altura_cm) : `${n} aparelhos habituais`}` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; duplo clique (ou toque longo) abre as opções.`);
+    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n && podeAparelhos ? ` com ${n === base.length ? resumoAparelhos(d.nome, d.largura_cm, d.altura_cm) : `${n} aparelhos habituais`}` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; o botão "Opções" (ou Enter) abre as opções.`);
     return d;
   }
 

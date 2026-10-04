@@ -207,15 +207,19 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
       ORDER BY c.casa_registada DESC LIMIT 200`).all().map((c) => {
       let s = null;
       try { s = c.simulacao ? JSON.parse(c.simulacao) : null; } catch { s = null; }
-      const casa = s?.casa && typeof s.casa === 'object' ? s.casa : {};
+      // A simulação é escrita pelo cliente (JSON livre dentro do tamanho): só texto e números a sério chegam ao painel —
+      // um valor de outro tipo (objeto, lista, booleano) fica de fora em vez de deitar a lista abaixo.
+      const casa = s?.casa && typeof s.casa === 'object' && !Array.isArray(s.casa) ? s.casa : {};
       const divisoes = Array.isArray(s?.planta?.divisoes) ? s.planta.divisoes : [];
-      const kva = Number(casa.potencia_contratada_kva);
+      const kva = typeof casa.potencia_contratada_kva === 'number' ? casa.potencia_contratada_kva : NaN;
+      const nomes = divisoes.map((d) => (typeof d?.nome === 'string' ? d.nome.trim().slice(0, 60) : '')).filter(Boolean);
       return {
         id: c.id, email: c.email, nome: c.nome ?? null, telefone: c.telefone ?? null, localidade: c.localidade ?? null, registada: c.casa_registada,
-        casa: s ? {
-          tipo: TIPOS[casa.tipo] ?? null, tipologia: typeof casa.tipologia === 'string' ? casa.tipologia.slice(0, 4) : null,
-          divisoes: divisoes.slice(0, 60).map((d) => String(d?.nome ?? '').slice(0, 60)).filter(Boolean),
-          potencia_kva: Number.isFinite(kva) && kva > 0 && kva < 100 ? kva : null,
+        casa: s && typeof s === 'object' ? {
+          tipo: typeof casa.tipo === 'string' && Object.hasOwn(TIPOS, casa.tipo) ? TIPOS[casa.tipo] : null,
+          tipologia: typeof casa.tipologia === 'string' ? casa.tipologia.slice(0, 4) : null,
+          n_divisoes: nomes.length, divisoes: nomes.slice(0, 60),
+          potencia_kva: Number.isFinite(kva) && kva >= 1 && kva < 100 ? Math.round(kva * 100) / 100 : null,
         } : null,
       };
     });

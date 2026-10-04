@@ -25,6 +25,7 @@ export default function crm(el, ctx) {
   let resposta = null;     // GET crm/pedidos
   let clientes = null;     // GET crm/clientes
   let casas = null;        // GET crm/casas (casas registadas no simulador, ainda sem pedido)
+  let erroCasas = null;    // a lista falhou: mostra-se ao abrir o separador (com "Tentar de novo")
   let ficha = null;
 
   const segmentos = vende ? h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar" },
@@ -69,14 +70,15 @@ export default function crm(el, ctx) {
 
   async function carregarCasas() {
     if (!vende) return;
+    erroCasas = null;
     try { casas = lista(await pedir("crm/casas", { sinal: ctrl.signal }), "casas"); }
-    catch (e) { if (e.name !== "AbortError" && vista === "casas") zona.replaceChildren(erroEcra(e, carregarCasas)); return; }
+    catch (e) { if (e.name === "AbortError") return; erroCasas = e; }
     desenhar();
   }
   /** Uma casa registada: o contacto da conta, a casa em poucas palavras e quando ficou registada. */
   function linhaCasa(c) {
     const k = c.casa ?? {};
-    const casa = [[k.tipo, k.tipologia].filter(Boolean).join(" "), k.divisoes?.length ? `${k.divisoes.length} divisões: ${k.divisoes.join(", ")}` : null,
+    const casa = [[k.tipo, k.tipologia].filter(Boolean).join(" "), k.divisoes?.length ? `${k.n_divisoes ?? k.divisoes.length} divisões: ${k.divisoes.join(", ")}${(k.n_divisoes ?? 0) > k.divisoes.length ? "…" : ""}` : null,
       k.potencia_kva ? `${String(k.potencia_kva).replace(".", ",")} kVA` : null].filter(Boolean).join(" · ");
     return h("li", {}, h("div", { class: "linha", dataset: { id: String(c.id) } },
       h("span", { class: "linha-principal" }, h("strong", { text: c.nome || c.email }), h("span", { class: "ajuda", text: [c.nome ? c.email : null, c.telefone, c.localidade].filter(Boolean).join(" · ") || "Só o email" })),
@@ -91,6 +93,7 @@ export default function crm(el, ctx) {
     fFase.hidden = vista !== "lista";
     filtrosClientes.hidden = vista !== "clientes";
     if (vista === "casas") {
+      if (erroCasas) { contagem.textContent = ""; zona.replaceChildren(erroEcra(erroCasas, carregarCasas)); return; }
       if (!casas) { zona.replaceChildren(carregando()); return; }
       contagem.textContent = `${casas.length} ${casas.length === 1 ? "casa registada" : "casas registadas"} sem pedido`;
       zona.replaceChildren(casas.length ? h("ul", { class: "linhas", id: "lista-casas-crm" }, ...casas.map(linhaCasa))

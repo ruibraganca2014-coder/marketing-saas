@@ -518,7 +518,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
    */
   h.registarCasa = ({ res, c, ip }) => {
     const r = db.prepare('SELECT simulacao, casa_registada FROM contas WHERE id = ?').get(c.id);
-    if (!r?.simulacao) falha('Descreva primeiro a sua casa no simulador.');
+    if (!r?.simulacao && !r?.casa_registada) falha('Descreva primeiro a sua casa no simulador.');
     if (!r.casa_registada) {
       db.prepare('UPDATE contas SET casa_registada = ? WHERE id = ?').run(agoraIso(), c.id);
       auditar(quem(c), 'casa_registada', `conta:${c.id}`, null, ip);

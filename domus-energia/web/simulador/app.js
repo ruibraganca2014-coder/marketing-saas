@@ -19,7 +19,7 @@ import {
   quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoIntervaloTrabalhos, textoDias,
 } from "./preco.js";
 import {
-  SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, soReparacoes, precisaEscolher, temAcao,
+  SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, precisaEscolher, temAcao,
   perguntaInteligente, acaoDe, faltaAcao, plantaNovos, pedidoDoElemento, inteligenteDe, plantaInteligentes, perguntaMedicao,
 } from "./acoes.js";
 import {
@@ -195,7 +195,7 @@ function gravar() {
   if (enviado || casaPreEscolhida) return;   // o cartão escolhido pela página não é uma simulação em curso: nada a gravar
   const r = guardarEstado(armazem ?? semArmazem, estado);
   // A casa (funil "Já tenho a planta") fica guardada à parte assim que a planta da primeira vez está conferida.
-  if (estado.funil === "primeira" && (ordemPasso(visitado) >= ordemPasso(P.planta) || (fluxoCurto() && ordemPasso(visitado) >= ordemPasso(P.quadro))) && temCasa(estado)) {
+  if (estado.funil === "primeira" && casaDescrita() && temCasa(estado)) {
     if (guardarCasa(armazem ?? semArmazem, estado)) casaGuardada = carregarCasa(armazem ?? semArmazem);
   }
   $("sim-guardado").textContent = r === "ok" ? "Guardado neste navegador"
@@ -206,7 +206,11 @@ addEventListener("pagehide", () => { if (temporizador) gravar(); });
 
 // ------------------------------------------------------------ passos
 /** Serviço escolhido (Início); sem nenhum ainda, as contas fazem-se como "Instalação nova" (o preço de sempre). */
-const servicos = () => (estado.servico?.length ? estado.servico : ["nova"]);
+// Em "Descrever a minha casa" não há serviço (duas partes, 2026-10-04): as contas fazem-se sempre como "Instalação
+// nova", mesmo que o estado traga o serviço de um pedido anterior ("Mudar a casa") ou de uma página de anúncio.
+const servicos = () => (estado.funil === "primeira" && estado.caminho !== "carregar" ? ["nova"] : estado.servico?.length ? estado.servico : ["nova"]);
+/** A casa já foi descrita até ao fim (chegou ao Relatório)? Só então fica guardada e serve para pedir um serviço. */
+const casaDescrita = () => ordemPasso(visitado) >= ordemPasso(P.relatorio);
 /** O funil (o caso do Início); sem nenhum escolhido, conta como o da primeira vez (barra e tempos). */
 const funil = () => estado.funil ?? "primeira";
 const funilAvaria = () => estado.funil === "avaria";
@@ -218,7 +222,8 @@ const posicao = (i) => sequencia().indexOf(i);
  * Só "Reparações / avarias" (primeira vez): fluxo curto — salta "Equipamentos", "Planta" e "Divisões" (as avarias
  * marcam-se em "Trocar e reparar", com a planta ao lado).
  */
-const fluxoCurto = () => funil() === "primeira" && soReparacoes(estado.servico);
+// Duas partes (2026-10-04): a casa descreve-se sempre por inteiro — o fluxo curto deixou de existir.
+const fluxoCurto = () => false;
 /** Passos que "não precisa" (barra dos passos; Seguinte/Anterior saltam-nos): Equipamentos, Planta e Divisões no fluxo curto. */
 const naoPrecisa = (i) => (i === P.quer || i === P.planta || i === P.divisoes) && fluxoCurto();
 /** Na área de cliente a casa já é conhecida: Seguinte/Anterior saltam-na (continua na barra, para editar). */
@@ -332,7 +337,7 @@ function desenharEstimativaProvisoria() {
   let texto = null;
   if (funilAvaria()) {
     if (p !== P.inicio && catalogo) { const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo, configOrc, { valor_iva: 0 }); if (total !== null) texto = textoDiagnostico(total); }
-  } else if (p !== P.inicio && (funilPlanta() || ordemPasso(p) > ordemPasso(P.quer))) {
+  } else if (p !== P.inicio && funilPlanta()) {   // em "Descrever a minha casa" não há preços
     const est = estimativaProvisoria();
     if (est) texto = `Estimativa: ${textoIntervalo(est)}${ordemPasso(p) < ordemPasso(P.preco) ? " · afina nos passos seguintes" : ""}`;
   }
@@ -455,7 +460,14 @@ function concluirCasa() {
   j.querySelector("h2").textContent = "A sua casa está guardada";
   j.querySelector("#casa-janela-corpo").replaceChildren(el("p", null, "Quando precisar de obras, de trocar alguma coisa ou de automatizar, já não tem de a descrever outra vez."));
   j.querySelector("#casa-janela-botoes").replaceChildren(
-    botao("btn sec", "Fico por aqui", "casa-fim-sair", () => { gravar(); registo.finally(() => { location.href = "index.html"; }); }),
+    botao("btn sec", "Fico por aqui", "casa-fim-sair", () => {
+      // Ao voltar, o simulador abre no Início de "Pedir um serviço", com a casa (e não outra vez no Relatório).
+      estado.funil = "planta";
+      estado.caminho = null;
+      estado.passo = P.inicio;
+      gravar();
+      registo.finally(() => { location.href = codigoCliente ? "cliente.html" : "index.html"; });
+    }),
     botao("btn", "Pedir um serviço agora", "casa-fim-servico", () => {
       estado.funil = "planta";
       estado.caminho = null;
@@ -464,6 +476,7 @@ function concluirCasa() {
     }),
   );
   j.showModal();
+  $("casa-fim-servico").focus();
 }
 
 /** Os bloqueios de todo o caminho até ao Enviar (o "Seguinte" do Enviar). Devolve true se bloqueou. */
@@ -529,7 +542,10 @@ const AJUDA_FUNIL = {
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
 let casaGuardada = null;   // estado `soCasa` (estado.js carregarCasa), ou null
-const casaParaPlanta = () => (temCasa(estado) && !estado.soCasa ? estado : casaGuardada ?? (temCasa(estado) ? estado : null));
+// A desta simulação só conta depois de descrita até ao Relatório (ou já em "Pedir um serviço"): uma casa a meio não
+// serve. Na área de cliente (com código) a casa é a instalada: não tem tipo de imóvel, basta a planta.
+const casaAqui = () => !estado.soCasa && (codigoCliente ? estado.planta.divisoes.length > 0 : temCasa(estado)) && (estado.funil === "planta" || casaDescrita());
+const casaParaPlanta = () => (casaAqui() ? estado : casaGuardada ?? (estado.soCasa && temCasa(estado) ? estado : null));
 /*
  * Cliente que regressa (decisão 1 do dono, 2026-10-04; ../regresso.js preEscolherCasa): numa simulação NOVA com casa
  * guardada (neste navegador ou na conta) o Início abre com o cartão "Já tenho a planta" já escolhido e a frase
@@ -1794,6 +1810,8 @@ $("planta-presa-ir").addEventListener("click", () => {
 function mudarACasa() {
   estado.funil = "primeira";
   estado.caminho = null;
+  visitado = P.relatorio;
+  estado.visitado = visitado;
   irPara(P.casa);
 }
 $("planta-fechar").addEventListener("click", () => fecharPlanta());
@@ -4244,6 +4262,10 @@ function desenharCompleto() {
   const planta = plantaDivisoes();
   const caixa = $("completo");
   caixa.replaceChildren();
+  // "Descrever a minha casa" não tem passo Enviar: o relatório completo (pago ao enviar) pede-se em "Pedir um serviço".
+  const parteCasa = funil() === "primeira";
+  $("completo-titulo").hidden = parteCasa;
+  caixa.hidden = parteCasa;
   const traz = el("div", "cartao");
   const ul = el("ul", "sim-inclui");
   ul.append(...["Lista de material, artigo a artigo.", "Preço por divisão.", "Planta técnica com símbolos e circuitos.", "Esquema por luz (comandos).", "Lista de ensaios a medir na visita.", "Esquema do quadro feito pelo eletricista."].map((t) => el("li", null, t)));
@@ -4273,7 +4295,7 @@ function desenharCompleto() {
   caixa.append(traz, amostra);
   // "Quero o relatório completo — 29 €" (com os pagamentos ligados; nunca na avaria).
   const quero = $("completo-quero");
-  quero.hidden = !comprasAtivas();
+  quero.hidden = parteCasa || !comprasAtivas();
   const l = $("completo-quero-opcao");
   if (!quero.hidden && l) {
     l.querySelector("span").firstChild.textContent = `Quero o relatório completo — ${formatarEuro(precoRelatorio())}`.replace(/ €/g, "\u00a0€");
@@ -4341,10 +4363,13 @@ const blocoContaRelatorio = criarBlocoConta($("relatorio-conta-bloco"), {
   aoMudar: () => { blocoConta.atualizar(); },
 });
 const relatorioFechado = () => funil() === "primeira" && !contaEu?.conta?.confirmado;
+let portaoEstavaFechado = false;
 function portaoRelatorio() {
   const fechado = relatorioFechado();
   $("relatorio-conta").hidden = !fechado;
   $("relatorio-conteudo").hidden = fechado;
+  if (portaoEstavaFechado && !fechado && estado.passo === P.relatorio) focar(`titulo-${P.relatorio}`);
+  portaoEstavaFechado = fechado;
 }
 function aoMudarConta(eu) {
   const antes = contaEu;
