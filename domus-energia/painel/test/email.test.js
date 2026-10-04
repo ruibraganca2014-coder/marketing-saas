@@ -156,6 +156,27 @@ describe('cliente SMTP (servidor falso em memória)', () => {
     criarCorreio({ config: { smtp: smtp(f.porta), emailRemetente: 'sem arroba' }, registo });
     assert.ok(linhas.some((l) => /EMAIL_REMETENTE inválido/.test(l)));
   });
+
+  test('EMAIL_RESPOSTAS: os emails levam Reply-To para a caixa da empresa; sem ela ou mal escrita, não levam', async () => {
+    assert.equal(lerConfig({ EMAIL_RESPOSTAS: ' geral@exemplo.pt ' }).emailRespostas, 'geral@exemplo.pt');
+    assert.equal(lerConfig({}).emailRespostas, '');
+    const f = await servidorFalso();
+    abertos.push(f.srv);
+    const linhas = [];
+    const registo = { info: (m) => linhas.push(m), aviso: (m) => linhas.push(m), erro: (m) => linhas.push(m) };
+    const base = { smtp: smtp(f.porta), emailRemetente: 'noreply@exemplo.pt' };
+    const msg = { para: 'cliente@exemplo.pt', assunto: 'Assunto', texto: 'x' };
+    assert.equal(await criarCorreio({ config: { ...base, emailRespostas: 'geral@exemplo.pt' }, registo }).enviar({ ...msg, cabecalhos: { 'List-Unsubscribe': '<https://exemplo.pt/sair>' } }), true);
+    assert.match(f.sessoes[0].dados, /^Reply-To: <geral@exemplo\.pt>\r$/m);
+    assert.match(f.sessoes[0].dados, /^List-Unsubscribe: <https:\/\/exemplo\.pt\/sair>\r$/m, 'os outros cabeçalhos continuam');
+    assert.match(f.sessoes[0].dados, /^From: Domus Energia <noreply@exemplo\.pt>\r$/m, 'o remetente não muda');
+    assert.equal(await criarCorreio({ config: base, registo }).enviar(msg), true);
+    assert.doesNotMatch(f.sessoes[1].dados, /^Reply-To:/m);
+    assert.ok(!linhas.some((l) => /EMAIL_RESPOSTAS/.test(l)));
+    assert.equal(await criarCorreio({ config: { ...base, emailRespostas: 'geral@exemplo.pt\r\nBcc: mau@exemplo.pt' }, registo }).enviar(msg), true);
+    assert.doesNotMatch(f.sessoes[2].dados, /^(Reply-To|Bcc):/m);
+    assert.ok(linhas.some((l) => /EMAIL_RESPOSTAS inválido/.test(l)));
+  });
 });
 
 describe('sem SMTP / modo local', () => {

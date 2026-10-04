@@ -183,6 +183,7 @@ services:
       SMTP_UTILIZADOR: ${SMTP_UTILIZADOR:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       EMAIL_REMETENTE: ${EMAIL_REMETENTE:-}
+      EMAIL_RESPOSTAS: ${EMAIL_RESPOSTAS:-}
       SMTP_SEGURANCA: ${SMTP_SEGURANCA:-}           # vazio = pela porta (465 TLS direto, outras STARTTLS)
       SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
       # Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): stripe (Checkout) ou simulado (só demonstração, explícito);

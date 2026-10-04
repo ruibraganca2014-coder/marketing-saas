@@ -167,6 +167,8 @@ export default function orcamentos(el, ctx) {
     if (campo(o, "mensagem")) partes.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
     // Assistente (IA; docs/ASSISTENTE-IA.md): só na ficha completa (a que traz `ia`).
     if (o && typeof o === "object" && "ia" in o) partes.push(seccaoIa(j, o, "resumo", arquivado));
+    // Escrever ao cliente (ronda 2 do assistente): só com um email para onde enviar, fora dos arquivados.
+    if (!arquivado && campo(o, "mensagem_para")) partes.push(seccaoMensagem(j, o));
     const sim = simulacaoDe(o);
     if (sim) partes.push(vistaSimulacao(sim, catalogoDe(o)));
     else if (campo(o, "tem_simulacao") === true) partes.push(h("section", { class: "simulacao", id: "simulacao-cliente", dataset: { carregando: "" } }, h("h3", { text: "Simulação do cliente" }), carregando()));
@@ -862,6 +864,76 @@ export default function orcamentos(el, ctx) {
     return sec;
   }
 
+  /**
+   * "Escrever ao cliente" (decisões do dono, 2026-10-04; docs/ASSISTENTE-IA.md §8): a pessoa escreve em poucas palavras
+   * o que quer dizer e "Redigir com IA" devolve o email (POST orcamentos/:id/ia/resposta; só com o assistente ligado);
+   * ou escreve o email à mão. "Enviar email" pede confirmação e envia pelo painel (POST orcamentos/:id/mensagem): fica
+   * na ficha do cliente (CRM) e no histórico do pedido. Nada sai sem a pessoa rever e confirmar.
+   */
+  function seccaoMensagem(j, o) {
+    const id = String(campo(o, "id"));
+    const para = String(campo(o, "mensagem_para"));
+    const ligado = (campo(o, "ia") ?? {}).ligado === true;
+    const sec = h("section", { class: "ia-pedido", id: "mensagem-cliente" }, h("h3", { text: "Escrever ao cliente" }));
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const ideia = h("textarea", { name: "mensagem_ideia", maxlength: "1000", rows: "2", placeholder: "Ex.: podemos ir quinta de manhã; precisamos de uma foto do quadro antes; a visita custa 35 €." });
+    const assunto = h("input", { name: "mensagem_assunto", maxlength: "150", value: "" });
+    const texto = h("textarea", { name: "mensagem_texto", maxlength: "5000", rows: "10" });
+    const redigir = h("button", { class: "btn sec pequeno", type: "button", id: "mensagem-redigir", text: "Redigir com IA" });
+    const enviar = h("button", { class: "btn pequeno", type: "button", id: "mensagem-enviar", text: "Enviar email" });
+    const confirmar = h("div", { class: "msg info bloco", id: "mensagem-confirmar", hidden: true });
+    // O que já está escrito não se perde quando a ficha se redesenha (ex.: depois de "Resumir pedido").
+    const rasc = rascunhosMensagem.get(id) ?? {};
+    ideia.value = rasc.ideia ?? ""; assunto.value = rasc.assunto ?? ""; texto.value = rasc.texto ?? "";
+    if (rasc.daIa) texto.dataset.daIa = "1";
+    const lembrar = () => rascunhosMensagem.set(id, { ideia: ideia.value, assunto: assunto.value, texto: texto.value, daIa: Boolean(texto.dataset.daIa) });
+    for (const c of [ideia, assunto]) c.addEventListener("input", lembrar);
+    redigir.addEventListener("click", async () => {
+      if (!ideia.value.trim()) { mensagem(msg, "Escreva primeiro, em poucas palavras, o que quer dizer ao cliente."); ideia.focus(); return; }
+      if (texto.value.trim() && !texto.dataset.daIa) { mensagem(msg, "Já há um texto escrito à mão em \"Mensagem\". Apague-o para a IA redigir outro."); texto.focus(); return; }
+      redigir.disabled = true; redigir.textContent = "A redigir… (alguns segundos)"; mensagem(msg, null);
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/ia/resposta`, { corpo: { instrucao: ideia.value.trim() } });
+        assunto.value = String(campo(r, "assunto") ?? "");
+        texto.value = String(campo(r, "texto") ?? "");
+        texto.dataset.daIa = "1";
+        lembrar();
+        texto.focus();
+      } catch (erro) { mensagem(msg, erro.message); }
+      redigir.disabled = false; redigir.textContent = "Redigir outra vez";
+    });
+    texto.addEventListener("input", () => { delete texto.dataset.daIa; lembrar(); });
+    enviar.addEventListener("click", () => {
+      mensagem(msg, null);
+      if (!assunto.value.trim()) { mensagem(msg, "Indique o assunto."); assunto.focus(); return; }
+      if (!texto.value.trim()) { mensagem(msg, "Escreva a mensagem."); texto.focus(); return; }
+      const sim = h("button", { class: "btn pequeno", type: "button", id: "mensagem-confirmar-sim", text: "Sim, enviar" });
+      const nao = h("button", { class: "btn sec pequeno", type: "button", text: "Cancelar" });
+      nao.addEventListener("click", () => { confirmar.hidden = true; enviar.disabled = false; enviar.focus(); });
+      sim.addEventListener("click", async () => {
+        sim.disabled = true; nao.disabled = true;
+        try {
+          const r = await pedir(`orcamentos/${encodeURIComponent(id)}/mensagem`, { corpo: { assunto: assunto.value.trim(), texto: texto.value.trim() } });
+          const novo = campo(r, "orcamento") ?? r;
+          substituir(novo, false);
+          rascunhosMensagem.delete(id);
+          avisar(`Email enviado para ${para}. Ficou registado na ficha do cliente.`);
+          if (ficha?.j === j) desenharFicha(j, novo);
+        } catch (erro) { confirmar.hidden = true; enviar.disabled = false; mensagem(msg, erro.message); }
+      });
+      confirmar.replaceChildren(h("p", { text: `Enviar este email para ${para}? Depois de enviado não se pode desfazer.` }), h("div", { class: "form-botoes" }, sim, nao));
+      confirmar.hidden = false; enviar.disabled = true; sim.focus();
+    });
+    sec.append(h("p", { class: "ajuda", text: `Email para ${para}, enviado pelo painel. A resposta do cliente chega à caixa de email da empresa. Fica registado na ficha do cliente.` }));
+    if (ligado) {
+      sec.append(campoForm("O que quer dizer (a IA redige o email)", ideia),
+        h("p", { class: "ajuda", text: "Escreva os factos: datas, preços, o que precisa do cliente. A IA só redige; não invente por ela. Não escreva aqui o nome nem os contactos do cliente." }),
+        h("div", { class: "form-botoes" }, redigir));
+    }
+    sec.append(campoForm("Assunto", assunto), campoForm("Mensagem", texto), h("div", { class: "form-botoes" }, enviar), confirmar, msg);
+    return sec;
+  }
+
   /** "Cancelar obra e devolver sinal" (CEO): o valor a devolver (por omissão o sinal todo) e o motivo; pede confirmação. */
   function formDevolverSinal(j, o, sinal) {
     const id = String(campo(o, "id"));
@@ -1043,8 +1115,10 @@ const ACOES = {
   visita_cancelada_cliente: "Visita cancelada pelo cliente (devolvida)", visita_faltou: "Cliente faltou à visita (sem devolução)",
   sinal_devolvido: "Obra cancelada: sinal devolvido", devolucao_iban: "O cliente indicou o IBAN da devolução", devolucao_feita: "Devolução por transferência feita",
   inicio_imediato: "Cliente: \"Quero que comecem já\"",
-  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado", ia_resumo: "Resumo pedido ao assistente (IA)", ia_diagnostico: "Sugestão de diagnóstico pedida ao assistente (IA)",
+  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado", mensagem_enviada: "Email enviado ao cliente", ia_resposta: "Rascunho de email pedido ao assistente (IA)", ia_resumo: "Resumo pedido ao assistente (IA)", ia_diagnostico: "Sugestão de diagnóstico pedida ao assistente (IA)",
 };
+/** "Escrever ao cliente": o que está por enviar em cada pedido (só nesta página aberta). */
+const rascunhosMensagem = new Map();
 const IA_NIVEL = { alta: "alta", media: "média", baixa: "baixa" };
 const IA_TEXTOS = {
   resumo: { titulo: "Resumo do pedido (IA)", botao: "Resumir pedido", outraVez: "Atualizar resumo",

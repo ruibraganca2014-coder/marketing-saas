@@ -174,6 +174,11 @@ export function criarCorreio({ config, registo, local = false }) {
   const de = enderecoRemetente(config.emailRemetente) || (config.smtp?.utilizador && RE_EMAIL.test(config.smtp.utilizador) ? config.smtp.utilizador : 'nao-responder@domus.localhost');
   // Um remetente mal escrito fazia falhar todos os envios sem ninguém dar por isso: fica à vista no arranque.
   if (smtp && !RE_EMAIL.test(de)) registo.erro('EMAIL_REMETENTE inválido: nenhum email vai ser enviado (use nome@dominio ou "Nome <nome@dominio>")');
+  // EMAIL_RESPOSTAS: a caixa que a empresa lê. Com ela, "Responder" no email do cliente vai para lá (Reply-To) e não
+  // para o remetente (que pode ser um "noreply"). Mal escrita: ignorada, com o erro à vista no arranque.
+  const respostas = enderecoRemetente(config.emailRespostas);
+  if (respostas && !RE_EMAIL.test(respostas)) registo.erro('EMAIL_RESPOSTAS inválido: ignorado (use nome@dominio); as respostas dos clientes vão para o remetente');
+  const responderPara = RE_EMAIL.test(respostas) ? { 'Reply-To': `<${respostas}>` } : {};
   const emCurso = new Set();
   function enviar({ para, assunto, texto, resumo, cabecalhos }) {
     if (!smtp) {
@@ -183,7 +188,7 @@ export function criarCorreio({ config, registo, local = false }) {
       return Promise.resolve(true);
     }
     // Com SMTP nunca se regista o assunto nem o corpo (podem levar códigos): só o resultado.
-    const p = enviarSmtp(smtp, { de, para, assunto, texto, cabecalhos })
+    const p = enviarSmtp(smtp, { de, para, assunto, texto, cabecalhos: { ...responderPara, ...cabecalhos } })
       .then(() => { registo.info('email enviado'); return true; })
       .catch((e) => { registo.erro(`email para o cliente não enviado: ${e.message}`); return false; });
     emCurso.add(p);

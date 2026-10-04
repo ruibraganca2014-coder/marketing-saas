@@ -1,6 +1,6 @@
 # Assistente (IA) dos pedidos
 
-Decisões do dono de 2026-10-04. Primeira ronda: **resumir o pedido** e **sugerir o diagnóstico** de uma avaria. O rascunho de resposta ao cliente fica para a ronda seguinte (o painel ainda não escreve ao cliente). Código: `painel/src/assistente.js` (o que vai ao modelo, a chamada, a validação da resposta), as rotas `POST orcamentos/:id/ia/resumo|diagnostico` em `painel/src/api.js` (`pedirIa`), `painel/public/ecras/orcamentos.js` (`seccaoIa`); migração 37 (`orcamentos.ia`); testes `painel/test/assistente.test.js` e a matriz de `papeis.test.js`.
+Decisões do dono de 2026-10-04. Primeira ronda: **resumir o pedido** e **sugerir o diagnóstico** de uma avaria. Segunda ronda (§8): **escrever ao cliente**, com o rascunho do email redigido pela IA. Código: `painel/src/assistente.js` (o que vai ao modelo, a chamada, a validação da resposta), as rotas `POST orcamentos/:id/ia/resumo|diagnostico` em `painel/src/api.js` (`pedirIa`), `painel/public/ecras/orcamentos.js` (`seccaoIa`); migração 37 (`orcamentos.ia`); testes `painel/test/assistente.test.js` e a matriz de `papeis.test.js`.
 
 ## 1. O que o dono decidiu
 | Pergunta | Decisão |
@@ -56,6 +56,18 @@ Pedido do dono (2026-10-04): no **Esquema do quadro** da ficha do pedido, com fo
 - Se a foto ainda não tem leitura (chegou antes de haver chave) ou a leitura falhou, o botão pede-a na hora (`POST orcamentos/:id/ler-quadro`, espera pelo resultado; conta no `LIMITE_IA_DIA`). Leitura que não reconhece um quadro: mensagem e desenha-se à mão.
 - Testes: `esquema-quadro.test.js` (`esquemaDaLeitura`), `fotos.test.js` (a rota) e a matriz de `papeis.test.js`.
 
-## 8. Por fazer
-- Rascunho de resposta ao cliente (precisa de "escrever ao cliente" no painel e do registo das mensagens na ficha).
+## 8. Escrever ao cliente (ronda 2)
+Decisões do dono de 2026-10-04: **o painel envia o email**; **a pessoa escreve a ideia e a IA redige**; tom **formal simples, sem "tu"** (o dos emails automáticos: "Olá," … "Domus Energia").
+
+- **Ficha do pedido → "Escrever ao cliente"** (CEO e comercial; só com um email do cliente para onde enviar — o da conta, ou o do formulário nos pedidos sem conta — e fora dos arquivados; a ficha completa leva `mensagem_para`).
+- **"O que quer dizer"** (até 1000 caracteres) + **Redigir com IA** → `POST orcamentos/:id/ia/resposta {instrucao}` → `{assunto, texto, modelo, custo_usd}`. Só com o assistente ligado. A ideia é a **única fonte de factos** (datas, preços, compromissos): o modelo tem ordem para não acrescentar nenhum, nem escrever o nome do cliente ou de quem assina. Ao modelo vão a ideia tal como foi escrita (não passa pelo filtro: pode levar o telefone da empresa ou um preço) e os dados técnicos do pedido de sempre (§3). **O rascunho não se guarda** no pedido: vai para o formulário.
+- **Assunto** e **Mensagem** editáveis; também se pode escrever tudo à mão, sem IA. Um texto escrito à mão não é substituído pela IA sem ser apagado primeiro. O que está por enviar não se perde quando a ficha se redesenha (fica na página aberta; some ao recarregar).
+- **Enviar email** → pede confirmação ("Enviar este email para …? Depois de enviado não se pode desfazer.") → `POST orcamentos/:id/mensagem {assunto ≤ 150, texto ≤ 5000}`: sai pelo remetente dos outros emails (`EMAIL_REMETENTE`), só texto. **A resposta do cliente chega à caixa de `EMAIL_RESPOSTAS`** (cabeçalho `Reply-To` de todos os emails do painel; sem ela, à do remetente), fora do painel.
+- Fica na **ficha do cliente (CRM)** como contacto "email" (assunto + texto, quem e quando) e, por isso, um pedido "novo" passa a "contactado" e os lembretes de contacto contam daí. No histórico do pedido: "Email enviado ao cliente" (só o n.º de caracteres; o texto não vai para a auditoria nem para o registo do servidor) e "Rascunho de email pedido ao assistente (IA)" com o custo.
+- Limites: 30 emails por hora por utilizador (`429`); o rascunho conta no `LIMITE_IA_DIA`. `409` sem email do cliente ou pedido arquivado; `502` se o servidor de email falhar (nada fica registado).
+- Não usa a ligação "não quero receber": é uma mensagem de serviço sobre o pedido do cliente, escrita por uma pessoa.
+- Testes: `assistente.test.js` ("escrever ao cliente") e a matriz de `papeis.test.js`.
+
+## 9. Por fazer
+- Ver as respostas do cliente dentro do painel (hoje chegam só à caixa de email).
 - Experimentado com a API real em 2026-10-04 no servidor, com um pedido fictício: resumo em 12 s (≈ US$ 0,02) e diagnóstico em 28 s (≈ US$ 0,05); a API aceitou `fallbacks`. Falta ver o custo num pedido com simulação completa (casa inteira).

@@ -147,6 +147,8 @@ export function lerConfig(env = process.env) {
       timeoutMs: Number(env.SMTP_TIMEOUT_MS || 20_000),
     } : null,
     emailRemetente: String(env.EMAIL_REMETENTE || '').trim(),
+    // A caixa onde a empresa lê as respostas dos clientes (cabeçalho Reply-To de todos os emails); vazio = respondem ao remetente.
+    emailRespostas: String(env.EMAIL_RESPOSTAS || '').trim(),
     emailLocal: env.EMAIL_LOCAL === '1',     // modo local: os emails vão sempre para o registo (nunca SMTP)
     // Pagamentos do pedido (relatório, visita, avaria, sinal, restante): docs/PAGAMENTOS-PEDIDO.md
     pagamentoPedido,                         // PAGAMENTO_PEDIDO=0 (ou sem modo nem chave): não se compra nada online (enviar é sempre grátis; a avaria também)

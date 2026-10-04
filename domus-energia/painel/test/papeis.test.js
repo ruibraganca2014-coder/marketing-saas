@@ -40,6 +40,8 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/ler-quadro', [C, M], {}],
   ['POST', 'orcamentos/999/ia/resumo', [C, M], {}],
   ['POST', 'orcamentos/999/ia/diagnostico', [C, M], {}],
+  ['POST', 'orcamentos/999/ia/resposta', [C, M], {}],
+  ['POST', 'orcamentos/999/mensagem', [C, M], {}],
   ['GET', 'orcamentos/999/fotos/0123456789abcdef01234567', [C, M]],
   ['POST', 'orcamentos/999/fotos/0123456789abcdef01234567/apagar', [C, M], {}],
   ['GET', 'obras', TODOS],

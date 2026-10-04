@@ -31,6 +31,7 @@ export const ESQUEMAS = {
     confianca: { type: 'string', enum: NIVEIS },
     nota: { type: 'string' },
   }),
+  resposta: objeto({ assunto: { type: 'string' }, texto: { type: 'string' } }),
 };
 
 const COMUM = `Recebes os dados técnicos de UM pedido em JSON, sem a identificação do cliente. Regras:
@@ -60,9 +61,20 @@ ${COMUM}
 - nota: uma frase com o que mais ajudava a afinar a hipótese (uma foto, uma pergunta ao cliente); vazia se nada.`,
 };
 
-const PEDIDO = { resumo: 'Resume este pedido.', diagnostico: 'Sugere o diagnóstico desta avaria.' };
-// O diagnóstico pede mais raciocínio do que o resumo.
-const ESFORCO = { resumo: 'medium', diagnostico: 'high' };
+// Rascunho de email ao cliente (ronda 2): quem escreve a ideia é a pessoa da equipa (`instrucao`); o modelo só redige.
+INSTRUCOES.resposta = `Escreves emails em nome da Domus Energia, uma empresa portuguesa de instalações elétricas e casa inteligente, para um cliente que fez um pedido de orçamento. Uma pessoa da equipa diz-te em poucas palavras o que quer dizer ao cliente; tu rediges o email completo. Ela lê, corrige e é ela que envia.
+
+${COMUM}
+
+- O que dizer vem em <o_que_dizer>: é a única fonte de factos, datas, horas, preços e compromissos. Não acrescentes nenhum que lá não esteja, nem promessas, descontos ou prazos. Os dados do pedido servem só para dar contexto (de que trabalho se fala).
+- Se o que dizer for vago, escreve um email curto e igualmente vago: não preenchas as lacunas.
+- Tom: formal simples, na terceira pessoa ("o seu pedido", "pode enviar-nos"), nunca "tu". Frases curtas, sem linguagem comercial nem exclamações a mais. Palavras que o cliente perceba, sem jargão de eletricista.
+- Formato do texto: começa com "Olá," numa linha só, linha em branco, o corpo em parágrafos curtos (lista numerada só se houver passos), linha em branco e acaba com "Domus Energia" numa linha só. Não escrevas o nome do cliente nem de quem assina, nem campos por preencher entre parênteses retos. Só texto simples, sem Markdown.
+- assunto: curto, a começar por "Domus Energia: ", sem dados pessoais.`;
+
+const PEDIDO = { resumo: 'Resume este pedido.', diagnostico: 'Sugere o diagnóstico desta avaria.', resposta: 'Escreve o email ao cliente.' };
+// O diagnóstico pede mais raciocínio do que o resumo e do que redigir um email.
+const ESFORCO = { resumo: 'medium', diagnostico: 'high', resposta: 'medium' };
 
 export class ErroAssistente extends Error {
   constructor(mensagem, repetir = false) {
@@ -134,6 +146,14 @@ export function validarResposta(tipo, v) {
   const texto = (x, k, max) => (typeof x === 'string' ? limpo(x, max) : erro(k));
   const lista = (x, k, max) => (Array.isArray(x) ? x.map((t) => texto(t, k, 400)).filter(Boolean).slice(0, max) : erro(k));
   const nivel = (x, k) => (NIVEIS.includes(x) ? x : erro(k));
+  if (tipo === 'resposta') {
+    // O email é para a pessoa da equipa rever: fica como o modelo o escreveu (com as quebras de linha e os números).
+    if (typeof v.assunto !== 'string' || typeof v.texto !== 'string') erro('assunto e texto');
+    const assunto = v.assunto.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
+    const corpo = v.texto.replace(/\r\n?/g, '\n').replace(/[\u0000-\u0009\u000b-\u001f\u007f]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 4000);
+    if (!assunto || !corpo) erro('email vazio');
+    return { assunto, texto: corpo };
+  }
   if (tipo === 'resumo') {
     const resumo = texto(v.resumo, 'resumo', 1500);
     if (!resumo) erro('resumo vazio');
@@ -160,12 +180,12 @@ export function criarAssistente({ chave, fetch: fetchFn = globalThis.fetch, regi
   if (!chave) return null;
   let comFallback = true;   // desliga-se sozinho se a API recusar o parâmetro (400)
 
-  async function umaVez(tipo, dados, uso) {
+  async function umaVez(tipo, dados, uso, instrucao) {
     const corpo = {
       model: MODELO_ASSISTENTE,
       max_tokens: 16000,
       system: INSTRUCOES[tipo],
-      messages: [{ role: 'user', content: `${PEDIDO[tipo]}\n\n<pedido>\n${JSON.stringify(dados)}\n</pedido>` }],
+      messages: [{ role: 'user', content: `${PEDIDO[tipo]}\n\n${instrucao ? `<o_que_dizer>\n${instrucao}\n</o_que_dizer>\n\n` : ''}<pedido>\n${JSON.stringify(dados)}\n</pedido>` }],
       output_config: { effort: ESFORCO[tipo], format: { type: 'json_schema', schema: ESQUEMAS[tipo] } },
     };
     const enviar = async (fallback) => {
@@ -211,15 +231,16 @@ export function criarAssistente({ chave, fetch: fetchFn = globalThis.fetch, regi
   return {
     modelo: MODELO_ASSISTENTE,
     /**
-     * `tipo`: "resumo" | "diagnostico"; `dados`: o que dadosParaIa devolveu. Devolve {resultado, modelo, uso, custo_usd};
-     * lança ErroAssistente ao fim de `tentativas`.
+     * `tipo`: "resumo" | "diagnostico" | "resposta"; `dados`: o que dadosParaIa devolveu; `instrucao` (só "resposta"): o
+     * que a pessoa da equipa quer dizer ao cliente. Devolve {resultado, modelo, uso, custo_usd}; lança ErroAssistente
+     * ao fim de `tentativas`.
      */
-    async pedir(tipo, dados, etiqueta = '') {
+    async pedir(tipo, dados, etiqueta = '', instrucao = null) {
       const uso = { entrada: 0, saida: 0 };
       let ultimo;
       for (let n = 1; n <= tentativas; n++) {
         try {
-          const { resultado, modelo } = await umaVez(tipo, dados, uso);
+          const { resultado, modelo } = await umaVez(tipo, dados, uso, instrucao);
           const custo = custoUsd(uso.entrada, uso.saida);
           registo.info(`assistente (${tipo})${etiqueta}: ${modelo}, ${uso.entrada} tokens de entrada + ${uso.saida} de saída ≈ US$ ${custo.toFixed(4)} (${n} ${n === 1 ? 'tentativa' : 'tentativas'})`);
           return { resultado, modelo, uso, custo_usd: Math.round(custo * 1e6) / 1e6 };

@@ -350,5 +350,5 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     return db.prepare(`SELECT orcamento_id, tipo, quando FROM emails_automaticos WHERE orcamento_id IN (${ids.map(() => '?').join(', ')}) ORDER BY quando DESC, id DESC`).all(...ids);
   }
 
-  return { verificar, aoReceber, tratar, paraCliente, avaliar, aposAvaliar, enviados, recusou, prazos, inicio, token, pedidoDoToken };
+  return { destinatario, verificar, aoReceber, tratar, paraCliente, avaliar, aposAvaliar, enviados, recusou, prazos, inicio, token, pedidoDoToken };
 }

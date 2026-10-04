@@ -355,20 +355,31 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
       if (!Number.isInteger(v.orcamento_id) || !db.prepare('SELECT 1 FROM orcamentos WHERE id = ? AND crm_cliente_id = ?').get(v.orcamento_id, k.id)) falha('Esse pedido não é deste cliente.');
       orcamentoId = v.orcamento_id;
     }
+    gravarRegisto(k.id, orcamentoId, tipo, quando, txt, u, ip);
+    antesDeLer();
+    responder(res, 201, ficha(db.prepare('SELECT * FROM crm_clientes WHERE id = ?').get(k.id), u));
+  };
+  /** Grava um registo na ficha; um contacto (não uma nota) passa os pedidos "novo" (o indicado, ou todos os da ficha) a "contactado". */
+  function gravarRegisto(clienteId, orcamentoId, tipo, quando, txt, u, ip) {
     const id = Number(db.prepare('INSERT INTO crm_registos (cliente_id, orcamento_id, tipo, quando, texto, por_id, por_email, criado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(k.id, orcamentoId, tipo, quando, txt, u.id, u.email, agoraIso()).lastInsertRowid);
+      .run(clienteId, orcamentoId, tipo, quando, txt, u.id, u.email, agoraIso()).lastInsertRowid);
     // O texto não vai para a auditoria (dados pessoais ficam só na ficha, que sai com a conta: RGPD).
-    auditar(u, 'crm_registo', `crm_cliente:${k.id}`, { registo: id, tipo, orcamento: orcamentoId }, ip);
+    auditar(u, 'crm_registo', `crm_cliente:${clienteId}`, { registo: id, tipo, orcamento: orcamentoId }, ip);
     if (CONTACTOS.includes(tipo)) {
-      const novos = db.prepare(`SELECT id FROM orcamentos WHERE estado = 'novo' AND crm_cliente_id = ? ${orcamentoId ? 'AND id = ?' : ''}`).all(...(orcamentoId ? [k.id, orcamentoId] : [k.id]));
+      const novos = db.prepare(`SELECT id FROM orcamentos WHERE estado = 'novo' AND crm_cliente_id = ? ${orcamentoId ? 'AND id = ?' : ''}`).all(...(orcamentoId ? [clienteId, orcamentoId] : [clienteId]));
       for (const { id: oid } of novos) {
         db.prepare("UPDATE orcamentos SET estado = 'contactado', atualizado = ? WHERE id = ? AND estado = 'novo'").run(agoraIso(), oid);
         auditar(u, 'orcamento_atualizado', `orcamento:${oid}`, { estado: 'contactado', via: `contacto registado no CRM (${tipo})` }, ip);
       }
     }
-    antesDeLer();
-    responder(res, 201, ficha(db.prepare('SELECT * FROM crm_clientes WHERE id = ?').get(k.id), u));
-  };
+    return id;
+  }
+  /** Email enviado ao cliente pelo painel (api.js enviarMensagem): fica na ficha do cliente do pedido, como contacto "email". */
+  function registarEmailEnviado(orcamentoId, texto, u, ip) {
+    ligarPedidos();
+    const clienteId = db.prepare('SELECT crm_cliente_id AS c FROM orcamentos WHERE id = ?').get(orcamentoId)?.c;
+    return clienteId ? gravarRegisto(clienteId, orcamentoId, 'email', agoraLisboa(relogio()), texto, u, ip) : null;
+  }
 
   // ------------------------------------------------------------ RGPD (conta de cliente apagada; conta.js apagar)
   /** As fichas ligadas a uma conta (antes de a apagar). */
@@ -404,5 +415,5 @@ export function criarCrm({ db, config, relogio, auditar, pagamentos, emails = ()
     }
   }
 
-  return { h, ligarPedidos, faseDe, desdeFase, clientesDaConta, aoApagarConta, clientesDoTecnico, fichaAberta, responsavel, equipa, nomeDe, aoLer };
+  return { h, ligarPedidos, registarEmailEnviado, faseDe, desdeFase, clientesDaConta, aoApagarConta, clientesDoTecnico, fichaAberta, responsavel, equipa, nomeDe, aoLer };
 }

@@ -132,6 +132,9 @@ export const ROTAS = [
   // Assistente (IA) do pedido (docs/ASSISTENTE-IA.md): só ao carregar no botão; o resultado é só para a equipa.
   ['POST', 'orcamentos/:id/ia/resumo', ['ceo', 'comercial'], 'iaResumo'],
   ['POST', 'orcamentos/:id/ia/diagnostico', ['ceo', 'comercial'], 'iaDiagnostico'],
+  // Escrever ao cliente (ronda 2 do assistente): o rascunho do email pela IA e o envio pelo painel (fica na ficha do CRM).
+  ['POST', 'orcamentos/:id/ia/resposta', ['ceo', 'comercial'], 'iaResposta'],
+  ['POST', 'orcamentos/:id/mensagem', ['ceo', 'comercial'], 'enviarMensagem'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -385,6 +388,8 @@ export function criarApi(ctx) {
       r.leitura_quadro = fotos.leituraQuadro(o);
       // Assistente (IA): {ligado, resumo, diagnostico} — o último resultado de cada botão, ou null.
       r.ia = { ligado: Boolean(ctx.assistente), resumo: null, diagnostico: null, ...iaDe(o) };
+      // "Escrever ao cliente": o email para onde vai (o da conta, ou o do formulário), ou null se não há para onde.
+      r.mensagem_para = emailsAuto.destinatario(o);
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
     }
@@ -1261,7 +1266,9 @@ export function criarApi(ctx) {
     if (!o?.ia) return {};
     try { const v = JSON.parse(o.ia); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
   };
-  async function pedirIa(tipo, { res, u, params, ip }) {
+  async function pedirIa(tipo, { req, res, u, params, ip }) {
+    // O rascunho do email leva o que a pessoa da equipa quer dizer (é ela que dá os factos; o modelo só redige).
+    const instrucao = tipo === 'resposta' ? texto((await lerJson(req, ['instrucao'])).instrucao, 'o que quer dizer ao cliente', { max: 1000, multilinha: true, obrigatorio: true }) : null;
     const o = naoArquivado(obterOrcamento(params.id));
     if (!ctx.assistente) throw new ErroApi(503, 'Assistente desligado: o servidor não tem a chave ANTHROPIC_API_KEY.');
     const sim = o.simulacao ? JSON.parse(o.simulacao) : null;
@@ -1277,15 +1284,21 @@ export function criarApi(ctx) {
     limiteIa.registar('todos');
     let r;
     try {
-      r = await ctx.assistente.pedir(tipo, dadosIa, ` (orçamento ${o.id})`);
+      r = await ctx.assistente.pedir(tipo, dadosIa, ` (orçamento ${o.id})`, instrucao);
     } catch (e) {
       if (e instanceof ErroAssistente) throw new ErroApi(502, `O assistente não conseguiu responder (${e.message}). Tente outra vez.`);
       throw e;
     }
+    const custo = { modelo: r.modelo, tokens_entrada: r.uso.entrada, tokens_saida: r.uso.saida, custo_usd: r.custo_usd };
+    if (tipo === 'resposta') {
+      // O rascunho não se guarda: vai para o formulário, onde é revisto antes de "Enviar email".
+      auditar(u, 'ia_resposta', `orcamento:${o.id}`, custo, ip);
+      return responder(res, 200, { ...r.resultado, modelo: r.modelo, custo_usd: r.custo_usd });
+    }
     const agora = agoraIso();
     const ia = { ...iaDe(obterOrcamento(params.id)), [tipo]: { ...r.resultado, data: agora, por: u.email, modelo: r.modelo, custo_usd: r.custo_usd } };
     db.prepare('UPDATE orcamentos SET ia = ? WHERE id = ?').run(JSON.stringify(ia), o.id);
-    auditar(u, `ia_${tipo}`, `orcamento:${o.id}`, { modelo: r.modelo, tokens_entrada: r.uso.entrada, tokens_saida: r.uso.saida, custo_usd: r.custo_usd }, ip);
+    auditar(u, `ia_${tipo}`, `orcamento:${o.id}`, custo, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   }
   // "Preencher a partir da foto" (esquema do quadro): lê agora a foto do quadro com o modelo de visão (fotos.js
@@ -1301,6 +1314,29 @@ export function criarApi(ctx) {
   };
   h.iaResumo = (c) => pedirIa('resumo', c);
   h.iaDiagnostico = (c) => pedirIa('diagnostico', c);
+  h.iaResposta = (c) => pedirIa('resposta', c);
+
+  // "Escrever ao cliente" (docs/ASSISTENTE-IA.md §8): envia o email que a pessoa da equipa reviu, pelo remetente dos
+  // outros emails, para o email do cliente do pedido (emails-auto.js destinatario) e regista-o na ficha do CRM como
+  // contacto "email" (um pedido "novo" passa a "contactado"). O texto não vai para a auditoria nem para o registo.
+  const limiteMensagens = new LimiteTaxa(30, 3600_000, relogio);   // por utilizador
+  h.enviarMensagem = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['assunto', 'texto']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const para = emailsAuto.destinatario(o);
+    if (!para) throw new ErroApi(409, 'Este pedido não tem um email do cliente para onde enviar.');
+    const assunto = texto(v.assunto, 'o assunto', { max: 150, obrigatorio: true });
+    const corpo = texto(v.texto, 'a mensagem', { max: 5000, multilinha: true, obrigatorio: true });
+    const espera = limiteMensagens.espera(u.id);
+    if (espera) throw new ErroApi(429, 'Enviou muitos emails seguidos. Tente daqui a pouco.', { 'Retry-After': String(espera) });
+    limiteMensagens.registar(u.id);
+    if (!(await correio.enviar({ para, assunto, texto: corpo, resumo: `mensagem ao cliente do pedido ${o.id}` }))) {
+      throw new ErroApi(502, 'O email não foi enviado (falha no servidor de email). Tente outra vez.');
+    }
+    crm.registarEmailEnviado(o.id, `${assunto}\n\n${corpo}`, u, ip);
+    auditar(u, 'mensagem_enviada', `orcamento:${o.id}`, { caracteres: corpo.length }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
 
   // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
   h.previaRelatorioCliente = ({ res, params }) => {

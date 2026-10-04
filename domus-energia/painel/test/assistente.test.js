@@ -21,6 +21,7 @@ const DIAGNOSTICO = {
   causas: [{ causa: 'Borne solto na tomada', probabilidade: 'alta', porque: 'Só uma tomada sem corrente.', verificar: 'Medir tensão na tomada.' }],
   medicoes: ['Isolamento ≥ 1 MΩ a 500 V'], material: ['Tomada schuko'], seguranca: ['Cortar o circuito antes de abrir a tomada'], confianca: 'media', nota: '',
 };
+const EMAIL = { assunto: 'Domus Energia: visita ao seu pedido', texto: 'Olá,\n\nPodemos ir quinta-feira de manhã. A visita custa 35 €.\n\nDomus Energia' };
 const PESSOAIS = ['Maria', 'Confidencial', '912', '345 678', 'exemplo.pt', 'Rua', 'Flores', 'Travessa', 'data:image'];
 
 const respostaApi = (texto, extra = {}) => new Response(JSON.stringify({
@@ -88,7 +89,7 @@ describe('assistente (API simulada)', () => {
   async function fetchFalso(url, opcoes) {
     const corpo = JSON.parse(opcoes.body);
     pedidos.push({ url, opcoes, corpo });
-    const tipo = corpo.system.includes('eletricista sénior') ? DIAGNOSTICO : RESUMO;
+    const tipo = corpo.system.includes('eletricista sénior') ? DIAGNOSTICO : corpo.system.includes('Escreves emails') ? EMAIL : RESUMO;
     if (modo === 'ok') return respostaApi(JSON.stringify(tipo));
     if (modo === 'fallback') return respostaApi(JSON.stringify(tipo), { model: 'claude-opus-4-8', content: [{ type: 'fallback', from: { model: MODELO_ASSISTENTE }, to: { model: 'claude-opus-4-8' } }, { type: 'text', text: JSON.stringify(tipo) }] });
     if (modo === 'sem-fallbacks') return corpo.fallbacks ? new Response('{"type":"error","error":{"type":"invalid_request_error","message":"fallbacks"}}', { status: 400 }) : respostaApi(JSON.stringify(tipo));
@@ -97,7 +98,7 @@ describe('assistente (API simulada)', () => {
     if (modo === '500-depois-ok') return pedidos.length % 2 ? new Response('{"type":"error","error":{"type":"api_error"}}', { status: 500 }) : respostaApi(JSON.stringify(tipo));
     return new Response('{"type":"error","error":{"type":"authentication_error"}}', { status: 401 });
   }
-  before(async () => { p = await painelComEquipa({ env: { ANTHROPIC_API_KEY: 'sk-ant-teste', LIMITE_IA_DIA: '12' }, fetch: fetchFalso }); });
+  before(async () => { p = await painelComEquipa({ env: { ANTHROPIC_API_KEY: 'sk-ant-teste', LIMITE_IA_DIA: '13' }, fetch: fetchFalso }); });
   after(() => p.fechar());
 
   const ia = (id, tipo, papel = 'ceo') => p.pedir('POST', `/painel/api/orcamentos/${id}/ia/${tipo}`, { cookie: p.cookies[papel], corpo: {} });
@@ -156,6 +157,35 @@ describe('assistente (API simulada)', () => {
     assert.ok(!conta.texto.includes(RESUMO.resumo) && !conta.texto.includes('"ia"'), 'a conta do cliente não traz o resultado');
   });
 
+  test('escrever ao cliente: a IA redige a partir da ideia (sem dados pessoais, nada guardado) e o painel envia e regista no CRM', async () => {
+    usar('ok');
+    const id = await novoPedido(p);
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/ia/resposta`, { cookie: p.cookies.ceo, corpo: {} })).estado, 400, 'sem a ideia');
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/ia/resposta`, { cookie: p.cookies.tecnico, corpo: { instrucao: 'x' } })).estado, 403);
+    assert.equal(pedidos.length, 0);
+    const r = await p.pedir('POST', `/painel/api/orcamentos/${id}/ia/resposta`, { cookie: p.cookies.comercial, corpo: { instrucao: 'Podemos ir quinta de manhã; a visita custa 35 €.' } });
+    assert.equal(r.estado, 200, r.texto);
+    assert.deepEqual(r.json, { ...EMAIL, modelo: 'claude-opus-5-5', custo_usd: 0.04 });
+    assert.match(pedidos[0].corpo.messages[0].content, /<o_que_dizer>\nPodemos ir quinta de manhã; a visita custa 35 €\.\n<\/o_que_dizer>/);
+    for (const x of PESSOAIS) assert.ok(!pedidos[0].opcoes.body.includes(x), `sem dados pessoais (${x})`);
+    let o = (await p.pedir('GET', `/painel/api/orcamentos/${id}`, { cookie: p.cookies.ceo })).json;
+    assert.deepEqual([o.ia.resumo, o.ia.diagnostico, o.estado], [null, null, 'novo'], 'o rascunho não se guarda nem mexe no pedido');
+    assert.match(o.mensagem_para, /^maria.+@exemplo\.pt$/);
+    // Enviar: vai para o email da conta do cliente, fica na ficha do CRM e o pedido passa a "contactado".
+    const antes = p.emails.length;
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/mensagem`, { cookie: p.cookies.ceo, corpo: { assunto: EMAIL.assunto, texto: '' } })).estado, 400);
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/mensagem`, { cookie: p.cookies.tecnico, corpo: EMAIL })).estado, 403);
+    const e = await p.pedir('POST', `/painel/api/orcamentos/${id}/mensagem`, { cookie: p.cookies.comercial, corpo: EMAIL });
+    assert.equal(e.estado, 200, e.texto);
+    assert.equal(p.emails.length, antes + 1);
+    assert.deepEqual([p.emails.at(-1).para, p.emails.at(-1).assunto, p.emails.at(-1).texto], [o.mensagem_para, EMAIL.assunto, EMAIL.texto]);
+    assert.equal(e.json.estado, 'contactado');
+    const h = e.json.historico.filter((x) => x.acao === 'mensagem_enviada');
+    assert.deepEqual(h.at(-1).detalhes, { caracteres: EMAIL.texto.length }, 'o texto não vai para a auditoria');
+    const reg = p.app.db.prepare("SELECT tipo, texto, por_email FROM crm_registos WHERE orcamento_id = ? AND tipo = 'email'").all(id);
+    assert.deepEqual(reg.map((x) => ({ ...x })), [{ tipo: 'email', texto: `${EMAIL.assunto}\n\n${EMAIL.texto}`, por_email: p.u.comercial.email }]);
+  });
+
   test('a API recusa `fallbacks` (400): repete sem ele e deixa de o mandar', async () => {
     usar('sem-fallbacks');
     const id = await novoPedido(p);
@@ -192,9 +222,9 @@ describe('assistente (API simulada)', () => {
     usar('ok');
     const id = await novoPedido(p);
     let r;
-    for (let i = 0; i < 13; i++) { r = await ia(id, 'resumo'); if (r.estado !== 200) break; }
+    for (let i = 0; i < 14; i++) { r = await ia(id, 'resumo'); if (r.estado !== 200) break; }
     assert.equal(r.estado, 429);
-    assert.match(r.json.erro, /12 vezes/);
+    assert.match(r.json.erro, /13 vezes/);
     const antes = pedidos.length;
     assert.equal((await ia(id, 'diagnostico')).estado, 429);
     assert.equal(pedidos.length, antes);
