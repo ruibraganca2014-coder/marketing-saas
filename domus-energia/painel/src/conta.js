@@ -541,6 +541,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     return {
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
+      // Cliente que regressa (decisão do dono, 2026-10-04; web/regresso.js): o pedido ainda está em andamento? — enviado e
+      // ainda não fechado (perdido), arquivado/anonimizado, nem com a obra dada por concluída (pelo painel ou na obra
+      // ligada). É o que o Início do simulador e o botão da página inicial leem ("Já tem o pedido n.º N em andamento").
+      em_andamento: !['perdido', ESTADO_ARQUIVADO].includes(o.estado) && !o.anonimizado && !o.obra_concluida && daObra?.estado !== 'concluida',
       data_visita: o.data_visita, servico: o.servico,
       proposta: temProposta ? { valor, texto: o.proposta_texto ?? null, aceite: o.proposta_aceite ?? null } : null,
       pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.cliente && !o.proposta_aceite,

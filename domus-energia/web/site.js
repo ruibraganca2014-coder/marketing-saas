@@ -1,4 +1,6 @@
 import { origemContacto } from "./origem.js";
+import { contaAtual, pedirConta } from "./conta-comum.js";
+import { temCasaGuardada, pedidoEmAndamento, botaoInicio } from "./regresso.js";
 
 const cfg = window.DOMUS;
 
@@ -26,6 +28,30 @@ if (ouLigar) {
   else if (!temTelefone || !temWhatsapp) ouLigar.querySelector(".js-ou-sep").hidden = true;
 }
 document.getElementById("ano").textContent = new Date().getFullYear();
+
+// ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------
+// Decisão 3 do dono, 2026-10-04 (regresso.js botaoInicio): a página nasce com "Ver o preço da minha casa" (também sem
+// JavaScript) e só troca depois de saber quem é — casa guardada neste navegador ou sessão aberta: "Continuar com a minha
+// casa"; sessão com um pedido em andamento: "Ver o meu pedido" (para a conta). Troca uma vez só. Sem a marca de sessão
+// não se pede nada ao servidor (contaAtual); pedido lento ou falhado: fica o que está. A largura do botão não encolhe.
+{
+  const botao = document.getElementById("hero-simular");
+  if (botao) {
+    const casa = temCasaGuardada((() => { try { return window.localStorage; } catch { return null; } })());
+    (async () => {
+      const eu = await contaAtual();
+      let pedido = null;
+      if (eu?.conta?.confirmado) {
+        try { pedido = pedidoEmAndamento((await pedirConta("pedidos")).pedidos); } catch { /* fica sem o pedido */ }
+      }
+      const b = botaoInicio({ sessao: !!eu?.conta, temCasa: casa, pedido });
+      if (!b) return;
+      botao.style.minWidth = `${botao.offsetWidth}px`;
+      botao.textContent = b.texto;
+      botao.href = b.href;
+    })();
+  }
+}
 
 // ---------- Menu para telemóvel ----------
 const menuBotao = document.getElementById("menu-botao");

@@ -77,6 +77,9 @@
         <!-- 1. Início (fase 1, funis): o caso do cliente (estado.js FUNIS) e, na primeira vez, o serviço (escolha múltipla; dá a ação por omissão de cada aparelho, acoes.js SERVICOS) -->
         <section class="sim-passo" id="passo-0" aria-labelledby="titulo-0" data-passo="0">
           <h2 id="titulo-0" tabindex="-1">1. Início</h2>
+          <!-- Cliente que regressa (decisões do dono, 2026-10-04; regresso.js): o pedido em andamento da conta e a casa guardada -->
+          <div class="msg info" id="inicio-pedido" role="status" hidden></div>
+          <p class="msg info" id="inicio-casa" role="status" hidden></p>
           <fieldset class="escolhas">
             <legend>Qual é o seu caso?</legend>
             <div class="escolhas-grelha funis" id="funis"></div>

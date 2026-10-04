@@ -48,6 +48,7 @@ import {
 } from "./fotos.js";
 import { criarBlocoConta, pedirConta, urlPainelApi, credenciais, faixaDemonstracao } from "../conta-comum.js";
 import { aplicarEntrada } from "./entrada.js";
+import { preEscolherCasa, pedidoEmAndamento, textoPedidoEmAndamento, urlDoPedido } from "../regresso.js";
 import { origemContacto } from "../origem.js";
 import { ehTelemovel, abrirFotoRemota } from "./fotos-remotas.js";
 
@@ -191,7 +192,7 @@ function agendarGravacao(planta = true) {
 function gravar() {
   clearTimeout(temporizador);
   temporizador = null;   // sem gravação pendente: ao sair não se grava (outro separador pode ter a mais recente)
-  if (enviado) return;
+  if (enviado || casaPreEscolhida) return;   // o cartão escolhido pela página não é uma simulação em curso: nada a gravar
   const r = guardarEstado(armazem ?? semArmazem, estado);
   // A casa (funil "Já tenho a planta") fica guardada à parte assim que a planta da primeira vez está conferida.
   if (estado.funil === "primeira" && (ordemPasso(visitado) >= ordemPasso(P.planta) || (fluxoCurto() && ordemPasso(visitado) >= ordemPasso(P.quadro))) && temCasa(estado)) {
@@ -486,6 +487,28 @@ const AJUDA_FUNIL = {
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
 let casaGuardada = null;   // estado `soCasa` (estado.js carregarCasa), ou null
 const casaParaPlanta = () => (temCasa(estado) && !estado.soCasa ? estado : casaGuardada ?? (temCasa(estado) ? estado : null));
+/*
+ * Cliente que regressa (decisão 1 do dono, 2026-10-04; ../regresso.js preEscolherCasa): numa simulação NOVA com casa
+ * guardada (neste navegador ou na conta) o Início abre com o cartão "Já tenho a planta" já escolhido e a frase
+ * "Encontrámos a sua casa: …" — o cliente só escolhe o que precisa. Escolhe-se uma vez: outro cartão troca como sempre
+ * e fica; depois de "Começar de novo" (o cliente quis começar do zero) não se volta a escolher nesta página.
+ * Enquanto a escolha é só da página não conta como simulação em curso: não se grava no navegador nem na conta (não vai
+ * por cima da casa/simulação guardada lá).
+ */
+let casaPreEscolhida = false;   // o cartão está escolhido pela página, ainda não pelo cliente
+let casaEncontrada = false;     // a frase "Encontrámos a sua casa" (desta simulação, até recomeçar)
+let recusouCasa = false;        // "Começar de novo" nesta página
+/** Há simulação em curso? (o cartão escolhido pela página não conta) */
+const emCurso = () => !casaPreEscolhida && temProgresso(estado, PASSO_INICIAL);
+/** Escolhe o cartão da casa guardada, se for o caso. Devolve true se escolheu (quem chama volta a desenhar). */
+function preEscolher() {
+  if (!preEscolherCasa({ funil: estado.funil, temCasa: !!casaParaPlanta(), recusou: recusouCasa })) return false;
+  estado.funil = "planta";
+  estado.caminho = null;
+  casaPreEscolhida = true;
+  casaEncontrada = true;
+  return true;
+}
 function iconeDe(caminhos) {
   const svg = svgNovo();
   svg.setAttribute("viewBox", "0 0 48 48");
@@ -545,6 +568,7 @@ const ICONES_CAMINHO = {
  * simulação: a apagada já não se pode repor.
  */
 function escolherFunil(k) {
+  casaPreEscolhida = false;   // a escolha passa a ser do cliente
   acabarAnular();
   mensagemPlanta(null);
   if (k === "planta") {
@@ -573,6 +597,7 @@ function escolherCaminho(k) {
   if (k === "carregar") { $("planta-ficheiro").click(); return; }
   const c = casaParaPlanta();
   if (!c) { desenharInicio(); return; }
+  casaPreEscolhida = false;   // o cliente escolheu o que precisa: passa a ser uma simulação em curso
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
   estado.caminho = k;
@@ -604,6 +629,7 @@ async function carregarPlanta() {
     mensagemPlanta(e instanceof ErroFundo ? e.message : "Não foi possível usar este ficheiro. Experimente uma foto (JPG ou PNG).", "erro");
     return;
   }
+  casaPreEscolhida = false;
   acabarAnular();
   if (estado.soCasa || estado.funil !== "primeira") {
     const e = estadoInicial();
@@ -681,7 +707,11 @@ function desenharInicio() {
   // Fase 3 da auditoria: sem casa guardada o cartão só promete o que há — carregar a planta e seguir o funil da primeira
   // vez (~12 min); com casa guardada, continuar com ela (~5 min).
   cartao.querySelector("small").textContent = c ? `Continuar com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : `Tenho a planta em PDF ou foto · ~${minutosFunil("primeira")} min`;
-  cartao.classList.toggle("destaque-casa", !!c && !estado.funil);
+  cartao.classList.toggle("destaque-casa", !!c && (!estado.funil || casaPreEscolhida));
+  // Cliente que regressa (2026-10-04): a frase da casa encontrada, por cima dos cartões (fica até recomeçar: não salta ao escolher).
+  const frase = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.` : "";
+  if ($("inicio-casa").textContent !== frase) $("inicio-casa").textContent = frase;
+  $("inicio-casa").hidden = !frase;
   // Obras e "Carregar a planta" seguem no funil da primeira vez, mas foram escolhidos em "Já tenho a planta".
   const caso = ["obras", "carregar"].includes(estado.caminho) ? "planta" : estado.funil;
   for (const i of document.querySelectorAll("#funis input")) i.checked = i.value === caso;
@@ -4101,9 +4131,42 @@ function aoMudarConta(eu) {
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharEnviar();
   const primeira = !contaVista;
   contaVista = true;
-  if (!c) return;
+  if (!c) { pedidoAberto = null; desenharAvisoPedido(); return; }
+  if ((primeira || !antes) && c.confirmado) verPedidoEmAndamento();
   if (primeira) oferecerSimulacaoDaConta(eu);
   else if (!antes) guardarNaConta(0);   // entrou agora (no passo Enviar): a simulação desta página vai para a conta
+}
+
+/*
+ * Cliente que regressa (decisão 2 do dono, 2026-10-04; ../regresso.js pedidoEmAndamento): com sessão, se a conta tem um
+ * pedido em andamento, o Início avisa por cima dos cartões — "Já tem o pedido n.º N em andamento." com "Ver o meu
+ * pedido" (conta.html#pedido-N) e "Fazer um pedido novo" (o aviso sai e segue-se). Sem sessão não se pede nada.
+ */
+let pedidoAberto = null;          // {id, quantos} ou null
+let avisoPedidoFechado = false;   // "Fazer um pedido novo": o aviso não volta nesta página (só depois de enviar outro pedido)
+async function verPedidoEmAndamento() {
+  let r = null;
+  try { r = await pedirConta("pedidos"); } catch { /* sem a lista não há aviso */ }
+  if (!contaEu?.conta) return;
+  pedidoAberto = pedidoEmAndamento(r?.pedidos);
+  desenharAvisoPedido();
+}
+function desenharAvisoPedido() {
+  const c = $("inicio-pedido");
+  c.hidden = !pedidoAberto || avisoPedidoFechado;
+  if (c.hidden) { c.replaceChildren(); return; }
+  const ver = el("a", "btn sec pequeno", "Ver o meu pedido");
+  ver.href = urlDoPedido(pedidoAberto.id);
+  const novo = el("button", "btn sec pequeno", "Fazer um pedido novo");
+  novo.type = "button";
+  novo.addEventListener("click", () => {
+    avisoPedidoFechado = true;
+    desenharAvisoPedido();
+    $(`titulo-${P.inicio}`).focus({ preventScroll: true });   // o foco não se perde com o botão
+  });
+  const acoes = el("div", "msg-acoes");
+  acoes.append(ver, novo);
+  c.replaceChildren(el("span", null, textoPedidoEmAndamento(pedidoAberto)), acoes);
 }
 
 /** O perfil da conta preenche o que ainda está vazio no contacto (não apaga o que o cliente escreveu); o email é sempre o da conta. */
@@ -4147,7 +4210,7 @@ function guardarNaConta(atraso = 1500) {
  * cartão "Já tenho a planta" noutro aparelho); sem nenhuma, nada.
  */
 function estadoParaConta() {
-  if (temProgresso(estado, PASSO_INICIAL)) return { ...estado, guardado: new Date().toISOString() };
+  if (emCurso()) return { ...estado, guardado: new Date().toISOString() };
   return casaGuardada ? { ...casaGuardada } : null;
 }
 
@@ -4171,9 +4234,10 @@ async function oferecerSimulacaoDaConta(eu) {
     if (temCasa(daConta) && t(daConta) > t(casaGuardada)) {
       guardarCasa(armazem ?? semArmazem, daConta, new Date(t(daConta)));
       casaGuardada = carregarCasa(armazem ?? semArmazem) ?? daConta;
-      if (estado.passo === P.inicio && !$(`passo-${P.inicio}`).hidden) desenharInicio();
+      const escolheu = preEscolher();   // a casa veio da conta: simulação nova → o cartão dela já escolhido
+      if (estado.passo === P.inicio && !$(`passo-${P.inicio}`).hidden) { desenharInicio(); if (escolheu) desenharProgresso(); }
     }
-    if (temProgresso(estado, PASSO_INICIAL)) guardarNaConta(0); else decidido();
+    if (emCurso()) guardarNaConta(0); else decidido();
     return;
   }
   // A deste navegador é a mais recente (e é uma simulação a sério: um estado sem progresso nunca grava por cima da da conta).
@@ -4181,6 +4245,8 @@ async function oferecerSimulacaoDaConta(eu) {
   if (!temProgresso(daConta, PASSO_INICIAL)) { decidido(); return; }
   // A da conta é a mais recente: continua-se nela (a deste navegador passa a ser essa).
   acabarAnular();
+  casaPreEscolhida = false;   // uma simulação em curso retoma-se como sempre (sem a frase da casa encontrada)
+  casaEncontrada = false;
   estado = daConta;
   visitado = visitadoDe(estado);
   if (estado.passo > P.quer && !funilAvaria()) acertarPedido();
@@ -4714,6 +4780,8 @@ function recomecar({ manterFotos = false } = {}) {
   enviado = false;
   aEnviar = false;
   estado = estadoInicial();
+  casaPreEscolhida = false;
+  casaEncontrada = false;
   visitado = PASSO_INICIAL;
   ultimoPreco = null;
   pisoQuer = 0;
@@ -4747,6 +4815,12 @@ function mostrarInicio() {
 
 $("fim-nova").addEventListener("click", () => {
   recomecar();
+  // Cliente que regressa (2026-10-04): outra simulação depois de enviar é uma simulação nova — a casa guardada fica
+  // já escolhida e o aviso do pedido em andamento volta (agora com o que acabou de enviar).
+  recusouCasa = false;
+  preEscolher();
+  avisoPedidoFechado = false;
+  if (contaEu?.conta?.confirmado) verPedidoEmAndamento();
   $("passo-fim").hidden = true;
   $("sim-navegacao").hidden = false;
   mostrarInicio();
@@ -4762,8 +4836,9 @@ const PRAZO_ANULAR = 10_000;
 let anular = null;   // { estado, visitado, fotos, temporizador } enquanto "Anular" está à vista
 function recomecarComAnular() {
   acabarAnular();
-  const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos) };
+  const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos), casaPreEscolhida, casaEncontrada, recusouCasa };
   recomecar({ manterFotos: true });
+  recusouCasa = true;   // quis começar do zero: a casa guardada fica só oferecida no cartão (2026-10-04)
   mostrarInicio();
   const a = $("sim-anular");
   const b = el("button", "btn sec pequeno", "Anular");
@@ -4794,6 +4869,7 @@ function anularRecomecar() {
   $("sim-anular").replaceChildren();
   estado = a.estado;
   visitado = a.visitado;
+  ({ casaPreEscolhida, casaEncontrada, recusouCasa } = a);
   for (const [k, v] of a.fotos) fotos.set(k, v);
   mostrarInicio();
   gravar();             // volta a ficar gravada neste navegador…
@@ -4873,6 +4949,7 @@ function iniciar() {
     if (guardado?.soCasa && temCasa(guardado) && !casaGuardada) { guardarCasa(armazem ?? semArmazem, guardado); casaGuardada = carregarCasa(armazem ?? semArmazem); }
     aplicarEntrada(estado, params);   // páginas de anúncio: `?servico=` (entrada.js), antes do `?pacote=`
     preEscolherPacote();
+    preEscolher();   // cliente que regressa: a casa guardada já escolhida (sem `?servico=`, que já escolhe o caso)
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }

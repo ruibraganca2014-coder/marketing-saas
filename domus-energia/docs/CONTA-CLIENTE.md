@@ -113,7 +113,7 @@ Exemplo: o site em `https://domusenergia.pt` (Vercel) e o painel, a API, o MQTT 
 | POST | `confirmar` / `reenviar` | sim | contas por confirmar com sessão aberta antes desta versão: `{codigo}` (400 errado, 410 expirado, 429 esgotado) |
 | POST | `palavra-passe` | confirmada | `{password}` → define ou muda a palavra-passe (regras do painel); não fecha as outras sessões |
 | GET/POST | `simulacao` | sim | `{estado}` do simulador (ou `null` para apagar) |
-| GET | `pedidos` | confirmada | pedidos da conta, com passos, resumo, fotos e proposta |
+| GET | `pedidos` | confirmada | pedidos da conta (do mais recente para o mais antigo), com passos, resumo, fotos e proposta; `em_andamento` (2026-10-04, cliente que regressa): `true` enquanto o pedido não está fechado (`perdido`), arquivado/anonimizado, nem com a obra dada por concluída (`obra_concluida` ou a obra ligada `concluida`) — é o que o Início do simulador e o botão da página inicial leem (`web/regresso.js`); sem o campo (painel antigo) o site fica como antes |
 | GET | `pedidos/:id/planta` | confirmada | `{pedido, planta, inventario}`: a planta desenhada (só o desenho) e o inventário, para a pré-visualização da Área de cliente; 404 nos pedidos de outras contas |
 | GET | `pedidos/:id/fotos/:foto` | confirmada | a foto (só do próprio pedido) |
 | POST | `pedidos/:id/fotos` | confirmada | foto (bytes, `X-Foto-Chave`, `X-Foto-Legenda`); 409 depois de aceite |

@@ -469,6 +469,27 @@ describe('conta de cliente', () => {
     assert.equal(ped.pode_fotos, false);
   });
 
+  test('pedido em andamento (cliente que regressa, 2026-10-04): `em_andamento` até ficar perdido, arquivado ou com a obra concluída', async () => {
+    const a = await p.contaConfirmada(email());
+    const { id } = await pedidoComConta(a);
+    const { id: outro } = await pedidoComConta(a);
+    const lista = async () => (await conta('GET', 'pedidos', { cookie: a.cookie })).json.pedidos;
+    const por = (estado, extra = '') => p.app.db.prepare(`UPDATE orcamentos SET estado = ?${extra} WHERE id = ?`).run(estado, id);
+    assert.deepEqual((await lista()).map((x) => [x.id, x.em_andamento]), [[outro, true], [id, true]], 'acabados de enviar; do mais recente para o mais antigo');
+    for (const e of ['contactado', 'visita_marcada', 'proposta_enviada', 'aceite']) {
+      por(e);
+      assert.equal((await lista())[1].em_andamento, true, e);
+    }
+    por('aceite', ", obra_concluida = '2026-10-04T10:00:00.000Z'");
+    assert.equal((await lista())[1].em_andamento, false, 'obra dada por concluída');
+    por('perdido', ', obra_concluida = NULL');
+    assert.equal((await lista())[1].em_andamento, false, 'fechado');
+    por('arquivado');
+    assert.equal((await lista())[1].em_andamento, false, 'arquivado');
+    assert.equal((await lista())[0].em_andamento, true, 'o outro pedido não muda');
+    por('novo');
+  });
+
   test('simulação guardada na conta: guardar, retomar noutra sessão (outro aparelho), apagar; limites', async () => {
     const a = await p.contaConfirmada(email());
     const estado = { versao: 5, passo: 3, casa: { tipo: 'apartamento' }, planta: { fundo: 'data:image/png;base64,AAAA' } };
