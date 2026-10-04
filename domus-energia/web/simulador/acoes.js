@@ -5,7 +5,7 @@ import { COMANDOS, comandoDe, caixasDe, circuitoProprio, maquinaDaPlanta } from 
 
 /**
  * Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos antes
- * da decisão do dono de 2026-10-03 (fica só como registo: agora a omissão é sempre Manter, acaoOmissao).
+ * (acaoOmissao: Novo com "Instalação nova", Manter nos outros; decisões do dono de 2026-10-03 e 2026-10-04).
  */
 export const SERVICOS = {
   nova: { nome: "Instalação nova / remodelação total", ajuda: "Pomos tudo novo: aparelhos, fios e quadro.", omissao: "novo" },
@@ -37,13 +37,13 @@ export function normalizarServico(v) {
 }
 
 /**
- * Ação por omissão dos aparelhos (decisão do dono, 2026-10-03): sempre Manter, seja qual for o serviço — o que a casa
- * JÁ TEM (os interruptores e as tomadas do passo "Divisões", as máquinas dos Equipamentos) fica como está e não soma
- * nada à estimativa até o cliente escolher Reparar, Substituir ou Novo em "Trocar e reparar". Novo é só o que ele pede
- * como trabalho novo ("Acrescentar um aparelho" a partir de "Trocar e reparar": app.js `acaoAoPor`). Antes: Novo com
- * "Instalação nova". `servicos` fica na assinatura (quem chama não muda).
+ * Ação por omissão dos aparelhos (decisões do dono, 2026-10-03 e 2026-10-04): Manter — o que a casa JÁ TEM (os
+ * interruptores e as tomadas do passo "Divisões", as máquinas dos Equipamentos) fica como está e não soma nada à
+ * estimativa até o cliente escolher Reparar, Substituir ou Novo em "Trocar e reparar". Com "Instalação nova /
+ * remodelação total" começa tudo em Novo ("Pomos tudo novo": o cartão do passo 1 diz o que acontece). O que o cliente
+ * acrescenta a partir de "Trocar e reparar" nasce sempre Novo (app.js `acaoAoPor`).
  */
-export const acaoOmissao = (servicos) => "manter";
+export const acaoOmissao = (servicos) => (Array.isArray(servicos) && servicos.includes("nova") ? "novo" : "manter");
 /** Só "Reparações / avarias": fluxo curto (salta Equipamentos; não pede para verificar cada divisão). */
 export const soReparacoes = (servicos) => Array.isArray(servicos) && servicos.length === 1 && servicos[0] === "reparar";
 /**

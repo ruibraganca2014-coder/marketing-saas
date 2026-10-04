@@ -138,10 +138,11 @@ test('preço: o que a casa já tem (Manter) não soma nada; luz, sensor e estore
   assert.deepEqual(pedidosDaSelecao(a), []);
   assert.ok(a.planta.elementos.every((x) => acaoDe(x, a.servico) === 'manter' && faltaAcao(x, a.servico).length === 0));
   assert.deepEqual(contarAcoes(a.planta, a.servico), { manter: a.planta.elementos.filter((x) => x.tipo !== 'porta').length, reparar: 0, substituir: 0, novo: 0 });
-  // Instalação nova: só o quadro (os circuitos base e as proteções), nenhum ponto.
-  const e = casaT2(['nova']);
+  // "Instalação nova" (decisão do dono, 2026-10-04): tudo começa em Novo — as tomadas e os interruptores entram como pontos novos.
+  assert.ok(preco(casaT2(['nova'])).linhas.some((l) => /^(TOMADA|INTERRUPTOR)-/.test(l.sku)));
+  const e = casaT2(['automatizar']);
   const base = preco(e);
-  assert.ok(base.linhas.length > 0 && base.linhas.every((l) => !/^(PONTO-LUZ|TOMADA|INTERRUPTOR)-/.test(l.sku) && !/^(SENS|BAB-CURTAIN)/.test(l.sku)), base.linhas.map((l) => l.sku).join());
+  assert.ok(base.linhas.every((l) => !/^(PONTO-LUZ|TOMADA|INTERRUPTOR)-/.test(l.sku) && !/^(SENS|BAB-CURTAIN)/.test(l.sku)), base.linhas.map((l) => l.sku).join());
   // Responder ao inventário (botões, tipos) não mexe no preço: é o que a casa já tem.
   for (const d of e.planta.divisoes) responder(e, d, 2, 3);
   assert.equal(preco(acertar(e)).total, base.total);
@@ -162,7 +163,7 @@ test('preço: o que a casa já tem (Manter) não soma nada; luz, sensor e estore
 });
 
 test('estado de antes (ordem 13): tomadas e interruptores ficam sugestões por responder; luzes sem ação saem; escolhas ficam', () => {
-  const e = casaT2(['nova']);
+  const e = casaT2(['automatizar']);
   const sala = e.planta.divisoes[0];
   const luz = (id, extra = {}) => ({ id, tipo: 'luz', x_cm: sala.x_cm + 100, y_cm: sala.y_cm + 100, rot: 0, piso: 0, divisao: sala.id, props: {}, ...extra });
   e.planta.elementos.push(luz('e901'), luz('e902', { acao: 'reparar', avaria: 'não acende' }), luz('e903', { acao: 'novo' }));
@@ -182,7 +183,7 @@ test('estado de antes (ordem 13): tomadas e interruptores ficam sugestões por r
   assert.deepEqual(n.planta.elementos.filter((x) => x.tipo === 'luz').map((x) => [x.id, x.acao]), [['e902', 'reparar'], ['e903', 'novo']], 'a luz sem ação (a que a casa desenhava) sai');
   const i = n.planta.elementos.find((x) => x.id === ints[0].id);
   assert.deepEqual([i.props.botoes, i.acao, i.inteligente], [2, 'substituir', true], 'o valor fica como sugestão e a escolha fica');
-  // Os aparelhos que só tinham a omissão ("Instalação nova" → Novo) passam a Manter: deixam de somar.
+  // Os aparelhos que só tinham a omissão seguem a do serviço: Manter (com "Instalação nova" seria Novo).
   const semEscolha = n.planta.elementos.filter((x) => x.tipo === 'tomada');
   assert.ok(semEscolha.length && semEscolha.every((x) => x.acao === undefined && acaoDe(x, n.servico) === 'manter'));
   // Um estado de agora mantém tudo.
@@ -193,7 +194,7 @@ test('estado de antes (ordem 13): tomadas e interruptores ficam sugestões por r
 });
 
 test('servidor: aceita o pedido de antes (sem inventário) e o novo; recusa um inventário mal formado; calcula o mesmo intervalo', () => {
-  const e = casaT2(['nova']);
+  const e = casaT2(['automatizar']);
   for (const d of e.planta.divisoes) responder(e, d, 1, 2);
   const sala = e.planta.divisoes[0];
   e.planta.elementos.push({ id: 'e901', tipo: 'luz', x_cm: sala.x_cm + 100, y_cm: sala.y_cm + 100, rot: 0, piso: 0, divisao: sala.id, props: {}, acao: 'novo' });

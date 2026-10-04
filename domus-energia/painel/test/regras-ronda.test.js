@@ -87,8 +87,8 @@ test('pontos novos: preço fechado por ponto; inteligente = o ponto + o aparelho
   // Só os Novos entram nos pontos.
   const planta = { elementos: [{ ...luz, acao: 'manter' }, { ...tom, acao: 'novo' }, { ...dupla, acao: 'substituir' }, { ...int, acao: 'novo' }, { ...int }] };
   assert.deepEqual(pedidosPontosNovos(planta, ['automatizar']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 1 }]);
-  // Decisão do dono (2026-10-03): sem ação escolhida é Manter também com "Instalação nova" (o interruptor sem ação não leva ponto).
-  assert.deepEqual(pedidosPontosNovos(planta, ['nova']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 1 }]);
+  // Decisão do dono (2026-10-04): com "Instalação nova" o que não tem ação escolhida é Novo (o interruptor sem ação leva ponto).
+  assert.deepEqual(pedidosPontosNovos(planta, ['nova']), [{ chave: 'ponto_tomada', qtd: 1 }, { chave: 'ponto_interruptor', qtd: 2 }]);
 });
 
 test('T2 nova: o total sobe exatamente o preço dos pontos (45 / 40 / 35 €) e o pedido leva-os em itens e trabalho', () => {
