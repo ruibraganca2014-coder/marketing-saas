@@ -30,7 +30,7 @@ import {
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
-  divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes,
+  divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
 } from "./estado.js";
 import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
@@ -282,6 +282,8 @@ function desenharProgresso() {
       b.addEventListener("click", () => {
         if (!podeIrPara(i)) return;
         if (estado.passo === P.casa && ordemPasso(i) > ordemPasso(P.casa) && confirmarCasa(i)) return;
+        // Sair para a frente pela barra passa pela mesma confirmação do Seguinte (confirmarPasso).
+        if (ordemPasso(i) > ordemPasso(estado.passo) && confirmarPasso(i)) return;
         irPara(i);
       });
       li.append(b);
@@ -449,6 +451,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.trocar && bloquearTrocar()) return;
   if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
+  if (confirmarPasso()) return;   // "Está certo? Sim, continuar" nos passos em que o cliente preenche
   irPara(passoAo(estado.passo, 1));
 });
 
@@ -775,33 +778,84 @@ function bloquearCasa() {
 // enquanto as divisões não mudarem. `destino`: o passo a que se ia (o Seguinte ou um passo da barra).
 let janelaCasa = null;
 const assinaturaPlanta = () => assinaturaDivisoes(estado.planta);
+/** A janela (<dialog> modal) das confirmações: a de "A casa" e a dos outros passos (confirmarPasso). Criada uma vez. */
+function janelaDeConfirmar() {
+  if (janelaCasa) return janelaCasa;
+  const j = el("dialog", "editor-dialogo editor-mais janela-casa");
+  j.id = "casa-janela";
+  j.setAttribute("aria-labelledby", "casa-janela-titulo");
+  const t = el("h2");
+  t.id = "casa-janela-titulo";
+  const corpo = el("div", "editor-mais-corpo");
+  corpo.id = "casa-janela-corpo";
+  const bs = el("div", "form-botoes");
+  bs.id = "casa-janela-botoes";
+  j.append(t, corpo, bs);
+  document.body.append(j);
+  janelaCasa = j;
+  return j;
+}
+const botaoDaJanela = (dlg) => (classe, texto, id, acao) => {
+  const b = el("button", classe, texto);
+  b.type = "button";
+  b.id = id;
+  b.addEventListener("click", () => { dlg.close(); acao(); });
+  return b;
+};
+
+/*
+ * "Seguinte" nos passos em que o cliente preenche alguma coisa (decisão do dono, 2026-10-04; estado.js
+ * PASSOS_A_CONFIRMAR): a mesma janela de "A casa" pergunta se está certo antes de avançar — "Ainda não, vou ajustar"
+ * fica no passo, "Sim, continuar" avança. A resposta fica no estado (`estado.confirmados`) e vale enquanto o que foi
+ * confirmado não mudar (assinaturaPasso): andar para trás e para a frente não volta a perguntar.
+ */
+const TEXTOS_CONFIRMAR = {
+  [P.quer]: { titulo: "As máquinas marcadas são as da sua casa?",
+    pontos: ["Estão marcadas todas as máquinas que tem hoje.", "A quantidade de cada uma está certa.", "O que quer pôr de novo escolhe mais à frente."] },
+  [P.divisoes]: { titulo: "Está certo o que cada divisão tem hoje?",
+    pontos: ["Os interruptores e as tomadas de cada divisão.", "\"Quero inteligente\" nas tomadas a comandar pelo telemóvel."] },
+  [P.planta]: { titulo: "A planta está como a sua casa?",
+    pontos: ["Cada aparelho está na divisão certa.", "Não falta nenhuma divisão nem aparelho."] },
+  [P.quadro]: { titulo: "A foto do quadro está boa?",
+    pontos: ["Mostra o quadro de frente, com a porta aberta.", "As etiquetas leem-se."] },
+  [P.trocar]: { titulo: "Está certo o que quer fazer?",
+    pontos: ["O que não mexeu fica em Manter e não entra no preço.", "Disse o que se passa em cada aparelho avariado."] },
+  [P.melhorias]: { titulo: "Escolheu as melhorias que quer?",
+    pontos: ["Os pacotes marcados entram no orçamento.", "Pode continuar sem nenhum."] },
+};
+const assinaturaDoPasso = (passo) => assinaturaPasso(estado, passo, fotos.get("quadro")?.miniatura?.length ?? null);
+/** Abre a janela do passo atual se ainda não foi confirmado como está; devolve true se a abriu (não se avança). */
+function confirmarPasso(destino = null) {
+  const passo = estado.passo;
+  const T = TEXTOS_CONFIRMAR[passo];
+  if (!T) return false;
+  const agora = assinaturaDoPasso(passo);
+  if (estado.confirmados?.[passo] === agora) return false;
+  const dlg = janelaDeConfirmar();
+  const botao = botaoDaJanela(dlg);
+  const lista = el("ul", "janela-casa-lista");
+  for (const t of T.pontos) lista.append(el("li", null, t));
+  $("casa-janela-titulo").textContent = T.titulo;
+  $("casa-janela-corpo").replaceChildren(el("p", null, "Antes de continuar, confirme:"), lista);
+  $("casa-janela-botoes").replaceChildren(
+    botao("btn sec", "Ainda não, vou ajustar", "passo-janela-ajustar", () => focar(`titulo-${passo}`)),
+    botao("btn", "Sim, continuar", "passo-janela-sim", () => {
+      estado.confirmados = { ...(estado.confirmados ?? {}), [passo]: assinaturaDoPasso(passo) };
+      agendarGravacao();
+      irPara(destino ?? passoAo(passo, 1));
+    }),
+  );
+  dlg.showModal();
+  $("passo-janela-sim").focus();
+  return true;
+}
 function confirmarCasa(destino = null) {
   if (codigoCliente) return false;
   const falta = casaPorEscolher();
   if (!falta && estado.plantaConfirmada === assinaturaPlanta()) return false;
-  const dlg = janelaCasa ?? (() => {
-    const j = el("dialog", "editor-dialogo editor-mais janela-casa");
-    j.id = "casa-janela";
-    j.setAttribute("aria-labelledby", "casa-janela-titulo");
-    const t = el("h2");
-    t.id = "casa-janela-titulo";
-    const corpo = el("div", "editor-mais-corpo");
-    corpo.id = "casa-janela-corpo";
-    const bs = el("div", "form-botoes");
-    bs.id = "casa-janela-botoes";
-    j.append(t, corpo, bs);
-    document.body.append(j);
-    janelaCasa = j;
-    return j;
-  })();
+  const dlg = janelaDeConfirmar();
   const corpo = $("casa-janela-corpo"), bs = $("casa-janela-botoes");
-  const botao = (classe, texto, id, acao) => {
-    const b = el("button", classe, texto);
-    b.type = "button";
-    b.id = id;
-    b.addEventListener("click", () => { dlg.close(); acao(); });
-    return b;
-  };
+  const botao = botaoDaJanela(dlg);
   const passos = el("ul", "janela-casa-lista");
   if (falta) {
     $("casa-janela-titulo").textContent = "Falta configurar a casa";

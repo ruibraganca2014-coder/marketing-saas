@@ -271,6 +271,36 @@ export function casaNova() {
 }
 
 /**
+ * Janela "confirme antes de continuar" (decisão do dono, 2026-10-04): os passos em que o cliente preenche alguma coisa
+ * — Equipamentos, Divisões, Planta, Quadro elétrico, Trocar e reparar e Melhorias ("A casa" tem a sua, plantaConfirmada).
+ */
+export const PASSOS_A_CONFIRMAR = [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.trocar, PASSO.melhorias];
+
+/** Resumo curto de um texto (djb2, base 36): chega para saber se o que o cliente confirmou ainda é o que lá está. */
+function resumoTexto(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return `${s.length.toString(36)}.${h.toString(36)}`;
+}
+
+/**
+ * O que o cliente confirma em cada passo, resumido: a janela só volta a aparecer se isto mudar. `fotoQuadro`: o que
+ * identifica a foto do quadro que está posta (o passo Quadro é só a foto), ou null.
+ */
+export function assinaturaPasso(estado, passo, fotoQuadro = null) {
+  const els = estado.planta?.elementos ?? [];
+  const de = {
+    [PASSO.quer]: () => estado.quer,
+    [PASSO.divisoes]: () => [els.filter((e) => e.tipo === "interruptor" || e.tipo === "tomada").map((e) => [e.id, e.divisao ?? null, e.tipo, e.props ?? null, e.confirmado === true, e.acao ?? null, e.inteligente ?? null]), estado.naoTem],
+    [PASSO.planta]: () => [estado.planta?.divisoes ?? [], els.map((e) => [e.id, e.tipo, e.divisao ?? null, e.x ?? null, e.y ?? null, e.props ?? null])],
+    [PASSO.quadro]: () => fotoQuadro,
+    [PASSO.trocar]: () => [els.map((e) => [e.id, e.acao ?? null, e.avaria ?? null, e.inteligente ?? null]), estado.quadroAvaria, estado.quadroProblemas, estado.mexerQuadro],
+    [PASSO.melhorias]: () => estado.melhorias,
+  }[passo];
+  return de ? resumoTexto(JSON.stringify(de()) ?? "") : null;
+}
+
+/**
  * Estado inicial (o mesmo no site e na área de cliente: a casa por escolher; na área de cliente o passo
  * "A casa" é saltado e os dados da casa são opcionais).
  */
@@ -301,6 +331,7 @@ export function estadoNovo() {
     plantaFase: "vazia",       // o que a planta que desenhámos mostra (FASES_PLANTA; app.js fasePlanta)
     plantaSinc: null,          // o que a planta já tem da casa e das máquinas ({divisoes, maquinas, fase}; app.js sincAtual)
     plantaConfirmada: null,    // QA final: assinaturaDivisoes() da planta a que o cliente disse "Sim, continuar" em "A casa"
+    confirmados: {},           // janela "Confirme antes de continuar" dos outros passos: {passo: assinaturaPasso()} do "Sim, continuar"
     // + pacote, proteções, para-raios, quadro novo (quadro.js). Ronda B: o esquema do quadro já não se faz no simulador
     // (`leitura`/`sugestoes` dos estados antigos caem em normalizarEstado); fica só a foto.
     quadro: { circuitos: [], disjuntor: SKU_SY2, ...quadroOmissao() },
@@ -666,6 +697,10 @@ export function normalizarEstado(v) {
   // "A planta está parecida…?" (QA final): a resposta guardada vale se as divisões gravadas ainda são as confirmadas; passa
   // à assinatura da planta normalizada (um estado de antes, sem o campo, volta a perguntar uma vez).
   e.plantaConfirmada = typeof v.plantaConfirmada === "string" && v.plantaConfirmada === assinaturaDivisoes(v.planta) ? assinaturaDivisoes(e.planta) : null;
+  // As confirmações dos outros passos (assinaturaPasso): só as dos passos que as têm, como texto curto.
+  if (v.confirmados && typeof v.confirmados === "object" && !Array.isArray(v.confirmados)) {
+    for (const k of PASSOS_A_CONFIRMAR) if (typeof v.confirmados[k] === "string" && v.confirmados[k].length <= 40) e.confirmados[k] = v.confirmados[k];
+  }
   // A assinatura de um estado antigo não se compara com a de agora (tem outros campos): fica sem base.
   // (Os 7 passos de antes, ordem 3, e os 6 da ordem 4 têm a assinatura de agora: só mudou a ordem dos passos.)
   e.plantaBase = guardavaVisitado && typeof v.plantaBase === "string" ? v.plantaBase.slice(0, 1000) : null;

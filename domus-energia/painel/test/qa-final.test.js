@@ -117,3 +117,34 @@ test('planta automática: a porta da rua numa parede de fora; tomadas de divisõ
     }
   }
 });
+
+test('janela "confirme antes de continuar" dos outros passos: a assinatura muda só com o que o passo confirma; o estado guarda-a', async () => {
+  const { assinaturaPasso, PASSOS_A_CONFIRMAR, PASSO } = await import('../../web/simulador/estado.js');
+  assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.trocar, PASSO.melhorias]);
+  const e = estadoNovo();
+  e.planta = { ...e.planta, divisoes: [{ id: 'd1', nome: 'Sala' }], elementos: [{ id: 'e1', tipo: 'tomada', divisao: 'd1', x: 10, y: 10, props: { caixas: 1 } }, { id: 'e2', tipo: 'luz', divisao: 'd1', x: 50, y: 50, props: {} }] };
+  const de = (passo, foto = null) => assinaturaPasso(e, passo, foto);
+  const antes = Object.fromEntries(PASSOS_A_CONFIRMAR.map((k) => [k, de(k)]));
+  assert.ok(PASSOS_A_CONFIRMAR.every((k) => typeof antes[k] === 'string' && antes[k].length <= 40));
+  for (const k of [PASSO.inicio, PASSO.casa, PASSO.relatorio, PASSO.preco, PASSO.enviar]) assert.equal(de(k), null, `sem janela no passo ${k}`);
+  // Marcar uma máquina muda só os Equipamentos.
+  e.quer.maquinas.push('placa');
+  assert.notEqual(de(PASSO.quer), antes[PASSO.quer]);
+  for (const k of [PASSO.divisoes, PASSO.planta, PASSO.trocar, PASSO.melhorias]) assert.equal(de(k), antes[k]);
+  // "Quero inteligente" numa tomada: Divisões e Trocar e reparar; arrastar um aparelho: só a Planta.
+  e.planta.elementos[0].acao = 'substituir'; e.planta.elementos[0].inteligente = true;
+  assert.notEqual(de(PASSO.divisoes), antes[PASSO.divisoes]);
+  assert.notEqual(de(PASSO.trocar), antes[PASSO.trocar]);
+  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
+  e.planta.elementos[1].x = 80;
+  assert.notEqual(de(PASSO.planta), antes[PASSO.planta]);
+  // Quadro: é a foto que se confirma.
+  assert.notEqual(de(PASSO.quadro, 1234), de(PASSO.quadro, 99));
+  assert.equal(de(PASSO.quadro, 1234), de(PASSO.quadro, 1234));
+  // O estado guarda as confirmações (só as dos passos com janela, texto curto) e recarregar mantém-nas.
+  assert.deepEqual(estadoNovo().confirmados, {});
+  e.confirmados = { [PASSO.quer]: de(PASSO.quer), [PASSO.casa]: 'x', [PASSO.trocar]: 'y'.repeat(60), [PASSO.melhorias]: 7 };
+  const n = normalizarEstado(JSON.parse(JSON.stringify(e)));
+  assert.deepEqual(n.confirmados, { [PASSO.quer]: de(PASSO.quer) });
+  assert.deepEqual(normalizarEstado({ ...JSON.parse(JSON.stringify(e)), confirmados: 'sim' }).confirmados, {});
+});
