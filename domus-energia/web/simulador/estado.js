@@ -246,6 +246,13 @@ const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 
 /** Potência contratada por omissão (kVA): a mais comum (não há "Não sei"). */
 export const POTENCIA_OMISSAO_KVA = 6.9;
+/**
+ * Potência contratada sugerida pelo tamanho da casa (decisão do dono, 2026-10-04), enquanto o cliente não escolher
+ * outra (`potenciaEditada`): T0 e T1 → 3,45 kVA; T2 e T3 → 6,9; T4 e T5+ → 10,35; sem tipologia (serviços, industrial,
+ * outro, ou a casa ainda por escolher) → 6,9.
+ */
+export const POTENCIA_POR_TIPOLOGIA = { T0: 3.45, T1: 3.45, T2: 6.9, T3: 6.9, T4: 10.35, "T5+": 10.35 };
+export const potenciaOmissao = (casa) => POTENCIA_POR_TIPOLOGIA[casa?.tipologia] ?? POTENCIA_OMISSAO_KVA;
 
 /**
  * Casa por omissão: tipo de imóvel e tipologia por escolher (decisão do dono: também no site, onde o "Seguinte"
@@ -322,6 +329,7 @@ export function estadoNovo() {
     pisosDesde0: true,         // pisos numerados a partir do r/c (0); os estados sem isto são migrados
     casa: casaNova(),
     fasesEditadas: false,      // o cliente escolheu a ligação: já não a sugerimos
+    potenciaEditada: false,    // o cliente escolheu a potência contratada: já não segue o tamanho da casa (potenciaOmissao)
     quer: { maquinas: [], pequenas: [], objetivos: [], quantidades: {}, porPiso: {} },
     querSugerido: false,       // fase 3 da auditoria: as 8 máquinas habituais da tipologia já foram pré-marcadas (uma vez)
     planta: plantaVazia(),
@@ -672,6 +680,9 @@ export function normalizarEstado(v) {
   acertarPisos(e.casa, { antigo: semPorPiso });
   // Estado antigo: uma ligação já escolhida conta como escolhida pelo cliente; "Não sei" continua sugerível.
   e.fasesEditadas = v.fasesEditadas === undefined ? e.casa.fases !== null : bool(v.fasesEditadas);
+  // Potência: um estado de antes (sem o campo) com um valor que não é o de omissão de então (6,9) foi escolha do cliente;
+  // com 6,9 não se sabe — passa a seguir o tamanho da casa (app.js sincronizarCasa).
+  e.potenciaEditada = v.potenciaEditada === undefined ? e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA : bool(v.potenciaEditada);
   // "O que quer" por piso (`porPiso`); um estado antigo ({quantidades, pisos} por máquina) passa a ter a
   // quantidade no piso escolhido, ou no típico (casa.js pisoTipicoMaquina).
   const vq = v.quer && typeof v.quer === "object" ? v.quer : {};
@@ -937,7 +948,7 @@ export function quadroParaEnvio(estado, circuitos) {
 export function temProgresso(e, passoInicial = 0) {
   return !!e && !e.soCasa && (e.passo > passoInicial || e.funil !== null || e.servico.length > 0 || e.quadroAvaria !== null
     || !!e.avaria?.onde?.length || !!e.avaria?.problema?.length || !!e.avaria?.descricao?.trim()
-    || e.casa.potencia_contratada_kva !== POTENCIA_OMISSAO_KVA || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0);
+    || e.potenciaEditada || e.fasesEditadas || (plantaTemConteudo(e.planta) && !e.plantaAuto) || e.quadro.circuitos.length > 0 || e.divisoes.length > 0);
 }
 
 // ------------------------------------------------------------ a casa guardada (funil "Já tenho a planta")
@@ -947,7 +958,7 @@ export function temProgresso(e, passoInicial = 0) {
  * "Já tenho a planta" no Início, mesmo depois de enviar o pedido ou de "Começar de novo".
  */
 export const CHAVE_CASA = "domus.simulador.casa";
-const CAMPOS_CASA = ["pisosDesde0", "casa", "fasesEditadas", "quer", "planta", "plantaAuto", "plantaBase", "plantaFase", "plantaSinc",
+const CAMPOS_CASA = ["pisosDesde0", "casa", "fasesEditadas", "potenciaEditada", "quer", "planta", "plantaAuto", "plantaBase", "plantaFase", "plantaSinc",
   "quadro", "quadroEditado", "divisoes", "divisoesEditadas", "extras", "termostatosEditados", "instalado", "naoTem"];
 /** O estado tem uma casa que se possa guardar? (o tipo de imóvel e uma planta com divisões) */
 export const temCasa = (e) => !!e && !!e.casa?.tipo && Array.isArray(e.planta?.divisoes) && e.planta.divisoes.length > 0;

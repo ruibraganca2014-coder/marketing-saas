@@ -25,7 +25,7 @@ import {
 import {
   PASSOS, MAX_SIMULACAO, estadoNovo, normalizarEstado, temProgresso, guardarEstado, carregarEstado, apagarEstado,
   lerCodigoCliente, montarSimulacao, montarPedido, problemaContacto, tamanhoSimulacao, potenciaContratada,
-  normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA,
+  normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA, potenciaOmissao,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
@@ -1071,6 +1071,8 @@ function desenharCasa() {
 /** Tipologia (ou área e espaços), contadores, extras e ligação no ecrã a partir do estado. */
 function sincronizarCasa() {
   const c = estado.casa;
+  // Potência contratada pelo tamanho da casa (T0/T1 3,45 · T2/T3 6,9 · T4/T5+ 10,35), enquanto o cliente não escolher outra.
+  if (!estado.potenciaEditada) { c.potencia_contratada_kva = potenciaOmissao(c); $("casa-potencia").value = String(c.potencia_contratada_kva); }
   const neg = negocio();
   acertarPisos(c);   // valores por piso (2 ou mais pisos) e os totais da casa a partir deles
   acertarQuer();   // menos pisos: as máquinas dos pisos que saíram passam para o último
@@ -1224,7 +1226,7 @@ function mudarPisoCasa(p) {
   editor.mudarPiso(p, { anunciar: false });   // QA final: a planta ao lado mostra o mesmo piso
 }
 
-$("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value) ?? POTENCIA_OMISSAO_KVA; agendarGravacao(); });
+$("casa-potencia").addEventListener("change", () => { estado.casa.potencia_contratada_kva = potenciaContratada($("casa-potencia").value) ?? POTENCIA_OMISSAO_KVA; estado.potenciaEditada = true; agendarGravacao(); });
 $("casa-fases").addEventListener("change", () => { const v = $("casa-fases").value; estado.casa.fases = FASES[v] ? v : null; estado.fasesEditadas = true; agendarGravacao(); });
 $("casa-area").addEventListener("input", () => {
   const v = Math.round(Number($("casa-area").value));
@@ -1648,6 +1650,8 @@ function atualizarPlanta() {
   editor.definirPermissoes({
     divisoes: estado.passo === P.casa || estado.passo === P.planta,
     aparelhos: estado.passo !== P.casa && (estado.passo !== P.inicio || fasePlanta() === "tudo"),
+    // Passo Planta (decisão do dono, 2026-10-04): sem duplo clique — aqui arrastam-se os aparelhos para o sítio.
+    duplo: estado.passo !== P.planta,
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
@@ -2830,9 +2834,28 @@ function desenharProgressoDivisoes(planta = plantaDivisoes()) {
  * `valor(props)` lê e `mudar(e, v)` grava a escolha no aparelho; `falta(n, k)`: o que falta dizer (n na divisão, k por
  * responder).
  */
+/** Desenho de um interruptor com `n` teclas (1 a 4), para as opções "quantos botões" (decisão do dono, 2026-10-04: o número sozinho não se percebia). */
+function desenhoTeclas(n) {
+  const NS = "http://www.w3.org/2000/svg";
+  const s = svgNovo();
+  s.setAttribute("viewBox", "0 0 32 32");
+  s.setAttribute("aria-hidden", "true");
+  s.setAttribute("focusable", "false");
+  s.classList.add("teclas-desenho");
+  const r = document.createElementNS(NS, "rect");
+  for (const [k, v] of [["x", 3], ["y", 3], ["width", 26], ["height", 26], ["rx", 4]]) r.setAttribute(k, v);
+  s.append(r);
+  for (let i = 1; i < n; i++) {
+    const l = document.createElementNS(NS, "line");
+    const x = 3 + (26 * i) / n;
+    for (const [k, v] of [["x1", x], ["x2", x], ["y1", 3], ["y2", 29]]) l.setAttribute(k, v);
+    s.append(l);
+  }
+  return s;
+}
 const INVENTARIO = {
   interruptor: {
-    titulo: "Interruptores", um: "Interruptor", pergunta: "Quantos botões tem cada um?",
+    titulo: "Interruptores", um: "Interruptor", pergunta: "Quantos botões (teclas) tem cada um?", desenho: desenhoTeclas,
     opcoes: [[1, "1", "1 botão"], [2, "2", "2 botões"], [3, "3", "3 botões"], [4, "4", "4 botões"]],
     valor: (p) => Math.min(4, Math.max(1, Math.round(Number(p?.botoes) || 1))),
     // Um comando que pede mais botões (lustre: 2) volta a simples se o cliente disser que só tem 1.
@@ -2943,6 +2966,8 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
       b.id = `${base}-${i}-${v}`;
       b.setAttribute("aria-label", `${nome} (${onde}): ${longo}`);
       b.setAttribute("aria-pressed", String(e.confirmado === true && I.valor(e.props) === v));
+      // Interruptores: o desenho das teclas por cima do número.
+      if (I.desenho) { b.classList.add("com-desenho"); b.replaceChildren(I.desenho(v), el("span", null, texto)); }
       b.addEventListener("click", () => responderInventario(d, e.id, (x) => I.mudar(x, v), b.id));
       ops.append(b);
     }

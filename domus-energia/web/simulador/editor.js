@@ -568,6 +568,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
   let podeDivisoes = true;
   let podeAparelhos = true;
+  // O duplo clique (duplo toque e toque longo) abre a janela / mexe nos cantos? No passo Planta não (decisão do dono,
+  // 2026-10-04): aí arrasta-se; a janela continua no botão "Opções" e no Enter.
+  let podeDuplo = true;
   /** Tentou mudar uma divisão presa: a dica (e quem usa o editor mostra onde se mudam, `aoDivisaoPresa`). */
   function divisaoPresa() {
     avisar("Divisões presas neste passo.");
@@ -1171,6 +1174,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function gestoDuplo(p, tipoPonteiro, { longo = false } = {}) {
     duploEm = performance.now();
     ultimoToque = null;
+    if (!podeDuplo) return;
     const alvo = oQueEsta(p, tipoPonteiro);
     if (!alvo) return;
     if ((alvo.tipo === "canto" || alvo.tipo === "parede") && !podeDivisoes) { divisaoPresa(); return; }
@@ -2258,7 +2262,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
      * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
      */
-    definirPermissoes({ divisoes = true, aparelhos = true } = {}) {
+    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true } = {}) {
+      podeDuplo = duplo;
       if (divisoes === podeDivisoes && aparelhos === podeAparelhos) return;
       const voltarAoInicio = divisoes && !podeDivisoes;   // QA N2: o grupo das divisões reaparece à esquerda
       podeDivisoes = divisoes;
