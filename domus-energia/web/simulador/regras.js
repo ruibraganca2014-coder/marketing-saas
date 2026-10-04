@@ -171,7 +171,9 @@ export const ELEMENTOS = {
   tomada: { nome: "Tomada", props: { dupla: false, inteligente: false, caixas: 1 } },
   // Luz sem pergunta (decisão do dono): sempre não regulável; o `brilho` de um estado antigo sai ao carregar.
   luz: { nome: "Ponto de luz", props: {} },
-  interruptor: { nome: "Interruptor", props: { botoes: 1, comando: "simples" } },
+  // `inteligente` (2026-10-04): o interruptor que a casa JÁ TEM comanda-se pelo telemóvel (inventário das Divisões); não
+  // entra no preço — o interruptor NOVO inteligente decide-se em "Trocar e reparar" (`inteligente` do elemento).
+  interruptor: { nome: "Interruptor", props: { botoes: 1, comando: "simples", inteligente: false } },
   maquina: { nome: "Máquina", props: { modelo: "termoacumulador", potencia_w: 2000 } },
   sensor_porta: { nome: "Sensor de porta/janela", props: {} },
   sensor_movimento: { nome: "Sensor de movimento", props: {} },
