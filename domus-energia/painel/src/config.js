@@ -59,7 +59,7 @@ export function lerConfig(env = process.env) {
   const mqttSenha = env.PAINEL_MQTT_PASS || env.MQTT_PASS || '';
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
   const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
-  if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro fica desligada');
+  if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro e o assistente (IA) dos pedidos ficam desligados');
   // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "stripe" (por omissão com STRIPE_SECRET_KEY) ou "simulado"
   // (só com PAGAMENTOS_MODO=simulado explícito: o lançador local põe-no). Sem modo explícito e sem chave, os
   // pagamentos do pedido ficam DESLIGADOS (o pedido é enviado sem pagar, como antes) e o painel avisa.
@@ -128,6 +128,9 @@ export function lerConfig(env = process.env) {
     // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
     anthropicKey,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
+    // Assistente (IA) dos pedidos (docs/ASSISTENTE-IA.md): tempo por tentativa (há 1 extra) e pedidos por 24 h (todos os utilizadores).
+    assistenteTimeoutMs: Number(env.ASSISTENTE_TIMEOUT_MS || 120_000),
+    limiteIaDia: Number(env.LIMITE_IA_DIA || 50),
     resultadoRetencaoMs: 7 * 24 * 3600_000,  // resultados nunca vistos são apagados ao fim de 7 dias
     // Conta de cliente (docs/CONTA-CLIENTE.md)
     siteOrigens: [...new Set(siteOrigens)],

@@ -165,6 +165,8 @@ export default function orcamentos(el, ctx) {
     ];
     if (campo(o, "anonimizado")) partes.unshift(h("div", { class: "msg info bloco", id: "pedido-anonimizado", text: `Anonimizado (RGPD) em ${data(campo(o, "anonimizado"))}: a conta foi apagada; ficam os valores, as referências e os pagamentos (contabilidade).` }));
     if (campo(o, "mensagem")) partes.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
+    // Assistente (IA; docs/ASSISTENTE-IA.md): só na ficha completa (a que traz `ia`).
+    if (o && typeof o === "object" && "ia" in o) partes.push(seccaoIa(j, o, "resumo", arquivado));
     const sim = simulacaoDe(o);
     if (sim) partes.push(vistaSimulacao(sim, catalogoDe(o)));
     else if (campo(o, "tem_simulacao") === true) partes.push(h("section", { class: "simulacao", id: "simulacao-cliente", dataset: { carregando: "" } }, h("h3", { text: "Simulação do cliente" }), carregando()));
@@ -739,6 +741,7 @@ export default function orcamentos(el, ctx) {
         ? h("ul", { class: "diag-sugestoes", id: "diag-sugestoes" }, ...sug.map((s) => h("li", {}, h("strong", { text: `${s.nome} → ${s.tiposNome.join(" ou ") || "a apurar"}: ` }), s.verificar)),
           quadroAvaria !== null ? h("li", {}, h("strong", { text: `Quadro com problemas${quadroAvaria ? ` («${quadroAvaria}»)` : ""} → sobrecarga, curto-circuito ou ligação solta: ` }), PROBLEMAS.disjuntor.verificar) : null)
         : h("p", { class: "ajuda", id: "diag-sugestoes", text: `Reparações sem problema tipificado. ${PROBLEMAS.outro.verificar}` }));
+    if (o && typeof o === "object" && "ia" in o) sec.append(seccaoIa(j, o, "diagnostico", arquivado));
     if (arquivado) { sec.append(blocoDiagnostico(d) ?? h("p", { class: "ajuda", text: "Sem diagnóstico registado." })); return sec; }
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const valores = d && d.valores && typeof d.valores === "object" ? d.valores : {};
@@ -781,6 +784,50 @@ export default function orcamentos(el, ctx) {
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
     });
     sec.append(f);
+    return sec;
+  }
+
+  /**
+   * Assistente (IA; decisão do dono, docs/ASSISTENTE-IA.md): "Resumir pedido" no topo da ficha e "Sugerir diagnóstico" na
+   * secção Diagnóstico → POST orcamentos/:id/ia/resumo|diagnostico. Só corre ao carregar no botão; o resultado é só para
+   * a equipa (o cliente nunca o vê) e a sugestão não preenche o diagnóstico do pedido.
+   */
+  function seccaoIa(j, o, tipo, arquivado) {
+    const id = String(campo(o, "id"));
+    const ia = campo(o, "ia") ?? {};
+    const r = ia[tipo] ?? null;
+    const T = IA_TEXTOS[tipo];
+    const sec = h("section", { class: "ia-pedido", id: `ia-${tipo}` }, h(tipo === "resumo" ? "h3" : "h4", { text: T.titulo }));
+    const itens = (titulo, l) => (Array.isArray(l) && l.length ? [h("p", {}, h("strong", { text: titulo })), h("ul", { class: "diag-sugestoes" }, ...l.map((t) => h("li", { text: String(t) })))] : []);
+    if (r && tipo === "resumo") {
+      sec.append(h("p", { class: "mensagem-cliente", text: String(r.resumo ?? "") }),
+        ...itens("O que o cliente quer", r.quer), ...itens("Atenção", r.atencao), ...itens("A perguntar ou confirmar", r.perguntas));
+    } else if (r) {
+      sec.append(h("ul", { class: "diag-sugestoes" }, ...(Array.isArray(r.causas) ? r.causas : []).map((c) => h("li", {},
+          h("strong", { text: `${c.causa} (probabilidade ${IA_NIVEL[c.probabilidade] ?? c.probabilidade}): ` }), `${c.porque} `, h("em", { text: `Verificar: ${c.verificar}` })))),
+        ...itens("A medir", r.medicoes), ...itens("Material a levar", r.material), ...itens("Segurança", r.seguranca),
+        h("p", { class: "ajuda", text: `Confiança da sugestão: ${IA_NIVEL[r.confianca] ?? r.confianca}.${r.nota ? ` ${r.nota}` : ""}` }));
+    }
+    if (r) sec.append(h("p", { class: "ajuda", text: `${T.aviso} Pedido em ${data(r.data)}${r.por ? ` por ${r.por}` : ""}.` }));
+    if (arquivado) return sec;
+    if (ia.ligado !== true) {
+      if (ctx.pode("ceo")) sec.append(h("p", { class: "ajuda", text: "Assistente desligado: o servidor não tem a chave ANTHROPIC_API_KEY." }));
+      else if (!r) sec.hidden = true;
+      return sec;
+    }
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const b = h("button", { class: "btn sec pequeno", type: "button", id: `ia-${tipo}-pedir`, text: r ? T.outraVez : T.botao });
+    b.addEventListener("click", async () => {
+      b.disabled = true; b.textContent = "A pensar… (pode demorar um minuto)"; mensagem(msg, null);
+      try {
+        const novo = await pedir(`orcamentos/${encodeURIComponent(id)}/ia/${tipo}`, { corpo: {} });
+        const completo = campo(novo, "orcamento") ?? novo;
+        substituir(completo, false);
+        if (ficha?.j === j) { desenharFicha(j, completo); document.getElementById(`ia-${tipo}`)?.scrollIntoView({ block: "nearest" }); }
+      } catch (erro) { b.disabled = false; b.textContent = r ? T.outraVez : T.botao; mensagem(msg, erro.message); }
+    });
+    if (!r) sec.append(h("p", { class: "ajuda", text: T.ajuda }));
+    sec.append(h("div", { class: "form-botoes" }, b), msg);
     return sec;
   }
 
@@ -965,8 +1012,18 @@ const ACOES = {
   visita_cancelada_cliente: "Visita cancelada pelo cliente (devolvida)", visita_faltou: "Cliente faltou à visita (sem devolução)",
   sinal_devolvido: "Obra cancelada: sinal devolvido", devolucao_iban: "O cliente indicou o IBAN da devolução", devolucao_feita: "Devolução por transferência feita",
   inicio_imediato: "Cliente: \"Quero que comecem já\"",
-  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado",
+  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado", ia_resumo: "Resumo pedido ao assistente (IA)", ia_diagnostico: "Sugestão de diagnóstico pedida ao assistente (IA)",
 };
+const IA_NIVEL = { alta: "alta", media: "média", baixa: "baixa" };
+const IA_TEXTOS = {
+  resumo: { titulo: "Resumo do pedido (IA)", botao: "Resumir pedido", outraVez: "Atualizar resumo",
+    ajuda: "Um resumo do pedido feito por inteligência artificial. Ao modelo vão só os dados técnicos: sem nome, contactos nem morada.",
+    aviso: "Feito por inteligência artificial: confirme no pedido antes de decidir. O cliente não vê isto." },
+  diagnostico: { titulo: "Sugestão da IA — por confirmar no local", botao: "Sugerir diagnóstico", outraVez: "Pedir outra sugestão",
+    ajuda: "Causas prováveis, o que medir e o material a levar, a partir do que o cliente descreveu. Não preenche o diagnóstico abaixo.",
+    aviso: "Hipótese de trabalho feita por inteligência artificial: confirme com medições antes de mexer. Não entra no diagnóstico nem no relatório do cliente." },
+};
+
 /** O pedido precisa da secção "Diagnóstico": avaria rápida, serviço de reparações, aparelhos a reparar ou quadro com problemas. */
 export const precisaDiagnostico = (sim) => !!sim && (ehAvaria(sim) || servicosDe(sim).includes("reparar")
   || Number(sim.totais_acao?.reparar?.aparelhos) > 0 || (sim.quadro && typeof sim.quadro === "object" && typeof sim.quadro.avaria === "string"));

@@ -844,7 +844,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
-          ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL,
+          ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL, ia = NULL,
           conta_id = NULL, anonimizado = ?, estado = ?, atualizado = ? WHERE id = ?`).run(agora, ESTADO_ARQUIVADO, agora, id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { estado: ESTADO_ARQUIVADO, pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });

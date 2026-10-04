@@ -19,6 +19,7 @@ import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
 import { criarFotosRemotas } from './fotos-remotas.js';
+import { dadosParaIa, ErroAssistente, MAX_DADOS_IA } from './assistente.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
@@ -126,6 +127,9 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
   ['POST', 'orcamentos/:id/diagnostico', ['ceo', 'comercial'], 'guardarDiagnostico'],
+  // Assistente (IA) do pedido (docs/ASSISTENTE-IA.md): só ao carregar no botão; o resultado é só para a equipa.
+  ['POST', 'orcamentos/:id/ia/resumo', ['ceo', 'comercial'], 'iaResumo'],
+  ['POST', 'orcamentos/:id/ia/diagnostico', ['ceo', 'comercial'], 'iaDiagnostico'],
   ['GET', 'orcamentos/:id/fotos/:foto', ['ceo', 'comercial'], 'foto'],
   ['POST', 'orcamentos/:id/fotos/:foto/apagar', ['ceo', 'comercial'], 'apagarFoto'],
   ['GET', 'obras', TODOS, 'obras'],
@@ -377,6 +381,8 @@ export function criarApi(ctx) {
       r.catalogo = artigosDaSimulacao(r.simulacao);
       r.fotos = fotos.listar(o, r.simulacao);
       r.leitura_quadro = fotos.leituraQuadro(o);
+      // Assistente (IA): {ligado, resumo, diagnostico} — o último resultado de cada botão, ou null.
+      r.ia = { ligado: Boolean(ctx.assistente), resumo: null, diagnostico: null, ...iaDe(o) };
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
     }
@@ -1245,6 +1251,43 @@ export function criarApi(ctx) {
       ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao) } : { apagado: true }, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
+
+  // Assistente (IA) do pedido (assistente.js; docs/ASSISTENTE-IA.md): ao modelo vão só os dados técnicos (sem nome,
+  // contactos nem morada; da localidade só o concelho). O resultado fica em `orcamentos.ia` e não mexe em mais nada.
+  const limiteIa = new LimiteTaxa(config.limiteIaDia, 24 * 3600_000, relogio);
+  const iaDe = (o) => {
+    if (!o?.ia) return {};
+    try { const v = JSON.parse(o.ia); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; } catch { return {}; }
+  };
+  async function pedirIa(tipo, { res, u, params, ip }) {
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (!ctx.assistente) throw new ErroApi(503, 'Assistente desligado: o servidor não tem a chave ANTHROPIC_API_KEY.');
+    const sim = o.simulacao ? JSON.parse(o.simulacao) : null;
+    const leitura = fotos.leituraQuadro(o);
+    const local = [sim?.deslocacao?.concelho, o.localidade].find((x) => typeof x === 'string' && NOMES_CONCELHOS.has(x.trim()));
+    const dadosIa = dadosParaIa(o, {
+      simulacao: sim, catalogo: artigosDaSimulacao(sim), concelho: local?.trim() ?? null, leitura: leitura?.leitura ?? null,
+      esquema: esquemaQuadroDe(o), ensaios: pagPed.ensaiosDe(o), diagnostico: pagPed.diagnosticoDe(o),
+    });
+    if (JSON.stringify(dadosIa).length > MAX_DADOS_IA) throw new ErroApi(413, 'Este pedido é demasiado grande para o assistente.');
+    const espera = limiteIa.espera('todos');
+    if (espera) throw new ErroApi(429, `O assistente já foi usado ${config.limiteIaDia} vezes nas últimas 24 horas (limite LIMITE_IA_DIA). Tente mais tarde.`, { 'Retry-After': String(espera) });
+    limiteIa.registar('todos');
+    let r;
+    try {
+      r = await ctx.assistente.pedir(tipo, dadosIa, ` (orçamento ${o.id})`);
+    } catch (e) {
+      if (e instanceof ErroAssistente) throw new ErroApi(502, `O assistente não conseguiu responder (${e.message}). Tente outra vez.`);
+      throw e;
+    }
+    const agora = agoraIso();
+    const ia = { ...iaDe(obterOrcamento(params.id)), [tipo]: { ...r.resultado, data: agora, por: u.email, modelo: r.modelo, custo_usd: r.custo_usd } };
+    db.prepare('UPDATE orcamentos SET ia = ? WHERE id = ?').run(JSON.stringify(ia), o.id);
+    auditar(u, `ia_${tipo}`, `orcamento:${o.id}`, { modelo: r.modelo, tokens_entrada: r.uso.entrada, tokens_saida: r.uso.saida, custo_usd: r.custo_usd }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  }
+  h.iaResumo = (c) => pedirIa('resumo', c);
+  h.iaDiagnostico = (c) => pedirIa('diagnostico', c);
 
   // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
   h.previaRelatorioCliente = ({ res, params }) => {

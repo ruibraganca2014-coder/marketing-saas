@@ -933,6 +933,9 @@ export const MIGRACOES = [
     const agora = iso();
     for (const p of SEMENTES_PROCEDIMENTOS) ins.run(p.titulo, p.tipo, p.descricao, JSON.stringify(p.passos), agora, agora);
   },
+  // 37: assistente (IA) do pedido (docs/ASSISTENTE-IA.md). `ia` = JSON {resumo, diagnostico}: o último resultado de cada
+  // botão, com a data, quem pediu, o modelo e o custo estimado. Só para a equipa; sai com a anonimização do pedido.
+  (db) => db.exec('ALTER TABLE orcamentos ADD COLUMN ia TEXT;'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

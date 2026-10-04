@@ -171,6 +171,8 @@ services:
       DADOS_DIR: /dados
       # Leitura automática da foto do quadro (modelo de visão Claude). Vazio = desligada.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Assistente (IA) dos pedidos: máximo de pedidos ao modelo em 24 h (docs/ASSISTENTE-IA.md).
+      LIMITE_IA_DIA: ${LIMITE_IA_DIA:-50}
       # Conta de cliente (docs/CONTA-CLIENTE.md): site público noutra origem (Vercel) com CORS, chave das
       # credenciais da casa e SMTP dos códigos por email (sem SMTP_HOST os emails ficam no registo do painel).
       SITE_ORIGENS: ${SITE_ORIGENS:-}

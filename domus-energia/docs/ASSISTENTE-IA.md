@@ -1,0 +1,54 @@
+# Assistente (IA) dos pedidos
+
+Decisões do dono de 2026-10-04. Primeira ronda: **resumir o pedido** e **sugerir o diagnóstico** de uma avaria. O rascunho de resposta ao cliente fica para a ronda seguinte (o painel ainda não escreve ao cliente). Código: `painel/src/assistente.js` (o que vai ao modelo, a chamada, a validação da resposta), as rotas `POST orcamentos/:id/ia/resumo|diagnostico` em `painel/src/api.js` (`pedirIa`), `painel/public/ecras/orcamentos.js` (`seccaoIa`); migração 37 (`orcamentos.ia`); testes `painel/test/assistente.test.js` e a matriz de `papeis.test.js`.
+
+## 1. O que o dono decidiu
+| Pergunta | Decisão |
+|---|---|
+| Que dados saem para o modelo | **Sem identificação.** Só o técnico: tipo de trabalho, concelho, casa, aparelhos, quadro, descrição da avaria, valores. Nome, email, telefone, morada e NIF nunca saem. As fotos não vão. |
+| O que entra nesta ronda | Resumo + sugestão de diagnóstico (só a equipa lê). |
+| Quando corre | Só ao carregar no botão. Nada corre sozinho. |
+| Quem usa | CEO e comercial. Técnicos e eletricistas externos não veem botões nem resultados. |
+| A sugestão preenche o diagnóstico do pedido? | Não. Fica numa caixa à parte, "Sugestão da IA — por confirmar no local". |
+
+O cliente nunca vê nada disto: não vai para a conta, para o relatório nem para emails.
+
+## 2. No painel
+- **Ficha do pedido, no topo:** "Resumo do pedido (IA)" → botão **Resumir pedido** (depois **Atualizar resumo**). Mostra o resumo (3 a 5 frases), "O que o cliente quer", "Atenção" e "A perguntar ou confirmar".
+- **Secção Diagnóstico** (pedidos de avaria ou com reparações): "Sugestão da IA — por confirmar no local" → botão **Sugerir diagnóstico** (depois **Pedir outra sugestão**). Mostra as causas prováveis por ordem (com a probabilidade, o porquê e como verificar), "A medir", "Material a levar", "Segurança" e a confiança. A lista de verificação e a conclusão por baixo continuam a ser preenchidas à mão.
+- Cada resultado diz quando e por quem foi pedido. Fica guardado o **último** de cada botão; pedir outra vez substitui.
+- Demora 10 a 60 segundos (o botão fica "A pensar…").
+- No histórico do pedido fica "Resumo pedido ao assistente (IA)" / "Sugestão de diagnóstico pedida ao assistente (IA)", com o modelo, os tokens e o custo estimado.
+- Sem a chave no servidor: o CEO lê "Assistente desligado…"; o comercial não vê a secção.
+- Pedidos arquivados (RGPD): sem botões. Ao anonimizar um pedido, os resultados da IA são apagados com o resto.
+
+## 3. O que vai ao modelo (`dadosParaIa`)
+- Do pedido: o serviço, o **concelho** (só se for um dos 308 da lista: o da deslocação da simulação ou a localidade do pedido quando é exatamente um concelho; senão nada), a data de receção e a mensagem do cliente.
+- Da simulação, só estes campos: `funil`, `servico`, `urgencia`, `visita`, `casa`, `quer`, `avaria`, `quadro`, `divisoes`, `inventario`, `trabalho`, `totais_acao`, `mao_obra`, `total`, `plano_sugerido`, `avisos`; o material com os nomes do catálogo; as melhorias (nome e preço); da deslocação o estado, o distrito e a distância. A **planta** (coordenadas e imagem de fundo) e as **fotos** não vão.
+- A leitura automática da foto do quadro, o esquema do quadro, os ensaios medidos e o diagnóstico já registado, quando existem (sem quem os registou).
+- Em qualquer nível saem sempre: `contacto`, `email`, `telefone`, `morada`, `nif`, `localidade`, `foto`, `fotos`, `fundo`, `imagem`, `por`. As notas internas do pedido não vão.
+- Todos os textos passam por `semContactos`: emails → `[email]`, códigos postais → `[código postal]`, sequências de 9 ou mais algarismos (telefone, NIF, IBAN) → `[número]`. A resposta do modelo passa pelo mesmo filtro antes de ser guardada.
+- **Limite conhecido:** um nome ou uma rua que o cliente escreva por extenso na mensagem ou na descrição da avaria ("sou o António, Rua X n.º 3") não é detetado e vai no texto. O modelo tem instruções para não o repetir. Só os campos próprios (nome, morada, contactos) são garantidamente retirados.
+- Um pedido cujos dados passem de 300 000 caracteres não é enviado (`413`); nunca se corta.
+
+## 4. A chamada
+- `POST https://api.anthropic.com/v1/messages` com o `fetch` do Node (sem dependências, como a leitura da foto do quadro).
+- Modelo **`claude-opus-5-5`** (US$ 4 / 1 M tokens de entrada, US$ 20 / 1 M de saída). Um pedido com simulação: perto de **US$ 0,05 a 0,12 por botão** (o custo de cada um fica no histórico e no registo: `docker compose logs painel | grep assistente`). Para gastar menos troca-se `MODELO_ASSISTENTE` e `PRECO_USD_MTOK` em `assistente.js` (ex.: `claude-sonnet-5-5`, US$ 2 / 10; `claude-haiku-4-5`, US$ 1 / 5, que não aceita `effort`).
+- Resposta em JSON estruturado (`output_config.format`, JSON Schema), validada outra vez no painel (tipos, tamanhos, listas cortadas ao máximo). Esforço de raciocínio (`output_config.effort`): `medium` no resumo, `high` no diagnóstico.
+- `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`): se um classificador de segurança do modelo recusar o pedido, a API repete-o noutro modelo; guarda-se o modelo que respondeu. Se a API recusar este parâmetro (400), o painel repete sem ele e deixa de o mandar até reiniciar.
+- Tempo máximo por tentativa `ASSISTENTE_TIMEOUT_MS` (120 s); **1 tentativa extra** em tempo esgotado, falha de rede, 408/429/5xx ou resposta inválida (não em 400/401/403 nem recusa).
+- **Limite:** `LIMITE_IA_DIA` (50) pedidos em 24 h, todos os utilizadores juntos; acima disso `429`. As tentativas falhadas contam. O contador está em memória (recomeça ao reiniciar o painel).
+- Erros para o ecrã: `503` sem chave; `429` no limite; `502` "O assistente não conseguiu responder (…)"; `409` pedido arquivado.
+
+## 5. Guardado
+`orcamentos.ia` (JSON, migração 37): `{resumo: {resumo, quer[], atencao[], perguntas[], data, por, modelo, custo_usd} | ausente, diagnostico: {causas[{causa, probabilidade, porque, verificar}], medicoes[], material[], seguranca[], confianca, nota, data, por, modelo, custo_usd} | ausente}`. A ficha completa (`GET orcamentos/:id`) leva `ia: {ligado, resumo, diagnostico}`. Pedir um resultado não muda `atualizado` do pedido.
+
+## 6. Para ligar no servidor
+1. Criar a chave em https://console.anthropic.com → API keys e pôr crédito na conta.
+2. No `.env` do servidor: `ANTHROPIC_API_KEY=sk-ant-…` (a mesma chave liga também a leitura automática da foto do quadro, ≈ US$ 0,005 por foto). Opcional: `LIMITE_IA_DIA`.
+3. `sudo docker compose up -d painel`.
+4. A política de privacidade do site já tem a linha da Anthropic na tabela dos subcontratantes. **A confirmar pelo dono:** que os termos da conta Anthropic incluem o acordo de tratamento de dados e as cláusulas contratuais-tipo, como a linha diz.
+
+## 7. Por fazer
+- Rascunho de resposta ao cliente (precisa de "escrever ao cliente" no painel e do registo das mensagens na ficha).
+- Ainda não foi experimentado com a API real (não havia chave): os testes usam a API simulada. Na primeira utilização com chave, ver o registo do painel.

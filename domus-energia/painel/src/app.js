@@ -12,10 +12,11 @@ import { criarEstatico } from './estatico.js';
 import { responder, CABECALHOS_SEGURANCA } from './http.js';
 import { problemaSenha } from './senhas.js';
 import { criarLeitor } from './leitura-quadro.js';
+import { criarAssistente } from './assistente.js';
 
 /**
  * @param {{config: object, registo: object, relogio?: () => number, mqtt?: boolean, fetch?: typeof fetch}} opcoes
- * `fetch`: só para os testes (API da Anthropic simulada na leitura da foto do quadro).
+ * `fetch`: só para os testes (API da Anthropic simulada na leitura da foto do quadro e no assistente dos pedidos).
  * `correio`: só para os testes (emails das contas de cliente apanhados em memória).
  * `fetchStripe`: só para os testes (API do Stripe simulada nos pagamentos do pedido).
  */
@@ -29,7 +30,9 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   const pedidos = new Pedidos({ config, db, registo, auditar: () => {}, relogio });
   // Leitura automática da foto do quadro: null sem ANTHROPIC_API_KEY (desligada, não chama nada).
   const leitor = criarLeitor({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.leituraTimeoutMs });
-  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, correio, fetchStripe });
+  // Assistente (IA) dos pedidos (docs/ASSISTENTE-IA.md): null sem ANTHROPIC_API_KEY.
+  const assistente = criarAssistente({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.assistenteTimeoutMs });
+  const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, assistente, correio, fetchStripe });
   const estatico = criarEstatico(config.publicDir);
 
   if (config.ceoEmail || config.ceoPass) {
