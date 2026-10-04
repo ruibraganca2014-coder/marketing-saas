@@ -50,13 +50,18 @@ export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordem
  * ~5 min; avaria ~2 min. Fase 2: as Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta".
  * Decisão do dono (2026-10-04): o passo Planta (3) sai do funil da primeira vez (~10 min) — a planta desenha-se sozinha
  * pela casa e continua ao lado / em "Ver planta"; as divisões mudam-se no passo "A casa".
+ * Duas partes (decisão do dono, 2026-10-04): o simulador divide-se em "Descrever a minha casa" (funil `primeira`: até
+ * ao Relatório, ~5 min; a casa fica guardada) e "Pedir um serviço" (funil `planta`: Trocar e reparar, Melhorias,
+ * Orçamento e Enviar com a casa guardada, ~5 min). As chaves dos funis ficam as de sempre (estados e pedidos guardados).
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 4, 11, 6, 10, 7, 8], minutos: { 0: 1, 1: 1, 2: 1, 5: 1, 4: 1, 11: 0.5, 6: 2, 10: 1, 7: 1, 8: 0.5 } },
-  planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 11, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 11: 0.5, 7: 0.5, 8: 0.5 } },
+  primeira: { nome: "Descrever a minha casa", passos: [0, 1, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
+  planta: { nome: "Pedir um serviço", passos: [0, 6, 10, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
 export const CHAVES_FUNIL = Object.keys(FUNIS);
+/** Os passos de "Pedir um serviço": um estado de antes das duas partes que já lá estava passa ao funil `planta`. */
+const PARTE_SERVICO = [6, 10, 7, 8];
 /** Os passos do funil (sem funil escolhido, os da primeira vez). */
 export const passosDoFunil = (funil) => (FUNIS[funil] ?? FUNIS.primeira).passos;
 /**
@@ -609,6 +614,7 @@ export function normalizarEstado(v) {
     const passo = int(v.passo, 0, migrar.length - 2);   // nunca volta direto ao "Enviar"
     e.passo = migrar[passo];
     e.funil = e.passo > 0 || e.servico.length ? "primeira" : null;
+    if (PARTE_SERVICO.includes(e.passo)) e.funil = "planta";   // duas partes (2026-10-04): já estava a pedir o serviço
     // Os 7 passos de antes (ordem 3 e 5), os 6 (ordem 4), os 8 (ordem 6) e os 9 (ordem 7 e 8) já guardavam o mais
     // adiantado; os outros contam o que estava antes do passo.
     const guardavaVisitado = [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
@@ -617,9 +623,13 @@ export function normalizarEstado(v) {
     e.funil = FUNIS[v.funil] ? v.funil : null;
     let passo = int(v.passo, 0, PASSOS.length - 1);
     if (passo > 0 && !e.funil) e.funil = "primeira";
+    // Duas partes (2026-10-04): quem estava na primeira vez já para lá do Relatório passa a "Pedir um serviço".
+    if (e.funil === "primeira" && PARTE_SERVICO.includes(passo)) e.funil = "planta";
     const seq = deAgora || de12 ? passosDoFunil(e.funil) : (de11 ? FUNIS_11 : FUNIS_10)[e.funil ?? "primeira"];
     // Fase 3 da auditoria: o Relatório completo (12) juntou-se ao Relatório (11).
     if (passo === PASSO_REFORMADO) passo = PASSO.relatorio;
+    // Duas partes (2026-10-04): "Pedir um serviço" já não tem Relatório — quem lá estava segue para o Orçamento.
+    if (e.funil === "planta" && passo === PASSO.relatorio) passo = PASSO.preco;
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
     if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
     // O passo Planta saiu do funil da primeira vez (2026-10-04): quem lá estava segue para o Quadro (o passo a seguir).
@@ -641,8 +651,8 @@ export function normalizarEstado(v) {
   if (e.funil === "primeira" && e.visitado === PASSO.planta) e.visitado = PASSO.quadro;
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
-  if (e.funil === "planta" && !e.caminho && e.passo !== 0) e.caminho = e.servico.includes("automatizar") ? "automatizar" : "reparar";
-  if (e.funil === "planta" ? !["automatizar", "reparar", null].includes(e.caminho) : e.funil === "primeira" ? !["obras", "carregar", null].includes(e.caminho) : true) e.caminho = null;
+  if (e.funil === "planta" && !["automatizar", "reparar", "obras"].includes(e.caminho) && e.passo !== 0) e.caminho = e.servico.includes("nova") ? "obras" : e.servico.includes("automatizar") ? "automatizar" : "reparar";
+  if (e.funil === "planta" ? !["automatizar", "reparar", "obras", null].includes(e.caminho) : e.funil === "primeira" ? !["obras", "carregar", null].includes(e.caminho) : true) e.caminho = null;
   const guardavaVisitado = !migrar || [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);

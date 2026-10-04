@@ -428,7 +428,30 @@ function mostrarPasso(foco = true) {
 }
 
 function textoSeguinte() {
-  $("sim-seguinte").textContent = estado.passo === P.enviar ? TEXTO_ENVIAR : "Seguinte";
+  $("sim-seguinte").textContent = estado.passo === P.enviar ? TEXTO_ENVIAR : fimDaParteCasa() ? "Concluir" : "Seguinte";
+}
+/** Duas partes (2026-10-04): o Relatório é o último passo de "Descrever a minha casa". */
+const fimDaParteCasa = () => estado.passo === P.relatorio && funil() === "primeira";
+/**
+ * Fim de "Descrever a minha casa": a casa fica guardada e o cliente escolhe — "Pedir um serviço agora" (passa ao funil
+ * `planta`, no Início, a escolher o que precisa) ou "Fico por aqui" (volta ao site; a casa fica para quando quiser).
+ */
+function concluirCasa() {
+  gravar();
+  const j = janelaDeConfirmar();
+  const botao = botaoDaJanela(j);
+  j.querySelector("h2").textContent = "A sua casa está guardada";
+  j.querySelector("#casa-janela-corpo").replaceChildren(el("p", null, "Quando precisar de obras, de trocar alguma coisa ou de automatizar, já não tem de a descrever outra vez."));
+  j.querySelector("#casa-janela-botoes").replaceChildren(
+    botao("btn sec", "Fico por aqui", "casa-fim-sair", () => { gravar(); location.href = "index.html"; }),
+    botao("btn", "Pedir um serviço agora", "casa-fim-servico", () => {
+      estado.funil = "planta";
+      estado.caminho = null;
+      irPara(P.inicio);
+      desenharInicio();
+    }),
+  );
+  j.showModal();
 }
 
 /** Os bloqueios de todo o caminho até ao Enviar (o "Seguinte" do Enviar). Devolve true se bloqueou. */
@@ -452,6 +475,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
   if (confirmarPasso()) return;   // "Está certo? Sim, continuar" nos passos em que o cliente preenche
+  if (fimDaParteCasa()) { concluirCasa(); return; }
   irPara(passoAo(estado.passo, 1));
 });
 
@@ -484,7 +508,7 @@ const ICONES_FUNIL = {
   avaria: ["M26 6 12 27h10l-3 15 16-22H24z"],
 };
 const AJUDA_FUNIL = {
-  primeira: "Desenhamos a casa e o que quer instalar.",
+  primeira: "A casa que tem hoje · relatório grátis · ~5 min",
   avaria: "Diagnóstico + deslocação, descontado na reparação.",   // com o catálogo leva o valor (ajudaAvaria)
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
@@ -500,6 +524,7 @@ const casaParaPlanta = () => (temCasa(estado) && !estado.soCasa ? estado : casaG
  */
 let casaPreEscolhida = false;   // o cartão está escolhido pela página, ainda não pelo cliente
 let casaEncontrada = false;     // a frase "Encontrámos a sua casa" (desta simulação, até recomeçar)
+let semCasaParaServico = false; // escolheu "Pedir um serviço" sem casa guardada: a frase que o leva a descrever a casa
 let recusouCasa = false;        // "Começar de novo" nesta página
 /** Há simulação em curso? (o cartão escolhido pela página não conta) */
 const emCurso = () => !casaPreEscolhida && temProgresso(estado, PASSO_INICIAL);
@@ -555,7 +580,7 @@ function montarServico() {
 const TEXTOS_CAMINHO = {
   automatizar: ["Automatizar o que já tenho", "Tornamos inteligente o que existe."],
   reparar: ["Reparações", "Trocar ou arranjar o que não funciona."],
-  obras: ["Obras na casa", "Mudou divisões ou quer acrescentar."],
+  obras: ["Obras ou instalação nova", "Acrescentar tomadas, luzes ou circuitos."],
   carregar: ["Tenho a planta em PDF ou foto", "Carregue-a e marque os aparelhos por cima."],
 };
 const ICONES_CAMINHO = {
@@ -574,6 +599,9 @@ function escolherFunil(k) {
   casaPreEscolhida = false;   // a escolha passa a ser do cliente
   acabarAnular();
   mensagemPlanta(null);
+  // Duas partes (2026-10-04): "Pedir um serviço" sem casa guardada leva primeiro a "Descrever a minha casa".
+  semCasaParaServico = k === "planta" && !casaParaPlanta();
+  if (semCasaParaServico) k = "primeira";
   if (k === "planta") {
     if (estado.funil !== "planta") { estado.funil = "planta"; estado.caminho = null; }
   } else {
@@ -604,7 +632,7 @@ function escolherCaminho(k) {
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
   estado.caminho = k;
-  if (k === "obras") { estado.funil = "primeira"; estado.servico = ["nova"]; } else estado.servico = [k];
+  estado.servico = [k === "obras" ? "nova" : k];   // duas partes (2026-10-04): as obras também seguem na parte do serviço
   visitado = maisAdiantado(visitado, estado.visitado ?? 0, P.planta);
   estado.visitado = visitado;
   acertarPedido();
@@ -709,21 +737,21 @@ function desenharInicio() {
   const cartao = $("funil-planta");
   // Fase 3 da auditoria: sem casa guardada o cartão só promete o que há — carregar a planta e seguir o funil da primeira
   // vez (~12 min); com casa guardada, continuar com ela (~5 min).
-  cartao.querySelector("small").textContent = c ? `Continuar com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : `Tenho a planta em PDF ou foto · ~${minutosFunil("primeira")} min`;
+  cartao.querySelector("small").textContent = c ? `Com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : `Obras, trocar ou automatizar · ~${minutosFunil("planta")} min`;
   cartao.classList.toggle("destaque-casa", !!c && (!estado.funil || casaPreEscolhida));
   // Cliente que regressa (2026-10-04): a frase da casa encontrada, por cima dos cartões (fica até recomeçar: não salta ao escolher).
-  const frase = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.` : "";
+  const frase = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.` : semCasaParaServico && !c ? `Para pedir um serviço, descreva primeiro a sua casa (~${minutosFunil("primeira")} min).` : "";
   if ($("inicio-casa").textContent !== frase) $("inicio-casa").textContent = frase;
   $("inicio-casa").hidden = !frase;
-  // Obras e "Carregar a planta" seguem no funil da primeira vez, mas foram escolhidos em "Já tenho a planta".
-  const caso = ["obras", "carregar"].includes(estado.caminho) ? "planta" : estado.funil;
+  const caso = estado.funil;
   for (const i of document.querySelectorAll("#funis input")) i.checked = i.value === caso;
   // Planta carregada: os serviços por baixo da escolha (sem serviço por omissão).
-  $("servicos-caixa").hidden = caso !== "primeira" && estado.caminho !== "carregar";
+  // Duas partes (2026-10-04): a casa descreve-se sem escolher serviço (só um estado de antes, com a planta carregada, ainda os mostra).
+  $("servicos-caixa").hidden = estado.caminho !== "carregar";
   $("servicos-legenda").textContent = estado.caminho === "carregar" ? "E o que precisa fazer?" : "O que precisa?";
   for (const i of document.querySelectorAll("#servicos input[type=checkbox]")) i.checked = estado.servico.includes(i.value);
   $("planta-caixa").hidden = caso !== "planta";
-  for (const l of $("caminhos").children) l.hidden = l.dataset.caminho !== "carregar" && !c;
+  for (const l of $("caminhos").children) l.hidden = l.dataset.caminho === "carregar" || !c;   // a planta em PDF/foto carrega-se no "⋯" da planta (Planta de fundo)
   for (const i of document.querySelectorAll("#caminhos input")) i.checked = i.value === estado.caminho;
   $("problema-caixa").hidden = caso !== "avaria";
   for (const i of document.querySelectorAll("#inicio-problema input")) i.checked = problemasAvaria().includes(i.value);
@@ -745,7 +773,7 @@ function desenharComo() {
 /** Sem caso escolhido (ou, na primeira vez, sem serviço): fica (ou volta) no Início e assinala o grupo que falta. Devolve true se bloqueou. */
 function bloquearInicio() {
   const falta = !estado.funil ? ["Escolha o seu caso.", "funis", "#funis input"]
-    : estado.funil === "primeira" && !estado.servico.length ? ["Escolha pelo menos um serviço.", "servicos-caixa", "#servicos input"]
+    : estado.funil === "primeira" && estado.caminho === "carregar" && !estado.servico.length ? ["Escolha pelo menos um serviço.", "servicos-caixa", "#servicos input"]
       : estado.funil === "planta" && !estado.caminho ? ["Escolha o que precisa.", "planta-caixa", "#caminhos label:not([hidden]) input"]
         : estado.funil === "avaria" && !problemasAvaria().length ? ["Diga o que se passa.", "problema-caixa", "#inicio-problema input"] : null;
   if (!falta) return false;
@@ -1749,8 +1777,7 @@ $("planta-presa-ir").addEventListener("click", () => {
  */
 function mudarACasa() {
   estado.funil = "primeira";
-  estado.caminho = "obras";
-  if (!estado.servico.length) estado.servico = ["automatizar", "reparar"];
+  estado.caminho = null;
   irPara(P.casa);
 }
 $("planta-fechar").addEventListener("click", () => fecharPlanta());

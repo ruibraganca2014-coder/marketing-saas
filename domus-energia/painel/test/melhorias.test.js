@@ -169,7 +169,7 @@ test('passo Melhorias: entre "Trocar e reparar" e o Orçamento; estados de antes
   assert.equal(maisAdiantado(PASSO.trocar, PASSO.melhorias), PASSO.melhorias);
   const v9 = (x) => ({ ...estadoNovo(), passos: 10, ordem: 9, funil: 'primeira', servico: ['nova'], ...x });
   const noOrcamento = normalizarEstado(v9({ passo: PASSO.preco, visitado: PASSO.preco }));
-  assert.deepEqual([noOrcamento.passo, noOrcamento.visitado, noOrcamento.funil], [PASSO.preco, PASSO.preco, 'primeira']);
+  assert.deepEqual([noOrcamento.passo, noOrcamento.visitado, noOrcamento.funil], [PASSO.preco, PASSO.preco, 'planta']);   // duas partes (2026-10-04): o Orçamento é de "Pedir um serviço"
   assert.deepEqual(noOrcamento.melhorias, { aceites: [], quadroAnterior: null });
   const noTrocar = normalizarEstado(v9({ funil: 'planta', passo: PASSO.trocar, visitado: PASSO.preco }));
   assert.deepEqual([noTrocar.passo, noTrocar.visitado], [PASSO.trocar, PASSO.preco]);
