@@ -369,6 +369,22 @@ describe('leitura automática da foto do quadro (API simulada)', () => {
     assert.notEqual(f1, f2);
     assert.equal(o.leitura_quadro.foto_id, f2);
   });
+
+  test('POST orcamentos/:id/ler-quadro ("Preencher a partir da foto"): lê agora uma leitura falhada; sem foto 409; técnico 403', async () => {
+    const { id } = await comQuadro('401');
+    modo = 'ok';
+    pedidos.length = 0;
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/ler-quadro`, { cookie: p.cookies.tecnico, corpo: {} })).estado, 403);
+    const r = await p.pedir('POST', `/painel/api/orcamentos/${id}/ler-quadro`, { cookie: p.cookies.comercial, corpo: {} });
+    assert.equal(r.estado, 200, r.texto);
+    assert.equal(pedidos.length, 1);
+    assert.equal(r.json.leitura_quadro.estado, 'feita');
+    assert.deepEqual(r.json.leitura_quadro.leitura, LEITURA_OK);
+    const sem = await novoPedido(p);
+    const r2 = await p.pedir('POST', `/painel/api/orcamentos/${sem.id}/ler-quadro`, { cookie: p.cookies.ceo, corpo: {} });
+    assert.equal(r2.estado, 409);
+    assert.equal(pedidos.length, 1);
+  });
 });
 
 test('validarLeitura: tipos, limites e campos a mais', () => {

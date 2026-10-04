@@ -127,6 +127,8 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
   ['POST', 'orcamentos/:id/diagnostico', ['ceo', 'comercial'], 'guardarDiagnostico'],
+  // Lê (outra vez) a foto do quadro agora: "Preencher a partir da foto" no esquema do quadro.
+  ['POST', 'orcamentos/:id/ler-quadro', ['ceo', 'comercial'], 'lerQuadro'],
   // Assistente (IA) do pedido (docs/ASSISTENTE-IA.md): só ao carregar no botão; o resultado é só para a equipa.
   ['POST', 'orcamentos/:id/ia/resumo', ['ceo', 'comercial'], 'iaResumo'],
   ['POST', 'orcamentos/:id/ia/diagnostico', ['ceo', 'comercial'], 'iaDiagnostico'],
@@ -1286,6 +1288,17 @@ export function criarApi(ctx) {
     auditar(u, `ia_${tipo}`, `orcamento:${o.id}`, { modelo: r.modelo, tokens_entrada: r.uso.entrada, tokens_saida: r.uso.saida, custo_usd: r.custo_usd }, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   }
+  // "Preencher a partir da foto" (esquema do quadro): lê agora a foto do quadro com o modelo de visão (fotos.js
+  // lerQuadroAgora) e devolve o pedido com a leitura. Conta no limite diário do assistente.
+  h.lerQuadro = async ({ res, params }) => {
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (!fotos.ligada) throw new ErroApi(503, 'Leitura automática desligada: o servidor não tem a chave ANTHROPIC_API_KEY.');
+    const espera = limiteIa.espera('todos');
+    if (espera) throw new ErroApi(429, `O assistente já foi usado ${config.limiteIaDia} vezes nas últimas 24 horas (limite LIMITE_IA_DIA). Tente mais tarde.`, { 'Retry-After': String(espera) });
+    limiteIa.registar('todos');
+    if (!(await fotos.lerQuadroAgora(o.id))) throw new ErroApi(409, 'Este pedido não tem foto do quadro.');
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
   h.iaResumo = (c) => pedirIa('resumo', c);
   h.iaDiagnostico = (c) => pedirIa('diagnostico', c);
 

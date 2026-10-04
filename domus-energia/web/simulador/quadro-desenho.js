@@ -81,6 +81,29 @@ export function normalizarEsquema(v) {
   return l;
 }
 
+/**
+ * Rascunho do esquema a partir da leitura automática da foto do quadro (painel/src/leitura-quadro.js; botão "Preencher
+ * a partir da foto" do painel): a leitura diz quantos há de cada calibre, não onde estão na calha — a ordem sai a de
+ * `normalizarOrdem` (geral, diferenciais, disjuntores, livres). Os disjuntores contados sem calibre lido entram com
+ * amperes null. null se a leitura não é de um quadro elétrico.
+ */
+export function esquemaDaLeitura(v) {
+  if (!v || typeof v !== "object" || v.e_quadro_eletrico !== true) return null;
+  const vezes = (lista, max, fn) => (Array.isArray(lista) ? lista : []).flatMap((x) => Array(Math.max(0, Math.min(max, Number.isInteger(x?.quantidade) ? x.quantidade : 0))).fill(0).map(() => fn(x)));
+  const disjuntores = vezes(v.disjuntores, MAX_ESQUEMA.disjuntores, (d) => ({ amperes: d.amperes ?? null }));
+  const total = Number.isInteger(v.disjuntores_total) ? v.disjuntores_total : 0;
+  while (disjuntores.length < Math.min(total, MAX_ESQUEMA.disjuntores)) disjuntores.push({ amperes: null });
+  return normalizarEsquema({
+    disjuntor_geral: v.disjuntor_geral?.visivel === true ? { amperes: v.disjuntor_geral.amperes ?? null } : null,
+    diferenciais: vezes(v.diferenciais, MAX_ESQUEMA.diferenciais, (d) => ({ sensibilidade_ma: d.sensibilidade_ma ?? null, amperes: d.amperes ?? null })),
+    disjuntores,
+    modulos_livres: Number.isInteger(v.modulos_livres_estimados) ? v.modulos_livres_estimados : null,
+    estado: v.estado_aparente === "nao_se_ve" ? null : v.estado_aparente,
+    fusiveis: v.fusiveis, sinais_aquecimento: v.sinais_aquecimento,
+    notas: typeof v.notas === "string" ? v.notas : "",
+  });
+}
+
 /** O esquema tem algum componente (senão o desenho mostra só o quadro vazio)? */
 export const esquemaTemAlgo = (l) => !!l && (!!l.disjuntor_geral || l.diferenciais.length > 0 || l.disjuntores.length > 0);
 

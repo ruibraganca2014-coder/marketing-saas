@@ -17,7 +17,7 @@ import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from ".
 import { seccaoTecnica } from "../vendor/simbolos.js";
 // Esquema do quadro feito pelo eletricista (ronda B; cópia de web/simulador/quadro-desenho.js): desenho e modelo.
 import {
-  desenharQuadroCliente, nomeComponente, normalizarEsquema, esquemaVazio, resumoEsquema, ESTADOS_QUADRO, AMPERES_GERAL,
+  desenharQuadroCliente, nomeComponente, normalizarEsquema, esquemaVazio, esquemaDaLeitura, esquemaTemAlgo, resumoEsquema, ESTADOS_QUADRO, AMPERES_GERAL,
   AMPERES_DIFERENCIAL, AMPERES_DISJUNTOR, MA_DIFERENCIAL, MAX_ESQUEMA,
 } from "../vendor/quadro-desenho.js";
 import { urlFoto } from "./simulacao.js";
@@ -715,6 +715,37 @@ export default function orcamentos(el, ctx) {
       } catch (erro) { guardar.disabled = false; mensagem(msg, erro.message); }
     });
     desenhar();
+    // "Preencher a partir da foto" (decisão do dono, 2026-10-04): o rascunho do esquema pela leitura automática da foto
+    // do quadro (`leitura_quadro`; se ainda não há leitura, pede-a agora: POST orcamentos/:id/ler-quadro). Nada fica
+    // guardado até "Guardar esquema"; a leitura conta os componentes mas não sabe a ordem na calha.
+    let lq = campo(o, "leitura_quadro") ?? null;
+    let preencher = null;
+    if (fotoQuadro && lq && campo(lq, "estado") !== "desligada") {
+      const CONF = { alta: "alta", media: "média", baixa: "baixa" };
+      const rotulo = () => (esquemaTemAlgo(l) ? "Substituir pelo que a IA lê na foto" : "Preencher a partir da foto");
+      const b = botao(rotulo(), { id: "esquema-da-foto" }, async () => {
+        mensagem(msg, null);
+        if (campo(lq, "estado") !== "feita") {
+          b.disabled = true; b.textContent = "A ler a foto… (alguns segundos)";
+          try {
+            const r = await pedir(`orcamentos/${encodeURIComponent(id)}/ler-quadro`, { corpo: {} });
+            const novo = campo(r, "orcamento") ?? r;
+            substituir(novo, false);
+            lq = campo(novo, "leitura_quadro") ?? null;
+          } catch (erro) { mensagem(msg, erro.message); }
+          b.disabled = false; b.textContent = rotulo();
+          if (campo(lq, "estado") !== "feita") { if (msg.hidden) mensagem(msg, `A leitura automática da foto falhou${campo(lq, "erro") ? ` (${campo(lq, "erro")})` : ""}. Desenhe o quadro à mão ou tente outra vez.`); return; }
+        }
+        const daFoto = esquemaDaLeitura(campo(lq, "leitura"));
+        if (!daFoto) { mensagem(msg, "A leitura automática não reconheceu um quadro elétrico nesta foto. Desenhe-o à mão."); return; }
+        l = daFoto; sel = null; mudado = true; desenhar();
+        b.textContent = rotulo();
+        const c = campo(campo(lq, "leitura"), "confianca");
+        avisar(`Rascunho feito pela leitura automática da foto (confiança ${CONF[c] ?? c}). Confira com a foto, corrija e guarde.`);
+      });
+      preencher = h("div", { class: "form-botoes" }, b, h("span", { class: "ajuda", text: "Rascunho feito por inteligência artificial: conta os componentes, não a ordem na calha. Confira sempre com a foto." }));
+    }
+    if (preencher) sec.append(preencher);
     sec.append(h("div", { class: "esquema-quadro-grelha" }, foto, h("div", { class: "esquema-quadro-editor" }, desenhoCx, editarCx)),
       h("div", { class: "form-botoes" }, guardar, estadoTxt), msg);
     return sec;

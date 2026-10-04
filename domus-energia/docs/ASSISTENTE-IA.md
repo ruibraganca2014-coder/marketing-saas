@@ -49,6 +49,13 @@ O cliente nunca vê nada disto: não vai para a conta, para o relatório nem par
 3. `sudo docker compose up -d painel`.
 4. A política de privacidade do site já tem a linha da Anthropic na tabela dos subcontratantes. **A confirmar pelo dono:** que os termos da conta Anthropic incluem o acordo de tratamento de dados e as cláusulas contratuais-tipo, como a linha diz.
 
-## 7. Por fazer
+## 7. Esquema do quadro a partir da foto
+Pedido do dono (2026-10-04): no **Esquema do quadro** da ficha do pedido, com foto do quadro e a chave no servidor, o botão **"Preencher a partir da foto"** monta o rascunho do esquema pela leitura automática da foto (`leitura_quadro`, `painel/src/leitura-quadro.js`, Claude Haiku 4.5, ≈ US$ 0,005 por foto) — `quadro-desenho.js` `esquemaDaLeitura`: disjuntor geral (se visível), diferenciais e disjuntores repetidos pela quantidade de cada calibre, módulos livres estimados, estado, fusíveis, sinais de aquecimento e as notas.
+- **Nada é guardado** até "Guardar esquema": o eletricista confere com a foto e corrige. Com um esquema já desenhado o botão chama-se "Substituir pelo que a IA lê na foto".
+- A leitura **conta** os componentes de cada calibre; **não sabe a ordem na calha**: saem arrumados (geral, diferenciais, disjuntores, livres). Os disjuntores contados cujo calibre não se leu entram com "?".
+- Se a foto ainda não tem leitura (chegou antes de haver chave) ou a leitura falhou, o botão pede-a na hora (`POST orcamentos/:id/ler-quadro`, espera pelo resultado; conta no `LIMITE_IA_DIA`). Leitura que não reconhece um quadro: mensagem e desenha-se à mão.
+- Testes: `esquema-quadro.test.js` (`esquemaDaLeitura`), `fotos.test.js` (a rota) e a matriz de `papeis.test.js`.
+
+## 8. Por fazer
 - Rascunho de resposta ao cliente (precisa de "escrever ao cliente" no painel e do registo das mensagens na ficha).
 - Experimentado com a API real em 2026-10-04 no servidor, com um pedido fictício: resumo em 12 s (≈ US$ 0,02) e diagnóstico em 28 s (≈ US$ 0,05); a API aceitou `fallbacks`. Falta ver o custo num pedido com simulação completa (casa inteira).
