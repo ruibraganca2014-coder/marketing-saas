@@ -19,7 +19,7 @@ window.DOMUS = {
   whatsapp: "351900000000",
   telefone: "+351900000000",
   telefoneVisivel: "900 000 000",
-  email: "geral@domusenergia.pt",
+  email: "ruibraganca2014@gmail.com",
 
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
