@@ -169,8 +169,10 @@ services:
       PAINEL_CEO_PASS: ${PAINEL_CEO_PASS:-}
       CONFIAR_PROXY: "1"                          # IP real do visitante vem do Caddy (X-Forwarded-For)
       DADOS_DIR: /dados
-      # Leitura automática da foto do quadro (modelo de visão Claude). Vazio = desligada.
+      # Assistente (IA) dos pedidos (docs/ASSISTENTE-IA.md). Vazio = desligado.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Leitura automática da foto do quadro: desligada (decisão do dono); só com LEITURA_QUADRO=1 no .env.
+      LEITURA_QUADRO: ${LEITURA_QUADRO:-0}
       # Assistente (IA) dos pedidos: máximo de pedidos ao modelo em 24 h (docs/ASSISTENTE-IA.md).
       LIMITE_IA_DIA: ${LIMITE_IA_DIA:-50}
       # Conta de cliente (docs/CONTA-CLIENTE.md): site público noutra origem (Vercel) com CORS, chave das

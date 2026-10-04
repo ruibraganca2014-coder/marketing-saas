@@ -10,7 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { painelComEquipa } from './ajuda.js';
 import { simulacao as validarSimulacao, esquemaQuadro } from '../src/validar.js';
 import { abrirDb, versaoEsquema } from '../src/db.js';
-import { esquemaVazio, normalizarEsquema, normalizarOrdem, resumoEsquema, esquemaDaLeitura, MAX_LIVRES_ORDEM, MAX_ESQUEMA } from '../../web/simulador/quadro-desenho.js';
+import { esquemaVazio, normalizarEsquema, normalizarOrdem, resumoEsquema, MAX_LIVRES_ORDEM, MAX_ESQUEMA } from '../../web/simulador/quadro-desenho.js';
 import { montarSimulacao, estadoNovo, normalizarEstado } from '../../web/simulador/estado.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES } from '../src/catalogo-sementes.js';
@@ -128,25 +128,4 @@ describe('POST /painel/api/orcamentos/:id/esquema-quadro', () => {
     const linha = p.app.db.prepare('SELECT esquema_quadro FROM orcamentos WHERE id = ?').get(id);
     assert.deepEqual(JSON.parse(linha.esquema_quadro).ordem, ESQUEMA.ordem);
   });
-});
-
-test('esquemaDaLeitura: rascunho do esquema pela leitura automática da foto (quantidades por calibre, sem ordem lida)', () => {
-  const leitura = {
-    e_quadro_eletrico: true, disjuntores_total: 6, disjuntores: [{ amperes: 10, quantidade: 2 }, { amperes: 16, quantidade: 3 }],
-    diferenciais: [{ sensibilidade_ma: 30, amperes: 40, quantidade: 2 }], disjuntor_geral: { visivel: true, amperes: 32, tipo: 'disjuntor 2P' },
-    modulos_livres_estimados: 3, marcas: ['Hager'], estado_aparente: 'razoavel', fusiveis: false, sinais_aquecimento: null, notas: 'Confirmar a terra.', confianca: 'media',
-  };
-  const l = esquemaDaLeitura(leitura);
-  assert.deepEqual(l.disjuntor_geral, { amperes: 32 });
-  assert.deepEqual(l.diferenciais, [{ sensibilidade_ma: 30, amperes: 40 }, { sensibilidade_ma: 30, amperes: 40 }]);
-  assert.deepEqual(l.disjuntores.map((d) => d.amperes), [10, 10, 16, 16, 16, null], 'o 6.º foi contado mas não lido');
-  assert.equal(l.modulos_livres, 3);
-  assert.deepEqual([l.estado, l.fusiveis, l.sinais_aquecimento, l.notas], ['razoavel', false, null, 'Confirmar a terra.']);
-  assert.deepEqual(l.ordem, ['geral', 'diferencial:0', 'diferencial:1', 'disjuntor:0', 'disjuntor:1', 'disjuntor:2', 'disjuntor:3', 'disjuntor:4', 'disjuntor:5', 'livre', 'livre', 'livre']);
-  assert.equal(resumoEsquema(l), 'Geral 32 A · 2 diferenciais · 6 disjuntores · 3 livres');
-  // Geral que não se vê, estado "não se vê", quantidades absurdas e leitura que não é de um quadro.
-  const pouco = esquemaDaLeitura({ ...leitura, disjuntor_geral: { visivel: false, amperes: null, tipo: null }, estado_aparente: 'nao_se_ve', disjuntores_total: null, disjuntores: [{ amperes: 16, quantidade: 5000 }] });
-  assert.deepEqual([pouco.disjuntor_geral, pouco.estado, pouco.disjuntores.length], [null, null, MAX_ESQUEMA.disjuntores]);
-  assert.equal(esquemaDaLeitura({ ...leitura, e_quadro_eletrico: false }), null);
-  assert.equal(esquemaDaLeitura(null), null);
 });

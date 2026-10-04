@@ -28,8 +28,8 @@ export async function criarApp({ config, registo, relogio = () => Date.now(), mq
   const dados = new Dados(config);
   const alertas = new Alertas({ config, registo, relogio });
   const pedidos = new Pedidos({ config, db, registo, auditar: () => {}, relogio });
-  // Leitura automática da foto do quadro: null sem ANTHROPIC_API_KEY (desligada, não chama nada).
-  const leitor = criarLeitor({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.leituraTimeoutMs });
+  // Leitura automática da foto do quadro: null (desligada, não chama nada) a não ser com LEITURA_QUADRO=1 e a chave.
+  const leitor = criarLeitor({ chave: config.leituraQuadro ? config.anthropicKey : '', fetch, registo, timeoutMs: config.leituraTimeoutMs });
   // Assistente (IA) dos pedidos (docs/ASSISTENTE-IA.md): null sem ANTHROPIC_API_KEY.
   const assistente = criarAssistente({ chave: config.anthropicKey, fetch, registo, timeoutMs: config.assistenteTimeoutMs });
   const api = criarApi({ db, config, auth, dados, alertas, pedidos, registo, relogio, leitor, assistente, correio, fetchStripe });

@@ -59,7 +59,10 @@ export function lerConfig(env = process.env) {
   const mqttSenha = env.PAINEL_MQTT_PASS || env.MQTT_PASS || '';
   if (!mqttSenha) avisos.push('sem PAINEL_MQTT_PASS: os alertas técnicos ficam desligados');
   const anthropicKey = String(env.ANTHROPIC_API_KEY || '').trim();
-  if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: a leitura automática da foto do quadro e o assistente (IA) dos pedidos ficam desligados');
+  if (!anthropicKey) avisos.push('sem ANTHROPIC_API_KEY: o assistente (IA) dos pedidos fica desligado');
+  // Leitura automática da foto do quadro: desligada por decisão do dono (2026-10-04: "não quero que a IA gere o quadro";
+  // o esquema é desenhado pelo eletricista). Só com LEITURA_QUADRO=1 (e a chave) a foto do quadro vai ao modelo.
+  const leituraQuadro = env.LEITURA_QUADRO === '1' && Boolean(anthropicKey);
   // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "stripe" (por omissão com STRIPE_SECRET_KEY) ou "simulado"
   // (só com PAGAMENTOS_MODO=simulado explícito: o lançador local põe-no). Sem modo explícito e sem chave, os
   // pagamentos do pedido ficam DESLIGADOS (o pedido é enviado sem pagar, como antes) e o painel avisa.
@@ -125,8 +128,9 @@ export function lerConfig(env = process.env) {
     limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
     limiteFotosConsultasHora: Number(env.LIMITE_FOTOS_CONSULTAS_HORA || 3000),   // fotos pelo telemóvel: sondagens e tokens por hora, por IP
     limiteFotosTokensHora: Number(env.LIMITE_FOTOS_TOKENS_HORA || 30),           // fotos pelo telemóvel: tokens NOVOS por hora, por IP
-    // Leitura automática da foto do quadro (modelo de visão Claude). Sem chave → desligada.
+    // Chave da Anthropic (assistente dos pedidos). A leitura automática da foto do quadro só com LEITURA_QUADRO=1.
     anthropicKey,
+    leituraQuadro,
     leituraTimeoutMs: Number(env.LEITURA_QUADRO_TIMEOUT_MS || 60_000),  // por tentativa (há 1 tentativa extra)
     // Assistente (IA) dos pedidos (docs/ASSISTENTE-IA.md): tempo por tentativa (há 1 extra) e pedidos por 24 h (todos os utilizadores).
     assistenteTimeoutMs: Number(env.ASSISTENTE_TIMEOUT_MS || 120_000),

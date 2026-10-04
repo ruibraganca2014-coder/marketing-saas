@@ -45,17 +45,14 @@ O cliente nunca vê nada disto: não vai para a conta, para o relatório nem par
 
 ## 6. Para ligar no servidor
 1. Criar a chave em https://console.anthropic.com → API keys e pôr crédito na conta.
-2. No `.env` do servidor: `ANTHROPIC_API_KEY=sk-ant-…` (a mesma chave liga também a leitura automática da foto do quadro, ≈ US$ 0,005 por foto). Opcional: `LIMITE_IA_DIA`.
+2. No `.env` do servidor: `ANTHROPIC_API_KEY=sk-ant-…`. Opcional: `LIMITE_IA_DIA`. (A leitura automática da foto do quadro está desligada — §7.)
 3. `sudo docker compose up -d painel`.
 4. A política de privacidade do site já tem a linha da Anthropic na tabela dos subcontratantes. **A confirmar pelo dono:** que os termos da conta Anthropic incluem o acordo de tratamento de dados e as cláusulas contratuais-tipo, como a linha diz.
 
-## 7. Esquema do quadro a partir da foto
-Pedido do dono (2026-10-04): no **Esquema do quadro** da ficha do pedido, com foto do quadro e a chave no servidor, o botão **"Preencher a partir da foto"** monta o rascunho do esquema pela leitura automática da foto (`leitura_quadro`, `painel/src/leitura-quadro.js`, Claude Haiku 4.5, ≈ US$ 0,005 por foto) — `quadro-desenho.js` `esquemaDaLeitura`: disjuntor geral (se visível), diferenciais e disjuntores repetidos pela quantidade de cada calibre, módulos livres estimados, estado, fusíveis, sinais de aquecimento e as notas.
-- **Abre já preenchido** (pedido do dono, 2026-10-04): sem esquema guardado e com a foto já lida, o editor abre logo com o rascunho da leitura e o aviso "Rascunho preenchido sozinho pela leitura da foto (confiança …). Ainda não está guardado…"; o botão fica para repor o rascunho.
-- **Nada é guardado** até "Guardar esquema": o eletricista confere com a foto e corrige. Com um esquema já desenhado o botão chama-se "Substituir pelo que a IA lê na foto".
-- A leitura **conta** os componentes de cada calibre; **não sabe a ordem na calha**: saem arrumados (geral, diferenciais, disjuntores, livres). Os disjuntores contados cujo calibre não se leu entram com "?".
-- Se a foto ainda não tem leitura (chegou antes de haver chave) ou a leitura falhou, o botão pede-a na hora (`POST orcamentos/:id/ler-quadro`, espera pelo resultado; conta no `LIMITE_IA_DIA`). Leitura que não reconhece um quadro: mensagem e desenha-se à mão.
-- Testes: `esquema-quadro.test.js` (`esquemaDaLeitura`), `fotos.test.js` (a rota) e a matriz de `papeis.test.js`.
+## 7. Esquema do quadro: sem IA
+Decisão do dono (2026-10-04, ao testar em produção): **"não quero que a IA gere o quadro" — o esquema é desenhado pelo eletricista**, à mão, no editor do painel (a foto do cliente ao lado). No mesmo dia tinham entrado e saído o botão "Preencher a partir da foto" e o esquema a abrir já preenchido pela leitura da foto: foram retirados (`esquemaDaLeitura`, `POST orcamentos/:id/ler-quadro`).
+- **A leitura automática da foto do quadro ficou desligada**: a foto já não vai ao modelo. `painel/src/leitura-quadro.js` continua no código, mas só corre com `LEITURA_QUADRO=1` no `.env` (e a chave); por omissão o Relatório técnico diz "Leitura automática desligada. Ver a foto do quadro." As leituras feitas antes ficam guardadas nos pedidos em que foram feitas.
+- Não voltar a propor preencher o esquema com IA sem o dono o pedir.
 
 ## 8. Escrever ao cliente (ronda 2)
 Decisões do dono de 2026-10-04: **o painel envia o email**; **a pessoa escreve a ideia e a IA redige**; tom **formal simples, sem "tu"** (o dos emails automáticos: "Olá," … "Domus Energia").

@@ -133,23 +133,6 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
     tarefa.finally(() => emCurso.delete(tarefa));
   }
 
-  /**
-   * Lê agora a foto do quadro do pedido e espera pelo resultado (botão "Preencher a partir da foto" do painel, para as
-   * fotos que chegaram antes de haver chave ou cuja leitura falhou). Devolve false sem leitor ou sem foto do quadro.
-   */
-  async function lerQuadroAgora(orcamentoId) {
-    const foto = leitor ? db.prepare("SELECT * FROM fotos WHERE orcamento_id = ? AND chave = 'quadro'").get(orcamentoId) : null;
-    if (!foto) return false;
-    const imagem = await readFile(ficheiro(foto));
-    try {
-      const r = await leitor.ler(imagem, foto.tipo_mime, ` (orçamento ${orcamentoId})`);
-      if (fotoQuadroAtual(orcamentoId) === foto.id) gravarLeitura(orcamentoId, { estado: 'feita', foto_id: foto.id, modelo: r.modelo, quando: iso(relogio()), leitura: r.leitura, tokens: r.uso, custo_usd: r.custo_usd });
-    } catch (e) {
-      if (fotoQuadroAtual(orcamentoId) === foto.id) gravarLeitura(orcamentoId, { estado: 'erro', foto_id: foto.id, modelo: leitor.modelo, quando: iso(relogio()), erro: String(e?.message || e).slice(0, 300) });
-    }
-    return true;
-  }
-
   /** Estado da leitura para o painel: desligada | sem_foto | pendente | feita | erro. */
   function leituraQuadro(o) {
     const fotoId = fotoQuadroAtual(o.id);
@@ -248,6 +231,6 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
 
   return {
     emitirToken, tokenFalso, receber, listar, contar, obter, ler, apagar, apagarTodas, apagarRetidas,
-    leituraQuadro, lerQuadroAgora, iniciar, parar, leiturasEmCurso, ligada: Boolean(leitor),
+    leituraQuadro, iniciar, parar, leiturasEmCurso, ligada: Boolean(leitor),
   };
 }

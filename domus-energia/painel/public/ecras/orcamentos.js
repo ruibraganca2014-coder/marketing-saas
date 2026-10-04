@@ -17,7 +17,7 @@ import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from ".
 import { seccaoTecnica } from "../vendor/simbolos.js";
 // Esquema do quadro feito pelo eletricista (ronda B; cópia de web/simulador/quadro-desenho.js): desenho e modelo.
 import {
-  desenharQuadroCliente, nomeComponente, normalizarEsquema, esquemaVazio, esquemaDaLeitura, esquemaTemAlgo, resumoEsquema, ESTADOS_QUADRO, AMPERES_GERAL,
+  desenharQuadroCliente, nomeComponente, normalizarEsquema, esquemaVazio, resumoEsquema, ESTADOS_QUADRO, AMPERES_GERAL,
   AMPERES_DIFERENCIAL, AMPERES_DISJUNTOR, MA_DIFERENCIAL, MAX_ESQUEMA,
 } from "../vendor/quadro-desenho.js";
 import { urlFoto } from "./simulacao.js";
@@ -596,13 +596,9 @@ export default function orcamentos(el, ctx) {
       return sec;
     }
     // Estado do editor: o esquema em edição (normalizado a cada mudança), o componente tocado e se há mudanças por guardar.
-    // Sem esquema guardado e com a foto do quadro já lida pela IA, o editor abre logo com o rascunho da leitura (pedido do
-    // dono, 2026-10-04): fica por guardar — o cliente só vê o esquema depois de alguém o conferir e carregar em "Guardar".
-    const leituraInicial = campo(o, "leitura_quadro") ?? null;
-    const rascunhoAuto = !guardado && fotoQuadro && campo(leituraInicial, "estado") === "feita" ? esquemaDaLeitura(campo(leituraInicial, "leitura")) : null;
-    let l = normalizarEsquema(guardado) ?? rascunhoAuto ?? esquemaVazio();
+    let l = normalizarEsquema(guardado) ?? esquemaVazio();
     let sel = null;
-    let mudado = Boolean(rascunhoAuto);
+    let mudado = false;
     const desenhoCx = h("div", { class: "esquema-quadro-desenho" });
     const editarCx = h("div", { class: "esquema-quadro-editar" });
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -721,41 +717,6 @@ export default function orcamentos(el, ctx) {
       } catch (erro) { guardar.disabled = false; mensagem(msg, erro.message); }
     });
     desenhar();
-    // "Preencher a partir da foto" (decisão do dono, 2026-10-04): o rascunho do esquema pela leitura automática da foto
-    // do quadro (`leitura_quadro`; se ainda não há leitura, pede-a agora: POST orcamentos/:id/ler-quadro). Nada fica
-    // guardado até "Guardar esquema"; a leitura conta os componentes mas não sabe a ordem na calha.
-    let lq = campo(o, "leitura_quadro") ?? null;
-    let preencher = null;
-    if (fotoQuadro && lq && campo(lq, "estado") !== "desligada") {
-      const CONF = { alta: "alta", media: "média", baixa: "baixa" };
-      const rotulo = () => (esquemaTemAlgo(l) ? "Substituir pelo que a IA lê na foto" : "Preencher a partir da foto");
-      const b = botao(rotulo(), { id: "esquema-da-foto" }, async () => {
-        mensagem(msg, null);
-        if (campo(lq, "estado") !== "feita") {
-          b.disabled = true; b.textContent = "A ler a foto… (alguns segundos)";
-          try {
-            const r = await pedir(`orcamentos/${encodeURIComponent(id)}/ler-quadro`, { corpo: {} });
-            const novo = campo(r, "orcamento") ?? r;
-            substituir(novo, false);
-            lq = campo(novo, "leitura_quadro") ?? null;
-          } catch (erro) { mensagem(msg, erro.message); }
-          b.disabled = false; b.textContent = rotulo();
-          if (campo(lq, "estado") !== "feita") { if (msg.hidden) mensagem(msg, `A leitura automática da foto falhou${campo(lq, "erro") ? ` (${campo(lq, "erro")})` : ""}. Desenhe o quadro à mão ou tente outra vez.`); return; }
-        }
-        const daFoto = esquemaDaLeitura(campo(lq, "leitura"));
-        if (!daFoto) { mensagem(msg, "A leitura automática não reconheceu um quadro elétrico nesta foto. Desenhe-o à mão."); return; }
-        l = daFoto; sel = null; mudado = true; desenhar();
-        b.textContent = rotulo();
-        const c = campo(campo(lq, "leitura"), "confianca");
-        avisar(`Rascunho feito pela leitura automática da foto (confiança ${CONF[c] ?? c}). Confira com a foto, corrija e guarde.`);
-      });
-      preencher = h("div", { class: "form-botoes" }, b, h("span", { class: "ajuda", text: "Rascunho feito por inteligência artificial: conta os componentes, não a ordem na calha. Confira sempre com a foto." }));
-    }
-    if (rascunhoAuto) {
-      const c = campo(campo(leituraInicial, "leitura"), "confianca");
-      sec.append(h("div", { class: "msg info bloco", id: "esquema-rascunho-auto", text: `Rascunho preenchido sozinho pela leitura da foto (confiança ${{ alta: "alta", media: "média", baixa: "baixa" }[c] ?? c}). Ainda não está guardado: confira com a foto, corrija e carregue em "Guardar esquema". O cliente só o vê depois de guardado.` }));
-    }
-    if (preencher) sec.append(preencher);
     sec.append(h("div", { class: "esquema-quadro-grelha" }, foto, h("div", { class: "esquema-quadro-editor" }, desenhoCx, editarCx)),
       h("div", { class: "form-botoes" }, guardar, estadoTxt), msg);
     return sec;

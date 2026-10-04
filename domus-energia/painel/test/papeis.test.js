@@ -37,7 +37,6 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/ensaios', [C, M], {}],
   ['POST', 'orcamentos/999/esquema-quadro', [C, M], {}],
   ['POST', 'orcamentos/999/diagnostico', [C, M], {}],
-  ['POST', 'orcamentos/999/ler-quadro', [C, M], {}],
   ['POST', 'orcamentos/999/ia/resumo', [C, M], {}],
   ['POST', 'orcamentos/999/ia/diagnostico', [C, M], {}],
   ['POST', 'orcamentos/999/ia/resposta', [C, M], {}],

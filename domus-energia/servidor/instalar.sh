@@ -666,7 +666,7 @@ EOF
      sudo ./domus.sh aparelho <cliente> <id> openbeken "<Nome>" ...
   4. App Android: MQTT_HOST = $HOST (android/app/build.gradle.kts).
   5. Cópias de segurança de $SERV/dados, mosquitto/seguranca e .env (README §12).
-  6. Opcional — leitura automática da foto do quadro: pôr ANTHROPIC_API_KEY
+  6. Opcional — assistente (IA) dos pedidos no painel: pôr ANTHROPIC_API_KEY
      no .env (console.anthropic.com) e  cd $SERV && sudo docker compose up -d painel
   7. Conta de cliente: os códigos por email precisam de SMTP_* no .env (ex.: Brevo,
      300/dia grátis; README do painel). Sem SMTP ficam só no registo:

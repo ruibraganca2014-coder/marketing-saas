@@ -898,7 +898,7 @@ export function blocoLeituraQuadro(leitura, orcamentoId = null, fotoQuadro = nul
   const aviso = (texto) => h("p", { class: "ajuda leitura-estado", text: texto });
   const foto = fotoQuadro && orcamentoId != null ? figuraFoto(orcamentoId, fotoQuadro, "Foto do quadro") : null;
   const com = (...filhos) => h("div", { class: "leitura-quadro" }, foto, h("div", {}, ...filhos));
-  if (l.estado === "desligada") return com(aviso("Leitura automática desligada (o servidor não tem a chave ANTHROPIC_API_KEY). Ver a foto do quadro."));
+  if (l.estado === "desligada") return com(aviso("Leitura automática desligada. Ver a foto do quadro."));
   if (l.estado === "pendente") return com(aviso("A ler a foto do quadro… Atualize a página dentro de alguns segundos."));
   if (l.estado === "erro") return com(aviso(`A leitura automática falhou${l.erro ? ` (${String(l.erro)})` : ""}. Ver a foto do quadro.`));
   if (l.estado !== "feita") return foto ? com() : null;
