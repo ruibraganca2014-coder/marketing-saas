@@ -131,9 +131,13 @@ test('janela "confirme antes de continuar" dos outros passos: a assinatura muda 
   e.quer.maquinas.push('placa');
   assert.notEqual(de(PASSO.quer), antes[PASSO.quer]);
   for (const k of [PASSO.divisoes, PASSO.planta, PASSO.trocar, PASSO.melhorias]) assert.equal(de(k), antes[k]);
-  // "Quero inteligente" numa tomada: Divisões e Trocar e reparar; arrastar um aparelho: só a Planta.
-  e.planta.elementos[0].acao = 'substituir'; e.planta.elementos[0].inteligente = true;
+  // "Inteligente" numa tomada do inventário (a tomada que a casa já tem): muda só as Divisões.
+  e.planta.elementos[0].props = { caixas: 1, inteligente: true };
   assert.notEqual(de(PASSO.divisoes), antes[PASSO.divisoes]);
+  assert.equal(de(PASSO.trocar), antes[PASSO.trocar]);
+  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
+  // Escolher o que fazer a um aparelho: muda Trocar e reparar (e as Divisões, que mostram o mesmo aparelho); a Planta não.
+  e.planta.elementos[0].acao = 'substituir'; e.planta.elementos[0].inteligente = true;
   assert.notEqual(de(PASSO.trocar), antes[PASSO.trocar]);
   assert.equal(de(PASSO.planta), antes[PASSO.planta]);
   e.planta.elementos[1].x = 80;

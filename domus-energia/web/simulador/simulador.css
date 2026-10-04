@@ -275,6 +275,10 @@ input, select { min-height: 44px; }
 .inventario-nome { font-weight: 700; }
 .inventario-item.por-responder .inventario-opcoes { border-color: var(--alarme-texto); }
 .inventario-opcoes .acao-botao { min-height: 44px; min-width: 44px; }
+/* Tomadas: "Inteligente" (liga/desliga) à esquerda do tipo (simples, dupla, tripla). */
+.inventario-escolhas { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 8px; min-width: 0; }
+.inventario-inteligente .acao-botao { min-height: 44px; }
+@media (max-width: 479px) { .inventario-escolhas { flex: 1 1 100%; } }
 @media (max-width: 479px) { .inventario-opcoes { flex: 1 1 100%; } .inventario-opcoes .acao-botao { flex: 1 1 0; font-size: .9rem; } }
 .aparelho-texto small.falta-responder { color: var(--alarme-texto); font-weight: 800; }
 .aparelho-quais .por-responder { border-color: var(--alarme-texto); color: var(--alarme-texto); }
