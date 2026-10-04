@@ -46,10 +46,10 @@ const ECRAS = [
 ];
 
 // Menu curto (decisão do dono, 2026-10-04: "simplifica o painel"): por omissão o menu mostra só o caminho de um pedido —
-// Orçamentos, Obras e Pagamentos — e o painel abre em Orçamentos. "Mostrar tudo", no fundo do menu, traz os outros
+// Orçamentos, Obras, Eletricistas (com o módulo ligado) e Pagamentos — e o painel abre em Orçamentos. "Mostrar tudo", no fundo do menu, traz os outros
 // ecrãs (a escolha fica neste navegador). Nada é desligado: os outros ecrãs continuam a abrir pelo endereço e pelas
 // ligações das fichas.
-const MENU_CURTO = ["orcamentos", "obras", "pagamentos"];
+const MENU_CURTO = ["orcamentos", "obras", "eletricistas", "pagamentos"];
 const CHAVE_MENU = "domus.painel.menu";
 const menuCompleto = () => { try { return localStorage.getItem(CHAVE_MENU) === "completo"; } catch { return false; } };
 const noMenu = (ecra) => menuCompleto() || MENU_CURTO.includes(ecra.id);

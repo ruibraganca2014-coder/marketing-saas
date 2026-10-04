@@ -190,13 +190,15 @@ function contadores(nBolsa, nTrab) {
 // ---------------------------------------------------------------- o que recebe
 function recebeTexto(r, tipo) {
   if (!r) return "O valor fica definido com a proposta ao cliente.";
+  // Visita de orçamento sem custo para o cliente (pagamentos online desligados): só se ganha com a obra.
+  if (r.gratis) return "Visita de orçamento sem custo para o cliente: não é paga. Se o cliente aceitar a proposta, a obra é sua e recebe a percentagem da mão de obra + deslocação.";
   const partes = `${decimal(r.percentagem)} % da mão de obra (${euro(r.parte_mao_obra)}) + deslocação (${euro(r.deslocacao)}), sem IVA.`;
   const extra = tipo === "avaria" ? " A taxa de diagnóstico fica na Domus Energia." : tipo === "obra" ? " Material fornecido pela Domus." : "";
   return partes + extra;
 }
 function cartaoRecebe(t) {
   const c = com(el("div", "cartao pilha"), el("p", "rotulo", "Valor que recebe"),
-    el("p", "valor-grande", t.recebe ? euro(t.recebe.total) : "A combinar"),
+    el("p", "valor-grande", t.recebe?.gratis ? "Só com a obra" : t.recebe ? euro(t.recebe.total) : "A combinar"),
     el("p", "pequeno suave", recebeTexto(t.recebe, t.tipo)));
   if (t.recebe?.provisoria) c.append(el("p", "pequeno suave", "Estimativa: a proposta final ao cliente pode mudar este valor."));
   c.append(el("p", "pequeno suave", `Por transferência até ${PRAZO_DIAS} dias depois de a obra estar confirmada, paga pelo cliente e aprovada; contra fatura-recibo.`));
@@ -362,7 +364,8 @@ async function acaoFicha(t, caminho, corpo, { botao = null, msg = null, texto = 
 
 function desenharFicha(t) {
   const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEstado(t)), el("h2", null, t.titulo),
-    com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação` : "")];
+    t.recebe?.gratis ? el("p", "pequeno", "Visita de orçamento: não é paga. Recebe se o cliente aceitar a proposta e fizer a obra.")
+      : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação` : "")];
   if (!t.aberto) {
     out.push(el("p", "nota calma", "Trabalho fechado: os dados do cliente já não estão disponíveis."));
     if (["aprovada", "paga"].includes(t.estado)) {
@@ -448,7 +451,89 @@ function parteCliente(t) {
   const ligar = c.telefone ? (() => { const a = el("a", "btn sec mini", "Ligar"); a.href = `tel:${String(c.telefone).replace(/[^\d+]/g, "")}`; return a; })() : null;
   const cliente = seccao("Cliente", null, dl, el("p", "nota calma", "Ligue ou escreva sempre em nome da Domus Energia. Estes dados ficam visíveis até o trabalho fechar."),
     ligar ? com(el("div", "fila"), ligar) : el("p", "pequeno suave", "Sem telefone: peça o contacto à Domus Energia."));
-  return [cliente, seccaoVisita(t)];
+  return [cliente, seccaoVisita(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])];
+}
+
+/**
+ * Proposta depois da visita (decisão do dono, 2026-10-04): as horas de trabalho e o material do catálogo da Domus, com
+ * quantidades. Sem valores em euros: a Domus Energia calcula o preço, revê e envia a proposta ao cliente.
+ */
+let catalogoProposta = null;
+function seccaoProposta(t) {
+  const p = t.proposta;
+  const corpo = [];
+  if (p) {
+    corpo.push(com(el("p"), el("b", null, `Enviada em ${dataCurta(p.quando)}: ${decimal(p.horas)} h de trabalho`), p.material.length ? ` e ${p.material.length} ${p.material.length === 1 ? "artigo" : "artigos"}.` : "."),
+      p.material.length ? com(el("ul", "pequeno"), ...p.material.map((m) => el("li", null, `${m.qtd} × ${m.nome}`))) : null,
+      p.notas ? el("p", "pequeno suave", `«${p.notas}»`) : null,
+      el("p", "pequeno suave", "A Domus Energia calcula o preço e envia a proposta ao cliente."));
+  }
+  if (!t.pode_proposta) return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
+  const msg = el("p", "erro");
+  msg.hidden = true;
+  msg.setAttribute("role", "alert");
+  const horas = el("input");
+  horas.type = "number"; horas.min = "0.5"; horas.max = "500"; horas.step = "0.5"; horas.inputMode = "decimal"; horas.id = "proposta-horas";
+  horas.value = p ? String(p.horas) : "";
+  const linhas = el("div", "pilha");
+  linhas.id = "proposta-material";
+  const notas = el("textarea");
+  notas.rows = 3; notas.maxLength = 1000; notas.id = "proposta-notas";
+  notas.value = p?.notas ?? "";
+  const novaLinha = (sku = "", qtd = 1) => {
+    const f = el("div", "proposta-linha");
+    const s = el("select");
+    s.setAttribute("aria-label", "Artigo");
+    s.append(new Option("Escolha o artigo…", ""));
+    let grupo = null, cat = null;
+    for (const a of catalogoProposta ?? []) {
+      if (a.categoria !== cat) { cat = a.categoria; grupo = document.createElement("optgroup"); grupo.label = cat; s.append(grupo); }
+      grupo.append(new Option(a.nome, a.sku, false, a.sku === sku));
+    }
+    const q = el("input");
+    q.type = "number"; q.min = "1"; q.max = "999"; q.step = "1"; q.inputMode = "numeric"; q.value = String(qtd);
+    q.setAttribute("aria-label", "Quantidade");
+    const x = el("button", "btn sec mini", "Tirar");
+    x.type = "button";
+    x.addEventListener("click", () => f.remove());
+    f.append(s, q, x);
+    linhas.append(f);
+    return s;
+  };
+  const mais = el("button", "btn sec mini", "+ Artigo");
+  mais.type = "button";
+  mais.id = "proposta-mais";
+  mais.addEventListener("click", () => novaLinha().focus());
+  const enviar = el("button", "btn", p ? "Enviar outra vez" : "Enviar proposta à Domus");
+  enviar.type = "button";
+  enviar.id = "proposta-enviar";
+  enviar.addEventListener("click", () => {
+    msg.hidden = true;
+    const h0 = Number(String(horas.value).replace(",", "."));
+    if (!(h0 >= 0.5)) { msg.textContent = "Indique as horas de trabalho (pelo menos meia hora)."; msg.hidden = false; horas.focus(); return; }
+    const material = [];
+    for (const f of linhas.querySelectorAll(".proposta-linha")) {
+      const sku = f.querySelector("select").value, qtd = Math.round(Number(f.querySelector("input").value));
+      if (!sku) continue;
+      if (!(qtd >= 1 && qtd <= 999)) { msg.textContent = "Cada artigo precisa de uma quantidade entre 1 e 999."; msg.hidden = false; f.querySelector("input").focus(); return; }
+      material.push({ sku, qtd });
+    }
+    acaoFicha(t, "proposta", { horas: h0, material, notas: notas.value.trim() || null }, { botao: enviar, msg, texto: "Proposta enviada à Domus Energia." });
+  });
+  const carregar = async () => {
+    if (!catalogoProposta) {
+      try { catalogoProposta = (await pedir("catalogo")).artigos ?? []; } catch (e) { msg.textContent = e.message; msg.hidden = false; return; }
+    }
+    linhas.replaceChildren();
+    for (const m of p?.material ?? []) novaLinha(m.sku, m.qtd);
+  };
+  carregar();
+  const campo = (rotulo, input) => com(el("label", "campo"), el("span", null, rotulo), input);
+  corpo.push(el("p", "pequeno suave", "Depois de ver a casa, diga o que a obra precisa. Não escreva preços: a Domus Energia calcula-os e envia a proposta ao cliente."),
+    campo("Horas de trabalho", horas),
+    el("p", "rotulo", "Material (do catálogo da Domus)"), linhas, com(el("div"), mais),
+    campo("Notas para a Domus (opcional)", notas), msg, com(el("div", "fila"), enviar));
+  return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
 }
 
 function seccaoVisita(t) {
@@ -821,7 +906,11 @@ function parteFim(t) {
       ir("trabalhos");
     } catch (e) { if (e.estado !== 401) { aviso(e.message); largar.disabled = false; } }
   });
-  return com(el("div", "pilha fecho"), estado, concluir,
+  // Visita de orçamento sem custo (pagamentos online desligados): não se "conclui" — fecha quando a Domus envia a proposta.
+  const gratis = t.recebe?.gratis === true;
+  return com(el("div", "pilha fecho"),
+    gratis ? el("p", "nota calma", "Visita de orçamento: fecha sozinha quando a Domus Energia enviar a proposta ao cliente. Não precisa de fotos nem de ensaios.") : estado,
+    gratis ? null : concluir,
     el("p", "pequeno suave", "Largar o trabalho devolve-o à Domus Energia (ou à bolsa) e fica registado: quem larga um trabalho não é pago por ele."),
     largar);
 }

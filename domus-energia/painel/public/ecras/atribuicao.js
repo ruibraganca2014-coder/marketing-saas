@@ -132,7 +132,7 @@ export function blocoEletricista(orcamentoId) {
     if (!t && !a.pode) { if (!feito) partes.push(h("p", { class: "ajuda", id: "eletricista-motivo", text: a.motivo ?? "Este pedido não se pode atribuir agora." })); }
     else if (!t) {
       const sel = h("select", { name: "eletricista", id: "atribuir-a", "aria-label": "Atribuir a" },
-        ...a.candidatos.map((c) => h("option", { value: String(c.id), text: `${c.nome} · recebe ${c.recebe == null ? "a combinar" : euros(c.recebe)} (${String(c.percentagem).replace(".", ",")} %)` })));
+        ...a.candidatos.map((c) => h("option", { value: String(c.id), text: c.recebe === 0 ? `${c.nome} · visita sem custo (só recebe com a obra)` : `${c.nome} · recebe ${c.recebe == null ? "a combinar" : euros(c.recebe)} (${String(c.percentagem).replace(".", ",")} %)` })));
       partes.push(
         h("p", { class: "ajuda", text: `${a.tipo_nome} em ${a.concelho}. Só eletricistas aprovados com ${a.concelho} nos concelhos.` }),
         a.candidatos.length

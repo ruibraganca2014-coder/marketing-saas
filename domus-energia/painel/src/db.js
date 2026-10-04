@@ -951,6 +951,9 @@ export const MIGRACOES = [
     );
     CREATE INDEX mensagens_pedido_orcamento ON mensagens_pedido(orcamento_id, id);
   `),
+  // 39: proposta do eletricista depois da visita (decisão do dono, 2026-10-04; docs/ELETRICISTAS.md "Proposta do
+  // eletricista"): JSON {horas, material: [{sku, qtd}], notas, quando} — nunca valores em euros (o painel calcula-os).
+  (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN proposta TEXT;'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

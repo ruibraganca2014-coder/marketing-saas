@@ -402,7 +402,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       const b = obraDe(o);
       return b && !['concluida', 'cancelada'].includes(b.estado) && !o.obra_concluida ? 'obra' : null;
     }
-    if (['novo', 'contactado', 'visita_marcada'].includes(o.estado) && pagamentos().temVisita(o)) return simDe(o)?.funil === 'avaria' ? 'avaria' : 'visita';
+    // Com os pagamentos online desligados (decisão do dono, 2026-10-04) a visita não se paga antes: o pedido por
+    // visitar atribui-se na mesma, como visita sem custo (o eletricista só recebe se houver obra: recebeDe).
+    if (['novo', 'contactado', 'visita_marcada'].includes(o.estado) && (pagamentos().temVisita(o) || !config.pagamentoPedido)) return simDe(o)?.funil === 'avaria' ? 'avaria' : 'visita';
     return null;
   }
   const aberto = (t, o) => !['aprovada', 'paga'].includes(t.estado) && tipoAtribuivel(o) === t.tipo;
@@ -447,6 +449,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return { percentagem: pct, mao_obra: deCent(mao), parte_mao_obra: deCent(parte), deslocacao: deCent(desl), total: deCent(parte + desl), provisoria };
   }
 
+  /**
+   * O que o eletricista recebe por ESTE trabalho: a estimativa de sempre; numa visita (ou diagnóstico) que o cliente
+   * não pagou — pagamentos online desligados — nada (`gratis`): a visita de orçamento é por conta dele e só ganha com a obra.
+   */
+  function recebeDe(o, tipo, pct) {
+    if (tipo !== 'obra' && !pagamentos().temVisita(o)) return { percentagem: pct, mao_obra: 0, parte_mao_obra: 0, deslocacao: 0, total: 0, provisoria: false, gratis: true };
+    return estimativa(o, tipo, pct);
+  }
+
   /** Horas e dias estimados do trabalho. */
   function duracao(o, tipo, rel) {
     if (tipo !== 'obra') return { horas: tipo === 'avaria' ? horasDiagnostico() : VISITA_HORAS, dias: 1 };
@@ -478,7 +489,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** O trabalho ANTES de aceitar: nada do cliente (nem nome, contactos, morada, localidade exata ou n.º do pedido). */
   function paraBolsa(t, o, e, comRelatorio = false) {
     const rel = relatorioDe(o);
-    const r = { id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), ...duracao(o, t.tipo, rel), recebe: estimativa(o, t.tipo, percentagemDe(e)) };
+    const r = { id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), ...duracao(o, t.tipo, rel), recebe: recebeDe(o, t.tipo, percentagemDe(e)) };
     if (comRelatorio) r.relatorio = relatorioTecnico(rel, false);
     return r;
   }
@@ -489,7 +500,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const estaAberto = aberto(t, o);
     const r = {
       id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), estado: t.estado, aberto: estaAberto, ...duracao(o, t.tipo, rel),
-      recebe: estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()),
+      recebe: recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()),
       aceite: t.aceite_em ? iso(t.aceite_em) : null,
       prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null,
       visita: t.visita ?? null, concluida: t.concluida ?? null,
@@ -498,6 +509,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.cliente = estaAberto ? { nome: o.nome, telefone: o.telefone ?? null, morada: o.morada ?? null, localidade: o.localidade ?? null } : null;
     r.relatorio = estaAberto ? relatorioTecnico(rel, true) : null;
     r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
+    // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
+    r.proposta = estaAberto ? propostaDe(t) : null;
+    r.pode_proposta = estaAberto && t.tipo !== 'obra' && t.estado === 'visita_marcada';
     // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
     r.editavel = estaAberto && EDITAVEIS.includes(t.estado);
     // O trabalho voltou: o que o cliente disse que falta, ou o motivo da devolução da Domus (ronda 3).
@@ -934,6 +948,74 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     responder(res, 200, fichaAtual(t));
   };
 
+  // ------------------------------------------------------------ proposta do eletricista (depois da visita)
+  const artigoAtivo = db.prepare('SELECT sku, nome, categoria, preco_venda_iva_cent FROM catalogo WHERE sku = ? AND ativo = 1');
+  /** A proposta guardada no trabalho, com os nomes do catálogo (sem preços): {horas, material: [{sku, nome, qtd}], notas, quando} ou null. */
+  function propostaDe(t) {
+    let p = null;
+    try { p = JSON.parse(t.proposta ?? 'null'); } catch { p = null; }
+    if (!p || typeof p !== 'object') return null;
+    const nome = db.prepare('SELECT nome FROM catalogo WHERE sku = ?');
+    return { horas: p.horas, notas: p.notas ?? null, quando: p.quando, material: (Array.isArray(p.material) ? p.material : []).map((m) => ({ sku: m.sku, nome: nome.get(m.sku)?.nome ?? m.sku, qtd: m.qtd })) };
+  }
+  /** O catálogo para o eletricista escolher o material: só o artigo e a categoria, nunca preços. */
+  h.catalogo = ({ res }) => responder(res, 200, { artigos: db.prepare('SELECT sku, nome, categoria FROM catalogo WHERE ativo = 1 ORDER BY categoria, nome').all() });
+
+  // POST trabalhos/:id/proposta {horas, material: [{sku, qtd}], notas}: o que a obra precisa, visto na visita. O
+  // eletricista nunca escreve euros: o painel calcula a proposta (propostaDoPedido) e o CEO revê-a antes de a enviar.
+  h.proposta = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['horas', 'material', 'notas']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    if (t.tipo === 'obra') throw new ErroApi(409, 'A proposta faz-se depois da visita técnica, não numa obra.');
+    if (t.estado !== 'visita_marcada') throw new ErroApi(409, 'Marque primeiro a visita com o cliente.');
+    const horas = numero(v.horas, 'as horas de trabalho', { min: 0.5, max: 500, casas: 1, nulo: false });
+    if (!Array.isArray(v.material) || v.material.length > 60) falha('O material tem de ser uma lista (até 60 artigos).');
+    const qtds = new Map();
+    for (const m of v.material) {
+      if (!m || typeof m !== 'object' || typeof m.sku !== 'string' || !artigoAtivo.get(m.sku)) falha('Material: escolha os artigos do catálogo.');
+      if (!Number.isInteger(m.qtd) || m.qtd < 1 || m.qtd > 999) falha('Material: quantidade entre 1 e 999.');
+      qtds.set(m.sku, Math.min(999, (qtds.get(m.sku) ?? 0) + m.qtd));
+    }
+    const notas = texto(v.notas, 'as notas', { max: 1000, multilinha: true });
+    const agora = agoraIso();
+    const proposta = { horas, material: [...qtds].map(([sku, qtd]) => ({ sku, qtd })), notas, quando: agora };
+    db.prepare('UPDATE trabalhos_eletricista SET proposta = ?, atualizado = ? WHERE id = ? AND eletricista_id = ?').run(JSON.stringify(proposta), agora, t.id, e.id);
+    auditar(quem(e), 'proposta_eletricista', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, horas, artigos: proposta.material.length }, ip);
+    avisarEmpresa('Domus Energia: um eletricista enviou a proposta de um pedido', [
+      `O eletricista enviou a proposta do pedido n.º ${o.id} (${t.concelho}): as horas de trabalho e o material.`,
+      'Veja-a na ficha do pedido, em Orçamentos: "Preencher pela proposta do eletricista", reveja os valores e envie a proposta ao cliente.']);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  /**
+   * A proposta do eletricista de um pedido, para o painel (ficha do pedido): a mais recente das visitas/diagnósticos,
+   * com os valores calculados SEM IVA — mão de obra = horas × a tarifa/hora; material = os preços de venda do
+   * catálogo; deslocação = a do concelho do pedido. null sem proposta.
+   */
+  function propostaDoPedido(o) {
+    const t = db.prepare("SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND proposta IS NOT NULL AND tipo <> 'obra' ORDER BY id DESC LIMIT 1").get(o.id);
+    const p = t ? propostaDe(t) : null;
+    if (!p) return null;
+    const cfg = lerCfg();
+    const iva = pagamentos().ivaAtual();
+    const semIva = (cent) => partirIva(Math.round(cent), iva).base;
+    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
+    const material = p.material.map((m) => { const a = db.prepare('SELECT preco_venda_iva_cent FROM catalogo WHERE sku = ?').get(m.sku); return { ...m, valor: a ? deCent(semIva(a.preco_venda_iva_cent * m.qtd)) : null }; });
+    const d = deslocacaoServidor(localidadeDe(o), cfg);
+    const e = t.eletricista_id ? linha(t.eletricista_id) : null;
+    return {
+      trabalho: t.id, eletricista: e ? { id: e.id, nome: e.nome } : null, quando: p.quando, horas: p.horas, notas: p.notas, material,
+      sugestao: {
+        mao_obra: deCent(semIva(p.horas * tarifa * 100)),
+        material: deCent(material.reduce((s, m) => s + Math.round((m.valor ?? 0) * 100), 0)),
+        deslocacao: d === null ? 0 : deCent(semIva(d * 100)),
+      },
+    };
+  }
+
   // "Obra concluída": só com a visita marcada, as fotos e os ensaios (faltaParaConcluir). O trabalho fica
   // `concluida_eletricista`, os CEO e o cliente são avisados e fica a aguardar a confirmação do cliente (7 dias).
   h.concluir = async ({ req, res, e, params, ip }) => {
@@ -980,7 +1062,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     });
     return {
       pagamento: estado, pagamento_texto: TEXTO_PAGAMENTO[estado],
-      valor: detalheDe(t) ?? estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
+      valor: detalheDe(t) ?? recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
       prazo: t.confirmada && t.aprovada && restante.pago ? prazoPagamento([t.confirmada, t.aprovada, restante.quando]) : null,
       pago_em: t.paga ?? null,
       fatura: t.fatura_id ? { tipo: t.fatura_tipo, bytes: t.fatura_bytes, quando: t.fatura_quando, url: urlFatura } : null,
@@ -1189,7 +1271,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const nomeTrabalho = `${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()} em ${t.concelho}`;
     if (acao === 'aprovar') {
       if (t.estado !== 'confirmada') throw new ErroApi(409, t.estado === 'concluida_eletricista' ? 'O cliente ainda não confirmou o trabalho (fica aceite ao fim de 7 dias sem resposta).' : 'Só se aprova um trabalho dado por concluído e confirmado pelo cliente.');
-      const valor = estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e));
+      const valor = recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e));
       if (!valor) throw new ErroApi(409, 'Não foi possível calcular o valor a pagar ao eletricista: preencha a proposta em três partes (mão de obra, material e deslocação).');
       if (t.tipo === 'obra' && !o.obra_concluida) concluirObra(o, u, ip);
       const r = db.prepare("UPDATE trabalhos_eletricista SET estado = 'aprovada', aprovada = ?, aprovada_por = ?, valor_cent = ?, valor_detalhe = ?, atualizado = ? WHERE id = ? AND estado = 'confirmada'")
@@ -1492,7 +1574,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const doCliente = t && ['visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.reclamacao_de === 'cliente' && !t.reclamacao_decisao;
     return {
       pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
-      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido aceite com a obra por fazer, ou com a visita técnica ou o diagnóstico pagos.'
+      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido por visitar (com a visita ou o diagnóstico pagos, quando os pagamentos online estão ligados) ou um pedido aceite com a obra por fazer.'
         : 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.',
       trabalho: t ? {
         // Ronda 3: confirmação e avaliação do cliente, reclamação, aprovação e pagamento; e o que o CEO pode fazer agora.
@@ -1508,7 +1590,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         id: t.id, tipo: t.tipo, estado: t.estado, modo: t.modo, aberto: aberto(t, o), eletricista: e ? { id: e.id, nome: e.nome } : null,
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
         prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null, visita: t.visita ?? null,
-        recebe: e ? estimativa(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) : null,
+        recebe: e ? recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) : null,
         // Ficha de obra do eletricista (ronda 2): estado, material recebido, fotos, ensaios e o que falta para concluir.
         concluida: t.concluida ?? null,
         material: materialDoTrabalho(t, o),
@@ -1517,7 +1599,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         diagnostico: t.tipo === 'avaria' ? Boolean(diagnosticoDoPedido(o)?.conclusao) : null,
         falta: e && EDITAVEIS.includes(t.estado) ? faltaParaConcluir(t, o) : [],
       } : null,
-      candidatos: !pode && !naBolsa ? [] : candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? estimativa(o, alvo, percentagemDe(x))?.total ?? null : null })),
+      candidatos: !pode && !naBolsa ? [] : candidatos.map((x) => ({ id: x.id, nome: x.nome, percentagem: percentagemDe(x), recebe: alvo ? recebeDe(o, alvo, percentagemDe(x))?.total ?? null : null })),
       historico: db.prepare(`SELECT v.evento, v.quando, v.por, e.nome FROM trabalhos_eletricista_eventos v JOIN trabalhos_eletricista t ON t.id = v.trabalho_id
         LEFT JOIN eletricistas e ON e.id = v.eletricista_id WHERE t.orcamento_id = ? ORDER BY v.id DESC LIMIT 50`).all(o.id)
         .map((x) => ({ evento: x.evento, quando: x.quando, eletricista: x.nome ?? null, por: x.por })),
@@ -1528,7 +1610,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function novoTrabalho(o, modo, e) {
     expirar();
     const tipo = tipoAtribuivel(o);
-    if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido aceite com a obra por fazer, ou com a visita técnica ou o diagnóstico pagos.');
+    if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido por visitar (com a visita ou o diagnóstico pagos, quando os pagamentos online estão ligados) ou um pedido aceite com a obra por fazer.');
     if (ativoDoPedido(o.id)) throw new ErroApi(409, 'Este pedido já está na bolsa ou atribuído a um eletricista: retire-o primeiro.');
     if (feitoDoPedido(o.id, tipo)) throw new ErroApi(409, 'Este trabalho já foi feito e aprovado neste pedido.');
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
@@ -1619,6 +1701,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['GET', 'trabalhos/:id', true, 'trabalho'],
     ['POST', 'trabalhos/:id/visita', true, 'marcarVisita'],
     ['POST', 'trabalhos/:id/largar', true, 'largar'],
+    ['GET', 'catalogo', true, 'catalogo'],   // os artigos para a proposta (sem preços)
+    ['POST', 'trabalhos/:id/proposta', true, 'proposta'],   // {horas, material: [{sku, qtd}], notas}, depois da visita
     ['POST', 'trabalhos/:id/material', true, 'material'],
     ['POST', 'trabalhos/:id/ensaios', true, 'ensaios'],
     ['POST', 'trabalhos/:id/diagnostico', true, 'diagnostico'],
@@ -1669,7 +1753,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
     prazos: expirar, paraCliente, confirmarCliente, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
-    iniciar, parar, ROTAS_ELETRICISTA, estimativa,
+    iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

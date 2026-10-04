@@ -222,3 +222,8 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 .lista-passos input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--musgo); }
 .lista-passos .selo { white-space: nowrap; font-size: .76rem; padding: 1px 8px; }
 .lista-passos .passo-nota { padding-left: 32px; }
+
+/* Proposta depois da visita: uma linha por artigo (artigo, quantidade, tirar). */
+.proposta-linha { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; gap: 8px; align-items: center; }
+.proposta-linha select, .proposta-linha input { width: 100%; min-height: 44px; padding: 9px 12px; border: 1.5px solid var(--borda); border-radius: 12px; background: var(--fundo); min-width: 0; }
+@media (max-width: 479px) { .proposta-linha { grid-template-columns: minmax(0, 1fr) auto; } .proposta-linha select { grid-column: 1 / -1; } }

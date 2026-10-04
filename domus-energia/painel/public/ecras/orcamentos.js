@@ -227,11 +227,22 @@ export default function orcamentos(el, ctx) {
       somar();
     };
     const bPreencher = sugerida ? h("button", { class: "btn sec pequeno", type: "button", id: "preencher-proposta", text: "Preencher pela simulação", onclick: preencher }) : null;
+    // Proposta do eletricista depois da visita (docs/ELETRICISTAS.md): as horas e o material que ele indicou, com os
+    // valores sem IVA calculados no servidor; "Preencher pela proposta do eletricista" põe-nos nas três partes para rever.
+    const pe = campo(o, "proposta_eletricista");
+    const blocoPropostaEletricista = pe ? h("div", { class: "msg info bloco", id: "proposta-eletricista" },
+      h("p", {}, h("strong", { text: `Proposta do eletricista${campo(pe, "eletricista") ? ` (${campo(campo(pe, "eletricista"), "nome")})` : ""}, ${data(campo(pe, "quando"))}: ` }),
+        `${String(campo(pe, "horas")).replace(".", ",")} h de trabalho${lista(campo(pe, "material") ?? [], "material").length ? "" : ", sem material"}.`),
+      lista(campo(pe, "material") ?? [], "material").length ? h("ul", { class: "diag-sugestoes" }, ...lista(campo(pe, "material"), "material").map((m) => h("li", { text: `${campo(m, "qtd")} × ${campo(m, "nome")}${campo(m, "valor") != null ? ` — ${euros(campo(m, "valor"))}` : ""}` }))) : null,
+      campo(pe, "notas") ? h("p", { class: "mensagem-cliente", text: String(campo(pe, "notas")) }) : null,
+      h("p", { class: "ajuda", text: `Calculado sem IVA: mão de obra ${euros(pe.sugestao.mao_obra)}, material ${euros(pe.sugestao.material)}, deslocação ${euros(pe.sugestao.deslocacao)}. Reveja antes de enviar ao cliente.` }),
+      h("button", { class: "btn sec pequeno", type: "button", id: "preencher-proposta-eletricista", text: "Preencher pela proposta do eletricista",
+        onclick: () => { pMao.value = pe.sugestao.mao_obra ?? ""; pMat.value = pe.sugestao.material ?? ""; pDes.value = pe.sugestao.deslocacao ?? ""; somar(); pMao.focus(); } })) : null;
     const blocoPartes = h("fieldset", { class: "grupo", id: "proposta-partes" }, h("legend", { text: "Proposta (€, sem IVA)" }),
       h("div", { class: "tres" }, campoForm("Mão de obra", pMao), campoForm("Material", pMat), campoForm("Deslocação", pDes)),
       faltaParte,
       h("p", { class: "ajuda", text: `O total é a soma das três partes; o cliente vê o detalhe. Vazias = um só valor.${sugerida?.horas ? ` A simulação dá cerca de ${String(sugerida.horas).replace(".", ",")} h de mão de obra.` : ""}` }),
-      bPreencher);
+      blocoPropostaEletricista, bPreencher);
     const f = h("form", { class: "form-grelha", id: "form-orcamento", novalidate: true },
       h("h3", { text: "Acompanhamento" }),
       h("div", { class: "duas" },

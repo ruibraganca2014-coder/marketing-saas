@@ -5,7 +5,7 @@
   <url><loc>https://opancas.pt/quadro-eletrico.html</loc><lastmod>2026-10-02</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://opancas.pt/casa-inteligente.html</loc><lastmod>2026-10-02</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
   <url><loc>https://opancas.pt/poupar-energia.html</loc><lastmod>2026-10-02</lastmod><changefreq>monthly</changefreq><priority>0.8</priority></url>
-  <!-- Eletricistas externos (docs/ELETRICISTAS.md): ao publicar o módulo, volta aqui a entrada de trabalhe-connosco.html. -->
+  <url><loc>https://opancas.pt/trabalhe-connosco.html</loc><lastmod>2026-10-04</lastmod><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>https://opancas.pt/privacidade.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://opancas.pt/termos.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
   <url><loc>https://opancas.pt/cookies.html</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>

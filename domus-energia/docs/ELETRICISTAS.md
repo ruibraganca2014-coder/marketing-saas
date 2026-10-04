@@ -4,26 +4,21 @@ Eletricistas habilitados que trabalham para a Domus Energia com as condições d
 
 Código: `painel/src/eletricistas.js` (rotas `/api/eletricista/*` e a lógica), `painel/src/api.js` (rotas do painel), `painel/src/db.js` (migrações 27 a 31), `painel/src/conta.js` (confirmação do cliente), `painel/src/pagamentos-pedido.js` (visita sem defeito), `web/trabalhe-connosco.*`, `web/eletricista.*`, `web/conta.js`, `painel/public/ecras/eletricistas.js`, `painel/public/ecras/atribuicao.js` e `painel/public/ecras/pagamentos.js`. Testes: `painel/test/eletricistas.test.js` (ronda 1 e interruptor), `painel/test/eletricistas-obra.test.js` (ronda 2) e `painel/test/eletricistas-pagamentos.test.js` (ronda 3).
 
-## Interruptor: o módulo ainda não está publicado
+## Interruptor: o módulo liga-se com `ELETRICISTAS=1`
 
-Decisão do dono (2026-10-02): o módulo fica no código mas **desligado em produção** até ser publicado. O interruptor é a variável `ELETRICISTAS` do painel (`config.eletricistas`):
+Publicado em 2026-10-04 (decisão do dono: "ligar já, e eu sou o primeiro eletricista"). O módulo continua atrás do interruptor `ELETRICISTAS` (o `servidor/docker-compose.yml` passa-o ao painel; `1` no `.env` do servidor liga; sem ele as rotas `/api/eletricista/*`, as do painel e o ecrã "Eletricistas" dão 404 e a página de candidaturas mostra só uma linha). Com a publicação entraram: a ligação "Trabalhe connosco" no rodapé da página inicial, a entrada no `sitemap.xml`, `index, follow` com `canonical` em `trabalhe-connosco.html` e a cláusula "Fim do trabalho" nos Termos.
 
-- **Só `ELETRICISTAS=1` liga.** Por omissão está desligado. Só o lançador local (`local/iniciar.js`) a põe; o `servidor/docker-compose.yml`, o `.env.example` e o `instalar.sh` não (há um teste que o verifica). `ELETRICISTAS=0 npm start` desliga-o também no local.
-- **Desligado:** todas as rotas `/api/eletricista/*` (incluindo a do acesso rápido), as do painel (`eletricistas*`, `orcamentos/:id/eletricista`, `trabalhos-eletricista/*`, `pagamentos-eletricistas`) e a da conta `POST /api/conta/pedidos/:id/confirmar-trabalho` respondem `404 Endereço desconhecido.`, pelo mesmo caminho de qualquer endereço que não existe, com ou sem sessão. O temporizador das 48 h não arranca. A fase `visita_sem_defeito` do `POST /api/conta/pedidos/:id/pagar` não é aceite (400), a conta não leva `confirmacao` nem `visita_sem_defeito`, e o resumo dos pagamentos leva `eletricistas: null` (o CSV fica sem as linhas dos eletricistas). As migrações 27 a 30 correm na mesma (tabelas vazias) e `eletricista_pct` continua fora do `/api/catalogo`.
-- **Painel:** o `GET eu` e o `POST entrar` levam `eletricistas: true | false`; com `false` o ecrã "Eletricistas" não aparece no menu nem abre pelo endereço, e o bloco "Eletricista externo" não aparece nas fichas do pedido e da obra.
-- **Site:** `trabalhe-connosco.html` e `eletricista.html` continuam no repositório. Ao abrir perguntam `GET /api/eletricista/candidatura` (`200 {aberta: true, percentagem}` com o módulo ligado: "Trabalhe connosco" mostra a percentagem da configuração; sem resposta fica o 70 escrito na página); com 404 mostram só "Candidaturas ainda não estão abertas." e "Área ainda não disponível.", sem formulário. As duas páginas têm `noindex`.
+**A tratar pelo dono, fora do código:** o CAE da empresa ainda não inclui obras elétricas e o IVA/art. 53.º das faturas-recibo dos eletricistas — contabilista, antes de haver eletricistas de fora a trabalhar a sério.
 
-**Para publicar** (só quando o dono disser):
+## Caminho simples do pedido (decisões do dono, 2026-10-04)
 
-1. Pôr `ELETRICISTAS=1` no `.env` do servidor e passá-la ao painel no `docker-compose.yml`.
-2. Repor a ligação "Trabalhe connosco" no rodapé das páginas do site (o comentário em `web/index.html` diz onde) e a entrada `trabalhe-connosco.html` no `web/sitemap.xml` (há um comentário no sítio).
-3. Trocar o `noindex` de `trabalhe-connosco.html` por `index, follow` com o `canonical`.
-4. Pôr em `web/termos.html`, na lista "Pagamentos e reembolsos", logo antes do item "Sinal:", esta cláusula (decisão do dono: fica de fora até à publicação), e atualizar a data no topo:
+O dono pediu "a maneira mais simples: o pedido vai para a bolsa dos eletricistas". Decidido, pergunta a pergunta:
 
-   ```html
-   <li><strong>Fim do trabalho:</strong> quando o técnico dá o trabalho (a obra, a visita técnica ou o diagnóstico) por concluído, pedimos-lhe que o confirme na sua conta e o avalie de 1 a 5 estrelas. Se nos disser que falta alguma coisa, voltamos para ver: havendo defeito, corrigimos sem custo; se não encontrarmos defeito, essa visita é paga, ao preço da visita técnica do seu concelho, e não é descontada na obra. Sem resposta em 7 dias, o trabalho considera-se aceite. Nada disto afeta a garantia legal.</li>
-   ```
-5. `web/privacidade.html` já descreve o módulo (eletricistas, IBAN e fatura-recibo, avaliação do cliente): rever a data no topo.
+1. **Entrada na bolsa: com um clique do CEO** — "Pôr na bolsa" na ficha do pedido (nada entra sozinho).
+2. **Visita:** o cliente paga-a antes (como estava). **Enquanto os pagamentos online estiverem desligados** (`config.pagamentoPedido` falso), um pedido por visitar (novo, contactado, visita marcada) atribui-se na mesma, como **visita sem custo**: o eletricista não recebe por ela (`recebeDe` devolve `gratis`, total 0) e a área dele diz "só recebe se o cliente aceitar a proposta e fizer a obra". Com a Stripe ligada volta sozinho a "visita paga".
+3. **Proposta do eletricista** (`POST /api/eletricista/trabalhos/:id/proposta`, migração 39 `trabalhos_eletricista.proposta`): depois de marcar a visita, o eletricista indica as **horas de trabalho** (0,5 a 500) e o **material do catálogo** com quantidades (até 60 artigos; `GET /api/eletricista/catalogo` dá só artigo e categoria, nunca preços) e notas. **Nunca escreve euros.** Os CEO recebem um email. Pode enviar outra vez (substitui).
+4. **O CEO revê e envia:** a ficha do pedido leva `proposta_eletricista` — as horas, o material (com o valor de cada linha) e a sugestão sem IVA: mão de obra = horas × `tarifa_hora_iva`, material = preços de venda do catálogo, deslocação = a do concelho. "Preencher pela proposta do eletricista" põe os três valores nas partes da proposta; o CEO acerta e grava como sempre (é ele que envia ao cliente).
+5. Aceite a proposta e criada a obra, o CEO atribui a obra (ao mesmo eletricista ou à bolsa) como já acontecia.
 
 ## Decisões do dono
 

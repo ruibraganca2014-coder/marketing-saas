@@ -173,6 +173,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Leitura automática da foto do quadro: desligada (decisão do dono); só com LEITURA_QUADRO=1 no .env.
       LEITURA_QUADRO: ${LEITURA_QUADRO:-0}
+      # Eletricistas externos (bolsa, área do eletricista, "Trabalhe connosco"; docs/ELETRICISTAS.md): 1 liga.
+      ELETRICISTAS: ${ELETRICISTAS:-0}
       # Assistente (IA) dos pedidos: máximo de pedidos ao modelo em 24 h (docs/ASSISTENTE-IA.md).
       LIMITE_IA_DIA: ${LIMITE_IA_DIA:-50}
       # Conta de cliente (docs/CONTA-CLIENTE.md): site público noutra origem (Vercel) com CORS, chave das

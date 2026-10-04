@@ -743,21 +743,24 @@ describe('acesso rápido: "Eletricista de teste" só no lançador local', () => 
   });
 });
 
-describe('interruptor ELETRICISTAS: desligado por omissão (o módulo ainda não está publicado)', () => {
+describe('interruptor ELETRICISTAS: desligado por omissão (só ELETRICISTAS=1 no .env do servidor liga o módulo)', () => {
   const AQUI = dirname(fileURLToPath(import.meta.url));
   let p;
   before(async () => { p = await painelComEquipa({ env: { ELETRICISTAS: '0', PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'simulado' } }); });
   after(() => p.fechar());
   const DESCONHECIDO = { erro: 'Endereço desconhecido.' };
 
-  test('só ELETRICISTAS=1 liga; o servidor a sério nunca põe a variável (docker-compose.yml, .env.example, instalar.sh)', async () => {
+  test('só ELETRICISTAS=1 liga; no servidor a sério o docker-compose passa a variável do .env, desligada por omissão', async () => {
     assert.equal(lerConfig({}).eletricistas, false);
     for (const v of ['0', '', 'true', 'sim', 'on']) assert.equal(lerConfig({ ELETRICISTAS: v }).eletricistas, false, `ELETRICISTAS=${v}`);
     assert.equal(lerConfig({ ELETRICISTAS: '1' }).eletricistas, true);
     assert.equal(p.config.eletricistas, false);
-    for (const f of ['docker-compose.yml', '.env.example', 'instalar.sh', 'domus.sh']) {
-      assert.equal(/ELETRICISTAS\s*[=:]/.test(await readFile(join(AQUI, '..', '..', 'servidor', f), 'utf8')), false, f);
-    }
+    // Publicado em 2026-10-04 (decisão do dono): o compose passa ELETRICISTAS do .env ao painel, 0 por omissão; os
+    // scripts de instalação nunca a põem (liga-se à mão no .env).
+    const servidor = (f) => readFile(join(AQUI, '..', '..', 'servidor', f), 'utf8');
+    assert.match(await servidor('docker-compose.yml'), /ELETRICISTAS: \$\{ELETRICISTAS:-0\}/);
+    assert.match(await servidor('.env.example'), /^ELETRICISTAS=0$/m);
+    for (const f of ['instalar.sh', 'domus.sh']) assert.equal(/ELETRICISTAS\s*[=:]/.test(await servidor(f)), false, f);
     // … e o lançador local põe-na.
     assert.match(await readFile(join(AQUI, '..', '..', 'local', 'iniciar.js'), 'utf8'), /ELETRICISTAS: process\.env\.ELETRICISTAS === '0' \? '0' : '1'/);
   });

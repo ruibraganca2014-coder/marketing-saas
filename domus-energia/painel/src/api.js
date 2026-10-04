@@ -379,6 +379,8 @@ export function criarApi(ctx) {
     if (completo) {
       // As três partes sugeridas pela simulação (catálogo do servidor) para o CEO abrir a proposta, e o stock do pedido.
       r.proposta_sugerida = o.simulacao ? pagPed.propostaSugerida(o) : null;
+      // Proposta do eletricista depois da visita (horas + material do catálogo; valores sem IVA calculados aqui), ou null.
+      if (config.eletricistas) r.proposta_eletricista = eletricistas.propostaDoPedido(o);
       r.stock = o.simulacao ? stock.resumoPedido(o) : null;
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
       r.catalogo = artigosDaSimulacao(r.simulacao);
