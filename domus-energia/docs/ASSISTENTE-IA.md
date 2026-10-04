@@ -51,4 +51,4 @@ O cliente nunca vê nada disto: não vai para a conta, para o relatório nem par
 
 ## 7. Por fazer
 - Rascunho de resposta ao cliente (precisa de "escrever ao cliente" no painel e do registo das mensagens na ficha).
-- Ainda não foi experimentado com a API real (não havia chave): os testes usam a API simulada. Na primeira utilização com chave, ver o registo do painel.
+- Experimentado com a API real em 2026-10-04 no servidor, com um pedido fictício: resumo em 12 s (≈ US$ 0,02) e diagnóstico em 28 s (≈ US$ 0,05); a API aceitou `fallbacks`. Falta ver o custo num pedido com simulação completa (casa inteira).
