@@ -924,7 +924,18 @@ export default function orcamentos(el, ctx) {
       confirmar.replaceChildren(h("p", { text: `Enviar este email para ${para}? Depois de enviado não se pode desfazer.` }), h("div", { class: "form-botoes" }, sim, nao));
       confirmar.hidden = false; enviar.disabled = true; sim.focus();
     });
-    sec.append(h("p", { class: "ajuda", text: `Email para ${para}, enviado pelo painel. A resposta do cliente chega à caixa de email da empresa. Fica registado na ficha do cliente.` }));
+    // A conversa do pedido: os emails enviados daqui e as respostas que o cliente escreve na conta dele.
+    const conversa = lista(campo(o, "mensagens") ?? [], "mensagens");
+    if (conversa.length) {
+      sec.append(h("ul", { class: "conversa-pedido", id: "conversa-pedido" }, ...conversa.map((m) => {
+        const doCliente = campo(m, "de") === "cliente";
+        return h("li", { class: doCliente ? "do-cliente" : "da-equipa" },
+          h("p", { class: "ajuda" }, h("strong", { text: doCliente ? "Cliente" : "Domus Energia" }), ` · ${data(campo(m, "criado"))}${!doCliente && campo(m, "por") ? ` · ${campo(m, "por")}` : ""}`),
+          campo(m, "assunto") ? h("p", {}, h("strong", { text: String(campo(m, "assunto")) })) : null,
+          h("p", { class: "mensagem-cliente", text: String(campo(m, "texto") ?? "") }));
+      })));
+    }
+    sec.append(h("p", { class: "ajuda", text: `Email para ${para}, enviado pelo painel, com a ligação para o cliente responder na conta dele: a resposta aparece aqui e nasce uma tarefa. Se responder ao email, chega à caixa da empresa. Fica registado na ficha do cliente.` }));
     if (ligado) {
       sec.append(campoForm("O que quer dizer (a IA redige o email)", ideia),
         h("p", { class: "ajuda", text: "Escreva os factos: datas, preços, o que precisa do cliente. A IA só redige; não invente por ela. Não escreva aqui o nome nem os contactos do cliente." }),
@@ -1115,7 +1126,7 @@ const ACOES = {
   visita_cancelada_cliente: "Visita cancelada pelo cliente (devolvida)", visita_faltou: "Cliente faltou à visita (sem devolução)",
   sinal_devolvido: "Obra cancelada: sinal devolvido", devolucao_iban: "O cliente indicou o IBAN da devolução", devolucao_feita: "Devolução por transferência feita",
   inicio_imediato: "Cliente: \"Quero que comecem já\"",
-  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado", mensagem_enviada: "Email enviado ao cliente", ia_resposta: "Rascunho de email pedido ao assistente (IA)", ia_resumo: "Resumo pedido ao assistente (IA)", ia_diagnostico: "Sugestão de diagnóstico pedida ao assistente (IA)",
+  ensaios_registados: "Ensaios medidos registados", esquema_quadro_atualizado: "Esquema do quadro atualizado", diagnostico_atualizado: "Diagnóstico atualizado", mensagem_enviada: "Email enviado ao cliente", mensagem_cliente: "Resposta do cliente (na conta)", ia_resposta: "Rascunho de email pedido ao assistente (IA)", ia_resumo: "Resumo pedido ao assistente (IA)", ia_diagnostico: "Sugestão de diagnóstico pedida ao assistente (IA)",
 };
 /** "Escrever ao cliente": o que está por enviar em cada pedido (só nesta página aberta). */
 const rascunhosMensagem = new Map();

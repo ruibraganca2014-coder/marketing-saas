@@ -34,6 +34,7 @@ async function novoPedido(p, extra = {}) {
   const c = await p.contaConfirmada('maria.silva@exemplo.pt'.replace('maria', `maria${Math.random().toString(36).slice(2, 8)}`));
   const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Maria Confidencial', telefone: '912 345 678', servico: 'Reparação', localidade: 'Sintra', morada: 'Travessa do Teste, 1', mensagem: 'Tomada sem corrente; o meu email é maria@exemplo.pt', simulacao: SIM, ...extra } });
   assert.equal(r.estado, 201, r.texto);
+  novoPedido.cookie = c.cookie;   // a sessão da conta do cliente deste pedido
   return r.json.pedido;
 }
 
@@ -98,7 +99,7 @@ describe('assistente (API simulada)', () => {
     if (modo === '500-depois-ok') return pedidos.length % 2 ? new Response('{"type":"error","error":{"type":"api_error"}}', { status: 500 }) : respostaApi(JSON.stringify(tipo));
     return new Response('{"type":"error","error":{"type":"authentication_error"}}', { status: 401 });
   }
-  before(async () => { p = await painelComEquipa({ env: { ANTHROPIC_API_KEY: 'sk-ant-teste', LIMITE_IA_DIA: '13' }, fetch: fetchFalso }); });
+  before(async () => { p = await painelComEquipa({ env: { ANTHROPIC_API_KEY: 'sk-ant-teste', LIMITE_IA_DIA: '13', SITE_URL: 'https://site.teste' }, fetch: fetchFalso }); });
   after(() => p.fechar());
 
   const ia = (id, tipo, papel = 'ceo') => p.pedir('POST', `/painel/api/orcamentos/${id}/ia/${tipo}`, { cookie: p.cookies[papel], corpo: {} });
@@ -178,12 +179,44 @@ describe('assistente (API simulada)', () => {
     const e = await p.pedir('POST', `/painel/api/orcamentos/${id}/mensagem`, { cookie: p.cookies.comercial, corpo: EMAIL });
     assert.equal(e.estado, 200, e.texto);
     assert.equal(p.emails.length, antes + 1);
-    assert.deepEqual([p.emails.at(-1).para, p.emails.at(-1).assunto, p.emails.at(-1).texto], [o.mensagem_para, EMAIL.assunto, EMAIL.texto]);
+    assert.deepEqual([p.emails.at(-1).para, p.emails.at(-1).assunto], [o.mensagem_para, EMAIL.assunto]);
+    assert.ok(p.emails.at(-1).texto.startsWith(EMAIL.texto));
     assert.equal(e.json.estado, 'contactado');
     const h = e.json.historico.filter((x) => x.acao === 'mensagem_enviada');
     assert.deepEqual(h.at(-1).detalhes, { caracteres: EMAIL.texto.length }, 'o texto não vai para a auditoria');
     const reg = p.app.db.prepare("SELECT tipo, texto, por_email FROM crm_registos WHERE orcamento_id = ? AND tipo = 'email'").all(id);
     assert.deepEqual(reg.map((x) => ({ ...x })), [{ tipo: 'email', texto: `${EMAIL.assunto}\n\n${EMAIL.texto}`, por_email: p.u.comercial.email }]);
+  });
+
+  test('conversa do pedido: o email leva a ligação da conta; o cliente responde lá, a resposta aparece no painel e nasce a tarefa', async () => {
+    usar('ok');
+    const id = await novoPedido(p);
+    const cliente = novoPedido.cookie;
+    const conta = async () => (await p.pedir('GET', '/api/conta/pedidos', { cookie: cliente })).json.pedidos.find((x) => x.id === id);
+    const responder = (texto, cookie = cliente) => p.pedir('POST', `/api/conta/pedidos/${id}/mensagens`, { cookie, corpo: { texto } });
+    // Antes de a equipa escrever: sem conversa, o cliente não pode escrever.
+    assert.deepEqual([(await conta()).mensagens, (await conta()).pode_responder], [[], false]);
+    assert.equal((await responder('Olá?')).estado, 409);
+    assert.equal((await p.pedir('POST', `/painel/api/orcamentos/${id}/mensagem`, { cookie: p.cookies.ceo, corpo: EMAIL })).estado, 200);
+    assert.ok(p.emails.at(-1).texto.startsWith(EMAIL.texto), 'o texto revisto vai tal e qual');
+    assert.match(p.emails.at(-1).texto, new RegExp(`Para responder, entre na sua conta: \\S+/conta\\.html#pedido-${id}$`));
+    let c = await conta();
+    assert.equal(c.pode_responder, true);
+    assert.equal(c.mensagens.length, 1);
+    assert.deepEqual({ ...c.mensagens[0], quando: null }, { de: 'equipa', assunto: EMAIL.assunto, texto: EMAIL.texto, quando: null }, 'sem quem da equipa escreveu');
+    assert.ok(!JSON.stringify(c.mensagens).includes(p.u.ceo.email));
+    // O cliente responde: só o dono do pedido, com texto.
+    assert.equal((await responder('  ')).estado, 400);
+    const outro = await p.contaConfirmada();
+    assert.equal((await responder('Sou outro', outro.cookie)).estado, 404);
+    const r = await responder('Quinta de manhã serve.\nEnvio a foto hoje.');
+    assert.equal(r.estado, 201, r.texto);
+    assert.deepEqual(r.json.pedido.mensagens.map((m) => m.de), ['equipa', 'cliente']);
+    const o = (await p.pedir('GET', `/painel/api/orcamentos/${id}`, { cookie: p.cookies.comercial })).json;
+    assert.deepEqual(o.mensagens.map((m) => [m.de, m.texto, m.por]), [['equipa', EMAIL.texto, p.u.ceo.email], ['cliente', 'Quinta de manhã serve.\nEnvio a foto hoje.', null]]);
+    assert.ok(o.historico.some((x) => x.acao === 'mensagem_cliente'));
+    const t = p.app.db.prepare("SELECT titulo, orcamento_id, responsavel_id FROM tarefas WHERE lembrete LIKE ?").all(`${id}:cliente_respondeu:%`);
+    assert.deepEqual(t.map((x) => ({ ...x })), [{ titulo: 'Cliente respondeu — Maria Confidencial', orcamento_id: id, responsavel_id: null }]);
   });
 
   test('a API recusa `fallbacks` (400): repete sem ele e deixa de o mandar', async () => {

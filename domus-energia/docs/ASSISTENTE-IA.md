@@ -68,6 +68,14 @@ Decisões do dono de 2026-10-04: **o painel envia o email**; **a pessoa escreve 
 - Não usa a ligação "não quero receber": é uma mensagem de serviço sobre o pedido do cliente, escrita por uma pessoa.
 - Testes: `assistente.test.js` ("escrever ao cliente") e a matriz de `papeis.test.js`.
 
-## 9. Por fazer
-- Ver as respostas do cliente dentro do painel (hoje chegam só à caixa de email).
+## 9. Conversa do pedido: as respostas do cliente no painel
+Pedido do dono (2026-10-04): ver as respostas dos clientes dentro do painel. Sem serviços externos nem DNS: **o cliente responde na conta dele** ("A minha conta" do site).
+- **Email enviado por "Escrever ao cliente"** a um pedido com conta: leva no fim "Para responder, entre na sua conta: `<site>/conta.html#pedido-N`" (com `SITE_URL`/`DOMUS_HOST`; o texto guardado e mostrado na conversa é o que a pessoa escreveu, sem esta linha).
+- **Conta do cliente** (`web/conta.js` `blocoMensagens`): no cartão do pedido, "Mensagens" — os emails da equipa ("Domus Energia", data, assunto, texto; nunca quem da equipa escreveu) e as respostas dele ("Você") — e a caixa "A sua resposta" → `POST /api/conta/pedidos/:id/mensagens {texto ≤ 2000}`. Só o dono do pedido (404 para outra conta), só depois de a equipa ter escrito (`pode_responder`; senão 409), nunca num pedido arquivado; 10 respostas por hora por conta (429). `GET /api/conta/pedidos` leva `mensagens: [{de: "equipa" | "cliente", assunto, texto, quando}]` e `pode_responder`.
+- **Painel:** a conversa aparece em "Escrever ao cliente", por cima do formulário (as do cliente à direita); a ficha completa leva `mensagens: [{id, de, assunto, texto, por, criado}]`. Cada resposta do cliente cria a tarefa automática **"Cliente respondeu — &lt;cliente&gt;"** (para os CEO, prazo de hoje, ligada ao pedido e à ficha; chave `<pedido>:cliente_respondeu:<mensagem>`; entra no "Para hoje", no contador do menu e no email diário das 8h sem nomes) e fica no histórico do pedido ("Resposta do cliente (na conta)", só o n.º de caracteres).
+- **Guardado:** `mensagens_pedido` (migração 38). Sai com o pedido (cascata) e com a anonimização (RGPD).
+- **Limites:** quem responder diretamente ao email continua a ir para a caixa de `EMAIL_RESPOSTAS` (fora do painel); os pedidos sem conta (formulário simples do site) não têm conversa — para esses, e para telefone/WhatsApp, regista-se à mão na ficha do cliente (CRM → contacto). O cliente não é avisado por email de que a resposta foi lida.
+
+## 10. Por fazer
+- Receber no painel as respostas dadas por email (precisa de um domínio de correio da empresa e da receção de email no serviço de envio).
 - Experimentado com a API real em 2026-10-04 no servidor, com um pedido fictício: resumo em 12 s (≈ US$ 0,02) e diagnóstico em 28 s (≈ US$ 0,05); a API aceitou `fallbacks`. Falta ver o custo num pedido com simulação completa (casa inteira).

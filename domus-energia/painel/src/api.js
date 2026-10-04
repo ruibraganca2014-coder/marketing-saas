@@ -289,7 +289,7 @@ export function criarApi(ctx) {
   let emailsAuto = null;     // idem (emails automáticos: a avaliação na conta e o registo dos envios na ficha do CRM)
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
     aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm,
-    emails: () => emailsAuto });
+    emails: () => emailsAuto, tarefas: () => tarefas });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
   pagPed = criarPagamentosPedido({
@@ -390,6 +390,8 @@ export function criarApi(ctx) {
       r.ia = { ligado: Boolean(ctx.assistente), resumo: null, diagnostico: null, ...iaDe(o) };
       // "Escrever ao cliente": o email para onde vai (o da conta, ou o do formulário), ou null se não há para onde.
       r.mensagem_para = emailsAuto.destinatario(o);
+      // A conversa do pedido: os emails enviados pela equipa e as respostas do cliente na conta (migração 38).
+      r.mensagens = db.prepare('SELECT id, de, assunto, texto, por_email AS por, criado FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
     }
@@ -1330,9 +1332,12 @@ export function criarApi(ctx) {
     const espera = limiteMensagens.espera(u.id);
     if (espera) throw new ErroApi(429, 'Enviou muitos emails seguidos. Tente daqui a pouco.', { 'Retry-After': String(espera) });
     limiteMensagens.registar(u.id);
-    if (!(await correio.enviar({ para, assunto, texto: corpo, resumo: `mensagem ao cliente do pedido ${o.id}` }))) {
+    // Com conta, o email leva no fim a ligação para o cliente responder na conta (a resposta entra na ficha do pedido).
+    const rodape = o.conta_id && config.siteUrl ? `\n\nPara responder, entre na sua conta: ${config.siteUrl}/conta.html#pedido-${o.id}` : '';
+    if (!(await correio.enviar({ para, assunto, texto: `${corpo}${rodape}`, resumo: `mensagem ao cliente do pedido ${o.id}` }))) {
       throw new ErroApi(502, 'O email não foi enviado (falha no servidor de email). Tente outra vez.');
     }
+    db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, assunto, texto, por_email, criado) VALUES (?, 'equipa', ?, ?, ?, ?)").run(o.id, assunto, corpo, u.email, agoraIso());
     crm.registarEmailEnviado(o.id, `${assunto}\n\n${corpo}`, u, ip);
     auditar(u, 'mensagem_enviada', `orcamento:${o.id}`, { caracteres: corpo.length }, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));

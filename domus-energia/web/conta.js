@@ -145,6 +145,7 @@ function cartaoPedido(p) {
   for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
   if (p.confirmacao) c.append(blocoConfirmacao(p));
   if (p.avaliacao) c.append(blocoAvaliacao(p));
+  if (p.mensagens?.length) c.append(blocoMensagens(p));
   if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
   if (p.proposta) c.append(blocoProposta(p));
   if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
@@ -391,6 +392,56 @@ function blocoConfirmacao(p) {
     t.focus();
   });
   b.append(bs, zona, msg);
+  return b;
+}
+
+/**
+ * Mensagens do pedido (docs/ASSISTENTE-IA.md §9): os emails que a equipa enviou pelo painel e as respostas do cliente;
+ * com `pode_responder`, a caixa "A sua resposta" (POST pedidos/:id/mensagens).
+ */
+function blocoMensagens(p) {
+  const b = el("section", "conta-proposta conta-mensagens");
+  b.setAttribute("aria-label", "Mensagens sobre este pedido");
+  b.append(el("h4", null, "Mensagens"));
+  const lista = el("ul", "conta-conversa");
+  for (const m of p.mensagens) {
+    const li = el("li", m.de === "cliente" ? "minha" : null);
+    li.append(el("p", "ajuda", `${m.de === "cliente" ? "Você" : "Domus Energia"} · ${dataTxt(m.quando, true)}`));
+    if (m.assunto) li.append(el("p", "conta-conversa-assunto", m.assunto));
+    li.append(el("p", null, m.texto));
+    lista.append(li);
+  }
+  b.append(lista);
+  if (!p.pode_responder) return b;
+  const msg = msgPequena();
+  const f = el("form", "conta-confirmar-form");
+  f.noValidate = true;
+  const rotulo = el("label", null, "A sua resposta");
+  const t = document.createElement("textarea");
+  t.rows = 4;
+  t.maxLength = 2000;
+  t.id = `mensagem-${p.id}`;
+  rotulo.htmlFor = t.id;
+  const ok = el("button", "btn", "Enviar resposta");
+  ok.type = "submit";
+  ok.id = `mensagem-enviar-${p.id}`;
+  f.append(rotulo, t, ok);
+  f.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!t.value.trim()) { msg.textContent = "Escreva a sua resposta."; msg.className = "msg erro"; msg.hidden = false; t.focus(); return; }
+    ok.disabled = true;
+    try {
+      await pedirConta(`pedidos/${p.id}/mensagens`, { corpo: { texto: t.value.trim() } });
+      await carregar();
+      mensagem("Resposta enviada. Vamos ler e responder-lhe.", "ok");
+    } catch (e) {
+      ok.disabled = false;
+      msg.textContent = e.message;
+      msg.className = "msg erro";
+      msg.hidden = false;
+    }
+  });
+  b.append(f, msg);
   return b;
 }
 

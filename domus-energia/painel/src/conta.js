@@ -161,7 +161,7 @@ function resumoSimulacao(json) {
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, fotos: object, correio: object}} ctx
  */
-export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null, crm = () => null, emails = () => null }) {
+export function criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos = () => null, aoApagarPedido = async () => {}, eletricistas = () => null, crm = () => null, emails = () => null, tarefas = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -176,6 +176,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
+    mensagens: lim(10, 3600_000),   // respostas do cliente na conversa do pedido, por conta
     apagarIp: lim(5, 3600_000),   // apagar a própria conta (palavra-passe errada conta)
   };
   // Falhas seguidas a entrar, por par email+IP → atraso progressivo curto (1 s, 2 s, 4 s… até 60 s) a partir da 3.ª.
@@ -539,6 +540,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     let sim = null;
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
+    // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
+    const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
     return {
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
       // Cliente que regressa (decisão do dono, 2026-10-04; web/regresso.js): o pedido ainda está em andamento? — enviado e
@@ -564,6 +567,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       tem_planta: sim?.funil !== 'avaria' && Array.isArray(sim?.planta?.divisoes) && sim.planta.divisoes.length > 0,
       fotos: fotos.listar(o, sim, `/api/conta/pedidos/${o.id}/fotos/`).map((f) => ({ id: f.id, chave: f.chave, legenda: f.legenda, url: f.url, criado: f.criado })),
       fotos_max: 40,
+      mensagens,
+      // Só se responde a uma conversa que a equipa começou, num pedido que não está arquivado.
+      pode_responder: mensagens.some((m) => m.de === 'equipa') && o.estado !== ESTADO_ARQUIVADO && !o.anonimizado,
     };
   }
 
@@ -689,6 +695,22 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (!emails().paraCliente(o, eletricistas()?.paraCliente(o) ?? null)?.pode) throw new ErroApi(409, 'Este pedido não tem uma avaliação por fazer.');
     emails().avaliar(o, v.estrelas, c, ip);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+
+  // Resposta do cliente na conversa do pedido (docs/ASSISTENTE-IA.md §9): só o dono do pedido, só depois de a equipa
+  // lhe ter escrito. Fica na ficha do pedido no painel e nasce a tarefa "Cliente respondeu — <cliente>" para os CEO.
+  h.responderMensagem = async ({ req, res, c, params }) => {
+    const o = pedidoDaConta(c, params.id);
+    const v = await lerJson(req, ['texto']);
+    if (!pedidoParaCliente(o).pode_responder) throw new ErroApi(409, 'Este pedido não tem uma conversa a que responder.');
+    const corpo = texto(v.texto, 'a sua mensagem', { max: 2000, multilinha: true, obrigatorio: true });
+    esperar([[L.mensagens, String(c.id)]]);
+    contar([[L.mensagens, String(c.id)]]);
+    const id = Number(db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', ?, ?)").run(o.id, corpo, agoraIso()).lastInsertRowid);
+    auditar(quem(c), 'mensagem_cliente', `orcamento:${o.id}`, { caracteres: corpo.length });
+    crm()?.ligarPedidos();
+    tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:cliente_respondeu:${id}`, null);
+    responder(res, 201, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
   };
 
   // Credenciais MQTT da casa (área de cliente "Entrar com email"): só para a própria conta, com o email confirmado.
@@ -842,6 +864,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       for (const id of anonimizar) {
         db.prepare("DELETE FROM pagamentos_pedido WHERE orcamento_id = ? AND estado NOT IN ('pago', 'devolvido')").run(id);
         db.prepare('DELETE FROM fotos_tokens WHERE orcamento_id = ?').run(id);
+        db.prepare('DELETE FROM mensagens_pedido WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
           ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL, ia = NULL,
@@ -955,6 +978,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'pedidos/:id/fotos', 'confirmada', 'acrescentarFoto'],
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],
     ['POST', 'pedidos/:id/avaliar', 'confirmada', 'avaliar'],
+    ['POST', 'pedidos/:id/mensagens', 'confirmada', 'responderMensagem'],
     // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
     ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
     ['GET', 'casa', 'confirmada', 'casa'],

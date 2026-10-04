@@ -570,6 +570,12 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .diagnostico-pedido { margin-top: 14px; }
 .diagnostico-pedido h4, .ajuda-tecnica h4 { margin: 12px 0 4px; }
 .diag-sugestoes { margin: 6px 0 10px; padding-left: 20px; display: grid; gap: 6px; }
+/* Conversa do pedido ("Escrever ao cliente"): as respostas do cliente encostadas à direita. */
+.conversa-pedido { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 10px; }
+.conversa-pedido li { display: grid; gap: 4px; max-width: 92%; }
+.conversa-pedido li p { margin: 0; }
+.conversa-pedido .do-cliente { justify-self: end; }
+.conversa-pedido .do-cliente .mensagem-cliente { border: 1px solid var(--musgo, currentColor); }
 .diag-lista { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 2px; }
 .diag-lista li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px 12px; align-items: center; border-bottom: 1px solid var(--borda); padding: 4px 0; }
 @media (min-width: 640px) { .diag-lista li.com-valor { grid-template-columns: minmax(0, 1fr) auto; } }

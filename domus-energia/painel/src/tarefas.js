@@ -40,6 +40,8 @@ const AUTOMATICAS = {
     texto: () => 'O técnico marcou a obra como concluída no ecrã Obras. O cliente ainda não foi avisado: só depois de carregar em "Marcar obra concluída" na ficha do pedido é que o cliente é avisado, o restante é pedido e os emails automáticos (pagamento em falta, depois da obra) começam.' },
   pagamento_falta: { titulo: (n) => `Ligar a ${n} — pagamento em falta`, neutro: 'ligar ao cliente (pagamento em falta)',
     texto: (d) => `O cliente foi lembrado duas vezes por email e o pagamento continua por fazer há ${dias(d)}. Ligue-lhe. Já não saem mais lembretes automáticos.` },
+  cliente_respondeu: { titulo: (n) => `Cliente respondeu — ${n}`, neutro: 'ler a resposta de um cliente',
+    texto: () => 'O cliente respondeu na conta dele. Leia a mensagem na ficha do pedido, em "Escrever ao cliente", e responda.' },
   avaliacao_baixa: { titulo: (n) => `Avaliação baixa — ligar a ${n}`, neutro: 'ligar ao cliente (avaliação baixa)',
     texto: (d) => `O cliente avaliou o trabalho com ${d} em 5 estrelas. Urgente: ligue-lhe para perceber o que não correu bem.` },
 };

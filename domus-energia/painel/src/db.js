@@ -936,6 +936,21 @@ export const MIGRACOES = [
   // 37: assistente (IA) do pedido (docs/ASSISTENTE-IA.md). `ia` = JSON {resumo, diagnostico}: o último resultado de cada
   // botão, com a data, quem pediu, o modelo e o custo estimado. Só para a equipa; sai com a anonimização do pedido.
   (db) => db.exec('ALTER TABLE orcamentos ADD COLUMN ia TEXT;'),
+  // 38: conversa do pedido (docs/ASSISTENTE-IA.md §9): os emails que a equipa envia por "Escrever ao cliente" e as
+  // respostas que o cliente escreve na conta. `por_email`: quem da equipa enviou (o cliente nunca o vê). Sai com o
+  // pedido (cascata) e com a anonimização.
+  (db) => db.exec(`
+    CREATE TABLE mensagens_pedido (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      de TEXT NOT NULL CHECK (de IN ('equipa', 'cliente')),
+      assunto TEXT,
+      texto TEXT NOT NULL,
+      por_email TEXT,
+      criado TEXT NOT NULL
+    );
+    CREATE INDEX mensagens_pedido_orcamento ON mensagens_pedido(orcamento_id, id);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
