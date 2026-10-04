@@ -5,10 +5,10 @@ import { COMANDOS, comandoDe, caixasDe, circuitoProprio, maquinaDaPlanta } from 
 
 /**
  * Serviços do passo 1 (escolha múltipla, pelo menos um), pela ordem dos cartões. `omissao`: a ação dos aparelhos antes
- * (acaoOmissao: Novo com "Instalação nova", Manter nos outros; decisões do dono de 2026-10-03 e 2026-10-04).
+ * (acaoOmissao: Manter em todos; decisão do dono de 2026-10-04, que desfez o "Novo com Instalação nova").
  */
 export const SERVICOS = {
-  nova: { nome: "Instalação nova / remodelação total", ajuda: "Pomos tudo novo: aparelhos, fios e quadro.", omissao: "novo" },
+  nova: { nome: "Instalação nova / remodelação total", ajuda: "Fios e quadro novos. Em cada divisão escolhe o que fica e o que é novo.", omissao: "manter" },
   automatizar: { nome: "Automatizar o que já tenho", ajuda: "Tornamos inteligente o que já existe.", omissao: "manter" },
   reparar: { nome: "Reparações / avarias", ajuda: "Algo não funciona e quer que o arranjemos.", omissao: "manter" },
 };
@@ -37,13 +37,14 @@ export function normalizarServico(v) {
 }
 
 /**
- * Ação por omissão dos aparelhos (decisões do dono, 2026-10-03 e 2026-10-04): Manter — o que a casa JÁ TEM (os
- * interruptores e as tomadas do passo "Divisões", as máquinas dos Equipamentos) fica como está e não soma nada à
- * estimativa até o cliente escolher Reparar, Substituir ou Novo em "Trocar e reparar". Com "Instalação nova /
- * remodelação total" começa tudo em Novo ("Pomos tudo novo": o cartão do passo 1 diz o que acontece). O que o cliente
- * acrescenta a partir de "Trocar e reparar" nasce sempre Novo (app.js `acaoAoPor`).
+ * Ação por omissão dos aparelhos (decisões do dono, 2026-10-03 e 2026-10-04): Manter, em todos os serviços — o que a
+ * casa JÁ TEM (os interruptores e as tomadas do passo "Divisões", as máquinas dos Equipamentos) fica como está e não
+ * soma nada à estimativa até o cliente escolher Reparar, Substituir ou Novo em "Trocar e reparar". Também com
+ * "Instalação nova / remodelação total" (o dono desfez, no mesmo dia, o "começa tudo em Novo"). O que o cliente
+ * acrescenta a partir de "Trocar e reparar" nasce sempre Novo (app.js `acaoAoPor`). `servicos` fica na assinatura
+ * (quem chama passa-o).
  */
-export const acaoOmissao = (servicos) => (Array.isArray(servicos) && servicos.includes("nova") ? "novo" : "manter");
+export const acaoOmissao = (servicos) => "manter";
 /** Só "Reparações / avarias": fluxo curto (salta Equipamentos; não pede para verificar cada divisão). */
 export const soReparacoes = (servicos) => Array.isArray(servicos) && servicos.length === 1 && servicos[0] === "reparar";
 /**

@@ -34,17 +34,17 @@ function planta(acoes = {}) {
 }
 
 test('serviço: ação por omissão, fluxo curto e o que falta responder', () => {
-  // Decisões do dono (2026-10-03 e 2026-10-04): a omissão é Manter (o que a casa já tem fica como está), Novo com
-  // "Instalação nova", e conta
-  // como resposta — uma divisão com tudo em Manter está respondida sem nenhum toque.
-  assert.equal(acaoOmissao(['nova']), 'novo');
-  assert.equal(acaoOmissao(['nova', 'reparar']), 'novo');
+  // Decisões do dono (2026-10-03 e 2026-10-04): a omissão é Manter (o que a casa já tem fica como está) em todos os
+  // serviços — também com "Instalação nova" (o "Novo com Instalação nova" foi desfeito no mesmo dia) — e conta como
+  // resposta: uma divisão com tudo em Manter está respondida sem nenhum toque.
+  assert.equal(acaoOmissao(['nova']), 'manter');
+  assert.equal(acaoOmissao(['nova', 'reparar']), 'manter');
   assert.equal(acaoOmissao(['automatizar']), 'manter');
   assert.equal(acaoOmissao(['reparar']), 'manter');
   assert.ok(soReparacoes(['reparar']) && !soReparacoes(['reparar', 'automatizar']));
   assert.ok(!precisaEscolher(['nova']) && !precisaEscolher(['automatizar']) && !precisaEscolher(['reparar']));
   const t = { tipo: 'tomada', props: {} };
-  assert.equal(acaoDe(t, ['nova']), 'novo', 'sem ação escolhida, com Instalação nova: Novo');
+  assert.equal(acaoDe(t, ['nova']), 'manter', 'sem ação escolhida, com Instalação nova: também Manter');
   assert.equal(acaoDe(t, ['automatizar']), 'manter', 'sem ação escolhida, nos outros serviços: Manter');
   assert.equal(acaoDe({ ...t, acao: 'novo' }, ['automatizar']), 'novo', 'pedido como trabalho novo: fica Novo');
   assert.deepEqual(faltaAcao(t, ['nova']), [], 'a omissão já conta como resposta');
@@ -57,7 +57,7 @@ test('serviço: ação por omissão, fluxo curto e o que falta responder', () =>
   assert.equal(acaoDe({ tipo: 'janela', props: { estore: false }, acao: 'reparar' }, ['automatizar']), 'manter', 'janela sem estore: sem ação');
 });
 
-test('omissão Manter (decisão do dono, 2026-10-03; Novo com "Instalação nova", 2026-10-04): sem ações nada entra no preço; as escolhas ficam', () => {
+test('omissão Manter em todos os serviços (decisões do dono, 2026-10-03 e 2026-10-04): sem ações nada entra no preço; as escolhas ficam', () => {
   const base = { casa: null, quadro: { circuitos: [] }, extras: {} };
   for (const servico of [['automatizar'], ['reparar'], ['automatizar', 'reparar']]) {
     const p = planta();
@@ -65,8 +65,8 @@ test('omissão Manter (decisão do dono, 2026-10-03; Novo com "Instalação nova
     const divisoes = divisoesDaContagem(contarPlanta(plantaNovos(p, servico)));
     assert.deepEqual(pedidosDaSelecao({ ...base, servico, planta: p, divisoes }), [], `${servico.join()}: tudo em Manter não soma nada`);
   }
-  // "Instalação nova": tudo começa em Novo.
-  for (const servico of [['nova'], ['nova', 'automatizar']]) assert.deepEqual(contarAcoes(planta(), servico), { manter: 0, reparar: 0, substituir: 0, novo: 6 }, servico.join());
+  // "Instalação nova": também começa tudo em Manter.
+  for (const servico of [['nova'], ['nova', 'automatizar']]) assert.deepEqual(contarAcoes(planta(), servico), { manter: 6, reparar: 0, substituir: 0, novo: 0 }, servico.join());
   // Escolhas explícitas ficam (um estado de antes com elas não muda); o resto, que só tinha a omissão, segue a do serviço.
   const p = planta({ e1: { acao: 'novo' }, e3: { acao: 'substituir', inteligente: true }, e5: { acao: 'reparar', avaria: 'não acende' } });
   assert.deepEqual(contarAcoes(p, ['automatizar']), { manter: 3, reparar: 1, substituir: 1, novo: 1 });

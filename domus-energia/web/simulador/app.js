@@ -2343,6 +2343,26 @@ function responderInventario(d, id, mudar, focoId) {
 }
 
 /**
+ * "Quero inteligente" numa tomada do inventário: Substituir por uma inteligente (ou, ao desmarcar, de volta à omissão,
+ * Manter). Não conta como resposta ao tipo da tomada (simples, dupla, tripla).
+ */
+function quererInteligente(d, id, quer, focoId) {
+  if (!garantirPlanta()) return;
+  const e = elementoDoEstado(id);
+  if (!e) return;
+  if (quer) { e.acao = "substituir"; e.inteligente = true; } else { delete e.acao; delete e.inteligente; }
+  estado.plantaAuto = false;
+  divisaoTocada = d.id;
+  refazerDivisoes([d.id]);
+  garantirEditor();
+  editor.redesenhar();
+  agendarGravacao();
+  desenharDivisoes();
+  desenharEstimativaProvisoria();
+  focar(focoId);
+}
+
+/**
  * "+" (e "Acrescentar outro aparelho", "Acrescentar uma divisão"): na planta do topo (sem mudar de passo), no piso da
  * divisão, com ela selecionada e a ferramenta desse aparelho escolhida (na linha das ferramentas, mesmo que lá não
  * estivesse). Pelo teclado o aparelho fica logo no meio da divisão (como as ferramentas do editor); o cliente
@@ -2853,7 +2873,7 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
     return g;
   }
   // Os que a planta traz são uma sugestão (nenhum respondido ainda): o cliente acerta o número e diz como é cada um.
-  g.append(el("p", "ajuda", `${falta === n ? `Sugerimos ${n}: acerte com − e +. ` : ""}${I.pergunta}`));
+  g.append(el("p", "ajuda", `${falta === n ? `Sugerimos ${n}: acerte com − e +. ` : ""}${I.pergunta}${tipo === "tomada" ? " Marque \"Quero inteligente\" nas que quer comandar pelo telemóvel." : ""}`));
   const ul = el("ul", "inventario-itens");
   els.forEach((e, i) => {
     const li = el("li", `inventario-item${e.confirmado === true ? "" : " por-responder"}`);
@@ -2872,7 +2892,20 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
       b.addEventListener("click", () => responderInventario(d, e.id, (x) => I.mudar(x, v), b.id));
       ops.append(b);
     }
-    li.append(rot, ops);
+    li.append(rot);
+    // "Quero inteligente" (decisão do dono, 2026-10-04): a tomada passa já aqui a Substituir por uma inteligente — o
+    // mesmo que escolher "Substituir" e "Por um inteligente? Sim" em "Trocar e reparar"; desmarcar volta a Manter.
+    if (tipo === "tomada") {
+      const quer = e.acao === "substituir" && e.inteligente === true;
+      const bi = el("button", "btn sec pequeno inventario-nao-tem inventario-inteligente", "Quero inteligente");
+      bi.type = "button";
+      bi.id = `${base}-${i}-inteligente`;
+      bi.setAttribute("aria-pressed", String(quer));
+      bi.setAttribute("aria-label", `${nome} (${onde}): quero uma tomada inteligente`);
+      bi.addEventListener("click", () => quererInteligente(d, e.id, !quer, bi.id));
+      li.append(bi);
+    }
+    li.append(ops);
     ul.append(li);
   });
   g.append(ul);

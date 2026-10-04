@@ -138,8 +138,8 @@ test('preço: o que a casa já tem (Manter) não soma nada; luz, sensor e estore
   assert.deepEqual(pedidosDaSelecao(a), []);
   assert.ok(a.planta.elementos.every((x) => acaoDe(x, a.servico) === 'manter' && faltaAcao(x, a.servico).length === 0));
   assert.deepEqual(contarAcoes(a.planta, a.servico), { manter: a.planta.elementos.filter((x) => x.tipo !== 'porta').length, reparar: 0, substituir: 0, novo: 0 });
-  // "Instalação nova" (decisão do dono, 2026-10-04): tudo começa em Novo — as tomadas e os interruptores entram como pontos novos.
-  assert.ok(preco(casaT2(['nova'])).linhas.some((l) => /^(TOMADA|INTERRUPTOR)-/.test(l.sku)));
+  // "Instalação nova" (decisão do dono, 2026-10-04): também começa em Manter — as tomadas e os interruptores que a casa já tem não entram como pontos novos.
+  assert.ok(!preco(casaT2(['nova'])).linhas.some((l) => /^(TOMADA|INTERRUPTOR)-/.test(l.sku)));
   const e = casaT2(['automatizar']);
   const base = preco(e);
   assert.ok(base.linhas.every((l) => !/^(PONTO-LUZ|TOMADA|INTERRUPTOR)-/.test(l.sku) && !/^(SENS|BAB-CURTAIN)/.test(l.sku)), base.linhas.map((l) => l.sku).join());
