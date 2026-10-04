@@ -596,9 +596,13 @@ export default function orcamentos(el, ctx) {
       return sec;
     }
     // Estado do editor: o esquema em edição (normalizado a cada mudança), o componente tocado e se há mudanças por guardar.
-    let l = normalizarEsquema(guardado) ?? esquemaVazio();
+    // Sem esquema guardado e com a foto do quadro já lida pela IA, o editor abre logo com o rascunho da leitura (pedido do
+    // dono, 2026-10-04): fica por guardar — o cliente só vê o esquema depois de alguém o conferir e carregar em "Guardar".
+    const leituraInicial = campo(o, "leitura_quadro") ?? null;
+    const rascunhoAuto = !guardado && fotoQuadro && campo(leituraInicial, "estado") === "feita" ? esquemaDaLeitura(campo(leituraInicial, "leitura")) : null;
+    let l = normalizarEsquema(guardado) ?? rascunhoAuto ?? esquemaVazio();
     let sel = null;
-    let mudado = false;
+    let mudado = Boolean(rascunhoAuto);
     const desenhoCx = h("div", { class: "esquema-quadro-desenho" });
     const editarCx = h("div", { class: "esquema-quadro-editar" });
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -746,6 +750,10 @@ export default function orcamentos(el, ctx) {
         avisar(`Rascunho feito pela leitura automática da foto (confiança ${CONF[c] ?? c}). Confira com a foto, corrija e guarde.`);
       });
       preencher = h("div", { class: "form-botoes" }, b, h("span", { class: "ajuda", text: "Rascunho feito por inteligência artificial: conta os componentes, não a ordem na calha. Confira sempre com a foto." }));
+    }
+    if (rascunhoAuto) {
+      const c = campo(campo(leituraInicial, "leitura"), "confianca");
+      sec.append(h("div", { class: "msg info bloco", id: "esquema-rascunho-auto", text: `Rascunho preenchido sozinho pela leitura da foto (confiança ${{ alta: "alta", media: "média", baixa: "baixa" }[c] ?? c}). Ainda não está guardado: confira com a foto, corrija e carregue em "Guardar esquema". O cliente só o vê depois de guardado.` }));
     }
     if (preencher) sec.append(preencher);
     sec.append(h("div", { class: "esquema-quadro-grelha" }, foto, h("div", { class: "esquema-quadro-editor" }, desenhoCx, editarCx)),
