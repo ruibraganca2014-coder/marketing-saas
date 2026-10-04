@@ -45,6 +45,15 @@ const ECRAS = [
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
 ];
 
+// Menu curto (decisão do dono, 2026-10-04: "simplifica o painel"): por omissão o menu mostra só o caminho de um pedido —
+// Orçamentos, Obras e Pagamentos — e o painel abre em Orçamentos. "Mostrar tudo", no fundo do menu, traz os outros
+// ecrãs (a escolha fica neste navegador). Nada é desligado: os outros ecrãs continuam a abrir pelo endereço e pelas
+// ligações das fichas.
+const MENU_CURTO = ["orcamentos", "obras", "pagamentos"];
+const CHAVE_MENU = "domus.painel.menu";
+const menuCompleto = () => { try { return localStorage.getItem(CHAVE_MENU) === "completo"; } catch { return false; } };
+const noMenu = (ecra) => menuCompleto() || MENU_CURTO.includes(ecra.id);
+
 const $ = (id) => document.getElementById(id);
 const vistaLogin = $("vista-login"), vistaPainel = $("vista-painel"), conteudo = $("conteudo");
 let eu = null;
@@ -68,13 +77,14 @@ function normalizarEu(r) {
 
 /**
  * Faixa por baixo do topo (docs/PAGAMENTOS-PEDIDO.md): "Modo de demonstração — pagamentos simulados" (PAGAMENTOS_MODO=
- * simulado) ou "Pagamentos desligados" (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY: os pedidos chegam sem pagar).
+ * simulado) ou "Pagamentos online ainda desligados" (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY: os pedidos chegam sem
+ * pagar; frase curta, sem nomes de variáveis, a pedido do dono — como os ligar está em docs/PAGAMENTOS-PEDIDO.md).
  */
 function faixaPagamentos() {
   $("faixa-pagamentos")?.remove();
   const p = eu?.pagamentos;
   const texto = p?.demonstracao ? "Modo de demonstração — pagamentos simulados: não é cobrado nada e qualquer pessoa pode \"pagar\". Para pagamentos reais: PAGAMENTOS_MODO=stripe e as chaves do Stripe no .env."
-    : p?.desligados_sem_configuracao ? "Pagamentos desligados: os pedidos chegam na mesma (grátis), mas o cliente não compra o relatório nem a visita e a avaria chega sem pagar. Para os ligar: STRIPE_SECRET_KEY (e PAGAMENTOS_MODO=stripe) no .env."
+    : p?.desligados_sem_configuracao ? "Pagamentos online ainda desligados: os pedidos chegam na mesma."
       : null;
   if (texto) document.querySelector(".topo-painel").after(h("div", { class: `faixa-pagamentos${p?.demonstracao ? " demonstracao" : ""}`, id: "faixa-pagamentos", role: "note", text: texto }));
 }
@@ -151,16 +161,34 @@ function mostrarPainel() {
   vistaLogin.hidden = true;
   vistaPainel.hidden = false;
   $("quem").replaceChildren(h("span", { class: "quem-nome", text: eu.nome }), h("span", { class: "selo-p papel", text: PAPEIS[eu.papel] ?? eu.papel }));
-  const lista = $("nav-lista");
-  lista.replaceChildren(...ECRAS.filter((e) => permitido(e) && existe(e)).map((e) =>
-    h("li", {}, h("a", { href: `#/${e.id}`, dataset: { ecra: e.id }, text: e.nome }))));
-  const mudar = h("a", { href: "#", role: "button", "aria-haspopup": "dialog", text: "Mudar palavra-passe" });
-  mudar.addEventListener("click", (e) => { e.preventDefault(); abrirMenu(false); mudarPalavraPasse(); });
-  lista.append(h("li", { class: "nav-conta" }, mudar));
+  desenharMenu();
+  // Menu curto: o painel abre no primeiro ecrã do menu (Orçamentos), não no Início.
+  const primeiro = ECRAS.find((e) => permitido(e) && existe(e) && noMenu(e));
+  if (!menuCompleto() && primeiro && rota().id === "inicio") history.replaceState(null, "", `#/${primeiro.id}`);
   faixaPagamentos();
   encaminhar();
   retomarPedidos();
   contagemTarefas(true);
+}
+
+function desenharMenu() {
+  const lista = $("nav-lista");
+  lista.replaceChildren(...ECRAS.filter((e) => permitido(e) && existe(e) && noMenu(e)).map((e) =>
+    h("li", {}, h("a", { href: `#/${e.id}`, dataset: { ecra: e.id }, text: e.nome }))));
+  const completo = menuCompleto();
+  const alternar = h("a", { href: "#", role: "button", id: "menu-alternar", text: completo ? "Mostrar só o essencial" : "Mostrar tudo" });
+  alternar.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();   // no telemóvel o menu fica aberto para se ver o que mudou
+    try { if (completo) localStorage.removeItem(CHAVE_MENU); else localStorage.setItem(CHAVE_MENU, "completo"); } catch { /* sem armazenamento: fica o menu curto */ }
+    desenharMenu();
+    marcarNav(rota().id);
+    contagemTarefas(true);
+    $("menu-alternar")?.focus();
+  });
+  const mudar = h("a", { href: "#", role: "button", "aria-haspopup": "dialog", text: "Mudar palavra-passe" });
+  mudar.addEventListener("click", (e) => { e.preventDefault(); abrirMenu(false); mudarPalavraPasse(); });
+  lista.append(h("li", { class: "nav-conta" }, alternar), h("li", {}, mudar));
 }
 
 // Selo no menu "Tarefas": as minhas tarefas por fazer atrasadas ou para hoje (GET tarefas/contagem). Atualiza ao mudar
