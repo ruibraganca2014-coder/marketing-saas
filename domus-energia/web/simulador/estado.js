@@ -48,9 +48,11 @@ export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordem
  * (só para o cliente saber quanto falta). Primeira vez ~12 min (o Quadro é só a foto: ~1 min; fase 3 da auditoria: os
  * Equipamentos vêm pré-marcados ~1 min, um só Relatório ~½ min e o Enviar sem palavra-passe ~½ min); já tenho planta
  * ~5 min; avaria ~2 min. Fase 2: as Melhorias (~1 min) antes do Orçamento na primeira vez e no "Já tenho a planta".
+ * Decisão do dono (2026-10-04): o passo Planta (3) sai do funil da primeira vez (~10 min) — a planta desenha-se sozinha
+ * pela casa e continua ao lado / em "Ver planta"; as divisões mudam-se no passo "A casa".
  */
 export const FUNIS = {
-  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 3, 4, 11, 6, 10, 7, 8], minutos: { 0: 1, 1: 1, 2: 1, 5: 1, 3: 2, 4: 1, 11: 0.5, 6: 2, 10: 1, 7: 1, 8: 0.5 } },
+  primeira: { nome: "Obras ou automatizar a casa", passos: [0, 1, 2, 5, 4, 11, 6, 10, 7, 8], minutos: { 0: 1, 1: 1, 2: 1, 5: 1, 4: 1, 11: 0.5, 6: 2, 10: 1, 7: 1, 8: 0.5 } },
   planta: { nome: "Já tenho a planta", passos: [0, 6, 10, 11, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 11: 0.5, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
@@ -620,9 +622,12 @@ export function normalizarEstado(v) {
     if (passo === PASSO_REFORMADO) passo = PASSO.relatorio;
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
     if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
+    // O passo Planta saiu do funil da primeira vez (2026-10-04): quem lá estava segue para o Quadro (o passo a seguir).
+    const semPlanta = (i) => (i === PASSO.planta && e.funil === "primeira" && !seq.includes(i) ? PASSO.quadro : i);
+    passo = semPlanta(passo);
     if (!seq.includes(passo)) passo = 0;
     e.passo = passo;
-    let vis = int(v.visitado, 0, PASSOS.length - 1);
+    let vis = semPlanta(int(v.visitado, 0, PASSOS.length - 1));
     if (vis === PASSO_REFORMADO) vis = PASSO.melhorias;
     e.visitado = seq.includes(vis) && vis !== PASSO.enviar && seq.indexOf(vis) > seq.indexOf(passo) ? vis : passo;
   }
@@ -631,6 +636,9 @@ export function normalizarEstado(v) {
   if (de11) { reordenar(e, ORDEM_11, FUNIS_11); e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado)); }
   else if (!deAgora && !de12) reordenar(e);
   else e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
+  // Estados de antes (reordenar): o mesmo — a Planta já não é passo, segue para o Quadro.
+  if (e.funil === "primeira" && e.passo === PASSO.planta) e.passo = PASSO.quadro;
+  if (e.funil === "primeira" && e.visitado === PASSO.planta) e.visitado = PASSO.quadro;
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
   if (e.funil === "planta" && !e.caminho && e.passo !== 0) e.caminho = e.servico.includes("automatizar") ? "automatizar" : "reparar";

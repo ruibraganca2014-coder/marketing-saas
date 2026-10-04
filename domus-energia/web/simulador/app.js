@@ -161,7 +161,7 @@ const editor = criarEditor($("editor"), {
   aoSelecionar: (id) => destacarCartao(id, { rolar: !doCartao }),
   // "Trocar e reparar" (lote 8): o aparelho tocado na planta mostra por baixo dela o que fazer com ele.
   aoSelecionarElemento: (id) => aoTocarAparelho(id),
-  // Lote 8: as divisões só mudam nos passos "A casa" e "Planta"; nos outros, a dica leva ao passo Planta.
+  // Lote 8: as divisões só mudam no passo "A casa" (o passo Planta saiu do funil); nos outros, a dica leva lá.
   aoDivisaoPresa: () => mostrarDivisaoPresa(),
   // Decisão do dono (2026-10-03): o que a casa já tem fica Manter; o que o cliente acrescenta a partir de "Trocar e
   // reparar" (também pela planta, nesse passo e nos seguintes) é trabalho novo: nasce "Novo". Antes disso (Equipamentos,
@@ -238,7 +238,7 @@ function passoAo(de, d) {
  * fluxo curto (só reparações) 4 min, sem Equipamentos, Planta nem Divisões; já tenho planta ~4 min; avaria ~2 min.
  */
 const MINUTOS_CURTO = { 0: 0.5, 1: 0.5, 4: 0.5, 11: 0.5, 6: 1, 10: 1, 7: 0.5, 8: 0.5 };
-/** Minutos de um funil inteiro ("~12 min" no cartão do Início e em "Como fazer a simulação"). */
+/** Minutos de um funil inteiro ("~10 min" no cartão do Início e em "Como fazer a simulação"). */
 const minutosFunil = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + (FUNIS[f].minutos[i] ?? 1), 0));
 const minutosDe = (i) => (naoPrecisa(i) ? 0 : fluxoCurto() ? MINUTOS_CURTO[i] ?? 1 : FUNIS[funil()].minutos[i] ?? 1);
 const minTxt = (m) => (m < 1 ? "½" : String(m));
@@ -1726,13 +1726,13 @@ function fecharPlanta({ foco = true } = {}) {
 }
 $("ver-planta").addEventListener("click", (ev) => abrirPlanta(ev.currentTarget));
 
-/** Tentou mudar uma divisão fora dos passos "A casa" e "Planta": a dica curta com o botão para o passo Planta (8 s). */
+/** Tentou mudar uma divisão fora do passo "A casa": a dica curta com o botão para lá (8 s). */
 let temporizadorPresa = null;
 function mostrarDivisaoPresa() {
   const c = $("planta-presa");
-  // Funil "Já tenho a planta": as divisões mudam-se em "A casa" (Mudar a casa); senão no passo Planta.
-  $("planta-presa-texto").textContent = funilPlanta() ? "Divisões: mude a casa." : "Divisões: mude no passo Planta.";
-  $("planta-presa-ir").textContent = funilPlanta() ? "Mudar a casa" : "Ir ao passo Planta";
+  // Funil "Já tenho a planta": as divisões mudam-se em "A casa" (Mudar a casa); senão no passo "A casa".
+  $("planta-presa-texto").textContent = funilPlanta() ? "Divisões: mude a casa." : "Divisões: mude no passo A casa.";
+  $("planta-presa-ir").textContent = funilPlanta() ? "Mudar a casa" : "Ir ao passo A casa";
   c.hidden = false;
   clearTimeout(temporizadorPresa);
   temporizadorPresa = setTimeout(() => { if (!c.contains(document.activeElement)) c.hidden = true; }, 8000);
@@ -1740,7 +1740,7 @@ function mostrarDivisaoPresa() {
 $("planta-presa-ir").addEventListener("click", () => {
   $("planta-presa").hidden = true;
   fecharPlanta({ foco: false });
-  if (funilPlanta()) mudarACasa(); else irPara(P.planta);
+  if (funilPlanta()) mudarACasa(); else irPara(P.casa);
 });
 /**
  * "Mudar a casa" (funil "Já tenho a planta"): passa ao funil da primeira vez, no passo "A casa", mantendo tudo (a
@@ -3052,8 +3052,8 @@ ligarRecalcular("divisoes-recalcular", () => estado.divisoesEditadas, () => {
   estado.divisoes = divisoesSugeridas(contagemAtual());
   estado.divisoesEditadas = false;
 }, desenharDivisoes);
-// Lote 8: as divisões mudam-se no passo Planta (aqui estão presas).
-$("divisao-adicionar").addEventListener("click", () => irPara(P.planta));
+// Lote 8: as divisões mudam-se no passo "A casa" (aqui estão presas; o passo Planta saiu do funil).
+$("divisao-adicionar").addEventListener("click", () => irPara(P.casa));
 
 // ------------------------------------------------------------ 6. Trocar e reparar (lote 8)
 // O que fazer com cada coisa da casa (as ações saíram do passo Divisões): na lista (um cartão por divisão, só os
