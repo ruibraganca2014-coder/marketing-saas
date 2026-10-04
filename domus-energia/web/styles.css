@@ -760,17 +760,15 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .msg .msg-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .msg .msg-acoes .btn { background: var(--superficie); }
 
-/* Menu para telemóvel (links das secções) */
-.menu-botao { display: grid; place-items: center; width: 44px; height: 44px; flex: none; padding: 0; border-radius: 999px; border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); cursor: pointer; }
-.menu-botao svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
-.menu-botao .fechar { display: none; }
-.menu-botao[aria-expanded="true"] .abrir { display: none; }
-.menu-botao[aria-expanded="true"] .fechar { display: inline; }
-.menu-movel { display: block; position: absolute; left: 0; right: 0; top: 100%; background: var(--superficie); border-bottom: 1px solid var(--borda); box-shadow: var(--sombra); }
-.menu-movel ul { list-style: none; margin: 0 auto; padding: 8px 16px 14px; max-width: 1080px; display: grid; gap: 2px; }
-.menu-movel a { display: flex; align-items: center; min-height: 48px; padding: 0 12px; border-radius: 12px; color: var(--texto); font-weight: 700; text-decoration: none; }
+/* Ligações das secções em ecrãs estreitos (decisão do dono, 2026-10-04: sem botão de menu): sempre à vista por baixo do
+   topo, em várias linhas. Em ecrãs largos as ligações estão na barra do topo e esta zona não aparece. Com as ligações
+   à vista o topo deixa de ficar preso ao cimo nos ecrãs estreitos (ocupava um terço do telemóvel). */
+.menu-movel { display: block; border-top: 1px solid var(--borda); }
+.menu-movel ul { list-style: none; margin: 0 auto; padding: 4px 8px 6px; max-width: 1080px; display: flex; flex-wrap: wrap; gap: 0 2px; }
+.menu-movel a { display: flex; align-items: center; min-height: 44px; padding: 0 10px; border-radius: 12px; color: var(--texto); font-weight: 700; font-size: .95rem; text-decoration: none; }
 .menu-movel a:hover { background: var(--musgo-claro); }
-@media (min-width: 1000px) { .menu-botao, .menu-movel { display: none !important; } }
+@media (max-width: 999.98px) { .topo { position: static; } }
+@media (min-width: 1000px) { .menu-movel { display: none !important; } }
 
 /* =================== Conta de cliente (conta-comum.js, conta.html) =================== */
 .conta-bloco { display: grid; gap: 14px; }

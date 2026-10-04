@@ -53,28 +53,6 @@ document.getElementById("ano").textContent = new Date().getFullYear();
   }
 }
 
-// ---------- Menu para telemóvel ----------
-const menuBotao = document.getElementById("menu-botao");
-const menu = document.getElementById("menu-movel");
-function abrirMenu(abrir) {
-  menu.hidden = !abrir;
-  menuBotao.setAttribute("aria-expanded", String(abrir));
-  menuBotao.setAttribute("aria-label", abrir ? "Fechar menu" : "Menu");
-}
-menuBotao.addEventListener("click", () => {
-  const abrir = menu.hidden;
-  abrirMenu(abrir);
-  if (abrir) menu.querySelector("a")?.focus();
-});
-// Escolher uma secção fecha o menu (o navegador desce até ela).
-menu.addEventListener("click", (e) => { if (e.target.closest("a")) abrirMenu(false); });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !menu.hidden) { abrirMenu(false); menuBotao.focus(); }
-});
-document.addEventListener("click", (e) => {
-  if (!menu.hidden && !menu.contains(e.target) && !menuBotao.contains(e.target)) abrirMenu(false);
-});
-
 // ---------- Planos: "Pedir orçamento" escolhe o plano no formulário ----------
 document.querySelectorAll(".js-plano").forEach((a) => {
   a.addEventListener("click", (e) => {
