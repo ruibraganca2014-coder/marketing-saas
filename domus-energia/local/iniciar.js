@@ -52,7 +52,10 @@ const ORIGEM = `http://localhost:${PORTA_SITE}`;
 // rede local usa outra, PORTA_REDE); essas origens também são aceites pelo painel. REDE_LOCAL=0 desliga.
 const REDE_LOCAL = process.env.REDE_LOCAL !== '0';
 const PORTA_REDE = Number(process.env.PORTA_REDE || 8090);
-const IPS_LOCAIS = REDE_LOCAL ? Object.values(networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a.address) : [];
+// Só endereços de rede privada (o Wi-Fi de casa): o de uma VPN (ex.: 100.x do Tailscale) não é a rede local e, como
+// origem, fazia o painel desligar o acesso rápido de testes (painel/src/acesso-rapido.js recusaAcessoRapido).
+const IP_PRIVADO = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/;
+const IPS_LOCAIS = REDE_LOCAL ? Object.values(networkInterfaces()).flat().filter((a) => a && a.family === 'IPv4' && !a.internal && IP_PRIVADO.test(a.address)).map((a) => a.address) : [];
 const ORIGENS_REDE = IPS_LOCAIS.map((ip) => `http://${ip}:${PORTA_REDE}`);
 // Acesso rápido (testes; ver o cabeçalho). ACESSO_RAPIDO=0 desliga.
 const ACESSO_RAPIDO = process.env.ACESSO_RAPIDO !== '0';

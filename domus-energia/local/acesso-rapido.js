@@ -102,7 +102,7 @@
 .ar-caixa[hidden], .ar-msg[hidden] { display: none; }
 .ar-nota, .ar-msg, .ar-grupo { margin: 0; }
 .ar-nota { font-weight: 400; }
-.ar-codigo { margin: 8px 0 0; padding: 8px 12px; border: 2px dashed currentColor; border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ar-codigo { box-sizing: border-box; width: 100%; flex: 0 0 100%; grid-column: 1 / -1; margin: 8px 0 0; padding: 8px 12px; border: 2px dashed currentColor; border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ar-codigo strong { font-size: 1.25rem; letter-spacing: .12em; }
 .ar-grupo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ar-rotulo { flex: 0 0 100%; font-size: 12px; font-weight: 400; opacity: .8; }
