@@ -5202,6 +5202,13 @@ function iniciar() {
     mostrarPasso(false);
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
+  // Botões da página inicial (decisão do dono, 2026-10-05): `?caso=casa|servico|avaria` abre o Início com esse cartão
+  // escolhido, como se o cliente lá tivesse carregado ("Pedir um serviço" sem casa guardada leva a descrever a casa).
+  const caso = { casa: "primeira", servico: "planta", avaria: "avaria" }[params.get("caso")];
+  if (caso && !regressoPagamento && !enviado) {
+    if (estado.passo !== P.inicio) irPara(P.inicio, { foco: false });
+    if (estado.funil !== caso || casaPreEscolhida) escolherFunil(caso);
+  }
   blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta
 }
 

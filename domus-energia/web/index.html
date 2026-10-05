@@ -112,7 +112,10 @@
           <h1>Eletricista certificado<br><em>na Grande Lisboa.</em></h1>
           <p>Arranjamos avarias, trocamos quadros antigos e montamos carregadores de carro. Para quem quiser, também pomos as luzes, os estores e as tomadas a funcionar pelo telemóvel. Dizemos o preço antes de começar.</p>
           <div class="acoes">
-            <a class="btn" id="hero-simular" href="simulador.html">Descrever a minha casa</a>
+            <!-- Os três casos do simulador (decisão do dono, 2026-10-05); `?caso=` abre o Início com esse cartão escolhido. -->
+            <a class="btn" id="hero-simular" href="simulador.html"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 22 24 9l16 13"/><path d="M12 19v19h24V19"/><path d="M24 24v10M19 29h10"/></svg><span id="hero-simular-texto">Descrever a minha casa</span></a>
+            <a class="btn sec" id="hero-servico" href="simulador.html?caso=servico"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9h32v30H8z"/><path d="M8 24h14M28 9v10M28 27v12M34 24h6"/></svg><span>Pedir um serviço</span></a>
+            <a class="btn sec" id="hero-avaria" href="simulador.html?caso=avaria"><svg viewBox="0 0 48 48" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M26 6 12 27h10l-3 15 16-22H24z"/></svg><span>Tenho uma avaria</span></a>
           </div>
           <!-- Telefone e WhatsApp escondidos pelo site.js enquanto o config.js tiver números de exemplo: fica o email. -->
           <p class="hero-ou"><span class="js-ou-ligar">ou ligue: <a class="js-telefone" href="#"><span class="js-telefone-texto">Telefone</span></a><span class="js-ou-sep"> · </span><a class="js-whatsapp" href="#">WhatsApp</a></span><span class="js-ou-email" hidden>ou escreva-nos: <a class="js-email" href="#"><span class="js-email-texto">Email</span></a></span></p>

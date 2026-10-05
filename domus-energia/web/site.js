@@ -47,7 +47,7 @@ document.getElementById("ano").textContent = new Date().getFullYear();
       const b = botaoInicio({ sessao: !!eu?.conta, temCasa: casa, pedido });
       if (!b) return;
       botao.style.minWidth = `${botao.offsetWidth}px`;
-      botao.textContent = b.texto;
+      (document.getElementById("hero-simular-texto") ?? botao).textContent = b.texto;
       botao.href = b.href;
     })();
   }

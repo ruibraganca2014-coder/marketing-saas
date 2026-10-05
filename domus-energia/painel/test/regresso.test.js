@@ -78,7 +78,9 @@ test('botão da página inicial: visitante novo fica como está; casa guardada o
 
 test('as páginas: o botão nasce com o texto e o destino de sempre (sem JavaScript); o Início tem o aviso e a frase; a conta tem o cartão do pedido', async () => {
   const index = await readFile(join(WEB, 'index.html'), 'utf8');
-  assert.match(index, /<a class="btn" id="hero-simular" href="simulador\.html">Descrever a minha casa<\/a>/);
+  assert.match(index, /<a class="btn" id="hero-simular" href="simulador\.html"><svg[^>]*>.*?<\/svg><span id="hero-simular-texto">Descrever a minha casa<\/span><\/a>/);
+  assert.match(index, /href="simulador\.html\?caso=servico">.*?<span>Pedir um serviço<\/span>/);
+  assert.match(index, /href="simulador\.html\?caso=avaria">.*?<span>Tenho uma avaria<\/span>/);
   const sim = await readFile(join(WEB, 'simulador.html'), 'utf8');
   assert.match(sim, /<div class="msg info" id="inicio-pedido" role="status" hidden><\/div>\s*<p class="msg info" id="inicio-casa" role="status" hidden><\/p>\s*<fieldset class="escolhas">\s*<legend>Qual é o seu caso\?/);
   const conta = await readFile(join(WEB, 'conta.js'), 'utf8');
