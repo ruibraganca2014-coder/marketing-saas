@@ -286,7 +286,9 @@ input, select { min-height: 44px; }
 .inventario-nao-tem[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
 .inventario-itens { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .inventario-item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; min-width: 0; }
-.inventario-nome { font-weight: 700; }
+/* O nome é um botão: tocar localiza o aparelho na planta. */
+.inventario-nome { min-height: 44px; padding: 0 4px 0 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-align: left; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 4px; }
+.inventario-nome:hover, .inventario-nome:focus-visible { color: var(--musgo-texto); }
 .inventario-item.por-responder .inventario-opcoes { border-color: var(--alarme-texto); }
 .inventario-opcoes .acao-botao { min-height: 44px; min-width: 44px; }
 /* Interruptores: o desenho das teclas (1 a 4) por cima do número. */

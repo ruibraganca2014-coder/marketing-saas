@@ -2498,6 +2498,27 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       desenharSelecao();
       return true;
     },
+    /**
+     * Localiza um aparelho (decisão do dono, 2026-10-05: tocar em "Tomada 1" na lista das Divisões): mostra o piso
+     * dele, seleciona-o (aro a piscar) e, se estiver fora do que se vê, desloca a vista para o centrar, sem mudar a
+     * ampliação. Devolve false se não existir.
+     */
+    focarElemento(id) {
+      const e = planta ? obterElemento(id) : null;
+      if (!e) return false;
+      const d = e.divisao ? obterDivisao(e.divisao) : null;
+      if (d && pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
+      selecionado = e.id;
+      const c = caixaVista();
+      const mx = c.w * 0.12, my = c.h * 0.12;
+      if (e.x_cm < c.x + mx || e.x_cm > c.x + c.w - mx || e.y_cm < c.y + my || e.y_cm > c.y + c.h - my) {
+        vista = { ...vista, cx: e.x_cm, cy: e.y_cm };
+        ajusteAuto = false;
+      }
+      desenhar();
+      desenharSelecao();
+      return true;
+    },
     /** Só para testes/depuração: estado da vista. */
     get vista() { return { ...vista }; },
   };

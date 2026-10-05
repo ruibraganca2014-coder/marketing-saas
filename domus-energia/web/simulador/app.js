@@ -2808,6 +2808,15 @@ function abrirAparelhos(d, botaoId) {
   corpo.querySelector("button")?.focus();
 }
 
+/**
+ * Tocar no nome de um interruptor ou de uma tomada na lista das Divisões localiza-o na planta (decisão do dono,
+ * 2026-10-05): fica selecionado e à vista. No telemóvel e no tablet a planta está fechada: abre-se por cima, já nele.
+ */
+function localizarNaPlanta(id, origem) {
+  if (!garantirPlanta()) return;
+  const focar = () => { doCartao = true; editor.focarElemento(id); doCartao = false; };
+  if (abrirPlanta(origem)) requestAnimationFrame(focar); else focar();
+}
 function mostrarNaPlanta(id) {
   if (editor.planta !== estado.planta) return;   // planta saltada num estado antigo: ainda não é a do editor
   doCartao = true;
@@ -3055,8 +3064,11 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
   els.forEach((e, i) => {
     const li = el("li", `inventario-item${e.confirmado === true ? "" : " por-responder"}`);
     const nome = n > 1 ? `${I.um} ${i + 1}` : I.um;
-    const rot = el("span", "inventario-nome", nome);
+    const rot = el("button", "inventario-nome", nome);
+    rot.type = "button";
     rot.id = `${base}-${i}-nome`;
+    rot.title = "Ver na planta";
+    rot.addEventListener("click", () => localizarNaPlanta(e.id, rot));
     const ops = el("div", "acao-botoes inventario-opcoes");
     ops.setAttribute("role", "group");
     ops.setAttribute("aria-labelledby", rot.id);
