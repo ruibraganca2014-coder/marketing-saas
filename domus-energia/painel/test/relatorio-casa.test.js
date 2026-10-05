@@ -93,7 +93,7 @@ test('quadro ideal, com proteção completa: geral Wi-Fi pela potência, descarr
   assert.equal(q.fila_por_diferencial, true);
   assert.deepEqual(q.cores, [['tomadas', 'Tomadas'], ['humida', 'Tomadas de zonas húmidas'], ['maquina', 'Máquinas grandes']]);
   assert.deepEqual(q.legenda.map((x) => x[0]), ['Geral Wi-Fi', 'Descarregador', 'Relé de tensão', 'Medidor', 'Diferencial de 30 mA', 'Disjuntor', 'AFDD']);
-  const { tamanho: _t, resumo: _r, etiquetas: _e, fila_por_diferencial: _f, legenda: _l, cores: _c, ...gravavel } = q;
+  const { tamanho: _t, resumo: _r, etiquetas: _e, fila_por_diferencial: _f, legenda: _l, cores: _c, grande: _g, polos: _p, ...gravavel } = q;
   assert.doesNotThrow(() => esquemaQuadro(gravavel), 'e o servidor também');
   assert.equal(analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45).esquema, null, 'sem circuitos não há quadro');
   assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).esquema.disjuntor_geral.amperes, 50, 'a contratada maior manda: 10,35 kVA → 50 A');
@@ -114,4 +114,24 @@ test('ao mesmo tempo, consumo e próximo passo: combinações contra o contrato,
   assert.deepEqual(a.proximo, ['Pôr o quadro como o do desenho, com a proteção completa.', 'Circuito só para cada máquina grande: placa de cozinha, forno.', 'Mais tomadas em: Cozinha.']);
   const vazia = analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45);
   assert.deepEqual([vazia.simultaneo, vazia.consumo, vazia.proximo], [null, null, []]);
+});
+
+test('achados da revisão: trifásico acima de 13,8 kVA, quadro grande sem tamanho inventado, melhor par ao mesmo tempo e consumo mínimo', () => {
+  // 20,7 kVA sem "fases": é trifásico (30 A → 32 A), não um geral de 63 A monofásico; as peças de 2 módulos contam 4.
+  const tri = analiseDaCasa(PLANTA, { potencia_contratada_kva: 20.7 }, 6.9).esquema;
+  assert.deepEqual([tri.disjuntor_geral.amperes, tri.polos], [32, 2]);
+  // 2 × (2 + 6 + 4) + 2 (AFDD) + 3 = 29 ocupados: o de 36 só leva 27 com folga → quadro de 48, 19 livres.
+  assert.match(tri.resumo, /^Quadro de 48 módulos, trifásico, .* e 19 módulos livres\.$/);
+  // Muitas divisões: mais do que cabe num de 48 com folga → não se inventa um tamanho.
+  const muitas = { divisoes: Array.from({ length: 12 }, (_, i) => div(`q${i}`, `Quarto ${i + 1}`, i * 400)), elementos: [] };
+  for (let i = 0; i < 12; i++) { for (let k = 0; k < 6; k++) muitas.elementos.push(el(`t${i}-${k}`, 'tomada', `q${i}`)); muitas.elementos.push(el(`l${i}`, 'luz', `q${i}`), el(`m${i}`, 'maquina', `q${i}`, { modelo: 'ar_condicionado' })); }
+  const g = analiseDaCasa(muitas, { potencia_contratada_kva: 13.8 }, 13.8).esquema;
+  assert.equal(g.grande, true);
+  assert.match(g.resumo, /^Quadro grande \(\d+ módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se na visita\)/);
+  assert.doesNotMatch(g.resumo, /módulos livres/);
+  // Forno 2 500 + lavar 2 000 + micro-ondas 1 200 com 3 450 W: o forno não deixa caber mais nada, mas lavar + micro-ondas cabem.
+  const p = { divisoes: [div('d1', 'Cozinha', 0)], elementos: [el('m1', 'maquina', 'd1', { modelo: 'forno' }), el('m2', 'maquina', 'd1', { modelo: 'maquina_lavar' }), el('m3', 'maquina', 'd1', { modelo: 'micro_ondas' })] };
+  assert.deepEqual(analiseDaCasa(p, { potencia_contratada_kva: 3.45 }, 3.45).simultaneo.linhas[0], { estado: 'aguenta', nomes: 'Máquina de lavar roupa + Micro-ondas', w: '3 200 W' });
+  // Só uma campainha, sem divisões: 1 kWh não dá um cartão "0 kWh".
+  assert.equal(analiseDaCasa({ divisoes: [], elementos: [el('c1', 'maquina', null, { modelo: 'campainha' })] }, {}, 3.45).consumo, null);
 });

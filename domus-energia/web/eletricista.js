@@ -467,8 +467,14 @@ function seccaoQuadro(t) {
   if (!q) return null;
   const casa = q.casa;
   let ideal = null;
-  try { ideal = casa ? analiseDaCasa(casa.planta, { potencia_contratada_kva: casa.potencia_contratada_kva, fases: casa.fases }, casa.potencia_sugerida_kva ?? undefined).esquema : null; } catch { ideal = null; }
+  try { ideal = casa ? analiseDaCasa(casa.planta, casa, casa.potencia_sugerida_kva ?? undefined).esquema : null; } catch { ideal = null; }
   let l = normalizarEsquema(q.existente) ?? esquemaVazio();
+  // O registo é por contagens: só serve se o que está guardado se consegue escrever assim (amperes das listas,
+  // diferenciais de 30 ou 300 mA). Um quadro desenhado ao pormenor no painel fica só para ver, para não se perder.
+  const l0 = l;
+  const cabeNoRegisto = (!l0.disjuntor_geral || l0.disjuntor_geral.amperes === null || AMPERES_GERAL.includes(l0.disjuntor_geral.amperes))
+    && l0.diferenciais.every((d) => d.sensibilidade_ma === 30 || d.sensibilidade_ma === 300)
+    && l0.disjuntores.every((d) => AMPERES_DISJUNTOR.includes(d.amperes));
   const desenho = (esq, resumo) => {
     let svg = null;
     try { svg = desenharQuadroCliente(esq, { soLeitura: true, resumo }); } catch { svg = null; }
@@ -492,7 +498,8 @@ function seccaoQuadro(t) {
     com(el("div"), el("h4", null, "Quadro ideal"), ideal ? desenho(ideal, "quadro ideal") : el("p", "pequeno suave", "Sem dados da casa."), ideal ? el("p", "pequeno suave", ideal.resumo) : null));
   const corpo = [el("p", "pequeno suave", "O quadro ideal é calculado pelo que o cliente descreveu da casa. O trabalho é adaptar o quadro que lá está ao ideal."), lado, cxFalta];
 
-  if (q.pode_desenhar) {
+  if (q.pode_desenhar && !cabeNoRegisto) corpo.push(el("p", "pequeno suave", "Este quadro foi desenhado ao pormenor no painel. Para o mudar, fale com a Domus."));
+  if (q.pode_desenhar && cabeNoRegisto) {
     const numero = (id, valor, max) => { const i = el("input"); i.type = "number"; i.min = "0"; i.max = String(max); i.step = "1"; i.inputMode = "numeric"; i.id = id; i.value = String(valor); return i; };
     const campo = (rotulo, input) => com(el("label", "campo"), el("span", null, rotulo), input);
     const geral = el("select");
@@ -501,7 +508,7 @@ function seccaoQuadro(t) {
     const n30 = numero("quadro-dif-30", l.diferenciais.filter((d) => d.sensibilidade_ma === 30).length, 10);
     const n300 = numero("quadro-dif-300", l.diferenciais.filter((d) => d.sensibilidade_ma === 300).length, 10);
     const porA = AMPERES_DISJUNTOR.map((a) => [a, numero(`quadro-disj-${a}`, l.disjuntores.filter((d) => d.amperes === a).length, 30)]);
-    const livres = numero("quadro-livres", l.modulos_livres ?? 0, 60);
+    const livres = numero("quadro-livres", l.modulos_livres ?? "", 60);   // vazio = por saber (não é o mesmo que 0)
     const caixa = (id, marcada) => { const i = el("input"); i.type = "checkbox"; i.id = id; i.checked = marcada; return i; };
     const fus = caixa("quadro-fusiveis", l.fusiveis === true);
     const wifi = caixa("quadro-geral-wifi", l.disjuntor_geral?.wifi === true);
@@ -510,13 +517,21 @@ function seccaoQuadro(t) {
     const int = (i, max) => Math.max(0, Math.min(max, Math.round(Number(i.value)) || 0));
     const ler = () => {
       let afdd = int(nAfdd, 30);
-      return normalizarEsquema({
+      // Os diferenciais guardam os amperes que já tinham (o registo só conta por sensibilidade; os novos ficam a 40 A).
+      const difs = (ma, n) => { const antes = l0.diferenciais.filter((d) => d.sensibilidade_ma === ma); return Array.from({ length: n }, (_, k) => ({ sensibilidade_ma: ma, amperes: antes[k]?.amperes ?? 40 })); };
+      const novo = {
         disjuntor_geral: geral.value ? { amperes: Number(geral.value), wifi: wifi.checked } : null,
-        diferenciais: [...Array(int(n30, 10)).fill({ sensibilidade_ma: 30, amperes: 40 }), ...Array(int(n300, 10)).fill({ sensibilidade_ma: 300, amperes: 40 })],
+        diferenciais: [...difs(30, int(n30, 10)), ...difs(300, int(n300, 10))],
         disjuntores: porA.flatMap(([a, i]) => Array.from({ length: int(i, 30) }, () => ({ amperes: a }))).map((d) => (afdd-- > 0 ? { ...d, afdd: true } : d)),
         protecoes: prot.filter(([, , i]) => i.checked).map(([k]) => k),
-        modulos_livres: int(livres, 60), fusiveis: fus.checked,
-      });
+        modulos_livres: livres.value.trim() === "" ? null : int(livres, 60), fusiveis: fus.checked,
+        // O que o registo não pergunta fica como estava: estado, sinais de aquecimento e notas.
+        estado: l0.estado, sinais_aquecimento: l0.sinais_aquecimento, notas: l0.notas,
+      };
+      // A ordem na calha só se mantém se as peças são as mesmas (senão os lugares já não dizem respeito às mesmas).
+      const iguais = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+      if (iguais(novo.disjuntores, l0.disjuntores) && iguais(novo.diferenciais, l0.diferenciais)) novo.ordem = l0.ordem;
+      return normalizarEsquema(novo);
     };
     const msg = el("p", "erro");
     msg.hidden = true;

@@ -89,7 +89,10 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   let esquema = null;
   if (brutos.length) {
     const kva = typeof sugeridaKva === "number" ? Math.max(sugeridaKva, contratada) : contratada;
-    const amperes = (kva * 1000) / (casa?.fases === "tri" ? 690 : 230);
+    // Trifásico: o que a casa diz, ou qualquer potência acima do máximo monofásico (13,8 kVA).
+    const tri = casa?.fases === "tri" || kva > 13.8;
+    const P = tri ? 2 : 1;   // em trifásico o geral, os diferenciais e as proteções ocupam o dobro (quadro.js resumoQuadro)
+    const amperes = (kva * 1000) / (tri ? 690 : 230);
     const acima = (l, a) => l.find((x) => x >= a) ?? l[l.length - 1];
     const geral = acima(AMPERES_GERAL, amperes);
     const grupos = gruposDiferenciais(brutos).filter((g) => g.circuitos.length);
@@ -116,16 +119,19 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
       }
     });
     const nAfdd = disjuntores.filter((d) => d.afdd).length;
-    const ocupados = MODULOS_ESQUEMA.geral + protecoes.reduce((s, p) => s + MODULOS_ESQUEMA[p], 0) + grupos.length * MODULOS_ESQUEMA.diferencial
+    const ocupados = P * (MODULOS_ESQUEMA.geral + protecoes.reduce((s, p) => s + MODULOS_ESQUEMA[p], 0) + grupos.length * MODULOS_ESQUEMA.diferencial)
       + nAfdd * MODULOS_ESQUEMA.afdd + (disjuntores.length - nAfdd) * MODULOS_ESQUEMA.disjuntor;
-    const tamanho = TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? TAMANHOS_QUADRO[TAMANHOS_QUADRO.length - 1];
-    const livres = Math.max(0, tamanho - ocupados);
+    // Não cabe com 25 % de folga no maior quadro (48): não se dá um tamanho, confirma-se na visita.
+    const cabeNum = TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE)));
+    const grande = cabeNum === undefined;
+    const tamanho = cabeNum ?? TAMANHOS_QUADRO[TAMANHOS_QUADRO.length - 1];
+    const livres = grande ? 0 : tamanho - ocupados;
     for (let i = 0; i < Math.min(livres, MAX_LIVRES_ORDEM); i++) ordem.push("livre");
     esquema = {
       disjuntor_geral: { amperes: geral, wifi: true },
       diferenciais: grupos.map(() => ({ sensibilidade_ma: 30, amperes: acima(AMPERES_DIFERENCIAL, geral) })),
       disjuntores, modulos_livres: livres, estado: null, fusiveis: null, sinais_aquecimento: null, notas: "", protecoes, ordem,
-      tamanho, etiquetas, fila_por_diferencial: true,
+      tamanho, grande, polos: P, etiquetas, fila_por_diferencial: true,
       // O que é cada peça, em português simples, e as cores dos circuitos que este quadro tem.
       legenda: [
         ["Geral Wi-Fi", "Desliga a casa toda. Também se desliga e se vê o consumo pelo telemóvel."],
@@ -137,7 +143,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
         ...(nAfdd ? [["AFDD", "Deteta faíscas em cabos e fichas estragados antes de haver incêndio. Vai nos quartos e na sala."]] : []),
       ],
       cores: Object.keys(CORES_CIRCUITO).filter((k) => etiquetas.some((e) => e?.cor === k)).map((k) => [k, CORES_CIRCUITO[k]]),
-      resumo: `Quadro de ${tamanho} módulos, com proteção completa: disjuntor geral Wi-Fi de ${geral} A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")}${nAfdd ? ` (${nAfdd} com AFDD)` : ""} e ${plural(livres, "módulo livre", "módulos livres")}.`,
+      resumo: `${grande ? `Quadro grande (${ocupados} módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se na visita)` : `Quadro de ${tamanho} módulos`}${tri ? ", trifásico" : ""}, com proteção completa: disjuntor geral Wi-Fi de ${geral} A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")}${nAfdd ? ` (${nAfdd} com AFDD)` : ""}${grande ? "" : ` e ${plural(livres, "módulo livre", "módulos livres")}`}.`,
     };
   }
 
@@ -161,11 +167,20 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   const linhaDe = (ms) => { const w = ms.reduce((s, m) => s + m.potencia_w, 0); return { estado: w > limiteW ? "dispara" : "aguenta", nomes: ms.map((m) => nomeModelo(m.modelo)).join(" + "), w: wTxt(w), chave: ms.map((m) => m.modelo).sort().join("|") }; };
   const combinacoes = [];
   if (fortes.length >= 2) {
-    const cabem = [];
+    let cabem = [];
     let soma = 0;
     for (const m of fortes) if (soma + m.potencia_w <= limiteW) { cabem.push(m); soma += m.potencia_w; }
-    // Nem duas cabem juntas: mostra-se a maior que o contrato aguenta sem mais nada.
-    if (cabem.length === 1) combinacoes.push({ ...linhaDe(cabem), nomes: `${nomeModelo(cabem[0].modelo)}, sem mais nada ligado` });
+    // A maior não deixa caber mais nenhuma: procura-se o par que mais aproveita o contrato.
+    if (cabem.length < 2) {
+      let melhor = null;
+      for (let i = 0; i < fortes.length; i++) for (let j = i + 1; j < fortes.length; j++) {
+        const w = fortes[i].potencia_w + fortes[j].potencia_w;
+        if (w <= limiteW && (!melhor || w > melhor.w)) melhor = { w, par: [fortes[i], fortes[j]] };
+      }
+      if (melhor) cabem = melhor.par;
+    }
+    // Nem duas das grandes cabem juntas: mostra-se a maior que o contrato aguenta.
+    if (cabem.length === 1) combinacoes.push({ ...linhaDe(cabem), nomes: `${nomeModelo(cabem[0].modelo)}, sem mais nenhuma das grandes` });
     for (const ms of [cabem.length >= 2 ? cabem : null, fortes.slice(0, 2), fortes.length > 2 ? fortes : null]) {
       if (!ms) continue;
       const l = linhaDe(ms);
@@ -180,8 +195,8 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   for (const m of todas) porModelo.set(m.modelo, (porModelo.get(m.modelo) ?? 0) + (KWH_MES[m.modelo] ?? Math.round((m.potencia_w * 30) / 1000)));
   const baseKwh = divisoes.length ? Math.round(KWH_BASE + area * KWH_M2) : 0;
   const totalKwh = [...porModelo.values()].reduce((s, k) => s + k, 0) + baseKwh;
-  const consumo = totalKwh > 0 ? {
-    kwh: Math.round(totalKwh / 10) * 10, euros: Math.round((totalKwh * EUR_KWH) / 5) * 5,
+  const consumo = totalKwh >= 5 ? {
+    kwh: Math.max(10, Math.round(totalKwh / 10) * 10), euros: Math.round((totalKwh * EUR_KWH) / 5) * 5,
     maiores: [...porModelo].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([modelo, k]) => [nomeModelo(modelo), `${k} kWh`]),
     nota: `Estimativa por valores típicos de cada aparelho, a cerca de ${String(EUR_KWH).replace(".", ",")} €/kWh com taxas. O que paga depende de como usa a casa e do seu tarifário.`,
   } : null;
@@ -212,7 +227,9 @@ export function diferencasQuadro(existente, ideal) {
   const contar = (l) => { const m = new Map(); for (const a of l) m.set(a, (m.get(a) ?? 0) + 1); return m; };
   if (existente.fusiveis === true) falta.push("Tem fusíveis: trocar por disjuntores.");
   const gE = existente.disjuntor_geral?.amperes ?? null, gI = ideal.disjuntor_geral?.amperes ?? null;
-  if (gI && !existente.disjuntor_geral) falta.push(`Disjuntor geral de ${gI} A (não tem, ou não se vê).`);
+  const P = ideal.polos === 2 ? 2 : 1;   // trifásico: geral, diferenciais e proteções ocupam o dobro
+  const faltaGeral = Boolean(gI && !existente.disjuntor_geral);
+  if (faltaGeral) falta.push(`Disjuntor geral de ${gI} A (não tem, ou não se vê).`);
   else if (gI && gE && gE < gI) falta.push(`Disjuntor geral: trocar o de ${gE} A por um de ${gI} A${ideal.disjuntor_geral.wifi ? " Wi-Fi" : ""}.`);
   else if (ideal.disjuntor_geral?.wifi && existente.disjuntor_geral && !existente.disjuntor_geral.wifi) falta.push("Disjuntor geral: trocar por um Wi-Fi.");
   const faltamProt = (ideal.protecoes ?? []).filter((p) => !(existente.protecoes ?? []).includes(p));
@@ -229,18 +246,20 @@ export function diferencasQuadro(existente, ideal) {
     const f = n - (tem.get(a) ?? 0);
     if (f > 0) { faltamDisj += f; porAmperes.push(`${f} de ${a} A`); }
   }
-  if (faltamDisj) falta.push(`${plural(faltamDisj, "disjuntor", "disjuntores")}: ${porAmperes.join(", ")}.`);
+  // Só os que a casa pede a mais do que o quadro tem ocupam módulos novos; os outros trocam-se no lugar dos que lá estão.
+  const aMais = Math.min(faltamDisj, Math.max(0, (ideal.disjuntores ?? []).length - (existente.disjuntores ?? []).length));
+  if (faltamDisj) falta.push(`${plural(faltamDisj, "disjuntor", "disjuntores")}: ${porAmperes.join(", ")}${faltamDisj > aMais ? ` (${aMais ? `${faltamDisj - aMais} por troca` : "por troca"} dos que lá estão, sem ocupar mais módulos)` : ""}.`);
   // AFDD: cada um que falta ocupa mais um módulo do que o disjuntor simples.
   const afddDe = (l) => (l.disjuntores ?? []).filter((d) => d.afdd === true).length;
   const faltamAfdd = Math.max(0, afddDe(ideal) - afddDe(existente));
   if (faltamAfdd) falta.push(`AFDD em ${plural(faltamAfdd, "circuito", "circuitos")} (quartos e sala): tem ${afddDe(existente)}, a casa pede ${afddDe(ideal)}.`);
-  const precisos = faltamDif * 2 + faltamDisj + faltamAfdd + faltamProt.length * 2;
+  const precisos = P * ((faltaGeral ? 2 : 0) + faltamDif * 2 + faltamProt.length * 2) + aMais + faltamAfdd;
   const livres = Number.isInteger(existente.modulos_livres) ? existente.modulos_livres : null;
   const cabe = precisos === 0 ? true : livres === null ? null : livres >= precisos;
   if (precisos > 0) {
     falta.push(cabe === null ? `São precisos ${plural(precisos, "módulo", "módulos")}: confirmar os módulos livres do quadro.`
       : cabe ? `Cabe no quadro: são precisos ${plural(precisos, "módulo", "módulos")} e há ${livres} livres.`
-        : `Não cabe: são precisos ${plural(precisos, "módulo", "módulos")} e só há ${livres} livres. Quadro novo de ${ideal.tamanho} módulos, ou um quadro ao lado.`);
+        : `Não cabe: são precisos ${plural(precisos, "módulo", "módulos")} e só há ${livres} livres. ${ideal.grande ? "Quadro novo grande ou em dois: o tamanho confirma-se na visita." : `Quadro novo de ${ideal.tamanho} módulos, ou um quadro ao lado.`}`);
   }
   return { falta, cabe, modulos: { precisos, livres } };
 }

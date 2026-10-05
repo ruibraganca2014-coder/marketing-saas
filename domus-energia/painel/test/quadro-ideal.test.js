@@ -43,6 +43,19 @@ test('proteção completa: o que falta lista o geral Wi-Fi, as proteções e os 
   ]);
 });
 
+test('contas dos módulos: o geral em falta conta, os disjuntores de outros amperes trocam-se no lugar, trifásico em dobro e quadro grande', () => {
+  // Sem geral: 2 módulos a mais.
+  assert.equal(diferencasQuadro(existente({ disjuntor_geral: null }), IDEAL).modulos.precisos, 9);
+  // 5 disjuntores de 32 A onde a casa pede 5 de outros amperes: trocam-se no lugar, não pedem módulos.
+  const trocados = existente({ disjuntor_geral: { amperes: 32 }, diferenciais: IDEAL.diferenciais, disjuntores: Array.from({ length: 5 }, () => ({ amperes: 32 })), modulos_livres: 0 });
+  const d = diferencasQuadro(trocados, IDEAL);
+  assert.deepEqual([d.cabe, d.modulos.precisos], [true, 0]);
+  assert.match(d.falta[0], /^5 disjuntores: 1 de 10 A, 2 de 16 A, 2 de 25 A \(por troca dos que lá estão, sem ocupar mais módulos\)\.$/);
+  // Trifásico: cada diferencial que falta são 4 módulos.
+  assert.equal(diferencasQuadro(existente({ disjuntor_geral: { amperes: 32 } }), { ...IDEAL, polos: 2 }).modulos.precisos, 2 * 2 * 2 + 3);
+  assert.match(diferencasQuadro(existente(), { ...IDEAL, grande: true }).falta.at(-1), /Quadro novo grande ou em dois: o tamanho confirma-se na visita\.$/);
+});
+
 test('quadro que já chega: nada em falta; sem quadro desenhado: null', () => {
   const igual = { ...IDEAL, modulos_livres: 0, fusiveis: false };
   assert.deepEqual(diferencasQuadro(igual, IDEAL), { falta: [], cabe: true, modulos: { precisos: 0, livres: 0 } });

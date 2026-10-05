@@ -143,7 +143,7 @@ async function desenharPiso(g, W, M, planta, piso, y0, altura, omissao = null, n
   const k = escalaDoPiso(W, M, planta, altura, alt);
   const caixaW = W - 2 * M;
   const pw = L * k, ph = A * k;
-  g.drawImage(await imagemDeSvg(svgPlanta(planta, piso, omissao), pw, ph), M + (caixaW - pw) / 2, topo, pw, ph);
+  if (pw >= 1 && ph >= 1) g.drawImage(await imagemDeSvg(svgPlanta(planta, piso, omissao), pw, ph), M + (caixaW - pw) / 2, topo, pw, ph);
 
   let y = topo + ph + 30;
   g.font = `24px ${FONTE_PDF}`;
@@ -438,12 +438,13 @@ async function paginasRelatorio(blocos, planta) {
     if (b.tipo === "quebra") { if (y > M) nova(); continue; }
     if (b.tipo === "planta") {
       const { alt } = legendaDoPiso(g, W, M, planta, b.piso, null, null);
-      const inteira = escalaDoPiso(W, M, planta, H - 2 * M, alt);
+      // No meio do texto a planta não precisa da folha toda: o desenho, no máximo 40 % da altura (o título e a legenda somam-se).
+      const teto = Math.round(H * 0.4) + ALT_TITULO_PISO + alt + 30;
+      const inteira = escalaDoPiso(W, M, planta, Math.min(H - 2 * M, teto), alt);
       const resto = H - M - (y + 30);
-      if (y > M && (resto < 320 || escalaDoPiso(W, M, planta, resto, alt) < inteira * 0.6)) nova();
+      if (y > M && (resto < 320 || escalaDoPiso(W, M, planta, Math.min(resto, teto), alt) < inteira * 0.6)) nova();
       const y0 = y > M ? y + 30 : M;
-      // No meio do texto a planta não precisa da folha toda: no máximo 40 % da altura.
-      y = await desenharPiso(g, W, M, planta, b.piso, y0, Math.min(H - M - y0, Math.round(H * 0.4)));
+      y = await desenharPiso(g, W, M, planta, b.piso, y0, Math.min(H - M - y0, teto));
       continue;
     }
     if (b.tipo === "quadro") {

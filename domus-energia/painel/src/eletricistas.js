@@ -546,6 +546,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       },
       potencia_contratada_kva: typeof s.casa?.potencia_contratada_kva === 'number' ? s.casa.potencia_contratada_kva : null,
       fases: s.casa?.fases === 'tri' || s.casa?.fases === 'mono' ? s.casa.fases : null,
+      // O que decide os circuitos e os AFDD (quadro.js dividirZonas, circuitoComAfdd): sem isto o ideal do eletricista
+      // não era o do relatório do cliente.
+      tipo: typeof s.casa?.tipo === 'string' ? s.casa.tipo.slice(0, 40) : null,
+      tipologia: typeof s.casa?.tipologia === 'string' ? s.casa.tipologia.slice(0, 10) : null,
+      quartos: Number.isInteger(s.casa?.quartos) ? s.casa.quartos : null,
+      area_m2: typeof s.casa?.area_m2 === 'number' ? s.casa.area_m2 : null,
       potencia_sugerida_kva: typeof s.quadro?.potencia_sugerida_kva === 'number' ? s.quadro.potencia_sugerida_kva : null,
     } : null;
     return { existente, casa, pode_desenhar: r.aberto && EDITAVEIS.includes(r.estado) };
