@@ -399,6 +399,8 @@
              no telemóvel e no tablet abre-se por cima das perguntas com "Ver planta". Muda com as escolhas de cada passo
              e edita-se em qualquer passo (app.js atualizarPlanta, abrirPlanta; editor.js). -->
         <section class="sim-planta" id="sim-planta" aria-labelledby="sim-planta-titulo">
+          <div id="editor"></div>
+          <!-- Decisão do dono (2026-10-05): o título e o tamanho (2×, ½×) ficam por baixo da planta. -->
           <div class="sim-planta-cabeca">
             <h2 id="sim-planta-titulo">A sua planta</h2>
             <!-- Lote 8: o tamanho da planta, compacto, na linha do título (editor.js montarTamanho). -->
@@ -407,7 +409,6 @@
             <button class="btn sec pequeno" id="planta-refazer" type="button" aria-label="Refazer a planta a partir de A casa e Equipamentos" title="Refazer a planta a partir de A casa e Equipamentos" hidden>Refazer planta</button>
             <button class="btn sec pequeno sim-planta-fechar" id="planta-fechar" type="button"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>Fechar</button>
           </div>
-          <div id="editor"></div>
           <!-- Lote 8: fora dos passos "A casa" e "Planta" as divisões estão presas (app.js mostrarDivisaoPresa). -->
           <p class="sim-planta-presa" id="planta-presa" role="status" hidden><span id="planta-presa-texto">Divisões: mude no passo A casa.</span> <button class="btn sec pequeno" id="planta-presa-ir" type="button">Ir ao passo A casa</button></p>
           <!-- Passo "Trocar e reparar" (lote 8): o que fazer com o aparelho tocado na planta (app.js desenharAcaoPlanta). -->
