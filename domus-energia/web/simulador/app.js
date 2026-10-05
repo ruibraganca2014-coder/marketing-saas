@@ -41,6 +41,7 @@ import { criarEditor } from "./editor.js";
 import { guardarPdfOrcamento, guardarPdfRelatorio } from "./imprimir.js";
 import { desenharIcone, desenharPlanta } from "./planta-svg.js";
 import { resumoQuadro as resumoDoQuadro } from "./quadro.js";
+import { analiseDaCasa } from "./relatorio-casa.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { sugerirConcelhos, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
 import {
@@ -4180,6 +4181,8 @@ function dadosRelatorio() {
       : `Potência sugerida: ${kvaTexto(r.potencia.kva)}${r.potencia.trifasica ? " (trifásica)" : ""}${r.potencia.minimo_rtiebt ? " (mínimo RTIEBT)" : ""}.`,
     planta: usaPlanta() ? estado.planta : null,
     pisos,
+    // Decisão do dono (2026-10-05): os números da casa, se a potência chega, os circuitos que a casa pede e os pontos a rever.
+    analise: analiseDaCasa(planta, c, r.potencia.kva),
   };
 }
 /** Um desenho só de leitura da planta (um piso), como no PDF. */
@@ -4222,7 +4225,39 @@ function desenharRelatorio() {
   const uq = el("ul", "sim-inclui");
   uq.append(...d.quadro.map((t) => el("li", null, t)));
   quadro.append(el("h3", null, "Quadro elétrico"), uq, el("p", "sim-nota forte", d.potencia));
-  caixa.append(casa, divs, quadro);
+  // Os quatro blocos tirados da planta (relatorio-casa.js).
+  const a = d.analise;
+  const numeros = el("div", "cartao");
+  const dl = el("dl", "sim-numeros");
+  for (const [k, v] of a.numeros) { const par = el("div"); par.append(el("dt", null, k), el("dd", "num", v)); dl.append(par); }
+  numeros.append(el("h3", null, "A casa em números"), dl);
+  const pot = el("div", `cartao sim-potencia ${a.potencia.estado}`);
+  pot.append(el("h3", null, a.potencia.titulo), ...a.potencia.texto.map((t) => el("p", null, t)));
+  const circ = el("div", "cartao");
+  circ.append(el("h3", null, "Circuitos que esta casa pede"));
+  if (a.circuitos.length) {
+    const t = el("table", "sim-circuitos");
+    const cab = el("tr");
+    cab.append(...["Circuito", "Divisões", "Disjuntor", "Cabo"].map((x) => { const th = el("th", null, x); th.scope = "col"; return th; }));
+    const corpoT = el("tbody");
+    for (const c of a.circuitos) {
+      const tr = el("tr");
+      tr.append(el("td", null, `${c.codigo ? `${c.codigo} · ` : ""}${c.nome}`), el("td", null, c.divisoes || "—"), el("td", "num", c.disjuntor), el("td", "num", c.cabo || "—"));
+      corpoT.append(tr);
+    }
+    const thead = el("thead");
+    thead.append(cab);
+    t.append(thead, corpoT);
+    const rolo = el("div", "sim-circuitos-rolo");
+    rolo.append(t);
+    circ.append(rolo);
+    if (a.notaCircuitos) circ.append(el("p", "ajuda", a.notaCircuitos));
+  } else circ.append(el("p", "ajuda", "Ainda sem tomadas nem máquinas descritas."));
+  const rever = el("div", "cartao");
+  const ur = el("ul", "sim-inclui");
+  ur.append(...a.rever.map((t) => el("li", null, t)));
+  rever.append(el("h3", null, "Pontos a rever"), a.rever.length ? ur : el("p", "ajuda", "Nada a assinalar pelo que descreveu."), el("p", "ajuda", "Orientativo, pelo que descreveu. Confirmamos na visita."));
+  caixa.append(casa, numeros, divs, quadro, pot, circ, rever);
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");

@@ -316,6 +316,21 @@ export function blocosRelatorio(d) {
     { tipo: "seccao", texto: "Quadro elétrico" },
     ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })),
     ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []),
+    // A análise tirada da planta (relatorio-casa.js; decisão do dono, 2026-10-05): os mesmos quatro blocos do ecrã.
+    ...(d.analise ? [
+      { tipo: "seccao", texto: "A casa em números" },
+      { tipo: "texto", texto: d.analise.numeros.map(([k, v]) => `${k}: ${v}`).join(" · ") },
+      { tipo: "seccao", texto: d.analise.potencia.titulo },
+      ...d.analise.potencia.texto.map((t) => ({ tipo: "texto", texto: t })),
+      { tipo: "seccao", texto: "Circuitos que esta casa pede" },
+      ...(d.analise.circuitos.length
+        ? d.analise.circuitos.map((c) => ({ tipo: "item", texto: `${c.codigo ? `${c.codigo} · ` : ""}${c.nome}${c.divisoes ? ` (${c.divisoes})` : ""}: disjuntor de ${c.disjuntor}${c.cabo ? `, cabo de ${c.cabo}` : ""}` }))
+        : [{ tipo: "item", texto: "Ainda sem tomadas nem máquinas descritas." }]),
+      ...(d.analise.notaCircuitos ? [{ tipo: "texto", texto: d.analise.notaCircuitos }] : []),
+      { tipo: "seccao", texto: "Pontos a rever" },
+      ...(d.analise.rever.length ? d.analise.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
+      { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
+    ] : []),
     { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." },
   ];
 }

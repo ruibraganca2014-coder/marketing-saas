@@ -818,6 +818,16 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-relatorio .cartao h3, .sim-completo .cartao h3 { margin: 0 0 10px; font-size: 1.1rem; }
 .sim-relatorio .cartao p { margin: 0 0 8px; }
 .sim-relatorio-figura { margin: 10px 0 0; }
+/* Relatório da casa: números, potência, circuitos e pontos a rever (relatorio-casa.js). */
+.sim-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 16px; margin: 0; }
+.sim-numeros dt { color: var(--texto-suave); font-size: .9rem; }
+.sim-numeros dd { margin: 0; font-weight: 800; font-size: 1.25rem; }
+.sim-potencia.curta, .sim-potencia.especial { border-color: var(--areia); }
+.sim-circuitos-rolo { overflow-x: auto; }
+.sim-circuitos { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.sim-circuitos th, .sim-circuitos td { padding: 8px 10px; border-bottom: 1px solid var(--borda); text-align: left; vertical-align: top; }
+.sim-circuitos th { color: var(--texto-suave); font-weight: 700; font-size: .85rem; }
+.sim-circuitos .num { white-space: nowrap; }
 .sim-relatorio-figura figcaption { color: var(--texto-suave); font-size: .9rem; margin-top: 4px; }
 .sim-relatorio-planta { display: block; width: 100%; height: auto; max-height: 60vh; aspect-ratio: 4 / 3; background: var(--superficie); }
 /* Relatório completo: a amostra tapada e desfocada (nada se lê). */
