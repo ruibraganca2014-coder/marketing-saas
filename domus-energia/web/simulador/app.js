@@ -5106,15 +5106,25 @@ function anularRecomecar() {
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
 }
-/** O aviso fica logo por cima da barra de baixo (onde está o "Ver planta"), ao centro dela: nunca tapa "Seguinte". */
+/**
+ * O aviso fica colado ao fundo do ecrã, por cima do meio da barra de baixo (decisão do dono, 2026-10-05: por cima da
+ * barra tapava o texto da página). Nunca tapa "Anterior" nem "Seguinte": se não couber entre os dois (ecrã estreito),
+ * volta a ficar logo por cima da barra.
+ */
 function posicionarAnular() {
   const a = $("sim-anular");
   if (!a.childElementCount) return;
   const n = $("sim-navegacao").getBoundingClientRect();
-  const v = document.querySelector(".sim-ver-planta")?.getBoundingClientRect();
-  const topo = Math.min(innerHeight, n.height ? n.top : innerHeight, v?.height ? v.top : innerHeight);
-  a.style.bottom = `${Math.max(16, innerHeight - topo + 8)}px`;
-  a.style.left = n.width ? `${n.left + n.width / 2}px` : "";
+  const centro = n.width ? n.left + n.width / 2 : innerWidth / 2;
+  a.style.left = `${centro}px`;
+  const meia = a.offsetWidth / 2 + 8;
+  const tapa = ["sim-anterior", "sim-seguinte"].some((id) => {
+    const r = $(id).getBoundingClientRect();
+    return r.width > 0 && r.right > centro - meia && r.left < centro + meia;
+  });
+  if (!n.height || tapa) { a.style.bottom = `${Math.max(16, innerHeight - (n.height ? n.top : innerHeight) + 8)}px`; return; }
+  // Ao meio da altura da barra (ou a 8 px do fundo, se a barra for mais baixa do que o aviso).
+  a.style.bottom = `${Math.max(8, innerHeight - n.bottom + (n.height - a.offsetHeight) / 2)}px`;
 }
 addEventListener("scroll", posicionarAnular, { passive: true });
 addEventListener("resize", posicionarAnular);
