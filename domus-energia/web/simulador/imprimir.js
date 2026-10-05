@@ -103,26 +103,14 @@ function imagemDeSvg(svg, w, h) {
   return img.decode().then(() => img);
 }
 
-/** Uma página (canvas) por piso: título, planta a caber e legenda por baixo. `nomes`: os nomes das ações para o cliente. */
-async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
-  const [W, H] = deitada ? [PX_A4[1], PX_A4[0]] : PX_A4;
-  const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
-  const g = c.getContext("2d");
-  const M = 70, fonte = "system-ui, -apple-system, 'Segoe UI', sans-serif";
-  g.fillStyle = "#ffffff";
-  g.fillRect(0, 0, W, H);
-  g.fillStyle = CLARAS["--texto"];
-  g.font = `700 40px ${fonte}`;
-  g.textBaseline = "top";
-  g.fillText(nomePiso(piso), M, M);
-  let topo = M + 64;
+const FONTE_PDF = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+const ALT_TITULO_PISO = 64;
 
-  // Legenda: ícone de 36 px e nome, em linhas.
+/** A legenda do piso partida em linhas (para a largura W com margem M) e a altura que ocupa. */
+function legendaDoPiso(g, W, M, planta, piso, omissao, nomes) {
   const itens = legenda(planta, piso);
   const marcas = temMarcas(planta, piso, omissao) ? legendaAcoes(omissao, false, nomes) : null;
-  g.font = `24px ${fonte}`;
+  g.font = `24px ${FONTE_PDF}`;
   const linhas = [[]];
   let x = M;
   for (const it of itens) {
@@ -131,16 +119,33 @@ async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
     linhas[linhas.length - 1].push({ ...it, x });
     x += larg;
   }
-  const altLegenda = (itens.length ? linhas.length * 48 + 20 : 0) + (marcas ? 44 : 0);
-
-  // Planta: o maior que couber entre o título e a legenda, sem deformar.
+  return { itens, marcas, linhas, alt: (itens.length ? linhas.length * 48 + 20 : 0) + (marcas ? 44 : 0) };
+}
+/** A escala (px por cm) a que a planta cabe numa caixa de W − 2M por `altura` (título e legenda incluídos na altura). */
+function escalaDoPiso(W, M, planta, altura, altLegenda) {
   const L = Math.max(1, Number(planta.largura_cm) || 1), A = Math.max(1, Number(planta.altura_cm) || 1);
-  const caixaW = W - 2 * M, caixaH = H - topo - M - altLegenda;
-  const k = Math.min(caixaW / L, caixaH / A);
+  return Math.min((W - 2 * M) / L, Math.max(0, altura - ALT_TITULO_PISO - altLegenda - 30) / A);
+}
+
+/**
+ * Desenha um piso no canvas, de `y0` para baixo, em `altura` px: título, planta a caber (sem deformar) e legenda.
+ * Devolve o y onde acabou. `nomes`: os nomes das ações para o cliente.
+ */
+async function desenharPiso(g, W, M, planta, piso, y0, altura, omissao = null, nomes = null) {
+  g.fillStyle = CLARAS["--texto"];
+  g.font = `700 40px ${FONTE_PDF}`;
+  g.textBaseline = "top";
+  g.fillText(nomePiso(piso), M, y0);
+  const topo = y0 + ALT_TITULO_PISO;
+  const { itens, marcas, linhas, alt } = legendaDoPiso(g, W, M, planta, piso, omissao, nomes);
+  const L = Math.max(1, Number(planta.largura_cm) || 1), A = Math.max(1, Number(planta.altura_cm) || 1);
+  const k = escalaDoPiso(W, M, planta, altura, alt);
+  const caixaW = W - 2 * M;
   const pw = L * k, ph = A * k;
   g.drawImage(await imagemDeSvg(svgPlanta(planta, piso, omissao), pw, ph), M + (caixaW - pw) / 2, topo, pw, ph);
 
   let y = topo + ph + 30;
+  g.font = `24px ${FONTE_PDF}`;
   for (const linha of itens.length ? linhas : []) {
     for (const it of linha) {
       g.drawImage(await imagemDeSvg(svgIcone(it), 36, 36), it.x, y);
@@ -154,8 +159,50 @@ async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
     g.fillStyle = CLARAS["--texto"];
     g.textBaseline = "middle";
     g.fillText(marcas, M, y + 18);
+    y += 44;
   }
+  g.textBaseline = "top";
+  return y;
+}
+
+/** Uma página (canvas) por piso: título, planta a caber e legenda por baixo. `nomes`: os nomes das ações para o cliente. */
+async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
+  const [W, H] = deitada ? [PX_A4[1], PX_A4[0]] : PX_A4;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d");
+  const M = 70;
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, W, H);
+  await desenharPiso(g, W, M, planta, piso, M, H - 2 * M, omissao, nomes);
   return c;
+}
+
+/**
+ * A planta no seguimento do texto (decisão do dono, 2026-10-05; relatório grátis): cada piso começa onde o texto (ou o
+ * piso anterior) acabou, na mesma folha A4 ao alto, se lá couber a pelo menos 60 % do tamanho que teria numa folha só
+ * dela; senão passa para a folha seguinte, também ao alto e encostada ao topo. `paginas`: as de paginasTexto (com
+ * `fimY`, o y onde o texto acabou na última). Nunca há folha deitada.
+ */
+async function plantaNoSeguimento(paginas, planta, pisos) {
+  const [W, H] = PX_A4;
+  const M = 90;
+  let c = paginas[paginas.length - 1];
+  let y = paginas.fimY ?? H;
+  for (const piso of pisos) {
+    const g0 = c.getContext("2d");
+    const { alt } = legendaDoPiso(g0, W, M, planta, piso, null, null);
+    const inteira = escalaDoPiso(W, M, planta, H - 2 * M, alt);
+    const resto = H - M - (y + 40);
+    if (y > M && (resto < 320 || escalaDoPiso(W, M, planta, resto, alt) < inteira * 0.6)) {
+      c = folhaDeTexto();
+      paginas.push(c);
+      y = M;
+    }
+    const y0 = y > M ? y + 40 : M;
+    y = await desenharPiso(c.getContext("2d"), W, M, planta, piso, y0, H - M - y0);
+  }
 }
 
 const jpeg = (canvas) => new Promise((ok, erro) => {
@@ -238,21 +285,28 @@ function partirLinhas(g, texto, largura) {
 }
 
 /** As páginas de texto do orçamento (A4 ao alto, ~150 dpi): os blocos por ordem, a passar à página seguinte se preciso. */
+/** Uma folha A4 ao alto em branco, com a faixa verde no topo (as do texto e as da planta no seguimento). */
+function folhaDeTexto() {
+  const [W, H] = PX_A4;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d");
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, W, H);
+  g.fillStyle = CLARAS["--musgo"];
+  g.fillRect(0, 0, W, 16);
+  g.textBaseline = "top";
+  return c;
+}
 function paginasTexto(blocos) {
   const [W, H] = PX_A4;
-  const M = 90, fonte = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+  const M = 90, fonte = FONTE_PDF;
   const paginas = [];
   let c, g, y;
   const nova = () => {
-    c = document.createElement("canvas");
-    c.width = W;
-    c.height = H;
+    c = folhaDeTexto();
     g = c.getContext("2d");
-    g.fillStyle = "#ffffff";
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = CLARAS["--musgo"];
-    g.fillRect(0, 0, W, 16);
-    g.textBaseline = "top";
     y = M;
     paginas.push(c);
   };
@@ -274,6 +328,7 @@ function paginasTexto(blocos) {
     });
     y += e.depois;
   }
+  paginas.fimY = y;   // onde o texto acabou na última folha (plantaNoSeguimento)
   return paginas;
 }
 
@@ -345,18 +400,12 @@ export function blocosRelatorio(d) {
   ];
 }
 
-/** Faz o PDF do relatório básico (texto + 1 página por piso da planta) e descarrega-o ("relatorio-domus.pdf"). */
+/** Faz o PDF do relatório básico (o texto e, no seguimento, a planta de cada piso; tudo em A4 ao alto) e descarrega-o ("relatorio-domus.pdf"). */
 export async function guardarPdfRelatorio(d) {
+  const folhas = paginasTexto(blocosRelatorio(d));
+  if (d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length)) await plantaNoSeguimento(folhas, d.planta, listaPisos(d.pisos ?? 1));
   const paginas = [];
-  for (const c of paginasTexto(blocosRelatorio(d))) paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: A4_PT[0], altura_pt: A4_PT[1] });
-  if (d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length)) {
-    const deitada = paisagem(d.planta);
-    const [wpt, hpt] = deitada ? [A4_PT[1], A4_PT[0]] : A4_PT;
-    for (const piso of listaPisos(d.pisos ?? 1)) {
-      const c = await paginaPiso(d.planta, piso, deitada);
-      paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: wpt, altura_pt: hpt });
-    }
-  }
+  for (const c of folhas) paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: A4_PT[0], altura_pt: A4_PT[1] });
   const bytes = pdfDeImagens(paginas);
   descarregar(bytes, "relatorio-domus.pdf");
   return bytes;
