@@ -3,7 +3,7 @@
 // usadas pelo Início do simulador (simulador/app.js) e pelo botão da página inicial (site.js):
 // - quando o cartão "Já tenho a planta" abre já escolhido;
 // - que pedido conta como "em andamento" e qual se mostra;
-// - o texto e o destino do botão "Ver o preço da minha casa".
+// - o texto e o destino do botão do topo ("Descrever a minha casa").
 
 /** A chave da casa guardada neste navegador — igual a simulador/estado.js CHAVE_CASA (a página inicial não carrega o simulador). */
 export const CHAVE_CASA_GUARDADA = "domus.simulador.casa";
@@ -45,7 +45,7 @@ export const urlDoPedido = (id) => `conta.html#pedido-${id}`;
 
 /**
  * O botão do topo da página inicial: visitante novo (sem sessão nem casa guardada) → null (fica o que está escrito na
- * página: "Ver o preço da minha casa"); sessão aberta ou casa guardada neste navegador → "Continuar com a minha casa";
+ * página: "Descrever a minha casa"); sessão aberta ou casa guardada neste navegador → "Continuar com a minha casa";
  * sessão com um pedido em andamento → "Ver o meu pedido", para a conta. `pedido`: o de pedidoEmAndamento (só com sessão).
  */
 export function botaoInicio({ sessao = false, temCasa = false, pedido = null } = {}) {

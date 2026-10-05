@@ -30,7 +30,7 @@ if (ouLigar) {
 document.getElementById("ano").textContent = new Date().getFullYear();
 
 // ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------
-// Decisão 3 do dono, 2026-10-04 (regresso.js botaoInicio): a página nasce com "Ver o preço da minha casa" (também sem
+// Decisão 3 do dono, 2026-10-04 (regresso.js botaoInicio): a página nasce com "Descrever a minha casa" (também sem
 // JavaScript) e só troca depois de saber quem é — casa guardada neste navegador ou sessão aberta: "Continuar com a minha
 // casa"; sessão com um pedido em andamento: "Ver o meu pedido" (para a conta). Troca uma vez só. Sem a marca de sessão
 // não se pede nada ao servidor (contaAtual); pedido lento ou falhado: fica o que está. A largura do botão não encolhe.

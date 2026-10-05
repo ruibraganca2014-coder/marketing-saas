@@ -2032,6 +2032,39 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     duas.append(campo("Largura (m)", medida("largura", "dlg-largura")), campo("Comprimento (m)", medida("altura", "dlg-altura")));
     desenharArea();
     dlgCorpo.append(campo("Nome", nome), dl, duas, area);
+    // Cantos (decisão do dono, 2026-10-05: sem duplo clique, os cantos acrescentam-se e apagam-se aqui). O canto novo
+    // nasce a meio da parede mais comprida (arrasta-se depois); apaga-se o que menos muda a forma. Fecham a janela.
+    const pts = pontosDivisao(d);
+    const bMais = el("button", "btn sec pequeno", "Acrescentar canto");
+    bMais.type = "button";
+    bMais.id = "dlg-canto-mais";
+    bMais.addEventListener("click", () => {
+      let i = 0, maior = -1;
+      pts.forEach(([x, y], k) => { const [x2, y2] = pts[(k + 1) % pts.length]; const c = Math.hypot(x2 - x, y2 - y); if (c > maior) { maior = c; i = k; } });
+      const [x, y] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+      dialogo.close();
+      acrescentarCanto(d, i, { x: (x + x2) / 2, y: (y + y2) / 2 });
+    });
+    const cantos = el("div", "form-botoes");
+    cantos.append(bMais);
+    if (pts.length > 4) {
+      const bMenos = el("button", "btn sec pequeno", "Apagar canto");
+      bMenos.type = "button";
+      bMenos.id = "dlg-canto-menos";
+      bMenos.addEventListener("click", () => {
+        const a0 = areaPoligono(pts);
+        let i = -1, menor = Infinity;
+        pts.forEach((_, k) => {
+          const resto = pts.filter((__, j) => j !== k).map(([x, y]) => [x, y]);
+          const dif = Math.abs(a0 - areaPoligono(resto));
+          if (dif < menor && validarPontos(resto, planta.largura_cm, planta.altura_cm)) { menor = dif; i = k; }
+        });
+        dialogo.close();
+        if (i < 0) avisar("Não dá para apagar nenhum canto: mova-os primeiro."); else apagarCanto(d, i);
+      });
+      cantos.append(bMenos);
+    }
+    dlgCorpo.append(cantos, el("p", "ajuda", `Para uma divisão em L ou com uma parede inclinada: acrescente um canto e arraste-o na planta. Esta divisão tem ${pts.length} cantos.`));
     // Piso (nas casas com pisos): mudar leva a divisão e tudo o que está dentro dela para esse piso.
     if (nPisos() > 1 || pisosPedidos > 1) {
       const s = document.createElement("select");
