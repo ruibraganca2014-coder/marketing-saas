@@ -217,6 +217,16 @@ input, select { min-height: 44px; }
 .editor-menu > .btn:hover, .editor-menu > .btn:focus-visible { background: var(--musgo-claro); }
 .editor-menu > .btn[hidden] { display: none; }
 .editor-menu .confirmar { max-width: 280px; margin: 4px 0 0; }
+/* Coluna de ações à direita da planta (decisão do dono, 2026-10-05): o que está selecionado e imprimir/PDF/fundo. A área
+   guarda-lhe o lugar (padding), para a planta não ficar por baixo dos botões. */
+.editor-area { padding-right: 56px; }
+.editor-acoes-lado { position: absolute; top: 0; right: 0; bottom: 0; width: 56px; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 8px 0; overflow-y: auto; scrollbar-width: thin; border-left: 1px solid var(--borda); background: var(--fundo); }
+.editor-acoes-lado .editor-acoes-grupo, .editor-acoes-lado .editor-menu.na-barra { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.editor-acoes-lado .btn { flex: none; min-width: 40px; width: 40px; min-height: 40px; padding: 0; }
+.editor-acoes-lado .btn.icone svg { width: 20px; height: 20px; }
+.editor-acoes-lado .btn:disabled { opacity: .45; cursor: not-allowed; }
+.editor-acoes-lado .btn:not(.icone) { width: auto; max-width: 52px; padding: 4px; font-size: .7rem; line-height: 1.1; white-space: normal; }
+.editor-acoes-lado .confirmar { position: absolute; right: 60px; top: 8px; width: min(280px, 70vw); }
 /* O antigo menu "⋯" dentro da barra (decisão do dono, 2026-10-05): botões à vista, como os outros. */
 .editor-menu.na-barra { position: static; z-index: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .editor-menu.na-barra > .btn { width: auto; border-color: var(--borda); justify-content: center; }

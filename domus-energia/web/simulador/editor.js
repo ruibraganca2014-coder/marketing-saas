@@ -421,13 +421,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bOutras.setAttribute("aria-expanded", "false");
   bOutras.setAttribute("aria-controls", "editor-menu");
   linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bAjustar, bEcra));
-  const linhaSelecao = el("div", "editor-acoes-linha");
-  linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sCantoMais, sCantoMenos, sApagar));
   // Decisão do dono (2026-10-05): o que estava no menu "⋯" (Imprimir, Guardar PDF, Planta de fundo e, pelo app.js,
   // "Refazer planta") fica à vista na barra, no grupo g-fundo; o "⋯" deixa de se mostrar (MENU_NA_BARRA).
   bOutras.hidden = true;
   const grupoFundo = grupo("g-fundo", bOutras);
-  acoes.append(linhaGeral, linhaSelecao, grupoFundo);
+  // Decisão do dono (2026-10-05): em cima (horizontal) ficam anular/refazer e a vista; as ações do que está
+  // selecionado e imprimir/PDF/fundo ficam numa coluna à direita da planta (dentro da área dela: .editor-acoes-lado).
+  const acoesLado = el("div", "editor-acoes-lado");
+  acoesLado.setAttribute("role", "toolbar");
+  acoesLado.setAttribute("aria-orientation", "vertical");
+  acoesLado.setAttribute("aria-label", "Ações do que está selecionado e da planta");
+  acoesLado.append(grupo("g-selecao", sDuplicar, sOpcoes, sCantoMais, sCantoMenos, sApagar), grupoFundo);
+  acoes.append(linhaGeral);
   // Dentro da planta, discreto (em baixo, à esquerda): o que está selecionado e o texto de estado (vazio sem nada a dizer).
   const estadoLinha = el("div", "editor-estado");
   estadoLinha.append(selecaoNome, dica);
@@ -440,7 +445,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   svg.setAttribute("aria-roledescription", "planta");
   svg.setAttribute("aria-label", "Planta da casa");
   svg.setAttribute("aria-describedby", "editor-ajuda-teclado");
-  area.append(svg, estadoLinha);
+  area.append(svg, estadoLinha, acoesLado);
   const ajudaTeclado = el("p", "editor-ajuda", "Com o teclado: nas barras as setas passam de botão em botão; escolha uma ferramenta e carregue em Enter para a pôr no centro; na planta as setas movem o que está selecionado (Shift para mover mais), Enter abre as opções, Delete apaga, Ctrl+Z anula.");
   ajudaTeclado.id = "editor-ajuda-teclado";
 
@@ -637,7 +642,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       const l = ativos();
       const i = l.indexOf(document.activeElement);
       if (i < 0) return;
-      const k = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: l.length - 1 }[ev.key];
+      const k = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: l.length - 1 }[ev.key];
       if (k === undefined) return;
       ev.preventDefault();
       const b = l[(k + l.length) % l.length];
@@ -657,6 +662,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Pela ordem em que se veem (os grupos têm `order` no CSS: no computador a seleção vem antes do fundo).
   const ordemVista = (b) => Number(getComputedStyle(b.closest(".editor-acoes-grupo")).order) || 0;
   const rovingAcoes = barraComSetas(acoes, () => [...acoes.querySelectorAll(".editor-acoes-grupo button")].map((b, i) => [b, ordemVista(b), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map(([b]) => b));
+  const rovingLado = barraComSetas(acoesLado, () => [...acoesLado.querySelectorAll("button")]);
   acertarBarra();
 
   // ---------------------------------------------------------------- vista
@@ -2203,6 +2209,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     bDesfazer.disabled = !desfazer.length;
     bRefazer.disabled = !refazer.length;
     rovingAcoes();
+    rovingLado();
   }
 
   // O cartão do fundo é refeito a cada mudança: o foco volta ao mesmo controlo (pelo id, ou pelo texto do
@@ -2227,6 +2234,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     desenharSelecao();
     desenharFundo();
     rovingAcoes();
+    rovingLado();
     acertarBarra();   // os botões das divisões seguem a planta (as divisões deste piso)
     reporFoco(foco);
   }
