@@ -4232,12 +4232,12 @@ function desenharRelatorio() {
   const pot = el("div", `cartao sim-potencia ${a.potencia.estado}`);
   pot.append(el("h3", null, a.potencia.titulo), ...a.potencia.texto.map((t) => el("p", null, t)));
   const circ = el("div", "cartao");
-  circ.append(el("h3", null, "Circuitos que esta casa pede"));
+  circ.append(el("h3", null, "Quadro ideal e circuitos que esta casa pede"));
   if (a.circuitos.length) {
     // O desenho do quadro que a casa pede (calculado; não é o quadro que lá está, que só o eletricista desenha pela foto).
     if (a.esquema) {
       const fig = el("figure", "sim-quadro-sugerido");
-      fig.append(desenharQuadroCliente(a.esquema, { soLeitura: true, resumo: a.esquema.resumo }), el("figcaption", null, `Quadro sugerido, calculado pelo que descreveu. Não é o quadro que tem hoje. ${a.esquema.resumo}`));
+      fig.append(desenharQuadroCliente(a.esquema, { soLeitura: true, resumo: a.esquema.resumo }), el("figcaption", null, `Quadro ideal para esta casa, calculado pelo que descreveu. Não é o quadro que tem hoje: o eletricista adapta o que lá está a este. ${a.esquema.resumo}`));
       circ.append(fig);
     }
     const t = el("table", "sim-circuitos");
