@@ -5151,7 +5151,7 @@ function iniciar() {
   montarVisita();
   casaGuardada = carregarCasa(armazem ?? semArmazem);
   if (modoCliente) {
-    document.title = "Ampliar a instalação — Domus Energia";
+    document.title = "Ampliar a instalação | Domus Energia";
     document.querySelector(".sim-cabecalho h1").textContent = "Ampliar a instalação";
     const m = $("sim-cliente");
     m.textContent = codigoCliente

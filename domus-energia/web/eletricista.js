@@ -94,7 +94,7 @@ function mostrarEntrar(texto = "", tipo = "info") {
   $("el-quem").textContent = "Área do eletricista";
   $("el-entrar").hidden = false;
   msgEntrar(texto || null, tipo);
-  document.title = "Entrar — Área do eletricista — Domus Energia";
+  document.title = "Entrar | Área do eletricista | Domus Energia";
 }
 async function ocupado(b, fn) {
   if (b.disabled) return;

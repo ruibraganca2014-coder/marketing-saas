@@ -69,7 +69,7 @@ function preparar() {
     chave = pendente.chave;
   }
   $("foto-rotulo").textContent = rotuloDe(chave);
-  document.title = `${rotuloDe(chave)} — Domus Energia`;
+  document.title = `${rotuloDe(chave)} | Domus Energia`;
   limparPrevia();
   mostrar("tirar");
   const c = chaves.find((x) => x.chave === chave);
