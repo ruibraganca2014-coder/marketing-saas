@@ -313,9 +313,12 @@ export function blocosRelatorio(d) {
     { tipo: "texto", texto: d.casa || "—" },
     { tipo: "seccao", texto: "Divisões" },
     ...((d.divisoes ?? []).length ? d.divisoes.map((x) => ({ tipo: "item", texto: `${x.nome}: ${x.itens || "sem aparelhos"}` })) : [{ tipo: "item", texto: "Ainda sem divisões." }]),
-    { tipo: "seccao", texto: "Quadro elétrico" },
-    ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })),
-    ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []),
+    // Com a análise da casa o quadro do pedido não entra (contava os circuitos do pedido e contradizia a tabela).
+    ...(d.analise ? [] : [
+      { tipo: "seccao", texto: "Quadro elétrico" },
+      ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })),
+      ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []),
+    ]),
     // A análise tirada da planta (relatorio-casa.js; decisão do dono, 2026-10-05): os mesmos quatro blocos do ecrã.
     ...(d.analise ? [
       { tipo: "seccao", texto: "A casa em números" },

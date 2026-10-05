@@ -58,7 +58,7 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   const analise = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
   const b = blocosRelatorio({ casa: 'Apartamento T2', divisoes: [], quadro: [], potencia: 'x', analise });
   const seccoes = b.filter((x) => x.tipo === 'seccao').map((x) => x.texto);
-  assert.deepEqual(seccoes, ['A casa', 'Divisões', 'Quadro elétrico', 'A casa em números', 'A potência contratada pode ser curta', 'Circuitos que esta casa pede', 'Pontos a rever']);
+  assert.deepEqual(seccoes, ['A casa', 'Divisões', 'A casa em números', 'A potência contratada pode ser curta', 'Circuitos que esta casa pede', 'Pontos a rever']);
   assert.ok(b.some((x) => x.tipo === 'item' && /^C3 · Placa de cozinha \(Cozinha\): disjuntor de 25 A, cabo de 6 mm²$/.test(x.texto)));
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
 });

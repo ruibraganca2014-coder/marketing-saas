@@ -4221,11 +4221,8 @@ function desenharRelatorio() {
     return li;
   }));
   divs.append(el("h3", null, "Divisões"), ul);
-  const quadro = el("div", "cartao");
-  const uq = el("ul", "sim-inclui");
-  uq.append(...d.quadro.map((t) => el("li", null, t)));
-  quadro.append(el("h3", null, "Quadro elétrico"), uq, el("p", "sim-nota forte", d.potencia));
-  // Os quatro blocos tirados da planta (relatorio-casa.js).
+  // Os quatro blocos tirados da planta (relatorio-casa.js). O cartão "Quadro elétrico" de antes saiu (decisão do dono,
+  // 2026-10-05): contava os circuitos do pedido, não os da casa, e contradizia a tabela.
   const a = d.analise;
   const numeros = el("div", "cartao");
   const dl = el("dl", "sim-numeros");
@@ -4257,7 +4254,7 @@ function desenharRelatorio() {
   const ur = el("ul", "sim-inclui");
   ur.append(...a.rever.map((t) => el("li", null, t)));
   rever.append(el("h3", null, "Pontos a rever"), a.rever.length ? ur : el("p", "ajuda", "Nada a assinalar pelo que descreveu."), el("p", "ajuda", "Orientativo, pelo que descreveu. Confirmamos na visita."));
-  caixa.append(casa, numeros, divs, quadro, pot, circ, rever);
+  caixa.append(casa, numeros, divs, pot, circ, rever);
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");
