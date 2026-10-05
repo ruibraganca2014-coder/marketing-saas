@@ -29,7 +29,7 @@ import {
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
-  temCasa, resumoCasa, guardarCasa, carregarCasa, usarCasa, ordemPasso, maisAdiantado,
+  temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
 } from "./estado.js";
@@ -5067,9 +5067,16 @@ const PRAZO_ANULAR = 10_000;
 let anular = null;   // { estado, visitado, fotos, temporizador } enquanto "Anular" está à vista
 function recomecarComAnular() {
   acabarAnular();
-  const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos), casaPreEscolhida, casaEncontrada, recusouCasa };
+  const arm = armazem ?? semArmazem;
+  let casaBruta = null;
+  try { casaBruta = arm.getItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
+  const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos), casaPreEscolhida, casaEncontrada, recusouCasa, casaGuardada, casaBruta };
   recomecar({ manterFotos: true });
-  recusouCasa = true;   // quis começar do zero: a casa guardada fica só oferecida no cartão (2026-10-04)
+  recusouCasa = true;
+  // Decisão do dono (2026-10-05): "Começar de novo" apaga também a casa guardada neste navegador — "Pedir um serviço"
+  // volta a pedir para descrever a casa primeiro. O "Anular" repõe-a. (A casa da conta, com sessão, não se apaga aqui.)
+  casaGuardada = null;
+  try { arm.removeItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
   mostrarInicio();
   const a = $("sim-anular");
   const b = el("button", "btn sec pequeno", "Anular");
@@ -5100,7 +5107,8 @@ function anularRecomecar() {
   $("sim-anular").replaceChildren();
   estado = a.estado;
   visitado = a.visitado;
-  ({ casaPreEscolhida, casaEncontrada, recusouCasa } = a);
+  ({ casaPreEscolhida, casaEncontrada, recusouCasa, casaGuardada } = a);
+  if (a.casaBruta !== null) { try { (armazem ?? semArmazem).setItem(CHAVE_CASA, a.casaBruta); } catch { /* quota */ } }
   for (const [k, v] of a.fotos) fotos.set(k, v);
   mostrarInicio();
   gravar();             // volta a ficar gravada neste navegador…
