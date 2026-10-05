@@ -325,6 +325,10 @@ export function blocosRelatorio(d) {
       { tipo: "texto", texto: d.analise.numeros.map(([k, v]) => `${k}: ${v}`).join(" · ") },
       { tipo: "seccao", texto: d.analise.potencia.titulo },
       ...d.analise.potencia.texto.map((t) => ({ tipo: "texto", texto: t })),
+      ...(d.analise.simultaneo ? [{ tipo: "seccao", texto: "O que pode ligar ao mesmo tempo" }, { tipo: "texto", texto: `Com os ${d.analise.simultaneo.limite} que tem contratados:` },
+        ...d.analise.simultaneo.linhas.map((l) => ({ tipo: "item", texto: `${l.estado === "dispara" ? "A luz vai abaixo" : "Aguenta"}: ${l.nomes} (${l.w})` }))] : []),
+      ...(d.analise.consumo ? [{ tipo: "seccao", texto: "Consumo estimado por mês" }, { tipo: "texto", texto: `Cerca de ${d.analise.consumo.kwh} kWh, uns ${d.analise.consumo.euros} €.` },
+        ...d.analise.consumo.maiores.map(([nome, k]) => ({ tipo: "item", texto: `${nome}: ${k}` })), { tipo: "texto", texto: d.analise.consumo.nota }] : []),
       { tipo: "seccao", texto: "Circuitos que esta casa pede" },
       ...(d.analise.esquema ? [{ tipo: "texto", texto: `Quadro ideal para esta casa (não é o que tem hoje). ${d.analise.esquema.resumo}` },
         ...(d.analise.esquema.legenda ?? []).map(([nome, texto]) => ({ tipo: "item", texto: `${nome}: ${texto}` }))] : []),
@@ -335,6 +339,7 @@ export function blocosRelatorio(d) {
       { tipo: "seccao", texto: "Pontos a rever" },
       ...(d.analise.rever.length ? d.analise.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
       { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
+      ...(d.analise.proximo?.length ? [{ tipo: "seccao", texto: "O que fazíamos primeiro nesta casa" }, ...d.analise.proximo.map((t) => ({ tipo: "item", texto: t }))] : []),
     ] : []),
     { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." },
   ];

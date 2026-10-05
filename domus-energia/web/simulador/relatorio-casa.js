@@ -9,6 +9,24 @@ import {
 import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, FRACAO_LIVRE } from "./quadro.js";
 import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
 
+/**
+ * Consumo típico por mês de cada aparelho (kWh), para a estimativa do relatório (decisão do dono, 2026-10-05). São
+ * valores de referência de uma casa portuguesa média, não medições: o relatório diz sempre "estimativa". O que não
+ * está aqui conta como 1 hora por dia à potência do aparelho.
+ */
+export const KWH_MES = {
+  termoacumulador: 95, esquentador: 70, bomba_calor: 60, ar_condicionado: 45, radiador: 60, aquecedor_portatil: 45, toalheiro: 15,
+  placa: 40, forno: 18, micro_ondas: 5, exaustor: 3, cafeteira: 6, air_fryer: 8, torradeira: 2, cafe_expresso: 5,
+  maquina_lavar: 14, maquina_secar: 30, maquina_loica: 22, frigorifico: 25, arca_congeladora: 25, arca_frigorifica: 120,
+  televisao: 9, computador: 12, consola: 6, box_router: 14, repetidor_wifi: 7, nas: 29, camara: 7, desumidificador: 20,
+  carregador_ve: 180, carregador_ve_22: 180, carregador_bicicleta: 5, hidromassagem: 40, bomba: 35, secador: 3,
+  iluminacao_jardim: 8, portao: 2, rega: 1, campainha: 1, campainha_video: 3,
+};
+/** Preço de referência da eletricidade, com taxas e IVA (€/kWh): só para a estimativa. */
+export const EUR_KWH = 0.24;
+/** Iluminação e pequenos consumos (carregadores, stand-by): base + por m². */
+const KWH_BASE = 20, KWH_M2 = 0.3;
+
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const kvaTxt = (k) => `${String(k).replace(".", ",")} kVA`;
 const wTxt = (w) => `${String(Math.round(w)).replace(/\B(?=(\d{3})+$)/g, " ")} W`;
@@ -136,8 +154,50 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   if (grandes.length) rever.push(`${grandes.map((m) => nomeModelo(m.modelo)).join(", ")}: ${grandes.length === 1 ? "deve ter um circuito só para ela" : "cada uma deve ter um circuito só para ela"} no quadro.`);
   if (estado === "curta") rever.push(`Potência contratada: ${kvaTxt(contratada)} para uma casa que pede ${kvaTxt(sugeridaKva)}.`);
 
+  // ---- 5. O que pode ligar ao mesmo tempo (as máquinas de 1 000 W ou mais, uma de cada, contra o contrato)
+  const limiteW = contratada * 1000;
+  const todas = maquinas.map((e) => maquinaDaPlanta(e.props));
+  const fortes = [...new Map(todas.filter((m) => m.potencia_w >= 1000).map((m) => [m.modelo, m])).values()].sort((x, y) => y.potencia_w - x.potencia_w).slice(0, 5);
+  const linhaDe = (ms) => { const w = ms.reduce((s, m) => s + m.potencia_w, 0); return { estado: w > limiteW ? "dispara" : "aguenta", nomes: ms.map((m) => nomeModelo(m.modelo)).join(" + "), w: wTxt(w), chave: ms.map((m) => m.modelo).sort().join("|") }; };
+  const combinacoes = [];
+  if (fortes.length >= 2) {
+    const cabem = [];
+    let soma = 0;
+    for (const m of fortes) if (soma + m.potencia_w <= limiteW) { cabem.push(m); soma += m.potencia_w; }
+    // Nem duas cabem juntas: mostra-se a maior que o contrato aguenta sem mais nada.
+    if (cabem.length === 1) combinacoes.push({ ...linhaDe(cabem), nomes: `${nomeModelo(cabem[0].modelo)}, sem mais nada ligado` });
+    for (const ms of [cabem.length >= 2 ? cabem : null, fortes.slice(0, 2), fortes.length > 2 ? fortes : null]) {
+      if (!ms) continue;
+      const l = linhaDe(ms);
+      if (!combinacoes.some((x) => x.chave === l.chave)) combinacoes.push(l);
+    }
+  } else if (fortes.length === 1 && fortes[0].potencia_w > limiteW) combinacoes.push(linhaDe(fortes));
+  combinacoes.sort((x, y) => (x.estado === y.estado ? 0 : x.estado === "aguenta" ? -1 : 1));
+  const simultaneo = combinacoes.length ? { limite: `${kvaTxt(contratada)} (${wTxt(limiteW)})`, linhas: combinacoes.map(({ chave: _c, ...l }) => l) } : null;
+
+  // ---- 6. Consumo estimado por mês (valores típicos por aparelho: KWH_MES)
+  const porModelo = new Map();
+  for (const m of todas) porModelo.set(m.modelo, (porModelo.get(m.modelo) ?? 0) + (KWH_MES[m.modelo] ?? Math.round((m.potencia_w * 30) / 1000)));
+  const baseKwh = divisoes.length ? Math.round(KWH_BASE + area * KWH_M2) : 0;
+  const totalKwh = [...porModelo.values()].reduce((s, k) => s + k, 0) + baseKwh;
+  const consumo = totalKwh > 0 ? {
+    kwh: Math.round(totalKwh / 10) * 10, euros: Math.round((totalKwh * EUR_KWH) / 5) * 5,
+    maiores: [...porModelo].sort((x, y) => y[1] - x[1]).slice(0, 3).map(([modelo, k]) => [nomeModelo(modelo), `${k} kWh`]),
+    nota: `Estimativa por valores típicos de cada aparelho, a cerca de ${String(EUR_KWH).replace(".", ",")} €/kWh com taxas. O que paga depende de como usa a casa e do seu tarifário.`,
+  } : null;
+
+  // ---- 7. O que fazíamos primeiro nesta casa (até 3, pelo que mais conta)
+  const comPoucasTomadas = rever.filter((t) => /pontos? de tomada/.test(t)).map((t) => t.split(":")[0]);
+  const proximo = [
+    esquema ? "Pôr o quadro como o do desenho, com a proteção completa." : null,
+    grandes.length ? `Circuito só para ${grandes.length === 1 ? "a máquina grande" : "cada máquina grande"}: ${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}.` : null,
+    comPoucasTomadas.length ? `Mais tomadas em: ${comPoucasTomadas.join(", ")}.` : null,
+    rever.some((t) => /zona húmida/.test(t)) ? "Circuito próprio para as tomadas das zonas húmidas." : null,
+    estado === "curta" ? `Rever a potência contratada: a casa pede ${kvaTxt(sugeridaKva)}.` : null,
+  ].filter(Boolean).slice(0, 3);
+
   const semLuzes = !elementos.some((e) => e.tipo === "luz");
-  return { numeros, potencia, circuitos, esquema, notaCircuitos: semLuzes ? "Falta a iluminação: os pontos de luz não se levantam nesta descrição, por isso os circuitos das luzes não aparecem aqui." : null, rever };
+  return { numeros, potencia, simultaneo, consumo, proximo, circuitos, esquema, notaCircuitos: semLuzes ? "Falta a iluminação: os pontos de luz não se levantam nesta descrição, por isso os circuitos das luzes não aparecem aqui." : null, rever };
 }
 
 /**

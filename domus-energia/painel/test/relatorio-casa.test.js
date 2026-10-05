@@ -58,7 +58,7 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   const analise = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
   const b = blocosRelatorio({ casa: 'Apartamento T2', divisoes: [], quadro: [], potencia: 'x', analise });
   const seccoes = b.filter((x) => x.tipo === 'seccao').map((x) => x.texto);
-  assert.deepEqual(seccoes, ['A casa', 'Divisões', 'A casa em números', 'A potência contratada pode ser curta', 'Circuitos que esta casa pede', 'Pontos a rever']);
+  assert.deepEqual(seccoes, ['A casa', 'Divisões', 'A casa em números', 'A potência contratada pode ser curta', 'O que pode ligar ao mesmo tempo', 'Consumo estimado por mês', 'Circuitos que esta casa pede', 'Pontos a rever', 'O que fazíamos primeiro nesta casa']);
   assert.ok(b.some((x) => x.tipo === 'item' && /^C3 · Placa de cozinha \(Cozinha\): disjuntor de 25 A, cabo de 6 mm²$/.test(x.texto)));
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
 });
@@ -90,4 +90,21 @@ test('quadro ideal, com proteção completa: geral Wi-Fi pela potência, descarr
   assert.doesNotThrow(() => esquemaQuadro(gravavel), 'e o servidor também');
   assert.equal(analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45).esquema, null, 'sem circuitos não há quadro');
   assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).esquema.disjuntor_geral.amperes, 50, 'a contratada maior manda: 10,35 kVA → 50 A');
+});
+
+test('ao mesmo tempo, consumo e próximo passo: combinações contra o contrato, estimativa por valores típicos e até 3 trabalhos', () => {
+  const a = analiseDaCasa(PLANTA, { potencia_contratada_kva: 6.9 }, 6.9);
+  // Placa 7 200 W, forno 2 500 W, micro-ondas 1 200 W (o frigorífico, 150 W, não entra); contrato 6 900 W.
+  assert.equal(a.simultaneo.limite, '6,9 kVA (6 900 W)');
+  assert.deepEqual(a.simultaneo.linhas, [
+    { estado: 'aguenta', nomes: 'Forno + Micro-ondas', w: '3 700 W' },
+    { estado: 'dispara', nomes: 'Placa de cozinha + Forno', w: '9 700 W' },
+    { estado: 'dispara', nomes: 'Placa de cozinha + Forno + Micro-ondas', w: '10 900 W' },
+  ]);
+  // 40 + 18 + 25 + 5 (aparelhos) + 20 + 36 m² × 0,3 ≈ 31 (base) = 119 → 120 kWh; × 0,24 € ≈ 30 €.
+  assert.deepEqual([a.consumo.kwh, a.consumo.euros, a.consumo.maiores], [120, 30, [['Placa de cozinha', '40 kWh'], ['Frigorífico', '25 kWh'], ['Forno', '18 kWh']]]);
+  assert.match(a.consumo.nota, /^Estimativa por valores típicos/);
+  assert.deepEqual(a.proximo, ['Pôr o quadro como o do desenho, com a proteção completa.', 'Circuito só para cada máquina grande: placa de cozinha, forno.', 'Mais tomadas em: Cozinha.']);
+  const vazia = analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45);
+  assert.deepEqual([vazia.simultaneo, vazia.consumo, vazia.proximo], [null, null, []]);
 });

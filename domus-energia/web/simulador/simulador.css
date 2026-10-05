@@ -833,6 +833,13 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-quadro-sugerido { margin: 0 0 14px; }
 .sim-quadro-sugerido figcaption { margin-top: 8px; color: var(--texto-suave); font-size: .92rem; }
 .sim-circuitos-rolo { overflow-x: auto; }
+.sim-junto { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.sim-junto li { display: grid; grid-template-columns: minmax(0, 9.5em) minmax(0, 1fr) auto; gap: 4px 12px; align-items: baseline; padding: 8px 12px; border: 1.5px solid var(--borda); border-radius: 12px; }
+.sim-junto li.dispara { border-color: var(--argila); }
+.sim-junto li.dispara strong { color: var(--argila-texto); }
+.sim-consumo-total { margin: 0 0 8px; font-size: 1.25rem; font-weight: 800; }
+.sim-proximo .btn { margin-top: 6px; }
+@media (max-width: 520px) { .sim-junto li { grid-template-columns: 1fr auto; } .sim-junto li strong { grid-column: 1 / -1; } }
 .sim-legenda { display: grid; gap: 6px 14px; grid-template-columns: minmax(0, auto) minmax(0, 1fr); margin: 0 0 14px; font-size: .95rem; }
 .sim-legenda dt { font-weight: 700; }
 .sim-legenda dd { margin: 0; color: var(--texto-suave); }

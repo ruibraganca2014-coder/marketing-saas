@@ -4272,7 +4272,37 @@ function desenharRelatorio() {
   const ur = el("ul", "sim-inclui");
   ur.append(...a.rever.map((t) => el("li", null, t)));
   rever.append(el("h3", null, "Pontos a rever"), a.rever.length ? ur : el("p", "ajuda", "Nada a assinalar pelo que descreveu."), el("p", "ajuda", "Orientativo, pelo que descreveu. Confirmamos na visita."));
-  caixa.append(casa, numeros, divs, pot, circ, rever);
+  // O que pode ligar ao mesmo tempo, o consumo estimado e o próximo passo (decisão do dono, 2026-10-05).
+  let junto = null;
+  if (a.simultaneo) {
+    junto = el("div", "cartao");
+    const ul = el("ul", "sim-junto");
+    for (const l of a.simultaneo.linhas) { const li = el("li", l.estado); li.append(el("strong", null, l.estado === "dispara" ? "A luz vai abaixo" : "Aguenta"), el("span", null, l.nomes), el("span", "num", l.w)); ul.append(li); }
+    junto.append(el("h3", null, "O que pode ligar ao mesmo tempo"), el("p", "ajuda", `Com os ${a.simultaneo.limite} que tem contratados:`), ul);
+  }
+  let consumo = null;
+  if (a.consumo) {
+    consumo = el("div", "cartao");
+    const ol = el("ol", "sim-inclui");
+    ol.append(...a.consumo.maiores.map(([nome, k]) => el("li", null, `${nome}: ${k}`)));
+    consumo.append(el("h3", null, "Consumo estimado por mês"), el("p", "sim-consumo-total", `Cerca de ${a.consumo.kwh} kWh, uns ${a.consumo.euros} €.`),
+      ...(a.consumo.maiores.length ? [el("p", "ajuda", "O que mais gasta:"), ol] : []), el("p", "ajuda", a.consumo.nota));
+  }
+  let proximo = null;
+  if (a.proximo.length) {
+    proximo = el("div", "cartao sim-proximo");
+    const ol = el("ol", "sim-inclui");
+    ol.append(...a.proximo.map((t) => el("li", null, t)));
+    proximo.append(el("h3", null, "O que fazíamos primeiro nesta casa"), ol);
+    if (estado.funil === "primeira") {
+      const b = el("button", "btn", "Pedir um serviço");
+      b.type = "button";
+      b.id = "relatorio-pedir-servico";
+      b.addEventListener("click", () => { gravar(); registarCasaNaConta(); estado.funil = "planta"; estado.caminho = null; irPara(P.inicio); desenharInicio(); });
+      proximo.append(el("p", "ajuda", "A casa já fica preenchida: só escolhe o que precisa."), b);
+    }
+  }
+  caixa.append(...[casa, numeros, divs, pot, junto, consumo, circ, rever, proximo].filter(Boolean));
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");
