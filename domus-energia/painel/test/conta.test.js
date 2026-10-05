@@ -762,3 +762,23 @@ describe('site público noutra origem (SITE_ORIGENS): CORS e origem', () => {
     assert.deepEqual(p.config.siteOrigens, [SITE, 'http://qc1.localhost:8080']);
   });
 });
+
+test('continuar: diz se o email tem conta; com conta manda o código, sem conta não cria nem envia nada', async () => {
+  const p = await iniciarPainel();
+  try {
+    const conta = (m, c, o) => p.pedir(m, `/api/conta/${c}`, o);
+    const novo = 'continuar.novo@exemplo.pt';
+    const r = await conta('POST', 'continuar', { corpo: { email: novo } });
+    assert.deepEqual([r.estado, r.json], [200, { ok: true, email: novo, existe: false }]);
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM contas WHERE email = ?').get(novo).n, 0, 'não cria a conta');
+    assert.equal(p.emails.filter((m) => m.para === novo).length, 0, 'não envia email');
+    assert.equal((await conta('POST', 'criar', { corpo: { email: novo } })).estado, 201);
+    const antes = p.emails.filter((m) => m.para === novo).length;
+    const ja = await conta('POST', 'continuar', { corpo: { email: novo.toUpperCase() } });
+    assert.deepEqual([ja.estado, ja.json.existe, typeof ja.json.mensagem], [200, true, 'string']);
+    assert.equal(p.emails.filter((m) => m.para === novo).length, antes + 1, 'com conta segue o código');
+    assert.equal((await conta('POST', 'continuar', { corpo: { email: 'nao-e-email' } })).estado, 400);
+    assert.equal((await conta('POST', 'continuar', { corpo: {} })).estado, 400);
+    assert.equal((await conta('POST', 'continuar', { corpo: { email: novo, x: 1 } })).estado, 400);
+  } finally { await p.fechar(); }
+});

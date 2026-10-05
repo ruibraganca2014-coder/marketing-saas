@@ -114,7 +114,11 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
   // Um só caminho com código (decisão do dono, 2026-10-05): "Enviar código" serve quem tem conta e quem não tem (a conta
   // cria-se ao confirmar). Antes havia "Criar conta" e "Já tenho conta: entrar", e quem escolhia o segundo com um email
   // sem conta ficava à espera de um código que nunca chegava. "entrar" (de antes) cai em "criar".
-  let modo = "criar";      // fora: criar (email → código) | codigo | senha (com palavra-passe)
+  // Sem conta, avisa primeiro (decisão do dono, 2026-10-06): "Continuar" pergunta ao servidor se o email tem conta
+  // (POST continuar); com conta segue o código, sem conta aparece "Ainda não tem conta com este email" e só "Criar
+  // conta" a cria (POST criar).
+  let modo = "criar";      // fora: criar (email → Continuar) | nova (sem conta: confirmar a criação) | codigo | senha
+  let emailNovo = "";      // o email sem conta à espera de "Criar conta"
   let emailRepor = "";     // o email já escrito, para o campo seguinte
   // Depois de "Criar conta" ou "Enviar código" (sem sessão ainda): o email fica só em memória até confirmar o código.
   let pendente = null;     // {email, origem: "criar" | "codigo"}
@@ -194,7 +198,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         msg, el("div", { classe: "duas" }, cod.l), el("div", { classe: "form-botoes" }, confirmar, reenviar));
       return;
     }
-    if (modo === "entrar" || (modo === "codigo" && !pendente)) modo = "criar";
+    if (modo === "entrar" || (modo === "codigo" && !pendente) || (modo === "nova" && !emailNovo)) modo = "criar";
     const email = campo("Email", "email", { type: "email", maxlength: "254", autocomplete: "email", inputmode: "email" });
     const irPara = (m) => { emailRepor = email.i.value.trim() || emailRepor; modo = m; mensagem(null); desenhar(); focar(); };
     /** Pede o código para `e` ("criar" cria a conta se não existe; "codigo" só para contas que existem) e passa ao código. */
@@ -208,21 +212,47 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     };
     if (modo === "criar") {
       if (emailRepor) email.i.value = emailRepor;
-      const criar = botao("Enviar código", "criar", () => ocupado(criar, async () => {
+      const criar = botao("Continuar", "criar", () => ocupado(criar, async () => {
         const e = email.i.value.trim();
         if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
-        // A resposta é sempre a mesma (o servidor não diz se o email já tem conta); a sessão abre ao confirmar o código.
-        await pedirCodigo(e, "criar");
+        const r = await pedirConta("continuar", { corpo: { email: e } });
+        if (r?.existe) {
+          // Já tem conta: o código já seguiu. "Reenviar" usa o caminho de sempre (criar: manda o código de entrar).
+          pendente = { email: e, origem: "criar" };
+          modo = "codigo";
+          desenhar();
+          mensagem(r.mensagem ?? "Enviámos um código para o email.", "info");
+          document.getElementById(id("codigo"))?.focus();
+          return;
+        }
+        emailNovo = e;
+        emailRepor = e;
+        modo = "nova";
+        mensagem(null);
+        desenhar();
+        document.getElementById(id("criar-nova"))?.focus();
       }));
       comEnter([email], criar);
+      caixa.append(el("p", { texto: texto.fora ?? "Escreva o seu email para enviar o pedido e acompanhá-lo depois." }), msg,
+        email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Sem palavra-passe." }),
+        el("div", { classe: "form-botoes" }, criar, ligacao("Entrar com palavra-passe", "ir-senha", () => irPara("senha"))));
+    } else if (modo === "nova") {
+      // O email ainda não tem conta: avisa e só cria com "Criar conta".
+      const criarNova = botao("Criar conta", "criar-nova", () => ocupado(criarNova, async () => {
+        const e = emailNovo;
+        emailNovo = "";
+        try { await pedirCodigo(e, "criar"); } catch (erro) { emailNovo = e; throw erro; }
+      }));
       // Consentimento (RGPD): a conta e o pedido são necessários ao contrato, por isso basta a frase com as ligações.
-      // QA final: "Ao criar a conta" (no passo Enviar do simulador a frase "Ao enviar…" do contacto só aparece com sessão).
-      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao continuar, aceita os ",
+      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao criar a conta, aceita os ",
         el("a", { href: "termos.html", target: "_blank", rel: "noopener", texto: "Termos" }), " e a ",
         el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
-      caixa.append(el("p", { texto: texto.fora ?? "Escreva o seu email para enviar o pedido e acompanhá-lo depois." }), msg,
-        email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Serve para entrar e, se ainda não tem conta, fica criada." }), consentimento,
-        el("div", { classe: "form-botoes" }, criar, ligacao("Entrar com palavra-passe", "ir-senha", () => irPara("senha"))));
+      caixa.append(
+        el("p", { id: id("sem-conta") }, "Ainda não tem conta com o email ", el("strong", { texto: emailNovo }), "."),
+        el("p", { classe: "ajuda", texto: "Criamos uma só com o email, sem palavra-passe. Enviamos um código de 6 algarismos para o confirmar." }),
+        msg, consentimento,
+        el("div", { classe: "form-botoes" }, criarNova,
+          ligacao("Outro email", "ir-criar", () => { emailNovo = ""; modo = "criar"; mensagem(null); desenhar(); focar(); })));
     } else if (modo === "codigo" && pendente) {
       // Código depois de "Criar conta" ou "Enviar código": confirma com o email e abre a sessão.
       const cod = campo("Código de 6 algarismos", "codigo", { inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", pattern: "[0-9 ]*" });

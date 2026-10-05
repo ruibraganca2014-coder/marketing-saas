@@ -333,6 +333,21 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 201, { ok: true, email, mensagem: 'Enviámos um código para o email. Veja também o correio não desejado (spam).' });
   };
 
+  // "Continuar" com o email (decisão do dono, 2026-10-06): o site diz se o email já tem conta. Com conta, segue o código
+  // (de entrar, ou de confirmar se ainda não confirmou); sem conta NÃO se cria nada nem se envia nada — responde
+  // `existe: false` e o site pede "Criar conta" (POST criar). O dono aceitou que isto revela se um email tem conta
+  // (antes nenhuma resposta o dizia); fica o limite por IP (10/hora) e a quota de 3 emails por hora por email.
+  h.continuar = async ({ req, res, ip }) => {
+    const v = await lerJson(req, ['email']);
+    const email = emailValido(v.email);
+    esperar([[L.pedirCodigoIp, ip]]);
+    contar([[L.pedirCodigoIp, ip]]);
+    const c = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
+    if (!c) return responder(res, 200, { ok: true, email, existe: false });
+    codigoParaConta(c);
+    responder(res, 200, { ok: true, email, existe: true, mensagem: 'Enviámos um código para o email. Veja também o correio não desejado (spam).' });
+  };
+
   // Pedir um código para entrar (conta já existente; "Entrar com código" e "Esqueci-me da palavra-passe"): a mesma
   // resposta exista ou não a conta; limites por IP (10/hora) e a quota de 3 emails por hora por email.
   h.codigo = async ({ req, res, ip }) => {
@@ -986,6 +1001,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   // [método, caminho, precisa de sessão ("sessao" | "confirmada" | null), handler]
   const ROTAS_CONTA = [
     ['POST', 'criar', null, 'criar'],
+    ['POST', 'continuar', null, 'continuar'],   // {email} → {existe}; com conta manda o código, sem conta não cria nada
     ['POST', 'codigo', null, 'codigo'],
     ['POST', 'entrar', null, 'entrar'],
     ['POST', 'sair', null, 'sair'],

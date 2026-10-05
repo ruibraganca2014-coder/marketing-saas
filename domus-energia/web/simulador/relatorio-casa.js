@@ -65,7 +65,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     titulo: { chega: "A potência contratada chega", curta: "A potência contratada pode ser curta", especial: "Esta casa pede um contrato especial", sem_dados: "Potência contratada" }[estado],
     texto: [
       `Tem ${kvaTxt(contratada)} contratados${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugeridaKva)}.` : estado === "chega" && sugeridaKva !== contratada ? `; o que a casa tem pede ${kvaTxt(sugeridaKva)}.` : "."}`,
-      grandes.length ? `As ${plural(grandes.length, "máquina grande", "máquinas grandes")} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) somam ${wTxt(somaGrandes)}${somaGrandes > contratada * 1000 ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: com todas ligadas ao mesmo tempo, a luz vai abaixo.` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
+      grandes.length ? `As ${plural(grandes.length, "máquina grande", "máquinas grandes")} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) somam ${wTxt(somaGrandes)}${somaGrandes > contratada * 1000 ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${estado === "chega" ? "chega para o dia a dia, mas com todas ligadas ao mesmo tempo a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
     ].filter(Boolean),
   };
 
