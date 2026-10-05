@@ -42,6 +42,7 @@ import { guardarPdfOrcamento, guardarPdfRelatorio } from "./imprimir.js";
 import { desenharIcone, desenharPlanta } from "./planta-svg.js";
 import { resumoQuadro as resumoDoQuadro } from "./quadro.js";
 import { analiseDaCasa } from "./relatorio-casa.js";
+import { desenharQuadroCliente } from "./quadro-desenho.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { sugerirConcelhos, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
 import {
@@ -4233,6 +4234,12 @@ function desenharRelatorio() {
   const circ = el("div", "cartao");
   circ.append(el("h3", null, "Circuitos que esta casa pede"));
   if (a.circuitos.length) {
+    // O desenho do quadro que a casa pede (calculado; não é o quadro que lá está, que só o eletricista desenha pela foto).
+    if (a.esquema) {
+      const fig = el("figure", "sim-quadro-sugerido");
+      fig.append(desenharQuadroCliente(a.esquema, { soLeitura: true, resumo: a.esquema.resumo }), el("figcaption", null, `Quadro sugerido, calculado pelo que descreveu. Não é o quadro que tem hoje. ${a.esquema.resumo}`));
+      circ.append(fig);
+    }
     const t = el("table", "sim-circuitos");
     const cab = el("tr");
     cab.append(...["Circuito", "Divisões", "Disjuntor", "Cabo"].map((x) => { const th = el("th", null, x); th.scope = "col"; return th; }));

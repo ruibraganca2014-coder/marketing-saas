@@ -6,7 +6,8 @@ import {
   pontosDivisao, areaPoligono, caixasDe, maquinaDaPlanta, contarPlanta, sugerirCircuitos, codigoCircuito, seccaoCabo,
   circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA,
 } from "./regras.js";
-import { opcoesCircuitos, zonaHumida } from "./quadro.js";
+import { opcoesCircuitos, zonaHumida, gruposDiferenciais, TAMANHOS_QUADRO, FRACAO_LIVRE } from "./quadro.js";
+import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM } from "./quadro-desenho.js";
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const kvaTxt = (k) => `${String(k).replace(".", ",")} kVA`;
@@ -51,7 +52,8 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   };
 
   // ---- 3. Circuitos que a casa pede
-  const circuitos = sugerirCircuitos(contarPlanta({ divisoes, elementos }), opcoesCircuitos(casa)).map((c) => ({
+  const brutos = sugerirCircuitos(contarPlanta({ divisoes, elementos }), opcoesCircuitos(casa));
+  const circuitos = brutos.map((c) => ({
     codigo: codigoCircuito(c),
     // Nas máquinas o nome do circuito traz a divisão ("Forno, Cozinha"); aqui a divisão tem coluna própria.
     nome: c.tipo === "maquina" && c.itens?.maquinas?.length ? c.itens.maquinas.map((m) => nomeModelo(m.modelo)).join(", ") : c.nome || TIPOS_CIRCUITO[c.tipo] || "Circuito",
@@ -59,6 +61,35 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     disjuntor: `${c.amperes} A`,
     cabo: seccaoCabo(c.amperes) ? `${String(seccaoCabo(c.amperes)).replace(".", ",")} mm²` : "",
   }));
+
+  // ---- 3b. O quadro que a casa pede, para desenhar (o modelo de quadro-desenho.js): o geral pela potência (a sugerida,
+  // senão a contratada), um diferencial de 30 mA por grupo (quadro.js gruposDiferenciais), um disjuntor por circuito
+  // logo a seguir ao seu diferencial e os módulos livres até ao tamanho de quadro com 25 % de folga.
+  let esquema = null;
+  if (brutos.length) {
+    const kva = typeof sugeridaKva === "number" ? Math.max(sugeridaKva, contratada) : contratada;
+    const amperes = (kva * 1000) / (casa?.fases === "tri" ? 690 : 230);
+    const acima = (l, a) => l.find((x) => x >= a) ?? l[l.length - 1];
+    const geral = acima(AMPERES_GERAL, amperes);
+    const grupos = gruposDiferenciais(brutos).filter((g) => g.circuitos.length);
+    const ordem = ["geral"];
+    const disjuntores = [];
+    grupos.forEach((g, i) => {
+      ordem.push(`diferencial:${i}`);
+      for (const n of g.circuitos) { ordem.push(`disjuntor:${disjuntores.length}`); disjuntores.push({ amperes: brutos.find((c) => c.n === n)?.amperes ?? 16 }); }
+    });
+    const ocupados = MODULOS_ESQUEMA.geral + grupos.length * MODULOS_ESQUEMA.diferencial + disjuntores.length * MODULOS_ESQUEMA.disjuntor;
+    const tamanho = TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? TAMANHOS_QUADRO[TAMANHOS_QUADRO.length - 1];
+    const livres = Math.max(0, tamanho - ocupados);
+    for (let i = 0; i < Math.min(livres, MAX_LIVRES_ORDEM); i++) ordem.push("livre");
+    esquema = {
+      disjuntor_geral: { amperes: geral },
+      diferenciais: grupos.map(() => ({ sensibilidade_ma: 30, amperes: acima(AMPERES_DIFERENCIAL, geral) })),
+      disjuntores, modulos_livres: livres, estado: null, fusiveis: null, sinais_aquecimento: null, notas: "", ordem,
+      tamanho,
+      resumo: `Quadro de ${tamanho} módulos: disjuntor geral de ${geral} A, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")} e ${plural(livres, "módulo livre", "módulos livres")}.`,
+    };
+  }
 
   // ---- 4. Pontos a rever (orientativos)
   const rever = [];
@@ -74,5 +105,5 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   if (estado === "curta") rever.push(`Potência contratada: ${kvaTxt(contratada)} para uma casa que pede ${kvaTxt(sugeridaKva)}.`);
 
   const semLuzes = !elementos.some((e) => e.tipo === "luz");
-  return { numeros, potencia, circuitos, notaCircuitos: semLuzes ? "Falta a iluminação: os pontos de luz não se levantam nesta descrição, por isso os circuitos das luzes não aparecem aqui." : null, rever };
+  return { numeros, potencia, circuitos, esquema, notaCircuitos: semLuzes ? "Falta a iluminação: os pontos de luz não se levantam nesta descrição, por isso os circuitos das luzes não aparecem aqui." : null, rever };
 }

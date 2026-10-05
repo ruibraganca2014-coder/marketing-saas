@@ -823,6 +823,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-numeros dt { color: var(--texto-suave); font-size: .9rem; }
 .sim-numeros dd { margin: 0; font-weight: 800; font-size: 1.25rem; }
 .sim-potencia.curta, .sim-potencia.especial { border-color: var(--areia); }
+.sim-quadro-sugerido { margin: 0 0 14px; }
+.sim-quadro-sugerido figcaption { margin-top: 8px; color: var(--texto-suave); font-size: .92rem; }
 .sim-circuitos-rolo { overflow-x: auto; }
 .sim-circuitos { width: 100%; border-collapse: collapse; font-size: .95rem; }
 .sim-circuitos th, .sim-circuitos td { padding: 8px 10px; border-bottom: 1px solid var(--borda); text-align: left; vertical-align: top; }

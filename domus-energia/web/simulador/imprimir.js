@@ -326,6 +326,7 @@ export function blocosRelatorio(d) {
       { tipo: "seccao", texto: d.analise.potencia.titulo },
       ...d.analise.potencia.texto.map((t) => ({ tipo: "texto", texto: t })),
       { tipo: "seccao", texto: "Circuitos que esta casa pede" },
+      ...(d.analise.esquema ? [{ tipo: "texto", texto: `Quadro sugerido (não é o que tem hoje). ${d.analise.esquema.resumo}` }] : []),
       ...(d.analise.circuitos.length
         ? d.analise.circuitos.map((c) => ({ tipo: "item", texto: `${c.codigo ? `${c.codigo} · ` : ""}${c.nome}${c.divisoes ? ` (${c.divisoes})` : ""}: disjuntor de ${c.disjuntor}${c.cabo ? `, cabo de ${c.cabo}` : ""}` }))
         : [{ tipo: "item", texto: "Ainda sem tomadas nem máquinas descritas." }]),

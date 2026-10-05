@@ -62,3 +62,22 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   assert.ok(b.some((x) => x.tipo === 'item' && /^C3 · Placa de cozinha \(Cozinha\): disjuntor de 25 A, cabo de 6 mm²$/.test(x.texto)));
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
 });
+
+test('quadro sugerido: geral pela potência, um diferencial de 30 mA por grupo com os seus disjuntores a seguir e 25 % de folga', async () => {
+  const { normalizarEsquema } = await import('../../web/simulador/quadro-desenho.js');
+  const a = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
+  const q = a.esquema;
+  assert.equal(q.disjuntor_geral.amperes, 32, '6,9 kVA a 230 V = 30 A → 32 A');
+  assert.deepEqual(q.diferenciais, [{ sensibilidade_ma: 30, amperes: 40 }, { sensibilidade_ma: 30, amperes: 40 }]);
+  assert.deepEqual(q.disjuntores.map((d) => d.amperes).sort((x, y) => x - y), [16, 16, 25, 25]);
+  assert.equal(q.ordem[0], 'geral');
+  assert.equal(q.ordem[1], 'diferencial:0');
+  assert.ok(q.ordem.indexOf('diferencial:1') > q.ordem.indexOf('disjuntor:0'), 'cada diferencial vem antes dos seus disjuntores');
+  // 2 (geral) + 2×2 (diferenciais) + 4 (disjuntores) = 10 módulos → quadro de 18 (25 % livres), 8 livres.
+  assert.deepEqual([q.tamanho, q.modulos_livres, q.ordem.filter((x) => x === 'livre').length], [18, 8, 8]);
+  assert.match(q.resumo, /^Quadro de 18 módulos: disjuntor geral de 32 A, 2 diferenciais de 30 mA, 4 disjuntores e 8 módulos livres\.$/);
+  const n = normalizarEsquema(q);
+  assert.deepEqual([n.disjuntores.length, n.diferenciais.length, n.ordem.length], [4, 2, q.ordem.length], 'o desenhador aceita-o tal e qual');
+  assert.equal(analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45).esquema, null, 'sem circuitos não há quadro');
+  assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).esquema.disjuntor_geral.amperes, 50, 'a contratada maior manda: 10,35 kVA → 50 A');
+});
