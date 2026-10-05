@@ -217,6 +217,10 @@ input, select { min-height: 44px; }
 .editor-menu > .btn:hover, .editor-menu > .btn:focus-visible { background: var(--musgo-claro); }
 .editor-menu > .btn[hidden] { display: none; }
 .editor-menu .confirmar { max-width: 280px; margin: 4px 0 0; }
+/* O antigo menu "⋯" dentro da barra (decisão do dono, 2026-10-05): botões à vista, como os outros. */
+.editor-menu.na-barra { position: static; z-index: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.editor-menu.na-barra > .btn { width: auto; border-color: var(--borda); justify-content: center; }
+.editor-menu.na-barra .confirmar { flex: 1 1 100%; max-width: 320px; }
 .editor-lado { width: min(360px, calc(100vw - 16px)); padding: 12px 14px 14px; }
 .editor-lado[open] { display: grid; gap: 12px; min-width: 0; }
 .editor-lado-cabeca { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

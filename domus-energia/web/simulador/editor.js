@@ -95,6 +95,12 @@ const ICONES_ACAO = {
   apagar: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   outras: '<circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>',
   ajustar: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 3"/><rect x="8" y="8" width="8" height="8" rx="1"/>',
+  // Na barra desde 2026-10-05 (decisão do dono): os cantos da divisão e o que estava no menu "⋯".
+  cantoMais: '<path d="M4 20V8l8-4 8 4v12z"/><path d="M12 10v6M9 13h6"/>',
+  cantoMenos: '<path d="M4 20V8l8-4 8 4v12z"/><path d="M9 13h6"/>',
+  imprimir: '<path d="M7 8V4h10v4M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="6"/>',
+  pdf: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9.5 14.5 12 17l2.5-2.5"/>',
+  fundo: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 16-5-5-8 8"/>',
 };
 function iconeAcao(b, nome, rotulo) {
   b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONES_ACAO[nome]}</svg>`;
@@ -361,12 +367,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bEcra.id = "editor-ecra-inteiro";
   bEcra.setAttribute("aria-pressed", "false");
   // Só a planta, uma folha A4 por piso (imprimir.js).
-  const bImprimir = botao("Imprimir");
+  const bImprimir = iconeAcao(botao(""), "imprimir", "Imprimir a planta (uma folha por piso)");
   bImprimir.id = "editor-imprimir";
-  bImprimir.setAttribute("aria-label", "Imprimir a planta (uma folha por piso)");
-  const bPdf = botao("Guardar PDF");
+  const bPdf = iconeAcao(botao(""), "pdf", "Guardar a planta em PDF (uma página por piso)");
   bPdf.id = "editor-pdf";
-  bPdf.setAttribute("aria-label", "Guardar a planta em PDF (uma página por piso)");
 
   // Separadores por piso (só com mais de um piso): cada um mostra as divisões e os elementos desse piso.
   const separadores = el("div", "editor-pisos");
@@ -388,14 +392,18 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const sOpcoes = iconeAcao(botao(""), "opcoes", "Opções");
   sOpcoes.id = "selecao-opcoes";
   sOpcoes.setAttribute("aria-keyshortcuts", "Enter");
+  // Cantos da divisão selecionada (sem duplo clique, é por aqui que se acrescentam e apagam).
+  const sCantoMais = iconeAcao(botao(""), "cantoMais", "Acrescentar canto");
+  sCantoMais.id = "selecao-canto-mais";
+  const sCantoMenos = iconeAcao(botao(""), "cantoMenos", "Apagar canto");
+  sCantoMenos.id = "selecao-canto-menos";
   const sApagar = iconeAcao(botao("", "btn sec pequeno perigo-sec"), "apagar", "Apagar");
   sApagar.id = "selecao-apagar";
   sApagar.setAttribute("aria-keyshortcuts", "Delete");
   // "Planta de fundo": abre logo a escolha do ficheiro (foto ou PDF); o cartão "Fundo" ao lado fica para
   // ajustar, calibrar e tirar o fundo.
-  const bFundo = botao("Planta de fundo");
+  const bFundo = iconeAcao(botao(""), "fundo", "Planta de fundo: escolher uma foto ou um PDF da planta");
   bFundo.id = "editor-fundo-botao";
-  bFundo.setAttribute("aria-label", "Planta de fundo: escolher uma foto ou um PDF da planta");
 
   // Barra única das ações, centrada por cima da planta, em grupos: anular/refazer · zoom, ver tudo e ecrã
   // inteiro · o que está selecionado · fundo · pisos. No computador uma só fila (quebra se não couber); no
@@ -414,9 +422,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bOutras.setAttribute("aria-controls", "editor-menu");
   linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bAjustar, bEcra));
   const linhaSelecao = el("div", "editor-acoes-linha");
-  linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sApagar));
-  // O "⋯" no fim da linha, fixo (fora do que desliza; simulador.css .g-fundo): está sempre à vista.
-  acoes.append(linhaGeral, linhaSelecao, grupo("g-fundo", bOutras));
+  linhaSelecao.append(grupo("g-selecao", sDuplicar, sOpcoes, sCantoMais, sCantoMenos, sApagar));
+  // Decisão do dono (2026-10-05): o que estava no menu "⋯" (Imprimir, Guardar PDF, Planta de fundo e, pelo app.js,
+  // "Refazer planta") fica à vista na barra, no grupo g-fundo; o "⋯" deixa de se mostrar (MENU_NA_BARRA).
+  bOutras.hidden = true;
+  const grupoFundo = grupo("g-fundo", bOutras);
+  acoes.append(linhaGeral, linhaSelecao, grupoFundo);
   // Dentro da planta, discreto (em baixo, à esquerda): o que está selecionado e o texto de estado (vazio sem nada a dizer).
   const estadoLinha = el("div", "editor-estado");
   estadoLinha.append(selecaoNome, dica);
@@ -439,7 +450,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
    */
   function juntoAoBotao(caixa) {
     const m = 8;
-    const r = bOutras.getBoundingClientRect();
+    const r = (bOutras.hidden ? bFundo : bOutras).getBoundingClientRect();
     // A altura inteira do conteúdo (sem mexer no max-height antes de medir: não perde o que se rolou lá dentro).
     const w = caixa.offsetWidth;
     const h = Math.min(caixa.scrollHeight + caixa.offsetHeight - caixa.clientHeight, innerHeight - 2 * m);
@@ -461,10 +472,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   menu.id = "editor-menu";
   menu.setAttribute("role", "menu");
   menu.setAttribute("aria-label", "Mais ações da planta");
-  const comPopover = typeof menu.showPopover === "function";
-  if (comPopover) menu.popover = "manual"; else menu.hidden = true;
+  const MENU_NA_BARRA = true;
+  const comPopover = !MENU_NA_BARRA && typeof menu.showPopover === "function";
+  if (MENU_NA_BARRA) { menu.setAttribute("role", "group"); menu.classList.add("na-barra"); grupoFundo.append(menu); }
+  else if (comPopover) menu.popover = "manual"; else menu.hidden = true;
   menu.append(bImprimir, bPdf, bFundo);
-  const menuAberto = () => (comPopover ? menu.matches(":popover-open") : !menu.hidden);
+  const menuAberto = () => !MENU_NA_BARRA && (comPopover ? menu.matches(":popover-open") : !menu.hidden);
   const itensMenu = () => [...menu.querySelectorAll("button")].filter((b) => !b.hidden && !b.disabled);
   function abrirMenu() {
     for (const b of menu.querySelectorAll("button")) { b.setAttribute("role", "menuitem"); b.tabIndex = -1; }
@@ -493,6 +506,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (ev.key === "ArrowDown" && !menuAberto()) { ev.preventDefault(); abrirMenu(); }
   });
   menu.addEventListener("keydown", (ev) => {
+    if (!menuAberto()) return;   // na barra são botões normais
     const l = itensMenu();
     const i = l.indexOf(document.activeElement);
     if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); fecharMenu(); return; }
@@ -507,7 +521,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Escolher um item fecha o menu (depois da ação dele: "Planta de fundo" põe o foco na janela do fundo). Se a ação
   // pedir confirmação no menu ("Refazer planta"), fica aberto até se responder.
   menu.addEventListener("click", (ev) => {
-    if (!ev.target.closest("button")) return;
+    if (!menuAberto() || !ev.target.closest("button")) return;
     if (menu.querySelector(".confirmar")) juntoAoBotao(menu); else fecharMenu();
   });
   document.addEventListener("pointerdown", (ev) => {
@@ -539,7 +553,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const naJanela = lado.contains(document.activeElement);
     if (lado.open) lado.close();
     fundoSec.hidden = true;   // lote 8: o cartão do fundo só aparece com "Planta de fundo"
-    if (voltar && naJanela) bOutras.focus({ preventScroll: true });
+    if (voltar && naJanela) (bOutras.hidden ? bFundo : bOutras).focus({ preventScroll: true });
   }
   // O menu e a janela acompanham o "⋯" quando a página rola ou muda de tamanho.
   const seguirBotao = () => { if (menuAberto()) juntoAoBotao(menu); if (lado.open) juntoAoBotao(lado); };
@@ -607,7 +621,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   dlgBotoes.append(dGuardar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
-  raiz.append(principal, menu, lado, dialogo, janelaDiv);
+  raiz.append(principal, ...(MENU_NA_BARRA ? [] : [menu]), lado, dialogo, janelaDiv);   // na barra, o "menu" já está dentro dela
 
   // ---------------------------------------------------------------- barras (role=toolbar): setas
   /**
@@ -1558,7 +1572,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     // A mensagem na janela do fundo (à vista, no lugar da de "Agora calibre…") e o foco num sítio lógico: o campo
     // desapareceu ao redesenhar — "Fechar" da janela (dentro dela: Esc continua a fechá-la), ou o "⋯".
     mostrarFundoMsg(`Fundo calibrado: a imagem tem agora ${metros(f.largura_cm)} m de largura.`, "ok");
-    (lado.open ? ladoFechar : bOutras).focus({ preventScroll: true });
+    (lado.open ? ladoFechar : bOutras.hidden ? bFundo : bOutras).focus({ preventScroll: true });
     return true;
   }
 
@@ -1874,13 +1888,39 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     sDuplicar.disabled = d ? !podeDivisoes || planta.divisoes.length >= MAX_DIVISOES : !e || planta.elementos.length >= MAX_ELEMENTOS;
     sOpcoes.disabled = d ? !podeDivisoes : !e;
     sApagar.disabled = d ? !podeDivisoes : !e;
-    for (const [b, r] of [[sDuplicar, "Duplicar"], [sOpcoes, "Opções"], [sApagar, "Apagar"]]) {
+    sCantoMais.disabled = !d || !podeDivisoes;
+    sCantoMenos.disabled = !d || !podeDivisoes || pontosDivisao(d).length <= 4;
+    for (const [b, r] of [[sDuplicar, "Duplicar"], [sOpcoes, "Opções"], [sCantoMais, "Acrescentar canto"], [sCantoMenos, "Apagar canto"], [sApagar, "Apagar"]]) {
       b.setAttribute("aria-label", nome ? `${r}: ${nome}` : r);
       b.title = b.getAttribute("aria-label");
     }
   }
   sDuplicar.addEventListener("click", duplicarSelecionado);
   sApagar.addEventListener("click", apagarSelecionado);
+  // Canto novo a meio da parede mais comprida da divisão selecionada (arrasta-se depois, para um L ou uma parede inclinada).
+  sCantoMais.addEventListener("click", () => {
+    const d = obterDivisao(selecionado);
+    if (!d || !podeDivisoes) return;
+    const pts = pontosDivisao(d);
+    let i = 0, maior = -1;
+    pts.forEach(([x, y], k) => { const [x2, y2] = pts[(k + 1) % pts.length]; const c = Math.hypot(x2 - x, y2 - y); if (c > maior) { maior = c; i = k; } });
+    const [x, y] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    acrescentarCanto(d, i, { x: (x + x2) / 2, y: (y + y2) / 2 });
+  });
+  // Apaga o canto que menos muda a forma da divisão selecionada (só com mais de quatro).
+  sCantoMenos.addEventListener("click", () => {
+    const d = obterDivisao(selecionado);
+    if (!d || !podeDivisoes) return;
+    const pts = pontosDivisao(d);
+    const a0 = areaPoligono(pts);
+    let i = -1, menor = Infinity;
+    pts.forEach((_, k) => {
+      const resto = pts.filter((__, j) => j !== k).map(([x, y]) => [x, y]);
+      const dif = Math.abs(a0 - areaPoligono(resto));
+      if (dif < menor && validarPontos(resto, planta.largura_cm, planta.altura_cm)) { menor = dif; i = k; }
+    });
+    if (i < 0) avisar("Não dá para apagar nenhum canto: mova-os primeiro."); else apagarCanto(d, i);
+  });
   // "Opções" abre a janela de edição (a mesma do duplo clique): tudo o que se muda na divisão ou no elemento.
   sOpcoes.addEventListener("click", () => abrirDialogo());
   // Lote 8: "Planta de fundo" mostra o cartão do fundo (no "⋯"); sem fundo, abre logo a escolha do ficheiro.
@@ -2032,39 +2072,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     duas.append(campo("Largura (m)", medida("largura", "dlg-largura")), campo("Comprimento (m)", medida("altura", "dlg-altura")));
     desenharArea();
     dlgCorpo.append(campo("Nome", nome), dl, duas, area);
-    // Cantos (decisão do dono, 2026-10-05: sem duplo clique, os cantos acrescentam-se e apagam-se aqui). O canto novo
-    // nasce a meio da parede mais comprida (arrasta-se depois); apaga-se o que menos muda a forma. Fecham a janela.
-    const pts = pontosDivisao(d);
-    const bMais = el("button", "btn sec pequeno", "Acrescentar canto");
-    bMais.type = "button";
-    bMais.id = "dlg-canto-mais";
-    bMais.addEventListener("click", () => {
-      let i = 0, maior = -1;
-      pts.forEach(([x, y], k) => { const [x2, y2] = pts[(k + 1) % pts.length]; const c = Math.hypot(x2 - x, y2 - y); if (c > maior) { maior = c; i = k; } });
-      const [x, y] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
-      dialogo.close();
-      acrescentarCanto(d, i, { x: (x + x2) / 2, y: (y + y2) / 2 });
-    });
-    const cantos = el("div", "form-botoes");
-    cantos.append(bMais);
-    if (pts.length > 4) {
-      const bMenos = el("button", "btn sec pequeno", "Apagar canto");
-      bMenos.type = "button";
-      bMenos.id = "dlg-canto-menos";
-      bMenos.addEventListener("click", () => {
-        const a0 = areaPoligono(pts);
-        let i = -1, menor = Infinity;
-        pts.forEach((_, k) => {
-          const resto = pts.filter((__, j) => j !== k).map(([x, y]) => [x, y]);
-          const dif = Math.abs(a0 - areaPoligono(resto));
-          if (dif < menor && validarPontos(resto, planta.largura_cm, planta.altura_cm)) { menor = dif; i = k; }
-        });
-        dialogo.close();
-        if (i < 0) avisar("Não dá para apagar nenhum canto: mova-os primeiro."); else apagarCanto(d, i);
-      });
-      cantos.append(bMenos);
-    }
-    dlgCorpo.append(cantos, el("p", "ajuda", `Para uma divisão em L ou com uma parede inclinada: acrescente um canto e arraste-o na planta. Esta divisão tem ${pts.length} cantos.`));
     // Piso (nas casas com pisos): mudar leva a divisão e tudo o que está dentro dela para esse piso.
     if (nPisos() > 1 || pisosPedidos > 1) {
       const s = document.createElement("select");
