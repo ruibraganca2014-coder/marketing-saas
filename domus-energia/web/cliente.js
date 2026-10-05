@@ -967,7 +967,7 @@ function atualizarLinha(a, c, linha, disponivel, agora) {
       break;
     case "bateria": {
       const fraca = c.bateria != null && c.bateria < 15;
-      linha.estado.textContent = c.bateria == null ? "Sem informação" : fraca ? "Bateria fraca — trocar pilhas" : "Pilhas em bom estado";
+      linha.estado.textContent = c.bateria == null ? "Sem informação" : fraca ? "Bateria fraca: trocar as pilhas" : "Pilhas em bom estado";
       linha.selo.textContent = c.bateria == null ? "—" : `${c.bateria} %`;
       linha.selo.className = `selo-estado num${fraca ? " quente" : ""}`;
       atualizarIlustracao(linha.ilus, "bateria", { nivel: c.bateria });
@@ -1246,9 +1246,9 @@ function desenharAlarme() {
   else {
     const t = {
       desarmado: "Alarme desarmado",
-      a_armar: `A armar — saia até às ${hora(alarme?.ate) ?? "…"}`,
+      a_armar: `A armar: saia até às ${hora(alarme?.ate) ?? "…"}`,
       armado: `Alarme armado (${alarme?.tipo === "perimetro" ? "portas e janelas" : "total"})${alarme?.desde ? ` desde as ${hora(alarme.desde)}` : ""}`,
-      entrada: "Porta aberta — desarme o alarme",
+      entrada: "Porta aberta: desarme o alarme",
       disparado: `ALARME DISPARADO${alarme?.desde ? ` às ${hora(alarme.desde)}` : ""}`,
     }[est] ?? "";
     frase = t || (modo ? `Modo ${E.NOME_MODO[modo.modo]}` : "");
@@ -1372,7 +1372,7 @@ $("ntfy-copiar").addEventListener("click", async () => {
     const s = window.getSelection();
     s.removeAllRanges();
     s.addRange(r);
-    msg.textContent = "Endereço selecionado — use Copiar do seu telemóvel ou Ctrl+C.";
+    msg.textContent = "Endereço selecionado. Use Copiar do seu telemóvel ou Ctrl+C.";
   }
 });
 

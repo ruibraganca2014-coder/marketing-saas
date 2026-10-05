@@ -83,7 +83,7 @@ export function faixaDemonstracao(ligada) {
   f.className = "faixa-demonstracao";
   f.setAttribute("role", "region");
   f.setAttribute("aria-label", "Aviso: modo de demonstração");
-  f.textContent = "Modo de demonstração — pagamentos simulados: não é cobrado nada.";
+  f.textContent = "Modo de demonstração. Os pagamentos são simulados: não é cobrado nada.";
   const topo = document.querySelector("header.topo");
   if (topo) topo.after(f); else document.body.prepend(f);
 }
@@ -219,7 +219,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
       caixa.append(el("p", { texto: texto.fora ?? "Crie uma conta para enviar o pedido e acompanhá-lo depois." }), msg,
         email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Sem palavra-passe." }), consentimento,
-        el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta — entrar", "ir-entrar", () => irPara("entrar"))));
+        el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta: entrar", "ir-entrar", () => irPara("entrar"))));
     } else if (modo === "codigo" && pendente) {
       // Código depois de "Criar conta" ou "Enviar código": confirma com o email e abre a sessão.
       const cod = campo("Código de 6 algarismos", "codigo", { inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", pattern: "[0-9 ]*" });

@@ -78,7 +78,7 @@ async function mostrarRegresso() {
   let r;
   try { r = await pedirConta(`pagamentos/${r0.ref}${r0.cancelado ? "?cancelado=1" : ""}`); } catch (e) { mensagem(e.message); return; }
   const p = r.pagamento;
-  if (p.estado === "pago") mensagem(`Pagamento recebido: ${comIva(p)} — ${p.descricao}. Referência ${p.ref}.${p.modo === "simulado" ? " (Simulação: não foi cobrado nada.)" : ""}`, "ok");
+  if (p.estado === "pago") mensagem(`Pagamento recebido: ${comIva(p)} (${p.descricao}). Referência ${p.ref}.${p.modo === "simulado" ? " (Simulação: não foi cobrado nada.)" : ""}`, "ok");
   else if (p.estado === "pendente") mensagem("O pagamento ainda não está confirmado. Se pagou por Multibanco, pode demorar; o estado atualiza-se aqui.", "info");
   else if (p.estado === "falhado") mensagem("O pagamento não foi concluído. Não foi cobrado nada: pode tentar de novo.");
   else mensagem("Cancelou o pagamento. Não foi cobrado nada: pode tentar de novo quando quiser.", "info");
@@ -273,7 +273,7 @@ function blocoConfirmacao(p) {
     else {
       b.append(el("p", "msg ok", `Confirmou em ${dataTxt(x.quando, true)}. Obrigado!`));
       if (x.estrelas) { const e = el("p", "conta-estrelas-dadas", `${"★".repeat(x.estrelas)}${"☆".repeat(5 - x.estrelas)}`); e.setAttribute("aria-label", `${x.estrelas} em 5 estrelas`); b.append(e); }
-      if (x.comentario) b.append(el("p", "ajuda", `«${x.comentario}»${x.site ? " — pode ser usado no site." : ""}`));
+      if (x.comentario) b.append(el("p", "ajuda", `«${x.comentario}»${x.site ? " Pode ser usado no site." : ""}`));
     }
     return b;
   }
@@ -548,7 +548,7 @@ function blocoCancelarVisita(p) {
       try {
         const r = await pedirConta(`pedidos/${p.id}/cancelar-visita`, { corpo: {} });
         await carregar();
-        mensagem(r.manual ? `${O}. Pagou por referência Multibanco: devolvemos ${euro(r.devolvido)} por transferência — indique o IBAN no pedido.`
+        mensagem(r.manual ? `${O}. Pagou por referência Multibanco: devolvemos ${euro(r.devolvido)} por transferência. Indique o IBAN no pedido.`
           : `${O}. Devolvemos ${euro(r.devolvido)} para o mesmo meio de pagamento (até 14 dias).`, "ok");
       } catch (e) {
         caixa.remove();
@@ -626,14 +626,14 @@ function blocoPagamentos(p) {
     const li = el("li");
     li.dataset.fase = x.fase;
     li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)} com IVA`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
-    if (x.nao_realizada) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita não realizada — não desconta"));
-    if (x.sem_defeito) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita sem defeito — não desconta"));
+    if (x.nao_realizada) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita não realizada: não desconta"));
+    if (x.sem_defeito) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita sem defeito: não desconta"));
     if (x.a_devolver != null) li.append(el("span", "conta-recibo", `A devolver por transferência: ${euro(x.a_devolver)}`));
     if (x.devolvido != null) li.append(el("span", "conta-recibo", `Devolvidos ${euro(x.devolvido)}${x.devolvido_em ? ` em ${dataTxt(x.devolvido_em, true)}` : ""}${x.modo === "simulado" ? " · SIMULAÇÃO" : ""}`));
     if (x.recibo) {
       const r = x.recibo;
       const iva = r.base != null ? ` (${euro(r.base)} + IVA${r.iva_pct != null ? ` ${pctTxt(r.iva_pct)}` : ""} ${euro(r.iva)})` : "";
-      li.append(el("span", "conta-recibo", `Recibo — ${dataTxt(r.data, true)} · ${euro(r.valor)}${iva} · ${r.descricao} · Ref. ${r.referencia}${r.simulado ? " · SIMULAÇÃO (não cobrado)" : ""}`));
+      li.append(el("span", "conta-recibo", `Recibo de ${dataTxt(r.data, true)} · ${euro(r.valor)}${iva} · ${r.descricao} · Ref. ${r.referencia}${r.simulado ? " · SIMULAÇÃO (não cobrado)" : ""}`));
     }
     ul.append(li);
   }
@@ -683,7 +683,7 @@ function blocoRelatorio(p) {
     cartao?.classList.add("a-imprimir");
     document.body.classList.add("imprimir-relatorio");
     const antes = document.title;
-    document.title = `Relatório completo — pedido ${p.id}`;
+    document.title = `Relatório completo do pedido ${p.id}`;
     const fim = () => { document.body.classList.remove("imprimir-relatorio"); cartao?.classList.remove("a-imprimir"); document.title = antes; };
     addEventListener("afterprint", fim, { once: true });
     window.print();
@@ -808,7 +808,7 @@ function desenharRelatorio(r) {
     .filter(([k]) => a[k] > 0).map(([k, t]) => `${a[k]} ${a[k] === 1 ? "aparelho" : "aparelhos"} ${t}`);
   if (resumo.length) out.push(el("p", null, `Lista de trabalho: ${resumo.join(" · ")}.`));
   for (const d of r.divisoes) {
-    out.push(el("h5", null, `${d.nome} — ${euro(d.total)}`));
+    out.push(el("h5", null, `${d.nome}: ${euro(d.total)}`));
     if (d.trabalho.length) {
       const ul = el("ul");
       for (const t of d.trabalho) ul.append(el("li", null, t));
@@ -816,13 +816,13 @@ function desenharRelatorio(r) {
     }
     if (d.material.length) out.push(tabelaMaterial(d.material));
   }
-  if (r.geral.material.length) out.push(el("h5", null, `${r.geral.titulo} — ${euro(r.geral.total)}`), tabelaMaterial(r.geral.material));
+  if (r.geral.material.length) out.push(el("h5", null, `${r.geral.titulo}: ${euro(r.geral.total)}`), tabelaMaterial(r.geral.material));
   // Fase 2: os pacotes aceites nas Melhorias — o material de cada um e a instalação e configuração deles.
   const mel = r.melhorias;
   if (mel?.pacotes?.length) {
-    out.push(el("h5", null, `${mel.titulo} — ${euro(mel.total)}`));
+    out.push(el("h5", null, `${mel.titulo}: ${euro(mel.total)}`));
     for (const p of mel.pacotes) {
-      out.push(el("h6", null, `${p.nome} — ${euro(p.total)}`));
+      out.push(el("h6", null, `${p.nome}: ${euro(p.total)}`));
       if (p.material.length) out.push(tabelaMaterial(p.material));
     }
     out.push(el("p", null, `Instalação e configuração dos pacotes: ${euro(mel.instalacao)}`));
@@ -864,7 +864,7 @@ function desenharRelatorio(r) {
     const vs = Array.isArray(dg.verificacoes) ? dg.verificacoes : [];
     if (vs.length) {
       const ul = el("ul", "conta-diag-feitas");
-      for (const v of vs) ul.append(el("li", null, `${v.nome}${v.medido != null ? ` — ${String(v.medido).replace(".", ",")} ${v.unidade ?? ""}`.trimEnd() : ""}`));
+      for (const v of vs) ul.append(el("li", null, `${v.nome}${v.medido != null ? `: ${String(v.medido).replace(".", ",")} ${v.unidade ?? ""}`.trimEnd() : ""}`));
       out.push(ul);
     }
     if (dg.tipo_nome) out.push(el("p", null, `Tipo de avaria encontrado: ${dg.tipo_nome}.`));
@@ -931,7 +931,7 @@ function blocoResumo(r, id) {
   // Fase 2: os pacotes do passo "Melhorias" (como no Orçamento do simulador: "751 €").
   if (r.melhorias?.length) {
     const ul = el("ul");
-    for (const m of r.melhorias) ul.append(el("li", null, `${m.nome}${m.preco === null ? "" : ` — ${formatarEuroRedondo(m.preco)}`}`));
+    for (const m of r.melhorias) ul.append(el("li", null, `${m.nome}${m.preco === null ? "" : `: ${formatarEuroRedondo(m.preco)}`}`));
     b.append(el("p", null, "Melhorias:"), ul);
   }
   return b;

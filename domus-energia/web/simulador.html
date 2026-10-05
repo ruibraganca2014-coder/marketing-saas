@@ -139,7 +139,7 @@
         <!-- 3. Equipamentos (saltado com só "Reparações / avarias") -->
         <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
           <h2 id="titulo-2" tabindex="-1">3. Equipamentos</h2>
-          <p class="sub-passo">Marque o que tem hoje em casa, antes da obra. O que quer instalar de novo escolhe mais à frente.</p>
+          <p class="sub-passo">Marque o que tem hoje em casa. O que quiser instalar de novo pede-se depois, em "Pedir um serviço".</p>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
           <div class="quer-painel" id="quer-painel">
@@ -192,7 +192,7 @@
                no cartão "Quadro elétrico" do passo Melhorias; o para-raios em "A casa". -->
           <div class="cartao quadro-foto" id="quadro-foto">
             <h3 id="quadro-foto-titulo">Foto do quadro *</h3>
-            <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. A nossa equipa desenha o esquema a partir dela. As fotos são usadas só para preparar o orçamento e a visita.</p>
+            <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. É por esta foto que o eletricista desenha o esquema do quadro. Só a usamos para preparar o orçamento e a visita.</p>
             <div id="quadro-foto-corpo"></div>
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
           </div>
@@ -201,7 +201,7 @@
         <!-- 6. Divisões: o que a casa JÁ TEM, antes da obra (decisão do dono, 2026-10-03): separadores, um cartão por divisão só com os interruptores (quantos e os botões de cada um) e as tomadas (quantas e o tipo de cada uma), ou "Não tem"; o "Seguinte" só passa com todas as divisões respondidas (o que fazer a cada um e o trabalho novo: "Trocar e reparar") -->
         <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
           <h2 id="titulo-5" tabindex="-1">6. Divisões</h2>
-          <p class="ajuda">Diga o que a casa tem hoje, antes da obra: em cada divisão, os interruptores e as tomadas. O que quiser de novo pede-se mais à frente.</p>
+          <p class="ajuda">Diga o que a casa tem hoje: em cada divisão, os interruptores e as tomadas. O que quiser de novo pede-se depois, em "Pedir um serviço".</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
             <p id="divisoes-progresso" aria-live="polite"></p>
@@ -274,7 +274,7 @@
         <section class="sim-passo" id="passo-8" aria-labelledby="titulo-8" data-passo="8" hidden>
           <h2 id="titulo-8" tabindex="-1">10. Enviar</h2>
           <!-- O texto segue o caso e os pagamentos do servidor (app.js textosPagamento): enviar é grátis; a avaria paga ao enviar. -->
-          <p class="sub-passo" id="enviar-texto">Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório</p>
+          <p class="sub-passo" id="enviar-texto">Enviar o pedido não custa nada. Fica na sua conta, onde o pode acompanhar. * obrigatório</p>
           <!-- Conta de cliente (obrigatória para enviar; web/conta-comum.js) -->
           <div class="cartao" id="enviar-conta" role="group" aria-labelledby="enviar-conta-titulo">
             <h3 id="enviar-conta-titulo">A sua conta</h3>
@@ -354,7 +354,7 @@
           <label>Descrição <small class="ajuda" id="avaria-descricao-ajuda">Opcional.</small><textarea id="avaria-descricao" maxlength="200" rows="2"></textarea></label>
           <div class="cartao quadro-foto" id="avaria-foto">
             <h3>Fotos da avaria *</h3>
-            <p class="ajuda">A 1.ª é obrigatória; até 5. As fotos são usadas só para preparar o orçamento e a visita.</p>
+            <p class="ajuda">A 1.ª é obrigatória; pode juntar até 5. Só as usamos para preparar o orçamento e a visita.</p>
             <div id="avaria-foto-corpo"></div>
             <p class="msg" id="avaria-foto-msg" role="status" hidden></p>
           </div>
@@ -385,7 +385,7 @@
         <section class="sim-como" id="sim-como" aria-labelledby="sim-como-titulo">
           <h2 id="sim-como-titulo">Como fazer a simulação · ~5 min</h2>
           <p id="sim-como-passos">1 Início · 2 A casa · 3 Equipamentos · 4 Divisões · 5 Quadro elétrico · 6 Relatório</p>
-          <p>Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>
+          <p>Tenha à mão a fatura da luz, para ver a potência contratada, e o telemóvel para fotografar o quadro.</p>
         </section>
         <div class="sim-navegacao" id="sim-navegacao">
           <button class="btn sec" id="sim-anterior" type="button">Anterior</button>

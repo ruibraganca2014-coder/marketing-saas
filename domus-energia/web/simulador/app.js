@@ -933,7 +933,7 @@ function confirmarCasa(destino = null) {
       el("li", null, "Cada divisão está no sítio certo: arraste-a na planta para a mudar."),
       el("li", null, "O tamanho está perto do real: puxe os cantos da divisão."),
     );
-    corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório e o orçamento. Confirme:"), passos);
+    corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório da casa. Confirme:"), passos);
     bs.replaceChildren(
       botao("btn sec", "Ainda não, vou ajustar", "casa-janela-ajustar", () => focar("titulo-1")),
       botao("btn", "Sim, continuar", "casa-janela-sim", () => { estado.plantaConfirmada = assinaturaPlanta(); irPara(destino ?? passoAo(estado.passo, 1)); }),
@@ -2158,7 +2158,7 @@ async function processarFoto(alvo, f) {
     if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); }
     const guardada = await guardarFoto(estado.fotosId, alvo.chave, r);
     fotos.set(alvo.chave, { chave: alvo.chave, ...r });
-    alvo.aoFim(true, guardada ? "Foto guardada neste navegador até enviar o pedido." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se.");
+    alvo.aoFim(true, guardada ? "Foto guardada neste navegador." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se.");
   } catch (e) {
     alvo.aoFim(false, e instanceof ErroFoto ? e.message : "Não foi possível usar esta foto. Experimente outra.");
   } finally {
@@ -2988,7 +2988,7 @@ function cartaoDivisao(planta, d, nivel) {
   t.id = `${id}-titulo`;
   t.tabIndex = -1;
   topo.append(t);
-  c.append(topo, el("p", "ajuda", "O que esta divisão tem hoje, antes da obra."));
+  c.append(topo, el("p", "ajuda", "O que esta divisão tem hoje."));
   const inv = inventarioDivisao(estado, planta, d);
   for (const tipo of TIPOS_INVENTARIO) c.append(blocoInventario(d, tipo, inv[tipo]));
   const falta = faltaInventario(planta, d);
@@ -4160,7 +4160,7 @@ function dadosRelatorio() {
       `Quadro de ${r.tamanho} módulos${r.quadros > 1 ? ` (${r.quadros} quadros)` : ""}${r.parciais ? `, com ${r.parciais} ${r.parciais === 1 ? "quadro parcial" : "quadros parciais"}` : ""}`,
     ],
     potencia: r.potencia.kva === null ? "Potência sugerida: acima de 41,4 kVA (contrato especial)."
-      : `Potência sugerida: ${kvaTexto(r.potencia.kva)}${r.potencia.trifasica ? " (trifásica)" : ""}${r.potencia.minimo_rtiebt ? " — mínimo RTIEBT" : ""}.`,
+      : `Potência sugerida: ${kvaTexto(r.potencia.kva)}${r.potencia.trifasica ? " (trifásica)" : ""}${r.potencia.minimo_rtiebt ? " (mínimo RTIEBT)" : ""}.`,
     planta: usaPlanta() ? estado.planta : null,
     pisos,
   };
@@ -4279,7 +4279,7 @@ function desenharCompleto() {
   quero.hidden = parteCasa || !comprasAtivas();
   const l = $("completo-quero-opcao");
   if (!quero.hidden && l) {
-    l.querySelector("span").firstChild.textContent = `Quero o relatório completo — ${formatarEuro(precoRelatorio())}`.replace(/ €/g, "\u00a0€");
+    l.querySelector("span").firstChild.textContent = `Quero o relatório completo: ${formatarEuro(precoRelatorio())}`.replace(/ €/g, "\u00a0€");
     l.querySelector("input").checked = estado.compras.relatorio;
   }
 }
@@ -4702,11 +4702,11 @@ function desenharCompras() {
   const pv = v === null ? null : formatarEuro(v);
   const semVisita = semConc ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade para ver o preço.";
   const TEXTOS = {
-    basico: ["Só o relatório básico — grátis", "Estimativa e lista do trabalho, logo na conta."],
-    pormenorizado: [`Relatório completo — ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
-    pormenorizado_visita: [`Relatório completo e visita — ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
+    basico: ["Só o relatório básico (grátis)", "Estimativa e lista do trabalho, logo na conta."],
+    pormenorizado: [`Relatório completo: ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
+    pormenorizado_visita: [`Relatório completo e visita: ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
       pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : semVisita],
-    visita: [`Só a visita técnica${pv ? ` — ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : semVisita],
+    visita: [`Só a visita técnica${pv ? `: ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : semVisita],
   };
   const atual = chaveCompra(compraEfetiva());
   for (const l of $("enviar-compras-opcoes").children) {

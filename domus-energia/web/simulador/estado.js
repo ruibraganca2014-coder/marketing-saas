@@ -238,7 +238,7 @@ const MIGRAR = {
 /** Disponibilidade para a visita e urgência (passo Enviar, lote 8; §6 `visita`, `urgencia`). */
 export const DIAS_VISITA = { seg: "Segunda", ter: "Terça", qua: "Quarta", qui: "Quinta", sex: "Sexta", sab: "Sábado" };
 export const PERIODOS_VISITA = { manha: "Manhã", tarde: "Tarde", qualquer: "Qualquer" };
-export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente — avaria sem luz" };
+export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente (avaria sem luz)" };
 export const SERVICO = "Simulador de orçamento";
 export const SERVICO_CLIENTE = "Ampliar a instalação (simulador)";
 
