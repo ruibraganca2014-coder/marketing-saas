@@ -38,7 +38,7 @@ if (regresso) history.replaceState(null, "", location.pathname);
 
 const bloco = criarBlocoConta($("conta-bloco"), {
   prefixo: "conta",
-  texto: { fora: "Entre para acompanhar o seu pedido de orçamento. A conta cria-se no fim da simulação, ou aqui." },
+  texto: { fora: "Entre para acompanhar o seu pedido de orçamento. Se ainda não tem conta, fica criada com o seu email." },
   aoMudar(eu) {
     faixaDemonstracao(Boolean(eu?.pagamentos?.demonstracao));
     const dentro = Boolean(eu?.conta?.confirmado);

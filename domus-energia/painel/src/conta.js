@@ -165,7 +165,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
-    criarIp: lim(5, 3600_000), criarEmail: lim(3, 3600_000),
+    // "criar" é agora também o caminho de quem já tem conta (um só botão "Enviar código", 2026-10-05): o limite por IP
+    // passa a ser o do antigo "entrar com código" (10/hora); por email continuam 3 emails por hora.
+    criarIp: lim(10, 3600_000), criarEmail: lim(3, 3600_000),
     // Entrar: por IP e por par email+IP; por email só um travão alto (um terceiro não consegue bloquear a conta).
     entrarIp: lim(10, 60_000), entrarPar: lim(5, 60_000), entrarEmail: lim(50, 3600_000),
     codigoIp: lim(20, 3600_000), reporEmail: lim(10, 3600_000),

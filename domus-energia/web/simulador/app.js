@@ -4427,7 +4427,7 @@ let contaEu = null;
 let contaVista = false;   // já se viu a sessão desta página (a 1.ª vez pode oferecer a simulação da conta)
 const blocoConta = criarBlocoConta($("enviar-conta-bloco"), {
   prefixo: "conta",
-  texto: { fora: "Crie conta (ou entre) para enviar e acompanhar o pedido." },
+  texto: { fora: "Escreva o seu email para enviar e acompanhar o pedido." },
   aoMudar: aoMudarConta,
 });
 /**

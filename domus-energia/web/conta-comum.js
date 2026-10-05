@@ -111,7 +111,10 @@ const el = (tag, props = {}, ...filhos) => {
  */
 export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, texto = {} } = {}) {
   let eu = null;
-  let modo = "criar";      // fora: criar | codigo | entrar (com código) | senha (com palavra-passe)
+  // Um só caminho com código (decisão do dono, 2026-10-05): "Enviar código" serve quem tem conta e quem não tem (a conta
+  // cria-se ao confirmar). Antes havia "Criar conta" e "Já tenho conta: entrar", e quem escolhia o segundo com um email
+  // sem conta ficava à espera de um código que nunca chegava. "entrar" (de antes) cai em "criar".
+  let modo = "criar";      // fora: criar (email → código) | codigo | senha (com palavra-passe)
   let emailRepor = "";     // o email já escrito, para o campo seguinte
   // Depois de "Criar conta" ou "Enviar código" (sem sessão ainda): o email fica só em memória até confirmar o código.
   let pendente = null;     // {email, origem: "criar" | "codigo"}
@@ -191,7 +194,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         msg, el("div", { classe: "duas" }, cod.l), el("div", { classe: "form-botoes" }, confirmar, reenviar));
       return;
     }
-    if (modo === "codigo" && !pendente) modo = "criar";
+    if (modo === "entrar" || (modo === "codigo" && !pendente)) modo = "criar";
     const email = campo("Email", "email", { type: "email", maxlength: "254", autocomplete: "email", inputmode: "email" });
     const irPara = (m) => { emailRepor = email.i.value.trim() || emailRepor; modo = m; mensagem(null); desenhar(); focar(); };
     /** Pede o código para `e` ("criar" cria a conta se não existe; "codigo" só para contas que existem) e passa ao código. */
@@ -205,7 +208,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     };
     if (modo === "criar") {
       if (emailRepor) email.i.value = emailRepor;
-      const criar = botao("Criar conta", "criar", () => ocupado(criar, async () => {
+      const criar = botao("Enviar código", "criar", () => ocupado(criar, async () => {
         const e = email.i.value.trim();
         if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
         // A resposta é sempre a mesma (o servidor não diz se o email já tem conta); a sessão abre ao confirmar o código.
@@ -214,12 +217,12 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
       comEnter([email], criar);
       // Consentimento (RGPD): a conta e o pedido são necessários ao contrato, por isso basta a frase com as ligações.
       // QA final: "Ao criar a conta" (no passo Enviar do simulador a frase "Ao enviar…" do contacto só aparece com sessão).
-      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao criar a conta, aceita os ",
+      const consentimento = el("p", { classe: "consentimento", id: id("consentimento") }, "Ao continuar, aceita os ",
         el("a", { href: "termos.html", target: "_blank", rel: "noopener", texto: "Termos" }), " e a ",
         el("a", { href: "privacidade.html", target: "_blank", rel: "noopener", texto: "Política de Privacidade" }), ".");
-      caixa.append(el("p", { texto: texto.fora ?? "Crie uma conta para enviar o pedido e acompanhá-lo depois." }), msg,
-        email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Sem palavra-passe." }), consentimento,
-        el("div", { classe: "form-botoes" }, criar, ligacao("Já tenho conta: entrar", "ir-entrar", () => irPara("entrar"))));
+      caixa.append(el("p", { texto: texto.fora ?? "Escreva o seu email para enviar o pedido e acompanhá-lo depois." }), msg,
+        email.l, el("p", { classe: "ajuda", id: id("sem-senha"), texto: "Só o email: enviamos um código de 6 algarismos. Serve para entrar e, se ainda não tem conta, fica criada." }), consentimento,
+        el("div", { classe: "form-botoes" }, criar, ligacao("Entrar com palavra-passe", "ir-senha", () => irPara("senha"))));
     } else if (modo === "codigo" && pendente) {
       // Código depois de "Criar conta" ou "Enviar código": confirma com o email e abre a sessão.
       const cod = campo("Código de 6 algarismos", "codigo", { inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", pattern: "[0-9 ]*" });
@@ -228,7 +231,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         if (!/^\d{6}$/.test(v)) { invalido(cod, "O código tem 6 algarismos."); return; }
         const r = await pedirConta("confirmar", { corpo: { email: pendente.email, codigo: v } });
         pendente = null;
-        modo = "entrar";
+        modo = "criar";
         eu = await contaAtual() ?? { conta: r.conta };
         mensagem(null);
         desenhar();
@@ -244,19 +247,6 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
         msg, el("div", { classe: "duas" }, cod.l),
         el("div", { classe: "form-botoes" }, confirmar, reenviar,
           ligacao("Outro email", "ir-criar", () => { emailRepor = pendente?.email ?? ""; pendente = null; modo = "criar"; mensagem(null); desenhar(); focar(); })));
-    } else if (modo === "entrar") {
-      // Entrar com código: o email → código → sessão (também serve de "Esqueci-me da palavra-passe").
-      if (emailRepor) email.i.value = emailRepor;
-      const enviar = botao("Enviar código", "enviar-codigo", () => ocupado(enviar, async () => {
-        const e = email.i.value.trim();
-        if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
-        await pedirCodigo(e, "codigo");
-      }));
-      comEnter([email], enviar);
-      caixa.append(el("p", { texto: "Entre com um código enviado para o seu email." }), msg, email.l,
-        el("div", { classe: "form-botoes" }, enviar,
-          ligacao("Entrar com palavra-passe", "ir-senha", () => irPara("senha")),
-          ligacao("Criar conta", "ir-criar", () => irPara("criar"))));
     } else {
       // Entrar com palavra-passe (quem a definiu na conta).
       if (emailRepor) email.i.value = emailRepor;
@@ -274,15 +264,15 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
       comEnter([email, s], entrar);
       caixa.append(el("p", { texto: "Entre com a sua palavra-passe." }), msg, el("div", { classe: "duas" }, email.l, s.l),
         el("div", { classe: "form-botoes" }, entrar,
-          ligacao("Entrar com código", "ir-entrar", () => irPara("entrar")),
-          ligacao("Esqueci-me da palavra-passe", "ir-esqueci", () => { irPara("entrar"); mensagem("Entre com um código. Depois pode definir uma palavra-passe nova na sua conta.", "info"); })));
+          ligacao("Entrar com código", "ir-entrar", () => irPara("criar")),
+          ligacao("Esqueci-me da palavra-passe", "ir-esqueci", () => { irPara("criar"); mensagem("Entre com um código. Depois pode definir uma palavra-passe nova na sua conta.", "info"); })));
     }
   }
 
   async function sair() {
     try { await pedirConta("sair", { corpo: {} }); } catch { /* a sessão fica sem efeito no servidor na mesma ao expirar */ }
     eu = null;
-    modo = "entrar";
+    modo = "criar";
     mensagem(null);
     desenhar();
     aoMudar(null);
