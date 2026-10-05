@@ -180,13 +180,13 @@ export function criarCorreio({ config, registo, local = false }) {
   if (respostas && !RE_EMAIL.test(respostas)) registo.erro('EMAIL_RESPOSTAS inválido: ignorado (use nome@dominio); as respostas dos clientes vão para o remetente');
   const responderPara = RE_EMAIL.test(respostas) ? { 'Reply-To': `<${respostas}>` } : {};
   const emCurso = new Set();
-  // Sem SMTP o código não chega a ninguém: o último fica em memória para o acesso rápido de testes o mostrar no ecrã
-  // (acesso-rapido.js ROTA_CODIGO, só no lançador local). Com SMTP nunca se guarda.
-  let ultimo = null;
+  // Sem SMTP o código não chega a ninguém: o último de cada email fica em memória para o acesso rápido de testes o
+  // mostrar no ecrã (acesso-rapido.js ROTA_CODIGO, só no lançador local). Com SMTP nunca se guarda.
+  const ultimos = new Map();
   function enviar({ para, assunto, texto, resumo, cabecalhos }) {
     if (!smtp) {
       const codigo = /^código (\d{6})\b/.exec(resumo ?? '')?.[1];
-      if (codigo) ultimo = { para, codigo, quando: Date.now() };
+      if (codigo) { const k = String(para).trim().toLowerCase(); ultimos.delete(k); ultimos.set(k, { codigo, quando: Date.now() }); if (ultimos.size > 50) ultimos.delete(ultimos.keys().next().value); }
       // Bem visível no terminal/registo (modo local ou sem SMTP): "[email] para x: código 123456".
       registo.info(`[email] para ${para}: ${resumo ?? assunto}`);
       registo.info(`[email] ${assunto}\n${texto}`);
@@ -200,7 +200,10 @@ export function criarCorreio({ config, registo, local = false }) {
     p.finally(() => emCurso.delete(p));
     return p;
   }
-  /** O último código que ficou só no registo (sem SMTP), se tem menos de 15 minutos; senão null. */
-  const ultimoCodigo = () => (ultimo && Date.now() - ultimo.quando < 15 * 60_000 ? { para: ultimo.para, codigo: ultimo.codigo } : null);
+  /** O último código que ficou só no registo (sem SMTP) para o email `para`, se tem menos de 15 minutos; senão null. */
+  const ultimoCodigo = (para) => {
+    const u = ultimos.get(String(para ?? '').trim().toLowerCase());
+    return u && Date.now() - u.quando < 15 * 60_000 ? u.codigo : null;
+  };
   return { enviar, ligado: Boolean(smtp), ultimoCodigo, emCurso: () => Promise.allSettled([...emCurso]) };
 }

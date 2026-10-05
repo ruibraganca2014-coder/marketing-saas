@@ -206,22 +206,43 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
   // deixava-o à espera. Com um campo de código à vista, a nota por baixo mostra o último código pedido e preenche-o.
   const CAMPOS_CODIGO = 'input[autocomplete="one-time-code"], #el-codigo';
   const aVista = (i) => i.getClientRects().length > 0;
+  const RE_EMAIL_ECRA = /[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/i;
+  /** O email a que o código deste campo foi enviado: o que o ecrã diz ("Enviámos um código para x") ou o do campo de email. */
+  function emailDoCampo(campo) {
+    for (let p = campo.parentElement; p && p !== document.body; p = p.parentElement) {
+      const forte = [...p.querySelectorAll("strong, b")].filter((s) => !s.closest(".ar-codigo") && aVista(s)).map((s) => s.textContent.trim()).find((t) => RE_EMAIL_ECRA.test(t));
+      if (forte) return RE_EMAIL_ECRA.exec(forte)[0].replace(/\.$/, "").toLowerCase();
+      const i = p.querySelector('input[type="email"]');
+      if (i?.value && RE_EMAIL_ECRA.test(i.value)) return i.value.trim().toLowerCase();
+    }
+    return null;
+  }
   let aVerCodigo = false;
   async function verCodigo() {
     const campos = [...document.querySelectorAll(CAMPOS_CODIGO)].filter(aVista);
     for (const n of document.querySelectorAll(".ar-codigo")) if (!campos.includes(n.arCampo)) n.remove();
     if (!campos.length || aVerCodigo) return;
     aVerCodigo = true;
-    let j = null;
     try {
-      const r = await fetch("/api/conta/dev/codigo", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: "{}" });
-      j = r.ok ? await r.json() : null;
-    } catch { j = null; } finally { aVerCodigo = false; }
-    if (!j) return;
-    for (const campo of campos) {
+      for (const campo of campos) await notaDoCodigo(campo);
+    } finally { aVerCodigo = false; }
+  }
+  async function notaDoCodigo(campo) {
+    const para = emailDoCampo(campo);
+    let j = { codigo: null };
+    if (para) {
+      try {
+        const r = await fetch("/api/conta/dev/codigo", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ email: para }) });
+        if (!r.ok) return;
+        j = await r.json();
+      } catch { return; }
+    }
+    j.para = para;
+    {
+      {
       let nota = [...document.querySelectorAll(".ar-codigo")].find((n) => n.arCampo === campo);
       const chave = `${j.codigo ?? ""}|${j.para ?? ""}`;
-      if (nota?.arChave === chave) continue;
+      if (nota?.arChave === chave) return;
       nota?.remove();
       nota = el("p", "ar-codigo");
       nota.arCampo = campo;
@@ -234,6 +255,7 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
         nota.append(el("span", null, `Modo de teste: neste computador não é enviado email. Código para ${j.para}: `), el("strong", null, j.codigo), " ", b);
       } else nota.append(el("span", null, "Modo de teste: neste computador não é enviado email. Carregue em \"Reenviar o código\" e o código aparece aqui."));
       (campo.closest("label") ?? campo).after(nota);
+      }
     }
   }
   setInterval(verCodigo, 1500);

@@ -6,7 +6,7 @@
 //   POST /api/conta/dev/contas {}        → as contas de cliente da base local (só id, email, nome, tem_casa), para os
 //                                          botões do ecrã de entrada da Área de cliente (local/acesso-rapido.js)
 //   POST /api/eletricista/dev/entrar {n} → sessão normal da área do eletricista (cookie domus_eletricista), eletricista de teste 1
-//   POST /api/conta/dev/codigo {}        → o último código de entrada que ficou só no registo (o lançador local não envia
+//   POST /api/conta/dev/codigo {email}   → o último código de entrada desse email que ficou só no registo (o lançador local não envia
 //                                          emails), para o mostrar por baixo do campo do código (local/acesso-rapido.js)
 // Num servidor a sério é impossível, por camadas:
 //   1. só existe com ACESSO_RAPIDO=1, que só o lançador local põe (o servidor/docker-compose.yml nunca);
@@ -30,7 +30,7 @@ export const ROTA_CLIENTE = '/api/conta/dev/entrar';
 export const ROTA_CONTAS = '/api/conta/dev/contas';
 export const MAX_CONTAS_LISTA = 200;
 export const ROTA_ELETRICISTA = '/api/eletricista/dev/entrar';
-/** O último código (conta de cliente ou eletricista) que o correio local guardou; {codigo: null} se não há ou já passou. */
+/** O último código (conta de cliente ou eletricista) que o correio local guardou para {email}; {codigo: null} se não há ou já passou. */
 export const ROTA_CODIGO = '/api/conta/dev/codigo';
 
 // Perfis de teste: uma linha por botão. Para juntar outro acrescenta-se aqui e em local/acesso-rapido.js (ATALHOS).
@@ -194,10 +194,10 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
   }
 
   async function ultimoCodigo(req, res) {
-    await lerJson(req, []);
+    const v = await lerJson(req, ['email']);
+    if (typeof v.email !== 'string' || v.email.length > 254) throw new ErroApi(400, 'Falta o email.');
     // Só o correio local (sem SMTP) guarda códigos; com SMTP não há nada para mostrar.
-    const u = correio && !correio.ligado ? correio.ultimoCodigo?.() ?? null : null;
-    responder(res, 200, { codigo: u?.codigo ?? null, para: u?.para ?? null });
+    responder(res, 200, { codigo: correio && !correio.ligado ? correio.ultimoCodigo?.(v.email) ?? null : null });
   }
 
   /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
