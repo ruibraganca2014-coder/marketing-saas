@@ -8,6 +8,7 @@ import { desenharPlanta, desenharIcone, nomePiso, legendaAcoes } from "./planta-
 import { ELEMENTOS, MODELOS, pisoDe, caixasDe } from "./regras.js";
 import { ACOES, temAcao } from "./acoes.js";
 import { pdfDeImagens, A4_PT } from "./pdf.js";
+import { desenharQuadroCliente } from "./quadro-desenho.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const NOME_PDF = "planta-domus.pdf";
@@ -179,32 +180,6 @@ async function paginaPiso(planta, piso, deitada, omissao = null, nomes = null) {
   return c;
 }
 
-/**
- * A planta no seguimento do texto (decisão do dono, 2026-10-05; relatório grátis): cada piso começa onde o texto (ou o
- * piso anterior) acabou, na mesma folha A4 ao alto, se lá couber a pelo menos 60 % do tamanho que teria numa folha só
- * dela; senão passa para a folha seguinte, também ao alto e encostada ao topo. `paginas`: as de paginasTexto (com
- * `fimY`, o y onde o texto acabou na última). Nunca há folha deitada.
- */
-async function plantaNoSeguimento(paginas, planta, pisos) {
-  const [W, H] = PX_A4;
-  const M = 90;
-  let c = paginas[paginas.length - 1];
-  let y = paginas.fimY ?? H;
-  for (const piso of pisos) {
-    const g0 = c.getContext("2d");
-    const { alt } = legendaDoPiso(g0, W, M, planta, piso, null, null);
-    const inteira = escalaDoPiso(W, M, planta, H - 2 * M, alt);
-    const resto = H - M - (y + 40);
-    if (y > M && (resto < 320 || escalaDoPiso(W, M, planta, resto, alt) < inteira * 0.6)) {
-      c = folhaDeTexto();
-      paginas.push(c);
-      y = M;
-    }
-    const y0 = y > M ? y + 40 : M;
-    y = await desenharPiso(c.getContext("2d"), W, M, planta, piso, y0, H - M - y0);
-  }
-}
-
 const jpeg = (canvas) => new Promise((ok, erro) => {
   canvas.toBlob((b) => (b ? b.arrayBuffer().then((a) => ok(new Uint8Array(a)), erro) : erro(new Error("sem JPEG"))), "image/jpeg", 0.9);
 });
@@ -328,7 +303,6 @@ function paginasTexto(blocos) {
     });
     y += e.depois;
   }
-  paginas.fimY = y;   // onde o texto acabou na última folha (plantaNoSeguimento)
   return paginas;
 }
 
@@ -360,50 +334,189 @@ const NOME_PDF_ORCAMENTO = "orcamento-domus.pdf";
  */
 export function blocosRelatorio(d) {
   const dataTxt = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" }).format(d.data ?? new Date());
+  const a = d.analise;
+  const divisoes = (d.divisoes ?? []).length ? d.divisoes.map((x) => ({ tipo: "item", texto: `${x.nome}: ${x.itens || "sem aparelhos"}` })) : [{ tipo: "item", texto: "Ainda sem divisões." }];
+  const cabeca = [{ tipo: "marca", texto: "Domus Energia" }, { tipo: "titulo", texto: "Relatório básico" }, { tipo: "data", texto: dataTxt }];
+  const nota = { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." };
+  // Sem a análise da casa (relatórios de antes): a casa, as divisões e o quadro do pedido, como estava.
+  if (!a) {
+    return [...cabeca, { tipo: "seccao", texto: "A casa" }, { tipo: "texto", texto: d.casa || "—" }, { tipo: "seccao", texto: "Divisões" }, ...divisoes,
+      { tipo: "seccao", texto: "Quadro elétrico" }, ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })), ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []), nota];
+  }
+  const temPlanta = Boolean(d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length));
   return [
-    { tipo: "marca", texto: "Domus Energia" },
-    { tipo: "titulo", texto: "Relatório básico" },
-    { tipo: "data", texto: dataTxt },
+    ...cabeca,
+    // 1. O essencial: a casa num resumo, a planta e o que encontrámos.
     { tipo: "seccao", texto: "A casa" },
     { tipo: "texto", texto: d.casa || "—" },
-    { tipo: "seccao", texto: "Divisões" },
-    ...((d.divisoes ?? []).length ? d.divisoes.map((x) => ({ tipo: "item", texto: `${x.nome}: ${x.itens || "sem aparelhos"}` })) : [{ tipo: "item", texto: "Ainda sem divisões." }]),
-    // Com a análise da casa o quadro do pedido não entra (contava os circuitos do pedido e contradizia a tabela).
-    ...(d.analise ? [] : [
-      { tipo: "seccao", texto: "Quadro elétrico" },
-      ...(d.quadro ?? []).map((t) => ({ tipo: "item", texto: String(t) })),
-      ...(d.potencia ? [{ tipo: "texto", texto: d.potencia }] : []),
-    ]),
-    // A análise tirada da planta (relatorio-casa.js; decisão do dono, 2026-10-05): os mesmos quatro blocos do ecrã.
-    ...(d.analise ? [
-      { tipo: "seccao", texto: "A casa em números" },
-      { tipo: "texto", texto: d.analise.numeros.map(([k, v]) => `${k}: ${v}`).join(" · ") },
-      { tipo: "seccao", texto: d.analise.potencia.titulo },
-      ...d.analise.potencia.texto.map((t) => ({ tipo: "texto", texto: t })),
-      ...(d.analise.simultaneo ? [{ tipo: "seccao", texto: "O que pode ligar ao mesmo tempo" }, { tipo: "texto", texto: `Com os ${d.analise.simultaneo.limite} que tem contratados:` },
-        ...d.analise.simultaneo.linhas.map((l) => ({ tipo: "item", texto: `${l.estado === "dispara" ? "A luz vai abaixo" : "Aguenta"}: ${l.nomes} (${l.w})` }))] : []),
-      ...(d.analise.consumo ? [{ tipo: "seccao", texto: "Consumo estimado por mês" }, { tipo: "texto", texto: `Cerca de ${d.analise.consumo.kwh} kWh, uns ${d.analise.consumo.euros} €.` },
-        ...d.analise.consumo.maiores.map(([nome, k]) => ({ tipo: "item", texto: `${nome}: ${k}` })), { tipo: "texto", texto: d.analise.consumo.nota }] : []),
-      { tipo: "seccao", texto: "Circuitos que esta casa pede" },
-      ...(d.analise.esquema ? [{ tipo: "texto", texto: `Quadro ideal para esta casa (não é o que tem hoje). ${d.analise.esquema.resumo}` },
-        ...(d.analise.esquema.legenda ?? []).map(([nome, texto]) => ({ tipo: "item", texto: `${nome}: ${texto}` }))] : []),
-      ...(d.analise.circuitos.length
-        ? d.analise.circuitos.map((c) => ({ tipo: "item", texto: `${c.codigo ? `${c.codigo} · ` : ""}${c.nome}${c.divisoes ? ` (${c.divisoes})` : ""}: disjuntor de ${c.disjuntor}${c.cabo ? `, cabo de ${c.cabo}` : ""}` }))
-        : [{ tipo: "item", texto: "Ainda sem tomadas nem máquinas descritas." }]),
-      ...(d.analise.notaCircuitos ? [{ tipo: "texto", texto: d.analise.notaCircuitos }] : []),
-      { tipo: "seccao", texto: "Pontos a rever" },
-      ...(d.analise.rever.length ? d.analise.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
-      { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
-      ...(d.analise.proximo?.length ? [{ tipo: "seccao", texto: "O que fazíamos primeiro nesta casa" }, ...d.analise.proximo.map((t) => ({ tipo: "item", texto: t }))] : []),
-    ] : []),
-    { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." },
+    { tipo: "texto", texto: a.numeros.map(([k, v]) => `${k}: ${v}`).join(" · ") },
+    ...(temPlanta ? listaPisos(d.pisos ?? 1).map((piso) => ({ tipo: "planta", piso })) : []),
+    { tipo: "seccao", texto: a.potencia.titulo },
+    ...a.potencia.texto.map((t) => ({ tipo: "texto", texto: t })),
+    ...(a.simultaneo ? [{ tipo: "seccao", texto: "O que pode ligar ao mesmo tempo" }, { tipo: "texto", texto: `Com os ${a.simultaneo.limite} que tem contratados:` },
+      ...a.simultaneo.linhas.map((l) => ({ tipo: "item", texto: `${l.estado === "dispara" ? "A luz vai abaixo" : "Aguenta"}: ${l.nomes} (${l.w})` }))] : []),
+    { tipo: "seccao", texto: "Pontos a rever" },
+    ...(a.rever.length ? a.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
+    { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
+    ...(a.proximo?.length ? [{ tipo: "seccao", texto: "O que fazíamos primeiro nesta casa" }, ...a.proximo.map((t) => ({ tipo: "item", texto: t }))] : []),
+    // 2. O quadro ideal, numa folha nova: o desenho, o que é cada peça e os circuitos em tabela.
+    { tipo: "quebra" },
+    { tipo: "seccao", texto: "Quadro ideal e circuitos" },
+    ...(a.esquema ? [{ tipo: "texto", texto: `Calculado pelo que descreveu. Não é o quadro que tem hoje: o eletricista adapta o que lá está a este. ${a.esquema.resumo}` },
+      // O desenho à esquerda e, ao lado, as cores e o que é cada peça.
+      { tipo: "quadro", esquema: a.esquema, lado: [
+        ...(a.esquema.cores ?? []).map(([k, nome]) => ({ cor: k, forte: nome, texto: "" })),
+        ...(a.esquema.legenda ?? []).map(([nome, texto]) => ({ forte: nome, texto })),
+      ] }] : []),
+    ...(a.circuitos.length
+      ? [{ tipo: "tabela", cabecalho: ["Circuito", "Divisões", "Disjuntor", "Cabo"], larguras: [0.3, 0.36, 0.2, 0.14],
+        linhas: a.circuitos.map((c) => [`${c.codigo ? `${c.codigo} · ` : ""}${c.nome}`, c.divisoes || "—", c.disjuntor, c.cabo || "—"]) }]
+      : [{ tipo: "item", texto: "Ainda sem tomadas nem máquinas descritas." }]),
+    ...(a.notaCircuitos ? [{ tipo: "texto", texto: a.notaCircuitos }] : []),
+    // 3. O pormenor: o consumo estimado e os aparelhos de cada divisão.
+    ...(a.consumo ? [{ tipo: "seccao", texto: "Consumo estimado por mês" }, { tipo: "texto", texto: `Cerca de ${a.consumo.kwh} kWh, uns ${a.consumo.euros} €.` },
+      ...a.consumo.maiores.map(([nome, k]) => ({ tipo: "item", texto: `${nome}: ${k}` })), { tipo: "texto", texto: a.consumo.nota }] : []),
+    { tipo: "seccao", texto: "Divisões em pormenor" },
+    ...divisoes,
+    nota,
   ];
+}
+const COR_CIRCUITO = { luz: "#e0b100", tomadas: "#6a994e", humida: "#3a86c8", maquina: "#d9853b" };
+
+/**
+ * O desenho do quadro para o PDF: o <svg> de quadro-desenho.js com as cores claras postas nos próprios elementos (uma
+ * imagem feita de um SVG não vê o CSS da página, e o PDF é sempre claro, mesmo com o site no tema escuro).
+ */
+function svgQuadroPdf(esquema) {
+  const svg = desenharQuadroCliente(esquema, { soLeitura: true });
+  const C = CLARAS;
+  const FORMAS = {
+    "qd-caixa": { fill: C["--superficie"], stroke: C["--texto-suave"], "stroke-width": 2 },
+    "qd-calha": { fill: C["--borda"], stroke: C["--texto-suave"], "stroke-width": 1 },
+    "qd-livre": { fill: "none", stroke: C["--texto-suave"], "stroke-width": 1.2, "stroke-dasharray": "4 3" },
+    "qd-livre-fundo": { fill: "none", stroke: "none" },
+    "qd-corpo": { fill: "#ffffff", stroke: C["--texto"], "stroke-width": 1.5 },
+    "qd-alavanca": { fill: C["--texto"] },
+    "qd-teste": { fill: C["--superficie"], stroke: C["--texto"], "stroke-width": 1 },
+    "qd-visor": { fill: C["--musgo-claro"], stroke: C["--texto"], "stroke-width": 1 },
+    "qd-cor-luz": { fill: "#e0b100" }, "qd-cor-tomadas": { fill: "#6a994e" }, "qd-cor-humida": { fill: "#3a86c8" }, "qd-cor-maquina": { fill: "#d9853b" },
+  };
+  for (const e of svg.querySelectorAll("*")) {
+    const cl = e.classList;
+    for (const [k, attrs] of Object.entries(FORMAS)) if (cl.contains(k)) for (const [n, v] of Object.entries(attrs)) e.setAttribute(n, String(v));
+    if (cl.contains("qd-corpo")) {
+      const pai = e.parentNode.classList;
+      if (pai.contains("qd-geral")) e.setAttribute("fill", C["--musgo-claro"]);
+      else if (pai.contains("qd-diferencial")) e.setAttribute("fill", "#f7e5c6");
+    }
+    if (cl.contains("qd-txt") || cl.contains("qd-teste-t")) {
+      const [peso, tam] = cl.contains("qd-teste-t") ? [700, 7] : cl.contains("qd-etiqueta") ? [700, 8.5] : cl.contains("forte") ? [800, 12] : cl.contains("mini") ? [600, 8] : [600, 10];
+      e.setAttribute("font-family", "'Segoe UI', system-ui, sans-serif");
+      e.setAttribute("font-weight", String(peso));
+      e.setAttribute("font-size", String(tam));
+      e.setAttribute("fill", cl.contains("mini") ? C["--texto-suave"] : C["--texto"]);
+    }
+  }
+  svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  return svg;
+}
+
+/**
+ * As folhas do relatório (A4 ao alto), em fluxo: os blocos de texto de paginasTexto e mais {tipo: "quebra"} (folha
+ * nova), {tipo: "planta", piso} (a planta do piso no seguimento do texto: na mesma folha se lá couber a pelo menos 60 %
+ * do tamanho que teria numa folha só dela, senão na seguinte), {tipo: "quadro", esquema} (o desenho do quadro ideal) e
+ * {tipo: "tabela", cabecalho, larguras, linhas}. Decisão do dono (2026-10-05): do importante para o pormenor, sem folha deitada.
+ */
+async function paginasRelatorio(blocos, planta) {
+  const [W, H] = PX_A4;
+  const M = 90, fonte = FONTE_PDF;
+  const paginas = [];
+  let c, g, y;
+  const nova = () => { c = folhaDeTexto(); g = c.getContext("2d"); y = M; paginas.push(c); };
+  nova();
+  for (const b of blocos) {
+    if (b.tipo === "quebra") { if (y > M) nova(); continue; }
+    if (b.tipo === "planta") {
+      const { alt } = legendaDoPiso(g, W, M, planta, b.piso, null, null);
+      const inteira = escalaDoPiso(W, M, planta, H - 2 * M, alt);
+      const resto = H - M - (y + 30);
+      if (y > M && (resto < 320 || escalaDoPiso(W, M, planta, resto, alt) < inteira * 0.6)) nova();
+      const y0 = y > M ? y + 30 : M;
+      // No meio do texto a planta não precisa da folha toda: no máximo 40 % da altura.
+      y = await desenharPiso(g, W, M, planta, b.piso, y0, Math.min(H - M - y0, Math.round(H * 0.4)));
+      continue;
+    }
+    if (b.tipo === "quadro") {
+      const svg = svgQuadroPdf(b.esquema);
+      const [, , vw, vh] = svg.getAttribute("viewBox").split(" ").map(Number);
+      // O desenho ocupa até metade da largura e o que sobra da folha (se sobrar pouco, folha nova); ao lado, a legenda.
+      if (H - M - y - 16 < 700 && y > M) nova();
+      y += y > M ? 16 : 0;
+      let w = (W - 2 * M) * 0.5, h = (vh * w) / vw;
+      const maxH = H - M - y;
+      if (h > maxH) { w = (w * maxH) / h; h = maxH; }
+      g.drawImage(await imagemDeSvg(svg, w, h), M, y, w, h);
+      const x = M + w + 40, larg = W - M - x;
+      let yl = y + 6;
+      for (const it of b.lado ?? []) {
+        g.font = `800 23px ${fonte}`;
+        g.fillStyle = CLARAS["--texto"];
+        if (it.cor) { g.fillStyle = COR_CIRCUITO[it.cor] ?? CLARAS["--texto"]; g.fillRect(x, yl + 8, 44, 12); g.fillStyle = CLARAS["--texto"]; g.font = `400 23px ${fonte}`; g.fillText(it.forte, x + 56, yl); yl += 34; continue; }
+        if (yl > y + 6 && !it.cor && it === (b.lado ?? []).find((z) => !z.cor)) yl += 14;
+        g.fillText(it.forte, x, yl);
+        yl += 30;
+        g.font = `400 22px ${fonte}`;
+        g.fillStyle = CLARAS["--texto-suave"];
+        for (const l of partirLinhas(g, it.texto, larg)) { g.fillText(l, x, yl); yl += 28; }
+        yl += 12;
+      }
+      y = Math.max(y + h, yl) + 20;
+      continue;
+    }
+    if (b.tipo === "tabela") {
+      const larg = W - 2 * M, tam = 24, folga = 10;
+      const xs = b.larguras.reduce((l, f) => [...l, l[l.length - 1] + f * larg], [M]);
+      const linha = (celulas, peso) => {
+        g.font = `${peso} ${tam}px ${fonte}`;
+        const partes = celulas.map((t, i) => partirLinhas(g, String(t), b.larguras[i] * larg - 16));
+        const alt = Math.max(...partes.map((p) => p.length)) * tam * 1.3 + 2 * folga;
+        if (y + alt > H - M && y > M) { nova(); g.font = `${peso} ${tam}px ${fonte}`; }
+        if (peso === 800) { g.fillStyle = CLARAS["--musgo-claro"]; g.fillRect(M, y, larg, alt); }
+        g.fillStyle = CLARAS["--texto"];
+        partes.forEach((p, i) => p.forEach((t, k) => g.fillText(t, xs[i] + 8, y + folga + k * tam * 1.3)));
+        y += alt;
+        g.fillStyle = CLARAS["--borda"];
+        g.fillRect(M, y - 1, larg, 2);
+      };
+      y += 12;
+      linha(b.cabecalho, 800);
+      for (const l of b.linhas) linha(l, 400);
+      y += 14;
+      continue;
+    }
+    const e = ESTILO_BLOCO[b.tipo] ?? ESTILO_BLOCO.texto;
+    g.font = `${e.fonte} ${e.tam}px ${fonte}`;
+    const recuo = e.marca ? g.measureText(e.marca).width : 0;
+    const linhas = partirLinhas(g, b.texto, W - 2 * M - recuo);
+    const alt = e.antes + linhas.length * e.tam * 1.3 + e.depois;
+    // Um título de secção não fica sozinho no fundo da folha.
+    if (y + alt + (b.tipo === "seccao" ? 80 : 0) > H - M && y > M) nova();
+    y += y > M ? e.antes : 0;
+    g.font = `${e.fonte} ${e.tam}px ${fonte}`;
+    g.fillStyle = CLARAS[e.cor];
+    linhas.forEach((l, i) => {
+      if (e.marca && i === 0) g.fillText(e.marca, M, y);
+      g.fillText(l, M + recuo, y);
+      y += e.tam * 1.3;
+    });
+    y += e.depois;
+  }
+  return paginas;
 }
 
 /** Faz o PDF do relatório básico (o texto e, no seguimento, a planta de cada piso; tudo em A4 ao alto) e descarrega-o ("relatorio-domus.pdf"). */
 export async function guardarPdfRelatorio(d) {
-  const folhas = paginasTexto(blocosRelatorio(d));
-  if (d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length)) await plantaNoSeguimento(folhas, d.planta, listaPisos(d.pisos ?? 1));
+  const folhas = await paginasRelatorio(blocosRelatorio(d), d.planta);
   const paginas = [];
   for (const c of folhas) paginas.push({ jpeg: await jpeg(c), largura_px: c.width, altura_px: c.height, largura_pt: A4_PT[0], altura_pt: A4_PT[1] });
   const bytes = pdfDeImagens(paginas);

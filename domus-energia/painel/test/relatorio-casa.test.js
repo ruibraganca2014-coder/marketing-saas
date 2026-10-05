@@ -58,8 +58,15 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   const analise = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
   const b = blocosRelatorio({ casa: 'Apartamento T2', divisoes: [], quadro: [], potencia: 'x', analise });
   const seccoes = b.filter((x) => x.tipo === 'seccao').map((x) => x.texto);
-  assert.deepEqual(seccoes, ['A casa', 'Divisões', 'A casa em números', 'A potência contratada pode ser curta', 'O que pode ligar ao mesmo tempo', 'Consumo estimado por mês', 'Circuitos que esta casa pede', 'Pontos a rever', 'O que fazíamos primeiro nesta casa']);
-  assert.ok(b.some((x) => x.tipo === 'item' && /^C3 · Placa de cozinha \(Cozinha\): disjuntor de 25 A, cabo de 6 mm²$/.test(x.texto)));
+  assert.deepEqual(seccoes, ['A casa', 'A potência contratada pode ser curta', 'O que pode ligar ao mesmo tempo', 'Pontos a rever', 'O que fazíamos primeiro nesta casa', 'Quadro ideal e circuitos', 'Consumo estimado por mês', 'Divisões em pormenor']);
+  // Do importante para o pormenor: o quadro ideal começa numa folha nova, com o desenho e os circuitos em tabela.
+  const tipos = b.map((x) => x.tipo);
+  assert.ok(tipos.indexOf('quebra') < tipos.indexOf('quadro') && tipos.indexOf('quadro') < tipos.indexOf('tabela'));
+  const tabela = b.find((x) => x.tipo === 'tabela');
+  assert.deepEqual(tabela.cabecalho, ['Circuito', 'Divisões', 'Disjuntor', 'Cabo']);
+  assert.deepEqual(tabela.linhas[2], ['C3 · Placa de cozinha', 'Cozinha', '25 A', '6 mm²']);
+  assert.ok(!tipos.includes('planta'), 'sem planta nos dados não há bloco da planta');
+  assert.deepEqual(blocosRelatorio({ casa: 'x', divisoes: [], analise, planta: PLANTA, pisos: 2 }).filter((x) => x.tipo === 'planta').map((x) => x.piso), [0, 1]);
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
 });
 

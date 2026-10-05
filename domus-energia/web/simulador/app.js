@@ -4221,7 +4221,7 @@ function desenharRelatorio() {
     li.append(el("strong", null, x.nome), document.createTextNode(x.itens ? `: ${x.itens}` : ""));
     return li;
   }));
-  divs.append(el("h3", null, "Divisões"), ul);
+  divs.append(el("h3", null, "Divisões em pormenor"), ul);
   // Os quatro blocos tirados da planta (relatorio-casa.js). O cartão "Quadro elétrico" de antes saiu (decisão do dono,
   // 2026-10-05): contava os circuitos do pedido, não os da casa, e contradizia a tabela.
   const a = d.analise;
@@ -4302,7 +4302,9 @@ function desenharRelatorio() {
       proximo.append(el("p", "ajuda", "A casa já fica preenchida: só escolhe o que precisa."), b);
     }
   }
-  caixa.append(...[casa, numeros, divs, pot, junto, consumo, circ, rever, proximo].filter(Boolean));
+  // Do importante para o pormenor, como no PDF (decisão do dono, 2026-10-05): a casa e a planta, o que encontrámos, o
+  // que fazíamos primeiro, o quadro ideal e, no fim, o consumo e as divisões.
+  caixa.append(...[casa, numeros, pot, junto, rever, proximo, circ, consumo, divs].filter(Boolean));
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");
