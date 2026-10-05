@@ -518,7 +518,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
    * conta) sem pedir serviço. Fica a data (só a primeira vez) e os CEO recebem um aviso, sem dados do cliente no email:
    * a casa vê-se no painel (CRM → Casas registadas).
    */
-  h.registarCasa = ({ res, c, ip }) => {
+  h.registarCasa = async ({ req, res, c, ip }) => {
+    await lerJson(req, []);
     const r = db.prepare('SELECT simulacao, casa_registada FROM contas WHERE id = ?').get(c.id);
     if (!r?.simulacao && !r?.casa_registada) falha('Descreva primeiro a sua casa no simulador.');
     if (!r.casa_registada) {

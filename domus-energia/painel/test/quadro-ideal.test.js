@@ -103,6 +103,8 @@ describe('o eletricista desenha o quadro existente', () => {
     assert.deepEqual([t.quadro.existente.protecoes, t.quadro.existente.disjuntores[0], t.quadro.existente.ordem.slice(0, 2)], [['descarregador'], { amperes: 10, afdd: true }, ['geral', 'descarregador']]);
     assert.equal(t.quadro.existente.por, undefined, 'a área do eletricista não leva quem desenhou');
     assert.equal((await painel('GET', `orcamentos/${o.json.id}`)).json.esquema_quadro.por, `eletricista:${e.id}`);
+    assert.equal((await area('POST', `trabalhos/${tid}/esquema-quadro`, {})).estado, 400, 'sem o campo não apaga');
+    assert.equal((await painel('GET', `orcamentos/${o.json.id}`)).json.esquema_quadro.por, `eletricista:${e.id}`);
     assert.equal((await area('POST', `trabalhos/${tid}/esquema-quadro`, { esquema: null })).estado, 200);
     assert.equal((await painel('GET', `orcamentos/${o.json.id}`)).json.esquema_quadro, null);
   });

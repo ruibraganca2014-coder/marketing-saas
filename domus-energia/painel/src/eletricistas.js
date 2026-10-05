@@ -998,6 +998,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    */
   h.esquemaQuadro = async ({ req, res, e, params, ip }) => {
     const v = await lerJson(req, ['esquema'], 64 * 1024);
+    // Sem o campo não se apaga nada (um corpo vazio apagava o esquema guardado): só `esquema: null` apaga.
+    if (v.esquema === undefined) falha('Indique o esquema do quadro (ou null para o apagar).');
     esperar([[L.acoes, String(e.id)]]);
     contar([[L.acoes, String(e.id)]]);
     expirar();
