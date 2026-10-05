@@ -54,6 +54,38 @@ document.getElementById("ano").textContent = new Date().getFullYear();
 }
 
 
+// ---------- Fotografias de trabalhos (config.js): fotoTopo no lugar do desenho; "Trabalhos recentes" com 3 ou mais ----------
+{
+  const D = window.DOMUS ?? {};
+  const topo = document.getElementById("hero-foto");
+  if (topo && D.fotoTopo?.ficheiro) {
+    topo.src = D.fotoTopo.ficheiro;
+    topo.alt = D.fotoTopo.legenda ?? "";
+    topo.hidden = false;
+    document.querySelector(".hero .casa")?.setAttribute("hidden", "");
+  }
+  const lista = document.getElementById("trabalhos-lista");
+  const trabalhos = Array.isArray(D.trabalhos) ? D.trabalhos.filter((t) => t?.ficheiro && t?.legenda) : [];
+  if (lista && trabalhos.length >= 3) {
+    for (const t of trabalhos.slice(0, 9)) {
+      const li = document.createElement("li");
+      const fig = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = t.ficheiro;
+      img.alt = t.legenda;
+      img.loading = "lazy";
+      img.width = 880;
+      img.height = 660;
+      const cap = document.createElement("figcaption");
+      cap.textContent = t.legenda;
+      fig.append(img, cap);
+      li.append(fig);
+      lista.append(li);
+    }
+    document.getElementById("trabalhos").hidden = false;
+  }
+}
+
 // Formulário de orçamento → POST /api/orcamento (servidor do painel da empresa, docs/PAINEL-EMPRESA.md §3).
 const form = document.getElementById("form-orcamento");
 const msg = document.getElementById("form-msg");

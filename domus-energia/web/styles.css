@@ -180,6 +180,25 @@ h2 { font-size: clamp(1.7rem, 3.8vw, 2.4rem); margin: 0 0 10px; }
 .como-simular-acao { margin-top: 22px; }
 .passos .cartao::before { counter-increment: passo; content: counter(passo); display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--musgo); color: var(--sobre-musgo); font-weight: 800; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
 
+/* ---------- Página inicial: serviços em lista, passos numerados e fotografias de trabalhos ---------- */
+.servicos-lista { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--borda); max-width: 860px; }
+.servicos-lista li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 28px; padding: 20px 0; border-bottom: 1px solid var(--borda); }
+.servicos-lista li > div { flex: 1 1 420px; min-width: 0; }
+.servicos-lista h3 { margin: 0 0 6px; font-size: 1.3rem; }
+.servicos-lista h3 a { color: inherit; text-decoration-color: var(--musgo); text-underline-offset: 4px; }
+.servicos-lista p { margin: 0; color: var(--texto-suave); }
+.servicos-lista .servico-preco { flex: none; font-weight: 700; color: var(--texto); white-space: nowrap; }
+.passos-lista { margin: 0; padding: 0 0 0 1.4em; max-width: 760px; display: grid; gap: 22px; }
+.passos-lista li::marker { font-weight: 800; color: var(--musgo-texto); }
+.passos-lista h3 { margin: 0 0 4px; font-size: 1.2rem; }
+.passos-lista p { margin: 0; color: var(--texto-suave); }
+.passos-lista .passo-lista { margin: 8px 0 0; padding-left: 1.2em; color: var(--texto-suave); display: grid; gap: 4px; }
+.hero-foto { width: 100%; max-width: 440px; height: auto; justify-self: center; border-radius: var(--raio); object-fit: cover; aspect-ratio: 4 / 3; }
+.trabalhos { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.trabalhos img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--raio); display: block; }
+.trabalhos figure { margin: 0; }
+.trabalhos figcaption { margin-top: 8px; color: var(--texto-suave); }
+
 /* ---------- Contactos e formulários ---------- */
 .contactos { display: grid; gap: 24px; grid-template-columns: 1fr; }
 @media (min-width: 860px) { .contactos { grid-template-columns: 1fr 1.3fr; } }

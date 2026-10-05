@@ -117,6 +117,8 @@
           <!-- Telefone e WhatsApp escondidos pelo site.js enquanto o config.js tiver números de exemplo: fica o email. -->
           <p class="hero-ou"><span class="js-ou-ligar">ou ligue: <a class="js-telefone" href="#"><span class="js-telefone-texto">Telefone</span></a><span class="js-ou-sep"> · </span><a class="js-whatsapp" href="#">WhatsApp</a></span><span class="js-ou-email" hidden>ou escreva-nos: <a class="js-email" href="#"><span class="js-email-texto">Email</span></a></span></p>
         </div>
+        <!-- Fotografia de um trabalho (config.js fotoTopo); sem ela fica o desenho da casa (site.js). -->
+        <img class="hero-foto" id="hero-foto" alt="" width="880" height="660" hidden>
         <!-- Casa em traço, desenhada à mão; janelas acesas a areia. -->
         <svg class="casa" viewBox="0 0 360 300" role="img" aria-label="Desenho de uma casa com as janelas acesas">
           <path class="fumo" d="M262 58c-6-7 4-12-1-19s4-11 0-17"/>
@@ -149,28 +151,29 @@
       <div class="wrap">
         <h2>Serviços</h2>
         <p class="sub">O trabalho é feito por eletricistas inscritos na DGEG, escolhidos por nós. A Domus trata do pedido, do orçamento e da garantia.</p>
-        <div class="grelha">
-          <div class="cartao">
-            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="6" y="5" width="24" height="26" rx="3"/><path d="M11 11v6M16 11v6M21 11v6M26 11v6M10 23h16"/><rect class="cheio" x="14.6" y="12.4" width="2.8" height="3.4" rx=".6"/></svg></div>
-            <h3>Quadros elétricos</h3>
-            <p>Trocamos quadros antigos e pomos as proteções que faltam, como o diferencial e o descarregador de sobretensões. Se quiser, cada circuito fica com um disjuntor que se liga e desliga pelo telemóvel.</p>
-          </div>
-          <div class="cartao">
-            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><rect x="7" y="7" width="22" height="22" rx="6"/><circle cx="18" cy="18" r="6"/><path d="M15.8 17.6v.1M20.2 17.6v.1"/></svg></div>
-            <h3>Instalações e reparações</h3>
-            <p>Tomadas que deixaram de dar, disjuntores que disparam, pontos de luz novos, remodelações. Tratamos também da certificação, quando é precisa.</p>
-          </div>
-          <div class="cartao">
-            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M6 17 18 7l12 10M9 14.6V29h18V14.6"/><rect class="cheio" x="14" y="18" width="8" height="6" rx="1"/><path d="M14 18h8v6h-8z"/></svg></div>
-            <h3>Casa inteligente</h3>
-            <p>Interruptores, estores e tomadas comandados pelo telemóvel, sensores de porta e de movimento e alarme. Os interruptores da parede continuam a funcionar como sempre.</p>
-          </div>
-          <div class="cartao">
-            <div class="icone"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M6 29h24M9 29V19M15 29V12M21 29v-9M27 29V8"/><circle class="cheio" cx="27" cy="8" r="2.4"/></svg></div>
-            <h3>Consumo de energia</h3>
-            <p>Medimos quanto gasta cada circuito. Serve para ver o que pesa mais na fatura, por exemplo um termoacumulador ligado o dia todo.</p>
-          </div>
-        </div>
+        <!-- Lista simples com o preço de partida (os mesmos valores das páginas de cada serviço). -->
+        <ul class="servicos-lista">
+          <li>
+            <div><h3><a href="quadro-eletrico.html">Quadros elétricos</a></h3><p>Trocamos quadros antigos e pomos as proteções que faltam, como o diferencial e o descarregador de sobretensões. Se quiser, cada circuito fica com um disjuntor que se liga e desliga pelo telemóvel.</p></div>
+            <p class="servico-preco num">desde 450 €</p>
+          </li>
+          <li>
+            <div><h3><a href="carregador-carro.html">Carregador de carro</a></h3><p>Um circuito só para o carregador, com diferencial tipo A. O carregador é à parte: o seu, ou um que escolhamos consigo.</p></div>
+            <p class="servico-preco num">desde 390 €</p>
+          </li>
+          <li>
+            <div><h3><a href="casa-inteligente.html">Casa inteligente</a></h3><p>Interruptores, estores e tomadas comandados pelo telemóvel, sensores de porta e de movimento e alarme. Os interruptores da parede continuam a funcionar como sempre.</p></div>
+            <p class="servico-preco num">desde 367 €</p>
+          </li>
+          <li>
+            <div><h3><a href="poupar-energia.html">Consumo de energia</a></h3><p>Medimos quanto gasta cada circuito. Serve para ver o que pesa mais na fatura, por exemplo um termoacumulador ligado o dia todo.</p></div>
+            <p class="servico-preco num">desde 342 €</p>
+          </li>
+          <li>
+            <div><h3>Instalações e reparações</h3><p>Tomadas que deixaram de dar, disjuntores que disparam, pontos de luz novos, remodelações. Tratamos também da certificação, quando é precisa.</p></div>
+            <p class="servico-preco">preço depois da visita</p>
+          </li>
+        </ul>
       </div>
     </section>
 
@@ -178,12 +181,12 @@
       <div class="wrap">
         <h2>Como funciona</h2>
         <p class="sub">Do pedido à obra. A maior parte dos trabalhos fica feita num dia.</p>
-        <div class="grelha passos">
-          <div class="cartao"><h3>Descreve a casa e pede</h3><p>No simulador descreve a casa em 5 minutos e recebe um relatório grátis. Quando precisar de um serviço, pede-o e vê logo uma estimativa do preço. Enviar o pedido não custa nada.</p><ul class="passo-lista"><li>Relatório completo: 29 €</li><li>Visita técnica (deslocação e 30 minutos): paga</li><li>Os dois valores descontam na obra</li></ul></div>
-          <div class="cartao"><h3>Visita e proposta</h3><p>Um eletricista vai a sua casa ver o quadro e a instalação. Depois enviamos a proposta com o preço fechado, para aceitar ou não.</p></div>
-          <div class="cartao"><h3>Obra</h3><p>Marcamos o dia consigo. A maior parte dos trabalhos faz-se num dia; quando são precisos mais, dizemos antes.</p></div>
-          <div class="cartao"><h3>Depois da obra</h3><p>Recebe a fatura e fica com 2 anos de garantia. Se instalou casa inteligente, deixamos a app configurada, com as divisões já identificadas. Se alguma coisa falhar, fale connosco.</p></div>
-        </div>
+        <ol class="passos-lista">
+          <li><h3>Descreve a casa e pede</h3><p>No simulador descreve a casa em 5 minutos e recebe um relatório grátis. Quando precisar de um serviço, pede-o e vê logo uma estimativa do preço. Enviar o pedido não custa nada.</p><ul class="passo-lista"><li>Relatório completo: 29 €</li><li>Visita técnica (deslocação e 30 minutos): paga</li><li>Os dois valores descontam na obra</li></ul></li>
+          <li><h3>Visita e proposta</h3><p>Um eletricista vai a sua casa ver o quadro e a instalação. Depois enviamos a proposta com o preço fechado, para aceitar ou não.</p></li>
+          <li><h3>Obra</h3><p>Marcamos o dia consigo. A maior parte dos trabalhos faz-se num dia; quando são precisos mais, dizemos antes.</p></li>
+          <li><h3>Depois da obra</h3><p>Recebe a fatura e fica com 2 anos de garantia. Se instalou casa inteligente, deixamos a app configurada, com as divisões já identificadas. Se alguma coisa falhar, fale connosco.</p></li>
+        </ol>
       </div>
     </section>
 
@@ -210,6 +213,14 @@
         </div>
         <p class="sub">Tenha à mão: potência contratada (fatura), máquinas, fotos do quadro e do que está avariado.</p>
         <div class="como-simular-acao"><a class="btn" id="como-simular-botao" href="simulador.html">Simular orçamento</a></div>
+      </div>
+    </section>
+
+    <!-- Trabalhos recentes: fotografias reais (config.js trabalhos); só aparece com pelo menos três (site.js). -->
+    <section id="trabalhos" hidden>
+      <div class="wrap">
+        <h2>Trabalhos recentes</h2>
+        <ul class="trabalhos" id="trabalhos-lista"></ul>
       </div>
     </section>
 

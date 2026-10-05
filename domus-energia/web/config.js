@@ -21,6 +21,12 @@ window.DOMUS = {
   telefoneVisivel: "900 000 000",
   email: "ruibraganca2014@gmail.com",
 
+  // Fotografias de trabalhos reais (página inicial). Ponha os ficheiros em web/fotos/ (JPG, deitados, 4:3).
+  // fotoTopo: aparece no topo, no lugar do desenho da casa. Ex.: { ficheiro: "fotos/quadro-oeiras.jpg", legenda: "Quadro novo numa moradia em Oeiras" }
+  // trabalhos: a secção "Trabalhos recentes" só aparece com três ou mais.
+  fotoTopo: null,
+  trabalhos: [],
+
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {
