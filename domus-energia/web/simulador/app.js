@@ -501,7 +501,12 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.avaria && bloquearAvaria()) return;
   if (confirmarPasso()) return;   // "Está certo? Sim, continuar" nos passos em que o cliente preenche
   if (fimDaParteCasa()) {
-    if (relatorioFechado()) { blocoContaRelatorio.mensagem("Deixe o seu email para ver o relatório e guardar a casa."); blocoContaRelatorio.focar(); return; }
+    if (relatorioFechado()) {
+      // Com o código já pedido, o que falta é escrevê-lo (não o email outra vez).
+      blocoContaRelatorio.mensagem(blocoContaRelatorio.aEsperaDoCodigo() ? "Escreva o código de 6 algarismos que enviámos para o seu email." : "Deixe o seu email para ver o relatório e guardar a casa.");
+      blocoContaRelatorio.focar();
+      return;
+    }
     concluirCasa();
     return;
   }

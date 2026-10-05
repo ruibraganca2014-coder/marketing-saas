@@ -301,5 +301,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
   window.addEventListener("domus:conta-sessao", () => { atualizar(); });
 
   desenhar();
-  return { atualizar, eu: () => eu, sair, focar, mensagem };
+  /** Já pediu o código e falta escrevê-lo (conta por confirmar, ou código pedido para entrar)? */
+  const aEsperaDoCodigo = () => (eu ? !eu.conta.confirmado : modo === "codigo" && !!pendente);
+  return { atualizar, eu: () => eu, sair, focar, mensagem, aEsperaDoCodigo };
 }
