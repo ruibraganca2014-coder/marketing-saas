@@ -63,21 +63,26 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
 });
 
-test('quadro sugerido: geral pela potência, um diferencial de 30 mA por grupo com os seus disjuntores a seguir e 25 % de folga', async () => {
+test('quadro ideal, com proteção completa: geral Wi-Fi pela potência, descarregador, relé de tensão e medidor, um diferencial de 30 mA por grupo com os seus disjuntores a seguir (AFDD na sala) e 25 % de folga', async () => {
   const { normalizarEsquema } = await import('../../web/simulador/quadro-desenho.js');
   const a = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
   const q = a.esquema;
-  assert.equal(q.disjuntor_geral.amperes, 32, '6,9 kVA a 230 V = 30 A → 32 A');
+  assert.deepEqual(q.disjuntor_geral, { amperes: 32, wifi: true }, '6,9 kVA a 230 V = 30 A → 32 A; proteção completa: geral Wi-Fi');
+  assert.deepEqual(q.protecoes, ['descarregador', 'rele_tensao', 'medidor_geral']);
+  assert.deepEqual(q.ordem.slice(0, 5), ['geral', 'descarregador', 'rele_tensao', 'medidor_geral', 'diferencial:0']);
+  assert.deepEqual(q.disjuntores.filter((d) => d.afdd), [{ amperes: 16, afdd: true }], 'AFDD só no circuito das tomadas da sala');
+  assert.equal(a.circuitos[0].disjuntor, '16 A com AFDD');
   assert.deepEqual(q.diferenciais, [{ sensibilidade_ma: 30, amperes: 40 }, { sensibilidade_ma: 30, amperes: 40 }]);
   assert.deepEqual(q.disjuntores.map((d) => d.amperes).sort((x, y) => x - y), [16, 16, 25, 25]);
-  assert.equal(q.ordem[0], 'geral');
-  assert.equal(q.ordem[1], 'diferencial:0');
   assert.ok(q.ordem.indexOf('diferencial:1') > q.ordem.indexOf('disjuntor:0'), 'cada diferencial vem antes dos seus disjuntores');
-  // 2 (geral) + 2×2 (diferenciais) + 4 (disjuntores) = 10 módulos → quadro de 18 (25 % livres), 8 livres.
-  assert.deepEqual([q.tamanho, q.modulos_livres, q.ordem.filter((x) => x === 'livre').length], [18, 8, 8]);
-  assert.match(q.resumo, /^Quadro de 18 módulos: disjuntor geral de 32 A, 2 diferenciais de 30 mA, 4 disjuntores e 8 módulos livres\.$/);
+  // 2 (geral) + 3×2 (proteções) + 2×2 (diferenciais) + 2 (AFDD) + 3 (disjuntores) = 17 módulos → quadro de 24 (25 % livres), 7 livres.
+  assert.deepEqual([q.tamanho, q.modulos_livres, q.ordem.filter((x) => x === 'livre').length], [24, 7, 7]);
+  assert.match(q.resumo, /^Quadro de 24 módulos, com proteção completa: disjuntor geral Wi-Fi de 32 A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, 2 diferenciais de 30 mA, 4 disjuntores \(1 com AFDD\) e 7 módulos livres\.$/);
   const n = normalizarEsquema(q);
-  assert.deepEqual([n.disjuntores.length, n.diferenciais.length, n.ordem.length], [4, 2, q.ordem.length], 'o desenhador aceita-o tal e qual');
+  assert.deepEqual([n.disjuntores, n.diferenciais.length, n.protecoes, n.ordem, n.disjuntor_geral], [q.disjuntores, 2, q.protecoes, q.ordem, q.disjuntor_geral], 'o desenhador aceita-o tal e qual');
+  const { esquemaQuadro } = await import('../src/validar.js');
+  const { tamanho: _t, resumo: _r, ...gravavel } = q;
+  assert.doesNotThrow(() => esquemaQuadro(gravavel), 'e o servidor também');
   assert.equal(analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45).esquema, null, 'sem circuitos não há quadro');
   assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).esquema.disjuntor_geral.amperes, 50, 'a contratada maior manda: 10,35 kVA → 50 A');
 });

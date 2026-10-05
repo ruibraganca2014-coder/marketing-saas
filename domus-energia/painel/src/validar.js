@@ -199,8 +199,9 @@ function melhoriasSimulacao(l, margem) {
  * calha)}; números null = não se sabe. Só estes campos; 400 com a razão.
  */
 export const ESQUEMA_ESTADOS = ['bom', 'razoavel', 'antigo', 'mau', 'nao_se_ve'];
-const ESQUEMA_CAMPOS = ['disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'sinais_aquecimento', 'notas', 'ordem'];
-const RE_LUGAR_ORDEM = /^(geral|diferencial:\d{1,2}|disjuntor:\d{1,2}|livre)$/;
+const ESQUEMA_CAMPOS = ['disjuntor_geral', 'diferenciais', 'disjuntores', 'modulos_livres', 'estado', 'fusiveis', 'sinais_aquecimento', 'notas', 'protecoes', 'ordem'];
+const ESQUEMA_PROTECOES = ['descarregador', 'rele_tensao', 'medidor_geral'];
+const RE_LUGAR_ORDEM = /^(geral|descarregador|rele_tensao|medidor_geral|diferencial:\d{1,2}|disjuntor:\d{1,2}|livre)$/;
 export function esquemaQuadro(l) {
   const f = (m) => falha(`Esquema do quadro: ${m}.`);
   if (!l || typeof l !== 'object' || Array.isArray(l)) f('tem de ser um objeto');
@@ -211,8 +212,9 @@ export function esquemaQuadro(l) {
   boolNulo(l.sinais_aquecimento, 'sinais_aquecimento');
   const g = l.disjuntor_geral;
   if (g !== undefined && g !== null) {
-    if (typeof g !== 'object' || Array.isArray(g) || Object.keys(g).some((k) => k !== 'amperes')) f('disjuntor geral inválido');
+    if (typeof g !== 'object' || Array.isArray(g) || Object.keys(g).some((k) => k !== 'amperes' && k !== 'wifi')) f('disjuntor geral inválido');
     numNulo(g.amperes, 1, 1000, 'amperes do geral');
+    boolNulo(g.wifi, 'wifi do geral');
   }
   const lista = (v, max, campos, rot, cada) => {
     if (v === undefined || v === null) return;
@@ -223,13 +225,14 @@ export function esquemaQuadro(l) {
     }
   };
   lista(l.diferenciais, 30, ['sensibilidade_ma', 'amperes'], 'diferenciais', (x) => { numNulo(x.sensibilidade_ma, 1, 3000, 'mA do diferencial'); numNulo(x.amperes, 1, 1000, 'amperes do diferencial'); });
-  lista(l.disjuntores, 80, ['amperes'], 'disjuntores', (x) => numNulo(x.amperes, 1, 1000, 'amperes do disjuntor'));
+  lista(l.disjuntores, 80, ['amperes', 'afdd'], 'disjuntores', (x) => { numNulo(x.amperes, 1, 1000, 'amperes do disjuntor'); boolNulo(x.afdd, 'afdd do disjuntor'); });
+  if (l.protecoes !== undefined && l.protecoes !== null && !(Array.isArray(l.protecoes) && l.protecoes.length <= ESQUEMA_PROTECOES.length && l.protecoes.every((p) => ESQUEMA_PROTECOES.includes(p)))) f(`proteções: lista de ${ESQUEMA_PROTECOES.join(', ')}`);
   if (l.modulos_livres !== undefined && l.modulos_livres !== null && !(Number.isInteger(l.modulos_livres) && l.modulos_livres >= 0 && l.modulos_livres <= 200)) f('módulos livres entre 0 e 200');
   if (l.estado !== undefined && l.estado !== null && !ESQUEMA_ESTADOS.includes(l.estado)) f(`estado inválido (use: ${ESQUEMA_ESTADOS.join(', ')})`);
   if (l.notas !== undefined && l.notas !== null && (typeof l.notas !== 'string' || l.notas.length > 300 || CONTROLO_LINHA.test(l.notas))) f('notas até 300 caracteres');
   if (l.ordem !== undefined && l.ordem !== null) {
     if (!Array.isArray(l.ordem) || l.ordem.length > 150) f('ordem na calha: lista até 150 lugares');
-    for (const t of l.ordem) if (typeof t !== 'string' || !RE_LUGAR_ORDEM.test(t)) f('ordem na calha: lugar inválido (use geral, diferencial:N, disjuntor:N ou livre)');
+    for (const t of l.ordem) if (typeof t !== 'string' || !RE_LUGAR_ORDEM.test(t)) f('ordem na calha: lugar inválido (use geral, uma proteção, diferencial:N, disjuntor:N ou livre)');
   }
 }
 

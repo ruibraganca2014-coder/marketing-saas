@@ -29,7 +29,8 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson, lerCookies } from './http.js';
-import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE, diagnostico as validarDiagnostico } from './validar.js';
+import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE, diagnostico as validarDiagnostico, esquemaQuadro as validarEsquemaQuadro } from './validar.js';
+import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { RE_EMAIL } from './pedidos.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, deCent, escreverAtomico } from './util.js';
@@ -511,6 +512,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
     // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
     r.proposta = estaAberto ? propostaDe(t) : null;
+    // Quadro elétrico (decisão do dono, 2026-10-05): o existente, que o eletricista desenha (pela foto ou na visita), e a
+    // casa do pedido (planta, potência e fases), para a área dele calcular o quadro ideal e o que falta.
+    r.quadro = estaAberto ? quadroDoPedido(o, r) : null;
     r.pode_proposta = estaAberto && t.tipo !== 'obra' && t.estado === 'visita_marcada';
     // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
     r.editavel = estaAberto && EDITAVEIS.includes(t.estado);
@@ -526,6 +530,25 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Checklists dos procedimentos (docs/PROCEDIMENTOS.md): só numa obra, com a obra do pedido, enquanto está aberta.
     r.checklists = estaAberto && t.tipo === 'obra' && o.obra_id && procedimentos ? procedimentos.daObra(o.obra_id, { eletricista: t.eletricista_id }) : null;
     return r;
+  }
+
+  /** O quadro existente do pedido (sem quem o desenhou) e os dados da casa de que o quadro ideal se calcula. */
+  function quadroDoPedido(o, r) {
+    let existente = null;
+    try { const e = o.esquema_quadro ? JSON.parse(o.esquema_quadro) : null; if (e && typeof e === 'object' && !Array.isArray(e)) { const { por: _por, ...resto } = e; existente = resto; } } catch { existente = null; }
+    const s = simDe(o);
+    const p = s?.planta && typeof s.planta === 'object' ? s.planta : null;
+    const lista = (v) => (Array.isArray(v) ? v : []);
+    const casa = p ? {
+      planta: {
+        divisoes: lista(p.divisoes).slice(0, 60).map((d) => ({ id: d?.id, nome: d?.nome, piso: d?.piso, x_cm: d?.x_cm, y_cm: d?.y_cm, largura_cm: d?.largura_cm, altura_cm: d?.altura_cm, ...(Array.isArray(d?.pontos) ? { pontos: d.pontos } : {}) })),
+        elementos: lista(p.elementos).slice(0, 400).map((e) => ({ tipo: e?.tipo, divisao: e?.divisao ?? null, props: e?.props && typeof e.props === 'object' ? e.props : {} })),
+      },
+      potencia_contratada_kva: typeof s.casa?.potencia_contratada_kva === 'number' ? s.casa.potencia_contratada_kva : null,
+      fases: s.casa?.fases === 'tri' || s.casa?.fases === 'mono' ? s.casa.fases : null,
+      potencia_sugerida_kva: typeof s.quadro?.potencia_sugerida_kva === 'number' ? s.quadro.potencia_sugerida_kva : null,
+    } : null;
+    return { existente, casa, pode_desenhar: r.aberto && EDITAVEIS.includes(r.estado) };
   }
 
   // ---- material: a lista do pedido com o que o eletricista já levantou ou recebeu (por trabalho)
@@ -963,6 +986,29 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   // POST trabalhos/:id/proposta {horas, material: [{sku, qtd}], notas}: o que a obra precisa, visto na visita. O
   // eletricista nunca escreve euros: o painel calcula a proposta (propostaDoPedido) e o CEO revê-a antes de a enviar.
+  /**
+   * O eletricista desenha o quadro existente do pedido (decisão do dono, 2026-10-05): o mesmo esquema do painel
+   * (validar.js esquemaQuadro), guardado em `orcamentos.esquema_quadro`; `null` apaga. Só no seu trabalho, enquanto aberto.
+   */
+  h.esquemaQuadro = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['esquema'], 64 * 1024);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const agora = agoraIso();
+    let guardado = null;
+    if (v.esquema !== undefined && v.esquema !== null) {
+      validarEsquemaQuadro(v.esquema);
+      guardado = { ...normalizarEsquema(v.esquema), data: agora, por: `eletricista:${e.id}` };
+    }
+    db.prepare('UPDATE orcamentos SET esquema_quadro = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
+    auditar(quem(e), 'esquema_quadro_eletricista', `orcamento:${o.id}`, guardado ? {
+      trabalho: t.id, geral: guardado.disjuntor_geral?.amperes ?? null, diferenciais: guardado.diferenciais.length, disjuntores: guardado.disjuntores.length, modulos_livres: guardado.modulos_livres,
+    } : { trabalho: t.id, apagado: true }, ip);
+    responder(res, 200, fichaAtual(t));
+  };
+
   h.proposta = async ({ req, res, e, params, ip }) => {
     const v = await lerJson(req, ['horas', 'material', 'notas']);
     esperar([[L.acoes, String(e.id)]]);
@@ -1702,6 +1748,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/visita', true, 'marcarVisita'],
     ['POST', 'trabalhos/:id/largar', true, 'largar'],
     ['GET', 'catalogo', true, 'catalogo'],   // os artigos para a proposta (sem preços)
+    ['POST', 'trabalhos/:id/esquema-quadro', true, 'esquemaQuadro'],   // {esquema} — o quadro existente, desenhado pelo eletricista
     ['POST', 'trabalhos/:id/proposta', true, 'proposta'],   // {horas, material: [{sku, qtd}], notas}, depois da visita
     ['POST', 'trabalhos/:id/material', true, 'material'],
     ['POST', 'trabalhos/:id/ensaios', true, 'ensaios'],

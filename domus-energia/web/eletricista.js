@@ -9,7 +9,8 @@
 // separador "Trabalho" da ficha (começar a checklist de um procedimento e marcar os passos).
 // Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
-import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
+import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
+import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
 import { reduzirFoto } from "./simulador/fotos.js";
 
 const cfg = window.DOMUS ?? {};
@@ -451,7 +452,97 @@ function parteCliente(t) {
   const ligar = c.telefone ? (() => { const a = el("a", "btn sec mini", "Ligar"); a.href = `tel:${String(c.telefone).replace(/[^\d+]/g, "")}`; return a; })() : null;
   const cliente = seccao("Cliente", null, dl, el("p", "nota calma", "Ligue ou escreva sempre em nome da Domus Energia. Estes dados ficam visíveis até o trabalho fechar."),
     ligar ? com(el("div", "fila"), ligar) : el("p", "pequeno suave", "Sem telefone: peça o contacto à Domus Energia."));
-  return [cliente, seccaoVisita(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])];
+  return [cliente, seccaoVisita(t), seccaoQuadro(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])].filter(Boolean);
+}
+
+/**
+ * Quadro elétrico (decisão do dono, 2026-10-05): lado a lado o quadro existente, que o eletricista regista aqui (pela
+ * foto ou na visita), e o quadro ideal, calculado da casa do pedido (relatorio-casa.js); por baixo, o que falta ao
+ * existente para chegar ao ideal. O registo é por contagens (geral, diferenciais, disjuntores por amperes, módulos
+ * livres): a ordem na calha fica a do desenhador. O ideal traz a proteção completa, por isso o registo tem também as
+ * proteções (descarregador, relé de tensão, medidor, geral Wi-Fi) e quantos disjuntores têm AFDD (os primeiros da lista).
+ */
+function seccaoQuadro(t) {
+  const q = t.quadro;
+  if (!q) return null;
+  const casa = q.casa;
+  let ideal = null;
+  try { ideal = casa ? analiseDaCasa(casa.planta, { potencia_contratada_kva: casa.potencia_contratada_kva, fases: casa.fases }, casa.potencia_sugerida_kva ?? undefined).esquema : null; } catch { ideal = null; }
+  let l = normalizarEsquema(q.existente) ?? esquemaVazio();
+  const desenho = (esq, resumo) => {
+    let svg = null;
+    try { svg = desenharQuadroCliente(esq, { soLeitura: true, resumo }); } catch { svg = null; }
+    if (!svg) return el("p", "pequeno suave", "Não foi possível desenhar.");
+    svg.removeAttribute("id");
+    svg.setAttribute("role", "img");
+    for (const g of svg.querySelectorAll(".qd-item")) { g.removeAttribute("tabindex"); g.removeAttribute("role"); }
+    return com(el("div", "rel-quadro"), svg);
+  };
+  const cxExistente = el("div"), cxFalta = el("div");
+  const desenhar = () => {
+    cxExistente.replaceChildren(esquemaTemAlgo(l) ? desenho(l, "quadro existente") : el("p", "pequeno suave", "Ainda por registar."));
+    const d = esquemaTemAlgo(l) ? diferencasQuadro(l, ideal) : null;
+    cxFalta.replaceChildren(el("h4", null, "O que falta ao quadro existente"),
+      !ideal ? el("p", "pequeno suave", "Sem a descrição da casa neste pedido, não há quadro ideal para comparar.")
+        : !d ? el("p", "pequeno suave", "Registe o quadro existente para ver o que falta.")
+          : d.falta.length ? com(el("ul"), ...d.falta.map((x) => el("li", null, x))) : el("p", null, "Nada: o quadro existente já chega ao ideal."));
+  };
+  const lado = com(el("div", "quadros-lado"),
+    com(el("div"), el("h4", null, "Quadro existente"), cxExistente),
+    com(el("div"), el("h4", null, "Quadro ideal"), ideal ? desenho(ideal, "quadro ideal") : el("p", "pequeno suave", "Sem dados da casa."), ideal ? el("p", "pequeno suave", ideal.resumo) : null));
+  const corpo = [el("p", "pequeno suave", "O quadro ideal é calculado pelo que o cliente descreveu da casa. O trabalho é adaptar o quadro que lá está ao ideal."), lado, cxFalta];
+
+  if (q.pode_desenhar) {
+    const numero = (id, valor, max) => { const i = el("input"); i.type = "number"; i.min = "0"; i.max = String(max); i.step = "1"; i.inputMode = "numeric"; i.id = id; i.value = String(valor); return i; };
+    const campo = (rotulo, input) => com(el("label", "campo"), el("span", null, rotulo), input);
+    const geral = el("select");
+    geral.id = "quadro-geral";
+    geral.append(new Option("Não tem ou não se vê", ""), ...AMPERES_GERAL.map((a) => new Option(`${a} A`, String(a), false, l.disjuntor_geral?.amperes === a)));
+    const n30 = numero("quadro-dif-30", l.diferenciais.filter((d) => d.sensibilidade_ma === 30).length, 10);
+    const n300 = numero("quadro-dif-300", l.diferenciais.filter((d) => d.sensibilidade_ma === 300).length, 10);
+    const porA = AMPERES_DISJUNTOR.map((a) => [a, numero(`quadro-disj-${a}`, l.disjuntores.filter((d) => d.amperes === a).length, 30)]);
+    const livres = numero("quadro-livres", l.modulos_livres ?? 0, 60);
+    const caixa = (id, marcada) => { const i = el("input"); i.type = "checkbox"; i.id = id; i.checked = marcada; return i; };
+    const fus = caixa("quadro-fusiveis", l.fusiveis === true);
+    const wifi = caixa("quadro-geral-wifi", l.disjuntor_geral?.wifi === true);
+    const prot = Object.entries(PROTECOES_ESQUEMA).map(([k, p]) => [k, p.nome, caixa(`quadro-prot-${k}`, l.protecoes.includes(k))]);
+    const nAfdd = numero("quadro-afdd", l.disjuntores.filter((d) => d.afdd).length, 30);
+    const int = (i, max) => Math.max(0, Math.min(max, Math.round(Number(i.value)) || 0));
+    const ler = () => {
+      let afdd = int(nAfdd, 30);
+      return normalizarEsquema({
+        disjuntor_geral: geral.value ? { amperes: Number(geral.value), wifi: wifi.checked } : null,
+        diferenciais: [...Array(int(n30, 10)).fill({ sensibilidade_ma: 30, amperes: 40 }), ...Array(int(n300, 10)).fill({ sensibilidade_ma: 300, amperes: 40 })],
+        disjuntores: porA.flatMap(([a, i]) => Array.from({ length: int(i, 30) }, () => ({ amperes: a }))).map((d) => (afdd-- > 0 ? { ...d, afdd: true } : d)),
+        protecoes: prot.filter(([, , i]) => i.checked).map(([k]) => k),
+        modulos_livres: int(livres, 60), fusiveis: fus.checked,
+      });
+    };
+    const msg = el("p", "erro");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+    const guardar = el("button", "btn", "Guardar quadro existente");
+    guardar.type = "button";
+    guardar.id = "quadro-guardar";
+    const form = com(el("div", "quadro-registo"),
+      el("p", "rotulo", "Registar o quadro existente"),
+      campo("Disjuntor geral", geral),
+      com(el("div", "quadro-contagens"), campo("Diferenciais de 30 mA", n30), campo("Diferenciais de 300 mA", n300)),
+      el("p", "rotulo", "Disjuntores, por amperes"),
+      com(el("div", "quadro-contagens"), ...porA.map(([a, i]) => campo(`${a} A`, i))),
+      com(el("div", "quadro-contagens"), campo("Com AFDD", nAfdd), campo("Módulos livres", livres)),
+      el("p", "rotulo", "Proteções que já tem"),
+      com(el("label", "caixa"), wifi, el("span", null, "Disjuntor geral Wi-Fi")),
+      ...prot.map(([, nome, i]) => com(el("label", "caixa"), i, el("span", null, nome))),
+      com(el("label", "caixa"), fus, el("span", null, "Tem fusíveis (de rosca ou cartucho)")),
+      msg, com(el("div", "fila"), guardar));
+    form.addEventListener("input", () => { l = ler(); desenhar(); });
+    form.addEventListener("change", () => { l = ler(); desenhar(); });
+    guardar.addEventListener("click", () => acaoFicha(t, "esquema-quadro", { esquema: ler() }, { botao: guardar, msg, texto: "Quadro existente guardado." }));
+    corpo.push(form);
+  }
+  desenhar();
+  return seccao("Quadro elétrico", null, ...corpo.filter(Boolean));
 }
 
 /**

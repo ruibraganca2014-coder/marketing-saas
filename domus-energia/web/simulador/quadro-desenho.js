@@ -3,6 +3,8 @@
 // (`esquemaVazio`, `normalizarEsquema`; guardado em `orcamentos.esquema_quadro`, validado em painel/src/validar.js
 // esquemaQuadro) e o desenho num <svg>: o geral, os diferenciais, os disjuntores e os módulos livres numa calha DIN de
 // 12 módulos por fila, pela ordem da calha (`ordem`: como num quadro real, cada um fica onde o eletricista o pôs).
+// Proteção completa (decisão do dono, 2026-10-05): `protecoes` (descarregador, relé de tensão, medidor geral) são peças
+// de 2 módulos na calha; um disjuntor com `afdd: true` ocupa 2 módulos; o geral com `wifi: true` leva a marca Wi-Fi.
 // No editor (painel/public/ecras/orcamentos.js) cada componente, e cada módulo livre, é um botão (toque ou Enter/Espaço →
 // `aoTocar(tipo, i)`; nos livres `i` é o n.º do módulo livre); com `soLeitura` é só um desenho (relatório do cliente).
 // Só textContent; cores pelas classes .qd-* (painel.css; web/simulador/simulador.css no site; sem style inline, CSP).
@@ -15,19 +17,26 @@ export const MA_DIFERENCIAL = [30, 300];
 export const AMPERES_DISJUNTOR = [6, 10, 16, 20, 25, 32, 40];
 export const MAX_ESQUEMA = { disjuntores: 80, diferenciais: 30, modulos_livres: 200, ordem: 150, notas: 300 };
 /** Módulos por componente no desenho (como num quadro real: o geral e os diferenciais ocupam 2). */
-export const MODULOS_ESQUEMA = { geral: 2, diferencial: 2, disjuntor: 1 };
+export const MODULOS_ESQUEMA = { geral: 2, diferencial: 2, disjuntor: 1, afdd: 2, descarregador: 2, rele_tensao: 2, medidor_geral: 2 };
+/** Proteções que são uma peça só na calha (no máximo uma de cada): a chave é também o lugar em `ordem`. */
+export const PROTECOES_ESQUEMA = {
+  descarregador: { nome: "Descarregador de sobretensões", linhas: ["Desc.", "sobret."] },
+  rele_tensao: { nome: "Proteção de sobretensão e subtensão", linhas: ["Relé", "tensão"] },
+  medidor_geral: { nome: "Medidor de energia geral", linhas: ["Medidor", "kWh"] },
+};
+export const CHAVES_PROTECOES_ESQUEMA = Object.keys(PROTECOES_ESQUEMA);
 /**
- * `ordem` = os lugares da calha DIN por ordem — "geral", "diferencial:i", "disjuntor:i" e um "livre" por módulo livre
+ * `ordem` = os lugares da calha DIN por ordem — "geral", as proteções, "diferencial:i", "disjuntor:i" e um "livre" por módulo livre
  * (até MAX_LIVRES_ORDEM; os outros só contam em `modulos_livres`). Assim um disjuntor junto depois dos módulos livres
  * fica depois deles.
  */
 export const MAX_LIVRES_ORDEM = 24;
-export const LUGAR_ORDEM = /^(geral|diferencial:\d{1,2}|disjuntor:\d{1,2}|livre)$/;
+export const LUGAR_ORDEM = /^(geral|descarregador|rele_tensao|medidor_geral|diferencial:\d{1,2}|disjuntor:\d{1,2}|livre)$/;
 
 /** Esquema vazio (o eletricista começa do zero). */
 export const esquemaVazio = () => ({
   disjuntor_geral: null, diferenciais: [], disjuntores: [], modulos_livres: null, estado: null, fusiveis: null,
-  sinais_aquecimento: null, notas: "", ordem: [],
+  sinais_aquecimento: null, notas: "", protecoes: [], ordem: [],
 });
 
 const numOuNull = (v, min, max) => (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : null);
@@ -46,6 +55,7 @@ export function normalizarOrdem(v, l) {
   let livres = 0;
   const existe = (t) => {
     if (t === "geral") return !!l.disjuntor_geral;
+    if (PROTECOES_ESQUEMA[t]) return (l.protecoes ?? []).includes(t);
     const [tipo, i] = t.split(":");
     return Number(i) < (tipo === "diferencial" ? l.diferenciais : l.disjuntores).length;
   };
@@ -57,6 +67,7 @@ export function normalizarOrdem(v, l) {
     ordem.push(t);
   }
   if (l.disjuntor_geral && !vistos.has("geral")) ordem.push("geral");
+  for (const p of l.protecoes ?? []) if (!vistos.has(p)) ordem.push(p);
   l.diferenciais.forEach((_, i) => { if (!vistos.has(`diferencial:${i}`)) ordem.push(`diferencial:${i}`); });
   l.disjuntores.forEach((_, i) => { if (!vistos.has(`disjuntor:${i}`)) ordem.push(`disjuntor:${i}`); });
   for (; livres < alvo; livres++) ordem.push("livre");
@@ -68,10 +79,11 @@ export function normalizarEsquema(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const l = esquemaVazio();
   const g = v.disjuntor_geral;
-  l.disjuntor_geral = g && typeof g === "object" && !Array.isArray(g) ? { amperes: numOuNull(g.amperes, 1, 1000) } : null;
+  l.disjuntor_geral = g && typeof g === "object" && !Array.isArray(g) ? { amperes: numOuNull(g.amperes, 1, 1000), ...(g.wifi === true ? { wifi: true } : {}) } : null;
   l.diferenciais = (Array.isArray(v.diferenciais) ? v.diferenciais : []).slice(0, MAX_ESQUEMA.diferenciais)
     .map((d) => ({ sensibilidade_ma: numOuNull(d?.sensibilidade_ma, 1, 3000), amperes: numOuNull(d?.amperes, 1, 1000) }));
-  l.disjuntores = (Array.isArray(v.disjuntores) ? v.disjuntores : []).slice(0, MAX_ESQUEMA.disjuntores).map((d) => ({ amperes: numOuNull(d?.amperes, 1, 1000) }));
+  l.disjuntores = (Array.isArray(v.disjuntores) ? v.disjuntores : []).slice(0, MAX_ESQUEMA.disjuntores).map((d) => ({ amperes: numOuNull(d?.amperes, 1, 1000), ...(d?.afdd === true ? { afdd: true } : {}) }));
+  l.protecoes = CHAVES_PROTECOES_ESQUEMA.filter((k) => Array.isArray(v.protecoes) && v.protecoes.includes(k));
   l.modulos_livres = Number.isInteger(v.modulos_livres) ? Math.min(MAX_ESQUEMA.modulos_livres, Math.max(0, v.modulos_livres)) : null;
   l.estado = ESTADOS_QUADRO[v.estado] ? v.estado : null;
   l.fusiveis = boolOuNull(v.fusiveis);
@@ -82,7 +94,7 @@ export function normalizarEsquema(v) {
 }
 
 /** O esquema tem algum componente (senão o desenho mostra só o quadro vazio)? */
-export const esquemaTemAlgo = (l) => !!l && (!!l.disjuntor_geral || l.diferenciais.length > 0 || l.disjuntores.length > 0);
+export const esquemaTemAlgo = (l) => !!l && (!!l.disjuntor_geral || l.diferenciais.length > 0 || l.disjuntores.length > 0 || (l.protecoes ?? []).length > 0);
 
 /** "Geral 40 A · 2 diferenciais · 9 disjuntores · 3 livres" (texto curto do esquema). */
 export function resumoEsquema(v) {
@@ -93,6 +105,7 @@ export function resumoEsquema(v) {
     l.disjuntor_geral ? `Geral${l.disjuntor_geral.amperes ? ` ${l.disjuntor_geral.amperes} A` : ""}` : null,
     l.diferenciais.length ? pl(l.diferenciais.length, "diferencial", "diferenciais") : null,
     l.disjuntores.length ? pl(l.disjuntores.length, "disjuntor", "disjuntores") : null,
+    l.protecoes.length ? pl(l.protecoes.length, "proteção", "proteções") : null,
     l.modulos_livres !== null ? pl(l.modulos_livres, "livre", "livres") : null,
   ].filter(Boolean).join(" · ");
 }
@@ -118,13 +131,14 @@ const aTxt = (a) => (a ? `${a} A` : "? A");
 /** Nome acessível de um componente ("Disjuntor 3: 16 A"; "Módulo livre 2"). */
 export function nomeComponente(l, tipo, i) {
   if (tipo === "livre") return `Módulo livre ${i + 1}`;
-  if (tipo === "geral") return `Disjuntor geral: ${l.disjuntor_geral?.amperes ? `${l.disjuntor_geral.amperes} A` : "amperes por saber"}`;
+  if (PROTECOES_ESQUEMA[tipo]) return PROTECOES_ESQUEMA[tipo].nome;
+  if (tipo === "geral") return `Disjuntor geral${l.disjuntor_geral?.wifi ? " Wi-Fi" : ""}: ${l.disjuntor_geral?.amperes ? `${l.disjuntor_geral.amperes} A` : "amperes por saber"}`;
   if (tipo === "diferencial") {
     const d = l.diferenciais[i];
     return `Diferencial ${i + 1}: ${d.sensibilidade_ma ? `${d.sensibilidade_ma} mA` : "mA por saber"}, ${d.amperes ? `${d.amperes} A` : "amperes por saber"}`;
   }
   const d = l.disjuntores[i];
-  return `Disjuntor ${i + 1}: ${d.amperes ? `${d.amperes} A` : "amperes por saber"}`;
+  return `Disjuntor ${i + 1}${d.afdd ? " com AFDD" : ""}: ${d.amperes ? `${d.amperes} A` : "amperes por saber"}`;
 }
 
 /**
@@ -140,7 +154,7 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
   for (const t of ordem) {
     if (t === "livre") { itens.push({ tipo: "livre", i: livres++, mods: 1 }); continue; }
     const [tipo, i] = t.split(":");
-    itens.push({ tipo, i: Number(i) || 0, mods: MODULOS_ESQUEMA[tipo] });
+    itens.push({ tipo, i: Number(i) || 0, mods: tipo === "disjuntor" && l.disjuntores[Number(i)]?.afdd ? MODULOS_ESQUEMA.afdd : MODULOS_ESQUEMA[tipo] });
   }
   // Filas: cada componente inteiro numa fila (um de 2 módulos que não cabe passa à seguinte).
   let fila = 0, col = 0;
@@ -169,7 +183,7 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
     const y = TOPO + it.fila * FILA + (FILA - ALTO) / 2 - 6;
     const w = it.mods * M - 2;
     const sel = !soLeitura && selecionado && selecionado.tipo === it.tipo && selecionado.i === it.i;
-    const g = svgEl("g", { class: `qd-item qd-${it.tipo}${sel ? " sel" : ""}` });
+    const g = svgEl("g", { class: `qd-item qd-${it.tipo}${PROTECOES_ESQUEMA[it.tipo] ? " qd-protecao" : ""}${sel ? " sel" : ""}` });
     if (!soLeitura) { g.setAttribute("tabindex", "0"); g.setAttribute("role", "button"); }
     if (sel) g.setAttribute("aria-pressed", "true");
     if (it.tipo === "livre") {
@@ -177,6 +191,14 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
       if (!soLeitura) g.setAttribute("aria-label", `${nomeComponente(l, "livre", it.i)} de ${livres}. Pôr aqui um disjuntor ou diferencial, ou apagar.`);
       g.append(svgEl("rect", { x, y, width: w, height: ALTO, rx: 4, class: "qd-livre-fundo" }));
       g.append(svgEl("rect", { x: x + 2, y: y + 6, width: w - 4, height: ALTO - 12, rx: 3, class: "qd-livre" }));
+    } else if (PROTECOES_ESQUEMA[it.tipo]) {
+      // Proteção (descarregador, relé de tensão, medidor): uma peça de 2 módulos sem alavanca, com o nome em duas linhas.
+      if (!soLeitura) g.setAttribute("aria-label", `${nomeComponente(l, it.tipo, it.i)}.`);
+      const [a, b] = PROTECOES_ESQUEMA[it.tipo].linhas;
+      g.append(svgEl("rect", { x, y, width: w, height: ALTO, rx: 4, class: "qd-corpo" }));
+      g.append(svgEl("rect", { x: x + 8, y: y + 10, width: w - 16, height: 14, rx: 2, class: "qd-visor" }));
+      g.append(svgEl("text", { x: x + w / 2, y: y + 48, "text-anchor": "middle", class: "qd-txt" }, a));
+      g.append(svgEl("text", { x: x + w / 2, y: y + 62, "text-anchor": "middle", class: "qd-txt" }, b));
     } else {
       if (!soLeitura) g.setAttribute("aria-label", `${nomeComponente(l, it.tipo, it.i)}. Mudar ou apagar.`);
       g.append(svgEl("rect", { x, y, width: w, height: ALTO, rx: 4, class: "qd-corpo" }));
@@ -190,10 +212,12 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
         g.append(svgEl("text", { x: x + w / 2 - 4, y: y + 55, "text-anchor": "middle", class: "qd-txt" }, d.sensibilidade_ma ? `${d.sensibilidade_ma}mA` : "? mA"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 70, "text-anchor": "middle", class: "qd-txt forte" }, aTxt(d.amperes).replace(" ", "")));
       } else if (it.tipo === "geral") {
+        if (l.disjuntor_geral.wifi) g.append(svgEl("text", { x: x + w / 2, y: y + 36, "text-anchor": "middle", class: "qd-txt mini" }, "Wi-Fi"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 48, "text-anchor": "middle", class: "qd-txt" }, "Geral"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 66, "text-anchor": "middle", class: "qd-txt forte" }, aTxt(l.disjuntor_geral.amperes).replace(" ", "")));
       } else {
         const d = l.disjuntores[it.i];
+        if (d.afdd) g.append(svgEl("text", { x: x + w / 2, y: y + 44, "text-anchor": "middle", class: "qd-txt" }, "AFDD"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 62, "text-anchor": "middle", class: "qd-txt forte" }, d.amperes ? String(d.amperes) : "?"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 73, "text-anchor": "middle", class: "qd-txt mini" }, "A"));
       }

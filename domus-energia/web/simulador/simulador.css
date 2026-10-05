@@ -778,6 +778,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
 .qd-geral .qd-corpo { fill: var(--musgo-claro); }
 .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
+.qd-protecao .qd-corpo { fill: var(--superficie); }
+.qd-visor { fill: var(--musgo-claro); stroke: var(--texto); stroke-width: 1; }
 .qd-alavanca { fill: var(--texto); }
 .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
 .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }

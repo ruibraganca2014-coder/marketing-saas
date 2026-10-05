@@ -172,6 +172,8 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 .rel-quadro .qd-corpo { fill: var(--fundo); stroke: var(--texto); stroke-width: 1.5; }
 .rel-quadro .qd-geral .qd-corpo { fill: var(--musgo-claro); }
 .rel-quadro .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
+.rel-quadro .qd-protecao .qd-corpo { fill: var(--superficie); }
+.rel-quadro .qd-visor { fill: var(--musgo-claro); stroke: var(--texto); stroke-width: 1; }
 .rel-quadro .qd-alavanca { fill: var(--texto); }
 .rel-quadro .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
 .rel-quadro .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }
@@ -227,3 +229,10 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 .proposta-linha { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; gap: 8px; align-items: center; }
 .proposta-linha select, .proposta-linha input { width: 100%; min-height: 44px; padding: 9px 12px; border: 1.5px solid var(--borda); border-radius: 12px; background: var(--fundo); min-width: 0; }
 @media (max-width: 479px) { .proposta-linha { grid-template-columns: minmax(0, 1fr) auto; } .proposta-linha select { grid-column: 1 / -1; } }
+
+/* Quadro elétrico: existente e ideal lado a lado, e o registo do existente por contagens (eletricista.js seccaoQuadro). */
+.quadros-lado { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); align-items: start; }
+.quadros-lado h4 { margin: 0 0 8px; }
+.quadro-registo { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--borda); }
+.quadro-contagens { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+.quadro-contagens input { width: 100%; }
