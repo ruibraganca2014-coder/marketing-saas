@@ -25,7 +25,7 @@ import { criarCorreio } from './email.js';
 import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
 import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
-import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_ELETRICISTA } from './acesso-rapido.js';
+import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO, ROTA_ELETRICISTA } from './acesso-rapido.js';
 import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
 import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
@@ -313,7 +313,7 @@ export function criarApi(ctx) {
   // Dashboard do negócio (negocio.js; docs/DASHBOARD.md): indicadores por período, cortados por papel.
   const negocio = criarNegocio({ db, config, relogio, stock, pagamentos: () => pagPed, dados });
   // Acesso rápido de testes (acesso-rapido.js): só existe com config.acessoRapido (lançador local, nunca no servidor).
-  const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) : null;
+  const rapido = config.acessoRapido ? criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio, correio }) : null;
   // Taxa de IVA dos pagamentos online: IVA_TAXA (omissão 23) só na primeira vez; depois manda o painel (Catálogo).
   db.prepare('INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES (\'iva_pct\', ?)').run(config.ivaTaxa ?? 23);
 
@@ -2049,7 +2049,7 @@ export function criarApi(ctx) {
       if (!caminho.startsWith(P) && cors(req, res, config.siteOrigens)) return undefined;
       if (caminho.startsWith('/api/fotos-remotas') && await fotosRemotas.tratar(req, res, url, ip)) return undefined;
       // Sem o acesso rápido (sempre, no servidor) estes endereços seguem em frente e dão 404 como qualquer outro desconhecido.
-      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_CONTAS || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
+      if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_CONTAS || caminho === ROTA_CODIGO || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
       // Sem ELETRICISTAS=1 o módulo não existe: /api/eletricista/* segue em frente e dá 404 como qualquer outro desconhecido.
       if (config.eletricistas && caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
       if (caminho.startsWith('/api/conta/')) {

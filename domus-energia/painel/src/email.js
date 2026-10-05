@@ -180,8 +180,13 @@ export function criarCorreio({ config, registo, local = false }) {
   if (respostas && !RE_EMAIL.test(respostas)) registo.erro('EMAIL_RESPOSTAS inválido: ignorado (use nome@dominio); as respostas dos clientes vão para o remetente');
   const responderPara = RE_EMAIL.test(respostas) ? { 'Reply-To': `<${respostas}>` } : {};
   const emCurso = new Set();
+  // Sem SMTP o código não chega a ninguém: o último fica em memória para o acesso rápido de testes o mostrar no ecrã
+  // (acesso-rapido.js ROTA_CODIGO, só no lançador local). Com SMTP nunca se guarda.
+  let ultimo = null;
   function enviar({ para, assunto, texto, resumo, cabecalhos }) {
     if (!smtp) {
+      const codigo = /^código (\d{6})\b/.exec(resumo ?? '')?.[1];
+      if (codigo) ultimo = { para, codigo, quando: Date.now() };
       // Bem visível no terminal/registo (modo local ou sem SMTP): "[email] para x: código 123456".
       registo.info(`[email] para ${para}: ${resumo ?? assunto}`);
       registo.info(`[email] ${assunto}\n${texto}`);
@@ -195,5 +200,7 @@ export function criarCorreio({ config, registo, local = false }) {
     p.finally(() => emCurso.delete(p));
     return p;
   }
-  return { enviar, ligado: Boolean(smtp), emCurso: () => Promise.allSettled([...emCurso]) };
+  /** O último código que ficou só no registo (sem SMTP), se tem menos de 15 minutos; senão null. */
+  const ultimoCodigo = () => (ultimo && Date.now() - ultimo.quando < 15 * 60_000 ? { para: ultimo.para, codigo: ultimo.codigo } : null);
+  return { enviar, ligado: Boolean(smtp), ultimoCodigo, emCurso: () => Promise.allSettled([...emCurso]) };
 }

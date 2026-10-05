@@ -6,6 +6,8 @@
 //   POST /api/conta/dev/contas {}        → as contas de cliente da base local (só id, email, nome, tem_casa), para os
 //                                          botões do ecrã de entrada da Área de cliente (local/acesso-rapido.js)
 //   POST /api/eletricista/dev/entrar {n} → sessão normal da área do eletricista (cookie domus_eletricista), eletricista de teste 1
+//   POST /api/conta/dev/codigo {}        → o último código de entrada que ficou só no registo (o lançador local não envia
+//                                          emails), para o mostrar por baixo do campo do código (local/acesso-rapido.js)
 // Num servidor a sério é impossível, por camadas:
 //   1. só existe com ACESSO_RAPIDO=1, que só o lançador local põe (o servidor/docker-compose.yml nunca);
 //   2. mesmo com a variável, o arranque recusa-o (erro no registo, fica DESLIGADO) se houver um sinal de servidor a
@@ -28,6 +30,8 @@ export const ROTA_CLIENTE = '/api/conta/dev/entrar';
 export const ROTA_CONTAS = '/api/conta/dev/contas';
 export const MAX_CONTAS_LISTA = 200;
 export const ROTA_ELETRICISTA = '/api/eletricista/dev/entrar';
+/** O último código (conta de cliente ou eletricista) que o correio local guardou; {codigo: null} se não há ou já passou. */
+export const ROTA_CODIGO = '/api/conta/dev/codigo';
 
 // Perfis de teste: uma linha por botão. Para juntar outro acrescenta-se aqui e em local/acesso-rapido.js (ATALHOS).
 export const EQUIPA_TESTE = {
@@ -95,7 +99,7 @@ export function recusaAcessoRapido(env) {
   return null;
 }
 
-export function criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio }) {
+export function criarAcessoRapido({ db, config, auth, contas, eletricistas, auditar, relogio, correio }) {
   const agoraIso = () => iso(relogio());
 
   async function entrarEquipa(req, res, ip) {
@@ -189,7 +193,14 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
     responder(res, 200, { eletricista: eletricistas.publico(e) }, { 'Set-Cookie': cookie });
   }
 
-  /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
+  async function ultimoCodigo(req, res) {
+    await lerJson(req, []);
+    // Só o correio local (sem SMTP) guarda códigos; com SMTP não há nada para mostrar.
+    const u = correio && !correio.ligado ? correio.ultimoCodigo?.() ?? null : null;
+    responder(res, 200, { codigo: u?.codigo ?? null, para: u?.para ?? null });
+  }
+
+  /** `caminho` é ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO ou ROTA_ELETRICISTA. Os ErroApi são tratados por quem chama (api.js). */
   async function tratar(req, res, caminho, ip) {
     // Só neste computador: chega pelo lançador (127.0.0.1), vem de 127.0.0.1/::1 e com o Host e a Origin de localhost;
     // pela rede local ou de fora é como se não existisse.
@@ -199,6 +210,7 @@ export function criarAcessoRapido({ db, config, auth, contas, eletricistas, audi
     if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     if (caminho === ROTA_ELETRICISTA) return entrarEletricista(req, res, ip);
     if (caminho === ROTA_CONTAS) return listarContas(req, res);
+    if (caminho === ROTA_CODIGO) return ultimoCodigo(req, res);
     return caminho === ROTA_EQUIPA ? entrarEquipa(req, res, ip) : entrarCliente(req, res, ip);
   }
 

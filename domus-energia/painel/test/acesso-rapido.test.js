@@ -265,3 +265,20 @@ test('ligado: lista das contas da base local (só o que o botão precisa) e entr
   assert.equal((await contasDaqui(p, { ...DO_LOCAL, ip: '192.168.1.77' })).estado, 404, 'pela rede local não existe');
   assert.equal((await contasDaqui(p, { ...DO_LOCAL, ip: '8.8.8.8' })).estado, 404, 'de fora não existe');
 });
+
+test('código no ecrã: o correio local lembra o último código (15 min, só sem SMTP) e a rota só existe com o acesso rápido', async () => {
+  const { criarCorreio } = await import('../src/email.js');
+  const registo = { info() {}, erro() {} };
+  const c = criarCorreio({ config: { smtp: null, emailRemetente: '' }, registo, local: true });
+  assert.equal(c.ultimoCodigo(), null);
+  await c.enviar({ para: 'a@exemplo.pt', assunto: 'x', texto: 'y', resumo: 'visita do pedido 123456 marcada' });
+  assert.equal(c.ultimoCodigo(), null, 'só os emails de código');
+  await c.enviar({ para: 'a@exemplo.pt', assunto: 'x', texto: 'y', resumo: 'código 654321 (entrar)' });
+  assert.deepEqual(c.ultimoCodigo(), { para: 'a@exemplo.pt', codigo: '654321' });
+  const desligado = await painel();
+  for (const opcoes of [{}, DO_LOCAL]) assert.equal((await desligado.pedir('POST', '/api/conta/dev/codigo', { corpo: {}, ...opcoes })).estado, 404);
+  const p = await painel(ENV_LOCAL);
+  assert.equal((await p.pedir('POST', '/api/conta/dev/codigo', { corpo: {} })).estado, 404, 'sem vir deste computador não existe');
+  const r = await p.pedir('POST', '/api/conta/dev/codigo', { corpo: {}, ...DO_LOCAL });
+  assert.deepEqual([r.estado, r.json], [200, { codigo: null, para: null }]);
+});

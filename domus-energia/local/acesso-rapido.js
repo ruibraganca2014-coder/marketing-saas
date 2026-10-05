@@ -8,6 +8,9 @@
 //   - no ecrã de entrada da área do eletricista (eletricista.html): "Eletricista de teste";
 //   - no ecrã de entrada da Área de cliente (cliente.html): um botão por conta de cliente que existe na base local
 //     (POST /api/conta/dev/contas dá só id, email, nome e se tem casa; POST /api/conta/dev/entrar {id} abre a sessão).
+//   - por baixo de qualquer campo "Código de 6 algarismos" à vista (conta, relatório do simulador, área do eletricista):
+//     o código que ficou no terminal, com "Preencher" — o lançador local não envia emails (decisão do dono, 2026-10-05;
+//     POST /api/conta/dev/codigo).
 (() => {
   "use strict";
   if (document.getElementById("acesso-rapido")) return;
@@ -99,6 +102,8 @@
 .ar-caixa[hidden], .ar-msg[hidden] { display: none; }
 .ar-nota, .ar-msg, .ar-grupo { margin: 0; }
 .ar-nota { font-weight: 400; }
+.ar-codigo { margin: 8px 0 0; padding: 8px 12px; border: 2px dashed currentColor; border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ar-codigo strong { font-size: 1.25rem; letter-spacing: .12em; }
 .ar-grupo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .ar-rotulo { flex: 0 0 100%; font-size: 12px; font-weight: 400; opacity: .8; }
 .ar-botao { min-height: 32px; padding: 4px 12px; border: 1px solid var(--borda, #e6e0bf); border-radius: 999px; background: var(--fundo, #fefae0); color: inherit; font: inherit; cursor: pointer; }
@@ -196,6 +201,42 @@ body.ar-presente .pedidos-pendentes { bottom: 48px; }
   }
   // Ecrã de entrada da área do eletricista (web/eletricista.html).
   document.getElementById("el-entrar-bloco")?.after(faixa("Entrar como (testes, só neste computador):", "eletricista", false));
+
+  // Código no ecrã (decisão do dono, 2026-10-05): o lançador local não envia emails, e o aviso "enviámos um código"
+  // deixava-o à espera. Com um campo de código à vista, a nota por baixo mostra o último código pedido e preenche-o.
+  const CAMPOS_CODIGO = 'input[autocomplete="one-time-code"], #el-codigo';
+  const aVista = (i) => i.getClientRects().length > 0;
+  let aVerCodigo = false;
+  async function verCodigo() {
+    const campos = [...document.querySelectorAll(CAMPOS_CODIGO)].filter(aVista);
+    for (const n of document.querySelectorAll(".ar-codigo")) if (!campos.includes(n.arCampo)) n.remove();
+    if (!campos.length || aVerCodigo) return;
+    aVerCodigo = true;
+    let j = null;
+    try {
+      const r = await fetch("/api/conta/dev/codigo", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: "{}" });
+      j = r.ok ? await r.json() : null;
+    } catch { j = null; } finally { aVerCodigo = false; }
+    if (!j) return;
+    for (const campo of campos) {
+      let nota = [...document.querySelectorAll(".ar-codigo")].find((n) => n.arCampo === campo);
+      const chave = `${j.codigo ?? ""}|${j.para ?? ""}`;
+      if (nota?.arChave === chave) continue;
+      nota?.remove();
+      nota = el("p", "ar-codigo");
+      nota.arCampo = campo;
+      nota.arChave = chave;
+      nota.setAttribute("role", "status");
+      if (j.codigo) {
+        const b = el("button", "ar-botao", "Preencher");
+        b.type = "button";
+        b.addEventListener("click", () => { campo.value = j.codigo; campo.dispatchEvent(new Event("input", { bubbles: true })); campo.focus(); });
+        nota.append(el("span", null, `Modo de teste: neste computador não é enviado email. Código para ${j.para}: `), el("strong", null, j.codigo), " ", b);
+      } else nota.append(el("span", null, "Modo de teste: neste computador não é enviado email. Carregue em \"Reenviar o código\" e o código aparece aqui."));
+      (campo.closest("label") ?? campo).after(nota);
+    }
+  }
+  setInterval(verCodigo, 1500);
 
   // Ecrã de entrada da Área de cliente (web/cliente.html; decisão do dono, 2026-10-03): um botão por conta de cliente
   // que existe na base local, com o email (e o nome), para entrar na área de cliente dela sem palavra-passe.
