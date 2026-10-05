@@ -24,6 +24,8 @@ import procedimentos from "./ecras/procedimentos.js";
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
   { id: "inicio", nome: "Início", papeis: ["ceo", "tecnico", "comercial"], m: inicio },
+  // "Números" (decisão do dono, 2026-10-05): o Início de antes do CEO (indicadores, o negócio, distribuições), fora do Início simples.
+  { id: "numeros", nome: "Números", papeis: ["ceo"], m: (el, ctx) => inicio(el, { ...ctx, numeros: true }) },
   // CRM e tarefas (docs/CRM-TAREFAS.md): o técnico vê só os clientes das suas obras; as tarefas de todos só o CEO.
   // "Casas e planos" é o antigo ecrã "Clientes" (as casas com conta e plano; a rota #/clientes e a API não mudaram).
   { id: "tarefas", nome: "Tarefas", papeis: ["ceo", "tecnico", "comercial"], m: tarefas },

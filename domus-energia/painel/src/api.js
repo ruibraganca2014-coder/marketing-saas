@@ -623,6 +623,27 @@ export function criarApi(ctx) {
       r.alertas = { ligado: al.ligado, contagem: al.contagem, criticos: al.alertas.filter((a) => a.gravidade === 'critica').slice(0, 20) };
       r.propostas_aceites_online = propostasAceitesOnline();
       r.pedidos_admin_pendentes = db.prepare('SELECT COUNT(*) AS n FROM pedidos_admin WHERE estado = \'pendente\'').get().n;
+      // Início simples do CEO (decisão do dono, 2026-10-05): só o que há para tratar, em contagens, e a semana.
+      const n = (sql, ...a) => db.prepare(sql).get(...a).n;
+      r.tratar = {
+        pedidos_novos: r.pedidos_novos,
+        propostas_aceites: r.propostas_aceites_online.length,
+        // Pedidos em que a última mensagem é do cliente (ainda sem resposta da equipa).
+        mensagens: n(`SELECT COUNT(*) AS n FROM orcamentos o WHERE o.estado != ?
+          AND (SELECT m.de FROM mensagens_pedido m WHERE m.orcamento_id = o.id ORDER BY m.id DESC LIMIT 1) = 'cliente'`, ESTADO_ARQUIVADO),
+        alertas_criticos: al.contagem?.critica ?? 0,
+      };
+      if (config.eletricistas) {
+        Object.assign(r.tratar, {
+          propostas_eletricista: n(`SELECT COUNT(*) AS n FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
+            WHERE t.proposta IS NOT NULL AND t.estado != 'retirado' AND o.estado IN ('novo', 'contactado', 'visita_marcada')`),
+          candidaturas: n("SELECT COUNT(*) AS n FROM eletricistas WHERE estado = 'pendente'"),
+          trabalhos_por_aprovar: n("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE estado = 'confirmada'"),
+          pagamentos_eletricistas: n("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE estado = 'aprovada'"),
+        });
+      }
+      r.visitas_semana = db.prepare(`SELECT id, nome, localidade, data_visita FROM orcamentos
+        WHERE estado = 'visita_marcada' AND substr(data_visita, 1, 10) BETWEEN ? AND ? ORDER BY data_visita LIMIT 50`).all(inicio, fim);
     } else if (u.papel === 'tecnico') {
       const semana = obrasSemana(u.id).map((o) => formatarObra(o, mapa));
       const al = alertas.lista();

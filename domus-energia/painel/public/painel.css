@@ -198,6 +198,11 @@ a.kpi:hover { border-color: var(--musgo); }
 .barra { display: block; height: 12px; border-radius: 999px; background: linear-gradient(90deg, var(--musgo) var(--p, 0%), var(--musgo-claro) var(--p, 0%)); }
 .barra-valor { text-align: right; font-weight: 700; }
 .lista-curta { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+/* Início simples do CEO: "Para tratar" com a contagem à esquerda; os alertas críticos a vermelho. */
+.inicio-simples { grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr)); }
+.tratar-linha .quando { font-size: 1.15rem; color: var(--texto); min-width: 2ch; text-align: right; }
+.tratar-linha.perigo .quando, .tratar-linha.perigo .lc-quem { color: var(--alarme-texto); }
+.inicio-numeros { margin: 16px 0 0; }
 .lista-curta-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 12px; padding: 8px 10px; border-radius: 12px; color: var(--texto); text-decoration: none; min-height: 44px; }
 a.lista-curta-item:hover { background: var(--musgo-claro); }
 .lista-curta-item .quando { grid-row: span 2; font-weight: 700; color: var(--texto-suave); font-size: .9rem; }
