@@ -81,7 +81,12 @@ test('quadro ideal, com proteção completa: geral Wi-Fi pela potência, descarr
   const n = normalizarEsquema(q);
   assert.deepEqual([n.disjuntores, n.diferenciais.length, n.protecoes, n.ordem, n.disjuntor_geral], [q.disjuntores, 2, q.protecoes, q.ordem, q.disjuntor_geral], 'o desenhador aceita-o tal e qual');
   const { esquemaQuadro } = await import('../src/validar.js');
-  const { tamanho: _t, resumo: _r, ...gravavel } = q;
+  // Só para o desenho (não se gravam): a etiqueta e a cor de cada disjuntor, uma fila por diferencial, a legenda e as cores.
+  assert.deepEqual(q.etiquetas, [{ texto: 'C2 Sala', cor: 'tomadas' }, { texto: 'C3 Placa de cozinha', cor: 'maquina' }, { texto: 'C3 Forno', cor: 'maquina' }, { texto: 'C5 Cozinha, Casa de banho', cor: 'humida' }]);
+  assert.equal(q.fila_por_diferencial, true);
+  assert.deepEqual(q.cores, [['tomadas', 'Tomadas'], ['humida', 'Tomadas de zonas húmidas'], ['maquina', 'Máquinas grandes']]);
+  assert.deepEqual(q.legenda.map((x) => x[0]), ['Geral Wi-Fi', 'Descarregador', 'Relé de tensão', 'Medidor', 'Diferencial de 30 mA', 'Disjuntor', 'AFDD']);
+  const { tamanho: _t, resumo: _r, etiquetas: _e, fila_por_diferencial: _f, legenda: _l, cores: _c, ...gravavel } = q;
   assert.doesNotThrow(() => esquemaQuadro(gravavel), 'e o servidor também');
   assert.equal(analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45).esquema, null, 'sem circuitos não há quadro');
   assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).esquema.disjuntor_geral.amperes, 50, 'a contratada maior manda: 10,35 kVA → 50 A');

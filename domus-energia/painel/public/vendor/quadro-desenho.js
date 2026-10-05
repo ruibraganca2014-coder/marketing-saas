@@ -5,6 +5,9 @@
 // 12 módulos por fila, pela ordem da calha (`ordem`: como num quadro real, cada um fica onde o eletricista o pôs).
 // Proteção completa (decisão do dono, 2026-10-05): `protecoes` (descarregador, relé de tensão, medidor geral) são peças
 // de 2 módulos na calha; um disjuntor com `afdd: true` ocupa 2 módulos; o geral com `wifi: true` leva a marca Wi-Fi.
+// Só no desenho (não se gravam; o quadro ideal de relatorio-casa.js traz-os): `etiquetas` = uma por disjuntor,
+// {texto, cor} — o nome do circuito na vertical por baixo e uma risca da cor do tipo (luz, tomadas, humida, maquina);
+// `fila_por_diferencial` = cada diferencial começa uma fila com os seus disjuntores, e os módulos livres outra.
 // No editor (painel/public/ecras/orcamentos.js) cada componente, e cada módulo livre, é um botão (toque ou Enter/Espaço →
 // `aoTocar(tipo, i)`; nos livres `i` é o n.º do módulo livre); com `soLeitura` é só um desenho (relatório do cliente).
 // Só textContent; cores pelas classes .qd-* (painel.css; web/simulador/simulador.css no site; sem style inline, CSP).
@@ -119,6 +122,8 @@ const MARGEM = 14;
 const TOPO = 12;
 const FILA = 108;          // altura de uma fila
 const ALTO = 78;           // altura de um componente
+const LETRA_ETIQUETA = 4.9; // altura por letra da etiqueta (na vertical) por baixo de um disjuntor
+export const CORES_CIRCUITO = { luz: "Iluminação", tomadas: "Tomadas", humida: "Tomadas de zonas húmidas", maquina: "Máquinas grandes" };
 
 const svgEl = (tag, attrs = {}, texto = null) => {
   const e = document.createElementNS(NS, tag);
@@ -147,6 +152,8 @@ export function nomeComponente(l, tipo, i) {
  * @param {{selecionado?: {tipo: string, i: number}|null, aoTocar?: Function, vazio?: string, resumo?: string, soLeitura?: boolean}} o
  */
 export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, vazio = "", resumo = "", soLeitura = false } = {}) {
+  const etiquetas = Array.isArray(l?.etiquetas) && l.etiquetas.some(Boolean) ? l.etiquetas : null;
+  const porDiferencial = l?.fila_por_diferencial === true;
   // Pela ordem da calha (um esquema sem `ordem` fica por tipo: normalizarOrdem).
   const ordem = Array.isArray(l?.ordem) ? l.ordem : (normalizarEsquema(l)?.ordem ?? []);
   const itens = [];
@@ -158,20 +165,32 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
   }
   // Filas: cada componente inteiro numa fila (um de 2 módulos que não cabe passa à seguinte).
   let fila = 0, col = 0;
+  let livreVisto = false;
   for (const it of itens) {
-    if (col + it.mods > POR_FILA) { fila++; col = 0; }
+    // Uma fila por diferencial: o diferencial abre a fila dos seus disjuntores; os módulos livres ficam noutra.
+    const abre = porDiferencial && col > 0 && (it.tipo === "diferencial" || (it.tipo === "livre" && !livreVisto));
+    if (it.tipo === "livre") livreVisto = true;
+    if (abre || col + it.mods > POR_FILA) { fila++; col = 0; }
     it.fila = fila;
     it.col = col;
     col += it.mods;
   }
   const filas = Math.max(1, fila + 1);
+  // Cada fila tem a altura das suas etiquetas (a fila do geral e a dos módulos livres não levam nenhuma).
+  const topoFila = [];
+  for (let f = 0, y = TOPO; f < filas; f++) {
+    topoFila.push(y);
+    const maior = Math.max(0, ...itens.filter((it) => it.fila === f && it.tipo === "disjuntor").map((it) => etiquetas?.[it.i]?.texto?.length ?? 0));
+    y += FILA + (maior ? Math.ceil(maior * LETRA_ETIQUETA) + 2 : 0);
+    if (f === filas - 1) topoFila.push(y);
+  }
   const largura = POR_FILA * M + 2 * MARGEM;
-  const altura = TOPO + filas * FILA + MARGEM;
+  const altura = topoFila[filas] + MARGEM;
   const svg = svgEl("svg", { viewBox: `0 0 ${largura} ${altura}`, class: "qd-svg", role: soLeitura ? "img" : "group", id: "quadro-desenho-svg", tabindex: "-1" });
   svg.setAttribute("aria-label", `${soLeitura ? "Esquema do quadro" : "Desenho do quadro"}${resumo ? `: ${resumo}` : ""}`);
   svg.append(svgEl("rect", { x: 2, y: 2, width: largura - 4, height: altura - 4, rx: 12, class: "qd-caixa" }));
   for (let f = 0; f < filas; f++) {
-    const y = TOPO + f * FILA;
+    const y = topoFila[f];
     svg.append(svgEl("rect", { x: MARGEM - 6, y: y + FILA / 2 - 22, width: POR_FILA * M + 12, height: 10, rx: 2, class: "qd-calha" }));
   }
   if (!itens.length && vazio) {
@@ -180,7 +199,7 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
   }
   for (const it of itens) {
     const x = MARGEM + it.col * M + 1;
-    const y = TOPO + it.fila * FILA + (FILA - ALTO) / 2 - 6;
+    const y = topoFila[it.fila] + (FILA - ALTO) / 2 - 6;
     const w = it.mods * M - 2;
     const sel = !soLeitura && selecionado && selecionado.tipo === it.tipo && selecionado.i === it.i;
     const g = svgEl("g", { class: `qd-item qd-${it.tipo}${PROTECOES_ESQUEMA[it.tipo] ? " qd-protecao" : ""}${sel ? " sel" : ""}` });
@@ -220,6 +239,13 @@ export function desenharQuadroCliente(l, { selecionado = null, aoTocar = null, v
         if (d.afdd) g.append(svgEl("text", { x: x + w / 2, y: y + 44, "text-anchor": "middle", class: "qd-txt" }, "AFDD"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 62, "text-anchor": "middle", class: "qd-txt forte" }, d.amperes ? String(d.amperes) : "?"));
         g.append(svgEl("text", { x: x + w / 2, y: y + 73, "text-anchor": "middle", class: "qd-txt mini" }, "A"));
+        const et = etiquetas?.[it.i];
+        if (et?.cor && CORES_CIRCUITO[et.cor]) g.append(svgEl("rect", { x: x + 1.5, y: y + ALTO - 4.5, width: w - 3, height: 3.5, rx: 1.5, class: `qd-cor qd-cor-${et.cor}` }));
+        if (et?.texto) {
+          // O nome do circuito na vertical, por baixo (lê-se de baixo para cima, como numa etiqueta de quadro).
+          const cx = x + w / 2 + 3, cy = y + ALTO + 5;
+          g.append(svgEl("text", { x: cx, y: cy, "text-anchor": "end", transform: `rotate(-90 ${cx} ${cy})`, class: "qd-txt qd-etiqueta" }, et.texto));
+        }
       }
     }
     if (aoTocar && !soLeitura) {

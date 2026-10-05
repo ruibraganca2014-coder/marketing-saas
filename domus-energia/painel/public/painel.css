@@ -546,6 +546,11 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
 .qd-protecao .qd-corpo { fill: var(--superficie); }
 .qd-visor { fill: var(--musgo-claro); stroke: var(--texto); stroke-width: 1; }
+.qd-txt.qd-etiqueta { font-size: 8.5px; font-weight: 700; }
+.qd-cor-luz { fill: #e0b100; }
+.qd-cor-tomadas { fill: #6a994e; }
+.qd-cor-humida { fill: #3a86c8; }
+.qd-cor-maquina { fill: #d9853b; }
 .qd-alavanca { fill: var(--texto); }
 .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
 .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }

@@ -7,7 +7,7 @@ import {
   circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA,
 } from "./regras.js";
 import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, FRACAO_LIVRE } from "./quadro.js";
-import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA } from "./quadro-desenho.js";
+import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
 
 const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
 const kvaTxt = (k) => `${String(k).replace(".", ",")} kVA`;
@@ -78,12 +78,23 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     const protecoes = [...CHAVES_PROTECOES_ESQUEMA];
     const ordem = ["geral", ...protecoes];
     const disjuntores = [];
+    // Etiqueta de cada disjuntor (só para o desenho): o código e o que serve, e a cor do tipo de circuito.
+    const etiquetas = [];
+    const curto = (t) => (t.length > 26 ? `${t.slice(0, 25).trimEnd()}…` : t);
+    const etiquetaDe = (c) => {
+      const cod = codigoCircuito(c);
+      const ms = c.itens?.maquinas ?? [];
+      const ds = c.divisoes ?? [];
+      const nome = c.tipo === "maquina" && ms.length ? ms.map((m) => nomeModelo(m.modelo)).join(", ") : ds.length ? ds.join(", ") : (TIPOS_CIRCUITO[c.tipo] ?? "");
+      return { texto: curto(`${cod ? `${cod} ` : ""}${nome}`.trim()), cor: c.tipo === "iluminacao" ? "luz" : c.tipo === "maquina" ? "maquina" : c.zona_humida ? "humida" : "tomadas" };
+    };
     grupos.forEach((g, i) => {
       ordem.push(`diferencial:${i}`);
       for (const n of g.circuitos) {
         const c = brutos.find((x) => x.n === n);
         ordem.push(`disjuntor:${disjuntores.length}`);
         disjuntores.push({ amperes: c?.amperes ?? 16, ...(c && comAfdd(c) ? { afdd: true } : {}) });
+        etiquetas.push(c ? etiquetaDe(c) : null);
       }
     });
     const nAfdd = disjuntores.filter((d) => d.afdd).length;
@@ -96,7 +107,18 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
       disjuntor_geral: { amperes: geral, wifi: true },
       diferenciais: grupos.map(() => ({ sensibilidade_ma: 30, amperes: acima(AMPERES_DIFERENCIAL, geral) })),
       disjuntores, modulos_livres: livres, estado: null, fusiveis: null, sinais_aquecimento: null, notas: "", protecoes, ordem,
-      tamanho,
+      tamanho, etiquetas, fila_por_diferencial: true,
+      // O que é cada peça, em português simples, e as cores dos circuitos que este quadro tem.
+      legenda: [
+        ["Geral Wi-Fi", "Desliga a casa toda. Também se desliga e se vê o consumo pelo telemóvel."],
+        ["Descarregador", "Protege os aparelhos dos picos de tensão, como os das trovoadas."],
+        ["Relé de tensão", "Corta a casa se a tensão da rede sair do normal e volta a ligar quando normaliza."],
+        ["Medidor", "Mostra na app quanto a casa está a gastar, hora a hora."],
+        ["Diferencial de 30 mA", "Protege as pessoas de choques elétricos. Cada um guarda os disjuntores da sua fila."],
+        ["Disjuntor", "Protege o cabo de um circuito. O número são os amperes; por baixo está o que ele serve."],
+        ...(nAfdd ? [["AFDD", "Deteta faíscas em cabos e fichas estragados antes de haver incêndio. Vai nos quartos e na sala."]] : []),
+      ],
+      cores: Object.keys(CORES_CIRCUITO).filter((k) => etiquetas.some((e) => e?.cor === k)).map((k) => [k, CORES_CIRCUITO[k]]),
       resumo: `Quadro de ${tamanho} módulos, com proteção completa: disjuntor geral Wi-Fi de ${geral} A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")}${nAfdd ? ` (${nAfdd} com AFDD)` : ""} e ${plural(livres, "módulo livre", "módulos livres")}.`,
     };
   }

@@ -174,6 +174,11 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 .rel-quadro .qd-diferencial .qd-corpo { fill: var(--areia-suave); }
 .rel-quadro .qd-protecao .qd-corpo { fill: var(--superficie); }
 .rel-quadro .qd-visor { fill: var(--musgo-claro); stroke: var(--texto); stroke-width: 1; }
+.rel-quadro .qd-txt.qd-etiqueta { font-size: 8.5px; font-weight: 700; }
+.rel-quadro .qd-cor-luz { fill: #e0b100; }
+.rel-quadro .qd-cor-tomadas { fill: #6a994e; }
+.rel-quadro .qd-cor-humida { fill: #3a86c8; }
+.rel-quadro .qd-cor-maquina { fill: #d9853b; }
 .rel-quadro .qd-alavanca { fill: var(--texto); }
 .rel-quadro .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
 .rel-quadro .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }

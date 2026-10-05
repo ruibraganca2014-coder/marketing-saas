@@ -4239,6 +4239,17 @@ function desenharRelatorio() {
       const fig = el("figure", "sim-quadro-sugerido");
       fig.append(desenharQuadroCliente(a.esquema, { soLeitura: true, resumo: a.esquema.resumo }), el("figcaption", null, `Quadro ideal para esta casa, calculado pelo que descreveu. Não é o quadro que tem hoje: o eletricista adapta o que lá está a este. ${a.esquema.resumo}`));
       circ.append(fig);
+      if (a.esquema.cores?.length) {
+        const cores = el("ul", "sim-cores");
+        cores.setAttribute("aria-label", "Cores dos circuitos no desenho");
+        for (const [k, nome] of a.esquema.cores) { const li = el("li"); li.append(el("span", `sim-cor ${k}`), el("span", null, nome)); cores.append(li); }
+        circ.append(cores);
+      }
+      if (a.esquema.legenda?.length) {
+        const dl = el("dl", "sim-legenda");
+        for (const [nome, texto] of a.esquema.legenda) dl.append(el("dt", null, nome), el("dd", null, texto));
+        circ.append(el("h4", null, "O que é cada peça"), dl);
+      }
     }
     const t = el("table", "sim-circuitos");
     const cab = el("tr");
