@@ -55,6 +55,7 @@ export default function inicio(el, ctx) {
       linha(t.candidaturas, "candidatura de eletricista por aprovar", "candidaturas de eletricistas por aprovar", "#/eletricistas"),
       linha(t.trabalhos_por_aprovar, "trabalho concluído por aprovar", "trabalhos concluídos por aprovar", "#/eletricistas"),
       linha(t.pagamentos_eletricistas, "pagamento a eletricista por fazer", "pagamentos a eletricistas por fazer", "#/eletricistas"),
+      linha(tarefas.length, "tarefa para hoje ou atrasada", "tarefas para hoje ou atrasadas", "#/tarefas"),
     ].filter(Boolean);
     const tratar = h("section", { class: "cartao", id: "inicio-tratar" }, h("h2", { text: "Para tratar" }),
       linhas.length ? h("ul", { class: "lista-curta" }, ...linhas) : h("p", { class: "vazio", text: "Nada à sua espera." }));
