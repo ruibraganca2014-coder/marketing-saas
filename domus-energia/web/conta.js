@@ -31,7 +31,6 @@ const dataTxt = (v, hora = false) => {
 
 let ctrl = null;
 const resumosAbertos = new Set(); // pedidos com "A simulação que enviou" aberto (sobrevive ao carregar())
-const PLANOS = { base: ["Base", 4.99], conforto: ["Conforto", 9.99], premium: ["Premium", 19.99] };
 // Regresso de um pagamento (Stripe ou página simulada): conta.html?pagamento=<ref>[&cancelado=1].
 const params = new URLSearchParams(location.search);
 let regresso = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "") ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
@@ -179,7 +178,6 @@ function blocoProposta(p) {
   const msg = el("div", "msg", null);
   msg.hidden = true;
   msg.setAttribute("role", "status");
-  if (p.plano) b.append(el("p", null, `Plano mensal escolhido: ${p.plano.nome}. A app fica ativa depois de pagar o restante.`));
   if (p.aguarda_sinal) {
     b.append(el("p", "msg info", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}. Falta pagar o sinal (${euro(p.sinal.valor)}) para confirmarmos a instalação.`));
     if (p.pode_pagar_sinal) {
@@ -192,29 +190,16 @@ function blocoProposta(p) {
     if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {
     const sinal = p.sinal && p.sinal.valor > 0 && p.modo ? p.sinal : null;
-    const planos = el("fieldset", "conta-planos");
-    planos.append(el("legend", null, "Plano mensal"), el("p", "ajuda", "A app fica ativa depois de pagar o restante."));
-    for (const [k, [nome, preco]] of Object.entries(PLANOS)) {
-      const l = el("label");
-      const i = document.createElement("input");
-      i.type = "radio";
-      i.name = `plano-${p.id}`;
-      i.value = k;
-      i.id = `plano-${p.id}-${k}`;
-      i.checked = k === (p.plano_sugerido ?? "conforto");
-      l.append(i, `${nome} — ${euro(preco)}/mês${k === p.plano_sugerido ? " (sugerido)" : ""}`);
-      planos.append(l);
-    }
     const botao = el("button", "btn", sinal ? `Aceito a proposta e pago o sinal (${euro(sinal.valor)})` : "Aceito a proposta");
     botao.type = "button";
     botao.id = `aceitar-${p.id}`;
     const ja = sinal ? caixaComecarJa(p) : null;
-    botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, planos, ja?.entrada.checked ?? null));
+    botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, ja?.entrada.checked ?? null));
     // O sinal cobre o material (decisão 6): o maior entre 30 % do total e o custo do material, menos o que já pagou.
     const ajuda = sinal
       ? `Sinal: ${sinal.cobre_material ? "cobre o material" : `${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}`}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O sinal cobre o material; o resto paga-se no fim da obra.`
       : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
-    b.append(planos, el("p", "ajuda", ajuda), ja?.caixa ?? "", sinal ? soMultibanco(p, sinal.valor) : "", botao, msg);
+    b.append(el("p", "ajuda", ajuda), ja?.caixa ?? "", sinal ? soMultibanco(p, sinal.valor) : "", botao, msg);
   }
   return b;
 }
@@ -889,13 +874,12 @@ function desenharRelatorio(r) {
   return out;
 }
 
-function confirmarAceitar(p, b, botao, msg, planos, comecarJa = null) {
+function confirmarAceitar(p, b, botao, msg, comecarJa = null) {
   if (b.querySelector(".confirmar")) return;
-  const plano = planos.querySelector("input:checked")?.value ?? null;
   const caixa = el("div", "confirmar msg info");
   caixa.setAttribute("role", "alert");
   const sinal = p.sinal && p.sinal.valor > 0 ? p.sinal : null;
-  caixa.append(el("p", null, `Confirma que aceita a proposta de ${euro(p.proposta.valor)} + IVA${p.proposta_iva ? ` (${euro(p.proposta_iva.total)} com IVA)` : ""}, com o plano ${PLANOS[plano]?.[0] ?? ""}?${sinal ? ` A seguir paga o sinal de ${euro(sinal.valor)} (com IVA).` : ""}`));
+  caixa.append(el("p", null, `Confirma que aceita a proposta de ${euro(p.proposta.valor)} + IVA${p.proposta_iva ? ` (${euro(p.proposta_iva.total)} com IVA)` : ""}?${sinal ? ` A seguir paga o sinal de ${euro(sinal.valor)} (com IVA).` : ""}`));
   const sim = el("button", "btn pequeno", "Sim, aceito");
   sim.type = "button";
   sim.id = `aceitar-sim-${p.id}`;
@@ -910,7 +894,7 @@ function confirmarAceitar(p, b, botao, msg, planos, comecarJa = null) {
   sim.addEventListener("click", async () => {
     sim.disabled = true;
     try {
-      const r = await pedirConta(`pedidos/${p.id}/aceitar`, { corpo: { valor: p.proposta.valor, plano, ...(comecarJa === null ? {} : { inicio_imediato: comecarJa }) } });
+      const r = await pedirConta(`pedidos/${p.id}/aceitar`, { corpo: { valor: p.proposta.valor, ...(comecarJa === null ? {} : { inicio_imediato: comecarJa }) } });
       if (r?.pagamento && irPagar(r.pagamento)) return;
       await carregar();
       mensagem("Proposta aceite. Obrigado! Vamos contactá-lo para marcar a instalação.", "ok");
@@ -938,7 +922,6 @@ function blocoResumo(r, id) {
   // Avaria rápida: o diagnóstico, fixo (como no simulador); pedidos antigos com intervalo, o intervalo.
   if (r.avaria && r.estimativa && r.estimativa.min === r.estimativa.max) linha("Diagnóstico", `${euro(r.estimativa.min)} + deslocação (com IVA)`);
   else linha("Estimativa", r.estimativa ? `${euro(r.estimativa.min)} – ${euro(r.estimativa.max)} (com IVA; o valor final é o da proposta)` : null);
-  linha("Plano mensal sugerido", r.plano);
   b.append(dl);
   if (r.inclui?.length) {
     const ul = el("ul");

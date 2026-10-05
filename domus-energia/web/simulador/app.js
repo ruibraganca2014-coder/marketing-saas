@@ -15,7 +15,7 @@ import {
   acertarPisos, temPorPiso, resumoPiso, divisoesDaCasa, tipoDivisao, acertarPlantaMexida, nomesOutras, LIMITES_OUTRAS,
 } from "./casa.js";
 import {
-  pedidosDaSelecao, calcularPreco, planoSugerido, PLANOS, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
+  pedidosDaSelecao, calcularPreco, planoSugerido, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
   quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoIntervaloTrabalhos, textoDias,
 } from "./preco.js";
 import {
@@ -3861,14 +3861,13 @@ montarAvaria();
 // plano mensal sugerido com os pacotes aceites.
 function desenharMelhorias() {
   desenharQuadroMelhorias();   // o cartão "Quadro elétrico" (B3) antes dos pacotes: o "Quadro seguro" segue-o
-  const { melhorias, plano } = calcular();
+  const { melhorias } = calcular();
   const foco = document.activeElement?.closest?.("#melhorias") ? document.activeElement.value : null;
   $("melhorias").replaceChildren(...melhorias.map(cartaoMelhoria));
   if (foco) document.querySelector(`#melhorias input[value="${foco}"]`)?.focus();
   const est = $("melhorias-estado");
   est.textContent = catalogo === undefined ? "A obter os preços…" : catalogo === null ? "Sem preços agora: enviamos o preço depois do pedido." : "";
   est.hidden = !est.textContent;
-  $("melhorias-plano").textContent = `Plano sugerido: ${PLANOS[plano].nome}, ${formatarEuro(PLANOS[plano].preco)} por mês.`;
 }
 /**
  * Já tenho a planta: para o Orçamento, pelo menos uma coisa a trocar, reparar ou acrescentar (ou o quadro) — ou uma
@@ -4095,23 +4094,6 @@ function desenharPreco() {
   $("preco-melhorias-caixa").hidden = !aceites.length;
   $("preco-melhorias").replaceChildren(...aceites.map((m) => el("li", null, textoMelhoria(m))));
   $("preco-nota").textContent = "Preços com IVA incluído.";
-
-  const pl = $("preco-planos");
-  pl.replaceChildren();
-  for (const [k, p] of Object.entries(PLANOS)) {
-    const c = el("div", `cartao sim-plano${k === plano ? " destaque" : ""}`);
-    c.dataset.plano = k;
-    if (k === plano) c.append(el("span", "etiqueta", "Sugerido"));
-    c.append(el("h4", null, p.nome), el("p", "num", `${formatarEuro(p.preco)} por mês`));
-    pl.append(c);
-  }
-  const comSensores = pedidos.some((x) => x.chave === "sensor_porta" || x.chave === "sensor_movimento");
-  const razoes = {
-    premium: "Premium: tem central em casa.",
-    conforto: comSensores ? "Conforto: tem sensores (alarme)." : "Conforto: controlo à distância.",
-    base: "Base: ligar, desligar e automatizar.",
-  };
-  pl.append(el("p", "ajuda", `${razoes[plano]} 1.º mês grátis, sem fidelização.`));
 }
 
 /**
@@ -4120,7 +4102,7 @@ function desenharPreco() {
  * de compra nem fornecedores.
  */
 function dadosPdfOrcamento() {
-  const { pedidos, semDesloc, plano, aceites } = calcular();
+  const { pedidos, semDesloc, aceites } = calcular();
   const c = estado.casa;
   const casa = [TIPOS_CASA[c.tipo] ?? null, !negocio() && c.tipologia ? c.tipologia : null].filter(Boolean).join(" ");
   const loc = estado.contacto.localidade.trim();
@@ -4134,7 +4116,6 @@ function dadosPdfOrcamento() {
     inclui: pedidos.length ? listaInclui(pedidos) : [],
     melhorias: aceites.map(textoMelhoria),
     intervalo: pedidos.length && semDesloc.min !== null ? `${textoIntervalo(semDesloc)}${foraDaArea() ? "" : " + deslocação"}` : null,
-    planos: Object.entries(PLANOS).map(([k, x]) => ({ nome: x.nome, preco: `${formatarEuro(x.preco)} por mês`, sugerido: k === plano })),
     nota: `Estimativa; valor final após a visita.${pedidos.length && semDesloc.dias ? ` ${textoDias(semDesloc.dias)}.` : ""}${semDesloc.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}.` : ""}`,
   };
 }
@@ -4359,7 +4340,7 @@ const blocoConta = criarBlocoConta($("enviar-conta-bloco"), {
  */
 const blocoContaRelatorio = criarBlocoConta($("relatorio-conta-bloco"), {
   prefixo: "conta-rel",
-  texto: { fora: "É grátis. Só o email: a sua casa fica guardada na conta, para a ver noutro aparelho e pedir serviços sem a descrever outra vez." },
+  texto: { fora: "É grátis. Só o email: a sua casa fica guardada na conta, para a ver noutro aparelho e pedir serviços sem a descrever outra vez. Não o contactamos por isto." },
   aoMudar: () => { blocoConta.atualizar(); },
 });
 const relatorioFechado = () => funil() === "primeira" && !contaEu?.conta?.confirmado;

@@ -670,7 +670,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (v.plano !== undefined && v.plano !== null) {
       if (!['base', 'conforto', 'premium'].includes(v.plano)) falha('Escolha o plano mensal: Base, Conforto ou Premium.');
       plano = v.plano;
-    } else if (comPagamento) falha('Escolha o plano mensal: Base, Conforto ou Premium.');
+    }   // sem plano: as mensalidades já não se mostram ao cliente (decisão do dono, 2026-10-05); o plano fica por escolher
     const agora = agoraIso();
     if (!comPagamento) {
       const r = db.prepare(`UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, plano_escolhido = COALESCE(?, plano_escolhido), atualizado = ?

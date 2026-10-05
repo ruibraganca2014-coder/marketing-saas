@@ -391,7 +391,7 @@ describe('modo simulado', () => {
     await comprado(c, id, 'visita');
     const sinalEsperado = centSim(369 - 29 - VISITA_SINTRA);
     assert.equal((await painel('POST', `orcamentos/${id}`, 'comercial', { estado: 'proposta_enviada', valor_proposta: 1000, proposta_texto: 'Instalação completa.' })).estado, 200);
-    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).estado, 400, 'sem plano');
+    assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'ouro' } })).estado, 400, 'plano que não existe (sem plano já se aceita: as mensalidades não se mostram ao cliente)');
     assert.equal((await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 999, plano: 'base' } })).estado, 409);
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } });
     assert.equal(ac.estado, 200, ac.texto);

@@ -105,4 +105,4 @@ Apagar a conta de cliente (pelo cliente, pelo CEO ou pela retenção; `conta.js 
 
 ## Casas registadas (2026-10-04)
 
-Separador do CRM (CEO e comercial; `GET /painel/api/crm/casas`): as contas de cliente que descreveram a casa no simulador ("Descrever a minha casa") e ainda não têm nenhum pedido. Mostra o email (e nome/telefone, se a conta os tiver), o resumo da casa e a data. Não são fichas nem pedidos; com o primeiro pedido a pessoa passa a ficha do CRM e sai daqui. Ver docs/SIMULADOR-ORCAMENTO.md ("Duas partes").
+Separador do CRM (CEO e comercial; `GET /painel/api/crm/casas`): as contas de cliente que descreveram a casa no simulador ("Descrever a minha casa") e ainda não têm nenhum pedido. Mostra o email (e nome/telefone, se a conta os tiver), o resumo da casa e a data. Decisão do dono (2026-10-05): a empresa não contacta estas pessoas por iniciativa própria (a lista não tem "Enviar email"; a política de privacidade di-lo). Não são fichas nem pedidos; com o primeiro pedido a pessoa passa a ficha do CRM e sai daqui. Ver docs/SIMULADOR-ORCAMENTO.md ("Duas partes").

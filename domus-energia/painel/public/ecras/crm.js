@@ -83,8 +83,7 @@ export default function crm(el, ctx) {
     return h("li", {}, h("div", { class: "linha", dataset: { id: String(c.id) } },
       h("span", { class: "linha-principal" }, h("strong", { text: c.nome || c.email }), h("span", { class: "ajuda", text: [c.nome ? c.email : null, c.telefone, c.localidade].filter(Boolean).join(" · ") || "Só o email" })),
       h("span", { class: "linha-selos" }, selo("Casa registada", "info")),
-      h("span", { class: "linha-extra ajuda", text: `${casa || "Casa por descrever"} · Registada ${data(c.registada, { hora: false })}` }),
-      h("span", { class: "linha-extra" }, h("a", { href: `mailto:${c.email}`, text: "Enviar email" }))));
+      h("span", { class: "linha-extra ajuda", text: `${casa || "Casa por descrever"} · Registada ${data(c.registada, { hora: false })}` })));
   }
 
   function desenhar() {
