@@ -199,15 +199,19 @@ function mostrar(texto, ok, dados = null) {
 
 // Preço do diagnóstico de avaria (index.html #preco-diagnostico): o do catálogo do servidor, igual ao do simulador
 // (DIAG-AVARIA: preço + horas × tarifa). Sem servidor fica o valor escrito na página.
+// Preço do relatório completo (.js-preco-relatorio, decisão do dono 2026-10-09): o do painel (`preco_relatorio_iva`).
 {
   const alvo = document.getElementById("preco-diagnostico");
-  if (alvo) {
+  const relatorio = document.querySelectorAll(".js-preco-relatorio");
+  if (alvo || relatorio.length) {
     const base = (window.DOMUS?.apiBase || "") + "/api/catalogo";
     fetch(base, { headers: { Accept: "application/json" } }).then((r) => (r.ok ? r.json() : null)).then((d) => {
       const a = (d?.artigos ?? d?.itens ?? []).find((x) => x.sku === "DIAG-AVARIA");
       const tarifa = Number((d?.config ?? d)?.tarifa_hora_iva);
       const v = a && Number.isFinite(tarifa) ? Number(a.preco_venda_iva) + Number(a.horas_instalacao || 0) * tarifa : NaN;
-      if (Number.isFinite(v) && v > 0) alvo.textContent = v.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+      if (alvo && Number.isFinite(v) && v > 0) alvo.textContent = v.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+      const r = Number((d?.config ?? d)?.preco_relatorio_iva);
+      if (Number.isFinite(r) && r > 0) for (const x of relatorio) x.textContent = r.toLocaleString("pt-PT", { minimumFractionDigits: Number.isInteger(r) ? 0 : 2, maximumFractionDigits: 2 }) + " €";
     }).catch(() => {});
   }
 }
