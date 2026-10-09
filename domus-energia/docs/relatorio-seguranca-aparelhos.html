@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Segurança dos aparelhos Domus</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  body { font: 11pt/1.45 "Segoe UI", Arial, sans-serif; color: #111; max-width: 180mm; margin: 0 auto; padding: 10mm 0; }
+  h1 { font-size: 20pt; margin: 0 0 2mm; }
+  h2 { font-size: 13.5pt; margin: 7mm 0 2mm; border-bottom: 1.5px solid #111; padding-bottom: 1mm; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 4mm 0 1.5mm; break-after: avoid; }
+  p { margin: 0 0 2.4mm; }
+  ul, ol { margin: 0 0 2.6mm; padding-left: 6mm; }
+  li { margin-bottom: 1.1mm; }
+  .sub { color: #444; margin-bottom: 4mm; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 3mm; break-inside: avoid; }
+  th, td { border: 1px solid #777; padding: 1.5mm 2.4mm; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  .resumo { border: 2px solid #111; padding: 3mm 4mm; margin: 3mm 0 4mm; break-inside: avoid; }
+  .feito { font-weight: 700; }
+  .falta { font-weight: 700; }
+  section { break-inside: avoid-page; }
+  @media screen { body { padding-inline: 8mm; } }
+</style>
+</head>
+<body>
+  <h1>Segurança dos aparelhos Domus</h1>
+  <p class="sub">Relatório sobre a parte de segurança da casa inteligente: quem pode instalar, configurar e usar os aparelhos. Domus Energia, 9 de outubro de 2026.</p>
+
+  <div class="resumo">
+    <b>Em resumo.</b> A segurança assenta em três camadas: o aparelho trancado, o servidor da Domus que só aceita aparelhos ativados por nós, e o contrato com o cliente. A camada do aparelho está desenhada e escrita no guia de bancada. A do servidor existe em parte e falta completar. A do contrato está em minuta, para o advogado. Nenhuma camada, sozinha, é inviolável; juntas, deixam um aparelho sem a Domus reduzido a um interruptor simples.
+  </div>
+
+  <section>
+    <h2>1. O que se quer proteger</h2>
+    <ol>
+      <li><b>Que só a Domus instale e ative os aparelhos.</b> Nem outros eletricistas, nem o cliente por conta própria.</li>
+      <li><b>Que o aparelho funcione só com o programa da Domus.</b> O cliente não o leva para outro fornecedor nem para outro software.</li>
+      <li><b>Que ninguém mexa na configuração</b> em casa do cliente: servidor, regras, proteções.</li>
+      <li><b>Que ninguém de fora comande a casa de um cliente</b> nem veja os seus consumos.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>2. O aparelho</h2>
+    <p>Chayo (Tongou) TO-Q-SY1-JWT, 16 A, Wi-Fi, com medição. De origem só funciona com a nuvem Tuya. A Domus substitui o software pelo OpenBeken, que fala diretamente com o servidor da Domus.</p>
+    <p><b>Decisão tomada:</b> reprogramar os aparelhos, aceitando a perda da garantia do fabricante. A alternativa sem modificação (Shelly) foi posta de parte pelo preço.</p>
+  </section>
+
+  <section>
+    <h2>3. As três camadas</h2>
+
+    <h3>Camada 1: o aparelho trancado</h3>
+    <table>
+      <tr><th style="width:38%">Medida</th><th>O que impede</th><th style="width:20%">Estado</th></tr>
+      <tr><td>Palavra-passe na página do aparelho, diferente por aparelho</td><td>Mudar a configuração, o servidor ou o software pelo Wi-Fi</td><td>No guia, por aplicar</td></tr>
+      <tr><td>Consola por rede e linha de comandos pela porta série desligadas</td><td>Comandar o aparelho por fora da página</td><td>No guia, por aplicar</td></tr>
+      <tr><td>Palavra-passe também no modo de recuperação</td><td>Entrar pela rede de emergência do aparelho</td><td>No guia, por aplicar</td></tr>
+      <tr><td>Servidor e credenciais da Domus fixos</td><td>Ligar o aparelho a outro serviço</td><td>No guia, por aplicar</td></tr>
+      <tr><td>Parafusos, selo e resina sobre o módulo</td><td>Abrir sem deixar marca; ligar fios à placa</td><td>No guia, por aplicar</td></tr>
+      <tr><td>Registo de cada aparelho (série, MAC, versão, palavra-passe)</td><td>A Domus ficar de fora dos seus próprios aparelhos</td><td>No guia, por aplicar</td></tr>
+    </table>
+    <p>Dois níveis acima ficaram anotados para mais tarde: um software próprio, sem páginas de configuração e só com atualizações assinadas pela Domus; e trancar o chip com uma chave, que não está confirmado e não tem volta atrás.</p>
+
+    <h3>Camada 2: o servidor da Domus</h3>
+    <table>
+      <tr><th style="width:38%">Medida</th><th>O que impede</th><th style="width:20%">Estado</th></tr>
+      <tr><td>Utilizador e palavra-passe próprios por aparelho</td><td>Um aparelho desconhecido entrar no programa</td><td class="feito">Existe</td></tr>
+      <tr><td>Cada aparelho só fala nos seus próprios endereços</td><td>Um aparelho ver ou comandar os de outra casa</td><td class="feito">Existe</td></tr>
+      <tr><td>Cada cliente só vê e comanda a sua casa</td><td>Um cliente chegar à casa de outro</td><td class="feito">Existe</td></tr>
+      <tr><td>Ligações cifradas entre o programa e o servidor</td><td>Alguém na rede ler ou alterar os comandos</td><td class="feito">Existe</td></tr>
+      <tr><td>Ativação só pelo CEO ou por eletricista aprovado, dentro de um trabalho atribuído</td><td>Instalações feitas por fora da Domus</td><td class="falta">Por fazer</td></tr>
+      <tr><td>Ativação presa ao número do chip, ao cliente e à morada</td><td>Credenciais copiadas; aparelho levado para outra casa</td><td class="falta">Por fazer</td></tr>
+      <tr><td>Registo de quem ativou e quando; aviso de tentativas recusadas</td><td>Abusos que passem despercebidos</td><td class="falta">Por fazer</td></tr>
+    </table>
+    <p>Esta é a camada mais forte, porque está num sítio a que o cliente e terceiros não chegam.</p>
+
+    <h3>Camada 3: o contrato</h3>
+    <table>
+      <tr><th style="width:38%">Medida</th><th>O que impede</th><th style="width:20%">Estado</th></tr>
+      <tr><td>Cláusula: o aparelho funciona só com o programa da Domus; o cliente não abre nem altera</td><td>Dúvidas sobre o que foi vendido</td><td>Minuta feita</td></tr>
+      <tr><td>Garantia comercial e assistência só com o software da Domus e o selo intacto</td><td>Pedidos de garantia sobre aparelhos mexidos</td><td>Minuta feita</td></tr>
+      <tr><td>Aparelhos cedidos em vez de vendidos</td><td>O cliente ficar com os aparelhos ao sair</td><td>Para decidir com o advogado</td></tr>
+      <tr><td>Declaração assinada pelo cliente na instalação</td><td>O cliente alegar que não sabia</td><td>Minuta feita</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>4. Situações e o que acontece</h2>
+    <table>
+      <tr><th style="width:46%">Situação</th><th>Resultado com as três camadas</th></tr>
+      <tr><td>Outro eletricista compra um aparelho igual e tenta ligá-lo ao programa</td><td>Não entra: não tem ativação</td></tr>
+      <tr><td>Um eletricista da Domus instala por fora, sem trabalho atribuído</td><td>Não consegue ativar</td></tr>
+      <tr><td>O cliente tenta mudar o servidor pela página do aparelho</td><td>Não tem a palavra-passe</td></tr>
+      <tr><td>O cliente leva o aparelho para outra casa</td><td>Sai do programa até a Domus o reativar</td></tr>
+      <tr><td>Alguém copia as credenciais para outro aparelho</td><td>O servidor vê que o chip é outro e recusa</td></tr>
+      <tr><td>Um eletricista deixa de trabalhar com a Domus</td><td>Perde o acesso e deixa de poder ativar</td></tr>
+      <tr><td>O cliente deixa de pagar</td><td>Perde o comando à distância e as automações; o botão manual continua</td></tr>
+      <tr><td>Alguém abre a caixa e grava outro software por fios</td><td>Consegue. Fica com um interruptor Wi-Fi sem programa, e o selo denuncia a abertura</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>5. Limites que ficam sempre</h2>
+    <ul>
+      <li><b>O aparelho não se consegue trancar por completo.</b> O chip aceita sempre nova gravação por fios, e o módulo Wi-Fi é uma peça de 2 € que se troca.</li>
+      <li><b>O modo de recuperação do software não se desliga.</b> Fica protegido pela palavra-passe.</li>
+      <li><b>Proibir por contrato o que o cliente faz a um aparelho que é dele vale pouco.</b> A cedência dos aparelhos resolve; a venda não.</li>
+      <li><b>O que prende o cliente é o serviço</b>: programa, automações, histórico e assistência.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Regras de segurança das pessoas, que não se trocam por nada</h2>
+    <ul>
+      <li><b>O botão manual funciona sempre</b>, com ou sem internet, com ou sem subscrição.</li>
+      <li><b>O servidor nunca corta um circuito</b> por falta de pagamento ou por recusar um aparelho.</li>
+      <li><b>O aparelho não substitui disjuntores nem diferenciais.</b> As proteções certificadas do quadro mantêm-se.</li>
+      <li><b>A eletrónica do aparelho não é isolada da rede.</b> Nunca se liga ao computador com 230 V presentes.</li>
+      <li><b>Cargas perigosas</b> (termoacumulador, aquecedor) ficam desligadas depois de um corte de luz.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. Riscos em aberto</h2>
+    <table>
+      <tr><th style="width:40%">Risco</th><th>O que fazer</th></tr>
+      <tr><td>Perda da garantia do fabricante; a Domus responde sozinha perante o cliente</td><td>Aceite. Prever aparelhos de substituição</td></tr>
+      <tr><td>Marca CE de um aparelho com software alterado</td><td>Pergunta feita na nota para o advogado</td></tr>
+      <tr><td>Seguro de responsabilidade civil pode não cobrir equipamento modificado</td><td>Perguntar por escrito à seguradora</td></tr>
+      <tr><td>Perder as palavras-passe dos aparelhos</td><td>Registo guardado em sítio seguro, com cópia</td></tr>
+      <tr><td>O servidor da Domus em baixo</td><td>Regras essenciais dentro do aparelho; botão manual</td></tr>
+      <tr><td>Fim da atividade da Domus</td><td>Por definir na cláusula 5.3 da minuta</td></tr>
+      <tr><td>Comportamento real do aparelho reprogramado</td><td>Só se confirma em bancada, com o primeiro exemplar</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>8. Próximos passos</h2>
+    <ol>
+      <li>Encomendar o material e reprogramar o primeiro Chayo, seguindo o guia de bancada.</li>
+      <li>Aplicar o passo 11 do guia (trancar) e testar o bloqueio.</li>
+      <li>Construir a ativação de aparelhos no programa (camada 2).</li>
+      <li>Levar ao advogado a nota e a minuta, e decidir entre venda e cedência.</li>
+      <li>Perguntar à seguradora.</li>
+    </ol>
+    <p><b>Documentos relacionados</b>, na pasta <code>domus-energia/docs</code>: guia-bancada-chayo-sy1-jwt.html · nota-para-advogado-aparelhos.html · clausula-software-exclusivo.html</p>
+  </section>
+</body>
+</html>
