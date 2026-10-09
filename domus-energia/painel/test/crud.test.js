@@ -420,7 +420,8 @@ test('clientes: lista, ficha (aparelhos, plano, obras), filtros, financeiro só 
   const f = (await api('GET', 'clientes/joao', 'ceo')).json;
   assert.deepEqual(f.aparelhos.map((a) => a.id), ['sala', 'porta', 'velho']);
   assert.deepEqual(f.aparelhos[0], { id: 'sala', tipo: 'openbeken', nome: 'Sala grande', medidor: true, geral: false, bateria: false, divisao: null,
-    canais: [{ n: 1, funcao: 'interruptor', nome: 'Teto', simular: true, arranque: 'ultimo', divisao: 'Sala' }, { n: 2, funcao: 'luz', arranque: 'desligado' }] });
+    canais: [{ n: 1, funcao: 'interruptor', nome: 'Teto', simular: true, arranque: 'ultimo', divisao: 'Sala' }, { n: 2, funcao: 'luz', arranque: 'desligado' }],
+    chip: { mac: null, serie: null, visto: null, estado: 'por_registar' } });
   assert.equal(f.aparelhos[1].bateria, true);
   assert.deepEqual(f.aparelhos[1].canais[0], { n: 1, funcao: 'porta', nome: 'Entrada', entrada: true });
   assert.deepEqual(f.pagamentos.map((x) => x.id_stripe), ['in_2', 'in_1']);

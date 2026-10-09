@@ -143,7 +143,7 @@ function hostLocal(req) {
  *   `pagamentos()`: os pagamentos do pedido (pagamentos-pedido.js): visita paga, proposta em partes, relatório.
  *   `concluirObra(o, u, ip)`: a ação "Obra concluída" do painel (api.js), usada ao aprovar o trabalho de uma obra.
  */
-export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {}, procedimentos = null }) {
+export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {}, procedimentos = null, aparelhos = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -1017,6 +1017,61 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     responder(res, 200, fichaAtual(t));
   };
 
+  // ---- Ativação de aparelhos (decisões do dono, 2026-10-09; docs/ATIVACAO-APARELHOS.md): dentro de um trabalho seu, o
+  // eletricista regista o chip (MAC) de cada aparelho que montou. Fica à espera do CEO, ou vale logo se o eletricista
+  // for de confiança (`ativa_sem_aprovacao`). Só nos aparelhos que a casa do pedido já tem: quem cria aparelhos e lhes
+  // dá credenciais é sempre o painel.
+  const ativacoesDoTrabalho = (t) => db.prepare('SELECT id, aparelho, mac, serie, estado, criado, decidido FROM aparelhos_ativacoes WHERE trabalho_id = ? ORDER BY id DESC LIMIT 100').all(t.id);
+  async function aparelhosDoTrabalho(e, t, o) {
+    const ap = aparelhos();
+    const c = o.codigo_cliente ?? null;
+    const lista = c && ap ? await ap.listar(c) : null;
+    return {
+      cliente: c, casa_criada: Boolean(lista), sem_aprovacao: Boolean(e.ativa_sem_aprovacao),
+      pode_registar: Boolean(lista) && EDITAVEIS.includes(t.estado) && aberto(t, o),
+      aparelhos: (lista ?? []).map((a) => ({ id: a.id, nome: a.nome, divisao: a.divisao ?? null, chip: a.chip.estado })),
+      pedidos: ativacoesDoTrabalho(t),
+    };
+  }
+  h.aparelhosTrabalho = async ({ res, e, params }) => {
+    expirar();
+    const { t, o } = meu(e, params.id);
+    responder(res, 200, await aparelhosDoTrabalho(e, t, o));
+  };
+  h.chipTrabalho = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['aparelho', 'mac', 'serie']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const ap = aparelhos();
+    const c = o.codigo_cliente ?? null;
+    const lista = c && ap ? await ap.listar(c) : null;
+    if (!lista) throw new ErroApi(409, 'Este pedido ainda não tem a casa criada no programa: fale com a Domus.');
+    const id = texto(v.aparelho, 'o aparelho', { max: 32, obrigatorio: true });
+    if (!lista.some((a) => a.id === id)) throw new ErroApi(404, 'Esse aparelho não é desta casa.');
+    const mac = ap.mac(v.mac);
+    if (!mac) falha('Código do chip (MAC): 12 algarismos hexadecimais, por exemplo 38:1F:8D:12:AB:CD.');
+    const serie = texto(v.serie, 'o número de série', { max: 40 }) ?? null;
+    const agora = agoraIso();
+    const direto = Boolean(e.ativa_sem_aprovacao);
+    // Um pedido por aparelho e por trabalho: o novo substitui o que ainda estava à espera.
+    db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = ? WHERE trabalho_id = ? AND aparelho = ? AND estado = 'pendente'").run(agora, `eletricista:${e.id}`, t.id, id);
+    const aid = Number(db.prepare(`INSERT INTO aparelhos_ativacoes (cliente, aparelho, mac, serie, trabalho_id, eletricista_id, estado, criado, decidido, decidido_por)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(c, id, mac, serie, t.id, e.id, direto ? 'aprovada' : 'pendente', agora, direto ? agora : null, direto ? 'automático' : null).lastInsertRowid);
+    if (direto) ap.registar(c, id, { mac, serie }, `eletricista:${e.id}`);
+    auditar(quem(e), 'aparelho_chip_eletricista', `cliente:${c}`, { ativacao: aid, trabalho: t.id, aparelho: id, mac, direto }, ip);
+    if (!direto) {
+      const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/ativacoes`] : [];
+      for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
+        correio.enviar({ para: email, assunto: 'Domus Energia: ativação de aparelho por aprovar', resumo: `ativação ${aid} por aprovar (aparelho ${id} de ${c})`,
+          texto: ['Olá,', '', `${e.nome} registou o chip do aparelho "${id}" da casa "${c}" (pedido n.º ${o.id}).`, `Chip: ${mac}${serie ? ` · série ${serie}` : ''}`, '',
+            'Fica à espera da sua aprovação.', ...painel, '', 'Domus Energia'].join('\n') });
+      }
+    }
+    responder(res, 200, await aparelhosDoTrabalho(e, t, o));
+  };
+
   h.proposta = async ({ req, res, e, params, ip }) => {
     const v = await lerJson(req, ['horas', 'material', 'notas']);
     esperar([[L.acoes, String(e.id)]]);
@@ -1463,6 +1518,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       id: e.id, nome: e.nome, email: e.email, telefone: e.telefone, nif: e.nif, dgeg: e.dgeg, concelhos: concelhosDe(e),
       experiencia: EXPERIENCIAS[e.experiencia] ?? null, notas: e.notas ?? null, estado: e.estado,
       percentagem: Number.isFinite(e.percentagem) ? e.percentagem : null, percentagem_efetiva: percentagemDe(e),
+      // Ativação de aparelhos: de confiança = o chip que regista num trabalho vale logo, sem esperar pelo CEO.
+      ativa_sem_aprovacao: Boolean(e.ativa_sem_aprovacao),
       seguro: e.seguro_id ? { tipo: e.seguro_tipo, bytes: e.seguro_bytes, url: `/painel/api/eletricistas/${e.id}/seguro` } : null,
       consentimento: e.consentimento, criado: e.criado, decidido: e.decidido ?? null, ultimo_acesso: e.ultimo_acesso ?? null,
       anonimizado: e.anonimizado ?? null,
@@ -1516,6 +1573,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
     if (v.concelhos !== undefined) mud.concelhos = JSON.stringify(listaConcelhos(v.concelhos));
     if (v.percentagem !== undefined) mud.percentagem = v.percentagem === null ? null : numero(v.percentagem, 'a percentagem da mão de obra', { min: 0, max: 100, casas: 1, nulo: false });
+    if (v.ativa_sem_aprovacao !== undefined) {
+      if (typeof v.ativa_sem_aprovacao !== 'boolean') falha('"ativa_sem_aprovacao" tem de ser true ou false.');
+      mud.ativa_sem_aprovacao = v.ativa_sem_aprovacao ? 1 : 0;
+    }
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     const cols = Object.keys(mud);
     db.prepare(`UPDATE eletricistas SET ${cols.map((k) => `${k} = ?, `).join('')}atualizado = ? WHERE id = ?`).run(...cols.map((k) => mud[k]), agoraIso(), e.id);
@@ -1756,6 +1817,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/visita', true, 'marcarVisita'],
     ['POST', 'trabalhos/:id/largar', true, 'largar'],
     ['GET', 'catalogo', true, 'catalogo'],   // os artigos para a proposta (sem preços)
+    ['GET', 'trabalhos/:id/aparelhos', true, 'aparelhosTrabalho'],     // os aparelhos da casa do pedido e os chips que este trabalho registou
+    ['POST', 'trabalhos/:id/chip', true, 'chipTrabalho'],              // {aparelho, mac, serie} — regista o chip (à espera do CEO, ou direto)
     ['POST', 'trabalhos/:id/esquema-quadro', true, 'esquemaQuadro'],   // {esquema} — o quadro existente, desenhado pelo eletricista
     ['POST', 'trabalhos/:id/proposta', true, 'proposta'],   // {horas, material: [{sku, qtd}], notas}, depois da visita
     ['POST', 'trabalhos/:id/material', true, 'material'],

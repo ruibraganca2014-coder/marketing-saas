@@ -20,6 +20,7 @@ import ajuda from "./ecras/ajuda.js";
 import crm from "./ecras/crm.js";
 import tarefas from "./ecras/tarefas.js";
 import procedimentos from "./ecras/procedimentos.js";
+import ativacoes from "./ecras/ativacoes.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
@@ -32,6 +33,8 @@ const ECRAS = [
   { id: "crm", nome: "CRM", papeis: ["ceo", "tecnico", "comercial"], m: crm },
   { id: "clientes", nome: "Casas e planos", papeis: ["ceo", "tecnico", "comercial"], m: clientes },
   { id: "alertas", nome: "Alertas", papeis: ["ceo", "tecnico"], m: alertas },
+  // Ativações de aparelhos (decisões do dono, 2026-10-09): os chips registados pelos eletricistas, para o CEO decidir.
+  { id: "ativacoes", nome: "Ativações", papeis: ["ceo"], m: ativacoes },
   { id: "orcamentos", nome: "Orçamentos", papeis: ["ceo", "comercial"], m: orcamentos },
   { id: "obras", nome: "Obras", papeis: ["ceo", "tecnico", "comercial"], m: obras },
   { id: "catalogo", nome: "Catálogo", papeis: ["ceo"], m: catalogo },

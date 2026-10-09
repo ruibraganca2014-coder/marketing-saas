@@ -241,3 +241,8 @@ details.sec > .corpo { padding: 2px 14px 14px; display: grid; gap: 12px; min-wid
 .quadro-registo { display: grid; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--borda); }
 .quadro-contagens { display: grid; gap: 8px 12px; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 .quadro-contagens input { width: 100%; }
+/* Aparelhos da casa: registo do chip (eletricista.js seccaoAparelhos). */
+.lista-aparelhos { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.lista-aparelhos li { padding: 10px 12px; border: 1.5px solid var(--borda); border-radius: 12px; }
+.lista-aparelhos .fila { margin-top: 8px; }
+.lista-aparelhos input { min-height: 40px; padding: 6px 10px; border: 1.5px solid var(--borda); border-radius: 10px; background: var(--fundo); min-width: 0; flex: 1 1 12em; }

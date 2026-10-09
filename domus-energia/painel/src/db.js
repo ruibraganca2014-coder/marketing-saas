@@ -957,6 +957,41 @@ export const MIGRACOES = [
   // 40: "Casa registada" (decisão do dono, 2026-10-04; docs/SIMULADOR-ORCAMENTO.md "Duas partes"): quando o cliente
   // acabou de descrever a casa no simulador (com conta), antes de pedir qualquer serviço. A casa é a `simulacao` da conta.
   (db) => db.exec('ALTER TABLE contas ADD COLUMN casa_registada TEXT;'),
+  // 41: ativação de aparelhos (decisões do dono, 2026-10-09; docs/ATIVACAO-APARELHOS.md). `aparelhos_chip`: o chip
+  // (endereço MAC) registado para cada aparelho de cada casa e o último que o aparelho anunciou (`<aparelho>/mac`) —
+  // um chip diferente do registado é um alerta crítico. `aparelhos_ativacoes`: os registos de chip feitos pelos
+  // eletricistas dentro de um trabalho, à espera do CEO ou já decididos. `ativa_sem_aprovacao`: eletricista de
+  // confiança, cujo registo vale logo (o CEO pode anular).
+  (db) => db.exec(`
+    CREATE TABLE aparelhos_chip (
+      cliente TEXT NOT NULL,
+      aparelho TEXT NOT NULL,
+      mac TEXT,                                 -- registado (AA:BB:CC:DD:EE:FF); NULL = por registar
+      serie TEXT,                               -- o que está na etiqueta ou no selo (texto livre)
+      registado TEXT,
+      por TEXT,                                 -- email do utilizador do painel ou "eletricista:<id>"
+      mac_visto TEXT,                           -- o último que o aparelho anunciou
+      visto TEXT,
+      avisado TEXT,                             -- quando se avisou o CEO de que o visto não é o registado
+      PRIMARY KEY (cliente, aparelho)
+    );
+    CREATE TABLE aparelhos_ativacoes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cliente TEXT NOT NULL,
+      aparelho TEXT NOT NULL,
+      mac TEXT NOT NULL,
+      serie TEXT,
+      trabalho_id INTEGER,
+      eletricista_id INTEGER,
+      estado TEXT NOT NULL DEFAULT 'pendente',  -- pendente | aprovada | recusada | anulada
+      criado TEXT NOT NULL,
+      decidido TEXT,
+      decidido_por TEXT,
+      nota TEXT
+    );
+    CREATE INDEX aparelhos_ativacoes_estado ON aparelhos_ativacoes (estado, criado);
+    ALTER TABLE eletricistas ADD COLUMN ativa_sem_aprovacao INTEGER NOT NULL DEFAULT 0;
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

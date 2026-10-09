@@ -52,6 +52,7 @@ export default function inicio(el, ctx) {
       linha(t.propostas_eletricista, "proposta de eletricista por rever", "propostas de eletricistas por rever", "#/orcamentos"),
       linha(t.propostas_aceites, "proposta aceite, falta marcar a obra", "propostas aceites, falta marcar a obra", "#/orcamentos"),
       linha(t.mensagens, "mensagem de cliente por responder", "mensagens de clientes por responder", "#/orcamentos"),
+      linha(t.ativacoes, "ativação de aparelho por aprovar", "ativações de aparelhos por aprovar", "#/ativacoes"),
       linha(t.candidaturas, "candidatura de eletricista por aprovar", "candidaturas de eletricistas por aprovar", "#/eletricistas"),
       linha(t.trabalhos_por_aprovar, "trabalho concluído por aprovar", "trabalhos concluídos por aprovar", "#/eletricistas"),
       linha(t.pagamentos_eletricistas, "pagamento a eletricista por fazer", "pagamentos a eletricistas por fazer", "#/eletricistas"),

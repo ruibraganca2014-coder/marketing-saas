@@ -11,6 +11,7 @@ import {
   RE_TELEFONE, falha, esquemaQuadro as validarEsquemaQuadro, diagnostico as validarDiagnostico,
 } from './validar.js';
 import { RE_ID, RESERVADOS, PLANOS, ESTADOS_PLANO, PRECO_IVA, semIva } from './dados.js';
+import { normalizarMac } from './alertas.js';
 import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, ESTADOS_PAGAMENTO, PAPEIS, CATEGORIAS, ORIGENS_CONTACTO, MOTIVOS_PERDA, transacao } from './db.js';
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
@@ -111,6 +112,9 @@ export const ROTAS = [
   ['POST', 'clientes', ['ceo', 'comercial'], 'criarCliente'],
   ['POST', 'clientes/:c/aparelhos', ['ceo', 'tecnico'], 'pedirAparelho'],
   ['POST', 'clientes/:c/aparelhos/:a/remover', ['ceo', 'tecnico'], 'removerAparelho'],
+  ['POST', 'clientes/:c/aparelhos/:a/chip', ['ceo'], 'chipAparelho'],
+  ['GET', 'ativacoes', ['ceo'], 'ativacoes'],                 // registos de chip feitos pelos eletricistas: por aprovar e recentes
+  ['POST', 'ativacoes/:id', ['ceo'], 'decidirAtivacao'],      // {acao: aprovar | recusar | anular, nota}   // {mac, serie} — o chip registado deste aparelho (mac null apaga)
   ['POST', 'clientes/:c/plano', ['ceo'], 'pedirPlano'],
   ['GET', 'alertas', ['ceo', 'tecnico'], 'alertas'],
   ['GET', 'orcamentos', ['ceo', 'comercial'], 'orcamentos'],
@@ -302,7 +306,9 @@ export function criarApi(ctx) {
   // Procedimentos (SOP) e checklists por obra (procedimentos.js; docs/PROCEDIMENTOS.md).
   const procedimentos = criarProcedimentos({ db, relogio, auditar });
   // Eletricistas externos (/api/eletricista/*, eletricistas.js): candidatura, área própria (sessão separada) e bolsa.
-  eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos: () => pagPed,
+  // Os aparelhos e os chips ficam definidos mais abaixo (camposAparelho, guardarChip): a área do eletricista chega-lhes por aqui.
+  let aparelhosCtx = null;
+  eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, aparelhos: () => aparelhosCtx, pagamentos: () => pagPed,
     concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos });
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
   crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed, emails: () => emailsAuto });
@@ -632,6 +638,8 @@ export function criarApi(ctx) {
         mensagens: n(`SELECT COUNT(*) AS n FROM orcamentos o WHERE o.estado != ?
           AND (SELECT m.de FROM mensagens_pedido m WHERE m.orcamento_id = o.id ORDER BY m.id DESC LIMIT 1) = 'cliente'`, ESTADO_ARQUIVADO),
         alertas_criticos: al.contagem?.critica ?? 0,
+        // Chips registados por eletricistas, à espera de aprovação (ativação de aparelhos).
+        ativacoes: n("SELECT COUNT(*) AS n FROM aparelhos_ativacoes WHERE estado = 'pendente'"),
       };
       if (config.eletricistas) {
         Object.assign(r.tratar, {
@@ -686,6 +694,7 @@ export function criarApi(ctx) {
     const contagem = u.papel === 'comercial' ? new Map() : contagemAlertasPorCliente();
     const r = await resumoCliente(c, u, mapa, contagem, existe);
     r.aparelhos = existe ? (await dados.aparelhos(c)) ?? [] : [];
+    if (u.papel !== 'comercial') r.aparelhos = r.aparelhos.map((a) => ({ ...a, chip: chipPublico(chipDe(c, a.id)) }));
     if (u.papel !== 'comercial') {
       r.alertas_lista = alertas.lista({ cliente: c }).alertas;
       r.casa = alertas.casa(c);
@@ -767,18 +776,136 @@ export function criarApi(ctx) {
     if (geral && bateria) falha('"geral" não pode ser usado com "bateria".');
     return { id, tipo, nome, canais: canais ?? '', divisao: divisao ?? '', medidor, geral, bateria, substituir };
   }
+  // ---- Chip de cada aparelho (ativação; docs/ATIVACAO-APARELHOS.md): o MAC registado e o que o aparelho anuncia.
+  /** {mac, serie} de um corpo: MAC normalizado (ou null), série até 40 caracteres. Só os campos que vierem. */
+  function camposChip(v) {
+    const r = {};
+    if (v.mac !== undefined) {
+      if (v.mac === null || v.mac === '') r.mac = null;
+      else {
+        r.mac = normalizarMac(v.mac);
+        if (typeof v.mac !== 'string' || !r.mac) falha('Código do chip (MAC): 12 algarismos hexadecimais, por exemplo 38:1F:8D:12:AB:CD.');
+      }
+    }
+    if (v.serie !== undefined) r.serie = v.serie === null ? null : texto(v.serie, 'o número de série', { max: 40 }) ?? null;
+    return r;
+  }
+  const chipDe = (c, a) => db.prepare('SELECT * FROM aparelhos_chip WHERE cliente = ? AND aparelho = ?').get(c, a) ?? null;
+  /** Regista (ou muda) o chip de um aparelho. Mudar o MAC limpa o aviso anterior. Devolve a linha. */
+  function guardarChip(c, a, chip, por) {
+    const antes = chipDe(c, a);
+    const mac = chip.mac !== undefined ? chip.mac : antes?.mac ?? null;
+    const serie = chip.serie !== undefined ? chip.serie : antes?.serie ?? null;
+    const agora = iso(relogio());
+    db.prepare(`INSERT INTO aparelhos_chip (cliente, aparelho, mac, serie, registado, por) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT (cliente, aparelho) DO UPDATE SET mac = excluded.mac, serie = excluded.serie, registado = excluded.registado, por = excluded.por,
+        avisado = CASE WHEN excluded.mac IS aparelhos_chip.mac THEN aparelhos_chip.avisado ELSE NULL END`).run(c, a, mac, serie, agora, por);
+    return chipDe(c, a);
+  }
+  /** O chip para as fichas: registado, visto e se batem. */
+  function chipPublico(l) {
+    if (!l) return { mac: null, serie: null, visto: null, estado: 'por_registar' };
+    const estado = !l.mac ? 'por_registar' : !l.mac_visto ? 'por_ver' : l.mac === l.mac_visto ? 'confere' : 'diferente';
+    return { mac: l.mac, serie: l.serie, registado: l.registado, por: l.por, visto: l.mac_visto, visto_em: l.visto, estado };
+  }
+  aparelhosCtx = {
+    /** Os aparelhos de uma casa com o estado do chip; null se a casa ainda não existe no servidor. */
+    listar: async (c) => { const aps = await dados.aparelhos(c); return aps ? aps.map((a) => ({ ...a, chip: chipPublico(chipDe(c, a.id)) })) : null; },
+    registar: guardarChip,
+    mac: (v) => (typeof v === 'string' ? normalizarMac(v) : null),
+  };
+  // O painel de alertas compara o chip anunciado com o registado; a primeira vez que não bate, avisa os CEO por email.
+  if (alertas) {
+    alertas.chips = (c) => new Map(db.prepare('SELECT aparelho, mac FROM aparelhos_chip WHERE cliente = ? AND mac IS NOT NULL').all(c).map((r) => [r.aparelho, r.mac]));
+    alertas.aoVerMac = (c, a, mac) => {
+      const agora = iso(relogio());
+      db.prepare(`INSERT INTO aparelhos_chip (cliente, aparelho, mac_visto, visto) VALUES (?, ?, ?, ?)
+        ON CONFLICT (cliente, aparelho) DO UPDATE SET mac_visto = excluded.mac_visto, visto = excluded.visto`).run(c, a, mac, agora);
+      const l = chipDe(c, a);
+      if (!l?.mac || l.mac === mac || l.avisado) return;
+      db.prepare('UPDATE aparelhos_chip SET avisado = ? WHERE cliente = ? AND aparelho = ?').run(agora, c, a);
+      auditar(null, 'aparelho_chip_diferente', `cliente:${c}`, { aparelho: a, registado: l.mac, visto: mac }, null);
+      const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/clientes/${c}`] : [];
+      for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
+        correio.enviar({ para: email, assunto: 'Domus Energia: aparelho com chip diferente do registado', resumo: `chip diferente no aparelho ${a} de ${c}`,
+          texto: ['Olá,', '', `O aparelho "${a}" da casa "${c}" está a responder com um chip diferente do que foi registado.`, '',
+            `Registado: ${l.mac}`, `A responder: ${mac}`, '',
+            'Pode ser um aparelho trocado sem registo, ou as credenciais deste aparelho postas noutro. O aparelho continua a funcionar: decida no painel se regista o chip novo ou remove o aparelho.',
+            ...painel, '', 'Domus Energia'].join('\n') });
+      }
+    };
+  }
+
   const pedidoAparelhoPendente = (c, id) => db.prepare('SELECT 1 FROM pedidos_admin WHERE tipo = \'aparelho\' AND cliente = ? AND estado = \'pendente\' AND json_extract(dados, \'$.id\') = ?').get(c, id);
 
   h.pedirAparelho = async ({ req, res, u, params, ip }) => {
     const c = codigoCliente(params.c);
-    const a = camposAparelho(await lerJson(req, CAMPOS_APARELHO));
+    const v = await lerJson(req, [...CAMPOS_APARELHO, 'mac', 'serie']);
+    // O chip regista-se no painel; não vai no pedido ao servidor (o domus.sh não o conhece).
+    const chip = camposChip(v);
+    const a = camposAparelho(v);
     const aps = await dados.aparelhos(c);
     if (!aps) throw new ErroApi(404, 'Cliente não encontrado (ou ainda não criado no servidor).');
     if (aps.some((x) => x.id === a.id) && !a.substituir) throw new ErroApi(409, 'O cliente já tem um aparelho com este id (use "substituir": true para o reconfigurar).');
     if (pedidoAparelhoPendente(c, a.id)) throw new ErroApi(409, 'Já há um pedido para este aparelho em curso.');
     const pedido = await pedidos.criar({ tipo: 'aparelho', cliente: c, utilizador: u, dados: { cliente: c, ...a } });
     auditar(u, 'pedido_aparelho', `cliente:${c}`, { pedido: pedido.id, aparelho: a.id, tipo: a.tipo }, ip);
+    if (chip.mac !== undefined || chip.serie !== undefined) {
+      guardarChip(c, a.id, chip, u.email);
+      auditar(u, 'aparelho_chip', `cliente:${c}`, { aparelho: a.id, mac: chip.mac ?? null, serie: chip.serie ?? null }, ip);
+    }
     responder(res, 202, { pedido });
+  };
+
+  /** Regista, muda ou apaga (mac: null) o chip de um aparelho que a casa já tem (ou tem pedido). Só o CEO. */
+  h.chipAparelho = async ({ req, res, u, params, ip }) => {
+    const c = codigoCliente(params.c);
+    if (!RE_ID.test(params.a)) throw new ErroApi(404, 'Aparelho não encontrado.');
+    const chip = camposChip(await lerJson(req, ['mac', 'serie']));
+    if (chip.mac === undefined && chip.serie === undefined) falha('Indique o código do chip (mac) ou o número de série.');
+    const aps = await dados.aparelhos(c);
+    if (!aps) throw new ErroApi(404, 'Cliente não encontrado.');
+    if (!aps.some((x) => x.id === params.a) && !pedidoAparelhoPendente(c, params.a)) throw new ErroApi(404, 'Aparelho não encontrado.');
+    const l = guardarChip(c, params.a, chip, u.email);
+    auditar(u, 'aparelho_chip', `cliente:${c}`, { aparelho: params.a, mac: l.mac, serie: l.serie }, ip);
+    responder(res, 200, { chip: chipPublico(l) });
+  };
+
+  // ---- Ativações: os chips registados pelos eletricistas, para o CEO aprovar, recusar ou anular (é o superutilizador).
+  function listaAtivacoes() {
+    const linha = (a) => ({
+      id: a.id, cliente: a.cliente, aparelho: a.aparelho, mac: a.mac, serie: a.serie ?? null, estado: a.estado, criado: a.criado,
+      decidido: a.decidido ?? null, decidido_por: a.decidido_por ?? null, nota: a.nota ?? null,
+      trabalho_id: a.trabalho_id ?? null, pedido_id: a.orcamento_id ?? null,
+      eletricista: a.eletricista_id ? { id: a.eletricista_id, nome: a.eletricista_nome ?? null } : null,
+      chip_atual: chipPublico(chipDe(a.cliente, a.aparelho)),
+    });
+    const sql = (onde, limite) => db.prepare(`SELECT a.*, e.nome AS eletricista_nome, t.orcamento_id FROM aparelhos_ativacoes a
+      LEFT JOIN eletricistas e ON e.id = a.eletricista_id LEFT JOIN trabalhos_eletricista t ON t.id = a.trabalho_id
+      WHERE ${onde} ORDER BY a.id DESC LIMIT ${limite}`).all().map(linha);
+    return { pendentes: sql("a.estado = 'pendente'", 200), recentes: sql("a.estado != 'pendente'", 50) };
+  }
+  h.ativacoes = ({ res }) => responder(res, 200, listaAtivacoes());
+  h.decidirAtivacao = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['acao', 'nota']);
+    const acao = opcao(v.acao, 'ação', ['aprovar', 'recusar', 'anular']);
+    const nota = texto(v.nota, 'a nota', { max: 300 }) ?? null;
+    const id = idNum(params.id);
+    const a = id ? db.prepare('SELECT * FROM aparelhos_ativacoes WHERE id = ?').get(id) : null;
+    if (!a) throw new ErroApi(404, 'Ativação não encontrada.');
+    const agora = iso(relogio());
+    if (acao === 'anular') {
+      if (a.estado !== 'aprovada') throw new ErroApi(409, 'Só se anula uma ativação aprovada.');
+      // Tira o chip registado, se ainda for o desta ativação (o CEO pode ter registado outro entretanto).
+      if (chipDe(a.cliente, a.aparelho)?.mac === a.mac) guardarChip(a.cliente, a.aparelho, { mac: null }, u.email);
+    } else {
+      if (a.estado !== 'pendente') throw new ErroApi(409, 'Esta ativação já foi decidida.');
+      if (acao === 'aprovar') guardarChip(a.cliente, a.aparelho, { mac: a.mac, serie: a.serie ?? null }, a.eletricista_id ? `eletricista:${a.eletricista_id}` : u.email);
+    }
+    const estado = { aprovar: 'aprovada', recusar: 'recusada', anular: 'anulada' }[acao];
+    db.prepare('UPDATE aparelhos_ativacoes SET estado = ?, decidido = ?, decidido_por = ?, nota = ? WHERE id = ?').run(estado, agora, u.email, nota, a.id);
+    auditar(u, `ativacao_${estado}`, `cliente:${a.cliente}`, { ativacao: a.id, aparelho: a.aparelho, mac: a.mac, eletricista: a.eletricista_id ?? null }, ip);
+    responder(res, 200, listaAtivacoes());
   };
 
   h.removerAparelho = async ({ req, res, u, params, ip }) => {
@@ -1833,7 +1960,7 @@ export function criarApi(ctx) {
   h.eletricista = ({ res, params }) => responder(res, 200, { eletricista: eletricistas.paraPainel(eletricistas.obter(params.id)) });
 
   h.atualizarEletricista = async ({ req, res, u, params, ip }) => {
-    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem']);
+    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem', 'ativa_sem_aprovacao']);
     const e = eletricistas.atualizar(params.id, v, u, ip);
     responder(res, 200, { eletricista: eletricistas.paraPainel(e), ...eletricistas.listar() });
   };

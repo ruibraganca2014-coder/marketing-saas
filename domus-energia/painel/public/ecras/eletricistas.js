@@ -71,6 +71,13 @@ export default function eletricistas(el) {
     });
     return h("span", { class: "pct" }, i, " %");
   }
+  /** "Ativa sem aprovação": o chip que este eletricista regista num trabalho vale logo (o CEO pode anular em Ativações). */
+  function campoAtiva(e) {
+    const i = h("input", { type: "checkbox", checked: e.ativa_sem_aprovacao === true, dataset: { ativa: String(e.id) } });
+    i.addEventListener("change", () => alterar(e, { ativa_sem_aprovacao: i.checked }, i.checked
+      ? `${e.nome}: ativa aparelhos sem esperar pela sua aprovação.` : `${e.nome}: as ativações passam a esperar pela sua aprovação.`));
+    return h("label", { class: "caixa" }, i, "Ativa aparelhos sem aprovação");
+  }
   const documento = (e) => (e.seguro
     ? h("a", { class: "btn sec pequeno", href: e.seguro.url, target: "_blank", rel: "noopener", id: `seguro-${e.id}`,
       text: `${e.seguro.tipo === "application/pdf" ? "Descarregar o seguro (PDF" : "Ver o seguro (imagem"}, ${mb(e.seguro.bytes)})` })
@@ -90,6 +97,7 @@ export default function eletricistas(el) {
       fichaDados(e),
       h("div", { class: "form-botoes" }, documento(e)),
       h("div", { class: "form-botoes" }, h("span", { class: "ajuda", text: "% da mão de obra" }), campoPct(e)),
+      h("div", { class: "form-botoes" }, campoAtiva(e)),
       h("div", { class: "form-botoes" },
         h("button", { class: "btn", type: "button", id: `aprovar-${e.id}`, text: "Aprovar", onclick: (ev) => alterar(e, { acao: "aprovar" }, `${e.nome} aprovado: recebeu o email com a ligação para a área do eletricista.`, ev.currentTarget) }),
         botaoConfirmar("Recusar", "Confirmar: recusar?", (b) => alterar(e, { acao: "recusar" }, `Candidatura de ${e.nome} recusada.`, b), { classe: "btn perigo pequeno" })))))

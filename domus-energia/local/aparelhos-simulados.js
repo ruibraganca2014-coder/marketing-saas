@@ -8,6 +8,8 @@
 //
 // Precisa do lançador a correr (broker em mqtt://127.0.0.1:1883). Nunca é usado no servidor a sério.
 import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const mqtt = createRequire(new URL('../painel/', import.meta.url))('mqtt');
 const CLIENTE = (process.argv[2] || 'demo').toLowerCase().replace(/[^a-z0-9-]/g, '') || 'demo';
@@ -34,6 +36,17 @@ const estado = new Map([
 ]);
 let brilho = 70;
 const energiaWh = new Map(APARELHOS.filter((a) => a.medidor).map((a) => [a.id, a.id === 'quadro' ? 152_340 : 4_210]));
+
+// O painel local só conhece as casas que têm ficheiro em dados/clientes (no servidor é o domus.sh que o escreve): cria
+// o da casa simulada, se não existir, para ela aparecer em "Casas e planos" com os seus aparelhos.
+const fichCasa = fileURLToPath(new URL(`./dados/clientes/${CLIENTE}.tsv`, import.meta.url));
+if (!existsSync(fichCasa)) {
+  mkdirSync(fileURLToPath(new URL('./dados/clientes/', import.meta.url)), { recursive: true });
+  writeFileSync(fichCasa, APARELHOS.map((a) => [a.id, a.tipo, a.nome].join('\t')).join('\n') + '\n');
+}
+
+/** Um MAC estável por aparelho simulado (prefixo local 02:D0:…), para experimentar o registo do chip no painel. */
+const macDe = (id) => { let h = 0; for (const ch of `${CLIENTE}/${id}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return ['02', 'D0', ...h.toString(16).padStart(8, '0').toUpperCase().match(/../g)].join(':'); };
 
 const c = mqtt.connect('mqtt://127.0.0.1:1883', { clientId: `simulado-${CLIENTE}-${process.pid}`, username: 'admin', password: 'local', reconnectPeriod: 3000 });
 const pub = (topico, valor, retido = true) => c.publish(`${BASE}/${topico}`, String(valor), { retain: retido, qos: 0 });
@@ -63,6 +76,7 @@ c.on('connect', () => {
   pub('_aparelhos', JSON.stringify(APARELHOS.map((a) => ({ ...a, canais: a.canais.map(semW) }))));
   for (const a of APARELHOS) {
     pub(`${a.id}/connected`, 'online');
+    pub(`${a.id}/mac`, macDe(a.id));
     for (const canal of a.canais) pub(`${a.id}/${canal.n}/get`, estado.get(`${a.id}/${canal.n}`));
   }
   pub('led-cozinha/led_dimmer/get', brilho);

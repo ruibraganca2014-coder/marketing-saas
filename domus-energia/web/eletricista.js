@@ -452,7 +452,61 @@ function parteCliente(t) {
   const ligar = c.telefone ? (() => { const a = el("a", "btn sec mini", "Ligar"); a.href = `tel:${String(c.telefone).replace(/[^\d+]/g, "")}`; return a; })() : null;
   const cliente = seccao("Cliente", null, dl, el("p", "nota calma", "Ligue ou escreva sempre em nome da Domus Energia. Estes dados ficam visíveis até o trabalho fechar."),
     ligar ? com(el("div", "fila"), ligar) : el("p", "pequeno suave", "Sem telefone: peça o contacto à Domus Energia."));
-  return [cliente, seccaoVisita(t), seccaoQuadro(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])].filter(Boolean);
+  return [cliente, seccaoVisita(t), seccaoQuadro(t), seccaoAparelhos(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])].filter(Boolean);
+}
+
+/**
+ * Aparelhos da casa (ativação; decisões do dono, 2026-10-09): o eletricista regista o chip (o MAC que o aparelho mostra
+ * na sua página) de cada aparelho que montou. Fica à espera da Domus, ou vale logo se for eletricista de confiança.
+ * Só aparece quando a casa do pedido já existe no programa; a secção carrega à parte (GET trabalhos/:id/aparelhos).
+ */
+function seccaoAparelhos(t) {
+  const corpo = el("div");
+  corpo.id = "aparelhos-corpo";
+  const sec = seccao("Aparelhos da casa", null, corpo);
+  sec.hidden = true;
+  const CHIP = { por_registar: "por registar", por_ver: "registado", confere: "registado e a responder", diferente: "o aparelho responde com outro chip" };
+  const PEDIDO = { pendente: "à espera da Domus", aprovada: "aprovado", recusada: "recusado", anulada: "anulado" };
+  const desenhar = (r) => {
+    if (!r.casa_criada || !r.aparelhos.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const msg = el("p", "erro");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+    const linhas = r.aparelhos.map((a) => {
+      const ultimo = r.pedidos.find((p) => p.aparelho === a.id);
+      const li = com(el("li"), el("strong", null, a.nome), el("span", "pequeno suave", ` ${a.divisao ?? ""} · chip ${CHIP[a.chip] ?? a.chip}${ultimo ? ` · o seu registo: ${PEDIDO[ultimo.estado] ?? ultimo.estado}` : ""}`));
+      if (r.pode_registar) {
+        const mac = el("input");
+        mac.type = "text"; mac.maxLength = 17; mac.placeholder = "38:1F:8D:12:AB:CD"; mac.id = `chip-mac-${a.id}`;
+        mac.setAttribute("aria-label", `Código do chip (MAC) de ${a.nome}`);
+        mac.autocapitalize = "characters";
+        const b = el("button", "btn sec pequeno", "Registar chip");
+        b.type = "button";
+        b.id = `chip-registar-${a.id}`;
+        b.addEventListener("click", async () => {
+          if (mac.value.replace(/[^0-9a-f]/gi, "").length !== 12) { msg.textContent = "O código do chip tem 12 algarismos e letras de A a F (aparece na página do aparelho)."; msg.hidden = false; mac.focus(); return; }
+          b.disabled = true; msg.hidden = true;
+          try {
+            desenhar(await pedir(`trabalhos/${t.id}/chip`, { aparelho: a.id, mac: mac.value.trim() }));
+            aviso(r.sem_aprovacao ? "Chip registado." : "Chip registado. Fica à espera da aprovação da Domus.");
+          } catch (e) {
+            b.disabled = false;
+            if (e.estado !== 401) { msg.textContent = e.message; msg.hidden = false; }
+          }
+        });
+        li.append(com(el("div", "fila"), mac, b));
+      }
+      return li;
+    });
+    corpo.replaceChildren(
+      el("p", "pequeno suave", r.sem_aprovacao
+        ? "Registe o chip de cada aparelho que montou: o código que o aparelho mostra na página dele. O seu registo vale logo."
+        : "Registe o chip de cada aparelho que montou: o código que o aparelho mostra na página dele. A Domus aprova o registo."),
+      com(el("ul", "lista-aparelhos"), ...linhas), msg);
+  };
+  pedir(`trabalhos/${t.id}/aparelhos`).then(desenhar).catch(() => { sec.hidden = true; });
+  return sec;
 }
 
 /**

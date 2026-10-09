@@ -4,7 +4,8 @@
 //
 // Fontes (retidas, exceto _eventos): _aparelhos, _saude (PROTOCOLO-MQTT-v3 §5),
 // _alarme, _modo, _plano, _eventos, <aparelho>/connected (OpenBeken) e
-// <aparelho>/online (Shelly).
+// <aparelho>/online (Shelly). E <aparelho>/mac (o chip que o OpenBeken anuncia): comparado com o registado no
+// painel (`this.chips`, posto pelo api.js), dá os alertas "chip diferente" e "chip por registar".
 
 import mqtt from 'mqtt';
 import { randomBytes } from 'node:crypto';
@@ -13,7 +14,14 @@ import { iso } from './util.js';
 
 export const GRAVIDADES = { critica: 4, alta: 3, media: 2, baixa: 1 };
 const TOPICOS = ['_aparelhos', '_saude', '_alarme', '_modo', '_plano', '_eventos'].map((t) => `domus/+/${t}`)
-  .concat(['domus/+/+/connected', 'domus/+/+/online']);
+  .concat(['domus/+/+/connected', 'domus/+/+/online', 'domus/+/+/mac']);
+
+/** Endereço MAC em "AA:BB:CC:DD:EE:FF" (aceita com ou sem separadores); null se não tiver 12 algarismos hexadecimais. */
+export function normalizarMac(v) {
+  const t = String(v ?? '').trim();
+  if (!/^[0-9a-f]{2}([:-]?[0-9a-f]{2}){5}$/i.test(t)) return null;
+  return t.replace(/[:-]/g, '').toUpperCase().match(/../g).join(':');
+}
 const MAX_PAYLOAD = 256 * 1024;
 const MAX_CLIENTES = 5000;
 const MAX_APARELHOS = 300;
@@ -37,6 +45,10 @@ export class Alertas {
     this.casas = new Map();
     this.cli = null;
     this.ligadoDesde = null;
+    /** (cliente) → Map(aparelho → MAC registado). Posto por quem tem a base (api.js); sem ele não há alertas de chip. */
+    this.chips = null;
+    /** (cliente, aparelho, mac) quando um aparelho anuncia um chip novo ou diferente do último. */
+    this.aoVerMac = null;
   }
 
   get ligado() {
@@ -83,7 +95,7 @@ export class Alertas {
     let casa = this.casas.get(c);
     if (!casa) {
       if (this.casas.size >= MAX_CLIENTES) return null;
-      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ligacao: new Map(), eventos: [] };
+      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ligacao: new Map(), eventos: [], macs: new Map() };
       this.casas.set(c, casa);
     }
     return casa;
@@ -106,6 +118,16 @@ export class Alertas {
       const antes = casa.ligacao.get(p[2]);
       if (casa.ligacao.size >= MAX_APARELHOS && !antes) return;
       casa.ligacao.set(p[2], { online, desde: antes && antes.online === online ? antes.desde : agora });
+      return;
+    }
+    if (p.length === 4 && p[3] === 'mac') {
+      if (!RE_ID.test(p[2])) return;
+      const casa = this.#casa(p[1]);
+      const mac = normalizarMac(texto);
+      if (!casa || !mac || (casa.macs.size >= MAX_APARELHOS && !casa.macs.has(p[2]))) return;
+      if (casa.macs.get(p[2]) === mac) return;
+      casa.macs.set(p[2], mac);
+      this.aoVerMac?.(p[1], p[2], mac);
       return;
     }
     if (p.length !== 3) return;
@@ -222,6 +244,14 @@ export class Alertas {
         add(id, 'reinicios', 'media', `${Math.round(s.reinicios_24h)} reinícios nas últimas 24 h.`, { valor: s.reinicios_24h });
       }
     }
+    // O chip anunciado contra o registado: um aparelho que responde com outro chip pode ser um aparelho trocado ou
+    // credenciais copiadas (docs/ATIVACAO-APARELHOS.md).
+    const registados = casa.macs.size ? this.chips?.(c) : null;
+    for (const [id, visto] of casa.macs) {
+      const reg = registados?.get(id) ?? null;
+      if (reg && reg !== visto) add(id, 'chip_diferente', 'critica', `O chip deste aparelho não é o registado (registado ${reg}, a responder ${visto}).`, { valor: visto });
+      else if (!reg && registados && casa.aparelhos.has(id)) add(id, 'chip_por_registar', 'baixa', `Chip por registar (${visto}).`, { valor: visto });
+    }
     return out;
   }
 
@@ -244,6 +274,6 @@ export class Alertas {
   casa(c) {
     const casa = this.casas.get(c);
     if (!casa) return null;
-    return { alarme: casa.alarme, modo: casa.modo, plano: casa.plano, eventos: casa.eventos };
+    return { alarme: casa.alarme, modo: casa.modo, plano: casa.plano, eventos: casa.eventos, macs: Object.fromEntries(casa.macs) };
   }
 }

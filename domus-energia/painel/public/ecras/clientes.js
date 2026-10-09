@@ -102,8 +102,20 @@ export default function clientes(el, ctx) {
     if (crmId) partes.push(h("div", { class: "form-botoes" }, h("a", { class: "btn sec pequeno", id: "abrir-ficha-crm", href: `#/crm/${encodeURIComponent(crmId)}`, text: "Abrir a ficha no CRM" })));
     if (estado === "pendente") partes.push(h("p", { class: "msg info", text: "A conta ainda está a ser criada no servidor." }));
     if (Array.isArray(aparelhos) && aparelhos.length) {
-      partes.push(h("h3", { text: "Aparelhos" }), h("ul", { class: "lista-simples" }, ...aparelhos.map((a) =>
-        h("li", {}, typeof a === "object" ? `${txt(a, "nome", "id")} (${txt(a, "id")}) · ${txt(a, "divisao")}` : String(a)))));
+      const CHIP = { por_registar: "chip por registar", por_ver: "chip registado, ainda não visto", confere: "chip confere", diferente: "CHIP DIFERENTE do registado" };
+      partes.push(h("h3", { text: "Aparelhos" }), h("ul", { class: "lista-simples" }, ...aparelhos.map((a) => {
+        if (typeof a !== "object") return h("li", { text: String(a) });
+        const chip = campo(a, "chip");
+        const li = h("li", {}, `${txt(a, "nome", "id")} (${txt(a, "id")}) · ${txt(a, "divisao")}`);
+        if (chip) {
+          const estado = campo(chip, "estado");
+          li.append(" ", selo(CHIP[estado] ?? estado, `chip-${estado}`));
+          if (campo(chip, "mac")) li.append(h("span", { class: "ajuda", text: ` ${campo(chip, "mac")}${campo(chip, "serie") ? ` · série ${campo(chip, "serie")}` : ""}${estado === "diferente" ? ` · a responder ${campo(chip, "visto")}` : ""}` }));
+          else if (campo(chip, "visto")) li.append(h("span", { class: "ajuda", text: ` a responder ${campo(chip, "visto")}` }));
+          if (ctx.pode("ceo")) li.append(" ", h("button", { class: "btn sec pequeno", type: "button", text: "Registar chip", dataset: { chip: String(campo(a, "id")) }, onclick: () => formChip(j, codigo, a) }));
+        }
+        return li;
+      })));
     }
     partes.push(h("h3", { text: "Alertas" }), alertas.length
       ? h("ul", { class: "lista-simples" }, ...alertas.map((a) => h("li", {}, selo(GRAVIDADES[gravidadeDe(campo(a, "gravidade"))], `grav-${gravidadeDe(campo(a, "gravidade"))}`), " ", txt(a, "mensagem", "texto", "tipo"))))
@@ -132,6 +144,35 @@ export default function clientes(el, ctx) {
     j.corpo.replaceChildren(...partes);
   }
 
+  /** Registar (ou mudar, ou apagar) o chip de um aparelho: o MAC que o aparelho mostra na sua página, e a série da etiqueta. */
+  function formChip(j, codigo, a) {
+    const zonaF = j.corpo.querySelector("#ficha-form");
+    const chip = campo(a, "chip") ?? {};
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const f = h("form", { class: "form-grelha", novalidate: true },
+      h("h3", { text: `Chip de ${txt(a, "nome", "id")}` }),
+      h("div", { class: "duas" },
+        campoForm("Código do chip (MAC)", h("input", { name: "mac", maxlength: "17", placeholder: "38:1F:8D:12:AB:CD", value: campo(chip, "mac") ?? campo(chip, "visto") ?? "", autocapitalize: "characters" }), campo(chip, "visto") ? `O aparelho está a responder com ${campo(chip, "visto")}. Vazio apaga o registo.` : "Aparece na página do aparelho. Vazio apaga o registo."),
+        campoForm("Número de série ou do selo (opcional)", h("input", { name: "serie", maxlength: "40", value: campo(chip, "serie") ?? "" }))),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "submit", text: "Guardar chip" }), h("button", { class: "btn sec", type: "button", text: "Cancelar", onclick: () => zonaF.replaceChildren() })),
+      msg);
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const b = f.querySelector("button[type=submit]");
+      b.disabled = true; mensagem(msg, null);
+      try {
+        await pedir(`clientes/${encodeURIComponent(codigo)}/aparelhos/${encodeURIComponent(campo(a, "id"))}/chip`, { corpo: { mac: f.elements.mac.value.trim() || null, serie: f.elements.serie.value.trim() || null } });
+        avisar("Chip guardado.", "ok");
+        abrirFicha(codigo);
+      } catch (erro) {
+        b.disabled = false;
+        mensagem(msg, erro.message);
+      }
+    });
+    zonaF.replaceChildren(f);
+    f.elements.mac.focus();
+  }
+
   function formAparelho(j, codigo) {
     const zonaF = j.corpo.querySelector("#ficha-form");
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -144,6 +185,9 @@ export default function clientes(el, ctx) {
         campoForm("Nome", h("input", { name: "nome", required: true, maxlength: "60" })),
         campoForm("Divisão", h("input", { name: "divisao", maxlength: "40" }))),
       campoForm("Canais (opcional)", h("input", { name: "canais", maxlength: "300", placeholder: "1:interruptor:Teto,2:interruptor:Candeeiro" }), "Como no domus.sh: n.º:função:nome"),
+      h("div", { class: "duas" },
+        campoForm("Código do chip (MAC, opcional)", h("input", { name: "mac", maxlength: "17", placeholder: "38:1F:8D:12:AB:CD", autocapitalize: "characters" }), "Fica registado: se o aparelho responder com outro chip, há alerta."),
+        campoForm("Número de série ou do selo (opcional)", h("input", { name: "serie", maxlength: "40" }))),
       h("div", { class: "caixas" },
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "medidor" }), "Tem medidor de energia"),
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "geral" }), "É o medidor geral da casa"),
@@ -160,6 +204,8 @@ export default function clientes(el, ctx) {
       const corpo = { id, tipo: el.tipo.value, nome, medidor: el.medidor.checked, geral: el.geral.checked, bateria: el.bateria.checked };
       if (el.divisao.value.trim()) corpo.divisao = el.divisao.value.trim();
       if (el.canais.value.trim()) corpo.canais = el.canais.value.trim();
+      if (el.mac.value.trim()) corpo.mac = el.mac.value.trim();
+      if (el.serie.value.trim()) corpo.serie = el.serie.value.trim();
       await enviarPedido(f, msg, `clientes/${encodeURIComponent(codigo)}/aparelhos`, corpo, `Aparelho ${id} de ${codigo}`, `${codigo}-${id}`, () => zonaF.replaceChildren(h("p", { class: "msg ok", text: "Pedido enviado. O servidor aplica-o em poucos segundos (~5 s)." })));
     });
     zonaF.replaceChildren(f);
