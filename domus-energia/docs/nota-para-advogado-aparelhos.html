@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Nota para o advogado: aparelhos reprogramados</title>
+<style>
+  @page { size: A4; margin: 20mm 20mm; }
+  body { font: 11.5pt/1.5 Georgia, "Times New Roman", serif; color: #111; max-width: 170mm; margin: 0 auto; padding: 12mm 0; }
+  h1 { font-size: 17pt; margin: 0 0 2mm; }
+  h2 { font-size: 12.5pt; margin: 7mm 0 2mm; break-after: avoid; }
+  p { margin: 0 0 2.6mm; text-align: justify; }
+  ol, ul { margin: 0 0 3mm; padding-left: 7mm; }
+  li { margin-bottom: 1.6mm; text-align: justify; }
+  .cab { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; color: #333; margin-bottom: 6mm; }
+  .cab td { padding: 0.6mm 4mm 0.6mm 0; vertical-align: top; }
+  .caixa { border: 1px solid #555; padding: 3mm 4mm; margin: 4mm 0; break-inside: avoid; }
+  .peq { font-size: 10pt; color: #333; }
+  .campo { border-bottom: 1px solid #111; display: inline-block; min-width: 55mm; }
+  section { break-inside: avoid-page; }
+  @media screen { body { padding-inline: 8mm; } }
+</style>
+</head>
+<body>
+  <h1>Pedido de parecer jurídico</h1>
+  <table class="cab">
+    <tr><td><b>Assunto</b></td><td>Instalação, em casa de clientes, de aparelhos elétricos com rádio cujo software de origem foi substituído</td></tr>
+    <tr><td><b>De</b></td><td>Rui Bragança, Domus Energia (Estação Nómada, Unipessoal Lda.)</td></tr>
+    <tr><td><b>Para</b></td><td><span class="campo">&nbsp;</span></td></tr>
+    <tr><td><b>Data</b></td><td>9 de outubro de 2026</td></tr>
+  </table>
+
+  <div class="caixa peq">
+    Este documento descreve os factos e formula perguntas. Não é um parecer. As referências legais indicadas são as que nos parecem relevantes e devem ser confirmadas por V. Exa., incluindo a sua redação atual.
+  </div>
+
+  <section>
+    <h2>1. Quem somos e o que fazemos</h2>
+    <p>A Domus Energia presta serviços de instalações elétricas e de casa inteligente a clientes particulares, através do sítio opancas.pt. Os trabalhos são executados por eletricistas inscritos na DGEG, que colaboram com a empresa. A empresa fornece o material, emite o orçamento e a fatura ao cliente e presta a garantia do trabalho.</p>
+    <p>Além da instalação, a Domus disponibiliza ao cliente um programa próprio (área de cliente na internet e aplicação) para ver consumos e comandar equipamentos à distância, alojado num servidor da empresa.</p>
+  </section>
+
+  <section>
+    <h2>2. O equipamento em causa</h2>
+    <p>Pretendemos instalar no quadro elétrico dos clientes interruptores inteligentes de calha DIN, com Wi-Fi e medição de energia, da marca Chayo (também comercializados como Tongou), modelo TO-Q-SY1-JWT, de 16 A. O fabricante é a Changyou Technology (Zhejiang) Co., Ltd., com sede na China. O aparelho é vendido com marcação CE e declaração UE de conformidade ao abrigo da Diretiva 2014/53/UE.</p>
+    <p>Os aparelhos são adquiridos pela empresa em plataformas de venda em linha (Temu, entre outras), a vendedores estabelecidos fora de Portugal.</p>
+    <p>De origem, o aparelho só funciona ligado aos servidores do grupo Tuya (aplicação Smart Life), fora do controlo da Domus.</p>
+  </section>
+
+  <section>
+    <h2>3. A modificação que pretendemos fazer</h2>
+    <ol>
+      <li>Abertura da caixa do aparelho, que vem fechada com rebites, sendo depois fechada com parafusos.</li>
+      <li>Substituição do software de fábrica do módulo de comunicações por um software livre e de código aberto (OpenBeken), para que o aparelho comunique diretamente com o servidor da Domus, sem passar por terceiros.</li>
+      <li>Não há alteração dos componentes elétricos de potência, do relé, da antena nem do circuito de rádio. Altera-se apenas o programa que comanda o relé e lê o medidor.</li>
+      <li>Calibração do medidor e ensaio de funcionamento em bancada antes da instalação.</li>
+    </ol>
+    <p>O aparelho não substitui os dispositivos de proteção do quadro (disjuntores e diferenciais), que continuam a ser aparelhos certificados e não modificados. Funciona como interruptor comandado e contador.</p>
+    <p>Estamos cientes de que a modificação faz cessar, na prática, a garantia do fabricante e do vendedor.</p>
+  </section>
+
+  <section>
+    <h2>4. Perguntas</h2>
+    <h2 style="font-size:11.5pt;margin-top:3mm">A. Conformidade do produto e marcação CE</h2>
+    <ol>
+      <li>Ao substituir o software de um equipamento de rádio com marcação CE e ao instalá-lo em casa de um cliente, passa a Domus a ser considerada fabricante (ou responsável pela colocação no mercado) para efeitos da Diretiva 2014/53/UE (equipamentos de rádio), da Diretiva 2014/35/UE (baixa tensão) e da Diretiva 2014/30/UE (compatibilidade eletromagnética), e dos diplomas que as transpõem?</li>
+      <li>Em caso afirmativo, que obrigações concretas daí resultam (avaliação de conformidade, documentação técnica, declaração UE de conformidade em nome próprio, marcação, instruções em português)?</li>
+      <li>Sendo os aparelhos comprados a vendedores de fora da União Europeia, a Domus é considerada importadora? Com que obrigações?</li>
+      <li>Há diferença, para estes efeitos, entre vender o aparelho ao cliente e instalá-lo como parte de uma prestação de serviços?</li>
+    </ol>
+
+    <h2 style="font-size:11.5pt;margin-top:3mm">B. Garantia perante o cliente</h2>
+    <ol start="5">
+      <li>Qual é a extensão da garantia legal que a Domus deve ao cliente consumidor pelo aparelho e pela instalação, ao abrigo do Decreto-Lei n.º 84/2021, sabendo que não poderá exercer direito de regresso contra o fabricante?</li>
+      <li>É lícito e eficaz informar o cliente, por escrito e antes da contratação, de que o aparelho foi modificado pela Domus e de que a garantia é prestada exclusivamente pela Domus? Que redação recomenda?</li>
+      <li>Pode a garantia comercial da Domus ficar condicionada a que o aparelho mantenha o software instalado pela empresa e o selo da caixa intacto, sem prejudicar os direitos legais do consumidor?</li>
+    </ol>
+
+    <h2 style="font-size:11.5pt;margin-top:3mm">C. Responsabilidade por danos</h2>
+    <ol start="8">
+      <li>Em caso de dano causado por um destes aparelhos (incêndio, dano em equipamentos do cliente, lesão), quem responde e a que título: a Domus como produtora, nos termos do Decreto-Lei n.º 383/89, como prestadora do serviço, ou ambos? E o eletricista que executou a instalação?</li>
+      <li>A modificação do software agrava a posição da empresa em caso de litígio, ainda que o dano não tenha relação com o software?</li>
+      <li>Que cuidados de prova recomenda (registo dos ensaios de bancada, fotografias, número de série, versão do software, termo assinado pelo cliente)?</li>
+    </ol>
+
+    <h2 style="font-size:11.5pt;margin-top:3mm">D. Seguro</h2>
+    <ol start="11">
+      <li>A apólice de responsabilidade civil da empresa cobre danos causados por equipamento modificado pela própria empresa? Que pergunta devemos fazer por escrito à seguradora, e que cláusulas de exclusão devemos procurar?</li>
+      <li>Os eletricistas que colaboram com a Domus têm seguro próprio. Como se articulam as duas apólices num sinistro com um destes aparelhos?</li>
+    </ol>
+
+    <h2 style="font-size:11.5pt;margin-top:3mm">E. Eletricistas e enquadramento da empresa</h2>
+    <ol start="13">
+      <li>A instalação de um aparelho modificado pode pôr em causa a responsabilidade profissional do técnico responsável inscrito na DGEG, ou o termo de responsabilidade que este assina?</li>
+      <li>O objeto social e o CAE atuais da Estação Nómada, Unipessoal Lda. não incluem instalações elétricas. Que alterações são necessárias para a atividade descrita, incluindo a modificação e o fornecimento de equipamentos?</li>
+    </ol>
+
+    <h2 style="font-size:11.5pt;margin-top:3mm">F. Dados e serviço em linha</h2>
+    <ol start="15">
+      <li>O programa regista consumos de energia e o estado dos equipamentos da casa do cliente. Que obrigações acrescem ao abrigo do Regulamento Geral sobre a Proteção de Dados, para além das que já constam da política de privacidade do sítio?</li>
+      <li>Quando o cliente deixa de pagar o serviço em linha, a Domus suspende o comando à distância e as automações, mantendo o funcionamento manual do aparelho. Esta prática levanta algum problema? Confirma que não devemos, em caso algum, impedir o funcionamento manual?</li>
+      <li>O software instalado é de código aberto. Há obrigações de licença a cumprir perante o cliente (por exemplo, indicar o software e a licença, ou facultar o código)?</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>5. O que pedimos</h2>
+    <ul>
+      <li>Parecer sobre as perguntas acima, com indicação do que é obrigatório, do que é recomendável e do que deve ser evitado.</li>
+      <li>Redação de uma cláusula de informação e garantia para os termos e condições e para o orçamento.</li>
+      <li>Redação de um termo a assinar pelo cliente no momento da instalação.</li>
+      <li>Indicação sobre se a alternativa de instalar os aparelhos sem modificação, ligados aos servidores do fabricante, elimina ou reduz os riscos identificados.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Documentos que podemos enviar</h2>
+    <ul>
+      <li>Manual do fabricante e declaração UE de conformidade do aparelho.</li>
+      <li>Descrição técnica do procedimento de modificação e de ensaio.</li>
+      <li>Termos e condições e política de privacidade em vigor em opancas.pt.</li>
+      <li>Condições acordadas com os eletricistas.</li>
+      <li>Apólice de seguro de responsabilidade civil.</li>
+    </ul>
+  </section>
+
+  <p style="margin-top:10mm">Com os melhores cumprimentos,</p>
+  <p style="margin-top:8mm">Rui Bragança<br>Domus Energia</p>
+</body>
+</html>

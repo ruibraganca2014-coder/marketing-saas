@@ -30,7 +30,7 @@
 </head>
 <body>
   <h1>Guia de bancada: Chayo TO-Q-SY1-JWT</h1>
-  <p class="sub">Interruptor inteligente de calha DIN, 16 A, Wi-Fi, com medição (Chayo e Tongou são o mesmo aparelho). Trocar o software de fábrica pelo OpenBeken, para falar direto com o programa da Domus Energia. Versão 2, de 9 de outubro de 2026.</p>
+  <p class="sub">Interruptor inteligente de calha DIN, 16 A, Wi-Fi, com medição (Chayo e Tongou são o mesmo aparelho). Trocar o software de fábrica pelo OpenBeken, para falar direto com o programa da Domus Energia. Versão 3, de 9 de outubro de 2026.</p>
 
   <div class="aviso">
     <strong>Segurança: ler antes de tudo</strong>
@@ -193,6 +193,24 @@
       <tr><td>User / Password</td><td>Os do aparelho, criados pelo programa</td></tr>
     </table>
     <p>Depois de guardar, o aparelho aparece na área de cliente com o botão de ligar e desligar e com a potência, a tensão, a corrente e os kWh. Os dados exatos (cliente, nome do aparelho, utilizador e palavra-passe) criam-se na altura; a palavra-passe escreve-a o senhor.</p>
+  </section>
+
+  <section>
+    <h2>11. Trancar o aparelho (nível 1)</h2>
+    <p>Faz-se no fim, depois de tudo testado, pela página do aparelho. O objetivo: sem a palavra-passe, ninguém muda a configuração, o servidor nem o software pelo Wi-Fi.</p>
+    <ol>
+      <li><span class="cx"></span><b>Palavra-passe da página.</b> Em <b>Config → Configure WiFi</b>, na parte "Web Authentication", ativar e escrever uma palavra-passe (o utilizador é sempre <code>admin</code>). Uma palavra-passe <b>diferente por aparelho</b>, guardada pela Domus e nunca dada ao cliente. A partir daqui a página, a configuração e as atualizações pelo ar pedem-na.</li>
+      <li><span class="cx"></span><b>Fechar as outras portas de comando.</b> Na consola da página, escrever uma linha de cada vez:
+<pre>SetFlag 5 0
+SetFlag 31 0
+SetFlag 44 0</pre>
+        A primeira desliga a consola por rede, a segunda a linha de comandos pela porta série, e a terceira garante que a palavra-passe é pedida também no modo de recuperação.</li>
+      <li><span class="cx"></span><b>Servidor fixo.</b> Em <b>Config → Configure MQTT</b> ficam só o servidor e as credenciais da Domus (secção 10). O aparelho não fala com mais ninguém.</li>
+      <li><span class="cx"></span><b>Testar o bloqueio.</b> Abrir a página do aparelho numa janela privada do browser: tem de pedir utilizador e palavra-passe. Desligar e ligar a alimentação cinco vezes seguidas: o aparelho entra em modo de recuperação e cria uma rede Wi-Fi própria; ligar-se a ela e confirmar que a página <b>continua a pedir a palavra-passe</b>.</li>
+      <li><span class="cx"></span><b>Fechar fisicamente.</b> Parafusos, um selo por cima de uma das cabeças e, se quiser, uma gota de resina sobre o módulo Wi-Fi e as patas do medidor antes de fechar.</li>
+      <li><span class="cx"></span><b>Registar.</b> Anotar para cada aparelho: número de série, endereço MAC (aparece na página), versão do software, data e palavra-passe. Sem este registo, a Domus também fica de fora.</li>
+    </ol>
+    <div class="nota">O que isto não impede: gravar outro software por fios, com a caixa aberta. E o modo de recuperação não se consegue desligar; fica protegido pela palavra-passe. Os nomes dos menus podem variar com a versão do software.</div>
   </section>
 
   <section>
