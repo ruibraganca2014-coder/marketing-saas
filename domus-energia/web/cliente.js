@@ -1396,3 +1396,19 @@ lerLembrar().then(async (guardado) => {
 const religarJa = () => { if (cliente && !cliente.connected && !cliente.disconnecting && document.visibilityState === "visible") cliente.reconnect(); };
 document.addEventListener("visibilitychange", religarJa);
 window.addEventListener("online", religarJa);
+
+// Aplicação instalável: no Android (Chrome) o botão "Instalar" aparece quando o navegador o permite; no iPhone não há
+// pedido automático, por isso o botão explica o caminho (Partilhar → Adicionar ao ecrã principal).
+{
+  const b = $("instalar");
+  const instalada = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  let convite = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); convite = e; b.hidden = false; });
+  window.addEventListener("appinstalled", () => { convite = null; b.hidden = true; });
+  if (iphone && !instalada) b.hidden = false;
+  b.addEventListener("click", async () => {
+    if (convite) { const c = convite; convite = null; b.hidden = true; c.prompt(); return; }
+    alert("Para instalar no iPhone: toque em Partilhar (o quadrado com a seta) e escolha \"Adicionar ao ecrã principal\".");
+  });
+}

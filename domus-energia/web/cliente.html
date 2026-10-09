@@ -12,6 +12,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <!-- Aplicação instalável (decisão do dono, 2026-10-09): ícone no ecrã do telemóvel, abre sem a barra do navegador. -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icones/icone-apple-180.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Domus">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -21,6 +27,7 @@
       <a class="marca" href="index.html"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span>Domus <b>Energia</b></span></a>
       <nav>
         <button class="botao-tema" id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+        <button class="btn sec pequeno" id="instalar" type="button" hidden>Instalar</button>
         <button class="btn sec pequeno" id="sair" hidden>Sair</button>
       </nav>
     </div>
@@ -244,7 +251,8 @@
   </main>
 
   <script src="config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <!-- mqtt.js 5.16.0 servido pelo próprio site (antes vinha de um CDN: sem ele a área de cliente não abria). -->
+  <script src="vendor/mqtt.min.js"></script>
   <script type="module" src="cliente.js"></script>
 </body>
 </html>
