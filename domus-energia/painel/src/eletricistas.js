@@ -1022,9 +1022,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // for de confiança (`ativa_sem_aprovacao`). Só nos aparelhos que a casa do pedido já tem: quem cria aparelhos e lhes
   // dá credenciais é sempre o painel.
   const ativacoesDoTrabalho = (t) => db.prepare('SELECT id, aparelho, mac, serie, estado, criado, decidido FROM aparelhos_ativacoes WHERE trabalho_id = ? ORDER BY id DESC LIMIT 100').all(t.id);
+  /** A casa do pedido: só a que o painel lhe ligou ao converter (`orcamentos.cliente`). O `codigo_cliente` vem do formulário público e não serve de prova. */
+  const casaDoPedido = (o) => o.cliente ?? null;
   async function aparelhosDoTrabalho(e, t, o) {
     const ap = aparelhos();
-    const c = o.codigo_cliente ?? null;
+    // Com o trabalho fechado o eletricista deixa de ver a casa (como os dados do cliente): ficam só os seus registos.
+    const c = aberto(t, o) ? casaDoPedido(o) : null;
     const lista = c && ap ? await ap.listar(c) : null;
     return {
       cliente: c, casa_criada: Boolean(lista), sem_aprovacao: Boolean(e.ativa_sem_aprovacao),
@@ -1045,7 +1048,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     expirar();
     const { t, o } = meuEditavel(e, params.id);
     const ap = aparelhos();
-    const c = o.codigo_cliente ?? null;
+    const c = casaDoPedido(o);
     const lista = c && ap ? await ap.listar(c) : null;
     if (!lista) throw new ErroApi(409, 'Este pedido ainda não tem a casa criada no programa: fale com a Domus.');
     const id = texto(v.aparelho, 'o aparelho', { max: 32, obrigatorio: true });
@@ -1056,12 +1059,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const agora = agoraIso();
     const direto = Boolean(e.ativa_sem_aprovacao);
     // Um pedido por aparelho e por trabalho: o novo substitui o que ainda estava à espera.
-    db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = ? WHERE trabalho_id = ? AND aparelho = ? AND estado = 'pendente'").run(agora, `eletricista:${e.id}`, t.id, id);
+    const jaEsperava = db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = ? WHERE trabalho_id = ? AND aparelho = ? AND estado = 'pendente'").run(agora, `eletricista:${e.id}`, t.id, id).changes > 0;
+    // Registo direto: as aprovações anteriores deste aparelho ficam substituídas (senão anular uma antiga apagava o chip da nova).
+    if (direto) db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = 'substituída' WHERE cliente = ? AND aparelho = ? AND estado = 'aprovada'").run(agora, c, id);
     const aid = Number(db.prepare(`INSERT INTO aparelhos_ativacoes (cliente, aparelho, mac, serie, trabalho_id, eletricista_id, estado, criado, decidido, decidido_por)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(c, id, mac, serie, t.id, e.id, direto ? 'aprovada' : 'pendente', agora, direto ? agora : null, direto ? 'automático' : null).lastInsertRowid);
     if (direto) ap.registar(c, id, { mac, serie }, `eletricista:${e.id}`);
     auditar(quem(e), 'aparelho_chip_eletricista', `cliente:${c}`, { ativacao: aid, trabalho: t.id, aparelho: id, mac, direto }, ip);
-    if (!direto) {
+    // Um email por aparelho à espera: corrigir o código de um registo que já esperava não volta a avisar.
+    if (!direto && !jaEsperava) {
       const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/ativacoes`] : [];
       for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
         correio.enviar({ para: email, assunto: 'Domus Energia: ativação de aparelho por aprovar', resumo: `ativação ${aid} por aprovar (aparelho ${id} de ${c})`,

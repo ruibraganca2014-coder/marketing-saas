@@ -800,7 +800,23 @@ export function criarApi(ctx) {
     db.prepare(`INSERT INTO aparelhos_chip (cliente, aparelho, mac, serie, registado, por) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (cliente, aparelho) DO UPDATE SET mac = excluded.mac, serie = excluded.serie, registado = excluded.registado, por = excluded.por,
         avisado = CASE WHEN excluded.mac IS aparelhos_chip.mac THEN aparelhos_chip.avisado ELSE NULL END`).run(c, a, mac, serie, agora, por);
+    avisarChipDiferente(c, a);   // registar um chip que não é o que o aparelho já anuncia também avisa
     return chipDe(c, a);
+  }
+  /** Se o chip registado não é o que o aparelho anuncia e ainda não se avisou: marca, audita e manda o email aos CEO (uma vez por chip registado). */
+  function avisarChipDiferente(c, a) {
+    const l = chipDe(c, a);
+    if (!l?.mac || !l.mac_visto || l.mac === l.mac_visto || l.avisado) return;
+    db.prepare('UPDATE aparelhos_chip SET avisado = ? WHERE cliente = ? AND aparelho = ?').run(iso(relogio()), c, a);
+    auditar(null, 'aparelho_chip_diferente', `cliente:${c}`, { aparelho: a, registado: l.mac, visto: l.mac_visto }, null);
+    const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/clientes/${c}`] : [];
+    for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: aparelho com chip diferente do registado', resumo: `chip diferente no aparelho ${a} de ${c}`,
+        texto: ['Olá,', '', `O aparelho "${a}" da casa "${c}" está a responder com um chip diferente do que foi registado.`, '',
+          `Registado: ${l.mac}`, `A responder: ${l.mac_visto}`, '',
+          'Pode ser um aparelho trocado sem registo, ou as credenciais deste aparelho postas noutro. O aparelho continua a funcionar: decida no painel se regista o chip novo ou remove o aparelho.',
+          ...painel, '', 'Domus Energia'].join('\n') });
+    }
   }
   /** O chip para as fichas: registado, visto e se batem. */
   function chipPublico(l) {
@@ -816,23 +832,12 @@ export function criarApi(ctx) {
   };
   // O painel de alertas compara o chip anunciado com o registado; a primeira vez que não bate, avisa os CEO por email.
   if (alertas) {
-    alertas.chips = (c) => new Map(db.prepare('SELECT aparelho, mac FROM aparelhos_chip WHERE cliente = ? AND mac IS NOT NULL').all(c).map((r) => [r.aparelho, r.mac]));
+    alertas.chips = (c) => new Map(db.prepare('SELECT aparelho, mac, mac_visto FROM aparelhos_chip WHERE cliente = ?').all(c).map((r) => [r.aparelho, { mac: r.mac ?? null, visto: r.mac_visto ?? null }]));
     alertas.aoVerMac = (c, a, mac) => {
       const agora = iso(relogio());
       db.prepare(`INSERT INTO aparelhos_chip (cliente, aparelho, mac_visto, visto) VALUES (?, ?, ?, ?)
         ON CONFLICT (cliente, aparelho) DO UPDATE SET mac_visto = excluded.mac_visto, visto = excluded.visto`).run(c, a, mac, agora);
-      const l = chipDe(c, a);
-      if (!l?.mac || l.mac === mac || l.avisado) return;
-      db.prepare('UPDATE aparelhos_chip SET avisado = ? WHERE cliente = ? AND aparelho = ?').run(agora, c, a);
-      auditar(null, 'aparelho_chip_diferente', `cliente:${c}`, { aparelho: a, registado: l.mac, visto: mac }, null);
-      const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/clientes/${c}`] : [];
-      for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
-        correio.enviar({ para: email, assunto: 'Domus Energia: aparelho com chip diferente do registado', resumo: `chip diferente no aparelho ${a} de ${c}`,
-          texto: ['Olá,', '', `O aparelho "${a}" da casa "${c}" está a responder com um chip diferente do que foi registado.`, '',
-            `Registado: ${l.mac}`, `A responder: ${mac}`, '',
-            'Pode ser um aparelho trocado sem registo, ou as credenciais deste aparelho postas noutro. O aparelho continua a funcionar: decida no painel se regista o chip novo ou remove o aparelho.',
-            ...painel, '', 'Domus Energia'].join('\n') });
-      }
+      avisarChipDiferente(c, a);
     };
   }
 
@@ -843,6 +848,7 @@ export function criarApi(ctx) {
     const v = await lerJson(req, [...CAMPOS_APARELHO, 'mac', 'serie']);
     // O chip regista-se no painel; não vai no pedido ao servidor (o domus.sh não o conhece).
     const chip = camposChip(v);
+    if ((chip.mac !== undefined || chip.serie !== undefined) && u.papel !== 'ceo') throw new ErroApi(403, 'Só o CEO regista o chip de um aparelho.');
     const a = camposAparelho(v);
     const aps = await dados.aparelhos(c);
     if (!aps) throw new ErroApi(404, 'Cliente não encontrado (ou ainda não criado no servidor).');
@@ -900,6 +906,12 @@ export function criarApi(ctx) {
       if (chipDe(a.cliente, a.aparelho)?.mac === a.mac) guardarChip(a.cliente, a.aparelho, { mac: null }, u.email);
     } else {
       if (a.estado !== 'pendente') throw new ErroApi(409, 'Esta ativação já foi decidida.');
+      if (acao === 'aprovar') {
+        const aps = await dados.aparelhos(a.cliente);
+        if (!aps?.some((x) => x.id === a.aparelho)) throw new ErroApi(409, 'Este aparelho já não existe nesta casa: recuse a ativação.');
+        // As aprovações anteriores deste aparelho ficam substituídas por esta.
+        db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = 'substituída' WHERE cliente = ? AND aparelho = ? AND estado = 'aprovada'").run(agora, a.cliente, a.aparelho);
+      }
       if (acao === 'aprovar') guardarChip(a.cliente, a.aparelho, { mac: a.mac, serie: a.serie ?? null }, a.eletricista_id ? `eletricista:${a.eletricista_id}` : u.email);
     }
     const estado = { aprovar: 'aprovada', recusar: 'recusada', anular: 'anulada' }[acao];
@@ -917,6 +929,10 @@ export function criarApi(ctx) {
     if (!aps.some((a) => a.id === params.a)) throw new ErroApi(404, 'Aparelho não encontrado.');
     const pedido = await pedidos.criar({ tipo: 'remover-aparelho', cliente: c, utilizador: u, dados: { cliente: c, id: params.a } });
     auditar(u, 'pedido_remover_aparelho', `cliente:${c}`, { pedido: pedido.id, aparelho: params.a }, ip);
+    // O chip registado e os registos à espera vão com o aparelho (senão um aparelho novo com o mesmo id herdava-os).
+    db.prepare('DELETE FROM aparelhos_chip WHERE cliente = ? AND aparelho = ?').run(c, params.a);
+    db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = 'aparelho removido' WHERE cliente = ? AND aparelho = ? AND estado = 'pendente'").run(iso(relogio()), c, params.a);
+    alertas?.esquecerMac?.(c, params.a);
     responder(res, 202, { pedido });
   };
 

@@ -19,7 +19,7 @@ export default function ativacoes(el, ctx) {
     botao.disabled = true;
     try {
       desenhar(await pedir(`ativacoes/${encodeURIComponent(campo(a, "id"))}`, { corpo: { acao } }));
-      avisar({ aprovar: "Ativação aprovada: o chip ficou registado.", recusar: "Ativação recusada.", anular: "Ativação anulada: o chip deixou de estar registado." }[acao], "ok");
+      avisar({ aprovar: "Ativação aprovada: o chip ficou registado.", recusar: "Ativação recusada.", anular: "Ativação anulada." }[acao], "ok");
     } catch (e) {
       botao.disabled = false;
       avisar(e.message, "erro");

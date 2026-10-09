@@ -26,6 +26,7 @@ const MAX_PAYLOAD = 256 * 1024;
 const MAX_CLIENTES = 5000;
 const MAX_APARELHOS = 300;
 const MAX_EVENTOS = 20;
+const MIN_ENTRE_MACS_MS = 10_000;   // um aparelho a alternar de chip não escreve na base mais depressa do que isto
 const SEM_NOTICIAS_BATERIA_MS = 24 * 3600_000;
 const ARMADO = new Set(['a_armar', 'armado', 'entrada', 'disparado']);
 
@@ -45,7 +46,7 @@ export class Alertas {
     this.casas = new Map();
     this.cli = null;
     this.ligadoDesde = null;
-    /** (cliente) → Map(aparelho → MAC registado). Posto por quem tem a base (api.js); sem ele não há alertas de chip. */
+    /** (cliente) → Map(aparelho → {mac registado, visto pela última vez}). Posto por quem tem a base (api.js); sem ele não há alertas de chip. */
     this.chips = null;
     /** (cliente, aparelho, mac) quando um aparelho anuncia um chip novo ou diferente do último. */
     this.aoVerMac = null;
@@ -123,10 +124,12 @@ export class Alertas {
     if (p.length === 4 && p[3] === 'mac') {
       if (!RE_ID.test(p[2])) return;
       const casa = this.#casa(p[1]);
-      const mac = normalizarMac(texto);
-      if (!casa || !mac || (casa.macs.size >= MAX_APARELHOS && !casa.macs.has(p[2]))) return;
-      if (casa.macs.get(p[2]) === mac) return;
-      casa.macs.set(p[2], mac);
+      const mac = texto ? normalizarMac(texto) : null;
+      if (!casa || (texto && !mac) || (casa.macs.size >= MAX_APARELHOS && !casa.macs.has(p[2]))) return;
+      if (!texto) { casa.macs.delete(p[2]); return; }
+      const antes = casa.macs.get(p[2]);
+      if (antes?.mac === mac || (antes && agora - antes.quando < MIN_ENTRE_MACS_MS)) return;
+      casa.macs.set(p[2], { mac, quando: agora });
       this.aoVerMac?.(p[1], p[2], mac);
       return;
     }
@@ -246,11 +249,18 @@ export class Alertas {
     }
     // O chip anunciado contra o registado: um aparelho que responde com outro chip pode ser um aparelho trocado ou
     // credenciais copiadas (docs/ATIVACAO-APARELHOS.md).
-    const registados = casa.macs.size ? this.chips?.(c) : null;
-    for (const [id, visto] of casa.macs) {
-      const reg = registados?.get(id) ?? null;
-      if (reg && reg !== visto) add(id, 'chip_diferente', 'critica', `O chip deste aparelho não é o registado (registado ${reg}, a responder ${visto}).`, { valor: visto });
-      else if (!reg && registados && casa.aparelhos.has(id)) add(id, 'chip_por_registar', 'baixa', `Chip por registar (${visto}).`, { valor: visto });
+    // O registado e o último visto vêm da base (sobrevivem a um reinício do painel); o que chegou agora por MQTT manda.
+    const registados = this.chips?.(c) ?? null;
+    if (registados) {
+      for (const id of new Set([...registados.keys(), ...casa.macs.keys()])) {
+        // Um aparelho que a casa já não tem não dá alertas de chip.
+        if (casa.aparelhos.size && !casa.aparelhos.has(id)) continue;
+        const reg = registados.get(id)?.mac ?? null;
+        const visto = casa.macs.get(id)?.mac ?? registados.get(id)?.visto ?? null;
+        if (!visto) continue;
+        if (reg && reg !== visto) add(id, 'chip_diferente', 'critica', `O chip deste aparelho não é o registado (registado ${reg}, a responder ${visto}).`, { valor: visto });
+        else if (!reg && casa.aparelhos.has(id)) add(id, 'chip_por_registar', 'baixa', `Chip por registar (${visto}).`, { valor: visto });
+      }
     }
     return out;
   }
@@ -274,6 +284,11 @@ export class Alertas {
   casa(c) {
     const casa = this.casas.get(c);
     if (!casa) return null;
-    return { alarme: casa.alarme, modo: casa.modo, plano: casa.plano, eventos: casa.eventos, macs: Object.fromEntries(casa.macs) };
+    return { alarme: casa.alarme, modo: casa.modo, plano: casa.plano, eventos: casa.eventos, macs: Object.fromEntries([...casa.macs].map(([id, m]) => [id, m.mac])) };
+  }
+
+  /** Esquece o chip visto de um aparelho (quando o painel o remove da casa). */
+  esquecerMac(c, aparelho) {
+    this.casas.get(c)?.macs.delete(aparelho);
   }
 }

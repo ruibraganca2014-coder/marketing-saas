@@ -119,7 +119,7 @@ export default function eletricistas(el) {
           selo(`${e.trabalhos_em_curso} ${e.trabalhos_em_curso === 1 ? "trabalho em curso" : "trabalhos em curso"}`, "info"),
           e.trabalhos_largados ? selo(`${e.trabalhos_largados} ${e.trabalhos_largados === 1 ? "largado" : "largados"}`, "aviso") : null),
         h("span", { class: "conta-acoes" },
-          h("span", { class: "ajuda", text: "% mão de obra" }), campoPct(e),
+          h("span", { class: "ajuda", text: "% mão de obra" }), campoPct(e), campoAtiva(e),
           h("button", { class: "btn sec pequeno", type: "button", text: "Ver ficha", "aria-label": `Ver ficha de ${e.nome}`, onclick: () => abrirFicha(e) }),
           e.estado === "aprovado" ? (e.trabalhos?.length
             ? h("button", { class: "btn sec pequeno", type: "button", text: "Suspender", "aria-haspopup": "dialog", onclick: () => avisoSuspender(e) })

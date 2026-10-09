@@ -19,7 +19,8 @@ test('normalizarMac: com ou sem separadores, maiúsculas; o resto é null', () =
 });
 
 test('alertas: chip diferente do registado é crítico; chip por registar é baixo; sem registos não há alertas de chip', () => {
-  const a = new Alertas({ config: { mqtt: {} }, registo: { info() {}, erro() {}, aviso() {} } });
+  let t = 1_000_000;
+  const a = new Alertas({ config: { mqtt: {} }, registo: { info() {}, erro() {}, aviso() {} }, relogio: () => t });
   const vistos = [];
   a.aoVerMac = (...x) => vistos.push(x);
   a.receber('domus/joao/_aparelhos', Buffer.from(JSON.stringify([{ id: 'sala', nome: 'Sala' }, { id: 'termo', nome: 'Termo' }])), true);
@@ -28,13 +29,27 @@ test('alertas: chip diferente do registado é crítico; chip por registar é bai
   a.receber('domus/joao/termo/mac', Buffer.from(OUTRO));
   a.receber('domus/joao/termo/mac', Buffer.from('lixo'));
   assert.deepEqual(vistos, [['joao', 'sala', MAC], ['joao', 'termo', OUTRO]]);
+  a.chips = () => new Map();
+  a.chips = null;
   assert.deepEqual(a.lista().alertas.filter((x) => x.tipo.startsWith('chip')), [], 'sem quem diga o que está registado, nada');
-  a.chips = () => new Map([['sala', OUTRO]]);
+  const chips = (o) => () => new Map(Object.entries(o).map(([k, mac]) => [k, { mac, visto: null }]));
+  a.chips = chips({ sala: OUTRO });
   const al = a.lista().alertas.filter((x) => x.tipo.startsWith('chip'));
   assert.deepEqual(al.map((x) => [x.aparelho, x.tipo, x.gravidade]), [['sala', 'chip_diferente', 'critica'], ['termo', 'chip_por_registar', 'baixa']]);
   assert.match(al[0].mensagem, new RegExp(`registado ${OUTRO}, a responder ${MAC}`));
-  a.chips = () => new Map([['sala', MAC], ['termo', OUTRO]]);
+  a.chips = chips({ sala: MAC, termo: OUTRO });
   assert.deepEqual(a.lista().alertas.filter((x) => x.tipo.startsWith('chip')), [], 'a conferir: sem alertas');
+  // Um aparelho a alternar de chip só conta uma mudança de 10 em 10 segundos; o último visto na base também dá alerta
+  // (depois de um reinício do painel); um aparelho que a casa já não tem não dá.
+  a.receber('domus/joao/sala/mac', Buffer.from(OUTRO));
+  assert.equal(vistos.length, 2, 'cedo demais: ignorado');
+  t += 10_001;
+  a.receber('domus/joao/sala/mac', Buffer.from(OUTRO));
+  assert.deepEqual(vistos.at(-1), ['joao', 'sala', OUTRO]);
+  const b = new Alertas({ config: { mqtt: {} }, registo: { info() {}, erro() {}, aviso() {} } });
+  b.receber('domus/joao/_aparelhos', Buffer.from(JSON.stringify([{ id: 'sala', nome: 'Sala' }])), true);
+  b.chips = () => new Map([['sala', { mac: MAC, visto: OUTRO }], ['antigo', { mac: MAC, visto: OUTRO }]]);
+  assert.deepEqual(b.lista().alertas.filter((x) => x.tipo.startsWith('chip')).map((x) => [x.aparelho, x.tipo]), [['sala', 'chip_diferente']]);
 });
 
 describe('painel e eletricista', () => {
@@ -66,6 +81,7 @@ describe('painel e eletricista', () => {
 
   test('painel: o CEO regista o chip; a ficha mostra o estado; o aparelho a responder com outro dá alerta crítico e um email', async () => {
     assert.equal((await painel('POST', 'clientes/joao/aparelhos/sala/chip', 'tecnico', { mac: MAC })).estado, 403, 'só o CEO');
+    assert.equal((await painel('POST', 'clientes/joao/aparelhos', 'tecnico', { id: 'sala', tipo: 'openbeken', nome: 'Sala', substituir: true, mac: MAC })).estado, 403, 'nem pelo pedido de aparelho');
     assert.equal((await painel('POST', 'clientes/joao/aparelhos/sala/chip', 'ceo', { mac: 'não é' })).estado, 400);
     assert.equal((await painel('POST', 'clientes/joao/aparelhos/nao-existe/chip', 'ceo', { mac: MAC })).estado, 404);
     const r = await painel('POST', 'clientes/joao/aparelhos/sala/chip', 'ceo', { mac: '381f8d12abcd', serie: 'DOM-0001' });
@@ -78,6 +94,7 @@ describe('painel e eletricista', () => {
     assert.equal((await chipDe('sala')).estado, 'confere');
     const antes = p.emails.length;
     // Agora responde outro chip no lugar dele.
+    p.relogio.avancar(11_000);
     p.app.alertas.receber('domus/joao/sala/mac', Buffer.from(OUTRO));
     const c = await chipDe('sala');
     assert.deepEqual([c.estado, c.mac, c.visto], ['diferente', MAC, OUTRO]);
@@ -85,9 +102,14 @@ describe('painel e eletricista', () => {
     assert.deepEqual(al.map((x) => [x.aparelho, x.gravidade]), [['sala', 'critica']]);
     assert.equal(p.emails.length, antes + 1, 'um email ao CEO');
     assert.match(p.emails.at(-1).texto, /chip diferente do que foi registado/);
+    p.relogio.avancar(11_000);
     p.app.alertas.receber('domus/joao/sala/mac', Buffer.from(MAC));
+    p.relogio.avancar(11_000);
     p.app.alertas.receber('domus/joao/sala/mac', Buffer.from(OUTRO));
     assert.equal(p.emails.length, antes + 1, 'avisa uma vez por chip registado');
+    // Registar um chip que não é o que o aparelho já anuncia também avisa (o aparelho não muda, por isso não viria outro aviso).
+    assert.equal((await painel('POST', 'clientes/joao/aparelhos/sala/chip', 'ceo', { mac: '38:1F:8D:00:00:07' })).json.chip.estado, 'diferente');
+    assert.equal(p.emails.length, antes + 2);
     // O CEO aceita o chip novo: deixa de haver alerta.
     assert.equal((await painel('POST', 'clientes/joao/aparelhos/sala/chip', 'ceo', { mac: OUTRO })).json.chip.estado, 'confere');
     assert.equal((await painel('GET', 'alertas?cliente=joao')).json.alertas.filter((x) => x.tipo === 'chip_diferente').length, 0);
@@ -98,7 +120,12 @@ describe('painel e eletricista', () => {
     let r = await area('GET', `trabalhos/${tid}/aparelhos`);
     assert.deepEqual([r.estado, r.json.casa_criada, r.json.pode_registar, r.json.aparelhos], [200, false, false, []], 'pedido sem casa');
     assert.equal((await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: MAC })).estado, 409);
+    // O `codigo_cliente` vem do formulário público: não dá acesso a casa nenhuma.
     p.app.db.prepare('UPDATE orcamentos SET codigo_cliente = ? WHERE id = ?').run('joao', oid);
+    r = await area('GET', `trabalhos/${tid}/aparelhos`);
+    assert.deepEqual([r.json.cliente, r.json.casa_criada, r.json.aparelhos], [null, false, []], 'só a casa que o painel ligou ao pedido');
+    assert.equal((await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: MAC })).estado, 409);
+    p.app.db.prepare('UPDATE orcamentos SET codigo_cliente = NULL, cliente = ? WHERE id = ?').run('joao', oid);
     r = await area('GET', `trabalhos/${tid}/aparelhos`);
     assert.deepEqual([r.json.cliente, r.json.casa_criada, r.json.pode_registar, r.json.sem_aprovacao], ['joao', true, true, false]);
     assert.deepEqual(r.json.aparelhos, [{ id: 'sala', nome: 'Sala grande', divisao: null, chip: 'por_registar' }, { id: 'termo', nome: 'Termoacumulador', divisao: 'Casa de banho', chip: 'por_registar' }]);
@@ -113,6 +140,7 @@ describe('painel e eletricista', () => {
     // Corrige o código antes de aprovado: o pedido anterior é anulado, fica um à espera.
     r = await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: OUTRO });
     assert.deepEqual(r.json.pedidos.map((x) => x.estado), ['pendente', 'anulada']);
+    assert.equal(p.emails.length, antes + 1, 'corrigir o código não volta a avisar');
     let l = (await painel('GET', 'ativacoes')).json;
     assert.deepEqual([l.pendentes.length, l.pendentes[0].aparelho, l.pendentes[0].mac, l.pendentes[0].eletricista.nome, l.pendentes[0].pedido_id], [1, 'termo', OUTRO, 'Eletricista Chip', oid]);
     assert.equal((await painel('GET', 'ativacoes', 'tecnico')).estado, 403);
@@ -137,9 +165,16 @@ describe('painel e eletricista', () => {
     const r0 = await painel('POST', `eletricistas/${e.id}`, 'ceo', { ativa_sem_aprovacao: true });
     assert.deepEqual([r0.estado, r0.json.eletricista.ativa_sem_aprovacao], [200, true]);
     const antes = p.emails.length;
-    const r = await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'sala', mac: MAC });
-    assert.deepEqual([r.estado, r.json.sem_aprovacao, r.json.pedidos[0].estado, r.json.aparelhos[0].chip], [200, true, 'aprovada', 'diferente'], 'vale logo (o último chip que este aparelho anunciou era outro)');
+    // O termoacumulador ainda não anunciou chip nenhum: o registo vale logo e fica "por ver", sem emails.
+    const r = await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: MAC });
+    assert.deepEqual([r.estado, r.json.sem_aprovacao, r.json.pedidos[0].estado, r.json.aparelhos[1].chip], [200, true, 'aprovada', 'por_ver'], 'vale logo');
     assert.equal(p.emails.length, antes, 'sem pedido de aprovação');
+    // Um registo direto que não bate com o que o aparelho anuncia avisa o CEO (a sala anunciou outro chip).
+    const d = await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'sala', mac: '38:1F:8D:00:00:08' });
+    assert.equal(d.json.aparelhos[0].chip, 'diferente');
+    assert.equal(p.emails.length, antes + 1);
+    assert.match(p.emails.at(-1).texto, /chip diferente do que foi registado/);
+    await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: MAC });
     const l = (await painel('GET', 'ativacoes')).json;
     assert.deepEqual([l.pendentes.length, l.recentes[0].decidido_por, l.recentes[0].chip_atual.mac], [0, 'automático', MAC]);
     assert.equal((await painel('POST', `ativacoes/${l.recentes[0].id}`, 'ceo', { acao: 'anular' })).json.recentes[0].chip_atual.estado, 'por_registar');
