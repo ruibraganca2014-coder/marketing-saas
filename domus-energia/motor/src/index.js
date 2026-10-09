@@ -84,6 +84,7 @@ export function iniciar(config, opcoes = {}) {
     if (parado) return;
     parado = true;
     clearInterval(intervalo);
+    motor.despedir();
     armazenamento.descarregar();
     await new Promise((resolve) => cliente.end(false, {}, () => resolve(undefined)));
     l.info('[motor] parado');

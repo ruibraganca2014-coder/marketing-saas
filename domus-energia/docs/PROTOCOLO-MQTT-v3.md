@@ -72,6 +72,9 @@ O motor publica (retido, a cada 5 min ou quando muda) `domus/<c>/_saude`:
 Fontes: OpenBeken publica periodicamente `<p>/rssi` e `<p>/uptime` (verificar no aparelho; se não vier, `null`); Shelly `status/wifi` (`rssi`) e `status/sys` (`uptime`). `bateria_dias`: estimativa linear a partir da descida da percentagem nos últimos 14 dias (`null` sem dados suficientes). `reinicios_24h`: descidas do uptime.
 Avisos (evento `aviso`, uma vez por ocorrência): aparelho sem bateria offline > `offline_min`; bateria < 15 % ou `bateria_dias` < 21; sinal fraco (rssi < -80 durante 1 h); > 5 reinícios em 24 h.
 
+### 5.1 Sinal de vida do motor — `_motor`
+O motor publica (retido, de minuto a minuto) `domus/<c>/_motor` = `{"vivo": "...Z"}` e apaga-o (mensagem vazia) numa paragem ordenada. A área de cliente conta a hora de chegada: sem sinal há mais de 2,5 minutos, ou com a mensagem vazia, mostra "Alarme, cenas e automações indisponíveis de momento" e bloqueia modos, cenas, automações e definições; luzes e tomadas continuam (vão direto aos aparelhos).
+
 ## 6. Energia — `_energia`
 Retido, atualizado a cada 5 min: `{"hoje_kwh": 7.4, "ontem_kwh": 9.1, "mes_kwh": 180.2, "aparelhos": {"quadro": {"hoje_kwh": 7.4, "ontem_kwh": 9.1}}}` a partir do contador de energia (Wh) dos aparelhos `medidor` (diferença desde a meia-noite; tolera reinício do contador).
 **Em espera**: canal ligado de aparelho `medidor` com potência < `limiar_espera_w` → estado "Em espera" na app/site e no relatório.

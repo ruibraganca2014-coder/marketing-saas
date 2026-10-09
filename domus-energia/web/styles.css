@@ -1020,3 +1020,6 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .garantias b { display: block; }
 .garantias span { color: var(--texto-suave); font-size: .95rem; }
 /* === fim "Quem faz a obra" === */
+
+/* Área de cliente: com o servidor das automações parado, o que depende dele fica a cinzento (cliente.js avaliarMotor). */
+#vista-painel [inert] { opacity: .45; }

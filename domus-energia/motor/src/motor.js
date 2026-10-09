@@ -908,6 +908,22 @@ export class Motor {
    * dos aparelhos), potências e, uma vez por minuto, horas, sol, avisos,
    * energia, saúde, simulação de presença e relatório.
    */
+  /**
+   * Sinal de vida (`_motor`, retido, de minuto a minuto): a área de cliente sabe por ele que o alarme, as cenas e as
+   * automações estão a ser servidos; sem ele durante uns minutos mostra "indisponíveis de momento".
+   * @param {number} agora
+   */
+  darSinalDeVida(agora) {
+    for (const c of this.clientes.values()) {
+      if (this.sincronizados.has(c.codigo)) this.publicar(`domus/${c.codigo}/_motor`, { vivo: new Date(agora).toISOString() }, true);
+    }
+  }
+
+  /** Paragem ordenada: apaga o sinal de vida, para a área de cliente o saber logo. */
+  despedir() {
+    for (const c of this.clientes.values()) this.publicar(`domus/${c.codigo}/_motor`, '', true);
+  }
+
   tick() {
     try {
       const agora = this.relogio.agora();
@@ -932,6 +948,7 @@ export class Motor {
         const inicio = Math.max(this.ultimoMinuto + 1, minuto - 9);
         for (let m = inicio; m <= minuto; m++) this.minuto(m * 60_000);
         this.ultimoMinuto = minuto;
+        this.darSinalDeVida(agora);
       }
       for (const c of this.clientes.values()) {
         if (!this.sincronizados.has(c.codigo)) continue;

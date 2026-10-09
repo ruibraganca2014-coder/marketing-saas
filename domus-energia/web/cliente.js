@@ -377,6 +377,10 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       if (abrirSubscricaoAoEntrar) { abrirSubscricaoAoEntrar = false; abrirSubscricao(); }
     }
     estadoLigacao(true);
+    ligadoDesde = Date.now();
+    motorVisto = 0;
+    motorParou = false;
+    avaliarMotor();
     // O aviso de falta de ligação deixa de fazer sentido (os outros erros ficam).
     if ($("painel-erro").textContent === SEM_LIGACAO) mostrarErro(null);
     automacoes.religado();
@@ -479,6 +483,20 @@ function avisoLogin(texto) {
   $("login-aviso").hidden = !texto;
   $("login-aviso").textContent = texto ?? "";
 }
+
+// Servidor das automações (motor): parado se disse que parava, ou se não dá sinal de vida há mais de 2,5 minutos
+// (desde a última mensagem; sem nenhuma, desde que esta página se ligou).
+const PRAZO_MOTOR = 150_000;
+let motorVisto = 0;
+let motorParou = false;
+let ligadoDesde = 0;
+const BLOQUEADOS_SEM_MOTOR = ["modos", "cenas", "sec-automacoes", "sec-definicoes"];
+function avaliarMotor() {
+  const parado = !!cliente?.connected && (motorParou || Date.now() - (motorVisto || ligadoDesde) > PRAZO_MOTOR);
+  $("motor-aviso").hidden = !parado;
+  for (const id of BLOQUEADOS_SEM_MOTOR) { const x = $(id); if (x) x.inert = parado; }
+}
+setInterval(avaliarMotor, 15_000);
 
 function estadoLigacao(ligado) {
   const e = $("ligacao");
@@ -623,6 +641,17 @@ function receber(topico, texto, retido) {
         energia = E.lerEnergia(texto);
         resumo();
         break;
+      case "_motor": {
+        // Sinal de vida do servidor das automações (de minuto a minuto). Conta a hora de chegada, não o relógio do
+        // telemóvel; a mensagem retida só serve se for recente. Vazia (não retida): o servidor parou de propósito.
+        let t = NaN;
+        try { t = Date.parse(JSON.parse(texto)?.vivo ?? ""); } catch { /* vazia ou estranha */ }
+        if (!texto.trim()) { if (!retido) { motorParou = true; motorVisto = 0; } }
+        else if (!retido) { motorVisto = Date.now(); motorParou = false; }
+        else if (Number.isFinite(t) && Math.abs(Date.now() - t) < PRAZO_MOTOR) { motorVisto = Date.now(); motorParou = false; }
+        avaliarMotor();
+        break;
+      }
       case "_saude":
         saude = E.lerSaude(texto);
         E.notarSaude(estados, saude);
