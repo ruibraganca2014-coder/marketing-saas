@@ -117,7 +117,7 @@ export default function clientes(el, ctx) {
         return li;
       })));
     }
-    partes.push(h("h3", { text: "Alertas" }), alertas.length
+    if (alertasV !== undefined && alertasV !== null) partes.push(h("h3", { text: "Alertas" }), alertas.length
       ? h("ul", { class: "lista-simples" }, ...alertas.map((a) => h("li", {}, selo(GRAVIDADES[gravidadeDe(campo(a, "gravidade"))], `grav-${gravidadeDe(campo(a, "gravidade"))}`), " ", txt(a, "mensagem", "texto", "tipo"))))
       : h("p", { class: "vazio", text: "Sem alertas." }));
     partes.push(h("h3", { text: "Obras" }), obras.length
@@ -163,7 +163,8 @@ export default function clientes(el, ctx) {
       try {
         await pedir(`clientes/${encodeURIComponent(codigo)}/aparelhos/${encodeURIComponent(campo(a, "id"))}/chip`, { corpo: { mac: f.elements.mac.value.trim() || null, serie: f.elements.serie.value.trim() || null } });
         avisar("Chip guardado.", "ok");
-        abrirFicha(codigo);
+        const c = await pedir(`clientes/${encodeURIComponent(codigo)}`);
+        desenharFicha(j, campo(c, "cliente") ?? c, codigo);
       } catch (erro) {
         b.disabled = false;
         mensagem(msg, erro.message);

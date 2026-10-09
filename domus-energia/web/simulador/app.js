@@ -102,6 +102,8 @@ function desassinalar(alvo) {
   alvo.classList.remove("em-falta");
   alvo.removeAttribute("aria-invalid");
   alvo.removeAttribute("aria-errormessage");
+  // Sem nada por responder, o texto para o leitor de ecrã também sai (ficava a ser lido nos passos seguintes).
+  if (!document.querySelector(".em-falta")) { const leitor = $("sim-falta-leitor"); if (leitor) leitor.textContent = ""; }
 }
 const desassinalarTodos = () => { for (const x of document.querySelectorAll(".em-falta")) desassinalar(x); };
 for (const ev of ["input", "change", "click"]) document.addEventListener(ev, (e) => {

@@ -1592,7 +1592,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       db.prepare('DELETE FROM eletricistas_codigos WHERE eletricista_id = ?').run(e.id);
     }
     auditar(u, acao ? `eletricista_${{ aprovar: 'aprovado', recusar: 'recusado', suspender: 'suspenso', reativar: 'reativado' }[acao]}` : 'eletricista_atualizado', `eletricista:${e.id}`,
-      { ...(mud.concelhos ? { concelhos: JSON.parse(mud.concelhos).length } : {}), ...('percentagem' in mud ? { percentagem: mud.percentagem } : {}) }, ip);
+      { ...(mud.concelhos ? { concelhos: JSON.parse(mud.concelhos).length } : {}), ...('percentagem' in mud ? { percentagem: mud.percentagem } : {}), ...('ativa_sem_aprovacao' in mud ? { ativa_sem_aprovacao: !!mud.ativa_sem_aprovacao } : {}) }, ip);
     if (acao === 'aprovar') {
       correio.enviar({ para: e.email, assunto: 'Domus Energia: candidatura aprovada', resumo: `eletricista ${e.id} aprovado`,
         texto: [`Olá ${e.nome},`, '', 'A sua candidatura foi aprovada: já pode entrar na área do eletricista.',

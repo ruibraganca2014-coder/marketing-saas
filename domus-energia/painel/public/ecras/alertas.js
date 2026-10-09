@@ -8,6 +8,7 @@ const TIPOS = {
   alarme_disparado: "Alarme disparado", alarme_entrada: "Alarme a aguardar desarme", alarme: "Alarme disparado",
   offline: "Aparelho offline", sem_noticias: "Sem notícias", bateria_fraca: "Bateria fraca", bateria_dias: "Bateria a acabar",
   sinal_fraco: "Sinal fraco", reinicios: "Reinícios frequentes", orcamento_novo: "Pedido de orçamento novo", pedido_novo: "Pedido de orçamento novo",
+  chip_diferente: "Chip diferente do registado", chip_por_registar: "Chip por registar",
 };
 const gravidade = (a) => gravidadeDe(campo(a, "gravidade", "severidade", "nivel"));
 

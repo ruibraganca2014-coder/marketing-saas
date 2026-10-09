@@ -391,7 +391,7 @@ function blocoMensagens(p) {
   const lista = el("ul", "conta-conversa");
   for (const m of p.mensagens) {
     const li = el("li", m.de === "cliente" ? "minha" : null);
-    li.append(el("p", "ajuda", `${m.de === "cliente" ? "Você" : "Domus Energia"} · ${dataTxt(m.quando, true)}`));
+    li.append(el("p", "ajuda", `${m.de === "cliente" ? "Eu" : "Domus Energia"} · ${dataTxt(m.quando, true)}`));
     if (m.assunto) li.append(el("p", "conta-conversa-assunto", m.assunto));
     li.append(el("p", null, m.texto));
     lista.append(li);

@@ -465,7 +465,7 @@ function seccaoAparelhos(t) {
   corpo.id = "aparelhos-corpo";
   const sec = seccao("Aparelhos da casa", null, corpo);
   sec.hidden = true;
-  const CHIP = { por_registar: "por registar", por_ver: "registado", confere: "registado e a responder", diferente: "o aparelho responde com outro chip" };
+  const CHIP = { por_registar: "por registar", por_ver: "registado", confere: "registado e a responder", diferente: "diferente do que o aparelho anuncia" };
   const PEDIDO = { pendente: "à espera da Domus", aprovada: "aprovado", recusada: "recusado", anulada: "anulado" };
   const desenhar = (r) => {
     if (!r.casa_criada || !r.aparelhos.length) { sec.hidden = true; return; }
@@ -488,8 +488,9 @@ function seccaoAparelhos(t) {
           if (mac.value.replace(/[^0-9a-f]/gi, "").length !== 12) { msg.textContent = "O código do chip tem 12 algarismos e letras de A a F (aparece na página do aparelho)."; msg.hidden = false; mac.focus(); return; }
           b.disabled = true; msg.hidden = true;
           try {
-            desenhar(await pedir(`trabalhos/${t.id}/chip`, { aparelho: a.id, mac: mac.value.trim() }));
-            aviso(r.sem_aprovacao ? "Chip registado." : "Chip registado. Fica à espera da aprovação da Domus.");
+            const novo = await pedir(`trabalhos/${t.id}/chip`, { aparelho: a.id, mac: mac.value.trim() });
+            desenhar(novo);
+            aviso(novo.sem_aprovacao ? "Chip registado." : "Chip registado. Fica à espera da aprovação da Domus.");
           } catch (e) {
             b.disabled = false;
             if (e.estado !== 401) { msg.textContent = e.message; msg.hidden = false; }

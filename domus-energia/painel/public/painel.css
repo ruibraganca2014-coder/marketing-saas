@@ -174,9 +174,9 @@ input[type=checkbox] { width: 22px; height: 22px; min-height: 0; accent-color: v
 /* Selos */
 .selo-p { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: .84rem; background: var(--musgo-claro); color: var(--texto); white-space: nowrap; }
 .selo-p.papel { background: var(--musgo); color: var(--sobre-musgo); }
-.selo-p.aviso, .selo-p.grav-alta, .selo-p.grav-media, .selo-p.estado-em_atraso, .selo-p.orc-novo, .selo-p.info, .selo-p.hoje { background: var(--areia-suave); color: var(--texto); }
-.selo-p.grav-critica, .selo-p.estado-suspenso, .selo-p.orc-perdido, .selo-p.obra-cancelada { background: var(--alarme-suave); color: var(--alarme-texto); }
-.selo-p.orc-aceite, .selo-p.obra-concluida, .selo-p.estado-ativo { background: var(--musgo); color: var(--sobre-musgo); }
+.selo-p.aviso, .selo-p.ativacao-pendente, .selo-p.grav-alta, .selo-p.grav-media, .selo-p.estado-em_atraso, .selo-p.orc-novo, .selo-p.info, .selo-p.hoje { background: var(--areia-suave); color: var(--texto); }
+.selo-p.grav-critica, .selo-p.chip-diferente, .selo-p.ativacao-recusada, .selo-p.estado-suspenso, .selo-p.orc-perdido, .selo-p.obra-cancelada { background: var(--alarme-suave); color: var(--alarme-texto); }
+.selo-p.orc-aceite, .selo-p.obra-concluida, .selo-p.estado-ativo, .selo-p.chip-confere, .selo-p.ativacao-aprovada { background: var(--musgo); color: var(--sobre-musgo); }
 .selo-p.valor { background: transparent; border: 1px solid var(--borda); }
 .linha-selos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
@@ -251,7 +251,7 @@ a.linha:hover { border-color: var(--musgo); }
 .sem-alertas { padding: 18px; border-radius: 14px; background: var(--musgo-claro); color: var(--texto); font-weight: 600; }
 
 /* Orçamentos */
-.segmentos { display: inline-flex; gap: 4px; padding: 4px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 999px; }
+.segmentos { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 4px; padding: 4px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 999px; }
 .segmento { min-height: 44px; min-width: 88px; border: 0; border-radius: 999px; background: transparent; color: var(--texto-suave); font: 700 .95rem var(--letra); cursor: pointer; padding: 8px 14px; }
 .segmento[aria-pressed="true"] { background: var(--musgo); color: var(--sobre-musgo); }
 .quadro { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 10px; align-items: start; }
@@ -690,3 +690,7 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .checklist-passos .caixa > span { padding: 9px 0; }
 .checklist-passos .proc-nota, .checklist-passos .proc-quem { padding-left: 32px; }
 .aviso-tarefa { color: var(--alarme-texto); font-weight: 700; font-size: .92rem; }
+
+/* Ativações de aparelhos: os botões passam para baixo do texto. */
+#ativacoes-pendentes .lista-curta-item, #ativacoes-recentes .lista-curta-item { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+#ativacoes-pendentes .lista-curta-item > div:first-child, #ativacoes-recentes .lista-curta-item > div:first-child { overflow-wrap: anywhere; }

@@ -783,8 +783,8 @@ export function criarApi(ctx) {
     if (v.mac !== undefined) {
       if (v.mac === null || v.mac === '') r.mac = null;
       else {
-        r.mac = normalizarMac(v.mac);
-        if (typeof v.mac !== 'string' || !r.mac) falha('Código do chip (MAC): 12 algarismos hexadecimais, por exemplo 38:1F:8D:12:AB:CD.');
+        r.mac = typeof v.mac === 'string' ? normalizarMac(v.mac) : null;
+        if (!r.mac) falha('Código do chip (MAC): 12 algarismos hexadecimais, por exemplo 38:1F:8D:12:AB:CD.');
       }
     }
     if (v.serie !== undefined) r.serie = v.serie === null ? null : texto(v.serie, 'o número de série', { max: 40 }) ?? null;
@@ -795,7 +795,7 @@ export function criarApi(ctx) {
   function guardarChip(c, a, chip, por) {
     const antes = chipDe(c, a);
     const mac = chip.mac !== undefined ? chip.mac : antes?.mac ?? null;
-    const serie = chip.serie !== undefined ? chip.serie : antes?.serie ?? null;
+    const serie = chip.serie !== undefined ? chip.serie : mac ? antes?.serie ?? null : null;
     const agora = iso(relogio());
     db.prepare(`INSERT INTO aparelhos_chip (cliente, aparelho, mac, serie, registado, por) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT (cliente, aparelho) DO UPDATE SET mac = excluded.mac, serie = excluded.serie, registado = excluded.registado, por = excluded.por,
@@ -909,6 +909,8 @@ export function criarApi(ctx) {
       if (acao === 'aprovar') {
         const aps = await dados.aparelhos(a.cliente);
         if (!aps?.some((x) => x.id === a.aparelho)) throw new ErroApi(409, 'Este aparelho já não existe nesta casa: recuse a ativação.');
+        const atual = chipDe(a.cliente, a.aparelho);
+        if (atual?.mac && atual.mac !== a.mac && atual.registado > a.criado) throw new ErroApi(409, 'Depois deste registo já foi registado outro chip neste aparelho: recuse esta ativação, ou apague primeiro o chip registado.');
         // As aprovações anteriores deste aparelho ficam substituídas por esta.
         db.prepare("UPDATE aparelhos_ativacoes SET estado = 'anulada', decidido = ?, decidido_por = 'substituída' WHERE cliente = ? AND aparelho = ? AND estado = 'aprovada'").run(agora, a.cliente, a.aparelho);
       }
@@ -916,7 +918,7 @@ export function criarApi(ctx) {
     }
     const estado = { aprovar: 'aprovada', recusar: 'recusada', anular: 'anulada' }[acao];
     db.prepare('UPDATE aparelhos_ativacoes SET estado = ?, decidido = ?, decidido_por = ?, nota = ? WHERE id = ?').run(estado, agora, u.email, nota, a.id);
-    auditar(u, `ativacao_${estado}`, `cliente:${a.cliente}`, { ativacao: a.id, aparelho: a.aparelho, mac: a.mac, eletricista: a.eletricista_id ?? null }, ip);
+    auditar(u, `ativacao_${estado}`, `cliente:${a.cliente}`, { ativacao: a.id, aparelho: a.aparelho, mac: a.mac, eletricista: a.eletricista_id ?? null, ...(nota ? { nota } : {}) }, ip);
     responder(res, 200, listaAtivacoes());
   };
 
@@ -1379,6 +1381,7 @@ export function criarApi(ctx) {
   // terra (Ω) e disparo do diferencial (ms), mais notas. Um valor vazio apaga a medição; o cliente vê-os no relatório.
   h.registarEnsaios = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, [...CHAVES_ENSAIOS, 'notas']);
+    if (!Object.keys(v).length) falha('Nada para registar.');
     const o = naoArquivado(obterOrcamento(params.id));
     if (!o.simulacao) throw new ErroApi(409, 'Este pedido não tem simulação: não há lista de ensaios.');
     const ROTULO = { continuidade_pe: 'a continuidade do PE (Ω)', isolamento: 'a resistência de isolamento (MΩ)', terra: 'a resistência de terra (Ω)', diferencial: 'o tempo de disparo do diferencial (ms)' };
