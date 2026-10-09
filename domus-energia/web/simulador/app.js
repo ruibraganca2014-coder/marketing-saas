@@ -2722,8 +2722,11 @@ function assinalarInventario(l) {
   mensagemDivisoes(null);
   avisoPorVer.divisoes = true;
   const bloco = document.querySelector(`#div-${d.id} .inventario.por-responder`);
-  const nomes = l.filter((x) => x !== d).slice(0, 3).map((x) => x.nome || "Divisão");
-  assinalar(bloco ?? $(`div-${d.id}`), `Falta responder em ${d.nome || "Divisão"}: ${listaPt(faltaInventario(plantaDivisoes(), d))}.${nomes.length ? ` Faltam também: ${listaPt(nomes)}.` : ""}`,
+  const outras = l.filter((x) => x !== d).map((x) => x.nome || "Divisão");
+  const nomes = outras.slice(0, 3);
+  const mais = outras.length - nomes.length;
+  const tambem = !nomes.length ? "" : mais > 0 ? ` Faltam também: ${nomes.join(", ")} e mais ${mais}.` : ` Faltam também: ${listaPt(nomes)}.`;
+  assinalar(bloco ?? $(`div-${d.id}`), `Falta responder em ${d.nome || "Divisão"}: ${listaPt(faltaInventario(plantaDivisoes(), d))}.${tambem}`,
     bloco?.querySelector(".inventario-item.por-responder button, button:not(:disabled)") ?? $(`div-${d.id}-titulo`));
 }
 /**

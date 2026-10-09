@@ -27,6 +27,10 @@ if (ouLigar) {
   if (!temTelefone && !temWhatsapp) { ouLigar.hidden = true; document.querySelector(".js-ou-email").hidden = false; }
   else if (!temTelefone || !temWhatsapp) ouLigar.querySelector(".js-ou-sep").hidden = true;
 }
+// Contactos (index.html): a frase só fala dos meios que estão à vista.
+document.querySelectorAll(".js-contactos-frase").forEach((x) => {
+  x.textContent = temTelefone && temWhatsapp ? "Ligue, mande WhatsApp ou escreva." : temTelefone ? "Ligue ou escreva." : temWhatsapp ? "Mande WhatsApp ou escreva." : "Escreva-nos.";
+});
 document.getElementById("ano").textContent = new Date().getFullYear();
 
 // ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------

@@ -1340,7 +1340,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       com_deslocacao: r.deslocacao !== null,
       // QA final: localidade sem concelho reconhecido — a deslocação confirma-se na visita (nunca "com deslocação" sem a saber).
       deslocacao_a_confirmar: !avaria && r.deslocacao !== null && distancia(o.localidade ?? simDe(o)?.casa?.localidade ?? '', cfg).km === null,
-      nota: 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
+      // Na avaria não há estimativa nem relatório completo à venda: o preço é o do diagnóstico.
+      avaria,
+      nota: avaria ? 'O diagnóstico e a deslocação são descontados na reparação. O valor da reparação vai na proposta, depois da visita.'
+        : 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
     };
   }
 

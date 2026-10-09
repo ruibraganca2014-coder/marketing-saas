@@ -398,8 +398,19 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 200, { ok: true }, { 'Set-Cookie': cookieApagar(req) });
   };
 
+  /**
+   * O que está guardado em `contas.simulacao`: 'casa' (só a casa: depois de enviar um pedido, ou a descrição da casa já
+   * acabada e registada) ou 'em_curso' (uma simulação por acabar). A conta só diz "por acabar" na segunda.
+   */
+  function tipoSimulacao(c) {
+    if (!c.simulacao_atualizada) return null;
+    const r = db.prepare('SELECT simulacao, casa_registada FROM contas WHERE id = ?').get(c.id);
+    let e = null;
+    try { e = JSON.parse(r?.simulacao ?? 'null'); } catch { /* guardada estragada: conta como em curso */ }
+    return e?.soCasa === true || (e?.funil === 'primeira' && r?.casa_registada) ? 'casa' : 'em_curso';
+  }
   h.eu = ({ res, c }) => responder(res, 200, {
-    conta: publico(c), simulacao_atualizada: c.simulacao_atualizada ?? null,
+    conta: publico(c), simulacao_atualizada: c.simulacao_atualizada ?? null, simulacao_tipo: tipoSimulacao(c),
     tem_casa: Boolean(c.casa_codigo), sessao_expira: c.sessaoExpira,
     // Pagamentos do pedido: {ativo, modo, demonstracao…} (a conta mostra a faixa "Modo de demonstração").
     pagamentos: pagamentos()?.info() ?? null,
@@ -579,6 +590,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.cliente;
     let sim = null;
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
+    // Avaria: não há "relatório básico" com estimativa; o passo seguinte é a visita do diagnóstico.
+    if (sim?.funil === 'avaria' && estadoTexto === TEXTO_ESTADO.novo) estadoTexto = 'Pedido recebido. Vamos marcar a visita para o diagnóstico.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);

@@ -50,7 +50,13 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     const r = $("conta-retomar");
     r.replaceChildren();
     r.hidden = !eu.simulacao_atualizada;
-    if (eu.simulacao_atualizada) {
+    if (eu.simulacao_atualizada && eu.simulacao_tipo === "casa") {
+      // Só a casa guardada (o pedido já foi enviado, ou a descrição da casa está acabada): não é uma simulação por acabar.
+      const a = el("a", null, "Pedir um serviço");
+      a.href = "simulador.html?caso=servico";
+      a.id = "conta-continuar";
+      r.append("A sua casa está guardada na conta: não precisa de a descrever outra vez. ", a, ".");
+    } else if (eu.simulacao_atualizada) {
       const a = el("a", null, "Continuar a simulação");
       a.href = "simulador.html";
       a.id = "conta-continuar";
@@ -707,10 +713,13 @@ function blocoRelatorio(p) {
 /** Relatório básico (grátis, logo ao enviar): o intervalo e a lista de trabalho por divisão (sem material nem preços). */
 function blocoBasico(p) {
   const b = el("section", "conta-relatorio conta-basico");
-  b.setAttribute("aria-label", "Relatório básico");
-  b.append(el("h4", null, "Relatório básico"));
+  // Avaria: o mesmo bloco mostra o que o cliente descreveu e o diagnóstico (não há estimativa nem lista por divisão).
+  const avaria = Boolean(p.compras?.avaria);
+  const titulo = avaria ? "O seu pedido de avaria" : "Relatório básico";
+  b.setAttribute("aria-label", titulo);
+  b.append(el("h4", null, titulo));
   const zona = el("div", "relatorio-cliente");
-  const ver = el("button", "btn sec pequeno", "Ver o relatório básico");
+  const ver = el("button", "btn sec pequeno", avaria ? "Ver o pedido" : "Ver o relatório básico");
   ver.type = "button";
   ver.id = `basico-${p.id}`;
   ver.addEventListener("click", async () => {
@@ -724,7 +733,7 @@ function blocoBasico(p) {
       ver.disabled = false;
     }
   });
-  b.append(el("p", "ajuda", "A estimativa e a lista do trabalho, por divisão."), ver, zona);
+  b.append(el("p", "ajuda", avaria ? "A avaria que descreveu e o diagnóstico." : "A estimativa e a lista do trabalho, por divisão."), ver, zona);
   return b;
 }
 

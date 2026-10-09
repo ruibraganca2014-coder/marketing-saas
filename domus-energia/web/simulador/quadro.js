@@ -250,8 +250,9 @@ export function existentesNoQuadroNovo(estado) {
 
 /**
  * Circuitos que já existem com AFDD (proteção com AFDD, sem "Instalação nova", com o quadro no pedido: "Quer melhorar o
- * quadro? Sim"): contam-se como em circuitosExistentes — por piso, 1 de iluminação e 1 de tomadas por cada 2 quartos
- * ou salas (as divisões com AFDD: circuitoComAfdd). Num quadro novo trocam os disjuntores desses circuitos
+ * quadro? Sim"): por piso, 1 de iluminação e 1 de tomadas por cada 4 quartos ou salas (as divisões com AFDD:
+ * circuitoComAfdd) — como o quadro ideal do relatório da casa (decisão do dono, 2026-10-09: num T2 são 2 AFDD, o da
+ * iluminação e o das tomadas da sala e dos quartos; antes contava 3). Num quadro novo trocam os disjuntores desses circuitos
  * (existentesNoQuadroNovo); no quadro atual entram no lugar deles.
  */
 export function afddExistentes(estado) {
@@ -264,7 +265,7 @@ export function afddExistentes(estado) {
   for (const d of (daPlanta ? p.divisoes : (estado.divisoes ?? [])).filter((d) => d && typeof d === "object")) {
     if (circuitoComAfdd({ tipo: "misto", divisoes: [d.nome] }, estado.casa?.tipo)) porPiso.set(pisoDe(d), (porPiso.get(pisoDe(d)) ?? 0) + 1);
   }
-  return [...porPiso.values()].reduce((s, n) => s + 1 + Math.ceil(n / 2), 0);
+  return [...porPiso.values()].reduce((s, n) => s + 1 + Math.ceil(n / 4), 0);
 }
 
 /** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
