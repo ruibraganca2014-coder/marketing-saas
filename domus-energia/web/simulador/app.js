@@ -3979,8 +3979,11 @@ function calcular() {
   return { pedidos, preco, semDesloc, melhorias, aceites, plano: planoSugerido(pedidos, { distancia }) };
 }
 
-/** "Casa inteligente: 12 interruptores, 6 tomadas — 450 €" (Orçamento e PDF). */
-const textoMelhoria = (m) => `${m.nome}: ${m.resumo}${m.preco === null ? "" : ` — ${formatarEuroRedondo(m.preco)}`}`;
+/**
+ * "Casa inteligente: 12 interruptores, 6 tomadas" (Orçamento e PDF). Sem o preço do pacote (decisão do dono, 2026-10-09):
+ * o preço é o intervalo total, e o mínimo dele (−10 %) podia ficar abaixo do preço do pacote escrito por baixo.
+ */
+const textoMelhoria = (m) => `${m.nome}: ${m.resumo}`;
 /** `simulacao.melhorias` (§6): os pacotes aceites, com os SKUs do catálogo. */
 const melhoriasParaEnvio = (aceites) => aceites.map((m) => ({
   id: m.id, nome: m.nome, itens: m.itens.map((i) => ({ sku: linhaArtigo(i.chave).sku, qtd: i.qtd })).filter((i) => i.sku), preco: m.preco,
