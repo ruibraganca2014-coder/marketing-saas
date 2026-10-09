@@ -5172,19 +5172,20 @@ function recomecarComAnular() {
   let casaBruta = null;
   try { casaBruta = arm.getItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
   const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos), casaPreEscolhida, casaEncontrada, recusouCasa, casaGuardada, casaBruta };
-  recomecar({ manterFotos: true });
-  recusouCasa = true;
   // Decisão do dono (2026-10-05): "Começar de novo" apaga também a casa guardada neste navegador — "Pedir um serviço"
-  // volta a pedir para descrever a casa primeiro. O "Anular" repõe-a. (A casa da conta, com sessão, não se apaga aqui.)
+  // volta a pedir para descrever a casa primeiro. O "Anular" repõe-a. Com sessão, sai também da conta (decisão do dono,
+  // 2026-10-09: voltava ao recarregar): sem casa guardada, o recomecar() manda `null` para a conta.
   casaGuardada = null;
   try { arm.removeItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
+  recomecar({ manterFotos: true });
+  recusouCasa = true;
   mostrarInicio();
   const a = $("sim-anular");
   const b = el("button", "btn sec pequeno", "Anular");
   b.type = "button";
   b.id = "sim-anular-botao";
   b.addEventListener("click", anularRecomecar);
-  a.replaceChildren(el("span", null, "Simulação apagada"), el("span", "sim-anular-sep", " · "), b);
+  a.replaceChildren(el("span", null, antes.casaGuardada ? "Simulação e casa apagadas" : "Simulação apagada"), el("span", "sim-anular-sep", " · "), b);
   a.querySelector(".sim-anular-sep").setAttribute("aria-hidden", "true");
   posicionarAnular();
   antes.temporizador = setTimeout(acabarAnular, PRAZO_ANULAR);
@@ -5214,6 +5215,8 @@ function anularRecomecar() {
   mostrarInicio();
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
+  // Sem simulação em curso, o que estava na conta era a casa guardada: volta para lá.
+  if (contaEu && a.casaGuardada && !temCasa(estado)) pedirConta("simulacao", { corpo: { estado: a.casaGuardada } }).catch(() => {});
 }
 /**
  * O aviso fica colado ao fundo do ecrã, por cima do meio da barra de baixo (decisão do dono, 2026-10-05: por cima da
