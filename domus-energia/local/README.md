@@ -22,6 +22,10 @@ O `iniciar.js` substitui o `servidor/docker-compose.yml`: arranca um broker MQTT
 - o `domus.sh` não corre, por isso os pedidos do painel (criar clientes e aparelhos) ficam pendentes;
 - o Stripe fica desligado até pores as variáveis `STRIPE_*` no ambiente.
 
+## Aparelhos simulados
+
+Para experimentar a área de cliente sem aparelhos verdadeiros (decisão do dono, 2026-10-09): com o lançador a correr, noutro terminal `npm run aparelhos` (ou `node aparelhos-simulados.js <cliente>`). Cria a casa `demo` com 8 aparelhos a fingir (quadro com medição, interruptor de 2 botões, LED com brilho, tomada da televisão e termoacumulador com medição, estore, porta de entrada e sensor de movimento a pilhas), que obedecem aos comandos e publicam potência de 5 em 5 segundos; a porta e o movimento mexem-se sozinhos. Em `cliente.html` entra-se com o código `demo` e qualquer palavra-passe. Só existe aqui: fala com o broker local (`mqtt://127.0.0.1:1883`).
+
 ## Acesso rápido (testes)
 
 Só aqui, as páginas têm em baixo, à esquerda, o botão **Acesso rápido (testes)**: abre uma caixa com "CEO · Comercial · Técnico" (painel), "Cliente de teste 1 · Cliente de teste 2" (conta de cliente) e "Sair". Entra-se sem palavra-passe, com utilizadores de teste criados na primeira vez (`ceo.teste@domus.localhost`, `comercial.teste@…`, `tecnico.teste@…`, `cliente1.teste@exemplo.pt`, `cliente2.teste@exemplo.pt`). Os mesmos botões aparecem no ecrã de entrada do painel e no bloco da conta (`conta.html` e passo "Enviar" do simulador). A entrada normal continua igual.
