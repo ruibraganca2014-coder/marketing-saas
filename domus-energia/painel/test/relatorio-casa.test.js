@@ -64,7 +64,7 @@ test('PDF: os quatro blocos entram no relatório básico; sem análise (relatór
   assert.ok(tipos.indexOf('quebra') < tipos.indexOf('quadro') && tipos.indexOf('quadro') < tipos.indexOf('tabela'));
   const tabela = b.find((x) => x.tipo === 'tabela');
   assert.deepEqual(tabela.cabecalho, ['Circuito', 'Divisões', 'Disjuntor', 'Cabo']);
-  assert.deepEqual(tabela.linhas[2], ['C3 · Placa de cozinha', 'Cozinha', '25 A', '6 mm²']);
+  assert.deepEqual(tabela.linhas[2], ['Placa de cozinha', 'Cozinha', '25 A', '6 mm²']);
   assert.ok(!tipos.includes('planta'), 'sem planta nos dados não há bloco da planta');
   assert.deepEqual(blocosRelatorio({ casa: 'x', divisoes: [], analise, planta: PLANTA, pisos: 2 }).filter((x) => x.tipo === 'planta').map((x) => x.piso), [0, 1]);
   assert.equal(blocosRelatorio({ casa: 'x', divisoes: [], quadro: [] }).filter((x) => x.tipo === 'seccao').length, 3);
@@ -89,7 +89,7 @@ test('quadro ideal, com proteção completa: geral Wi-Fi pela potência, descarr
   assert.deepEqual([n.disjuntores, n.diferenciais.length, n.protecoes, n.ordem, n.disjuntor_geral], [q.disjuntores, 2, q.protecoes, q.ordem, q.disjuntor_geral], 'o desenhador aceita-o tal e qual');
   const { esquemaQuadro } = await import('../src/validar.js');
   // Só para o desenho (não se gravam): a etiqueta e a cor de cada disjuntor, uma fila por diferencial, a legenda e as cores.
-  assert.deepEqual(q.etiquetas, [{ texto: 'C2 Sala', cor: 'tomadas' }, { texto: 'C3 Placa de cozinha', cor: 'maquina' }, { texto: 'C3 Forno', cor: 'maquina' }, { texto: 'C5 Cozinha, Casa de banho', cor: 'humida' }]);
+  assert.deepEqual(q.etiquetas, [{ texto: 'Sala', cor: 'tomadas' }, { texto: 'Placa de cozinha', cor: 'maquina' }, { texto: 'Forno', cor: 'maquina' }, { texto: 'Cozinha, Casa de banho', cor: 'humida' }]);
   assert.equal(q.fila_por_diferencial, true);
   assert.deepEqual(q.cores, [['tomadas', 'Tomadas'], ['humida', 'Tomadas de zonas húmidas'], ['maquina', 'Máquinas grandes']]);
   assert.deepEqual(q.legenda.map((x) => x[0]), ['Geral Wi-Fi', 'Descarregador', 'Relé de tensão', 'Medidor', 'Diferencial de 30 mA', 'Disjuntor', 'AFDD']);

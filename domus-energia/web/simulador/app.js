@@ -4262,7 +4262,7 @@ function desenharRelatorio() {
     const corpoT = el("tbody");
     for (const c of a.circuitos) {
       const tr = el("tr");
-      tr.append(el("td", null, `${c.codigo ? `${c.codigo} · ` : ""}${c.nome}`), el("td", null, c.divisoes || "—"), el("td", "num", c.disjuntor), el("td", "num", c.cabo || "—"));
+      tr.append(el("td", null, c.nome), el("td", null, c.divisoes || "—"), el("td", "num", c.disjuntor), el("td", "num", c.cabo || "—"));
       corpoT.append(tr);
     }
     const thead = el("thead");

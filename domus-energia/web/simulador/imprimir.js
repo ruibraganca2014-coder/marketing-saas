@@ -370,7 +370,7 @@ export function blocosRelatorio(d) {
       ] }] : []),
     ...(a.circuitos.length
       ? [{ tipo: "tabela", cabecalho: ["Circuito", "Divisões", "Disjuntor", "Cabo"], larguras: [0.3, 0.36, 0.2, 0.14],
-        linhas: a.circuitos.map((c) => [`${c.codigo ? `${c.codigo} · ` : ""}${c.nome}`, c.divisoes || "—", c.disjuntor, c.cabo || "—"]) }]
+        linhas: a.circuitos.map((c) => [c.nome, c.divisoes || "—", c.disjuntor, c.cabo || "—"]) }]
       : [{ tipo: "item", texto: "Ainda sem tomadas nem máquinas descritas." }]),
     ...(a.notaCircuitos ? [{ tipo: "texto", texto: a.notaCircuitos }] : []),
     // 3. O pormenor: o consumo estimado e os aparelhos de cada divisão.

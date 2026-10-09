@@ -99,15 +99,15 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     const protecoes = [...CHAVES_PROTECOES_ESQUEMA];
     const ordem = ["geral", ...protecoes];
     const disjuntores = [];
-    // Etiqueta de cada disjuntor (só para o desenho): o código e o que serve, e a cor do tipo de circuito.
+    // Etiqueta de cada disjuntor (só para o desenho): o que serve e a cor do tipo de circuito. Sem o código C1–C5
+    // (decisão do dono, 2026-10-09): é o tipo do circuito, não o número, e "C3 Placa" ao lado de "C3 Forno" parecia repetido.
     const etiquetas = [];
     const curto = (t) => (t.length > 26 ? `${t.slice(0, 25).trimEnd()}…` : t);
     const etiquetaDe = (c) => {
-      const cod = codigoCircuito(c);
       const ms = c.itens?.maquinas ?? [];
       const ds = c.divisoes ?? [];
       const nome = c.tipo === "maquina" && ms.length ? ms.map((m) => nomeModelo(m.modelo)).join(", ") : ds.length ? ds.join(", ") : (TIPOS_CIRCUITO[c.tipo] ?? "");
-      return { texto: curto(`${cod ? `${cod} ` : ""}${nome}`.trim()), cor: c.tipo === "iluminacao" ? "luz" : c.tipo === "maquina" ? "maquina" : c.zona_humida ? "humida" : "tomadas" };
+      return { texto: curto(nome.trim()), cor: c.tipo === "iluminacao" ? "luz" : c.tipo === "maquina" ? "maquina" : c.zona_humida ? "humida" : "tomadas" };
     };
     grupos.forEach((g, i) => {
       ordem.push(`diferencial:${i}`);
