@@ -42,6 +42,23 @@
   </section>
 
   <section>
+    <h2>Para que serve: manter o cliente</h2>
+    <p>A segurança não é só defesa. É o que faz com que um cliente que entra na Domus fique na Domus. Cada medida tem um efeito comercial direto:</p>
+    <table>
+      <tr><th style="width:36%">Medida</th><th>Efeito na fidelização</th></tr>
+      <tr><td>Aparelho que só fala com o servidor da Domus</td><td>Os aparelhos instalados não servem a um concorrente. Para mudar de fornecedor, o cliente tem de trocar ou reprogramar tudo o que tem no quadro e nas paredes</td></tr>
+      <tr><td>Ativação só pela Domus</td><td>Qualquer aparelho novo, qualquer ampliação e qualquer substituição passam pela Domus. Cada obra seguinte na mesma casa é nossa</td></tr>
+      <tr><td>Configuração trancada</td><td>Outro eletricista chamado à casa não consegue alterar nem "aproveitar" a instalação. O cliente volta a ligar-nos</td></tr>
+      <tr><td>Histórico e automações no servidor</td><td>Os consumos de meses, os horários e as cenas feitas à medida ficam connosco. Sair é começar do zero</td></tr>
+      <tr><td>Garantia e assistência ligadas ao software e ao selo</td><td>O cliente tem interesse em não deixar ninguém mexer, e em chamar a Domus quando algo falha</td></tr>
+      <tr><td>Subscrição: sem ela ficam o botão manual e as proteções</td><td>O cliente sente a diferença no dia em que deixa de pagar, sem ficar em risco nem às escuras</td></tr>
+      <tr><td>Cedência dos aparelhos (em estudo)</td><td>Ao sair, o cliente devolve os aparelhos. É a fidelização mais forte e a única que não depende da técnica</td></tr>
+    </table>
+    <p><b>O que isto dá à Domus:</b> receita que se repete (a subscrição), as obras seguintes na mesma casa, e um custo real para o cliente trocar de fornecedor.</p>
+    <p><b>O outro lado:</b> um cliente que se sinta preso contra a vontade queixa-se, e fala mal. A fidelização que dura é a que vem de o programa lhe ser útil todos os dias: ver quanto gasta, ser avisado antes de o quadro disparar, ligar o termoacumulador só de noite. O bloqueio segura quem hesita; o serviço é que segura quem fica.</p>
+  </section>
+
+  <section>
     <h2>2. O aparelho</h2>
     <p>Chayo (Tongou) TO-Q-SY1-JWT, 16 A, Wi-Fi, com medição. De origem só funciona com a nuvem Tuya. A Domus substitui o software pelo OpenBeken, que fala diretamente com o servidor da Domus.</p>
     <p><b>Decisão tomada:</b> reprogramar os aparelhos, aceitando a perda da garantia do fabricante. A alternativa sem modificação (Shelly) foi posta de parte pelo preço.</p>
@@ -68,7 +85,8 @@
       <tr><td>Utilizador e palavra-passe próprios por aparelho</td><td>Um aparelho desconhecido entrar no programa</td><td class="feito">Existe</td></tr>
       <tr><td>Cada aparelho só fala nos seus próprios endereços</td><td>Um aparelho ver ou comandar os de outra casa</td><td class="feito">Existe</td></tr>
       <tr><td>Cada cliente só vê e comanda a sua casa</td><td>Um cliente chegar à casa de outro</td><td class="feito">Existe</td></tr>
-      <tr><td>Ligações cifradas entre o programa e o servidor</td><td>Alguém na rede ler ou alterar os comandos</td><td class="feito">Existe</td></tr>
+      <tr><td>Ligação cifrada entre o programa do cliente (site e aplicação) e o servidor</td><td>Alguém na rede ler ou alterar os comandos</td><td class="feito">Existe</td></tr>
+      <tr><td>Ligação cifrada entre o aparelho e o servidor</td><td>Alguém na rede do cliente ou no caminho ler as credenciais do aparelho</td><td class="falta">Opcional, por ligar</td></tr>
       <tr><td>Ativação só pelo CEO ou por eletricista aprovado, dentro de um trabalho atribuído</td><td>Instalações feitas por fora da Domus</td><td class="falta">Por fazer</td></tr>
       <tr><td>Ativação presa ao número do chip, ao cliente e à morada</td><td>Credenciais copiadas; aparelho levado para outra casa</td><td class="falta">Por fazer</td></tr>
       <tr><td>Registo de quem ativou e quando; aviso de tentativas recusadas</td><td>Abusos que passem despercebidos</td><td class="falta">Por fazer</td></tr>
@@ -128,6 +146,7 @@
       <tr><td>Perda da garantia do fabricante; a Domus responde sozinha perante o cliente</td><td>Aceite. Prever aparelhos de substituição</td></tr>
       <tr><td>Marca CE de um aparelho com software alterado</td><td>Pergunta feita na nota para o advogado</td></tr>
       <tr><td>Seguro de responsabilidade civil pode não cobrir equipamento modificado</td><td>Perguntar por escrito à seguradora</td></tr>
+      <tr><td>O aparelho fala com o servidor sem cifra (porta 1883); a porta cifrada existe mas está por ligar, e não confirmei que o OpenBeken neste chip a suporta</td><td>Verificar e, se possível, ligar antes de instalar em clientes</td></tr>
       <tr><td>Perder as palavras-passe dos aparelhos</td><td>Registo guardado em sítio seguro, com cópia</td></tr>
       <tr><td>O servidor da Domus em baixo</td><td>Regras essenciais dentro do aparelho; botão manual</td></tr>
       <tr><td>Fim da atividade da Domus</td><td>Por definir na cláusula 5.3 da minuta</td></tr>
