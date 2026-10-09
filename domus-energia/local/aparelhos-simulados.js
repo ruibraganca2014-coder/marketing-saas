@@ -17,7 +17,7 @@ const BASE = `domus/${CLIENTE}`;
 
 // A casa: o que um T2 com quadro inteligente costuma ter. `w` = potência do canal quando ligado (só para o medidor).
 const APARELHOS = [
-  { id: 'quadro', nome: 'Quadro geral', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral', divisao: 'Quadro', arranque: 'ligado' }] },
+  { id: 'quadro', nome: 'Quadro geral', tipo: 'openbeken', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral', divisao: 'Quadro', arranque: 'ligado' }] },
   { id: 'sala-2g', nome: 'Interruptor sala', tipo: 'openbeken', canais: [
     { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Sala', simular: true, w: 24 },
     { n: 2, funcao: 'interruptor', nome: 'Candeeiro', divisao: 'Sala', simular: true, w: 9 }] },

@@ -900,6 +900,13 @@ localmente: não precisa de Wi-Fi, do servidor nem do MQTT. É assim que
 funcionam sem internet o botão da frente do disjuntor Tongou TO-Q-SY1-JWT e as
 teclas dos interruptores de parede. Teste: desligue o router e carregue no
 botão — o relé tem de mudar.
+ATENÇÃO — Tongou/Chayo TO-Q-SY1-JWT e outros disjuntores de calha com relé de
+retenção (biestável): o relé NÃO leva o papel "Relay". São dois pinos, com os
+papéis "BridgeFWD" (fecha) e "BridgeREV" (abre) no mesmo canal; com "Relay" as
+bobinas ficam sempre alimentadas e o contacto não comuta. No SY1-JWT: P24
+BridgeFWD, P26 BridgeREV, P17 Btn, P9 LED_n (canal 1), P15 WifiLED_n, e o
+arranque "backlog startDriver BL0942; startDriver NTP". Guia completo:
+docs/guia-bancada-chayo-sy1-jwt.html.
 Interruptores de parede com TuyaMCU (as teclas ligam ao microcontrolador e
 não aos pinos): o próprio MCU trata das teclas, mas alguns ignoram-nas quando
 não têm Wi-Fi/servidor; nesse caso é preciso o comando tuyaMcu_defWiFiState no

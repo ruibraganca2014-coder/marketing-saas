@@ -24,7 +24,7 @@ O `iniciar.js` substitui o `servidor/docker-compose.yml`: arranca um broker MQTT
 
 ## Aparelhos simulados
 
-Para experimentar a área de cliente sem aparelhos verdadeiros (decisão do dono, 2026-10-09): com o lançador a correr, noutro terminal `npm run aparelhos` (ou `node aparelhos-simulados.js <cliente>`). Cria a casa `demo` com 8 aparelhos a fingir (quadro com medição, interruptor de 2 botões, LED com brilho, tomada da televisão e termoacumulador com medição, estore, porta de entrada e sensor de movimento a pilhas), que obedecem aos comandos e publicam potência de 5 em 5 segundos; a porta e o movimento mexem-se sozinhos. Em `cliente.html` entra-se com o código `demo` e qualquer palavra-passe. Só existe aqui: fala com o broker local (`mqtt://127.0.0.1:1883`).
+Para experimentar a área de cliente sem aparelhos verdadeiros (decisão do dono, 2026-10-09): a casa `demo` arranca sozinha com o lançador (`APARELHOS=0 npm start` desliga; `node aparelhos-simulados.js <cliente>` cria outra à mão). Tem com 8 aparelhos a fingir (quadro com medição, interruptor de 2 botões, LED com brilho, tomada da televisão e termoacumulador com medição, estore, porta de entrada e sensor de movimento a pilhas), que obedecem aos comandos e publicam potência de 5 em 5 segundos; a porta e o movimento mexem-se sozinhos. Em `cliente.html` entra-se com o código `demo` e qualquer palavra-passe. Só existe aqui: fala com o broker local (`mqtt://127.0.0.1:1883`).
 
 ## Acesso rápido (testes)
 
