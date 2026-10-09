@@ -105,7 +105,7 @@ export function botoesDaPrevisao({ temPlanta: comPlanta = false, temRascunho = f
   else if (!comPlanta) r.push({ chave: "simular", texto: "Simular orçamento", href: "simulador.html" });
   if (pedido) {
     const href = `conta.html#pedido-${pedido.id}`;
-    r.push({ chave: "pedido", texto: "Ver o pedido e o relatório", href });
+    r.push({ chave: "pedido", texto: pedido.compras?.avaria ? "Ver o pedido" : "Ver o pedido e o relatório", href });
     const cp = pedido.compras;
     const v = cp?.visita;
     if (cp?.pode && cp.ativas && v && !v.paga && !v.fora_area && !v.sem_concelho && v.valor != null && !pedido.data_visita && !pedido.obra) {

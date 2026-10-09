@@ -73,7 +73,7 @@ Fontes: OpenBeken publica periodicamente `<p>/rssi` e `<p>/uptime` (verificar no
 Avisos (evento `aviso`, uma vez por ocorrência): aparelho sem bateria offline > `offline_min`; bateria < 15 % ou `bateria_dias` < 21; sinal fraco (rssi < -80 durante 1 h); > 5 reinícios em 24 h.
 
 ### 5.1 Sinal de vida do motor — `_motor`
-O motor publica (retido, de minuto a minuto) `domus/<c>/_motor` = `{"vivo": "...Z"}` e apaga-o (mensagem vazia) numa paragem ordenada. A área de cliente conta a hora de chegada: sem sinal há mais de 2,5 minutos, ou com a mensagem vazia, mostra "Alarme, cenas e automações indisponíveis de momento" e bloqueia modos, cenas, automações e definições; luzes e tomadas continuam (vão direto aos aparelhos).
+O motor publica (retido, de minuto a minuto) `domus/<c>/_motor` = `{"vivo": "...Z"}` e troca-o por `{"parado": true}` (retido) numa paragem ordenada. A área de cliente conta a hora de chegada: sem sinal há mais de 2,5 minutos, ou com "parado", mostra "Alarme, cenas e automações indisponíveis de momento" e bloqueia modos, cenas, automações e definições; luzes e tomadas continuam (vão direto aos aparelhos).
 
 ## 6. Energia — `_energia`
 Retido, atualizado a cada 5 min: `{"hoje_kwh": 7.4, "ontem_kwh": 9.1, "mes_kwh": 180.2, "aparelhos": {"quadro": {"hoje_kwh": 7.4, "ontem_kwh": 9.1}}}` a partir do contador de energia (Wh) dos aparelhos `medidor` (diferença desde a meia-noite; tolera reinício do contador).

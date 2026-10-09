@@ -377,9 +377,9 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       if (abrirSubscricaoAoEntrar) { abrirSubscricaoAoEntrar = false; abrirSubscricao(); }
     }
     estadoLigacao(true);
+    // (`motorParou` fica: só um sinal de vida o desfaz — a mensagem retida "parado" volta a chegar em cada ligação.)
     ligadoDesde = Date.now();
     motorVisto = 0;
-    motorParou = false;
     avaliarMotor();
     // O aviso de falta de ligação deixa de fazer sentido (os outros erros ficam).
     if ($("painel-erro").textContent === SEM_LIGACAO) mostrarErro(null);
@@ -409,8 +409,8 @@ function entrar(cod, password, { lembrar, automatico = false }) {
   });
 
   c.on("reconnect", () => c === cliente && estadoLigacao(false));
-  c.on("offline", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else estadoLigacao(false); });
-  c.on("close", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else estadoLigacao(false); });
+  c.on("offline", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else { estadoLigacao(false); avaliarMotor(); } });
+  c.on("close", () => { if (c !== cliente) return; if (!entrou) { clearTimeout(limite); semServidor(); } else { estadoLigacao(false); avaliarMotor(); } });
   c.on("message", (topico, payload, packet) => c === cliente && receber(topico, payload.toString(), !!packet?.retain));
 }
 
@@ -497,6 +497,9 @@ function avaliarMotor() {
   for (const id of BLOQUEADOS_SEM_MOTOR) { const x = $(id); if (x) x.inert = parado; }
 }
 setInterval(avaliarMotor, 15_000);
+// Página que esteve em segundo plano (telemóvel): o tempo parado não conta como silêncio do servidor — bloqueava o
+// "Desarmar" ao voltar. O prazo recomeça, e o primeiro sinal de vida (ou a falta dele) decide.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") { ligadoDesde = Date.now(); motorVisto = 0; avaliarMotor(); } });
 
 function estadoLigacao(ligado) {
   const e = $("ligacao");
@@ -644,9 +647,9 @@ function receber(topico, texto, retido) {
       case "_motor": {
         // Sinal de vida do servidor das automações (de minuto a minuto). Conta a hora de chegada, não o relógio do
         // telemóvel; a mensagem retida só serve se for recente. Vazia (não retida): o servidor parou de propósito.
-        let t = NaN;
-        try { t = Date.parse(JSON.parse(texto)?.vivo ?? ""); } catch { /* vazia ou estranha */ }
-        if (!texto.trim()) { if (!retido) { motorParou = true; motorVisto = 0; } }
+        let t = NaN, parado = !texto.trim();
+        try { const v = JSON.parse(texto); t = Date.parse(v?.vivo ?? ""); parado = parado || v?.parado === true; } catch { /* vazia ou estranha */ }
+        if (parado) { if (!retido || texto.trim()) { motorParou = true; motorVisto = 0; } }
         else if (!retido) { motorVisto = Date.now(); motorParou = false; }
         else if (Number.isFinite(t) && Math.abs(Date.now() - t) < PRAZO_MOTOR) { motorVisto = Date.now(); motorParou = false; }
         avaliarMotor();
@@ -746,7 +749,7 @@ function desenhar() {
   cartoes = {};
 
   if (aparelhos.length === 0) {
-    lista.appendChild(el("div", "cartao vazio", "A sua casa ainda não tem aparelhos ligados. Isto fica pronto no dia da instalação; se já passou, fale connosco."));
+    lista.appendChild(el("div", "cartao vazio", !listaRecebida ? "A carregar os seus aparelhos…" : "A sua casa ainda não tem aparelhos ligados. Isto fica pronto no dia da instalação; se já passou, fale connosco."));
   }
 
   for (const g of E.agruparPorDivisao(aparelhos)) {
@@ -1422,7 +1425,12 @@ lerLembrar().then(async (guardado) => {
 
 // Telemóvel: o sistema suspende a página em segundo plano e a ligação cai. Ao voltar (ou quando a rede regressa)
 // liga-se logo, em vez de esperar pela próxima tentativa.
-const religarJa = () => { if (cliente && !cliente.connected && !cliente.disconnecting && document.visibilityState === "visible") cliente.reconnect(); };
+let religouEm = 0;
+const religarJa = () => {
+  if (!cliente || cliente.connected || cliente.disconnecting || document.visibilityState !== "visible" || Date.now() - religouEm < 3000) return;
+  religouEm = Date.now();
+  cliente.reconnect();
+};
 document.addEventListener("visibilitychange", religarJa);
 window.addEventListener("online", religarJa);
 

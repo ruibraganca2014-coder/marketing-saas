@@ -21,6 +21,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   let msgTimer = null;
   let aExecutar = null;   // id da cena com confirmação de execução aberta (ações arriscadas)
   let pedida = null;      // { nome, timer }: cena pedida, à espera do evento do servidor
+  let textoGuardado = null;   // o que dizer quando o servidor confirmar (por omissão "Guardado.")
 
   function estado(texto, tipo = "info") {
     clearTimeout(msgTimer);
@@ -84,12 +85,19 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
       clearTimeout(guardando.timer);
       const cb = guardando.aoTerminar;
       guardando = null;
-      estado("Guardado.", "ok");
+      estado(textoGuardado ?? "Guardado.", "ok");
+      textoGuardado = null;
       cb?.();
     }
     desenhar();
   }
   function receberErro(ev) {
+    if (pedida && ev.titulo === "Cena não executada") {
+      clearTimeout(pedida.timer);
+      pedida = null;
+      estado(ev.mensagem || ev.titulo, "erro");
+      return true;
+    }
     if (!guardando) return false;
     clearTimeout(guardando.timer);
     guardando = null;
@@ -176,7 +184,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
         const conf = el("div", "confirmar");
         conf.append(el("p", null, `Apagar a cena "${c.nome ?? c.id}"?`));
         const b = el("div", "botoes");
-        const sim = botao("Sim, apagar", "btn perigo pequeno", () => { aApagar = null; guardar(lista.filter((x) => x.id !== c.id)); });
+        const sim = botao("Sim, apagar", "btn perigo pequeno", () => { aApagar = null; textoGuardado = "Cena apagada."; guardar(lista.filter((x) => x.id !== c.id)); });
         sim.disabled = !!guardando;
         b.append(sim, botao("Cancelar", "btn sec pequeno", () => { aApagar = null; desenhar(); }));
         conf.append(b);

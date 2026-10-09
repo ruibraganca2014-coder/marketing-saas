@@ -866,3 +866,6 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-completo-quero { display: grid; gap: 8px; }
 .sim-completo-quero[hidden] { display: none; }
 .sim-completo-quero .ajuda { margin: 0; }
+
+/* Telemóvel: a tabela dos circuitos aperta-se para caber (o disjuntor "16 A com AFDD" parte em duas linhas). */
+@media (max-width: 480px) { .sim-circuitos { font-size: .86rem; } .sim-circuitos th, .sim-circuitos td { padding: 6px 5px; } .sim-circuitos .num { white-space: normal; } }

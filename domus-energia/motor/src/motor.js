@@ -919,9 +919,9 @@ export class Motor {
     }
   }
 
-  /** Paragem ordenada: apaga o sinal de vida, para a área de cliente o saber logo. */
+  /** Paragem ordenada: o sinal de vida passa a "parado" (retido), para a área de cliente o saber logo, também quem entra depois. */
   despedir() {
-    for (const c of this.clientes.values()) this.publicar(`domus/${c.codigo}/_motor`, '', true);
+    for (const c of this.clientes.values()) this.publicar(`domus/${c.codigo}/_motor`, { parado: true }, true);
   }
 
   tick() {

@@ -5221,8 +5221,6 @@ function anularRecomecar() {
   mostrarInicio();
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
-  // Sem simulação em curso, o que estava na conta era a casa guardada: volta para lá.
-  if (contaEu && a.casaGuardada && !temCasa(estado)) pedirConta("simulacao", { corpo: { estado: a.casaGuardada } }).catch(() => {});
 }
 /**
  * O aviso fica colado ao fundo do ecrã, por cima do meio da barra de baixo (decisão do dono, 2026-10-05: por cima da
