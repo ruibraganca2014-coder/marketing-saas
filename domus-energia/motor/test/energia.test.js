@@ -10,10 +10,13 @@ test('contagem: diferenças, reinício do contador e pequenas oscilações', () 
   assert.equal(juntarLeitura(c, 1000, '2026-06-15'), 0); // primeira leitura: só referência
   assert.equal(juntarLeitura(c, 1500, '2026-06-15'), 500);
   assert.equal(juntarLeitura(c, 1499.5, '2026-06-15'), 0); // oscilação
-  assert.equal(juntarLeitura(c, 30, '2026-06-15'), 30); // contador reiniciou do zero
+  assert.equal(juntarLeitura(c, 30, '2026-06-15'), 0); // contador reiniciou: só referência
   assert.equal(juntarLeitura(c, 130, '2026-06-15'), 100);
-  assert.equal(c.hojeWh, 630);
-  assert.equal(kwh(c.hojeWh), 0.63);
+  assert.equal(juntarLeitura(c, 100_000, '2026-06-15'), 99_870);
+  assert.equal(juntarLeitura(c, 90_000, '2026-06-15'), 0); // reiniciou e retomou um valor gravado: não soma o contador inteiro
+  assert.equal(juntarLeitura(c, 90_050, '2026-06-15'), 50);
+  assert.equal(c.hojeWh, 100_520);
+  assert.equal(kwh(c.hojeWh), 100.52);
 });
 
 test('mudança de dia e de mês', () => {
@@ -44,8 +47,8 @@ test('_energia: meia-noite de Lisboa no dia da mudança de hora (25/10/2026), to
   assert.equal(m.publicados.filter((p) => p.topico === `${P}/_energia`).length, n + 1);
   e = ultimoJson(m, `${P}/_energia`);
   assert.deepEqual([e.hoje_kwh, e.ontem_kwh, e.mes_kwh], [0, 2, 2]);
-  // O aparelho reinicia (contador volta a 0) e continua a contar.
-  m.msg(`${P}/quadro/energycounter/get`, '300');
+  // O aparelho reinicia (contador volta a 0) e continua a contar: a primeira leitura é só referência.
+  m.msg(`${P}/quadro/energycounter/get`, '0');
   m.msg(`${P}/quadro/energycounter/get`, '800');
   m.em('2026-10-25T12:00:00Z');
   e = ultimoJson(m, `${P}/_energia`);

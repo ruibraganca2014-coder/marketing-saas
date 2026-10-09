@@ -37,7 +37,9 @@ export function rolarDia(conta, hoje) {
 /**
  * Nova leitura do contador. A diferença para a leitura anterior conta para
  * hoje e para o mês. Se o contador desceu (aparelho reiniciado ou contador
- * reposto), assume-se que recomeçou do zero e conta-se o valor novo.
+ * reposto), a leitura nova passa a ser só a referência e não se soma nada: um
+ * aparelho que reinicia nem sempre recomeça do zero (o OpenBeken retoma o último
+ * valor que gravou), e somar o contador inteiro inventava centenas de kWh.
  * @param {ContaEnergia} conta
  * @param {number} wh
  * @param {string} hoje
@@ -49,7 +51,7 @@ export function juntarLeitura(conta, wh, hoje) {
   conta.ultimoWh = wh;
   if (typeof anterior !== 'number') return 0;
   let delta = wh - anterior;
-  if (delta < 0) delta = anterior - wh <= 1 ? 0 : wh; // pequena oscilação vs. reinício
+  if (delta < 0) delta = 0; // oscilação ou reinício do contador: só referência
   conta.hojeWh += delta;
   conta.mesWh += delta;
   return delta;

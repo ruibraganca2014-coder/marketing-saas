@@ -20,6 +20,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   let aberto = false;     // painel "Gerir cenas"
   let msgTimer = null;
   let aExecutar = null;   // id da cena com confirmação de execução aberta (ações arriscadas)
+  let pedida = null;      // { nome, timer }: cena pedida, à espera do evento do servidor
 
   function estado(texto, tipo = "info") {
     clearTimeout(msgTimer);
@@ -48,7 +49,17 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     aExecutar = null;
     publicar("_cenas/executar", { id: c.id, por: "web" });
     desenhar();
-    estado(`Cena "${c.nome ?? c.id}" pedida.`, "ok");
+    const nome = c.nome ?? c.id;
+    estado(`A executar a cena "${nome}"…`);
+    clearTimeout(pedida?.timer);
+    pedida = { nome, timer: setTimeout(() => { pedida = null; estado(`O servidor não confirmou a cena "${nome}". Veja se os aparelhos mudaram e tente de novo daqui a pouco.`, "erro"); }, TEMPO_MOTOR) };
+  }
+  /** O servidor regista um evento "Cena: <nome>" quando a executa: só então se diz que foi executada. */
+  function receberEvento(ev) {
+    if (!pedida || ev.titulo !== `Cena: ${pedida.nome}`) return;
+    clearTimeout(pedida.timer);
+    estado(`Cena "${pedida.nome}" executada.`, "ok");
+    pedida = null;
   }
 
   function guardar(nova, aoTerminar) {
@@ -88,6 +99,8 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   }
   function limpar() {
     clearTimeout(guardando?.timer);
+    clearTimeout(pedida?.timer);
+    pedida = null;
     clearTimeout(msgTimer);
     lista = null; textoAtual = null; guardando = null; aEditar = null; aApagar = null; aberto = false; aExecutar = null;
     $("cenas-linha")?.replaceChildren();
@@ -275,5 +288,5 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     desenhar();
   }
 
-  return { desenhar, religado, receberLista, receberErro, limpar, lista: () => lista ?? [] };
+  return { desenhar, religado, receberLista, receberErro, receberEvento, limpar, lista: () => lista ?? [] };
 }

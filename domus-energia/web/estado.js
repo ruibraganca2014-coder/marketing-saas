@@ -270,17 +270,18 @@ export function contaParaTotal(m, modelos) {
   return modelos.some((x) => x.geral) ? !!m.geral : true;
 }
 export function resumo(modelos, alarme) {
-  let potenciaW = 0, ligados = 0, circuitos = 0, portasAbertas = 0, portas = 0, online = 0, comLigacao = 0;
+  let potenciaW = 0, ligados = 0, circuitos = 0, portasAbertas = 0, portas = 0, online = 0, comLigacao = 0, comPotencia = 0;
   const haGeral = modelos.some((x) => x.geral);
   for (const m of modelos) {
-    if (m.temMedicao && m.potenciaW != null && (!haGeral || m.geral)) potenciaW += m.potenciaW;
+    // Um medidor sem ligação não conta: a última potência que disse já não é a de agora.
+    if (m.temMedicao && m.online && m.potenciaW != null && (!haGeral || m.geral)) { potenciaW += m.potenciaW; comPotencia++; }
     if (!m.bateria) { comLigacao++; if (m.online) online++; }
     for (const c of m.canais) {
-      if (c.funcao === "interruptor" || c.funcao === "luz") { circuitos++; if (c.ligado) ligados++; }
+      if (c.funcao === "interruptor" || c.funcao === "luz") { circuitos++; if (c.ligado && m.online) ligados++; }
       if (c.funcao === "porta") { portas++; if (c.aberto) portasAbertas++; }
     }
   }
-  return { potenciaW, ligados, circuitos, portasAbertas, portas, online, comLigacao, alarme: alarme?.ativo ?? null };
+  return { potenciaW, comPotencia, ligados, circuitos, portasAbertas, portas, online, comLigacao, alarme: alarme?.ativo ?? null };
 }
 
 export function fundoVivo(r) {

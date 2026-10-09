@@ -657,6 +657,7 @@ function receber(topico, texto, retido) {
         E.notarHistorico(estados, [ev]);
         desenharHistorico();
         if (ev.tipo === "erro") receberErro(ev);
+        else cenas.receberEvento(ev);
         if (ev.aparelho) atualizar(ev.aparelho);
         break;
       }
@@ -989,7 +990,7 @@ function resumo() {
   const agora = Date.now();
   const ms = aparelhos.map((a) => modeloDe(a, agora));
   const r = E.resumo(ms, alarme);
-  $("total-potencia").textContent = `${r.potenciaW.toFixed(0)} W`;
+  $("total-potencia").textContent = r.comPotencia ? `${r.potenciaW.toFixed(0)} W` : "—";
   $("total-ligados").textContent = `${r.ligados} / ${r.circuitos}`;
   $("total-online").textContent = `${r.online} / ${r.comLigacao}`;
   $("total-portas").textContent = r.portas ? String(r.portasAbertas) : "—";
@@ -1389,3 +1390,9 @@ lerLembrar().then(async (guardado) => {
   const eu = await contaAtual();
   if (eu?.conta && !cliente) entrarComConta(true).catch(() => {});
 });
+
+// Telemóvel: o sistema suspende a página em segundo plano e a ligação cai. Ao voltar (ou quando a rede regressa)
+// liga-se logo, em vez de esperar pela próxima tentativa.
+const religarJa = () => { if (cliente && !cliente.connected && !cliente.disconnecting && document.visibilityState === "visible") cliente.reconnect(); };
+document.addEventListener("visibilitychange", religarJa);
+window.addEventListener("online", religarJa);
