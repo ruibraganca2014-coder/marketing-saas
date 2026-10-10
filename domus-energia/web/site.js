@@ -33,6 +33,41 @@ document.querySelectorAll(".js-contactos-frase").forEach((x) => {
 });
 document.getElementById("ano").textContent = new Date().getFullYear();
 
+// Música de fundo (config.js `musica`; decisão do dono, 2026-10-10): começa ao primeiro toque ou tecla (antes disso os
+// navegadores não deixam), em repetição e baixinho; pára com o separador escondido. O botão do topo cala-a e a escolha
+// fica guardada neste navegador ("domus.musica" = "0").
+if (cfg.musica?.ficheiro) {
+  const CHAVE = "domus.musica";
+  const ler = () => { try { return localStorage.getItem(CHAVE); } catch { return null; } };
+  const som = new Audio(cfg.musica.ficheiro);
+  som.loop = true;
+  som.preload = "none";
+  som.volume = Math.min(1, Math.max(0, Number(cfg.musica.volume) || 0.15));
+  let ligada = ler() !== "0";
+  const botao = document.createElement("button");
+  botao.type = "button";
+  botao.className = "botao-tema botao-musica";
+  const ONDAS = '<path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>';
+  const RISCO = '<path d="m16 9.5 5 5M21 9.5l-5 5"/>';
+  const desenhar = () => {
+    botao.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 6v12l-4.5-3.5H4z"/>${ligada ? ONDAS : RISCO}</svg>`;
+    botao.setAttribute("aria-pressed", String(ligada));
+    botao.setAttribute("aria-label", ligada ? "Desligar a música" : "Ligar a música");
+    botao.title = ligada ? "Música ligada" : "Música desligada";
+  };
+  const tocar = () => { if (ligada && !document.hidden) som.play().catch(() => { /* ainda sem toque do visitante */ }); };
+  botao.addEventListener("click", () => {
+    ligada = !ligada;
+    try { localStorage.setItem(CHAVE, ligada ? "1" : "0"); } catch { /* sem armazenamento */ }
+    if (ligada) tocar(); else som.pause();
+    desenhar();
+  });
+  desenhar();
+  document.getElementById("tema")?.before(botao);
+  for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, tocar, { once: true });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) som.pause(); else if (!som.paused || som.currentTime > 0) tocar(); });
+}
+
 // Lista de espera (config.js `listaEspera`; decisão do dono, 2026-10-10): o aviso por baixo dos botões do topo e por cima
 // do formulário "Pedir contacto".
 if (cfg.listaEspera?.ativa) {

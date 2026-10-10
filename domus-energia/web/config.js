@@ -38,6 +38,12 @@ window.DOMUS = {
   // opcionais: preenchidos, aparecem na secção.
   seguros: { ativo: false, agente: "", mediador: "" },
 
+  // Música de fundo (decisão do dono, 2026-10-10): só na página inicial e nas páginas de serviço. Começa ao primeiro
+  // toque do visitante (os navegadores não deixam antes) e há um botão no topo para a calar; o site lembra-se.
+  // Ponha o MP3 em web/sons/ e escreva aqui o caminho, ex.: "sons/fundo.mp3". Vazio = sem música.
+  // Use só música que a empresa possa usar (livre de direitos ou com licença). volume: 0 a 1.
+  musica: { ficheiro: "", volume: 0.15 },
+
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {
