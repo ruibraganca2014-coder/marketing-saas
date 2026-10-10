@@ -1473,7 +1473,9 @@ function desenharQuer() {
       extra.id = `quer-extra-${k}`;
       extra.hidden = true;
       // O contador fica dentro do cartão, em baixo à direita (CSS .quer-item > .quer-extra); vem depois na ordem do Tab.
-      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
+      // Decisão do dono (2026-10-10): estes três não mostram a potência (continua a contar nas contas).
+      const semW = k === "aspirador_robo" || k === "camara" || k === "campainha_video";
+      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, semW ? "" : `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
       return caixaM;
     };
     const grandes = maquinasGrandesDe(estado.casa.tipo);

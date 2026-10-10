@@ -65,7 +65,7 @@ const MODELOS = {
   maquina_lavar: "Máquina de lavar roupa", maquina_secar: "Máquina de secar roupa", maquina_loica: "Máquina de lavar loiça",
   frigorifico: "Frigorífico", televisao: "Televisão", bomba_calor: "Bomba de calor", carregador_ve: "Carregador de carro elétrico", bomba: "Bomba (piscina/rega)",
   esquentador: "Esquentador elétrico instantâneo", radiador: "Aquecedor / radiador elétrico", hidromassagem: "Hidromassagem / jacuzzi",
-  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha", campainha_video: "Campainha com vídeo",
   carregador_bicicleta: "Carregador de bicicleta / trotinete", toalheiro: "Aquecedor de toalhas", secador: "Secador de cabelo",
   arca_frigorifica: "Arca / vitrine frigorífica", maquina_cafe: "Máquina de café profissional", servidor: "Servidor / bastidor", compressor: "Compressor",
   soldadura: "Máquina de soldar", maquina_trifasica: "Máquina trifásica", portao_industrial: "Portão industrial", carregador_ve_22: "Carregador de carro elétrico 22 kW",

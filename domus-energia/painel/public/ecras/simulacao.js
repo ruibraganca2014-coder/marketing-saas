@@ -40,7 +40,7 @@ const MODELOS = {
   camara: "Câmara", portao: "Portão automático", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
   terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
   carregador_baterias: "Carregador de baterias",
-  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha (com botão de pressão)", campainha_video: "Campainha com vídeo",
+  air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha", campainha_video: "Campainha com vídeo",
   carregador_bicicleta: "Carregador de bicicleta/trotinete", toalheiro: "Aquecedor de toalhas", secador: "Secador de cabelo",
   outro: "Outra máquina",
 };

@@ -300,7 +300,7 @@ export const MODELOS = {
   portao: { nome: "Portão automático", w: 300 },              // legado (portão, rega, repetidor e NAS já não estão na escolha das casas)
   rega: { nome: "Rega automática (programador)", w: 20 },
   iluminacao_jardim: { nome: "Iluminação exterior", w: 150 },
-  campainha: { nome: "Campainha (com botão de pressão)", w: 10 },   // ronda regras: campainha normal com transformador + botão
+  campainha: { nome: "Campainha", w: 10 },   // ronda regras: campainha normal com transformador + botão
   campainha_video: { nome: "Campainha com vídeo", w: 10 },
   carregador_bicicleta: { nome: "Carregador de bicicleta / trotinete", w: 100 },
   toalheiro: { nome: "Aquecedor de toalhas", w: 500 },
