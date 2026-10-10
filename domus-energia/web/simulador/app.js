@@ -3300,7 +3300,7 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
   cab.append(t, cont, nao);
   g.append(cab);
   if (!n) {
-    if (!sem) g.append(el("p", "ajuda", "Não pôs nenhum nesta divisão. Se ela tem, acrescente com o +."));
+    if (!sem) g.append(el("p", "ajuda", tipo === "tomada" ? "Não pôs nenhuma nesta divisão. Se ela tem, acrescente com o +." : "Não pôs nenhum nesta divisão. Se ela tem, acrescente com o +."));
     return g;
   }
   // Os que a planta traz são uma sugestão (nenhum respondido ainda): o cliente acerta o número e diz como é cada um.

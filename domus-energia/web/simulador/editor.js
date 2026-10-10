@@ -1456,7 +1456,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       confirmar();
       desenharTudo();
       s.aoLargar?.(s.id);
-      return;
+      // Não acaba aqui: se o cliente ficar com o botão carregado e arrastar, o aparelho acabado de largar arrasta-se
+      // como qualquer outro (antes ficava preso no ponto onde se carregou).
     }
     svg.setPointerCapture?.(ev.pointerId);
     // O 1.º dedo (ou o rato) de um gesto novo: esquece ponteiros cujo "pointerup" não chegou à planta
