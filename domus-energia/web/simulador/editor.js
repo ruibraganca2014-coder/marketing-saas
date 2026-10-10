@@ -975,18 +975,27 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const livre = () => [limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm), limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm)];
     salaDoSitio = null;
     if (!PECAS_PAREDE.includes(tipo)) return livre();
-    let q = null, melhor = Infinity, sala = null;
+    let q = null, melhor = Infinity, sala = null, parede = null;
     const dentroDe = FACE_DE_DENTRO.includes(tipo) ? divisoesPiso().filter((d) => pontoEmPoligono(x, y, pontosDivisao(d))) : [];
     for (const d of dentroDe.length ? dentroDe : divisoesPiso()) {
       const pts = pontosDivisao(d);
       pts.forEach((a, i) => {
         const b = pts[(i + 1) % pts.length];
         const r = distanciaSegmento(x, y, a, b);
-        if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; sala = d.id; }
+        if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; sala = d.id; parede = [a, b, pts]; }
       });
     }
     if (!q) return livre();
     if (dentroDe.length) salaDoSitio = sala;
+    // As da face de dentro ficam 2 cm para o lado da divisão delas (não se vê: o centro está em cima da linha), para
+    // numa parede partilhada contarem sempre na mesma divisão, em qualquer conta que se faça depois (regras.js divisaoEm).
+    if (FACE_DE_DENTRO.includes(tipo)) {
+      const [a, b, pts] = parede;
+      const vx = b[0] - a[0], vy = b[1] - a[1], l = Math.hypot(vx, vy) || 1;
+      const n = [(-vy / l) * 2, (vx / l) * 2];
+      const p1 = [q[0] + n[0], q[1] + n[1]], p2 = [q[0] - n[0], q[1] - n[1]];
+      q = pontoEmPoligono(p1[0], p1[1], pts) ? p1 : pontoEmPoligono(p2[0], p2[1], pts) ? p2 : q;
+    }
     return [limitar(Math.round(q[0]), 0, planta.largura_cm), limitar(Math.round(q[1]), 0, planta.altura_cm)];
   }
   function adicionarElemento(tipo, x, y, modelo = null) {

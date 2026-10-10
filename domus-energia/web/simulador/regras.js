@@ -560,7 +560,11 @@ export function colarNaParede(planta) {
       const r = distanciaSegmento(Number(e.x_cm) || 0, Number(e.y_cm) || 0, a, b);
       if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; }
     });
-    if (q && melhor > 0.5 && melhor <= 12) { e.x_cm = Math.round(q[0]); e.y_cm = Math.round(q[1]); }
+    // (Ficam 2 cm para dentro, na direção em que já estavam: numa parede partilhada continuam na divisão delas.)
+    if (q && melhor > 2.5 && melhor <= 12) {
+      const dx = (Number(e.x_cm) || 0) - q[0], dy = (Number(e.y_cm) || 0) - q[1], l = Math.hypot(dx, dy) || 1;
+      e.x_cm = Math.round(q[0] + (dx / l) * 2); e.y_cm = Math.round(q[1] + (dy / l) * 2);
+    }
   }
   return planta;
 }

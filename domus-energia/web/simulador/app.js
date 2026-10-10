@@ -206,9 +206,13 @@ function gravar() {
   if (estado.funil === "primeira" && casaDescrita() && temCasa(estado)) {
     if (guardarCasa(armazem ?? semArmazem, estado)) casaGuardada = carregarCasa(armazem ?? semArmazem);
   }
-  guardadoLocal = { r, hora: horaAgora() };
+  guardadoLocal = { r, hora: horaAgora(), n: ++nGravacao };
   mostrarGuardado();
+  // Com sessão, cada mudança vai também para a conta (4 s depois da última): fechar a página a meio de um passo não
+  // deixa a conta atrasada (teste de 2026-10-10: só ia ao mudar de passo).
+  if (contaEu) guardarNaConta(4000);
 }
+let nGravacao = 0;   // a gravação n.º n neste navegador; a conta diz qual recebeu (para "e na sua conta" só ser dito quando é verdade)
 /**
  * "Guardado às 21:42" junto ao "Seguinte" (decisão do dono, 2026-10-10): a hora da última gravação neste navegador e,
  * com sessão, na conta; a vermelho quando não foi possível gravar.
@@ -222,11 +226,13 @@ function mostrarGuardado() {
   const local = !l ? "" : l.r === "ok" ? `Guardado às ${l.hora} neste navegador`
     : l.r === "sem_imagem" ? `Guardado às ${l.hora} (sem a imagem de fundo, que não coube no navegador)`
       : "Não foi possível guardar neste navegador";
-  const conta = !c ? "" : c.ok ? (c.hora === l?.hora && l?.r === "ok" ? " e na sua conta" : ` · na sua conta às ${c.hora}`) : " · na conta ainda não: voltamos a tentar";
+  const conta = !c ? "" : c.ok ? (c.n === l?.n && l?.r === "ok" ? " e na sua conta" : ` · na sua conta às ${c.hora}`) : " · na conta ainda não: voltamos a tentar";
   m.textContent = local ? `${local}${conta}` : c?.ok ? `Guardado na sua conta às ${c.hora}` : "";
   m.classList.toggle("falhou", l?.r === "falhou" || c?.ok === false);
 }
 addEventListener("pagehide", () => { if (temporizador) gravar(); });
+// A página ficou escondida (outro separador, ecrã do telemóvel desligado): o que falta ir para a conta vai já.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && contaEu && guardadoLocal && guardadoConta?.n !== guardadoLocal.n) guardarNaConta(0); });
 
 // ------------------------------------------------------------ passos
 /** Serviço escolhido (Início); sem nenhum ainda, as contas fazem-se como "Instalação nova" (o preço de sempre). */
@@ -4867,9 +4873,10 @@ function guardarNaConta(atraso = 1500) {
     if (!e) return;
     if (JSON.stringify(e).length > 1_400_000 && e.planta?.fundo) e = { ...e, planta: { ...e.planta, fundo: null } };
     try {
+      const n = nGravacao;
       await pedirConta("simulacao", { corpo: { estado: e } });
-      guardadoConta = { ok: true, hora: horaAgora() };
-    } catch { guardadoConta = { ok: false, hora: horaAgora() }; /* fica no navegador; volta a tentar no passo seguinte */ }
+      guardadoConta = { ok: true, hora: horaAgora(), n };
+    } catch { guardadoConta = { ok: false, hora: horaAgora(), n: -1 }; /* fica no navegador; volta a tentar na mudança seguinte */ }
     mostrarGuardado();
   }, atraso);
 }

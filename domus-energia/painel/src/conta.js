@@ -175,7 +175,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // não gasta a quota do "Esqueci" (código de repor); os códigos de confirmar/entrar são 3 por hora por email.
     emailEnvio: lim(3, 3600_000), reporEnvio: lim(3, 3600_000), emailIp: lim(10, 3600_000),
     esqueciIp: lim(5, 3600_000), pedirCodigoIp: lim(10, 3600_000),
-    simulacao: lim(120, 3600_000),
+    simulacao: lim(600, 3600_000),   // o simulador grava a cada mudança (4 s depois da última)
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
     casas: lim(40, 3600_000),   // abrir, criar, mudar o nome e apagar casas, por conta
