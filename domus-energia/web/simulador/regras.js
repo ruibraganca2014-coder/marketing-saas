@@ -110,17 +110,17 @@ export const MAQUINAS_PEQUENAS = {
   habitacao: [
     ["Cozinha", ["frigorifico", "arca_congeladora", "micro_ondas", "exaustor", "cafeteira", "air_fryer", "torradeira", "cafe_expresso"]],
     ["Sala e quartos", ["televisao", "computador", "consola", "aquecedor_portatil"]],
-    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro", "secador"]],
+    ["Exterior e outros", ["iluminacao_jardim", "aspirador_robo", "box_router", "camara", "campainha", "campainha_video", "desumidificador", "carregador_bicicleta", "toalheiro", "secador", "outro"]],
   ],
   servicos: [
     ["Loja e escritório", ["computador", "impressora", "terminal_pagamento", "televisao", "aquecedor_portatil", "reclamo"]],
     ["Copa", ["frigorifico", "micro_ondas", "cafeteira"]],
-    ["Exterior e outros", ["box_router", "repetidor_wifi", "nas", "camara"]],
+    ["Exterior e outros", ["box_router", "repetidor_wifi", "nas", "camara", "outro"]],
   ],
   industrial: [
     ["Oficina", ["ferramentas", "aspirador_industrial", "carregador_baterias"]],
     ["Escritório e vestiários", ["computador", "impressora", "micro_ondas", "frigorifico", "cafeteira"]],
-    ["Exterior e outros", ["box_router", "repetidor_wifi", "camara", "iluminacao_jardim"]],
+    ["Exterior e outros", ["box_router", "repetidor_wifi", "camara", "iluminacao_jardim", "outro"]],
   ],
 };
 const unicos = (l) => [...new Set(l)];
@@ -129,7 +129,7 @@ export const PEQUENAS_QUER = unicos(Object.values(MAQUINAS_PEQUENAS).flatMap((g)
 export const maquinasGrandesDe = (tipo) => MAQUINAS_GRANDES[perfilCasa(tipo)];
 export const maquinasPequenasDe = (tipo) => MAQUINAS_PEQUENAS[perfilCasa(tipo)].flatMap(([, l]) => l);
 /** Modelos de máquina do perfil do imóvel (as grandes, as pequenas e "outro"): a lista "Qual é?" da janela. */
-export const modelosDoPerfil = (tipo) => [...maquinasGrandesDe(tipo), ...maquinasPequenasDe(tipo), "outro"];
+export const modelosDoPerfil = (tipo) => [...new Set([...maquinasGrandesDe(tipo), ...maquinasPequenasDe(tipo), "outro"])];
 
 export const OBJETIVOS = {
   poupar: "Poupar energia",

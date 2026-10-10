@@ -1475,7 +1475,10 @@ function desenharQuer() {
       // O contador fica dentro do cartão, em baixo à direita (CSS .quer-item > .quer-extra); vem depois na ordem do Tab.
       // Decisão do dono (2026-10-10): estes três não mostram a potência (continua a contar nas contas).
       const semW = k === "aspirador_robo" || k === "camara" || k === "campainha_video";
-      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, MODELOS[k].nome, semW ? "" : `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
+      // "Outro equipamento" (decisão do dono, 2026-10-10): o que não está na lista; na planta diz-se o que é e a potência.
+      const outro = k === "outro";
+      caixaM.append(escolha("checkbox", `quer-${lista}-${k}`, k, outro ? "Outro equipamento" : MODELOS[k].nome,
+        outro ? "O que não está na lista" : semW ? "" : `cerca de ${formatarW(MODELOS[k].w)}`, alternarMaquina(k), iconeMaquina(k)), extra);
       return caixaM;
     };
     const grandes = maquinasGrandesDe(estado.casa.tipo);
@@ -1777,8 +1780,9 @@ function atualizarPlanta() {
     // Decisão do dono (2026-10-04): sem duplo clique (nem duplo toque ou toque longo) em nenhum passo — na planta
     // arrasta-se; a janela de cada coisa abre-se no botão "Opções" (ou Enter).
     duplo: false,
-    // Decisão do dono (2026-10-10): em "Equipamentos" a linha por cima da planta só tem equipamentos (as máquinas).
-    elementos: estado.passo !== P.quer,
+    // Decisão do dono (2026-10-10): em "Equipamentos" a linha por cima da planta não repete os equipamentos dos
+    // cartões (ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores).
+    maquinas: estado.passo !== P.quer,
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
