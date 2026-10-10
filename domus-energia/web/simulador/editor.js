@@ -1404,7 +1404,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     seguir = { ...s, mexeu: false };   // continua à espera: volta a seguir quando o rato regressar à planta
     svg.classList.add("a-seguir");
   });
-  svg.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && seguir) pararSeguir(); });
+  // Esc: com uma ferramenta escolhida larga só a ferramenta (o aparelho por confirmar continua à espera do rato); sem
+  // ferramenta, o aparelho volta ao sítio onde estava e continua à espera — só o clique ou "Está bem aqui" o confirmam.
+  svg.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape" || !seguir || modo) return;
+    const s = seguir;
+    pararSeguir();
+    seguir = { ...s, mexeu: false };
+    svg.classList.add("a-seguir");
+  });
   // Ferramenta escolhida (porta, janela, tomada…; decisão do dono, 2026-10-10): uma marca acompanha o rato sobre a
   // planta, para se ver onde o clique a vai pôr — como os equipamentos de "Equipamentos". Só com rato.
   let fantasma = null;   // { x, y } em cm
