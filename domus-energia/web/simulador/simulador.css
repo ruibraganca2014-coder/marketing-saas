@@ -829,7 +829,7 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px 16px; margin: 0; }
 .sim-numeros dt { color: var(--texto-suave); font-size: .9rem; }
 .sim-numeros dd { margin: 0; font-weight: 800; font-size: 1.25rem; }
-.sim-potencia.curta, .sim-potencia.especial { border-color: var(--areia); }
+.sim-potencia.curta, .sim-potencia.especial, .sim-quadro-seguro.alerta { border-color: var(--areia); }
 .sim-quadro-sugerido { margin: 0 0 14px; }
 .sim-quadro-sugerido figcaption { margin-top: 8px; color: var(--texto-suave); font-size: .92rem; }
 .sim-circuitos-rolo { overflow-x: auto; }

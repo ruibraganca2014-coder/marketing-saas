@@ -28,7 +28,7 @@ import {
   normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA, potenciaOmissao,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
-  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
+  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
@@ -1999,7 +1999,17 @@ function quadroMudou() {
 /** O passo Quadro elétrico: só a foto. */
 function desenharQuadro() {
   desenharFotoQuadro();
+  for (const i of document.querySelectorAll("input[name=quadro-idade]")) i.checked = i.value === estado.quadroIdade;
 }
+/** "Que idade tem o quadro?" (decisão do dono, 2026-10-10): opcional; a resposta abre o relatório grátis. */
+function montarIdadeQuadro() {
+  $("quadro-idade-opcoes").append(...Object.entries(IDADES_QUADRO).map(([k, x]) => {
+    const l = escolha("radio", "quadro-idade", k, x.nome, null, (sim) => { if (sim) { estado.quadroIdade = k; agendarGravacao(false); } });
+    l.id = `quadro-idade-${k}`;
+    return l;
+  }));
+}
+montarIdadeQuadro();
 
 /** O cartão "Quadro elétrico" das Melhorias como está no estado e uma frase simples com o que isso quer dizer. */
 function desenharQuadroMelhorias() {
@@ -4216,6 +4226,8 @@ function dadosRelatorio() {
     pisos,
     // Decisão do dono (2026-10-05): os números da casa, se a potência chega, os circuitos que a casa pede e os pontos a rever.
     analise: analiseDaCasa(planta, c, r.potencia.kva),
+    // O quadro é seguro? A frase da idade do quadro (sem resposta, a de "Não sei").
+    quadroSeguro: IDADES_QUADRO[estado.quadroIdade ?? "naosei"].veredicto,
   };
 }
 /** Um desenho só de leitura da planta (um piso), como no PDF. */
@@ -4336,7 +4348,9 @@ function desenharRelatorio() {
   }
   // Do importante para o pormenor, como no PDF (decisão do dono, 2026-10-05): a casa e a planta, o que encontrámos, o
   // que fazíamos primeiro, o quadro ideal e, no fim, o consumo e as divisões.
-  caixa.append(...[casa, numeros, pot, junto, rever, proximo, circ, consumo, divs].filter(Boolean));
+  const seguro = el("div", `cartao sim-quadro-seguro${estado.quadroIdade === "antigo" ? " alerta" : ""}`);
+  seguro.append(el("h3", null, "O seu quadro é seguro?"), el("p", null, d.quadroSeguro));
+  caixa.append(...[seguro, casa, numeros, pot, junto, rever, proximo, circ, consumo, divs].filter(Boolean));
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");

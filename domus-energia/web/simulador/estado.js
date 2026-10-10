@@ -142,6 +142,17 @@ export const SERVICO_PLANTA = ["automatizar", "reparar"];
  * casa guardada e esse serviço), obras (a casa guardada no funil da primeira vez, a passar pela casa e pela planta) ou
  * carregar a planta (PDF ou foto como fundo, no funil da primeira vez). null = ainda não escolheu (ou outro caso).
  */
+/**
+ * Idade do quadro (decisão do dono, 2026-10-10: o relatório grátis responde "o meu quadro é seguro?"): a pergunta do
+ * passo Quadro e a frase com que o relatório abre. O eletricista confirma sempre pela foto.
+ */
+export const IDADES_QUADRO = {
+  recente: { nome: "Menos de 10 anos", veredicto: "Um quadro com menos de 10 anos costuma ter as proteções obrigatórias. O eletricista confirma pela foto." },
+  medio: { nome: "Entre 10 e 30 anos", veredicto: "Um quadro com 10 a 30 anos pode já não ter todas as proteções de hoje. O eletricista vê pela foto e diz-lhe se precisa de o melhorar." },
+  antigo: { nome: "Mais de 30 anos, ou com fusíveis", veredicto: "Um quadro com fusíveis ou com mais de 30 anos não tem a proteção que hoje é obrigatória (o diferencial que protege as pessoas de choques). Aconselhamos trocá-lo." },
+  naosei: { nome: "Não sei", veredicto: "Não sabe a idade do quadro: o eletricista vê pela foto se tem as proteções obrigatórias e diz-lhe na visita." },
+};
+
 export const CAMINHOS = ["automatizar", "reparar", "quadro", "obras", "carregar"];
 /**
  * "Trocar o quadro elétrico" (decisão do dono, 2026-10-10): com a casa guardada, vai direto às Melhorias (a proteção do
@@ -336,6 +347,7 @@ export function estadoNovo() {
     soCasa: false,             // só a casa guardada (sem simulação em curso): a da conta depois de enviar um pedido
     servico: [],               // Início, funil "primeira" (lote 7): nova, automatizar, reparar (acoes.js SERVICOS); pelo menos um
     mexerQuadro: false,        // sem "Instalação nova": o cliente quer melhorar o quadro (proteções / quadro novo)?
+    quadroIdade: null,         // passo Quadro (decisão do dono, 2026-10-10): recente | medio | antigo | naosei (IDADES_QUADRO)
     quadroAvaria: null,        // lote 8 ("Trocar e reparar"): quadro com problemas → a descrição (ronda B: opcional, ""); null = sem problemas
     quadroProblemas: [],       // ronda B: o que se passa no quadro com problemas — chaves de AVARIA_PROBLEMA (os mesmos 7 cartões da avaria)
     guardado: null,
@@ -668,6 +680,7 @@ export function normalizarEstado(v) {
   e.melhoriasPorVer = e.funil !== "avaria" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
   e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
+  e.quadroIdade = Object.hasOwn(IDADES_QUADRO, v.quadroIdade) ? v.quadroIdade : null;
   e.quadroAvaria = typeof v.quadroAvaria === "string" ? v.quadroAvaria.slice(0, MAX_AVARIA).replace(CONTROLO_LINHA, " ") : null;
   e.quadroProblemas = e.quadroAvaria === null ? [] : chavesAvaria(v.quadroProblemas, AVARIA_PROBLEMA);
   e.guardado = typeof v.guardado === "string" ? v.guardado.slice(0, 40) : null;

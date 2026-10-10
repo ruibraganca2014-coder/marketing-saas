@@ -346,7 +346,8 @@ export function blocosRelatorio(d) {
   const temPlanta = Boolean(d.planta && (d.planta.divisoes?.length || d.planta.elementos?.length));
   return [
     ...cabeca,
-    // 1. O essencial: a casa num resumo, a planta e o que encontrámos.
+    // 1. O essencial: o quadro é seguro?, a casa num resumo, a planta e o que encontrámos.
+    ...(d.quadroSeguro ? [{ tipo: "seccao", texto: "O seu quadro é seguro?" }, { tipo: "texto", texto: d.quadroSeguro }] : []),
     { tipo: "seccao", texto: "A casa" },
     { tipo: "texto", texto: d.casa || "—" },
     { tipo: "texto", texto: a.numeros.map(([k, v]) => `${k}: ${v}`).join(" · ") },
