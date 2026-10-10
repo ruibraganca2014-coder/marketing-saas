@@ -999,6 +999,36 @@ const TEXTOS_CONFIRMAR = {
   [P.melhorias]: { titulo: "Escolheu as melhorias que quer?",
     pontos: ["Os pacotes marcados entram no orçamento.", "Pode continuar sem nenhum."] },
 };
+/**
+ * O que o cliente pôs e o que parece faltar, para a janela de confirmação dos passos "Portas e janelas", "Interruptores
+ * e tomadas" e "Divisões" (decisão do dono, 2026-10-10): contagens e faltas por divisão. É aviso: não bloqueia.
+ */
+function resumoConfirmar(passo) {
+  if (![P.planta, P.tomadas, P.divisoes].includes(passo)) return [];
+  const p = estado.planta;
+  const n = (t) => p.elementos.filter((e) => e.tipo === t).length;
+  const txt = (k, um, varios) => (k === 1 ? `1 ${um}` : `${k} ${varios}`);
+  const dentro = p.divisoes.filter((d) => !["jardim", "varanda"].includes(tipoDivisao(d.nome)));
+  const sem = (t, divs = dentro) => divs.filter((d) => !p.elementos.some((e) => e.tipo === t && e.divisao === d.id)).map((d) => d.nome || "Divisão");
+  const r = [];
+  if (passo === P.planta) {
+    r.push(`Pôs ${txt(n("porta"), "porta", "portas")} e ${txt(n("janela"), "janela", "janelas")}.${n("quadro") ? "" : " Falta o quadro elétrico."}`);
+    const sp = sem("porta");
+    if (sp.length && n("porta")) r.push(`Sem porta: ${listaPt(sp)}.`);
+  } else if (passo === P.tomadas) {
+    r.push(`Pôs ${txt(n("tomada"), "tomada", "tomadas")}, ${txt(n("interruptor"), "interruptor", "interruptores")} e ${txt(n("luz"), "ponto de luz", "pontos de luz")}.`);
+    const st = sem("tomada"), si = sem("interruptor");
+    if (st.length && n("tomada")) r.push(`Sem tomadas: ${listaPt(st)}.`);
+    if (si.length && n("interruptor")) r.push(`Sem interruptor: ${listaPt(si)}.`);
+  } else {
+    const smart = p.elementos.filter((e) => (e.tipo === "tomada" || e.tipo === "interruptor") && e.props?.inteligente === true).length;
+    r.push(`Respondeu a ${txt(n("interruptor"), "interruptor", "interruptores")} e ${txt(n("tomada"), "tomada", "tomadas")}${smart ? `; ${smart === 1 ? "1 já é inteligente" : `${smart} já são inteligentes`}` : ""}.`);
+    const st = sem("tomada"), si = sem("interruptor");
+    if (st.length) r.push(`Sem tomadas: ${listaPt(st)}.`);
+    if (si.length) r.push(`Sem interruptor: ${listaPt(si)}.`);
+  }
+  return r;
+}
 const assinaturaDoPasso = (passo) => assinaturaPasso(estado, passo, fotos.get("quadro")?.miniatura?.length ?? null);
 /** Abre a janela do passo atual se ainda não foi confirmado como está; devolve true se a abriu (não se avança). */
 function confirmarPasso(destino = null) {
@@ -1014,7 +1044,7 @@ function confirmarPasso(destino = null) {
   // "Interruptores e tomadas" sem nenhum posto: a pergunta diz-o (senão a casa chegava ao relatório sem tomadas).
   const semNada = passo === P.tomadas && !estado.planta.elementos.some((e) => e.tipo === "interruptor" || e.tipo === "tomada");
   $("casa-janela-titulo").textContent = semNada ? "Não pôs nenhum interruptor nem tomada. Continuar assim?" : T.titulo;
-  $("casa-janela-corpo").replaceChildren(el("p", null, "Antes de continuar, confirme:"), lista);
+  $("casa-janela-corpo").replaceChildren(...resumoConfirmar(passo).map((t) => el("p", "janela-resumo", t)), el("p", null, "Antes de continuar, confirme:"), lista);
   $("casa-janela-botoes").replaceChildren(
     botao("btn sec", "Ainda não, vou ajustar", "passo-janela-ajustar", () => focar(`titulo-${passo}`)),
     botao("btn", "Sim, continuar", "passo-janela-sim", () => {
@@ -1040,7 +1070,7 @@ function confirmarCasa(destino = null) {
     passos.append(
       el("li", null, estado.casa.tipo ? "Escolha a tipologia (T0, T1, T2…)." : "Escolha o tipo de imóvel e a tipologia."),
       el("li", null, "Acerte os quartos, as casas de banho, as salas e o que a casa tem."),
-      el("li", null, "Arrume a planta ao lado: arraste cada divisão para o sítio e puxe os cantos para o tamanho."),
+      el("li", null, `Arrume a planta ${ecraLargo.matches ? "ao lado" : "(botão \"Ver planta\")"}: arraste cada divisão para o sítio e puxe os cantos para o tamanho.`),
     );
     corpo.replaceChildren(el("p", null, "Antes de continuar, preencha os campos e desenhe a planta da sua casa:"), passos);
     bs.replaceChildren(botao("btn", "Preencher", "casa-janela-preencher", () => bloquearCasa()));
@@ -1552,6 +1582,27 @@ function acertarCartoesSitio() {
     const mais = $(`quer-qtd-${k}-mais`);
     if (mais) mais.disabled = pend.length > 0 || quantidadeNoPiso(estado.quer, k, pisoQuer) >= MAX_QUANTIDADE;
   }
+  // No telemóvel, com a planta fechada, os cartões apagados ficavam sem explicação (revisão de 2026-10-10): o passo diz
+  // o que falta confirmar e leva à planta.
+  let falta = $("quer-falta");
+  const todos = estado.passo === P.quer && !enviado ? sitiosPendentes() : [];
+  const mostrar = todos.length > 0 && !ecraLargo.matches && !plantaAberta();
+  if (mostrar && !falta) {
+    falta = el("div", "msg info quer-falta");
+    falta.id = "quer-falta";
+    falta.setAttribute("role", "status");
+    $("titulo-2").after(falta);
+  }
+  if (falta) {
+    falta.hidden = !mostrar;
+    if (mostrar) {
+      const b = el("button", "btn pequeno", "Confirmar na planta");
+      b.type = "button";
+      b.id = "quer-falta-abrir";
+      b.addEventListener("click", () => { abrirPlanta(b); desenharSitio(); });
+      falta.replaceChildren(`Falta confirmar onde está: ${listaPt([...new Set(todos.map((x) => nomeSitio(x.k).toLowerCase()))])}. `, b);
+    }
+  }
 }
 /** Acabou de marcar um equipamento: a planta já com ele, à vista (no telemóvel abre por cima), e a pergunta do sítio. */
 function mostrarSitio(origem) {
@@ -2038,6 +2089,7 @@ function fecharPlanta({ foco = true } = {}) {
   s.removeAttribute("aria-modal");
   document.documentElement.classList.remove("planta-aberta");
   $("ver-planta").setAttribute("aria-expanded", "false");
+  if (estado.passo === P.quer) acertarCartoesSitio();   // (o aviso "Falta confirmar onde está…")
   const v = plantaVolta;
   plantaVolta = null;
   if (!v) return;
@@ -3365,6 +3417,9 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
   nao.setAttribute("aria-pressed", String(sem));
   nao.setAttribute("aria-label", `Não tem ${I.titulo.toLowerCase()} (${onde})`);
   nao.addEventListener("click", () => alternarNaoTem(d, tipo));
+  // Com peças na divisão, "Não tem" apagava-as todas sem perguntar nem anular (revisão de 2026-10-10): só aparece
+  // sem nenhuma; para tirar, o "−" (uma a uma, com "Anular").
+  nao.hidden = n > 0;
   cab.append(t, cont, nao);
   g.append(cab);
   if (!n) {
@@ -4505,9 +4560,9 @@ function dadosRelatorio() {
     planta: usaPlanta() ? estado.planta : null,
     pisos,
     // Decisão do dono (2026-10-05): os números da casa, se a potência chega, os circuitos que a casa pede e os pontos a rever.
-    analise: analiseDaCasa(planta, c, r.potencia.kva),
+    analise: analiseDaCasa(planta, c, r.potencia.kva, { assumida: !estado.potenciaEditada }),
     // O quadro é seguro? A frase da idade do quadro (sem resposta, a de "Não sei").
-    quadroSeguro: IDADES_QUADRO[estado.quadroIdade ?? "naosei"].veredicto,
+    quadroSeguro: IDADES_QUADRO[estado.quadroIdade]?.veredicto ?? "O eletricista vê pela foto do quadro se tem as proteções obrigatórias e diz-lhe na visita.",
   };
 }
 /** Um desenho só de leitura da planta (um piso), como no PDF. */
@@ -4555,6 +4610,24 @@ function desenharRelatorio() {
   numeros.append(el("h3", null, "A casa em números"), dl);
   const pot = el("div", `cartao sim-potencia ${a.potencia.estado}`);
   pot.append(el("h3", null, a.potencia.titulo), ...a.potencia.texto.map((t) => el("p", null, t)));
+  // A potência é a sugerida pela casa e o cliente não lhe tocou (decisão do dono, 2026-10-10): o relatório di-lo e
+  // deixa escolher aqui a da fatura; ao mudar, refaz-se.
+  if (a.potencia.assumida && !enviado) {
+    const rot = el("label", "sim-potencia-escolher", "Veja na fatura da luz e escolha a sua potência contratada");
+    const sel = $("casa-potencia").cloneNode(true);
+    sel.id = "relatorio-potencia";
+    sel.value = $("casa-potencia").value;
+    sel.addEventListener("change", () => {
+      estado.casa.potencia_contratada_kva = potenciaContratada(sel.value) ?? POTENCIA_OMISSAO_KVA;
+      estado.potenciaEditada = true;
+      $("casa-potencia").value = String(estado.casa.potencia_contratada_kva);
+      agendarGravacao(false);
+      desenharRelatorio();
+      $("relatorio-conteudo").querySelector(".sim-potencia h3")?.scrollIntoView({ block: "nearest" });
+    });
+    rot.append(sel);
+    pot.append(rot);
+  }
   const circ = el("div", "cartao");
   circ.append(el("h3", null, "Quadro ideal e circuitos que esta casa pede"));
   if (a.circuitos.length) {

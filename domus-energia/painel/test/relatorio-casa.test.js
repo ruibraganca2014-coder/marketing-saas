@@ -20,7 +20,7 @@ const PLANTA = {
 
 test('a casa em números: área, divisões, interruptores, tomadas (e pontos), máquinas e os que já são inteligentes', () => {
   const a = analiseDaCasa(PLANTA, { potencia_contratada_kva: 6.9 }, 6.9);
-  assert.deepEqual(Object.fromEntries(a.numeros), { 'Área': '36 m²', 'Divisões': '3', Interruptores: '2', Tomadas: '3 (4 pontos)', 'Máquinas e aparelhos': '4', 'Já inteligentes': '1' });
+  assert.deepEqual(Object.fromEntries(a.numeros), { 'Área': '36 m²', 'Divisões': '3', Interruptores: '2', Tomadas: '3 (4 pontos)', 'Pontos de luz': '0', 'Máquinas e aparelhos': '4', 'Já inteligentes': '1' });
 });
 
 test('a potência chega? compara a contratada com a sugerida e soma as máquinas grandes', () => {

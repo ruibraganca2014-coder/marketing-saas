@@ -925,3 +925,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .quer-item.em-espera .escolha { cursor: not-allowed; }
 /* "Guardado às HH:MM": a vermelho quando não foi possível gravar (decisão do dono, 2026-10-10). */
 .sim-guardado.falhou { color: var(--alarme-texto); font-weight: 700; }
+/* Revisão de 2026-10-10: aviso "Falta confirmar onde está…" (Equipamentos, telemóvel), contagens nas janelas de
+   confirmação e a potência escolhida dentro do relatório. */
+.quer-falta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+.janela-resumo { margin: 0 0 6px; font-weight: 700; }
+.sim-potencia-escolher { display: grid; gap: 6px; margin-top: 10px; font-weight: 700; }
+.sim-potencia-escolher select { max-width: 260px; }

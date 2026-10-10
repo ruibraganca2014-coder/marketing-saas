@@ -1302,7 +1302,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     svg.classList.toggle("a-colocar", !!m);
     // Sem ferramenta, nada a dizer (decisão do dono: saiu o texto de ajuda longo por cima da planta).
     if (!m) dica.textContent = "";
-    else if (m.tipo === "elemento") dica.textContent = `Toque na planta para pôr: ${nomeFerramenta(m.el, m.modelo).toLowerCase()}. Esc cancela.`;
+    else if (m.tipo === "elemento") dica.textContent = `Toque na planta para pôr: ${nomeFerramenta(m.el, m.modelo).toLowerCase()}. ${matchMedia("(pointer: coarse)").matches ? "Para largar, toque outra vez no botão." : "Esc cancela."}`;
     else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
   }

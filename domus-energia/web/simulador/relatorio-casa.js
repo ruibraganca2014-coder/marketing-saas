@@ -36,7 +36,7 @@ const wTxt = (w) => `${String(Math.round(w)).replace(/\B(?=(\d{3})+$)/g, " ")} W
  * @param casa    estado.casa (potencia_contratada_kva, fases…)
  * @param sugeridaKva  a potência sugerida do quadro (quadro.js resumoQuadro → potencia.kva; null = acima de 41,4 kVA)
  */
-export function analiseDaCasa(planta, casa, sugeridaKva) {
+export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = {}) {
   const divisoes = planta?.divisoes ?? [];
   const elementos = planta?.elementos ?? [];
   const nomeDe = new Map(divisoes.map((d) => [d.id, d.nome || "Divisão"]));
@@ -51,6 +51,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     ["Divisões", String(divisoes.length)],
     ["Interruptores", String(interruptores.length)],
     ["Tomadas", `${tomadas.length}${tomadas.length ? ` (${plural(tomadas.reduce((s, e) => s + caixasDe(e.props), 0), "ponto", "pontos")})` : ""}`],
+    ["Pontos de luz", String(deTipo("luz").length)],
     ["Máquinas e aparelhos", String(maquinas.length)],
     ["Já inteligentes", String(inteligentes)],
   ];
@@ -62,9 +63,11 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   const estado = sugeridaKva === null ? "especial" : sugeridaKva === undefined ? "sem_dados" : contratada >= sugeridaKva ? "chega" : "curta";
   const potencia = {
     estado, contratada_kva: contratada, sugerida_kva: sugeridaKva ?? null,
+    // `assumida`: o cliente não escolheu a potência (é a que sugerimos pela casa): o texto di-lo (decisão do dono, 2026-10-10).
+    assumida,
     titulo: { chega: "A potência contratada chega", curta: "A potência contratada pode ser curta", especial: "Esta casa pede um contrato especial", sem_dados: "Potência contratada" }[estado],
     texto: [
-      `Tem ${kvaTxt(contratada)} contratados${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugeridaKva)}.` : estado === "chega" && sugeridaKva !== contratada ? `; o que a casa tem pede ${kvaTxt(sugeridaKva)}.` : "."}`,
+      `${assumida ? `Assumimos ${kvaTxt(contratada)} contratados, o habitual numa casa assim` : `Tem ${kvaTxt(contratada)} contratados`}${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugeridaKva)}.` : estado === "chega" && sugeridaKva !== contratada ? `; o que a casa tem pede ${kvaTxt(sugeridaKva)}.` : "."}`,
       grandes.length ? `As ${plural(grandes.length, "máquina grande", "máquinas grandes")} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) somam ${wTxt(somaGrandes)}${somaGrandes > contratada * 1000 ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${estado === "chega" ? "chega para o dia a dia, mas com todas ligadas ao mesmo tempo a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
     ].filter(Boolean),
   };
@@ -212,7 +215,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
   ].filter(Boolean).slice(0, 3);
 
   const semLuzes = !elementos.some((e) => e.tipo === "luz");
-  return { numeros, potencia, simultaneo, consumo, proximo, circuitos, esquema, notaCircuitos: semLuzes ? "Falta a iluminação: os pontos de luz não se levantam nesta descrição, por isso os circuitos das luzes não aparecem aqui." : null, rever };
+  return { numeros, potencia, simultaneo, consumo, proximo, circuitos, esquema, notaCircuitos: semLuzes ? "Falta a iluminação: esta planta não tem pontos de luz, por isso os circuitos das luzes não aparecem aqui." : null, rever };
 }
 
 /**
