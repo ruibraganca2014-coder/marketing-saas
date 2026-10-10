@@ -1335,6 +1335,17 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     svg.classList.add("a-seguir");
   });
   svg.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && seguir) pararSeguir(); });
+  // Ferramenta escolhida (porta, janela, tomada…; decisão do dono, 2026-10-10): uma marca acompanha o rato sobre a
+  // planta, para se ver onde o clique a vai pôr — como os equipamentos de "Equipamentos". Só com rato.
+  let fantasma = null;   // { x, y } em cm
+  svg.addEventListener("pointermove", (ev) => {
+    if (ev.pointerType !== "mouse" || ponteiros.size) return;
+    if (modo?.tipo !== "elemento") { if (fantasma) { fantasma = null; desenhar(); } return; }
+    const p = paraPlanta(ev.clientX, ev.clientY);
+    fantasma = { x: limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm), y: limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm) };
+    desenhar();
+  });
+  svg.addEventListener("pointerleave", () => { if (fantasma) { fantasma = null; desenhar(); } });
 
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
@@ -2251,6 +2262,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const passou = destaque ? performance.now() - destaque.desde : 0;
     if (dn && passou < DESTAQUE_MS) {
       extra("polygon", { points: pontosDivisao(dn).map((q) => q.join(",")).join(" "), class: "destaque-nova" }, { fill: "color-mix(in srgb, var(--argila) 22%, transparent)", stroke: "var(--argila)", "stroke-width": "6px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke", "pointer-events": "none", "animation-delay": `-${Math.round(passou)}ms` });
+    }
+    if (fantasma && modo?.tipo === "elemento") {
+      const fora = { "vector-effect": "non-scaling-stroke", "pointer-events": "none" };
+      extra("circle", { cx: fantasma.x, cy: fantasma.y, r: raio * 1.5 }, { fill: "color-mix(in srgb, var(--argila) 30%, transparent)", stroke: "var(--argila)", "stroke-width": "2px", ...fora });
+      extra("circle", { cx: fantasma.x, cy: fantasma.y, r: raio * 0.35 }, { fill: "var(--argila)", ...fora });
     }
     for (const p of calibracao?.pontos ?? []) {
       extra("circle", { cx: p.x, cy: p.y, r: 7 / ppc, "data-calibracao": "1" }, { fill: "var(--argila)", stroke: "var(--superficie)", "stroke-width": "2px", "vector-effect": "non-scaling-stroke", "pointer-events": "none" });
