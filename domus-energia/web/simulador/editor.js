@@ -328,11 +328,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     b.addEventListener("click", (ev) => {
       const ativo = b.getAttribute("aria-pressed") === "true";
       if (ativo) { definirModo(null); return; }
-      usarFerramenta(tipo, modelo, ev.detail === 0);
+      usarFerramenta(tipo, modelo, ev.detail === 0, ev.pointerType);
     });
   }
   /** Rato/toque: a ferramenta fica escolhida (depois toca-se na planta); teclado (Enter/Espaço): põe logo no centro. */
-  function usarFerramenta(tipo, modelo, teclado) {
+  function usarFerramenta(tipo, modelo, teclado, ponteiro = "mouse") {
     if (teclado) {
       const c = centroColocacao();
       definirModo(null);
@@ -341,6 +341,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       return;
     }
     definirModo({ tipo: "elemento", el: tipo, modelo });
+    // Com rato (decisão do dono, 2026-10-10): a peça aparece logo na planta, a meio do que se vê (as de parede, na
+    // parede mais perto do meio), e passa a seguir o rato quando ele lá entrar. Só fica posta com o clique.
+    if (modo && planta && ponteiro !== "touch" && ponteiro !== "pen") {
+      const c = centroColocacao();
+      const [x, y] = sitioDaPeca(tipo, c.x, c.y);
+      fantasma = { x, y };
+      desenhar();
+    }
   }
   /** Mostra na linha os grupos que o passo deixa mudar (lote 8, definirPermissoes); esconde os vazios. */
   function acertarBarra() {
@@ -1382,7 +1390,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     fantasma = { x: fx, y: fy };
     desenhar();
   });
-  svg.addEventListener("pointerleave", () => { if (fantasma) { fantasma = null; desenhar(); } });
+  // O rato saiu da planta com a ferramenta escolhida: a peça volta ao meio do que se vê (não desaparece).
+  svg.addEventListener("pointerleave", (ev) => {
+    if (!fantasma || ev.pointerType !== "mouse") return;
+    if (modo?.tipo === "elemento" && planta) { const c = centroColocacao(); const [x, y] = sitioDaPeca(modo.el, c.x, c.y); fantasma = { x, y }; }
+    else fantasma = null;
+    desenhar();
+  });
 
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
