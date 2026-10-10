@@ -744,8 +744,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .div-tab.falta { border-color: var(--alarme-texto); box-shadow: inset 0 -3px 0 var(--alarme-texto); }
 /* Escolha em falta (app.js assinalar; decisão do dono: sem mensagem vermelha): o grupo ou cartão que falta responder fica com
    um contorno vermelho a pulsar ~2 s (a classe sai ao fim de 2 s); com movimento reduzido, o contorno fica parado. */
-.em-falta { outline: 3px solid var(--alarme-texto); outline-offset: 4px; border-radius: 12px; animation: em-falta .5s ease-in-out 4; }
-@keyframes em-falta { 0%, 100% { outline-color: var(--alarme-texto); } 50% { outline-color: transparent; } }
+/* Decisão do dono (2026-10-10): cor areia em vez do vermelho, 2 px e duas piscadelas. */
+.em-falta { outline: 2px solid var(--argila-texto); outline-offset: 4px; border-radius: 12px; animation: em-falta .5s ease-in-out 2; }
+@keyframes em-falta { 0%, 100% { outline-color: var(--argila-texto); } 50% { outline-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { .em-falta { animation: none; } }
 .div-tab-icone { width: 26px; height: 26px; flex: none; }
 .div-tab-feita { font-weight: 800; color: var(--musgo-texto); }
