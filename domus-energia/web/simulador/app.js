@@ -153,6 +153,7 @@ const editor = criarEditor($("editor"), {
     estado.plantaAuto = plantaAutoJson !== null && JSON.stringify(p) === plantaAutoJson;
     // Máquinas postas ou tiradas na planta: os cartões de "Equipamentos" seguem-na (querDaPlanta).
     if (querDaPlanta()) { sugerirLigacao(); if (estado.passo === P.quer) desenharQuer(); }
+    sitioArrastado();
     dicaPlanta = "";
     desenharPlantaOrigem();
     desenharPlantaVazia();
@@ -367,6 +368,7 @@ function podeIrPara(i) {
   if (posicao(i) > 0 && bloquearInicio()) return false;
   if (funilAvaria()) return !(i === P.enviar && bloquearAvaria());
   if (i > P.casa && !funilPlanta() && bloquearCasa()) return false;
+  if (estado.passo === P.quer && posicao(i) > posicao(P.quer) && bloquearSitios()) return false;
   if (posicao(P.quadro) >= 0 && posicao(i) > posicao(P.quadro) && bloquearQuadro()) return false;   // a foto do quadro
   if (bloquearInventario(i) || bloquearPorVer(P.trocar, i)) return false;   // o inventário das Divisões; divisão a divisão
   if (ordemPasso(i) > ordemPasso(P.trocar) && bloquearTrocar()) return false;
@@ -523,6 +525,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.inicio && bloquearInicio()) return;
   if (estado.passo === P.casa && confirmarCasa()) return;
   if (estado.passo === P.quadro && bloquearQuadro()) return;   // a foto do quadro é obrigatória
+  if (estado.passo === P.quer && bloquearSitios()) return;     // o sítio de cada equipamento confirmado na planta
   // Para lá das Divisões com o inventário por responder (um estado de antes da regra): volta a elas.
   if (estado.passo !== P.divisoes && bloquearInventario(passoAo(estado.passo, 1))) return;
   // Divisões e "Trocar e reparar": primeiro a divisão seguinte ainda por responder / por ver (divisão a divisão).
@@ -1449,6 +1452,91 @@ function acertarQuer() {
  * máquina marca-a ou desmarca-a nesse piso. A planta desenhada põe-nas nesses pisos (casa.js plantaDaCasa).
  * Os objetivos são da casa toda.
  */
+// ---- Equipamentos: o sítio de cada equipamento confirma-se na planta (decisão do dono, 2026-10-10) ----
+// Ao marcar um cartão (ou "+") o site põe o equipamento numa divisão; por cima da planta aparece "Está no sítio certo?"
+// com "Está bem aqui" — arrastá-lo na planta também confirma. "Seguinte" só avança com todos confirmados. No telemóvel
+// a planta não está à vista: confirmam-se no fim, quando "Seguinte" a abre por cima.
+let sitioVisto = null;   // { chave, id, x, y } do equipamento que está a ser confirmado
+/** Marcou mais um (`d` = 1) ou mudou a quantidade (`d` = 0): quantos falta confirmar nesse piso, nunca mais do que há. */
+function sitioPorVer(k, d) {
+  const chave = `${k}|${pisoQuer}`;
+  const n = Math.min(quantidadeNoPiso(estado.quer, k, pisoQuer), Math.max(0, (estado.sitiosPorVer[chave] ?? 0) + d));
+  const s = { ...estado.sitiosPorVer };
+  if (n > 0) s[chave] = n; else delete s[chave];
+  estado.sitiosPorVer = s;
+}
+/** Os que falta confirmar: [{chave, k, piso, n, el}] (`el` = o equipamento na planta; null enquanto a planta não o tem). */
+function sitiosPendentes() {
+  const r = [];
+  for (const [chave, falta] of Object.entries(estado.sitiosPorVer ?? {})) {
+    const [k, pisoTxt] = chave.split("|");
+    const piso = Number(pisoTxt);
+    const n = Math.min(falta, quantidadeNoPiso(estado.quer, k, piso));
+    if (n <= 0 || !MODELOS[k]) continue;
+    const els = (estado.planta?.elementos ?? []).filter((e) => e.tipo === "maquina" && e.props?.modelo === k && pisoDe(e) === piso);
+    r.push({ chave, k, piso, n, el: els[els.length - Math.min(n, els.length)] ?? null });
+  }
+  return r;
+}
+const nomeSitio = (k) => (k === "outro" ? "Outro equipamento" : MODELOS[k].nome);
+/** A caixa por cima da planta: o primeiro por confirmar, a piscar na planta, e "Está bem aqui". */
+function desenharSitio() {
+  const caixa = $("planta-sitio");
+  const pend = estado.passo === P.quer && !enviado && (ecraLargo.matches || plantaAberta()) ? sitiosPendentes() : [];
+  const p = pend.find((x) => x.el);
+  if (!p) { caixa.hidden = true; caixa.replaceChildren(); sitioVisto = null; return; }
+  if (sitioVisto?.id !== p.el.id) {
+    sitioVisto = { chave: p.chave, id: p.el.id, x: p.el.x_cm, y: p.el.y_cm };
+    if (editor.planta === estado.planta) editor.focarElemento(p.el.id);
+  }
+  const divisao = estado.planta.divisoes.find((d) => d.id === p.el.divisao)?.nome;
+  const falta = pend.reduce((s, x) => s + x.n, 0);
+  const b = el("button", "btn pequeno", "Está bem aqui");
+  b.type = "button";
+  b.id = "planta-sitio-ok";
+  b.addEventListener("click", confirmarSitio);
+  caixa.replaceChildren(
+    el("p", null, `${nomeSitio(p.k)}: ficou ${divisao ? `em ${divisao}` : "na planta"}. Está no sítio certo? Se não, arraste na planta para onde está.`),
+    b, ...(falta > 1 ? [el("small", "ajuda", `Faltam ${falta} por confirmar.`)] : []));
+  caixa.hidden = false;
+}
+/** "Está bem aqui" (ou o equipamento arrastado na planta): um a menos por confirmar; segue para o seguinte. */
+function confirmarSitio() {
+  const v = sitioVisto;
+  if (!v) return;
+  const n = (estado.sitiosPorVer[v.chave] ?? 0) - 1;
+  const s = { ...estado.sitiosPorVer };
+  if (n > 0) s[v.chave] = n; else delete s[v.chave];
+  estado.sitiosPorVer = s;
+  sitioVisto = null;
+  $("planta-sitio").classList.remove("em-falta");
+  agendarGravacao(false);
+  desenharSitio();
+  if (!sitiosPendentes().length) {
+    if (plantaAberta()) fecharPlanta({ foco: false });
+    $("sim-seguinte").focus({ preventScroll: true });
+  } else $("planta-sitio-ok")?.focus({ preventScroll: true });
+}
+/** A planta mudou: se o equipamento que se está a confirmar foi arrastado (ou mudou de divisão), está confirmado. */
+function sitioArrastado() {
+  if (!sitioVisto || estado.passo !== P.quer) return;
+  const e = estado.planta.elementos.find((x) => x.id === sitioVisto.id);
+  if (e && (e.x_cm !== sitioVisto.x || e.y_cm !== sitioVisto.y)) confirmarSitio();
+  else if (!e) { sitioVisto = null; desenharSitio(); }
+}
+/** "Seguinte" (e a barra dos passos) em "Equipamentos": com sítios por confirmar não avança. Devolve true se bloqueou. */
+function bloquearSitios() {
+  const pend = sitiosPendentes();
+  if (!pend.length) return false;
+  if (!ecraLargo.matches) abrirPlanta($("sim-seguinte"));
+  atualizarPlanta();   // (a planta já com o que se acabou de marcar)
+  desenharSitio();
+  const caixa = $("planta-sitio");
+  if (caixa.hidden) return false;   // a planta ainda não os tem (não devia acontecer): não prende o cliente
+  assinalar(caixa, `Falta confirmar na planta: ${listaPt([...new Set(pend.map((x) => nomeSitio(x.k).toLowerCase()))])}.`, $("planta-sitio-ok"));
+  return true;
+}
+
 /**
  * Todas as máquinas do perfil ficam à vista, por grupos, e o passo abre sem nada marcado: o cliente marca só o que tem.
  */
@@ -1465,6 +1553,7 @@ function desenharQuer() {
       if (sim) m[pisoQuer] = m[pisoQuer] || 1; else delete m[pisoQuer];
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
       acertarQuer();
+      sitioPorVer(k, sim ? 1 : 0);
       sugerirLigacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
@@ -1591,6 +1680,7 @@ function desenharExtraQuer(k) {
         delete m[pisoQuer];
         estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
         acertarQuer();
+        sitioPorVer(k, 0);
         sugerirLigacao();
         agendarGravacao();
         desenharQuer();
@@ -1599,6 +1689,7 @@ function desenharExtraQuer(k) {
       }
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: { ...estado.quer.porPiso[k], [pisoQuer]: Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d)) } };
       acertarQuer();
+      sitioPorVer(k, d > 0 && qtd < MAX_QUANTIDADE ? 1 : 0);
       agendarGravacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
@@ -1802,6 +1893,7 @@ function atualizarPlanta() {
     if (estado.passo === P.divisoes) desenharDivisoes();
     if (estado.passo === P.trocar) desenharTrocar();
   }
+  desenharSitio();
 }
 
 /** O cliente mexeu na planta (há o que refazer a partir da casa)? */
@@ -1840,6 +1932,7 @@ function abrirPlanta(origem = document.activeElement) {
   // Ronda A: aberta por cima, ajustada e centrada; nos passos com separadores, já centrada na divisão do separador.
   if (!centrarNaDivisao()) editor.verTudo();
   s.querySelector(".editor-svg")?.focus({ preventScroll: true });
+  desenharSitio();   // "Equipamentos": com a planta à vista, o que falta confirmar
   return true;
 }
 function fecharPlanta({ foco = true } = {}) {

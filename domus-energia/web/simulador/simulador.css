@@ -904,3 +904,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 #sim-form.barra-so-icones .editor-elementos .ferramenta { justify-content: center; width: 48px; padding: 4px; gap: 0; }
 #sim-form.barra-so-icones .editor-elementos .ferramenta svg { width: 30px; height: 30px; }
 #sim-form.barra-so-icones .editor-elementos .ferramenta-nome { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Passo "Equipamentos": "Está no sítio certo?" por cima da planta (app.js desenharSitio). */
+.sim-planta-sitio { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: var(--raio); background: var(--areia-suave); color: var(--texto); font-weight: 600; }
+.sim-planta-sitio[hidden] { display: none; }
+.sim-planta-sitio p { flex: 1 1 16em; margin: 0; }
+.sim-planta-sitio small { flex-basis: 100%; }

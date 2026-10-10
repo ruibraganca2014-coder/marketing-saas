@@ -389,6 +389,9 @@ export function estadoNovo() {
     // Fase 3 (monetização): o que o cliente compra ao enviar — relatório pormenorizado e/ou visita técnica (nada: só o
     // relatório básico, grátis). Um só sítio: outro passo pode escolhê-lo antes; o passo Enviar mostra-o e muda-o.
     compras: { relatorio: false, visita: false },
+    // Equipamentos (decisão do dono, 2026-10-10): o sítio de cada equipamento marcado confirma-se na planta. Por
+    // "modelo|piso", quantos ainda falta confirmar (app.js sitioPorVer). Estados antigos: nada por confirmar.
+    sitiosPorVer: {},
     // Ronda dinheiro: máquinas (modelos) que entram como "Novo" mesmo sem "Instalação nova" — a entrada pelo anúncio do
     // carregador (entrada.js): a linha dedicada conta no preço desde o início (app.js marcarNovas).
     maquinasNovas: [],
@@ -806,6 +809,10 @@ export function normalizarEstado(v) {
   e.urgencia = URGENCIAS[v.urgencia] ? v.urgencia : "normal";
   const cp = v.compras && typeof v.compras === "object" ? v.compras : {};
   e.compras = { relatorio: bool(cp.relatorio), visita: bool(cp.visita) };
+  const sv = v.sitiosPorVer && typeof v.sitiosPorVer === "object" && !Array.isArray(v.sitiosPorVer) ? v.sitiosPorVer : {};
+  e.sitiosPorVer = Object.fromEntries(Object.entries(sv).slice(0, 200)
+    .filter(([k, n]) => Object.hasOwn(MODELOS, k.split("|")[0]) && /^[^|]+\|\d$/.test(k) && Number.isInteger(n) && n > 0)
+    .map(([k, n]) => [k, Math.min(n, MAX_QUANTIDADE)]));
   e.maquinasNovas = [...new Set(lista(v.maquinasNovas, 20).filter((k) => typeof k === "string" && Object.hasOwn(MODELOS, k)))];
   return e;
 }
