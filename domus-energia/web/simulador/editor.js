@@ -1226,6 +1226,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   function definirModo(m) {
     if (m?.tipo === "elemento" && !podeAparelhos) m = null;   // o passo não deixa pôr aparelhos (ex.: "A casa")
+    // Escolheu uma ferramenta com um aparelho a seguir o rato: o aparelho volta ao sítio e fica à espera.
+    if (m && seguir?.mexeu) { const s = seguir; pararSeguir(); seguir = { ...s, mexeu: false }; svg.classList.add("a-seguir"); }
     modo = m;
     // Calibração a meio (só o 1.º ponto) cancelada com Esc ou outra ferramenta: o marcador sai da planta.
     if (m?.tipo !== "calibrar" && calibracao && (calibracao.pontos?.length ?? 0) < 2) calibracao = null;
@@ -1314,14 +1316,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     svg.classList.remove("a-seguir");
     const e = s ? obterElemento(s.id) : null;
     if (!e || !s.mexeu) return;
-    if (repor) { e.x_cm = s.x0; e.y_cm = s.y0; desfazer.pop(); }
+    if (repor) { e.x_cm = s.x0; e.y_cm = s.y0; }
     desenhar();
   }
   svg.addEventListener("pointermove", (ev) => {
-    if (!seguir || ev.pointerType !== "mouse" || ponteiros.size) return;
+    // Com uma ferramenta escolhida (porta, tomada…) quem manda é ela: o aparelho não segue o rato.
+    if (!seguir || modo || ev.pointerType !== "mouse" || ponteiros.size) return;
     const e = obterElemento(seguir.id);
     if (!e) { seguir = null; return; }
-    if (!seguir.mexeu) { memorizar(); seguir.mexeu = true; }
+    seguir.mexeu = true;   // (o anular só se memoriza ao largar: passar o rato não mexe no histórico)
     const p = paraPlanta(ev.clientX, ev.clientY);
     e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
     e.y_cm = limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm);
@@ -1349,12 +1352,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
-    if (seguir && ev.pointerType === "mouse") {
-      // O clique larga o aparelho onde o rato está: um só passo de anular, e quem o pediu fica a saber.
+    if (seguir && !modo && ev.pointerType === "mouse") {
+      // O clique larga o aparelho onde o rato está: um só passo de anular (a planta como estava antes de ele seguir
+      // o rato), e quem o pediu fica a saber.
       ev.preventDefault();
       const s = seguir;
       const e = obterElemento(s.id);
-      if (e && !s.mexeu) memorizar();
+      if (e) { e.x_cm = s.x0; e.y_cm = s.y0; memorizar(); }
       const p = paraPlanta(ev.clientX, ev.clientY);
       if (e) {
         e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
@@ -2328,6 +2332,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       const nova = planta !== p;
       planta = p;
       if (nova) { desfazer = []; refazer = []; selecionado = null; calibracao = null; ultimoToque = null; lerAspeto(); pisoAtual = 0; }
+      if (nova) { seguir = null; svg.classList.remove("a-seguir"); }   // outra planta: os ids já não são os mesmos
       if (pisoAtual >= nPisos()) pisoAtual = 0;
       if (nova) ajustarFolha();   // plantas antigas com quadrícula vazia à volta ficam à medida
       if (reiniciarVista || nova) verTudo();
@@ -2586,6 +2591,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * Passo "Equipamentos": o aparelho `id` passa a seguir o rato sobre a planta até um clique o largar (`aoLargar(id)`).
      * Sem `id` (ou um que não existe) deixa de seguir, e o aparelho volta ao sítio onde estava.
      */
+    /** Há um aparelho a acompanhar o rato neste momento (a posição dele ainda não é a final)? */
+    get aSeguir() { return !!seguir?.mexeu; },
     seguirElemento(id, { aoLargar = null } = {}) {
       if (seguir && seguir.id === id) { seguir.aoLargar = aoLargar; return true; }
       pararSeguir();

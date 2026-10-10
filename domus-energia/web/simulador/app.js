@@ -1486,7 +1486,10 @@ function desenharSitio() {
   const pend = estado.passo === P.quer && !enviado && (ecraLargo.matches || plantaAberta()) ? sitiosPendentes() : [];
   const p = pend.find((x) => x.el);
   if (!p) { caixa.hidden = true; caixa.replaceChildren(); sitioVisto = null; editor.seguirElemento(null); return; }
-  if (sitioVisto?.id !== p.el.id) {
+  // (Numa planta refeita os ids repetem-se: o mesmo id noutro sítio, sem estar a seguir o rato, é outro equipamento.)
+  const outro = sitioVisto?.id !== p.el.id || (!editor.aSeguir && (sitioVisto.x !== p.el.x_cm || sitioVisto.y !== p.el.y_cm));
+  if (outro) {
+    if (sitioVisto?.id === p.el.id) editor.seguirElemento(null);
     sitioVisto = { chave: p.chave, id: p.el.id, x: p.el.x_cm, y: p.el.y_cm };
     if (editor.planta === estado.planta) {
       editor.focarElemento(p.el.id);
@@ -1524,7 +1527,7 @@ function confirmarSitio() {
 }
 /** A planta mudou: se o equipamento que se está a confirmar foi arrastado (ou mudou de divisão), está confirmado. */
 function sitioArrastado() {
-  if (!sitioVisto || estado.passo !== P.quer) return;
+  if (!sitioVisto || estado.passo !== P.quer || editor.aSeguir) return;   // a seguir o rato: ainda não foi largado
   const e = estado.planta.elementos.find((x) => x.id === sitioVisto.id);
   if (e && (e.x_cm !== sitioVisto.x || e.y_cm !== sitioVisto.y)) confirmarSitio();
   else if (!e) { sitioVisto = null; desenharSitio(); }
