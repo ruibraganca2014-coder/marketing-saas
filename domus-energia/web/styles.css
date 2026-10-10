@@ -1037,3 +1037,8 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 
 /* Lista de espera (site.js): o aviso por baixo dos botões do topo e por cima do formulário de contacto. */
 .lista-espera { margin: 16px 0; max-width: 60ch; font-weight: 500; }
+
+/* Ecrãs de toque (decisão do dono, 2026-10-10): as ligações de texto ficam com 44 px de zona de toque. */
+@media (pointer: coarse) {
+  .hero .hero-ou a, footer .wrap > a, .rodape-servicos a, .rodape-legal a, #servicos h3 a { display: inline-flex; align-items: center; min-height: 44px; }
+}
