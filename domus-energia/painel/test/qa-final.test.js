@@ -122,7 +122,7 @@ test('janela "confirme antes de continuar" dos outros passos: a assinatura muda 
   const { assinaturaPasso, PASSOS_A_CONFIRMAR, PASSO } = await import('../../web/simulador/estado.js');
   assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias]);
   const e = estadoNovo();
-  e.planta = { ...e.planta, divisoes: [{ id: 'd1', nome: 'Sala' }], elementos: [{ id: 'e1', tipo: 'tomada', divisao: 'd1', x: 10, y: 10, props: { caixas: 1 } }, { id: 'e2', tipo: 'luz', divisao: 'd1', x: 50, y: 50, props: {} }] };
+  e.planta = { ...e.planta, divisoes: [{ id: 'd1', nome: 'Sala' }], elementos: [{ id: 'e1', tipo: 'tomada', divisao: 'd1', x: 10, y: 10, props: { caixas: 1 } }, { id: 'e2', tipo: 'luz', divisao: 'd1', x: 50, y: 50, props: {} }, { id: 'e3', tipo: 'porta', divisao: 'd1', x_cm: 100, y_cm: 0, props: {} }] };
   const de = (passo, foto = null) => assinaturaPasso(e, passo, foto);
   const antes = Object.fromEntries(PASSOS_A_CONFIRMAR.map((k) => [k, de(k)]));
   assert.ok(PASSOS_A_CONFIRMAR.every((k) => typeof antes[k] === 'string' && antes[k].length <= 40));
@@ -140,7 +140,11 @@ test('janela "confirme antes de continuar" dos outros passos: a assinatura muda 
   e.planta.elementos[0].acao = 'substituir'; e.planta.elementos[0].inteligente = true;
   assert.notEqual(de(PASSO.trocar), antes[PASSO.trocar]);
   assert.equal(de(PASSO.planta), antes[PASSO.planta]);
-  e.planta.elementos[1].x = 80;
+  // "Portas e janelas" (decisão do dono, 2026-10-10) confirma só as portas, as janelas e o quadro, com o sítio: mexer
+  // numa luz não muda nada; mudar uma porta de sítio muda.
+  e.planta.elementos[1].x_cm = 80;
+  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
+  e.planta.elementos[2].x_cm = 180;
   assert.notEqual(de(PASSO.planta), antes[PASSO.planta]);
   // Quadro: é a foto que se confirma.
   assert.notEqual(de(PASSO.quadro, 1234), de(PASSO.quadro, 99));

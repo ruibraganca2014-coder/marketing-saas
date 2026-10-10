@@ -330,7 +330,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     b.addEventListener("click", (ev) => {
       const ativo = b.getAttribute("aria-pressed") === "true";
       if (ativo) { definirModo(null); return; }
-      usarFerramenta(tipo, modelo, ev.detail === 0, ev.pointerType);
+      usarFerramenta(tipo, modelo, ev.detail === 0, ev.pointerType || (matchMedia("(pointer: coarse)").matches ? "touch" : "mouse"));
     });
   }
   /** Rato/toque: a ferramenta fica escolhida (depois toca-se na planta); teclado (Enter/Espaço): põe logo no centro. */
@@ -1017,6 +1017,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     // "novo"; quem usa o editor decide pelo passo, `acaoAoPor`); antes disso é o que a casa já tem (sem ação: Manter).
     const acao = acaoAoPor?.(tipo, e.props);
     if (acao) e.acao = acao;
+    // A porta da rua (o pacote Segurança conta-a): a primeira porta que se põe, até o cliente dizer outra.
+    if (tipo === "porta" && !planta.elementos.some((x) => x.tipo === "porta")) e.props = { ...e.props, entrada: true };
     planta.elementos.push(e);
     // Numa zona sobreposta: a divisão selecionada (ex.: "+" do passo Divisões); sem ela, a desenhada por cima.
     e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? divisaoDoElemento(planta, e);
@@ -1088,8 +1090,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (d && !podeDivisoes) { divisaoPresa(); return false; }
     memorizar();
     if (e) {
-      e.x_cm = limitar(e.x_cm + dx, 0, planta.largura_cm);
-      e.y_cm = limitar(e.y_cm + dy, 0, planta.altura_cm);
+      [e.x_cm, e.y_cm] = PECAS_PAREDE.includes(e.tipo)
+        ? sitioDaPeca(e.tipo, e.x_cm + dx * 3, e.y_cm + dy * 3)   // (o triplo: senão a peça voltava ao mesmo ponto da parede)
+        : [limitar(e.x_cm + dx, 0, planta.largura_cm), limitar(e.y_cm + dy, 0, planta.altura_cm)];
     } else {
       moverDivisao(d, dx, dy, elementosDentro(d), d.x_cm, d.y_cm, d.pontos ?? null);
     }
@@ -2470,6 +2473,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         soElementos = Array.isArray(elementos) ? elementos : null;
         soVisiveis = Array.isArray(ver) ? ver : null;
         definirModo(null);   // outro passo, outras ferramentas: a que estava escolhida larga-se
+        desfazer = []; refazer = [];   // cada passo só anula o que ele próprio deixa pôr e ver
         if (soElementos && modo?.tipo === "elemento" && !soElementos.includes(modo.el)) definirModo(null);
         if (soVisiveis && planta && obterElemento(selecionado) && !pecaDoPasso(obterElemento(selecionado))) selecionado = null;
         acertarBarra();

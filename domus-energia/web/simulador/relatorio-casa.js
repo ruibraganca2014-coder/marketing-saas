@@ -154,7 +154,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva) {
     const pontos = aqui.filter((e) => e.tipo === "tomada").reduce((s, e) => s + caixasDe(e.props), 0);
     const pequenas = aqui.filter((e) => e.tipo === "maquina").map((e) => maquinaDaPlanta(e.props)).filter((m) => !circuitoProprio(m)).length;
     const nome = nomeDe.get(d.id);
-    if (pequenas > pontos) rever.push(`${nome}: ${plural(pequenas, "aparelho", "aparelhos")} para ${plural(pontos, "ponto de tomada", "pontos de tomada")}. Costuma acabar em extensões e fichas triplas.`);
+    if (pontos > 0 && pequenas > pontos) rever.push(`${nome}: ${plural(pequenas, "aparelho", "aparelhos")} para ${plural(pontos, "ponto de tomada", "pontos de tomada")}. Costuma acabar em extensões e fichas triplas.`);
     if (pontos > 0 && zonaHumida(nome)) rever.push(`${nome}: é zona húmida. As tomadas devem estar num circuito só para elas, com diferencial de 30 mA.`);
   }
   if (grandes.length) rever.push(`${grandes.map((m) => nomeModelo(m.modelo)).join(", ")}: ${grandes.length === 1 ? "deve ter um circuito só para ela" : "cada uma deve ter um circuito só para ela"} no quadro.`);

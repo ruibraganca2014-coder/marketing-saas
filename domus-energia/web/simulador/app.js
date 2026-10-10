@@ -153,15 +153,12 @@ const editor = criarEditor($("editor"), {
     estado.plantaAuto = plantaAutoJson !== null && JSON.stringify(p) === plantaAutoJson;
     // Máquinas postas ou tiradas na planta: os cartões de "Equipamentos" seguem-na (querDaPlanta).
     if (querDaPlanta()) { sugerirLigacao(); if (estado.passo === P.quer) desenharQuer(); }
-    // A porta da rua (o pacote Segurança conta-a): sem portas sugeridas, é a primeira que o cliente põe, até dizer outra.
-    const portas = p.elementos.filter((e) => e.tipo === "porta");
-    if (portas.length && !portas.some((e) => e.props?.entrada)) portas[0].props = { ...portas[0].props, entrada: true };
     sitioArrastado();
     dicaPlanta = "";
     desenharPlantaOrigem();
     desenharPlantaVazia();
     // Mexeu na planta (em qualquer passo depois de "Equipamentos"): o pedido e os cartões seguem-na.
-    if (estado.passo > P.quer) refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
+    if (depoisDe(estado.passo, P.quer)) refazerDivisoes(divisaoTocada ? [divisaoTocada] : []);
     if (estado.passo === P.divisoes) desenharDivisoes();
     if (estado.passo === P.trocar) desenharTrocar();
     if (estado.passo === P.melhorias) desenharMelhorias();
@@ -248,6 +245,8 @@ const fluxoCurto = () => false;
 /** Passos que "não precisa" (barra dos passos; Seguinte/Anterior saltam-nos): Equipamentos, Planta e Divisões no fluxo curto. */
 /** Os dois passos com a planta à largura toda: "Portas e janelas" e "Interruptores e tomadas". */
 const passoDaPlanta = (p) => p === P.planta || p === P.tomadas;
+/** O passo `a` vem depois do `b` no percurso? (pela ordem dos passos, não pelo índice: o 13 vem antes dos Equipamentos) */
+const depoisDe = (a, b) => ordemPasso(a) > ordemPasso(b);
 const naoPrecisa = (i) => (i === P.quer || i === P.planta || i === P.divisoes) && fluxoCurto();
 /** Na área de cliente a casa já é conhecida: Seguinte/Anterior saltam-na (continua na barra, para editar). */
 const saltado = (i) => naoPrecisa(i) || (i === P.casa && !!codigoCliente);
@@ -389,7 +388,7 @@ function irPara(i, { foco = true } = {}) {
   if (!funilAvaria()) visitado = maisAdiantado(visitado, estado.passo);
   estado.visitado = visitado;
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
-  if (!funilAvaria() && estado.passo > P.quer && de <= P.quer) prepararPassosSeguintes();
+  if (!funilAvaria() && depoisDe(estado.passo, P.quer) && !depoisDe(de, P.quer)) prepararPassosSeguintes();
   if (estado.passo !== de) editor.limparAviso();   // as mensagens da planta não passam para o passo seguinte
   if (estado.passo !== de) desassinalarTodos();   // as marcas de "em falta" ficam só no passo onde faltou a escolha
   const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
@@ -822,7 +821,7 @@ function desenharPerigo() {
 function mudarServico(lista) {
   acabarAnular();   // começou outra: a apagada já não se pode repor
   estado.servico = lista;
-  if (visitado > P.quer) acertarPedido();   // o pedido já foi preparado: segue as ações novas
+  if (depoisDe(visitado, P.quer)) acertarPedido();   // o pedido já foi preparado: segue as ações novas
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharProgresso();
   desenharComo();
@@ -965,7 +964,9 @@ function confirmarPasso(destino = null) {
   const botao = botaoDaJanela(dlg);
   const lista = el("ul", "janela-casa-lista");
   for (const t of T.pontos) lista.append(el("li", null, t));
-  $("casa-janela-titulo").textContent = T.titulo;
+  // "Interruptores e tomadas" sem nenhum posto: a pergunta diz-o (senão a casa chegava ao relatório sem tomadas).
+  const semNada = passo === P.tomadas && !estado.planta.elementos.some((e) => e.tipo === "interruptor" || e.tipo === "tomada");
+  $("casa-janela-titulo").textContent = semNada ? "Não pôs nenhum interruptor nem tomada. Continuar assim?" : T.titulo;
   $("casa-janela-corpo").replaceChildren(el("p", null, "Antes de continuar, confirme:"), lista);
   $("casa-janela-botoes").replaceChildren(
     botao("btn sec", "Ainda não, vou ajustar", "passo-janela-ajustar", () => focar(`titulo-${passo}`)),
@@ -1826,9 +1827,9 @@ function acertarMexida() {
   }
   if (JSON.stringify(antes) === JSON.stringify(depois)) return false;
   const p = structuredClone(estado.planta);
-  const jaLa = new Set(p.elementos.map((e) => e.id));
+  const jaLa = new Set(p.elementos);   // (pelo objeto: os ids repetem-se quando sai uma divisão e entra outra)
   const dicas = acertarPlantaMexida(p, antes, depois, { casa: estado.casa });
-  p.elementos = p.elementos.filter((e) => !SEM_SUGESTAO.includes(e.tipo) || jaLa.has(e.id));   // divisão nova: sem peças sugeridas
+  p.elementos = p.elementos.filter((e) => !SEM_SUGESTAO.includes(e.tipo) || jaLa.has(e));   // divisão nova: sem peças sugeridas
   estado.planta = marcarNovas(p);
   estado.plantaSinc = depois;
   estado.plantaBase = assinaturaBase();
@@ -1879,7 +1880,7 @@ function atualizarPlanta() {
   temporizadorPlanta = null;
   if (enviado || funilAvaria()) return;   // a avaria rápida não tem planta
   const redesenhada = preencherPlanta();
-  if (redesenhada && estado.passo > P.quer) acertarPedido();
+  if (redesenhada && depoisDe(estado.passo, P.quer)) acertarPedido();
   ferramentasEditor();
   // Marcas M/R/S/N na planta: as que não são a ação do serviço; em "Trocar e reparar" (lote 8) em todos os aparelhos
   // (sem "Instalação nova", só nos que já têm a ação escolhida).
@@ -2308,7 +2309,7 @@ function ligarRecalcular(botaoId, editado, recalcular, desenhar, { pergunta = "I
 ligarRecalcular("planta-refazer", () => true, () => {
   desenharDaCasa();
   estado.plantaSaltada = false;
-  if (estado.passo > P.quer) acertarPedido();
+  if (depoisDe(estado.passo, P.quer)) acertarPedido();
 }, () => {
   atualizarPlanta();
   if (estado.passo === P.divisoes) desenharDivisoes();
@@ -4800,7 +4801,7 @@ async function oferecerSimulacaoDaConta(eu) {
   casaEncontrada = false;
   estado = daConta;
   visitado = visitadoDe(estado);
-  if (estado.passo > P.quer && !funilAvaria()) acertarPedido();
+  if (depoisDe(estado.passo, P.quer) && !funilAvaria()) acertarPedido();
   document.querySelector(".sim-progresso").hidden = false;
   $("sim-form").hidden = false;
   if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;
@@ -5536,7 +5537,7 @@ function iniciar() {
     // Lote 8: retoma logo onde ficou (sem "Continuar onde ficou?").
     estado = guardado;
     visitado = visitadoDe(estado);
-    if (estado.passo > P.quer && !funilAvaria()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+    if (depoisDe(estado.passo, P.quer) && !funilAvaria()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
     preEscolherPacote();
     mostrarPasso(false);
     carregarFotosDoEstado();

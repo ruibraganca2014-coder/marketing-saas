@@ -332,7 +332,7 @@ export function assinaturaPasso(estado, passo, fotoQuadro = null) {
   const de = {
     [PASSO.quer]: () => estado.quer,
     [PASSO.divisoes]: () => [els.filter((e) => e.tipo === "interruptor" || e.tipo === "tomada").map((e) => [e.id, e.divisao ?? null, e.tipo, e.props ?? null, e.confirmado === true, e.acao ?? null, e.inteligente ?? null]), estado.naoTem],
-    [PASSO.planta]: () => [estado.planta?.divisoes ?? [], els.map((e) => [e.id, e.tipo, e.divisao ?? null, e.x ?? null, e.y ?? null])],   // sem `props`: o que cada aparelho é diz-se nas Divisões
+    [PASSO.planta]: () => els.filter((e) => ["porta", "janela", "quadro"].includes(e.tipo)).map((e) => [e.id, e.tipo, e.divisao ?? null, e.x_cm ?? null, e.y_cm ?? null]),   // sem `props`: o que cada aparelho é diz-se nas Divisões
     [PASSO.tomadas]: () => els.filter((e) => ["interruptor", "tomada", "luz"].includes(e.tipo)).map((e) => [e.id, e.tipo, e.divisao ?? null]),
     [PASSO.quadro]: () => fotoQuadro,
     [PASSO.trocar]: () => [els.map((e) => [e.id, e.acao ?? null, e.avaria ?? null, e.inteligente ?? null]), estado.quadroAvaria, estado.quadroProblemas, estado.mexerQuadro],
