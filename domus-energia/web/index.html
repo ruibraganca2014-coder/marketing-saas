@@ -304,9 +304,9 @@
           <div class="cartao" id="orcamento">
             <h3>Pedir contacto</h3>
             <p class="ajuda-form">Sem compromisso. Trabalhamos na Grande Lisboa e até 100 km. A visita técnica (deslocação e 30 minutos) é paga e o valor desconta na obra. Deixe pelo menos um contacto (telefone ou email). * obrigatório</p>
-            <form id="form-orcamento">
+            <form id="form-orcamento" novalidate>
               <div class="duas">
-                <label>Nome *<input name="nome" required maxlength="120" autocomplete="name"></label>
+                <label>Nome *<input name="nome" maxlength="120" autocomplete="name" aria-required="true"></label>
                 <label>Telefone<input name="telefone" type="tel" maxlength="30" autocomplete="tel"></label>
               </div>
               <div class="duas">

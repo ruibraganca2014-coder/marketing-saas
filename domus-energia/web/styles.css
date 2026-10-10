@@ -306,6 +306,11 @@ footer .wrap > a { display: inline-flex; align-items: center; min-height: 24px; 
 .confirmar-risco .botoes .btn { flex: 1 1 auto; }
 .cenas > .confirmar-risco { margin-bottom: 10px; }
 select[aria-invalid="true"] { border: 2px solid var(--alarme); }
+/* Formulário "Pedir contacto": o aviso por baixo do campo (site.js validarCampo), na cor areia dos avisos. */
+#form-orcamento input[aria-invalid="true"] { border-color: var(--argila-texto); }
+#form-orcamento .duas { align-items: start; }
+#orcamento .lista-espera { max-width: none; }
+.erro-campo { display: block; margin-top: 4px; color: var(--argila-texto); font-size: .88rem; font-weight: 600; }
 .falta-escolher { display: block; margin-top: 4px; color: var(--alarme-texto); font-weight: 700; font-size: .88rem; }
 .linha-condicao .falta-escolher { grid-column: 1 / -1; margin-top: 0; }
 @media (min-width: 620px) { .cartao-alarme { grid-template-columns: 56px 1fr auto; } .cartao-alarme .alarme-acoes { grid-column: auto; } }

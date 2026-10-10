@@ -180,14 +180,66 @@ function corpoOrcamento(dados) {
   return { ...corpo, ...origemContacto(t(dados.conheceu)) };
 }
 
+// Validação enquanto se escreve (decisão do dono, 2026-10-10): o telefone só aceita algarismos, espaços e + ( ) -; ao sair
+// de um campo (e, depois de assinalado, a cada tecla) o aviso aparece por baixo dele. As regras são as do servidor.
+const REGRAS = {
+  nome: (v) => (v ? "" : "Escreva o seu nome."),
+  telefone: (v) => (!v || RE_TELEFONE.test(v) ? "" : "Telefone inválido. Use pelo menos 6 algarismos (ex.: 912 345 678)."),
+  email: (v) => (!v || RE_EMAIL.test(v) ? "" : "Email inválido. Confirme o endereço (ex.: nome@exemplo.pt)."),
+};
+/** Mostra (ou tira) o aviso por baixo do campo; devolve true se o campo está bem. */
+function validarCampo(nome) {
+  const campo = form.elements[nome];
+  const texto = REGRAS[nome](campo.value.trim());
+  let aviso = campo.parentElement.querySelector(".erro-campo");
+  if (!texto) {
+    campo.removeAttribute("aria-invalid");
+    campo.removeAttribute("aria-describedby");
+    aviso?.remove();
+    return true;
+  }
+  if (!aviso) {
+    aviso = document.createElement("small");
+    aviso.className = "erro-campo";
+    aviso.id = `erro-${nome}`;
+    campo.after(aviso);
+  }
+  aviso.textContent = texto;
+  campo.setAttribute("aria-invalid", "true");
+  campo.setAttribute("aria-describedby", aviso.id);
+  return false;
+}
+if (form) {
+  form.elements.telefone.setAttribute("inputmode", "tel");
+  form.elements.telefone.addEventListener("input", (e) => {
+    const limpo = e.target.value.replace(/[^0-9 +()-]/g, "");
+    if (limpo !== e.target.value) e.target.value = limpo;
+  });
+  for (const nome of Object.keys(REGRAS)) {
+    const campo = form.elements[nome];
+    campo.addEventListener("blur", () => { if (campo.value.trim() || campo.hasAttribute("aria-invalid")) validarCampo(nome); });
+    campo.addEventListener("input", () => { if (campo.hasAttribute("aria-invalid")) validarCampo(nome); });
+  }
+  form.addEventListener("reset", () => {
+    for (const nome of Object.keys(REGRAS)) {
+      const campo = form.elements[nome];
+      campo.removeAttribute("aria-invalid");
+      campo.removeAttribute("aria-describedby");
+      campo.parentElement.querySelector(".erro-campo")?.remove();
+    }
+  });
+}
+
 form?.addEventListener("submit", async (e) => {   // as páginas de anúncio não têm o formulário
   e.preventDefault();
   const botao = form.querySelector("button");
   const dados = Object.fromEntries(new FormData(form));
 
-  if (!String(dados.nome ?? "").trim()) {
-    mostrar("Escreva o seu nome.", false);
-    form.elements.nome.focus();
+  // As mesmas regras do servidor: um pedido recusado também conta para o limite por hora.
+  const errados = Object.keys(REGRAS).filter((nome) => !validarCampo(nome));
+  if (errados.length) {
+    mostrar("Corrija os campos assinalados.", false);
+    form.elements[errados[0]].focus();
     return;
   }
   const telefone = String(dados.telefone ?? "").trim();
@@ -195,17 +247,6 @@ form?.addEventListener("submit", async (e) => {   // as páginas de anúncio nã
   if (!telefone && !email) {
     mostrar("Indique um telefone ou um email para o podermos contactar.", false);
     form.elements.telefone.focus();
-    return;
-  }
-  // As mesmas regras do servidor: um pedido recusado também conta para o limite por hora.
-  if (telefone && !RE_TELEFONE.test(telefone)) {
-    mostrar("Telefone inválido. Use só números, espaços e + (ex.: 912 345 678).", false);
-    form.elements.telefone.focus();
-    return;
-  }
-  if (email && !RE_EMAIL.test(email)) {
-    mostrar("Email inválido. Confirme o endereço (ex.: nome@exemplo.pt).", false);
-    form.elements.email.focus();
     return;
   }
 
