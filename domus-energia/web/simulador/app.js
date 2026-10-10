@@ -6,7 +6,7 @@ import {
   TIPOS_CASA, MODELOS,
   TIPOLOGIAS, LIMITES_CASA, EXTRAS_CASA, MAQUINAS_PEQUENAS, tipologiaDeQuartos,
   contarPlanta, divisoesDaContagem, sugerirCircuitos, circuitoVazio, numerar,
-  plantaTemConteudo, formatarW, FASES,
+  plantaTemConteudo, formatarW, FASES, pontosDivisao,
   perfilCasa, maquinasGrandesDe, modelosDoPerfil, tiposDivisaoPara,
   TIPOS_COM_PISOS, nomePiso, pisoDe, caixasDe, COMANDOS, comandoDe,
 } from "./regras.js";
@@ -627,7 +627,7 @@ const ICONES_FUNIL = {
   avaria: ["M26 6 12 27h10l-3 15 16-22H24z"],
 };
 const AJUDA_FUNIL = {
-  primeira: "A casa que tem hoje · relatório grátis · ~7 min",
+  primeira: "A casa que tem hoje · relatório grátis · ~7 min · no fim pedimos o email",
   avaria: "Diagnóstico + deslocação, descontado na reparação.",   // com o catálogo leva o valor (ajudaAvaria)
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
@@ -1081,9 +1081,11 @@ function confirmarCasa(destino = null) {
       el("li", null, "Cada divisão está no sítio certo: arraste-a na planta para a mudar."),
       el("li", null, "O tamanho está perto do real: puxe os cantos da divisão."),
     );
-    corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório da casa. Confirme:"), passos);
+    // No telemóvel a planta está atrás de "Ver planta": a pergunta mostra-a (decisão do dono, 2026-10-10) e "vou ajustar" abre-a.
+    const mini = !ecraLargo.matches && plantaTemConteudo(estado.planta) ? miniaturaCasa() : null;
+    corpo.replaceChildren(el("p", null, "É sobre esta planta que fazemos o relatório da casa. Confirme:"), ...(mini ? [mini] : []), passos);
     bs.replaceChildren(
-      botao("btn sec", "Ainda não, vou ajustar", "casa-janela-ajustar", () => focar("titulo-1")),
+      botao("btn sec", "Ainda não, vou ajustar", "casa-janela-ajustar", () => { if (ecraLargo.matches) focar("titulo-1"); else abrirPlanta($("ver-planta")); }),
       botao("btn", "Sim, continuar", "casa-janela-sim", () => { estado.plantaConfirmada = assinaturaPlanta(); irPara(destino ?? passoAo(estado.passo, 1)); }),
     );
   }
@@ -1107,6 +1109,39 @@ function escolha(tipo, nome, valor, texto, ajuda, aoMudar, icone = null) {
   return l;
 }
 const svgNovo = () => document.createElementNS("http://www.w3.org/2000/svg", "svg");
+/** A planta em pequeno, só de leitura (o piso que o editor mostra), para o telemóvel no passo "A casa". */
+function miniaturaCasa() {
+  const p = estado.planta;
+  const svg = svgNovo();
+  // Só a parte da folha onde a casa está (a folha fica 2× neste passo).
+  const doPiso = p.divisoes.filter((d) => pisoDe(d) === (editor.piso ?? 0));
+  const caixas = doPiso.map((d) => { const pts = pontosDivisao(d); const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; });
+  const M = 40;
+  const vista = caixas.length ? (() => {
+    const x0 = Math.max(0, Math.min(...caixas.map((c) => c[0])) - M), y0 = Math.max(0, Math.min(...caixas.map((c) => c[1])) - M);
+    const x1 = Math.min(p.largura_cm, Math.max(...caixas.map((c) => c[2])) + M), y1 = Math.min(p.altura_cm, Math.max(...caixas.map((c) => c[3])) + M);
+    return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+  })() : { x: 0, y: 0, w: p.largura_cm, h: p.altura_cm };
+  desenharPlanta(svg, { ...p, elementos: [] }, { soLeitura: true, grelha: false, piso: editor.piso ?? 0, vista });
+  svg.setAttribute("class", "casa-miniatura-svg");
+  svg.style.aspectRatio = `${vista.w} / ${vista.h}`;
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "A planta da sua casa, em pequeno");
+  return svg;
+}
+function desenharMiniaturaCasa() {
+  const caixa = $("casa-miniatura");
+  const mostrar = estado.passo === P.casa && !ecraLargo.matches && plantaTemConteudo(estado.planta);
+  caixa.hidden = !mostrar;
+  if (!mostrar) { caixa.replaceChildren(); return; }
+  const b = el("button", "casa-miniatura-botao");
+  b.type = "button";
+  b.id = "casa-miniatura-abrir";
+  b.setAttribute("aria-label", "Abrir a planta para arrumar as divisões");
+  b.addEventListener("click", () => abrirPlanta(b));
+  b.append(miniaturaCasa(), el("span", null, "A sua planta. Toque para a abrir e arrumar as divisões."));
+  caixa.replaceChildren(b);
+}
 /** Desenho de uma máquina (o mesmo da planta; aria-hidden: o nome está no botão). */
 const iconeMaquina = (k) => desenharIcone(svgNovo(), "maquina", { modelo: k });
 
@@ -2034,6 +2069,7 @@ function atualizarPlanta() {
   plantaAutoJson = estado.plantaAuto ? JSON.stringify(estado.planta) : plantaAutoJson;
   desenharPlantaOrigem();
   desenharPlantaVazia();
+  desenharMiniaturaCasa();
   if (redesenhada) {
     agendarGravacao(false);
     if (estado.passo === P.divisoes) desenharDivisoes();
@@ -2495,11 +2531,14 @@ entradaFoto.addEventListener("change", async () => {
 async function processarFoto(alvo, f) {
   alvo.aoFim(null, "A preparar a foto…");
   try {
-    const r = await reduzirFoto(f);
+    const { avisos = [], ...r } = await reduzirFoto(f);
     if (!estado.fotosId) { estado.fotosId = novoIdFotos(); agendarGravacao(); }
     const guardada = await guardarFoto(estado.fotosId, alvo.chave, r);
     fotos.set(alvo.chave, { chave: alvo.chave, ...r });
-    alvo.aoFim(true, guardada ? "Foto guardada neste navegador." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se.");
+    // A foto do quadro é por onde o eletricista vê as proteções: se parece escura, tremida ou pequena, diz-se (sem bloquear).
+    const reparo = alvo.chave !== "quadro" || !avisos.length ? ""
+      : ` Atenção: a foto parece ${listaPt(avisos.map((k) => ({ escura: "escura", tremida: "tremida ou desfocada", pequena: "pequena" })[k]))}. Se as etiquetas não se lerem, tire outra${avisos.includes("escura") ? " com o flash" : ""}.`;
+    alvo.aoFim(true, `${guardada ? "Foto guardada neste navegador." : "Foto pronta. Este navegador não a consegue guardar: se fechar a página antes de enviar, perde-se."}${reparo}`);
   } catch (e) {
     alvo.aoFim(false, e instanceof ErroFoto ? e.message : "Não foi possível usar esta foto. Experimente outra.");
   } finally {
@@ -4703,7 +4742,10 @@ function desenharRelatorio() {
   // que fazíamos primeiro, o quadro ideal e, no fim, o consumo e as divisões.
   const seguro = el("div", `cartao sim-quadro-seguro${estado.quadroIdade === "antigo" ? " alerta" : ""}`);
   seguro.append(el("h3", null, "O seu quadro é seguro?"), el("p", null, d.quadroSeguro));
+  numeros.classList.add("sim-amostra-vista");
+  seguro.classList.add("sim-amostra-vista");
   caixa.append(...[seguro, casa, numeros, pot, junto, rever, proximo, circ, consumo, divs].filter(Boolean));
+  amostraRelatorio();
 }
 $("relatorio-pdf").addEventListener("click", async () => {
   const b = $("relatorio-pdf"), m = $("relatorio-pdf-msg");
@@ -4843,10 +4885,24 @@ const blocoContaRelatorio = criarBlocoConta($("relatorio-conta-bloco"), {
 });
 const relatorioFechado = () => funil() === "primeira" && !contaEu?.conta?.confirmado;
 let portaoEstavaFechado = false;
+/**
+ * Amostra do relatório antes do email (decisão do dono, 2026-10-10): sem conta, "O seu quadro é seguro?" e "A casa em
+ * números" ficam à vista; o resto fica desfocado por baixo do pedido do email (e fora do teclado e dos leitores de
+ * ecrã: `inert`). Com conta, tudo à vista.
+ */
+function amostraRelatorio() {
+  const fechado = relatorioFechado();
+  $("relatorio-conteudo").classList.toggle("so-amostra", fechado);
+  for (const x of $("relatorio").children) {
+    const tapado = fechado && !x.classList.contains("sim-amostra-vista");
+    x.classList.toggle("sim-amostra-tapada", tapado);
+    x.inert = tapado;
+  }
+}
 function portaoRelatorio() {
   const fechado = relatorioFechado();
   $("relatorio-conta").hidden = !fechado;
-  $("relatorio-conteudo").hidden = fechado;
+  amostraRelatorio();
   if (estado.passo === P.relatorio) $("sim-seguinte").hidden = fechado;   // o "Concluir" volta ao entrar na conta
   if (portaoEstavaFechado && !fechado && estado.passo === P.relatorio) focar(`titulo-${P.relatorio}`);
   portaoEstavaFechado = fechado;

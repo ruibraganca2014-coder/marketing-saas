@@ -131,6 +131,8 @@
               <!-- "Outra divisão" (ginásio, sótão…): o nome e quantas, uma linha por divisão (app.js desenharOutras). -->
               <div class="casa-outras" id="casa-outras" hidden></div>
             </fieldset>
+            <!-- Telemóvel (decisão do dono, 2026-10-10): a planta em pequeno, para se ver antes de confirmar (app.js desenharMiniaturaCasa). -->
+            <div class="casa-miniatura" id="casa-miniatura" hidden></div>
           </div>
           <div class="duas">
             <label>Potência contratada<select id="casa-potencia"><option value="3.45">3,45 kVA</option><option value="4.6">4,6 kVA</option><option value="5.75">5,75 kVA</option><option value="6.9" selected>6,9 kVA</option><option value="10.35">10,35 kVA</option><option value="13.8">13,8 kVA</option><option value="17.25">17,25 kVA</option><option value="20.7">20,7 kVA</option></select></label>
@@ -179,7 +181,7 @@
           <p class="sub-passo">Grátis. O resumo da sua casa, sem preços.</p>
           <!-- Duas partes (decisão do dono, 2026-10-04): em "Descrever a minha casa" o relatório vê-se com conta (só o email e um código) -->
           <div class="cartao" id="relatorio-conta" hidden>
-            <h3>Deixe o seu email para ver o relatório</h3>
+            <h3>Deixe o seu email para ver o relatório todo</h3>
             <div id="relatorio-conta-bloco"></div>
           </div>
           <div id="relatorio-conteudo">

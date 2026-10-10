@@ -54,6 +54,31 @@ function paraBlob(c, q) {
  * chegar lá, a primeira que fique ≤ 1 MB. Devolve {blob, largura, altura, miniatura (data: URL ≤ 240 px)}.
  * @param {File|Blob} ficheiro
  */
+/**
+ * A foto vê-se bem? (decisão do dono, 2026-10-10; só aviso, nunca bloqueia.) Numa cópia de 200 px: a luz média
+ * (escura), a nitidez (variância do laplaciano: tremida ou desfocada) e o lado menor do original (pequena).
+ * Devolve as chaves dos avisos: "escura", "tremida", "pequena".
+ */
+export function avaliarFoto(img, w0, h0) {
+  const r = [];
+  try {
+    const e = 200 / Math.max(w0, h0);
+    const w = Math.max(8, Math.round(w0 * e)), h = Math.max(8, Math.round(h0 * e));
+    const d = tela(img, w, h).getContext("2d").getImageData(0, 0, w, h).data;
+    const g = new Float32Array(w * h);
+    let soma = 0;
+    for (let i = 0; i < g.length; i++) { g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; soma += g[i]; }
+    if (soma / g.length < 55) r.push("escura");
+    let s1 = 0, s2 = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      const i = y * w + x, l = 4 * g[i] - g[i - 1] - g[i + 1] - g[i - w] - g[i + w];
+      s1 += l; s2 += l * l; n++;
+    }
+    if (n && s2 / n - (s1 / n) ** 2 < 40) r.push("tremida");
+  } catch { /* sem canvas legível: sem avisos */ }
+  if (Math.min(w0, h0) < 800) r.push("pequena");
+  return r;
+}
 export async function reduzirFoto(ficheiro) {
   if (!ficheiro) throw new ErroFoto("Escolha uma foto.");
   if (ficheiro.size > MAX_FICHEIRO_FOTO) throw new ErroFoto("A foto é demasiado grande (máx. 40 MB).");
@@ -62,6 +87,7 @@ export async function reduzirFoto(ficheiro) {
   try {
     const w0 = img.width || img.naturalWidth, h0 = img.height || img.naturalHeight;
     if (!w0 || !h0) throw new ErroFoto("A foto está vazia.");
+    const avisos = avaliarFoto(img, w0, h0);
     const em = Math.min(1, LADO_MINIATURA / Math.max(w0, h0));
     const miniatura = tela(img, Math.max(1, Math.round(w0 * em)), Math.max(1, Math.round(h0 * em))).toDataURL("image/jpeg", 0.7);
     let escala = Math.min(1, MAX_LADO_FOTO / Math.max(w0, h0));
@@ -72,8 +98,8 @@ export async function reduzirFoto(ficheiro) {
       for (const q of [0.8, 0.7, 0.6]) {
         const b = await paraBlob(c, q);
         if (!b?.size) continue;
-        if (b.size <= ALVO_BYTES) return { blob: b, largura: w, altura: h, miniatura };
-        if (!reserva && b.size <= MAX_BYTES_FOTO) reserva = { blob: b, largura: w, altura: h, miniatura };
+        if (b.size <= ALVO_BYTES) return { blob: b, largura: w, altura: h, miniatura, avisos };
+        if (!reserva && b.size <= MAX_BYTES_FOTO) reserva = { blob: b, largura: w, altura: h, miniatura, avisos };
       }
       escala *= 0.8;
     }

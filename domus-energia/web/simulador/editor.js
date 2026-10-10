@@ -1303,7 +1303,14 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     // Sem ferramenta, nada a dizer (decisão do dono: saiu o texto de ajuda longo por cima da planta).
     if (!m) dica.textContent = "";
     else if (m.tipo === "elemento") dica.textContent = `Toque na planta para pôr: ${nomeFerramenta(m.el, m.modelo).toLowerCase()}. ${matchMedia("(pointer: coarse)").matches ? "Para largar, toque outra vez no botão." : "Esc cancela."}`;
-    else if (m.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
+    // No telemóvel não há Esc: um botão "Terminar" ao lado da dica larga a ferramenta.
+    if (m?.tipo === "elemento" && matchMedia("(pointer: coarse)").matches) {
+      const fim = botao("Terminar");
+      fim.classList.add("editor-terminar");
+      fim.addEventListener("click", () => definirModo(null));
+      dica.append(" ", fim);
+    }
+    else if (m?.tipo === "calibrar") dica.textContent = m.pontos.length ? "Agora toque no fim da mesma parede." : "Calibrar: toque no início de uma parede que conheça, na imagem de fundo.";
     desenhar();
   }
 
@@ -1587,7 +1594,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         const posto = adicionarElemento(m.el, p.x, p.y, m.modelo);
         // Portas e janelas costumam ser várias (decisão do dono, 2026-10-10): a ferramenta fica escolhida para a
         // seguinte; Esc ou o botão outra vez desligam-na.
-        if (posto && ["porta", "janela", "interruptor", "tomada", "luz"].includes(m.el) && ev?.pointerType === "mouse") { definirModo(m); fantasma = { x: posto.x_cm, y: posto.y_cm }; desenhar(); }
+        // Também com o dedo (decisão do dono, 2026-10-10): a ferramenta fica escolhida até "Terminar" (ou o botão outra vez).
+        if (posto && ["porta", "janela", "interruptor", "tomada", "luz"].includes(m.el)) { definirModo(m); fantasma = ev?.pointerType === "mouse" ? { x: posto.x_cm, y: posto.y_cm } : null; desenhar(); }
       }
       else if (m?.tipo === "calibrar") { calibracao = cal; pontoCalibracao(p); }
       return;
