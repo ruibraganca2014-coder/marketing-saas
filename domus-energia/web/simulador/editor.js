@@ -221,7 +221,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // (casa.js resumoAparelhos) fica no nome acessível do botão. No fim, "Outra divisão" abre a janela com todos os tipos.
   const barraDiv = grupoBarra("editor-divisoes", "Acrescentar divisão");
   /** Nome acessível: o que a divisão traz só quando o passo mostra os aparelhos (em "A casa" só as divisões). */
-  const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${resumoAparelhos(t.nome, t.w, t.h)})` : ""}`;
+  // (Decisão do dono, 2026-10-10: uma divisão nova já não traz portas — põem-se no passo "Portas e janelas".)
+  const semPorta = (txt) => txt.replace(/^(\d+ )?portas?, /, "");
+  const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${semPorta(resumoAparelhos(t.nome, t.w, t.h))})` : ""}`;
   function botaoDivisao(t) {
     const b = botao("", "ferramenta tipo-divisao");
     b.dataset.divisao = t.nome;
@@ -937,7 +939,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const d = { id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(div), piso: pisoAtual, x_cm: x, y_cm: y, largura_cm: t.w, altura_cm: t.h };
     planta.divisoes.push(d);
     let n = 0;
-    const base = aparelhosOmissao(d.nome, d);
+    const base = aparelhosOmissao(d.nome, d).filter((a) => a.tipo !== "porta");
     for (const a of base) {
       if (planta.elementos.length >= MAX_ELEMENTOS) break;
       planta.elementos.push({ id: novoId("e", planta.elementos), ...a, piso: pisoAtual, divisao: d.id });
@@ -947,7 +949,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     selecionado = d.id;
     destaque = { id: d.id, desde: performance.now() };
     setTimeout(() => { if (destaque?.id === d.id) { destaque = null; desenhar(); } }, DESTAQUE_MS);
-    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n && podeAparelhos ? ` com ${n === base.length ? resumoAparelhos(d.nome, d.largura_cm, d.altura_cm) : `${n} aparelhos habituais`}` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; o botão "Opções" (ou Enter) abre as opções.`);
+    confirmar(`Divisão "${d.nome}" criada${nPisos() > 1 ? ` no ${nomePiso(pisoAtual)}` : ""}${n && podeAparelhos ? ` com ${n === base.length ? semPorta(resumoAparelhos(d.nome, d.largura_cm, d.altura_cm)) : `${n} aparelhos habituais`}` : ""}. Arraste-a para o sítio certo, os cantos mudam a forma; o botão "Opções" (ou Enter) abre as opções.`);
     return d;
   }
 

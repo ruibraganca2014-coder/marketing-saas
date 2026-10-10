@@ -153,6 +153,9 @@ const editor = criarEditor($("editor"), {
     estado.plantaAuto = plantaAutoJson !== null && JSON.stringify(p) === plantaAutoJson;
     // Máquinas postas ou tiradas na planta: os cartões de "Equipamentos" seguem-na (querDaPlanta).
     if (querDaPlanta()) { sugerirLigacao(); if (estado.passo === P.quer) desenharQuer(); }
+    // A porta da rua (o pacote Segurança conta-a): sem portas sugeridas, é a primeira que o cliente põe, até dizer outra.
+    const portas = p.elementos.filter((e) => e.tipo === "porta");
+    if (portas.length && !portas.some((e) => e.props?.entrada)) portas[0].props = { ...portas[0].props, entrada: true };
     sitioArrastado();
     dicaPlanta = "";
     desenharPlantaOrigem();
@@ -1819,7 +1822,9 @@ function acertarMexida() {
   }
   if (JSON.stringify(antes) === JSON.stringify(depois)) return false;
   const p = structuredClone(estado.planta);
+  const jaLa = new Set(p.elementos.map((e) => e.id));
   const dicas = acertarPlantaMexida(p, antes, depois, { casa: estado.casa });
+  p.elementos = p.elementos.filter((e) => e.tipo !== "porta" || jaLa.has(e.id));   // divisão nova: sem a porta sugerida
   estado.planta = marcarNovas(p);
   estado.plantaSinc = depois;
   estado.plantaBase = assinaturaBase();
@@ -1837,7 +1842,7 @@ function acertarMexida() {
 const fasePlanta = () => (codigoCliente || visitado > P.casa ? "tudo" : visitado === P.casa ? "divisoes" : "vazia");
 const plantaDaFaseTemAlgo = () => { const f = fasePlanta(); return f === "tudo" || (f === "divisoes" && casaDaDivisoes()); };
 function desenharDaCasa() {
-  const p = marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado)));
+  const p = marcarNovas(semPortasSugeridas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado))));
   const f = fasePlanta();
   if (f !== "tudo") p.elementos = [];
   if (f === "vazia" || (f === "divisoes" && !casaDaDivisoes())) p.divisoes = [];
@@ -2020,11 +2025,19 @@ const usaPlanta = () => !estado.plantaSaltada && (estado.planta.divisoes.length 
 // Reparar e Substituir ficam nos circuitos existentes e têm o seu preço (preco.js pedidosDaSelecao).
 // Tomadas e interruptores: inteligentes só com a resposta do cliente (ou o objetivo "Luzes pelo telemóvel"): acoes.js plantaInteligentes.
 /** A planta que conta: a do cliente ou, com a planta saltada, a que a casa desenha (também para os pontos novos, preco.js). */
-const plantaParaContar = () => (usaPlanta() ? estado.planta : marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado))));
+const plantaParaContar = () => (usaPlanta() ? estado.planta : marcarNovas(semPortasSugeridas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado)))));
 /**
  * Ronda dinheiro — entrada pelo anúncio do carregador (entrada.js, `estado.maquinasNovas`): essas máquinas nascem "Novo"
  * na planta que desenhamos (a linha dedicada conta no preço desde o início); a escolha do cliente nunca é mudada.
  */
+/**
+ * Decisão do dono (2026-10-10): a planta desenhada pela casa já não traz portas — o cliente põe-as no passo "Portas e
+ * janelas" (as plantas já guardadas ficam com as que têm). O resto (interruptores, tomadas, máquinas) fica como era.
+ */
+function semPortasSugeridas(p) {
+  p.elementos = p.elementos.filter((e) => e.tipo !== "porta");
+  return p;
+}
 function marcarNovas(p) {
   const novas = estado.maquinasNovas ?? [];
   if (novas.length) for (const e of p.elementos) if (e.tipo === "maquina" && novas.includes(e.props?.modelo) && !ACOES[e.acao]) e.acao = "novo";
@@ -2438,7 +2451,7 @@ function porCimaDaBarra(x) {
 let divisaoTocada = null;       // divisão mexida a partir deste passo (o pedido dela segue a planta)
 
 /** Planta deste passo: a desenhada ou, com a planta saltada, a que a casa daria (a mesma da contagem). */
-const plantaDivisoes = () => (usaPlanta() ? estado.planta : marcarNovas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado))));
+const plantaDivisoes = () => (usaPlanta() ? estado.planta : marcarNovas(semPortasSugeridas(plantaDaCasa(estado.casa, maquinasParaPlanta(estado)))));
 
 /** Linhas de uma divisão: {k, tipo, modelo, els} — uma por tipo de aparelho (máquinas: uma por modelo). */
 function linhasDivisao(planta, d) {
