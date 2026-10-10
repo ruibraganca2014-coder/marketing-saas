@@ -6,7 +6,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { readFileSync } from 'node:fs';
-import { enviarSmtp, criarCorreio, montarMensagem, enderecoRemetente } from '../src/email.js';
+import { enviarSmtp, criarCorreio, montarMensagem, enderecoRemetente, htmlDoEmail } from '../src/email.js';
 import { lerConfig } from '../src/config.js';
 
 const SENHA_SMTP = 'segredo-smtp-123';
@@ -211,5 +211,56 @@ describe('sem SMTP / modo local', () => {
     assert.equal(b.smtp, null);
     assert.ok(b.avisos.some((x) => /SMTP_HOST/.test(x)));
     assert.ok(!JSON.stringify(a.avisos).includes('p"'), 'avisos sem segredos');
+  });
+});
+
+describe('layout da empresa nos emails (HTML ao lado do texto)', () => {
+  const TEXTO = ['Olá,', '', 'Para entrar na sua conta, escreva este código:', '', '    123456', '', 'O código vale 15 minutos.', '1. Abra o site', '2. Escreva <o código> & entre', '', 'A sua conta: https://exemplo.pt/conta.html', 'Não quero receber estes emails: https://exemplo.pt/sair?t=1&x=2', '', 'Domus Energia'].join('\n');
+  /** As partes (descodificadas) de uma mensagem multipart. */
+  const partes = (m) => {
+    const fronteira = /boundary="([^"]+)"/.exec(m)[1];
+    return m.split(`--${fronteira}`).slice(1, -1).map((p) => {
+      const [cab, ...corpo] = p.replace(/^\r\n/, '').split('\r\n\r\n');
+      return { cab, texto: Buffer.from(corpo.join('').replace(/\r\n/g, ''), 'base64').toString('utf8') };
+    });
+  };
+
+  test('htmlDoEmail: código em caixa, botão, lista, rodapé da empresa; o texto vai escapado', () => {
+    const h = htmlDoEmail({ assunto: 'Código', texto: TEXTO, site: 'https://exemplo.pt', responder: false });
+    assert.match(h, /123&nbsp;456/);
+    assert.match(h, /<a href="https:\/\/exemplo\.pt\/conta\.html"[^>]*>A sua conta<\/a>/);
+    assert.match(h, /<ol[^>]*><li[^>]*>Abra o site<\/li><li[^>]*>Escreva &lt;o código&gt; &amp; entre<\/li><\/ol>/);
+    assert.match(h, /href="https:\/\/exemplo\.pt\/sair\?t=1&amp;x=2"/);
+    assert.match(h, /<img src="https:\/\/exemplo\.pt\/icones\/icone-192\.png"/);
+    assert.match(h, /Estação Nómada, Unipessoal Lda\. · NIPC 519 588 533 · Barcarena, Oeiras/);
+    assert.match(h, /Email automático: não responda/);
+    assert.equal(h.match(/Domus Energia/g).length, 1, 'a assinatura do fim do texto não se repete');
+    assert.match(htmlDoEmail({ texto: 'x', responder: true }), /Pode responder a este email/);
+    assert.doesNotMatch(htmlDoEmail({ texto: 'x', site: 'javascript:alert(1)' }), /<img|javascript:/, 'sem site válido não há ícone');
+    assert.doesNotMatch(htmlDoEmail({ texto: '<script>x</script>' }), /<script>/);
+  });
+
+  test('montarMensagem com html: multipart/alternative com o texto igual e o HTML; sem html fica como era', () => {
+    const m = montarMensagem({ de: 'a@b.pt', para: 'c@d.pt', assunto: 'x', texto: TEXTO, html: htmlDoEmail({ texto: TEXTO }) });
+    assert.match(m, /^Content-Type: multipart\/alternative; boundary="/m);
+    const [t, h] = partes(m);
+    assert.match(t.cab, /text\/plain; charset=utf-8/);
+    assert.equal(t.texto, TEXTO.replace(/\n/g, '\r\n'));
+    assert.match(h.cab, /text\/html; charset=utf-8/);
+    assert.match(h.texto, /^<!doctype html>/);
+    assert.doesNotMatch(m, /^\./m, 'nenhuma linha começa por "."');
+    assert.match(montarMensagem({ de: 'a@b.pt', para: 'c@d.pt', assunto: 'x', texto: 'y' }), /^Content-Type: text\/plain; charset=utf-8\r$/m);
+  });
+
+  test('criarCorreio com SMTP manda as duas versões', async () => {
+    const f = await servidorFalso();
+    const registo = { info() {}, aviso() {}, erro() {} };
+    const c = criarCorreio({ config: { smtp: smtp(f.porta), emailRemetente: 'noreply@exemplo.pt', emailRespostas: 'geral@exemplo.pt', siteUrl: 'https://exemplo.pt' }, registo });
+    assert.equal(await c.enviar({ para: 'cliente@exemplo.pt', assunto: 'Assunto', texto: TEXTO }), true);
+    f.srv.close();
+    const [t, h] = partes(f.sessoes[0].dados);
+    assert.match(t.texto, /123456/);
+    assert.match(h.texto, /Pode responder a este email/);
+    assert.match(h.texto, /icones\/icone-192\.png/);
   });
 });
