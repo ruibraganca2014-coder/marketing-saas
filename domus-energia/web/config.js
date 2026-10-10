@@ -16,9 +16,9 @@ window.DOMUS = {
   apiBase: "",
 
   // Contactos (formato internacional, sem espaços nem "+")
-  whatsapp: "351900000000",
-  telefone: "+351900000000",
-  telefoneVisivel: "900 000 000",
+  whatsapp: "351968728723",
+  telefone: "+351968728723",
+  telefoneVisivel: "968 728 723",
   email: "ruibraganca2014@gmail.com",
 
   // Fotografias de trabalhos reais (página inicial). Ponha os ficheiros em web/fotos/ (JPG, deitados, 4:3).
