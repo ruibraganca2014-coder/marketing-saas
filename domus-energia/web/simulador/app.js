@@ -206,9 +206,25 @@ function gravar() {
   if (estado.funil === "primeira" && casaDescrita() && temCasa(estado)) {
     if (guardarCasa(armazem ?? semArmazem, estado)) casaGuardada = carregarCasa(armazem ?? semArmazem);
   }
-  $("sim-guardado").textContent = r === "ok" ? "Guardado neste navegador"
-    : r === "sem_imagem" ? "Guardado (sem a imagem de fundo, que não coube no navegador)"
+  guardadoLocal = { r, hora: horaAgora() };
+  mostrarGuardado();
+}
+/**
+ * "Guardado às 21:42" junto ao "Seguinte" (decisão do dono, 2026-10-10): a hora da última gravação neste navegador e,
+ * com sessão, na conta; a vermelho quando não foi possível gravar.
+ */
+const horaAgora = () => new Date().toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+let guardadoLocal = null;   // {r: "ok"|"sem_imagem"|"falhou", hora}
+let guardadoConta = null;   // {ok, hora} (só com sessão)
+function mostrarGuardado() {
+  const m = $("sim-guardado");
+  const l = guardadoLocal, c = contaEu ? guardadoConta : null;
+  const local = !l ? "" : l.r === "ok" ? `Guardado às ${l.hora} neste navegador`
+    : l.r === "sem_imagem" ? `Guardado às ${l.hora} (sem a imagem de fundo, que não coube no navegador)`
       : "Não foi possível guardar neste navegador";
+  const conta = !c ? "" : c.ok ? (c.hora === l?.hora && l?.r === "ok" ? " e na sua conta" : ` · na sua conta às ${c.hora}`) : " · na conta ainda não: voltamos a tentar";
+  m.textContent = local ? `${local}${conta}` : c?.ok ? `Guardado na sua conta às ${c.hora}` : "";
+  m.classList.toggle("falhou", l?.r === "falhou" || c?.ok === false);
 }
 addEventListener("pagehide", () => { if (temporizador) gravar(); });
 
@@ -395,6 +411,9 @@ function irPara(i, { foco = true } = {}) {
   mostrarPasso(foco);
   if (porVerAoEntrar) mostrarNaPlanta(porVerAoEntrar);
   if (estado.passo === P.tomadas && estado.passo !== de) porLuzesEmFalta();
+  // "Portas e janelas" (decisão do dono, 2026-10-10): ao entrar carrega-se no "Ajustar" — a folha (2× no passo "A casa")
+  // volta ao tamanho das divisões e a casa fica centrada.
+  if (estado.passo === P.planta && estado.passo !== de && editor.planta === estado.planta) editor.ajustar();
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
 }
@@ -4848,8 +4867,9 @@ function guardarNaConta(atraso = 1500) {
     if (JSON.stringify(e).length > 1_400_000 && e.planta?.fundo) e = { ...e, planta: { ...e.planta, fundo: null } };
     try {
       await pedirConta("simulacao", { corpo: { estado: e } });
-      $("sim-guardado").textContent = "Guardado neste navegador e na sua conta";
-    } catch { /* fica no navegador; volta a tentar no passo seguinte */ }
+      guardadoConta = { ok: true, hora: horaAgora() };
+    } catch { guardadoConta = { ok: false, hora: horaAgora() }; /* fica no navegador; volta a tentar no passo seguinte */ }
+    mostrarGuardado();
   }, atraso);
 }
 

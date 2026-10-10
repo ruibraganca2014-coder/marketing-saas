@@ -923,3 +923,5 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 /* Equipamentos: com um por confirmar na planta, os outros cartões ficam apagados (app.js acertarCartoesSitio). */
 .quer-item.em-espera { opacity: .45; }
 .quer-item.em-espera .escolha { cursor: not-allowed; }
+/* "Guardado às HH:MM": a vermelho quando não foi possível gravar (decisão do dono, 2026-10-10). */
+.sim-guardado.falhou { color: var(--alarme-texto); font-weight: 700; }
