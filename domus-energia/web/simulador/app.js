@@ -1487,7 +1487,7 @@ function desenharQuer() {
       const f = el("fieldset", "escolhas quer-grupo");
       f.append(el("legend", null, titulo));
       const grelha = el("div", "escolhas-grelha");
-      // Decisão do dono (2026-10-10): numa habitação estes quatro já não se oferecem. Ficam só à vista numa casa
+      // Decisão do dono (2026-10-10): numa habitação estes já não se oferecem. Ficam só à vista numa casa
       // guardada que já os tenha (para os poder tirar); continuam a contar nas contas.
       const jaTem = (k) => Object.values(estado.quer.porPiso[k] ?? {}).some((n) => n > 0);
       grelha.append(...chaves.filter((k) => perfil !== "habitacao" || !FORA_HABITACAO.includes(k) || jaTem(k)).map(maquina("pequenas")));
@@ -1641,10 +1641,10 @@ function querDaPlanta() {
 const maquinasEditor = () => [
   ...(perfilCasa(estado.casa.tipo) === "habitacao" ? ["televisao", "frigorifico"] : []),
   ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer),
-  // Decisão do dono (2026-10-10): numa habitação estes quatro já não se oferecem (só os que a casa já tem, acima).
+  // Decisão do dono (2026-10-10): numa habitação estes já não se oferecem (só os que a casa já tem, acima).
   ...modelosDoPerfil(estado.casa.tipo).filter((k) => perfilCasa(estado.casa.tipo) !== "habitacao" || !FORA_HABITACAO.includes(k)),
 ];
-const FORA_HABITACAO = ["aspirador_robo", "camara", "campainha", "campainha_video"];
+const FORA_HABITACAO = ["aspirador_robo", "camara", "campainha", "campainha_video", "toalheiro"];
 
 /**
  * Linha das ferramentas do editor (ronda sinalizar: sem "Mais…"): os tipos de divisão do imóvel — na linha só os que a
