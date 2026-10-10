@@ -1484,7 +1484,11 @@ function desenharQuer() {
       const f = el("fieldset", "escolhas quer-grupo");
       f.append(el("legend", null, titulo));
       const grelha = el("div", "escolhas-grelha");
-      grelha.append(...chaves.map(maquina("pequenas")));
+      // Decisão do dono (2026-10-10): numa habitação estes quatro já não se oferecem. Ficam só à vista numa casa
+      // guardada que já os tenha (para os poder tirar); continuam a contar nas contas.
+      const FORA = ["aspirador_robo", "camara", "campainha", "campainha_video"];
+      const jaTem = (k) => Object.values(estado.quer.porPiso[k] ?? {}).some((n) => n > 0);
+      grelha.append(...chaves.filter((k) => perfil !== "habitacao" || !FORA.includes(k) || jaTem(k)).map(maquina("pequenas")));
       f.append(grelha);
       return f;
     }));
