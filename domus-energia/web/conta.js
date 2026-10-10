@@ -134,6 +134,82 @@ async function carregar() {
 }
 let alvoMostrado = false;
 
+/**
+ * O pedido foi devolvido pela empresa para corrigir (decisão do dono, 2026-10-10): o que falta e o botão "Já corrigi"
+ * (POST pedidos/:id/corrigido), que o devolve à empresa. As fotos trocam-se mais abaixo, no próprio pedido.
+ */
+/** "Não aceito" (decisão do dono, 2026-10-10): o motivo (obrigatório), um texto opcional e a confirmação → POST pedidos/:id/recusar. */
+function caixaRecusar(p) {
+  const caixa = el("div", "conta-recusar");
+  const abrir = el("button", "link-botao", "Não aceito esta proposta");
+  abrir.type = "button";
+  abrir.id = `recusar-${p.id}`;
+  const form = el("div", "conta-recusar-form");
+  form.hidden = true;
+  const sel = document.createElement("select");
+  sel.id = `recusar-motivo-${p.id}`;
+  for (const [v, t] of [["", "Escolha o motivo"], ["preco", "O preço"], ["prazo", "O prazo"], ["mudei", "Mudei de ideias"], ["outro", "Outro motivo"]]) { const o = el("option", null, t); o.value = v; sel.append(o); }
+  const rot = el("label", null, "Porque não aceita?");
+  rot.append(sel);
+  const txt = document.createElement("textarea");
+  txt.rows = 2;
+  txt.maxLength = 500;
+  txt.id = `recusar-texto-${p.id}`;
+  const rot2 = el("label", null, "Quer dizer mais alguma coisa? (opcional)");
+  rot2.append(txt);
+  const msg = msgPequena();
+  const sim = el("button", "btn sec pequeno", "Confirmar: não aceito");
+  sim.type = "button";
+  sim.id = `recusar-sim-${p.id}`;
+  const nao = el("button", "btn sec pequeno", "Cancelar");
+  nao.type = "button";
+  abrir.addEventListener("click", () => { form.hidden = false; abrir.hidden = true; sel.focus(); });
+  nao.addEventListener("click", () => { form.hidden = true; abrir.hidden = false; abrir.focus(); });
+  sim.addEventListener("click", async () => {
+    if (!sel.value) { msg.textContent = "Escolha o motivo."; msg.className = "msg erro"; msg.hidden = false; sel.focus(); return; }
+    sim.disabled = true;
+    try {
+      await pedirConta(`pedidos/${p.id}/recusar`, { corpo: { motivo: sel.value, texto: txt.value } });
+      await carregar();
+    } catch (e) {
+      sim.disabled = false;
+      msg.textContent = e?.message || "Não foi possível. Tente de novo.";
+      msg.className = "msg erro";
+      msg.hidden = false;
+    }
+  });
+  const g = el("div", "form-botoes");
+  g.append(sim, nao);
+  form.append(rot, rot2, msg, g);
+  caixa.append(abrir, form);
+  return caixa;
+}
+function blocoCorrecao(p) {
+  const b = el("section", "msg info conta-correcao");
+  b.id = `correcao-${p.id}`;
+  const msg = msgPequena();
+  const botao = el("button", "btn pequeno", "Já corrigi");
+  botao.type = "button";
+  botao.id = `corrigido-${p.id}`;
+  botao.addEventListener("click", async () => {
+    botao.disabled = true;
+    try {
+      await pedirConta(`pedidos/${p.id}/corrigido`, { corpo: {} });
+      await carregar();
+    } catch (e) {
+      botao.disabled = false;
+      msg.textContent = e?.message || "Não foi possível. Tente de novo.";
+      msg.className = "msg erro";
+      msg.hidden = false;
+    }
+  });
+  const g = el("div", "form-botoes");
+  g.append(botao);
+  b.append(el("strong", null, "Falta corrigir antes de avançarmos:"), el("p", null, p.correcao.nota),
+    el("p", "ajuda", "Pode trocar ou juntar fotos mais abaixo, neste pedido, ou responder na conversa. Quando estiver, carregue em \"Já corrigi\"."), g, msg);
+  return b;
+}
+
 function cartaoPedido(p) {
   const c = el("article", "cartao conta-pedido");
   c.dataset.id = String(p.id);
@@ -147,6 +223,7 @@ function cartaoPedido(p) {
     passos.append(li);
   }
   c.append(passos);
+  if (p.correcao) c.append(blocoCorrecao(p));
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
   if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
@@ -212,6 +289,9 @@ function blocoProposta(p) {
       ? `Sinal: ${sinal.cobre_material ? "cobre o material" : `${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}`}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O sinal cobre o material; o resto paga-se no fim da obra.`
       : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
     b.append(el("p", "ajuda", ajuda), ja?.caixa ?? "", sinal ? soMultibanco(p, sinal.valor) : "", botao, msg);
+    if (p.pode_recusar) b.append(caixaRecusar(p));
+  } else if (p.proposta_recusada) {
+    b.append(el("p", "msg info", `Não aceitou esta proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido e voltamos a contactá-lo.`));
   }
   return b;
 }

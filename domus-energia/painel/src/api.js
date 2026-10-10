@@ -122,6 +122,8 @@ export const ROTAS = [
   ['GET', 'orcamentos/:id', ['ceo', 'comercial'], 'orcamento'],
   ['POST', 'orcamentos/:id', ['ceo', 'comercial'], 'atualizarOrcamento'],
   ['POST', 'orcamentos/:id/converter', ['ceo', 'comercial'], 'converter'],
+  ['POST', 'orcamentos/:id/validar', ['ceo'], 'validarPedido'],
+  ['POST', 'orcamentos/:id/devolver-cliente', ['ceo'], 'devolverAoCliente'],
   ['POST', 'orcamentos/:id/libertar-relatorio', ['ceo'], 'libertarRelatorio'],
   ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
@@ -341,6 +343,21 @@ export function criarApi(ctx) {
     try { const e = JSON.parse(o.esquema_quadro); return e && typeof e === 'object' && !Array.isArray(e) ? e : null; } catch { return null; }
   };
 
+  // ---- validação do CEO (decisão do dono, 2026-10-10): a lista de verificação depende do pedido — com planta (simulador),
+  // avaria (sem planta, com fotos) ou só o formulário de contacto.
+  const PONTOS_VALIDACAO = {
+    planta: 'A planta está completa (divisões, tomadas, interruptores e pontos de luz).',
+    foto_quadro: 'A foto do quadro elétrico lê-se.',
+    fotos_avaria: 'As fotos da avaria mostram o problema.',
+    area: 'A morada está dentro da área servida.',
+    contacto: 'O contacto do cliente está confirmado (telefone ou email).',
+  };
+  function pontosValidacao(o) {
+    let funil = null;
+    if (o.simulacao) { try { funil = JSON.parse(o.simulacao)?.funil ?? null; } catch { funil = null; } }
+    const chaves = !o.simulacao ? ['area', 'contacto'] : funil === 'avaria' ? ['fotos_avaria', 'area', 'contacto'] : ['planta', 'foto_quadro', 'area', 'contacto'];
+    return chaves.map((k) => ({ chave: k, texto: PONTOS_VALIDACAO[k] }));
+  }
   function formatarOrcamento(o, completo = false) {
     const r = {
       id: o.id, criado: o.criado, atualizado: o.atualizado, origem: o.origem, nome: o.nome, telefone: o.telefone,
@@ -351,6 +368,8 @@ export function criarApi(ctx) {
       // Lote 8: a urgência do pedido (selo "Urgente" no quadro de pedidos) sem ler a simulação toda.
       urgencia: urgenciaDaSimulacao(o.simulacao),
       lista_espera: o.lista_espera === 1,   // recebido enquanto as obras não começam (web/config.js listaEspera)
+      // Validação do CEO (migração 44): por_validar | validado | devolvido, a nota da devolução e os pontos a verificar.
+      validacao: { estado: o.validacao ?? 'por_validar', nota: o.validacao_nota ?? null, por: o.validacao_por ?? null, em: o.validacao_em ?? null, pontos: pontosValidacao(o) },
       n_fotos: fotos.contar(o.id),
       // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
       conta: contas.resumoParaPainel(o.conta_id),
@@ -2040,6 +2059,46 @@ export function criarApi(ctx) {
     res.end(d.corpo);
   };
 
+  // "Validar" (só o CEO): todos os pontos da lista marcados; com `bolsa`, o pedido vai logo para a bolsa dos eletricistas.
+  h.validarPedido = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['pontos', 'bolsa']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (o.validacao === 'validado') throw new ErroApi(409, 'Este pedido já está validado.');
+    const marcados = v.pontos && typeof v.pontos === 'object' && !Array.isArray(v.pontos) ? v.pontos : {};
+    const falta = pontosValidacao(o).filter((p) => marcados[p.chave] !== true);
+    if (falta.length) falha(`Falta verificar: ${falta.map((p) => p.texto).join(' ')}`);
+    const agora = agoraIso();
+    db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = NULL, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(u.email, agora, agora, o.id);
+    auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontosValidacao(o).map((p) => p.chave), bolsa: v.bolsa === true }, ip);
+    if (v.bolsa === true) {
+      if (!eletricistas) throw new ErroApi(409, 'Pedido validado, mas a bolsa dos eletricistas está desligada.');
+      eletricistas.porNaBolsa(obterOrcamento(params.id), u, ip);
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+  // "Devolver ao cliente" (só o CEO): o que falta corrigir vai por email e fica na conversa do pedido; o cliente corrige
+  // na conta e carrega em "Já corrigi" (conta.js), e o pedido volta a ficar por validar.
+  h.devolverAoCliente = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['nota']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (o.validacao === 'validado') throw new ErroApi(409, 'Este pedido já está validado.');
+    const nota = texto(v.nota, 'o que falta corrigir', { max: 1000, multilinha: true, obrigatorio: true });
+    const para = emailsAuto.destinatario(o);
+    if (!para) throw new ErroApi(409, 'Este pedido não tem um email do cliente para onde enviar.');
+    const assunto = 'Domus Energia: falta um pormenor no seu pedido';
+    const rodape = o.conta_id && config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html#pedido-${o.id}`] : [];
+    const corpo = ['Olá,', '', `Vimos o seu pedido n.º ${o.id} e, antes de avançarmos, falta corrigir:`, '', nota, '',
+      o.conta_id ? 'Corrija na sua conta e carregue em "Já corrigi": voltamos a ver o pedido.' : 'Responda a este email com o que falta.', ...rodape, '', 'Domus Energia'].join('\n');
+    if (!(await correio.enviar({ para, assunto, texto: corpo, resumo: `pedido ${o.id} devolvido ao cliente para corrigir` }))) {
+      throw new ErroApi(502, 'O email não foi enviado (falha no servidor de email). Tente outra vez.');
+    }
+    const agora = agoraIso();
+    db.prepare("UPDATE orcamentos SET validacao = 'devolvido', validacao_nota = ?, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(nota, u.email, agora, agora, o.id);
+    db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, assunto, texto, por_email, criado) VALUES (?, 'equipa', ?, ?, ?, ?)").run(o.id, assunto, nota, u.email, agora);
+    auditar(u, 'pedido_devolvido_cliente', `orcamento:${o.id}`, { caracteres: nota.length }, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
   h.atribuicaoEletricista = ({ res, params }) => responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
 
   // "Atribuir a…" (eletricista aprovado, com o concelho do pedido), "Pôr na bolsa" ou "Retirar" (em qualquer altura).
@@ -2047,6 +2106,8 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['acao', 'eletricista_id', 'motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
     const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito']);
+    // Só um pedido validado pelo CEO vai para um eletricista ou para a bolsa (decisão do dono, 2026-10-10).
+    if (config.validacaoCeo && (acao === 'atribuir' || acao === 'bolsa') && o.validacao !== 'validado') throw new ErroApi(409, 'Valide primeiro o pedido (lista de verificação) antes de o pôr na bolsa ou de o atribuir.');
     if (acao === 'atribuir') eletricistas.atribuir(o, v.eletricista_id, u, ip);
     else if (acao === 'bolsa') eletricistas.porNaBolsa(o, u, ip);
     else if (acao === 'retirar') eletricistas.retirar(o, u, ip);

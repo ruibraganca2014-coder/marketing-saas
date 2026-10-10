@@ -1063,3 +1063,7 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 /* Acesso da empresa no topo da página inicial (decisão do dono, 2026-10-10): só em ecrãs largos. */
 .acesso-equipa { display: none; }
 @media (min-width: 1180px) { .acesso-equipa { display: inline-flex; } }
+.conta-correcao { display: grid; gap: 8px; }
+.conta-correcao p { margin: 0; }
+.conta-recusar { margin-top: 10px; }
+.conta-recusar-form { display: grid; gap: 10px; margin-top: 8px; }

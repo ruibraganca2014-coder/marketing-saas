@@ -698,3 +698,9 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 /* Orçamentos: filtro "Só lista de espera". */
 .filtro-espera { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
 .filtro-espera[hidden] { display: none; }
+/* Validação do CEO (decisão do dono, 2026-10-10): a lista de verificação da ficha do pedido. */
+.validacao-ceo { display: grid; gap: 10px; }
+.validacao-lista { display: grid; gap: 6px; }
+.validacao-ponto { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.validacao-ponto input { margin-top: 4px; }
+.validacao-nota { display: grid; gap: 6px; }

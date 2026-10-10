@@ -112,7 +112,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-selos" },
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
-        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null,
+        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -166,7 +166,7 @@ export default function orcamentos(el, ctx) {
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
-        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null,
+        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
@@ -198,6 +198,47 @@ export default function orcamentos(el, ctx) {
     partes.push(...blocoPagamentos(j, o, arquivado));
     // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir o pedido (obra, visita paga ou diagnóstico) ou pô-lo na
     // bolsa; só na ficha completa (a que traz o histórico), para não pedir duas vezes.
+    // Validação do CEO (decisão do dono, 2026-10-10): lista de verificação antes de o pedido ir para a bolsa; "Devolver
+    // ao cliente" manda-lhe por email o que falta corrigir. Todos veem o estado; só o CEO tem os botões.
+    const val = campo(o, "validacao");
+    if (val && !arquivado && o && typeof o === "object" && "historico" in o) {
+      const estadoV = campo(val, "estado");
+      const sec = h("section", { class: "validacao-ceo bloco", id: "validacao-ceo" }, h("h3", { text: "Validação do pedido" }));
+      if (estadoV === "validado") sec.append(h("p", { class: "msg ok", text: `Validado${campo(val, "por") ? ` por ${campo(val, "por")}` : ""}${campo(val, "em") ? `, ${data(campo(val, "em"))}` : ""}.` }));
+      else {
+        if (estadoV === "devolvido") sec.append(h("p", { class: "msg info", id: "validacao-devolvido", text: `Devolvido ao cliente para corrigir${campo(val, "em") ? ` (${data(campo(val, "em"))})` : ""}: ${campo(val, "nota") ?? ""}` }));
+        else {
+          if (campo(val, "nota")) sec.append(h("p", { class: "msg info", id: "validacao-motivo", text: String(campo(val, "nota")) }));
+          sec.append(h("p", { class: "ajuda", text: campo(val, "nota") ? "O pedido voltou para si: retifique a proposta ou o pedido e valide de novo para o pôr na bolsa, ou marque-o como Perdido para desistir." : "Por validar. Só depois de validado o pedido pode ir para a bolsa ou para um eletricista." }));
+        }
+        if (ctx.pode("ceo")) {
+          const pontos = lista(campo(val, "pontos") ?? [], "pontos");
+          const caixas = pontos.map((p) => { const i = h("input", { type: "checkbox", id: `validar-${campo(p, "chave")}`, dataset: { chave: String(campo(p, "chave")) } }); return [i, h("label", { class: "validacao-ponto" }, i, h("span", { text: String(campo(p, "texto")) }))]; });
+          const nota = h("textarea", { id: "validacao-nota", rows: "3", maxlength: "1000", placeholder: "O que falta corrigir (o cliente recebe este texto por email)" });
+          const enviar = async (b, caminho, corpo, aviso) => {
+            b.disabled = true;
+            try {
+              const r = await pedir(`orcamentos/${encodeURIComponent(id)}/${caminho}`, { corpo });
+              const novo = campo(r, "orcamento") ?? r;
+              substituir(novo);
+              avisar(aviso);
+              if (ficha?.j === j) desenharFicha(j, novo);
+            } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+          };
+          const marcados = () => Object.fromEntries(caixas.map(([i]) => [i.dataset.chave, i.checked]));
+          const todos = () => caixas.every(([i]) => i.checked);
+          const bValidar = h("button", { class: "btn pequeno", type: "button", id: "validar-pedido", text: ctx.eletricistas ? "Validar e pôr na bolsa" : "Validar",
+            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: Boolean(ctx.eletricistas) }, ctx.eletricistas ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
+          const bSoValidar = ctx.eletricistas ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
+            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
+          const bDevolver = h("button", { class: "btn sec pequeno", type: "button", id: "devolver-cliente", text: "Devolver ao cliente",
+            onclick: (e) => (nota.value.trim() ? enviar(e.currentTarget, "devolver-cliente", { nota: nota.value }, "Pedido devolvido ao cliente: seguiu o email.") : (avisar("Escreva o que falta corrigir.", "erro"), nota.focus())) });
+          sec.append(h("div", { class: "validacao-lista" }, ...caixas.map(([, l]) => l)), h("div", { class: "form-botoes" }, bValidar, bSoValidar),
+            h("label", { class: "validacao-nota" }, h("span", { text: "Falta alguma coisa? Devolva ao cliente para corrigir:" }), nota), h("div", { class: "form-botoes" }, bDevolver));
+        }
+      }
+      partes.push(sec);
+    }
     if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id));
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).

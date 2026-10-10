@@ -169,6 +169,8 @@ export function lerConfig(env = process.env) {
     // Eletricistas externos (fase 4; docs/ELETRICISTAS.md): módulo ainda por publicar. Só com ELETRICISTAS=1 — que só o
     // lançador local põe — existem as rotas /api/eletricista/*, as do painel e o ecrã "Eletricistas"; sem ela dão 404.
     eletricistas: env.ELETRICISTAS === '1',
+    // Validação do CEO antes da bolsa (decisão do dono, 2026-10-10): ligada por omissão; VALIDACAO_CEO=0 desliga-a.
+    validacaoCeo: env.VALIDACAO_CEO !== '0',
     avisos,
     erros,
   };

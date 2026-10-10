@@ -1016,6 +1016,17 @@ export const MIGRACOES = [
     ALTER TABLE contas ADD COLUMN casa_ativa INTEGER;
     ALTER TABLE orcamentos ADD COLUMN casa_id INTEGER;
   `),
+  // 44: validação do CEO (decisão do dono, 2026-10-10): um pedido só vai para a bolsa (ou para um eletricista) depois de
+  // o CEO o validar com a lista de verificação. `validacao`: NULL = por validar, 'validado' ou 'devolvido' (ao cliente,
+  // para corrigir: `validacao_nota` diz o quê). Os pedidos que já existiam e já saíram de "novo" contam como validados.
+  (db) => db.exec(`
+    ALTER TABLE orcamentos ADD COLUMN validacao TEXT CHECK (validacao IS NULL OR validacao IN ('validado', 'devolvido'));
+    ALTER TABLE orcamentos ADD COLUMN validacao_nota TEXT;
+    ALTER TABLE orcamentos ADD COLUMN validacao_por TEXT;
+    ALTER TABLE orcamentos ADD COLUMN validacao_em TEXT;
+    ALTER TABLE orcamentos ADD COLUMN proposta_recusada_em TEXT;   -- o cliente carregou em "Não aceito" (o motivo fica em validacao_nota)
+    UPDATE orcamentos SET validacao = 'validado', validacao_em = atualizado WHERE estado <> 'novo';
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

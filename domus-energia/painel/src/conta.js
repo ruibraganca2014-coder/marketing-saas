@@ -621,11 +621,14 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     } else if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
       ? ' Como é urgente, ligamos-lhe no próprio dia se chegou até às 18h de um dia útil; senão, na manhã do dia útil seguinte.'
       : ' Contactamos no dia útil seguinte.';
+    // Devolvido pelo CEO para corrigir (migração 44): o cliente vê o que falta e carrega em "Já corrigi".
+    const correcao = o.validacao === 'devolvido' && !['aceite', 'perdido'].includes(o.estado) ? { nota: o.validacao_nota ?? '' } : null;
+    if (correcao) estadoTexto = 'Falta corrigir um pormenor antes de avançarmos: veja abaixo.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
     return {
-      id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos,
+      id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos, correcao,
       // Cliente que regressa (decisão do dono, 2026-10-04; web/regresso.js): o pedido ainda está em andamento? — enviado e
       // ainda não fechado (perdido), arquivado/anonimizado, nem com a obra dada por concluída (pelo painel ou na obra
       // ligada). É o que o Início do simulador e o botão da página inicial leem ("Já tem o pedido n.º N em andamento").
@@ -633,6 +636,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       data_visita: o.data_visita, servico: o.servico,
       proposta: temProposta ? { valor, texto: o.proposta_texto ?? null, aceite: o.proposta_aceite ?? null } : null,
       pode_aceitar: o.estado === 'proposta_enviada' && valor !== null && !o.cliente && !o.proposta_aceite,
+      // "Não aceito" (decisão do dono, 2026-10-10): enquanto a proposta está por aceitar; depois de recusada, a data.
+      pode_recusar: o.estado === 'proposta_enviada' && valor !== null && !o.cliente && !o.proposta_aceite,
+      proposta_recusada: o.proposta_recusada_em && !['proposta_enviada', 'aceite'].includes(o.estado) ? o.proposta_recusada_em : null,
       plano_sugerido: ['base', 'conforto', 'premium'].includes(sim?.plano_sugerido) ? sim.plano_sugerido : null,
       ...(pag ?? {}),
       pode_fotos: podeFotos,
@@ -890,6 +896,40 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     crm()?.ligarPedidos();
     tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:cliente_respondeu:${id}`, null);
     responder(res, 201, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+
+  // "Não aceito" (decisão do dono, 2026-10-10): a proposta não foi aceite — o pedido volta ao passo da validação do CEO
+  // (por validar, com o motivo), o trabalho do eletricista é retirado e nasce uma tarefa. O CEO retifica e volta a pôr na
+  // bolsa, ou desiste (estado "Perdido").
+  const MOTIVOS_RECUSA = { preco: 'o preço', prazo: 'o prazo', mudei: 'mudou de ideias', outro: 'outro motivo' };
+  h.recusarProposta = async ({ req, res, c, params, ip }) => {
+    const v = await lerJson(req, ['motivo', 'texto']);
+    const o = pedidoDaConta(c, params.id);
+    if (o.estado !== 'proposta_enviada' || o.valor_proposta_cent === null || o.proposta_aceite || o.cliente) throw new ErroApi(409, 'Não há uma proposta por aceitar neste pedido.');
+    if (!Object.hasOwn(MOTIVOS_RECUSA, v.motivo)) falha('Diga o motivo: o preço, o prazo, mudei de ideias ou outro.');
+    const porque = texto(v.texto, 'o motivo', { max: 500, multilinha: true });
+    const nota = `Proposta não aceite pelo cliente (${MOTIVOS_RECUSA[v.motivo]})${porque ? `: ${porque}` : '.'}`;
+    const agora = agoraIso();
+    const r = db.prepare(`UPDATE orcamentos SET estado = 'contactado', validacao = NULL, validacao_nota = ?, validacao_em = ?, proposta_recusada_em = ?, atualizado = ?
+      WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND proposta_aceite IS NULL`).run(nota, agora, agora, agora, o.id, c.id);
+    if (!r.changes) throw new ErroApi(409, 'Não há uma proposta por aceitar neste pedido.');
+    try { eletricistas()?.retirar(o, quem(c), ip); } catch { /* sem trabalho ativo: nada a retirar */ }
+    db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', ?, ?)").run(o.id, nota, agora);
+    auditar(quem(c), 'proposta_recusada_cliente', `orcamento:${o.id}`, { motivo: v.motivo, valor_proposta: deCent(o.valor_proposta_cent) }, ip);
+    tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:recusada:${agora}`, null);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+
+  // "Já corrigi" (decisão do dono, 2026-10-10): o pedido devolvido pelo CEO volta a ficar por validar, com tarefa para a equipa.
+  h.pedidoCorrigido = async ({ req, res, c, params, ip }) => {
+    await lerJson(req, []);
+    const o = pedidoDaConta(c, params.id);
+    if (o.validacao !== 'devolvido') throw new ErroApi(409, 'Este pedido não está à espera de correção.');
+    const agora = agoraIso();
+    db.prepare('UPDATE orcamentos SET validacao = NULL, atualizado = ? WHERE id = ?').run(agora, o.id);
+    auditar(quem(c), 'pedido_corrigido_cliente', `orcamento:${o.id}`, null, ip);
+    tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:corrigido:${agora}`, null);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
   };
 
   // Credenciais MQTT da casa (área de cliente "Entrar com email"): só para a própria conta, com o email confirmado.
@@ -1169,6 +1209,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'pedidos/:id/aceitar', 'confirmada', 'aceitar'],
     ['POST', 'pedidos/:id/avaliar', 'confirmada', 'avaliar'],
     ['POST', 'pedidos/:id/mensagens', 'confirmada', 'responderMensagem'],
+    ['POST', 'pedidos/:id/corrigido', 'confirmada', 'pedidoCorrigido'],
+    ['POST', 'pedidos/:id/recusar', 'confirmada', 'recusarProposta'],
     // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
     ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
     ['GET', 'casa', 'confirmada', 'casa'],

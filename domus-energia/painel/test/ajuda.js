@@ -47,6 +47,8 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     PAGAMENTO_PEDIDO: '0',
     // Eletricistas externos (docs/ELETRICISTAS.md): ligado nos testes; desligado por omissão (eletricistas.test.js testa os dois).
     ELETRICISTAS: '1',
+    // A validação do CEO antes da bolsa: desligada nos testes antigos (põem na bolsa diretamente); validacao.test.js liga-a.
+    VALIDACAO_CEO: '0',
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };
