@@ -943,14 +943,42 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     return d;
   }
 
+  /**
+   * Portas, janelas e quadro ficam sempre em cima da linha de uma divisão (decisão do dono, 2026-10-10): o ponto da
+   * parede mais próxima de (x, y) neste piso. O quadro fica 5 cm para dentro, para contar nessa divisão (portas e
+   * janelas têm tolerância: regras.js TIPOS_PAREDE). Outras peças, ou planta sem divisões: o ponto ajustado à grelha.
+   */
+  const PECAS_PAREDE = ["porta", "janela", "quadro"];
+  function sitioDaPeca(tipo, x, y) {
+    const livre = () => [limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm), limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm)];
+    if (!PECAS_PAREDE.includes(tipo)) return livre();
+    let q = null, melhor = Infinity, sala = null;
+    for (const d of divisoesPiso()) {
+      const pts = pontosDivisao(d);
+      pts.forEach((a, i) => {
+        const b = pts[(i + 1) % pts.length];
+        const r = distanciaSegmento(x, y, a, b);
+        if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; sala = pts; }
+      });
+    }
+    if (!q) return livre();
+    if (tipo === "quadro") {
+      const c = pontoInterior(sala);
+      const dx = c[0] - q[0], dy = c[1] - q[1], l = Math.hypot(dx, dy) || 1;
+      const dentro = [q[0] + (dx / l) * 5, q[1] + (dy / l) * 5];
+      if (pontoEmPoligono(dentro[0], dentro[1], sala)) q = dentro;
+    }
+    return [limitar(Math.round(q[0]), 0, planta.largura_cm), limitar(Math.round(q[1]), 0, planta.altura_cm)];
+  }
   function adicionarElemento(tipo, x, y, modelo = null) {
     if (!podeAparelhos) return null;
     if (planta.elementos.length >= MAX_ELEMENTOS) { avisar(`A planta já tem o máximo de ${MAX_ELEMENTOS} elementos.`); return null; }
     memorizar();
+    const [sx, sy] = sitioDaPeca(tipo, x, y);
     const e = {
       id: novoId("e", planta.elementos), tipo,
-      x_cm: limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm),
-      y_cm: limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm),
+      x_cm: sx,
+      y_cm: sy,
       rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(tipo, modelo),
     };
     if (temPergunta(tipo, e.props)) e.por_responder = true;   // passo 4: por responder até guardar a janela dele
@@ -1350,7 +1378,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (ev.pointerType !== "mouse" || ponteiros.size) return;
     if (modo?.tipo !== "elemento") { if (fantasma) { fantasma = null; desenhar(); } return; }
     const p = paraPlanta(ev.clientX, ev.clientY);
-    fantasma = { x: limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm), y: limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm) };
+    const [fx, fy] = sitioDaPeca(modo.el, p.x, p.y);
+    fantasma = { x: fx, y: fy };
     desenhar();
   });
   svg.addEventListener("pointerleave", () => { if (fantasma) { fantasma = null; desenhar(); } });
@@ -1469,8 +1498,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         break;
       case "elemento":
         if (inicio) memorizar();
-        arrasto.e.x_cm = limitar(ajustar(arrasto.x0 + dx, PASSO_ELEMENTO), 0, planta.largura_cm);
-        arrasto.e.y_cm = limitar(ajustar(arrasto.y0 + dy, PASSO_ELEMENTO), 0, planta.altura_cm);
+        [arrasto.e.x_cm, arrasto.e.y_cm] = sitioDaPeca(arrasto.e.tipo, arrasto.x0 + dx, arrasto.y0 + dy);
         desenhar();
         break;
       case "divisao": {
@@ -1508,7 +1536,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (a.tipo === "colocar") {
       const m = modo, cal = calibracao;
       definirModo(null);   // (tira a calibração a meio: aqui continua, com o 1.º ponto)
-      if (m?.tipo === "elemento") adicionarElemento(m.el, p.x, p.y, m.modelo);
+      if (m?.tipo === "elemento") {
+        const posto = adicionarElemento(m.el, p.x, p.y, m.modelo);
+        // Portas e janelas costumam ser várias (decisão do dono, 2026-10-10): a ferramenta fica escolhida para a
+        // seguinte; Esc ou o botão outra vez desligam-na.
+        if (posto && (m.el === "porta" || m.el === "janela") && ev?.pointerType === "mouse") { definirModo(m); fantasma = { x: posto.x_cm, y: posto.y_cm }; desenhar(); }
+      }
       else if (m?.tipo === "calibrar") { calibracao = cal; pontoCalibracao(p); }
       return;
     }
@@ -2258,7 +2291,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (!planta) return;
     const { ppc, raio, raioToque, letra, pega } = tamanhos();
     // Lote 8: sem aparelhos (passo "A casa") desenha-se só as divisões; divisões presas sem as pegas dos cantos.
-    desenharPlanta(svg, podeAparelhos ? (soElementos ? { ...planta, elementos: planta.elementos.filter(pecaDoPasso) } : planta) : { ...planta, elementos: [] }, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
+    // A planta que se vê: as peças do passo e, com uma ferramenta escolhida, a peça a acompanhar o rato (não está na
+    // planta: só passa a estar quando o clique a larga).
+    const ID_FANTASMA = "_a_por";
+    const aPor = fantasma && modo?.tipo === "elemento"
+      ? { id: ID_FANTASMA, tipo: modo.el, x_cm: fantasma.x, y_cm: fantasma.y, rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(modo.el, modo.modelo) } : null;
+    const aVista = !podeAparelhos ? [] : [...(soElementos ? planta.elementos.filter(pecaDoPasso) : planta.elementos), ...(aPor ? [aPor] : [])];
+    desenharPlanta(svg, podeAparelhos && !soElementos && !aPor ? planta : { ...planta, elementos: aVista }, { selecionado: aPor ? ID_FANTASMA : selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -2271,11 +2310,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const passou = destaque ? performance.now() - destaque.desde : 0;
     if (dn && passou < DESTAQUE_MS) {
       extra("polygon", { points: pontosDivisao(dn).map((q) => q.join(",")).join(" "), class: "destaque-nova" }, { fill: "color-mix(in srgb, var(--argila) 22%, transparent)", stroke: "var(--argila)", "stroke-width": "6px", "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke", "pointer-events": "none", "animation-delay": `-${Math.round(passou)}ms` });
-    }
-    if (fantasma && modo?.tipo === "elemento") {
-      const fora = { "vector-effect": "non-scaling-stroke", "pointer-events": "none" };
-      extra("circle", { cx: fantasma.x, cy: fantasma.y, r: raio * 1.5 }, { fill: "color-mix(in srgb, var(--argila) 30%, transparent)", stroke: "var(--argila)", "stroke-width": "2px", ...fora });
-      extra("circle", { cx: fantasma.x, cy: fantasma.y, r: raio * 0.35 }, { fill: "var(--argila)", ...fora });
     }
     for (const p of calibracao?.pontos ?? []) {
       extra("circle", { cx: p.x, cy: p.y, r: 7 / ppc, "data-calibracao": "1" }, { fill: "var(--argila)", stroke: "var(--superficie)", "stroke-width": "2px", "vector-effect": "non-scaling-stroke", "pointer-events": "none" });
