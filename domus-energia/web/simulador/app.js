@@ -1486,9 +1486,8 @@ function desenharQuer() {
       const grelha = el("div", "escolhas-grelha");
       // Decisão do dono (2026-10-10): numa habitação estes quatro já não se oferecem. Ficam só à vista numa casa
       // guardada que já os tenha (para os poder tirar); continuam a contar nas contas.
-      const FORA = ["aspirador_robo", "camara", "campainha", "campainha_video"];
       const jaTem = (k) => Object.values(estado.quer.porPiso[k] ?? {}).some((n) => n > 0);
-      grelha.append(...chaves.filter((k) => perfil !== "habitacao" || !FORA.includes(k) || jaTem(k)).map(maquina("pequenas")));
+      grelha.append(...chaves.filter((k) => perfil !== "habitacao" || !FORA_HABITACAO.includes(k) || jaTem(k)).map(maquina("pequenas")));
       f.append(grelha);
       return f;
     }));
@@ -1638,8 +1637,11 @@ function querDaPlanta() {
  */
 const maquinasEditor = () => [
   ...(perfilCasa(estado.casa.tipo) === "habitacao" ? ["televisao", "frigorifico"] : []),
-  ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer), ...modelosDoPerfil(estado.casa.tipo),
+  ...maquinasGrandesDe(estado.casa.tipo), ...maquinasEscolhidas(estado.quer),
+  // Decisão do dono (2026-10-10): numa habitação estes quatro já não se oferecem (só os que a casa já tem, acima).
+  ...modelosDoPerfil(estado.casa.tipo).filter((k) => perfilCasa(estado.casa.tipo) !== "habitacao" || !FORA_HABITACAO.includes(k)),
 ];
+const FORA_HABITACAO = ["aspirador_robo", "camara", "campainha", "campainha_video"];
 
 /**
  * Linha das ferramentas do editor (ronda sinalizar: sem "Mais…"): os tipos de divisão do imóvel — na linha só os que a
@@ -1775,6 +1777,8 @@ function atualizarPlanta() {
     // Decisão do dono (2026-10-04): sem duplo clique (nem duplo toque ou toque longo) em nenhum passo — na planta
     // arrasta-se; a janela de cada coisa abre-se no botão "Opções" (ou Enter).
     duplo: false,
+    // Decisão do dono (2026-10-10): em "Equipamentos" a linha por cima da planta só tem equipamentos (as máquinas).
+    elementos: estado.passo !== P.quer,
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);

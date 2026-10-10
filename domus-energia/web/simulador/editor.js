@@ -345,7 +345,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   function acertarBarra() {
     acertarBotoesDivisao();
     barraDiv.classList.toggle("sem-permissao", !podeDivisoes);
-    for (const g of [barra, barraMaq]) g.classList.toggle("sem-permissao", !podeAparelhos);
+    barra.classList.toggle("sem-permissao", !podeAparelhos || !podeElementos);
+    barraMaq.classList.toggle("sem-permissao", !podeAparelhos);
     for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || !g.children.length;
     rovingFerramentas?.();
     acertarSetasFila();
@@ -587,6 +588,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
   let podeDivisoes = true;
   let podeAparelhos = true;
+  let podeElementos = true;   // false: a linha das ferramentas só com as máquinas (passo "Equipamentos")
   // O duplo clique (duplo toque e toque longo) abre a janela / mexe nos cantos? No passo Planta não (decisão do dono,
   // 2026-10-04): aí arrasta-se; a janela continua no botão "Opções" e no Enter.
   let podeDuplo = true;
@@ -2310,8 +2312,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
      * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
      */
-    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true } = {}) {
+    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true, elementos = true } = {}) {
       podeDuplo = duplo;
+      // `elementos` false (passo "Equipamentos", decisão do dono 2026-10-10): na linha ficam só as máquinas; porta,
+      // janela, quadro, tomada, ponto de luz… escondem-se (o que já está na planta continua lá e mexe-se).
+      if (elementos !== podeElementos) {
+        podeElementos = elementos;
+        if (!podeElementos && modo?.tipo === "elemento" && modo.el !== "maquina") definirModo(null);
+        acertarBarra();
+      }
       if (divisoes === podeDivisoes && aparelhos === podeAparelhos) return;
       const voltarAoInicio = divisoes && !podeDivisoes;   // QA N2: o grupo das divisões reaparece à esquerda
       podeDivisoes = divisoes;
