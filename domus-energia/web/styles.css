@@ -1014,6 +1014,13 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .consentimento { margin: 0; font-size: .9rem; color: var(--texto-suave); }
 .consentimento a { color: var(--musgo-texto); font-weight: 700; }
 /* Apagar a minha conta (conta.html, conta.js). */
+/* A minha conta (decisão do dono, 2026-10-10): "A minha casa", "Os meus dados" e "Fale connosco". */
+.conta-casa, .conta-dados, .conta-contacto { display: grid; gap: 12px; margin: 18px 0; }
+.conta-casa h2, .conta-dados h2, .conta-contacto h2, .conta-casa p, .conta-dados p, .conta-contacto p { margin: 0; }
+.conta-casa p, .conta-dados p, .conta-contacto p { color: var(--texto-suave); }
+#conta-minha-casa-corpo, #conta-dados-form { display: grid; gap: 12px; }
+.conta-casa-svg { max-height: 300px; }
+#conta-espera { margin: 18px 0; }
 .conta-apagar { display: grid; gap: 12px; }
 .conta-apagar p { margin: 0; color: var(--texto-suave); }
 .conta-apagar .msg, .conta-apagar h2 { margin: 0; }

@@ -178,6 +178,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
+    dados: lim(20, 3600_000),   // "Os meus dados", por conta
     mensagens: lim(10, 3600_000),   // respostas do cliente na conversa do pedido, por conta
     apagarIp: lim(5, 3600_000),   // apagar a própria conta (palavra-passe errada conta)
   };
@@ -469,6 +470,24 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const agora = agoraIso();
     db.prepare('UPDATE contas SET hash = ?, atualizado = ? WHERE id = ?').run(await hashSenha(v.password), agora, c.id);
     auditar(quem(c), 'conta_palavra_passe_definida', `conta:${c.id}`, null, ip);
+    responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) });
+  };
+
+  // "Os meus dados" (decisão do dono, 2026-10-10): nome, telefone, morada e localidade da conta, para os pedidos
+  // seguintes já virem preenchidos. Um campo vazio apaga-o.
+  h.guardarDados = async ({ req, res, c, ip }) => {
+    esperar([[L.dados, String(c.id)]]);
+    contar([[L.dados, String(c.id)]]);
+    const v = await lerJson(req, ['nome', 'telefone', 'morada', 'localidade']);
+    const d = {
+      nome: texto(v.nome, 'o nome', { max: 120 }),
+      telefone: texto(v.telefone, 'o telefone', { max: 30, re: RE_TELEFONE, reMsg: 'Telefone inválido.' }),
+      morada: texto(v.morada, 'a morada', { max: 200 }),
+      localidade: texto(v.localidade, 'a localidade', { max: 80 }),
+    };
+    db.prepare('UPDATE contas SET nome = ?, telefone = ?, morada = ?, localidade = ?, atualizado = ? WHERE id = ?')
+      .run(d.nome, d.telefone, d.morada, d.localidade, agoraIso(), c.id);
+    auditar(quem(c), 'conta_dados_guardados', `conta:${c.id}`, null, ip);
     responder(res, 200, { conta: publico(db.prepare('SELECT * FROM contas WHERE id = ?').get(c.id)) });
   };
 
@@ -1031,6 +1050,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'confirmar', 'opcional', 'confirmar'],
     ['POST', 'reenviar', 'sessao', 'reenviar'],
     ['POST', 'palavra-passe', 'confirmada', 'definirSenha'],
+    ['POST', 'dados', 'confirmada', 'guardarDados'],
     ['GET', 'simulacao', 'sessao', 'lerSimulacao'],
     ['POST', 'simulacao', 'sessao', 'guardarSimulacao'],
     ['GET', 'pedidos', 'confirmada', 'pedidos'],

@@ -41,15 +41,38 @@
             <a class="btn sec" id="conta-casa" href="cliente.html" hidden>Área da minha casa</a>
           </div>
           <div class="msg info" id="conta-retomar" hidden></div>
+          <!-- Decisão do dono (2026-10-10): aviso da lista de espera (config.js listaEspera) e a casa que o cliente desenhou. -->
+          <div class="msg info" id="conta-espera" hidden></div>
+          <section class="cartao conta-casa" id="conta-minha-casa" aria-labelledby="conta-minha-casa-titulo">
+            <h2 id="conta-minha-casa-titulo">A minha casa</h2>
+            <div id="conta-minha-casa-corpo"><p class="ajuda">A carregar…</p></div>
+          </section>
           <h2>Os meus pedidos</h2>
           <div class="msg" id="conta-pedidos-msg" role="status" hidden></div>
           <div id="conta-pedidos" aria-live="polite"></div>
 
           <!-- A minha conta: palavra-passe opcional (POST /api/conta/palavra-passe) e apagar a conta (RGPD; docs/CONTA-CLIENTE.md):
                confirmação na própria página, com a palavra-passe ou, sem ela, com um código enviado ao email; POST /api/conta/apagar (conta.js). -->
+          <!-- "Os meus dados" (decisão do dono, 2026-10-10): POST /api/conta/dados; os pedidos seguintes já vêm preenchidos. -->
+          <section class="cartao conta-dados" id="conta-dados" aria-labelledby="conta-dados-titulo">
+            <h2 id="conta-dados-titulo">Os meus dados</h2>
+            <p>Ficam guardados na conta e preenchem sozinhos os seus pedidos. Pode deixar em branco.</p>
+            <form id="conta-dados-form" novalidate>
+              <div class="duas">
+                <label>Nome<input id="conta-dados-nome" name="nome" maxlength="120" autocomplete="name"></label>
+                <label>Telefone<input id="conta-dados-telefone" name="telefone" type="tel" maxlength="30" autocomplete="tel"></label>
+              </div>
+              <div class="duas">
+                <label>Morada<input id="conta-dados-morada" name="morada" maxlength="200" autocomplete="street-address"></label>
+                <label>Localidade<input id="conta-dados-localidade" name="localidade" maxlength="80" autocomplete="address-level2"></label>
+              </div>
+              <div class="msg" id="conta-dados-msg" role="status" hidden></div>
+              <div class="form-botoes"><button class="btn sec" type="submit" id="conta-dados-guardar">Guardar os meus dados</button></div>
+            </form>
+          </section>
+
           <section class="cartao conta-apagar" id="conta-apagar" aria-labelledby="conta-apagar-titulo">
-            <h2 id="conta-apagar-titulo">A minha conta</h2>
-            <p>Entrou como <strong id="conta-apagar-email"></strong>.</p>
+            <h2 id="conta-apagar-titulo">Segurança e dados</h2>
             <p id="conta-senha-estado">Entra com um código enviado ao email. Se preferir, defina uma palavra-passe.</p>
             <div class="form-botoes"><button class="btn sec" type="button" id="conta-senha-abrir">Definir palavra-passe</button></div>
             <div id="conta-senha-form" hidden>
@@ -74,6 +97,15 @@
                 <button class="btn perigo" type="button" id="conta-apagar-sim">Apagar a conta para sempre</button>
                 <button class="btn sec" type="button" id="conta-apagar-nao">Cancelar</button>
               </div>
+            </div>
+          </section>
+
+          <section class="cartao conta-contacto" aria-labelledby="conta-contacto-titulo">
+            <h2 id="conta-contacto-titulo">Fale connosco</h2>
+            <p>Tem uma dúvida sobre a conta ou sobre um pedido? Ligue ou escreva.</p>
+            <div class="form-botoes">
+              <a class="btn sec" id="conta-contacto-tel" hidden></a>
+              <a class="btn sec" id="conta-contacto-email" hidden></a>
             </div>
           </section>
         </div>

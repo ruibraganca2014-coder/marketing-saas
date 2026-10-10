@@ -30,6 +30,7 @@ const dataTxt = (v, hora = false) => {
 };
 
 let ctrl = null;
+let emailDaConta = "";
 const resumosAbertos = new Set(); // pedidos com "A simulação que enviou" aberto (sobrevive ao carregar())
 // Regresso de um pagamento (Stripe ou página simulada): conta.html?pagamento=<ref>[&cancelado=1].
 const params = new URLSearchParams(location.search);
@@ -45,8 +46,10 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     $("conta-dentro").hidden = !dentro;
     if (!dentro) { $("conta-pedidos").replaceChildren(); mensagem(null); return; }
     $("conta-casa").hidden = !eu.tem_casa;
-    $("conta-apagar-email").textContent = eu.conta.email;
+    emailDaConta = eu.conta.email;
     desenharSenha(Boolean(eu.conta.tem_password));
+    preencherDados(eu.conta);
+    desenharCasa(eu);
     const r = $("conta-retomar");
     r.replaceChildren();
     r.hidden = !eu.simulacao_atualizada;
@@ -1020,6 +1023,86 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
   }
 }
 
+// ---- Lista de espera e contactos (decisão do dono, 2026-10-10): o que está em config.js.
+{
+  const D = window.DOMUS ?? {};
+  if (D.listaEspera?.ativa) {
+    $("conta-espera").textContent = `Começamos as obras em ${D.listaEspera.arranque}. Até lá, os pedidos de serviço ficam em lista de espera, por ordem de chegada: avisamos por email quando chegar a sua vez. Descrever a casa e o relatório grátis já funcionam.`;
+    $("conta-espera").hidden = false;
+  }
+  const tel = $("conta-contacto-tel"), mail = $("conta-contacto-email");
+  if (D.telefone) { tel.href = `tel:${D.telefone}`; tel.textContent = `Ligar ${D.telefoneVisivel ?? D.telefone}`; tel.hidden = false; }
+  if (D.email) { mail.href = `mailto:${D.email}`; mail.textContent = D.email; mail.hidden = false; }
+}
+
+// ---- A minha casa (decisão do dono, 2026-10-10): a planta que o cliente desenhou no simulador, em pequeno, só de leitura.
+let casaPedida = 0;
+async function desenharCasa(eu) {
+  const corpo = $("conta-minha-casa-corpo");
+  const vez = ++casaPedida;
+  const botao = (texto, href, id, principal = false) => { const a = el("a", principal ? "btn" : "btn sec", texto); a.href = href; a.id = id; return a; };
+  const vazio = () => {
+    const g = el("div", "form-botoes");
+    g.append(botao(comecada ? "Continuar a descrever a casa" : "Descrever a minha casa", "simulador.html", "conta-casa-descrever", true));
+    corpo.replaceChildren(el("p", null, comecada ? "Ainda não desenhou as divisões da casa. Continue de onde ficou: a planta aparece aqui." : "Ainda não descreveu a sua casa. Demora uns 7 minutos e fica com um relatório grátis."), g);
+  };
+  let planta = null, comecada = false;
+  try {
+    const r = await pedirConta("simulacao");
+    if (r?.estado) {
+      comecada = true;
+      const { normalizarEstado } = await import("./simulador/estado.js");
+      planta = normalizarEstado(r.estado)?.planta ?? null;
+    }
+  } catch { /* sem planta: fica o convite */ }
+  if (vez !== casaPedida) return;
+  if (!planta?.divisoes?.length) { vazio(); return; }
+  const { desenharPlanta, pisosDaPlanta } = await import("./simulador/planta-svg.js");
+  if (vez !== casaPedida) return;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("previsao-svg", "conta-casa-svg");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "A planta que desenhou");
+  const L = Math.max(1, Number(planta.largura_cm) || 2000), A = Math.max(1, Number(planta.altura_cm) || 1500);
+  const pisos = pisosDaPlanta(planta);
+  // Só a parte da folha onde a casa está (com margem), para a planta não ficar pequena a um canto.
+  const doPiso = planta.divisoes.filter((d) => (d.piso ?? 0) === pisos[0] && [d.x_cm, d.y_cm, d.largura_cm, d.altura_cm].every(Number.isFinite));
+  let vista = { x: 0, y: 0, w: L, h: A };
+  if (doPiso.length) {
+    const M = 60;
+    const x0 = Math.max(0, Math.min(...doPiso.map((d) => d.x_cm)) - M), y0 = Math.max(0, Math.min(...doPiso.map((d) => d.y_cm)) - M);
+    const x1 = Math.min(L, Math.max(...doPiso.map((d) => d.x_cm + d.largura_cm)) + M), y1 = Math.min(A, Math.max(...doPiso.map((d) => d.y_cm + d.altura_cm)) + M);
+    if (x1 > x0 && y1 > y0) vista = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  svg.style.aspectRatio = `${vista.w} / ${vista.h}`;
+  desenharPlanta(svg, planta, { soLeitura: true, grelha: false, vista, ...(pisos.length > 1 ? { piso: pisos[0] } : {}) });
+  const nd = planta.divisoes.length, ne = (planta.elementos ?? []).length;
+  const resumo = el("p", null, `${nd} ${nd === 1 ? "divisão" : "divisões"} · ${ne} ${ne === 1 ? "peça" : "peças"} na planta${pisos.length > 1 ? ` · ${pisos.length} pisos (à vista: o primeiro)` : ""}`);
+  const g = el("div", "form-botoes");
+  g.append(botao("Alterar a casa", "simulador.html", "conta-casa-alterar"));
+  if (!eu.tem_casa) g.append(botao("Ver em grande", "cliente.html", "conta-casa-ver"));
+  corpo.replaceChildren(svg, resumo, g);
+}
+
+// ---- Os meus dados: POST /api/conta/dados (um campo vazio apaga-o).
+const CAMPOS_DADOS = ["nome", "telefone", "morada", "localidade"];
+function preencherDados(conta) {
+  for (const k of CAMPOS_DADOS) $(`conta-dados-${k}`).value = conta?.[k] ?? "";
+}
+$("conta-dados-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const m = $("conta-dados-msg"), b = $("conta-dados-guardar");
+  const dizer = (t, tipo) => { m.textContent = t; m.className = `msg ${tipo}`; m.hidden = !t; };
+  b.disabled = true;
+  try {
+    const r = await pedirConta("dados", { corpo: Object.fromEntries(CAMPOS_DADOS.map((k) => [k, $(`conta-dados-${k}`).value])) });
+    preencherDados(r.conta);
+    dizer("Dados guardados.", "ok");
+  } catch (erro) {
+    dizer(erro?.message || "Não foi possível guardar. Tente de novo.", "erro");
+  } finally { b.disabled = false; }
+});
+
 // ---- Palavra-passe (opcional; fase 3 da auditoria): a conta entra com código; quem quiser define-a aqui → POST /api/conta/palavra-passe.
 let temSenha = false;
 const senhaMsg = (t, tipo = "erro") => {
@@ -1090,7 +1173,7 @@ $("conta-apagar-codigo").addEventListener("click", async () => {
   if (b.disabled) return;
   b.disabled = true;
   try {
-    await pedirConta("codigo", { corpo: { email: $("conta-apagar-email").textContent } });
+    await pedirConta("codigo", { corpo: { email: emailDaConta } });
     apagarMsg("Enviámos um código para o seu email (vale 15 minutos).", "info");
     $("conta-apagar-senha").focus();
   } catch (e) {

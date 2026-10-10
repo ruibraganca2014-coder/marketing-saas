@@ -153,6 +153,18 @@ describe('conta de cliente', () => {
     assert.equal((await conta('POST', 'codigo', { corpo: { email: 'nao-e-email' }, ip: '198.51.100.46' })).estado, 400);
   });
 
+  test('os meus dados: guarda nome, telefone, morada e localidade (só com sessão); vazio apaga; telefone inválido recusado', async () => {
+    const a = await p.contaConfirmada(email());
+    assert.equal((await conta('POST', 'dados', { corpo: { nome: 'Ana' } })).estado, 401, 'sem sessão');
+    const r = await conta('POST', 'dados', { cookie: a.cookie, corpo: { nome: '  Ana Silva ', telefone: '912 345 678', morada: 'Rua A, 1', localidade: 'Oeiras' } });
+    assert.equal(r.estado, 200);
+    assert.deepEqual([r.json.conta.nome, r.json.conta.telefone, r.json.conta.morada, r.json.conta.localidade], ['Ana Silva', '912 345 678', 'Rua A, 1', 'Oeiras']);
+    assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.conta.nome, 'Ana Silva');
+    assert.equal((await conta('POST', 'dados', { cookie: a.cookie, corpo: { nome: 'Ana', telefone: 'abc' } })).estado, 400);
+    const v = await conta('POST', 'dados', { cookie: a.cookie, corpo: { nome: '', telefone: '', morada: '', localidade: '' } });
+    assert.equal(v.json.conta.nome, null, 'vazio apaga');
+  });
+
   test('definir a palavra-passe (com sessão e email confirmado): regras do painel; dá o "entrar" com palavra-passe; o código continua a entrar', async () => {
     const { cookie, email: e } = await p.contaConfirmada(email(), null);
     assert.equal((await conta('POST', 'palavra-passe', { corpo: { password: SENHA } })).estado, 401, 'sem sessão');
