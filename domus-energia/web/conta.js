@@ -224,6 +224,7 @@ function cartaoPedido(p) {
   }
   c.append(passos);
   if (p.correcao) c.append(blocoCorrecao(p));
+  if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido e voltamos a contactá-lo.`));
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
   if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));

@@ -101,7 +101,9 @@ let zonaAvisos;
 export function avisar(texto, tipo = "ok") {
   zonaAvisos ??= document.getElementById("avisos");
   const a = h("div", { class: `msg ${tipo}`, text: texto });
-  zonaAvisos.append(a);
+  // Com uma janela aberta (a ficha do pedido), o aviso vai para dentro dela: senão ficava tapado por ela.
+  const janelaAberta = [...document.querySelectorAll("dialog[open]")].at(-1);
+  if (janelaAberta) { a.classList.add("aviso-na-janela"); janelaAberta.append(a); } else zonaAvisos.append(a);
   setTimeout(() => a.remove(), 6000);
 }
 

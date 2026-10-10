@@ -2070,11 +2070,16 @@ export function criarApi(ctx) {
     const agora = agoraIso();
     db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = NULL, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(u.email, agora, agora, o.id);
     auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontosValidacao(o).map((p) => p.chave), bolsa: v.bolsa === true }, ip);
+    // A validação fica feita mesmo que a bolsa não o aceite (ex.: falta pagar a visita): o painel diz porquê (`aviso`).
+    let aviso = null;
     if (v.bolsa === true) {
-      if (!eletricistas) throw new ErroApi(409, 'Pedido validado, mas a bolsa dos eletricistas está desligada.');
-      eletricistas.porNaBolsa(obterOrcamento(params.id), u, ip);
+      if (!eletricistas) aviso = 'Pedido validado, mas a bolsa dos eletricistas está desligada.';
+      else try { eletricistas.porNaBolsa(obterOrcamento(params.id), u, ip); } catch (e) {
+        if (!(e instanceof ErroApi)) throw e;
+        aviso = `Pedido validado, mas não foi para a bolsa: ${e.message}`;
+      }
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, { ...formatarOrcamento(obterOrcamento(params.id), true), aviso });
   };
   // "Devolver ao cliente" (só o CEO): o que falta corrigir vai por email e fica na conversa do pedido; o cliente corrige
   // na conta e carrega em "Já corrigi" (conta.js), e o pedido volta a ficar por validar.

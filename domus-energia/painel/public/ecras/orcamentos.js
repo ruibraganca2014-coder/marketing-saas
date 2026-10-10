@@ -209,7 +209,10 @@ export default function orcamentos(el, ctx) {
         if (estadoV === "devolvido") sec.append(h("p", { class: "msg info", id: "validacao-devolvido", text: `Devolvido ao cliente para corrigir${campo(val, "em") ? ` (${data(campo(val, "em"))})` : ""}: ${campo(val, "nota") ?? ""}` }));
         else {
           if (campo(val, "nota")) sec.append(h("p", { class: "msg info", id: "validacao-motivo", text: String(campo(val, "nota")) }));
-          sec.append(h("p", { class: "ajuda", text: campo(val, "nota") ? "O pedido voltou para si: retifique a proposta ou o pedido e valide de novo para o pôr na bolsa, ou marque-o como Perdido para desistir." : "Por validar. Só depois de validado o pedido pode ir para a bolsa ou para um eletricista." }));
+          sec.append(h("p", { class: "ajuda", text: !campo(val, "nota") ? "Por validar. Só depois de validado o pedido pode ir para a bolsa ou para um eletricista."
+            : !ctx.pode("ceo") ? "O pedido voltou para validação do CEO."
+              : /^Proposta não aceite/.test(String(campo(val, "nota"))) ? "O pedido voltou para si: retifique a proposta ou o pedido e valide de novo para o pôr na bolsa, ou marque-o como Perdido para desistir."
+                : "O pedido voltou para si: veja o que o cliente corrigiu e valide." }));
         }
         if (ctx.pode("ceo")) {
           const pontos = lista(campo(val, "pontos") ?? [], "pontos");
@@ -221,7 +224,7 @@ export default function orcamentos(el, ctx) {
               const r = await pedir(`orcamentos/${encodeURIComponent(id)}/${caminho}`, { corpo });
               const novo = campo(r, "orcamento") ?? r;
               substituir(novo);
-              avisar(aviso);
+              if (campo(r, "aviso")) avisar(String(campo(r, "aviso")), "erro"); else avisar(aviso);
               if (ficha?.j === j) desenharFicha(j, novo);
             } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
           };
@@ -1148,6 +1151,8 @@ const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
   proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
+  pedido_validado: "Pedido validado pelo CEO", pedido_devolvido_cliente: "Devolvido ao cliente para corrigir", pedido_corrigido_cliente: "O cliente disse que já corrigiu",
+  proposta_recusada_cliente: "Proposta não aceite pelo cliente", trabalho_na_bolsa: "Posto na bolsa dos eletricistas", trabalho_retirado: "Trabalho retirado ao eletricista ou da bolsa",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",
   orcamento_anonimizado_rgpd: "Anonimizado (RGPD): a conta foi apagada; os pagamentos ficam",
   pagamento_confirmado: "Pagamento recebido", pagamento_falhado: "Pagamento falhado", pagamento_cancelado: "Pagamento cancelado",

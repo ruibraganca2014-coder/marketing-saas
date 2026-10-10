@@ -704,3 +704,4 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .validacao-ponto { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
 .validacao-ponto input { margin-top: 4px; }
 .validacao-nota { display: grid; gap: 6px; }
+.aviso-na-janela { position: fixed; right: 16px; bottom: 16px; max-width: min(420px, calc(100vw - 32px)); z-index: 5; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }

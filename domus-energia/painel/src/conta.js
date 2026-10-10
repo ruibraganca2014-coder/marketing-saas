@@ -914,7 +914,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND proposta_aceite IS NULL`).run(nota, agora, agora, agora, o.id, c.id);
     if (!r.changes) throw new ErroApi(409, 'Não há uma proposta por aceitar neste pedido.');
     try { eletricistas()?.retirar(o, quem(c), ip); } catch { /* sem trabalho ativo: nada a retirar */ }
-    db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', ?, ?)").run(o.id, nota, agora);
+    db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', ?, ?)")
+      .run(o.id, `Não aceito a proposta (${MOTIVOS_RECUSA[v.motivo]})${porque ? `: ${porque}` : '.'}`.replace('(mudou de ideias)', '(mudei de ideias)'), agora);
     auditar(quem(c), 'proposta_recusada_cliente', `orcamento:${o.id}`, { motivo: v.motivo, valor_proposta: deCent(o.valor_proposta_cent) }, ip);
     tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:recusada:${agora}`, null);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
@@ -926,7 +927,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const o = pedidoDaConta(c, params.id);
     if (o.validacao !== 'devolvido') throw new ErroApi(409, 'Este pedido não está à espera de correção.');
     const agora = agoraIso();
-    db.prepare('UPDATE orcamentos SET validacao = NULL, atualizado = ? WHERE id = ?').run(agora, o.id);
+    db.prepare('UPDATE orcamentos SET validacao = NULL, validacao_nota = ?, validacao_em = ?, atualizado = ? WHERE id = ?')
+      .run(`O cliente diz que já corrigiu. Tinha sido pedido: ${o.validacao_nota ?? ''}`.slice(0, 1200), agora, agora, o.id);
     auditar(quem(c), 'pedido_corrigido_cliente', `orcamento:${o.id}`, null, ip);
     tarefas()?.criarAutomatica('cliente_respondeu', db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id), `${o.id}:corrigido:${agora}`, null);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
