@@ -894,8 +894,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
   .quadro-guia-desenho { max-height: 220px; }
 }
 
-/* Passo "Equipamentos" (decisão do dono, 2026-10-10): os botões da linha por cima da planta só com o desenho. O nome
+/* Passos "Equipamentos" e "Divisões" (decisão do dono, 2026-10-10): os botões da linha por cima da planta só com o desenho. O nome
    fica para leitores de ecrã, aparece ao passar o rato (title) e, ao escolher, na linha por baixo da planta. */
-#sim-form.passo-equipamentos .editor-elementos .ferramenta { justify-content: center; width: 48px; padding: 4px; gap: 0; }
-#sim-form.passo-equipamentos .editor-elementos .ferramenta svg { width: 30px; height: 30px; }
-#sim-form.passo-equipamentos .editor-elementos .ferramenta-nome { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#sim-form.barra-so-icones .editor-elementos .ferramenta { justify-content: center; width: 48px; padding: 4px; gap: 0; }
+#sim-form.barra-so-icones .editor-elementos .ferramenta svg { width: 30px; height: 30px; }
+#sim-form.barra-so-icones .editor-elementos .ferramenta-nome { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

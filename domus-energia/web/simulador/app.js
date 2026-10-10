@@ -416,8 +416,9 @@ function mostrarPasso(foco = true) {
   $("sim-form").classList.toggle("passo-planta", p === P.planta);
   // Passo "A casa": a planta é automática (as divisões vêm de "A casa tem…"); a linha das ferramentas fica escondida (CSS).
   $("sim-form").classList.toggle("passo-casa", p === P.casa);
-  // Decisão do dono (2026-10-10): em "Equipamentos" os botões da linha por cima da planta são só o desenho.
-  $("sim-form").classList.toggle("passo-equipamentos", p === P.quer);
+  // Decisão do dono (2026-10-10): em "Equipamentos" e em "Divisões" os botões de porta, janela, quadro, tomada, luz,
+  // interruptor e sensores da linha por cima da planta são só o desenho (as máquinas mantêm o nome).
+  $("sim-form").classList.toggle("barra-so-icones", p === P.quer || p === P.divisoes);
   textoSeguinte();
   atualizarPlanta();
   if (p === P.inicio) desenharInicio();

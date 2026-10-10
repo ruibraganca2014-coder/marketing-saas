@@ -301,7 +301,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     b.dataset.ferramenta = t;
     b.setAttribute("aria-pressed", "false");
     b.append(desenharIcone(svgEl("svg"), t, ELEMENTOS[t].props), el("span", "ferramenta-nome", ELEMENTOS[t].nome));
-    b.title = ELEMENTOS[t].nome;   // em "Equipamentos" o botão é só o desenho (CSS .passo-equipamentos): o nome ao passar o rato
+    b.title = ELEMENTOS[t].nome;   // em "Equipamentos" o botão é só o desenho (CSS .barra-so-icones): o nome ao passar o rato
     ligarFerramenta(b, t, t, null);
     barra.append(b);
   }
