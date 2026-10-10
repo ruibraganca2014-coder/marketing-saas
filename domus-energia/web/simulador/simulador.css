@@ -889,8 +889,13 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .quadro-guia-passos { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; color: var(--texto-suave); }
 .quadro-guia-passos b { color: var(--texto); }
 @media (min-width: 980px) {
-  .quadro-colunas { grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); column-gap: 28px; align-items: start; }
-  .quadro-guia { order: 0; position: sticky; top: 89px; }
+  /* As duas colunas com a mesma altura (decisão do dono, 2026-10-10): a que for mais baixa estica; à esquerda cresce
+     o cartão da idade, com as opções a repartir o espaço. */
+  .quadro-colunas { grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); column-gap: 28px; align-items: stretch; }
+  .quadro-perguntas { grid-template-rows: auto 1fr; align-content: stretch; }
+  .quadro-idade { grid-template-rows: auto auto 1fr; }
+  .quadro-idade .escolhas { grid-auto-rows: 1fr; }
+  .quadro-guia { order: 0; }
   .quadro-guia-desenho { max-height: 220px; }
 }
 
