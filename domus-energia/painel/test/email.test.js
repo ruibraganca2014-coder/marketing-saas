@@ -227,7 +227,7 @@ describe('layout da empresa nos emails (HTML ao lado do texto)', () => {
 
   test('htmlDoEmail: código em caixa, botão, lista, rodapé da empresa; o texto vai escapado', () => {
     const h = htmlDoEmail({ assunto: 'Código', texto: TEXTO, site: 'https://exemplo.pt', responder: false });
-    assert.match(h, /123&nbsp;456/);
+    assert.match(h, />123456<\/td>/);
     assert.match(h, /<a href="https:\/\/exemplo\.pt\/conta\.html"[^>]*>A sua conta<\/a>/);
     assert.match(h, /<ol[^>]*><li[^>]*>Abra o site<\/li><li[^>]*>Escreva &lt;o código&gt; &amp; entre<\/li><\/ol>/);
     assert.match(h, /href="https:\/\/exemplo\.pt\/sair\?t=1&amp;x=2"/);

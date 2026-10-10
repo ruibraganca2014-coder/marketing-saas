@@ -68,8 +68,7 @@ export function htmlDoEmail({ assunto = '', texto = '', site = '', responder = f
     const botao = /^(.{2,70}?):\s*(https?:\/\/\S+)$/.exec(l);
     if (codigo) {
       fecharPar(); fecharLista();
-      const visto = codigo.length === 6 ? `${codigo.slice(0, 3)}&nbsp;${codigo.slice(3)}` : codigo;
-      partes.push(`<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;"><tr><td style="background:${COR.creme};border:2px solid ${COR.musgo};border-radius:14px;padding:14px 28px;font:bold 30px 'Courier New',Courier,monospace;letter-spacing:3px;color:${COR.floresta};">${visto}</td></tr></table>`);
+      partes.push(`<table role="presentation" cellpadding="0" cellspacing="0" style="margin:6px 0 18px;"><tr><td style="background:${COR.creme};border:2px solid ${COR.musgo};border-radius:14px;padding:14px 28px;font:bold 30px 'Courier New',Courier,monospace;letter-spacing:3px;color:${COR.floresta};">${codigo}</td></tr></table>`);
     } else if (numerado || ponto) {
       fecharPar();
       const tipo = numerado ? 'ol' : 'ul';
