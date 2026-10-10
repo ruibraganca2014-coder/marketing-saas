@@ -298,7 +298,10 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   // 2. Elementos da instalação elétrica (as máquinas têm o seu grupo, um botão por modelo).
   const barra = grupoBarra("editor-elementos", "Pôr na planta");
-  for (const t of TIPOS_ELEMENTO.filter((x) => x !== "maquina")) {
+  // Ordem na linha (decisão do dono, 2026-10-10): tomada, interruptor e só depois o ponto de luz.
+  const ORDEM_BARRA = ["porta", "janela", "quadro", "tomada", "interruptor", "luz"];
+  const naBarra = (t) => (ORDEM_BARRA.includes(t) ? ORDEM_BARRA.indexOf(t) : ORDEM_BARRA.length);
+  for (const t of TIPOS_ELEMENTO.filter((x) => x !== "maquina").sort((x, y) => naBarra(x) - naBarra(y))) {
     const b = botao("", "ferramenta");
     b.dataset.ferramenta = t;
     b.setAttribute("aria-pressed", "false");
