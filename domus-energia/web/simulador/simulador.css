@@ -50,6 +50,8 @@
 .sim-anular:empty { display: none; }
 .sim-anular .sim-anular-sep { color: var(--texto-suave); }
 .sim-anular .btn { flex: none; }
+.sim-anular-fechar { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--texto-suave); font-size: 1.4rem; line-height: 1; cursor: pointer; }
+.sim-anular-fechar:hover { background: var(--musgo-claro); color: var(--texto); }
 .sim-passo-botao { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-height: 44px; padding: 4px 2px; border: 0; background: transparent; color: var(--texto-suave); font: 600 .8rem/1.2 var(--letra); text-align: center; border-radius: 12px; }
 button.sim-passo-botao { cursor: pointer; color: var(--texto); }
 button.sim-passo-botao:hover { background: var(--musgo-claro); }

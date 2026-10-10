@@ -5252,11 +5252,11 @@ $("fim-nova").addEventListener("click", () => {
 
 /*
  * "Começar de novo" sempre à mão (à direita dos passos), sem confirmação (decisão do dono): recomeça logo (no passo 1,
- * lote 8) e mostra "Simulação apagada · Anular" durante 10 s. "Anular" repõe tudo como estava: o estado
+ * lote 8) e mostra "Simulação apagada · Anular" durante 4 s, com um X para fechar logo (decisão do dono, 2026-10-10). "Anular" repõe tudo como estava: o estado
  * (e o que estava gravado no navegador e na conta), as fotos (só saem do IndexedDB no fim do prazo; em memória
  * guarda-se uma cópia), o passo e a planta. Passado o prazo, ou ao tocar no primeiro serviço, fica apagada de vez.
  */
-const PRAZO_ANULAR = 10_000;
+const PRAZO_ANULAR = 4_000;
 let anular = null;   // { estado, visitado, fotos, temporizador } enquanto "Anular" está à vista
 function recomecarComAnular() {
   acabarAnular();
@@ -5277,7 +5277,11 @@ function recomecarComAnular() {
   b.type = "button";
   b.id = "sim-anular-botao";
   b.addEventListener("click", anularRecomecar);
-  a.replaceChildren(el("span", null, antes.casaGuardada ? "Simulação e casa apagadas" : "Simulação apagada"), el("span", "sim-anular-sep", " · "), b);
+  const x = el("button", "sim-anular-fechar", "×");
+  x.type = "button";
+  x.setAttribute("aria-label", "Fechar o aviso");
+  x.addEventListener("click", acabarAnular);
+  a.replaceChildren(el("span", null, antes.casaGuardada ? "Simulação e casa apagadas" : "Simulação apagada"), el("span", "sim-anular-sep", " · "), b, x);
   a.querySelector(".sim-anular-sep").setAttribute("aria-hidden", "true");
   posicionarAnular();
   antes.temporizador = setTimeout(acabarAnular, PRAZO_ANULAR);
