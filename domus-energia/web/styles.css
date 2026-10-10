@@ -1060,3 +1060,6 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 @media (pointer: coarse) {
   .hero .hero-ou a, footer .wrap > a, .rodape-servicos a, .rodape-legal a, #servicos h3 a { display: inline-flex; align-items: center; min-height: 44px; }
 }
+/* Acesso da empresa no topo da página inicial (decisão do dono, 2026-10-10): só em ecrãs largos. */
+.acesso-equipa { display: none; }
+@media (min-width: 1180px) { .acesso-equipa { display: inline-flex; } }
