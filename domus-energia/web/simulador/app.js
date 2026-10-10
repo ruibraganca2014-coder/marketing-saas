@@ -4801,7 +4801,9 @@ function textoBotaoEnviar() {
 /** Os textos do passo Enviar e de "Pedido enviado!" (compras, avaria, fora da área, pagamentos desligados). */
 function textosPagamento() {
   const fora = foraDaArea();
-  $("enviar-visita").hidden = fora;
+  // Os dias para a visita só com visita (decisão do dono, 2026-10-10: com "só o relatório básico" parecia marcar a visita
+  // paga). A avaria leva sempre a visita do diagnóstico; sem pagamentos online não há visita paga e os dias ajudam a combinar.
+  $("enviar-visita").hidden = fora || (!funilAvaria() && pagamentosAtivos && !estado.compras.visita);
   desenharCompras();
   $("enviar-texto").textContent = funilAvaria() && pagamentosAtivos
     ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
