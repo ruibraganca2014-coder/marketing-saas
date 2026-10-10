@@ -1784,9 +1784,9 @@ function atualizarPlanta() {
     // Decisão do dono (2026-10-04): sem duplo clique (nem duplo toque ou toque longo) em nenhum passo — na planta
     // arrasta-se; a janela de cada coisa abre-se no botão "Opções" (ou Enter).
     duplo: false,
-    // Decisão do dono (2026-10-10): em "Equipamentos" a linha por cima da planta não repete os equipamentos dos
-    // cartões (ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores).
-    maquinas: estado.passo !== P.quer,
+    // Decisão do dono (2026-10-10): em "Equipamentos" e em "Divisões" a linha por cima da planta não tem máquinas
+    // (marcam-se nos cartões de "Equipamentos"); ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores.
+    maquinas: estado.passo !== P.quer && estado.passo !== P.divisoes,
   });
   if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
