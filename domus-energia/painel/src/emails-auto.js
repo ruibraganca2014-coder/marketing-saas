@@ -167,8 +167,8 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const para = destinatario(o);
     if (!para) return false;
     const comConta = Boolean(o.conta_id);
-    // Lista de espera (o simulador marca o pedido: `simulacao.lista_espera`): sem prazo de contacto nem visita.
-    const espera = typeof o.simulacao === 'string' && /"lista_espera":true/.test(o.simulacao);
+    // Lista de espera (coluna `lista_espera`: simulador ou formulário do site): sem prazo de contacto nem visita.
+    const espera = o.lista_espera === 1;
     const passos = espera ? [
       'O seu pedido ficou em lista de espera: ainda não começámos as obras.',
       ...(comConta ? ['O relatório básico (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),

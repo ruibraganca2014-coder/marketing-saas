@@ -175,6 +175,7 @@ function corpoOrcamento(dados) {
   const t = (v) => String(v ?? "").trim();
   const corpo = { nome: t(dados.nome), servico: t(dados.servico) || "Outro" };
   for (const k of ["telefone", "email", "localidade", "mensagem", "website"]) if (t(dados[k])) corpo[k] = t(dados[k]);
+  if (cfg.listaEspera?.ativa) corpo.lista_espera = true;   // o painel mostra-o como "Lista de espera"
   // Só a categoria de onde a pessoa veio (web/origem.js): a resposta a "Como nos conheceu?", senão o canal; nunca o endereço.
   return { ...corpo, ...origemContacto(t(dados.conheceu)) };
 }
@@ -230,7 +231,10 @@ form?.addEventListener("submit", async (e) => {   // as páginas de anúncio nã
 
   if (estado >= 200 && estado < 300) {
     form.reset();
-    mostrar(`Pedido recebido. Respondemos em dia útil.${temTelefone ? ` Se for urgente, ligue ${cfg.telefoneVisivel}.` : ""}`, true);
+    // Em lista de espera (config.js listaEspera) não se promete resposta em dia útil.
+    mostrar(cfg.listaEspera?.ativa
+      ? "Pedido recebido e em lista de espera. Contactamos quando abrirmos as marcações."
+      : `Pedido recebido. Respondemos em dia útil.${temTelefone ? ` Se for urgente, ligue ${cfg.telefoneVisivel}.` : ""}`, true);
   } else if (estado === 429) {
     mostrar("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone.", false, dados);
   } else if (estado === 400) {

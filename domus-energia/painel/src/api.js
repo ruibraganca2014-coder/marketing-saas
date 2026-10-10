@@ -350,6 +350,7 @@ export function criarApi(ctx) {
       tem_simulacao: o.simulacao !== null, simulacao_bytes: o.simulacao ? Buffer.byteLength(o.simulacao) : 0,
       // Lote 8: a urgência do pedido (selo "Urgente" no quadro de pedidos) sem ler a simulação toda.
       urgencia: urgenciaDaSimulacao(o.simulacao),
+      lista_espera: o.lista_espera === 1,   // recebido enquanto as obras não começam (web/config.js listaEspera)
       n_fotos: fotos.contar(o.id),
       // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
       conta: contas.resumoParaPainel(o.conta_id),
@@ -2074,7 +2075,7 @@ export function criarApi(ctx) {
       global.registar('*');
     }
     const v = await lerJson(req, ['nome', 'telefone', 'email', 'localidade', 'morada', 'servico', 'mensagem', 'website', 'codigo_cliente', 'simulacao', 'compra',
-      'origem_contacto', 'origem_entrada'], LIMITE_ORCAMENTO);
+      'origem_contacto', 'origem_entrada', 'lista_espera'], LIMITE_ORCAMENTO);
     // Campo-armadilha: só robôs o preenchem. Responde como se tivesse corrido bem.
     if (v.website !== undefined && v.website !== null && v.website !== '') {
       registo.aviso(`orçamento: armadilha preenchida (ip ${ip}), descartado`);
@@ -2125,7 +2126,7 @@ export function criarApi(ctx) {
       return responder(res, 202, { ok: true, pagamento });
     }
     // O resto é grátis: passa logo a orçamento ("novo"), com o relatório básico na conta.
-    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem });
+    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem, espera: v.lista_espera === true });
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
     const r = { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX };
     if (conta) r.pedido = id;
@@ -2142,13 +2143,15 @@ export function criarApi(ctx) {
   }
 
   /** Grava um pedido do site (formulário ou simulador); também quando o pagamento da avaria é confirmado. */
-  function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null, origem = null }) {
+  function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null, origem = null, espera = false }) {
     const agora = agoraIso();
+    // Lista de espera: o formulário diz-o no pedido (`lista_espera`), o simulador na simulação.
+    const emEspera = espera === true || (typeof sim === 'string' && /"lista_espera":true/.test(sim));
     const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id,
-      origem_contacto, origem_entrada)
-      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
+      origem_contacto, origem_entrada, lista_espera)
+      VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
       c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli ?? null, sim ?? null, contaId,
-      ORIGENS_CONTACTO.includes(origem?.contacto) ? origem.contacto : null, ENTRADAS.includes(origem?.entrada) ? origem.entrada : null).lastInsertRowid);
+      ORIGENS_CONTACTO.includes(origem?.contacto) ? origem.contacto : null, ENTRADAS.includes(origem?.entrada) ? origem.entrada : null, emEspera ? 1 : 0).lastInsertRowid);
     if (contaId) contas.aposOrcamento(contaId, c);
     auditar(contaId ? { id: null, email: `conta:${contaId}` } : null, 'orcamento_recebido', `orcamento:${id}`,
       { origem: 'site', simulacao: Boolean(sim), conta: Boolean(contaId), ...(pagamento ? { pagamento, visita: comVisita } : {}) }, ip);

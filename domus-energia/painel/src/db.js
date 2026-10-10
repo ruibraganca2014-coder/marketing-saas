@@ -992,6 +992,13 @@ export const MIGRACOES = [
     CREATE INDEX aparelhos_ativacoes_estado ON aparelhos_ativacoes (estado, criado);
     ALTER TABLE eletricistas ADD COLUMN ativa_sem_aprovacao INTEGER NOT NULL DEFAULT 0;
   `),
+  // 42: lista de espera (decisão do dono, 2026-10-10; web/config.js listaEspera): pedidos recebidos enquanto as obras não
+  // começam. O simulador marca-os na simulação (`lista_espera`), o formulário "Pedir contacto" no corpo do pedido; a
+  // coluna junta os dois, para o painel os mostrar e filtrar. Os que já chegaram marcados na simulação ficam marcados.
+  (db) => db.exec(`
+    ALTER TABLE orcamentos ADD COLUMN lista_espera INTEGER NOT NULL DEFAULT 0;
+    UPDATE orcamentos SET lista_espera = 1 WHERE simulacao LIKE '%"lista_espera":true%';
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

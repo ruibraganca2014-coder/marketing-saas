@@ -694,3 +694,7 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 /* Ativações de aparelhos: os botões passam para baixo do texto. */
 #ativacoes-pendentes .lista-curta-item, #ativacoes-recentes .lista-curta-item { grid-template-columns: minmax(0, 1fr); gap: 8px; }
 #ativacoes-pendentes .lista-curta-item > div:first-child, #ativacoes-recentes .lista-curta-item > div:first-child { overflow-wrap: anywhere; }
+
+/* Orçamentos: filtro "Só lista de espera". */
+.filtro-espera { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.filtro-espera[hidden] { display: none; }

@@ -47,13 +47,17 @@ export default function orcamentos(el, ctx) {
   const bLista = h("button", { class: "segmento", type: "button", text: "Lista", "aria-pressed": "false", onclick: () => mudarVista("lista") });
   const fEstado = escolha("estado", { "": "Todos os estados", ...ESTADOS_ORC, ...(ctx.pode("ceo") ? { arquivado: "Arquivados (RGPD)" } : {}) }, "", { "aria-label": "Filtrar por estado" });
   const fTexto = h("input", { type: "search", name: "procurar", placeholder: "Procurar nome ou localidade", "aria-label": "Procurar pedido", maxlength: "80" });
+  // Lista de espera (web/config.js listaEspera): só os pedidos recebidos antes de as obras começarem.
+  const fEspera = h("input", { type: "checkbox", id: "filtro-espera", name: "espera" });
+  const fEsperaRotulo = h("label", { class: "filtro-espera", for: "filtro-espera" }, fEspera, " Só lista de espera");
   const contagem = h("p", { class: "ajuda", role: "status" });
   const zona = h("div", { class: "zona-orcamentos" }, carregando());
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Orçamentos" }), h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar como" }, bQuadro, bLista)),
-    h("div", { class: "filtros" }, fTexto, fEstado), contagem, zona);
+    h("div", { class: "filtros" }, fTexto, fEstado, fEsperaRotulo), contagem, zona);
   fEstado.addEventListener("change", () => { if (fEstado.value === "arquivado" && !arquivados) carregarArquivados(); else desenhar(); });
   fTexto.addEventListener("input", desenhar);
+  fEspera.addEventListener("change", desenhar);
 
   function mudarVista(v) { vista = v; gravar(v); desenhar(); }
 
@@ -80,9 +84,12 @@ export default function orcamentos(el, ctx) {
     const vis = (verArquivados ? arquivados ?? [] : todos)
       .filter((o) => !t || [campo(o, "nome"), campo(o, "localidade"), campo(o, "servico")].some((v) => String(v ?? "").toLowerCase().includes(t)))
       .filter((o) => vista === "quadro" || !fEstado.value || campo(o, "estado") === fEstado.value)
+      .filter((o) => !fEspera.checked || campo(o, "lista_espera") === true)
       .sort((a, b) => String(campo(b, "criado", "criado_em") ?? "").localeCompare(String(campo(a, "criado", "criado_em") ?? "")));
     const novos = todos.filter((o) => campo(o, "estado") === "novo").length;
-    contagem.textContent = `${vis.length} ${vis.length === 1 ? "pedido" : "pedidos"}${novos ? ` · ${novos} ${novos === 1 ? "novo" : "novos"}` : ""}`;
+    const emEspera = todos.filter((o) => campo(o, "lista_espera") === true).length;
+    fEsperaRotulo.hidden = !emEspera && !fEspera.checked;
+    contagem.textContent = `${vis.length} ${vis.length === 1 ? "pedido" : "pedidos"}${novos ? ` · ${novos} ${novos === 1 ? "novo" : "novos"}` : ""}${emEspera ? ` · ${emEspera} em lista de espera` : ""}`;
     if (!todos.length && !verArquivados) { zona.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pedidos de orçamento." })); return; }
     if (vista === "quadro") {
       zona.replaceChildren(h("div", { class: "quadro", id: "quadro-orcamentos" }, ...Object.entries(ESTADOS_ORC).map(([k, nome]) => {
@@ -105,6 +112,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-selos" },
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
+        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -158,6 +166,7 @@ export default function orcamentos(el, ctx) {
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
+        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),

@@ -164,6 +164,16 @@ describe('boas-vindas', () => {
     assert.doesNotMatch(m[0].texto, /dia útil seguinte|visita técnica/);
     const l = (await conta(c, 'GET', 'pedidos')).json.pedidos.find((x) => x.id === r.json.pedido);
     assert.equal(l.estado_texto, 'Pedido recebido e em lista de espera: contactamos quando abrirmos as marcações. O relatório básico já está aqui.');
+    // O painel mostra-o (selo e filtro "Lista de espera"); um pedido normal não vem marcado.
+    assert.equal((await api('ceo', 'GET', `orcamentos/${r.json.pedido}`)).json.lista_espera, true);
+    // O formulário "Pedir contacto" marca o pedido no corpo (sem simulação): o mesmo email, sem o relatório.
+    const f = await pedidoSite({ lista_espera: true });
+    const mf = autos(f.email);
+    assert.match(mf[0].texto, /1\. O seu pedido ficou em lista de espera/);
+    assert.doesNotMatch(mf[0].texto, /relatório básico|dia útil seguinte/);
+    assert.equal((await api('ceo', 'GET', `orcamentos/${f.id}`)).json.lista_espera, true);
+    const n = await pedidoSite();
+    assert.equal((await api('ceo', 'GET', `orcamentos/${n.id}`)).json.lista_espera, false);
   });
 
   test('avaria paga ao enviar: o email "pagamento recebido" já confirma o pedido — não sai um segundo email', async () => {
