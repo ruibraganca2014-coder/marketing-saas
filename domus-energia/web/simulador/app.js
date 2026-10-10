@@ -246,6 +246,8 @@ const posicao = (i) => sequencia().indexOf(i);
 // Duas partes (2026-10-04): a casa descreve-se sempre por inteiro — o fluxo curto deixou de existir.
 const fluxoCurto = () => false;
 /** Passos que "não precisa" (barra dos passos; Seguinte/Anterior saltam-nos): Equipamentos, Planta e Divisões no fluxo curto. */
+/** Os dois passos com a planta à largura toda: "Portas e janelas" e "Interruptores e tomadas". */
+const passoDaPlanta = (p) => p === P.planta || p === P.tomadas;
 const naoPrecisa = (i) => (i === P.quer || i === P.planta || i === P.divisoes) && fluxoCurto();
 /** Na área de cliente a casa já é conhecida: Seguinte/Anterior saltam-na (continua na barra, para editar). */
 const saltado = (i) => naoPrecisa(i) || (i === P.casa && !!codigoCliente);
@@ -417,8 +419,8 @@ function mostrarPasso(foco = true) {
   // "Como fazer a simulação": só no Início, por baixo dos cartões (a barra Anterior/Seguinte vem depois).
   $("sim-como").hidden = p !== P.inicio;
   // Passo "Planta" (lote 8): a planta à largura toda, por baixo do título (CSS #sim-form.passo-planta); sem "Ver planta".
-  if (p === P.planta) fecharPlanta({ foco: false });
-  $("sim-form").classList.toggle("passo-planta", p === P.planta);
+  if (passoDaPlanta(p)) fecharPlanta({ foco: false });
+  $("sim-form").classList.toggle("passo-planta", passoDaPlanta(p));
   // Passo "A casa": a planta é automática (as divisões vêm de "A casa tem…"); a linha das ferramentas fica escondida (CSS).
   $("sim-form").classList.toggle("passo-casa", p === P.casa);
   // Decisão do dono (2026-10-10): em "Equipamentos" e em "Divisões" os botões de porta, janela, quadro, tomada, luz,
@@ -452,7 +454,7 @@ function mostrarPasso(foco = true) {
     // página rolar até lá; senão, fica inteira à vista.
     const comportamento = reduzido() ? "auto" : "smooth";
     const passos = document.querySelector(".sim-progresso:not([hidden])");
-    const yEscondida = passos && p === P.planta ? scrollY + passos.getBoundingClientRect().bottom - (document.querySelector(".topo")?.getBoundingClientRect().bottom ?? 0) : null;
+    const yEscondida = passos && passoDaPlanta(p) ? scrollY + passos.getBoundingClientRect().bottom - (document.querySelector(".topo")?.getBoundingClientRect().bottom ?? 0) : null;
     if (yEscondida !== null && yEscondida <= document.documentElement.scrollHeight - innerHeight) scrollTo({ top: yEscondida, behavior: comportamento });
     else (passos ?? t).scrollIntoView({ block: "start", behavior: comportamento });
   }
@@ -579,7 +581,7 @@ const ICONES_FUNIL = {
   avaria: ["M26 6 12 27h10l-3 15 16-22H24z"],
 };
 const AJUDA_FUNIL = {
-  primeira: "A casa que tem hoje · relatório grátis · ~6 min",
+  primeira: "A casa que tem hoje · relatório grátis · ~7 min",
   avaria: "Diagnóstico + deslocação, descontado na reparação.",   // com o catálogo leva o valor (ajudaAvaria)
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
@@ -942,6 +944,8 @@ const TEXTOS_CONFIRMAR = {
     pontos: ["Os interruptores e as tomadas de cada divisão.", "Os que já são inteligentes estão marcados."] },
   [P.planta]: { titulo: "As portas, as janelas e o quadro estão no sítio certo?",
     pontos: ["Cada porta e cada janela está na parede certa.", "O quadro elétrico está onde fica em sua casa.", "Apagou as que não existem e acrescentou as que faltavam."] },
+  [P.tomadas]: { titulo: "Pôs todos os interruptores e tomadas?",
+    pontos: ["Cada divisão tem os interruptores e as tomadas que tem em sua casa.", "Estão na parede certa.", "Como é cada um (botões, simples ou dupla) diz-se mais à frente."] },
   [P.quadro]: { titulo: "A foto do quadro está boa?",
     pontos: ["Mostra o quadro de frente, com a porta aberta.", "As etiquetas leem-se."] },
   [P.trocar]: { titulo: "Está certo o que quer fazer?",
@@ -1824,7 +1828,7 @@ function acertarMexida() {
   const p = structuredClone(estado.planta);
   const jaLa = new Set(p.elementos.map((e) => e.id));
   const dicas = acertarPlantaMexida(p, antes, depois, { casa: estado.casa });
-  p.elementos = p.elementos.filter((e) => e.tipo !== "porta" || jaLa.has(e.id));   // divisão nova: sem a porta sugerida
+  p.elementos = p.elementos.filter((e) => !SEM_SUGESTAO.includes(e.tipo) || jaLa.has(e.id));   // divisão nova: sem peças sugeridas
   estado.planta = marcarNovas(p);
   estado.plantaSinc = depois;
   estado.plantaBase = assinaturaBase();
@@ -1890,9 +1894,11 @@ function atualizarPlanta() {
     duplo: false,
     // Decisão do dono (2026-10-10): em "Equipamentos" e em "Divisões" a linha por cima da planta não tem máquinas
     // (marcam-se nos cartões de "Equipamentos"); ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores.
-    maquinas: estado.passo !== P.quer && estado.passo !== P.divisoes && estado.passo !== P.planta,
-    // "Portas e janelas" (decisão do dono, 2026-10-10): neste passo só se põem portas, janelas e o quadro.
-    elementos: estado.passo === P.planta ? ["porta", "janela", "quadro"] : null,
+    maquinas: estado.passo !== P.quer && estado.passo !== P.divisoes && !passoDaPlanta(estado.passo),
+    // "Portas e janelas" (decisão do dono, 2026-10-10): neste passo só se põem (e veem) portas, janelas e o quadro.
+    // "Interruptores e tomadas": só se põem interruptores, tomadas e pontos de luz; as portas e janelas veem-se.
+    elementos: estado.passo === P.planta ? ["porta", "janela", "quadro"] : estado.passo === P.tomadas ? ["interruptor", "tomada", "luz"] : null,
+    visiveis: estado.passo === P.planta ? ["porta", "janela", "quadro"] : estado.passo === P.tomadas ? ["porta", "janela", "quadro", "interruptor", "tomada", "luz"] : null,
   });
   if (estado.passo === P.casa) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
@@ -1936,7 +1942,7 @@ const ecraLargo = matchMedia("(min-width: 1024px)");
 let plantaVolta = null;   // { id, el, y }: para onde volta o foco (e o scroll) ao fechar
 const plantaAberta = () => $("sim-planta").classList.contains("aberta");
 function abrirPlanta(origem = document.activeElement) {
-  if (ecraLargo.matches || plantaAberta() || $("sim-planta").hidden || estado.passo === P.planta) return false;
+  if (ecraLargo.matches || plantaAberta() || $("sim-planta").hidden || passoDaPlanta(estado.passo)) return false;
   plantaVolta = { id: origem?.id || null, el: origem, y: scrollY };
   const s = $("sim-planta");
   s.classList.add("aberta");
@@ -2034,8 +2040,10 @@ const plantaParaContar = () => (usaPlanta() ? estado.planta : marcarNovas(semPor
  * Decisão do dono (2026-10-10): a planta desenhada pela casa já não traz portas — o cliente põe-as no passo "Portas e
  * janelas" (as plantas já guardadas ficam com as que têm). O resto (interruptores, tomadas, máquinas) fica como era.
  */
+const SEM_SUGESTAO = ["porta", "interruptor", "tomada", "luz"];
 function semPortasSugeridas(p) {
-  p.elementos = p.elementos.filter((e) => e.tipo !== "porta");
+  // (Também os interruptores, as tomadas e os pontos de luz: põem-se no passo "Interruptores e tomadas".)
+  p.elementos = p.elementos.filter((e) => !SEM_SUGESTAO.includes(e.tipo));
   return p;
 }
 function marcarNovas(p) {
@@ -3265,11 +3273,11 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
   cab.append(t, cont, nao);
   g.append(cab);
   if (!n) {
-    if (!sem) g.append(el("p", "ajuda", "Diga quantos tem com o + ou toque em \"Não tem\"."));
+    if (!sem) g.append(el("p", "ajuda", "Não pôs nenhum nesta divisão. Se ela tem, acrescente com o +."));
     return g;
   }
   // Os que a planta traz são uma sugestão (nenhum respondido ainda): o cliente acerta o número e diz como é cada um.
-  g.append(el("p", "ajuda", `${falta === n ? `Sugerimos ${n}: acerte com − e +. ` : ""}${I.pergunta}${tipo === "tomada" ? " Marque \"Inteligente\" nas que já se comandam pelo telemóvel." : " Marque \"Inteligente\" nos que já se comandam pelo telemóvel."}`));
+  g.append(el("p", "ajuda", `${I.pergunta}${tipo === "tomada" ? " Marque \"Inteligente\" nas que já se comandam pelo telemóvel." : " Marque \"Inteligente\" nos que já se comandam pelo telemóvel."}`));
   const ul = el("ul", "inventario-itens");
   els.forEach((e, i) => {
     const li = el("li", `inventario-item${e.confirmado === true ? "" : " por-responder"}`);

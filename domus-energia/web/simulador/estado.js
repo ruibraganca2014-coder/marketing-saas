@@ -32,16 +32,19 @@ export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem d
  * básico grátis com PDF + a amostra do completo e "Quero o relatório completo"); o 12 fica reformado (em nenhum funil;
  * os estados que lá estavam passam ao 11).
  */
-export const PASSOS = ["Início", "A casa", "Equipamentos", "Portas e janelas", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Portas e janelas", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo", "Interruptores e tomadas"];
 /** Índices dos passos (os mesmos ids `passo-N` da página). */
-export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12 };
+// 13 (decisão do dono, 2026-10-10): "Interruptores e tomadas", a seguir a "Portas e janelas" — a planta à largura toda,
+// onde o cliente põe os interruptores, as tomadas e os pontos de luz. Os estados guardados com 13 passos carregam-se
+// como os de agora (normalizarEstado).
+export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12, tomadas: 13 };
 /**
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
  * chegou" comparam-se por esta ordem, não pelo índice.
  */
 // Decisão do dono (2026-10-10): o passo 3 ("Portas e janelas", o antigo "Planta") volta ao funil da primeira vez, logo a
 // seguir a "A casa". Os estados guardados ficam como estão: quem já ia nos Equipamentos tem-no como passado.
-export const ORDEM_PASSOS = [0, 1, 3, 2, 5, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
+export const ORDEM_PASSOS = [0, 1, 3, 13, 2, 5, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
@@ -57,7 +60,7 @@ export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordem
  * Orçamento e Enviar com a casa guardada, ~5 min). As chaves dos funis ficam as de sempre (estados e pedidos guardados).
  */
 export const FUNIS = {
-  primeira: { nome: "Descrever a minha casa", passos: [0, 1, 3, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 3: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
+  primeira: { nome: "Descrever a minha casa", passos: [0, 1, 3, 13, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 3: 1, 13: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
   planta: { nome: "Pedir um serviço", passos: [0, 6, 10, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
@@ -108,7 +111,9 @@ export function inventarioDivisao(e, planta, d) {
     const els = (planta?.elementos ?? []).filter((x) => x.tipo === tipo && x.divisao === d.id);
     const falta = els.filter((x) => x.confirmado !== true).length;
     const sem = !els.length && naoTem(e, tipo, d);
-    r[tipo] = { els, falta, sem, respondido: els.length ? falta === 0 : sem };
+    // Decisão do dono (2026-10-10): os interruptores e as tomadas põem-se na planta no passo "Interruptores e tomadas";
+    // aqui só se diz como é cada um. Uma divisão sem nenhum desse tipo não tem nada por responder.
+    r[tipo] = { els, falta, sem, respondido: els.length ? falta === 0 : true };
   }
   r.respondida = TIPOS_INVENTARIO.every((t) => r[t].respondido);
   return r;
@@ -242,7 +247,7 @@ function reordenar(e, ordemAntes = ORDEM_10, funisAntes = FUNIS_10) {
   const lim = ordemAntes.indexOf(e.visitado);
   const vistos = new Set(funisAntes[e.funil].filter((i) => ordemAntes.indexOf(i) <= lim));
   // "Portas e janelas" (o passo 3, de volta ao funil logo a seguir a "A casa"): não prende quem já ia mais à frente.
-  if (vistos.has(PASSO.casa)) vistos.add(PASSO.planta);
+  if (vistos.has(PASSO.casa)) { vistos.add(PASSO.planta); vistos.add(PASSO.tomadas); }
   const seq = passosDoFunil(e.funil);
   let k = 0;
   while (k + 1 < seq.length && (vistos.has(seq[k + 1]) || PASSOS_NOVOS.includes(seq[k + 1]))) k++;
@@ -309,7 +314,7 @@ export function casaNova() {
  * Janela "confirme antes de continuar" (decisão do dono, 2026-10-04): os passos em que o cliente preenche alguma coisa
  * — Equipamentos, Divisões, Planta, Quadro elétrico, Trocar e reparar e Melhorias ("A casa" tem a sua, plantaConfirmada).
  */
-export const PASSOS_A_CONFIRMAR = [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.trocar, PASSO.melhorias];
+export const PASSOS_A_CONFIRMAR = [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias];
 
 /** Resumo curto de um texto (djb2, base 36): chega para saber se o que o cliente confirmou ainda é o que lá está. */
 function resumoTexto(s) {
@@ -328,6 +333,7 @@ export function assinaturaPasso(estado, passo, fotoQuadro = null) {
     [PASSO.quer]: () => estado.quer,
     [PASSO.divisoes]: () => [els.filter((e) => e.tipo === "interruptor" || e.tipo === "tomada").map((e) => [e.id, e.divisao ?? null, e.tipo, e.props ?? null, e.confirmado === true, e.acao ?? null, e.inteligente ?? null]), estado.naoTem],
     [PASSO.planta]: () => [estado.planta?.divisoes ?? [], els.map((e) => [e.id, e.tipo, e.divisao ?? null, e.x ?? null, e.y ?? null])],   // sem `props`: o que cada aparelho é diz-se nas Divisões
+    [PASSO.tomadas]: () => els.filter((e) => ["interruptor", "tomada", "luz"].includes(e.tipo)).map((e) => [e.id, e.tipo, e.divisao ?? null]),
     [PASSO.quadro]: () => fotoQuadro,
     [PASSO.trocar]: () => [els.map((e) => [e.id, e.acao ?? null, e.avaria ?? null, e.inteligente ?? null]), estado.quadroAvaria, estado.quadroProblemas, estado.mexerQuadro],
     [PASSO.melhorias]: () => estado.melhorias,
@@ -625,9 +631,10 @@ export function normalizarEstado(v) {
   // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
   // `ordem: 13` (antes do inventário das Divisões): os mesmos passos pela mesma ordem (`antesInventario`, mais abaixo).
   const antesInventario = v.ordem !== ORDEM;
-  const deAgora = (v.ordem === ORDEM || v.ordem === 13) && v.passos === PASSOS.length;
-  const de12 = v.ordem === 12 && v.passos === PASSOS.length;   // ronda A/B: os dois relatórios (o 12 depois das Melhorias), a ordem de agora
-  const de11 = v.ordem === 11 && v.passos === PASSOS.length;   // ronda A: o Quadro ainda antes das Divisões e da Planta
+  // (13 passos: antes do passo "Interruptores e tomadas", o 13 — os mesmos índices, carregam-se como os de agora.)
+  const deAgora = (v.ordem === ORDEM || v.ordem === 13) && (v.passos === PASSOS.length || v.passos === 13);
+  const de12 = v.ordem === 12 && v.passos === 13;   // ronda A/B: os dois relatórios (o 12 depois das Melhorias), a ordem de agora
+  const de11 = v.ordem === 11 && v.passos === 13;   // ronda A: o Quadro ainda antes das Divisões e da Planta
   const atual = deAgora || de12 || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
   const migrar = atual ? null : v.ordem === 8 ? MIGRAR.ordem8 : v.ordem === 7 ? MIGRAR.ordem7 : v.ordem === 6 ? MIGRAR.ordem6 : v.ordem === 5 ? MIGRAR.ordem5 : v.ordem === 4 ? MIGRAR.ordem4 : v.passos !== 7 ? MIGRAR[6]
     : v.ordem === 2 ? MIGRAR.ordem2 : v.ordem === 3 ? MIGRAR.ordem3 : MIGRAR[7];

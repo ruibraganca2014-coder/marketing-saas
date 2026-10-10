@@ -35,11 +35,11 @@ function casaT2() {
 
 test('funis: duas partes — descrever a casa ~5 min (sem o passo Planta) e pedir um serviço ~5 min (fase 3 da auditoria: um só Relatório, Equipamentos pré-marcados, Enviar sem palavra-passe), já tenho planta ~5, avaria ~2; Melhorias antes do Orçamento; o 12 reformado)', () => {
   const min = (f) => Math.ceil(FUNIS[f].passos.reduce((s, i) => s + FUNIS[f].minutos[i], 0));
-  assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.planta, PASSO.quer, PASSO.divisoes, PASSO.quadro, PASSO.relatorio]);
+  assert.deepEqual(FUNIS.primeira.passos, [PASSO.inicio, PASSO.casa, PASSO.planta, PASSO.tomadas, PASSO.quer, PASSO.divisoes, PASSO.quadro, PASSO.relatorio]);
   assert.deepEqual(FUNIS.planta.passos, [PASSO.inicio, PASSO.trocar, PASSO.melhorias, PASSO.preco, PASSO.enviar]);
   assert.deepEqual([FUNIS.primeira.nome, FUNIS.planta.nome], ['Descrever a minha casa', 'Pedir um serviço'], 'decisão do dono (2026-10-04): duas partes');
   assert.deepEqual(FUNIS.avaria.passos, [PASSO.inicio, PASSO.avaria, PASSO.enviar]);
-  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [6, 5, 2]);
+  assert.deepEqual([min('primeira'), min('planta'), min('avaria')], [7, 5, 2]);
   assert.equal(FUNIS.primeira.passos[2], PASSO.planta, 'decisão do dono (2026-10-10): o passo 3 volta como "Portas e janelas", logo a seguir a "A casa"');
   assert.ok(!Object.values(FUNIS).some((f) => f.passos.includes(PASSO.completo)), 'o Relatório completo (12) não está em nenhum funil');
   assert.equal(PASSOS[PASSO.relatorio], 'Relatório');

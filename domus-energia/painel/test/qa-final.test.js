@@ -120,7 +120,7 @@ test('planta automática: a porta da rua numa parede de fora; tomadas de divisõ
 
 test('janela "confirme antes de continuar" dos outros passos: a assinatura muda só com o que o passo confirma; o estado guarda-a', async () => {
   const { assinaturaPasso, PASSOS_A_CONFIRMAR, PASSO } = await import('../../web/simulador/estado.js');
-  assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.quadro, PASSO.trocar, PASSO.melhorias]);
+  assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias]);
   const e = estadoNovo();
   e.planta = { ...e.planta, divisoes: [{ id: 'd1', nome: 'Sala' }], elementos: [{ id: 'e1', tipo: 'tomada', divisao: 'd1', x: 10, y: 10, props: { caixas: 1 } }, { id: 'e2', tipo: 'luz', divisao: 'd1', x: 50, y: 50, props: {} }] };
   const de = (passo, foto = null) => assinaturaPasso(e, passo, foto);

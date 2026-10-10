@@ -164,6 +164,13 @@
           <p class="sub-passo">Ponha as portas, as janelas e o quadro elétrico da sua casa: toque no botão e depois na parede onde ficam. Para mudar uma de sítio, arraste-a; para apagar, toque na peça e no caixote.</p>
         </section>
 
+        <!-- "Interruptores e tomadas" (índice 13; decisão do dono, 2026-10-10): a seguir a "Portas e janelas", a planta à
+             largura toda com as ferramentas interruptor, tomada e ponto de luz. -->
+        <section class="sim-passo" id="passo-13" aria-labelledby="titulo-13" data-passo="13" hidden>
+          <h2 id="titulo-13" tabindex="-1">4. Interruptores e tomadas</h2>
+          <p class="sub-passo">Ponha os interruptores, as tomadas e os pontos de luz que a casa tem hoje: toque no botão e depois na planta, no sítio onde ficam. Os interruptores e as tomadas colam à parede. Para mudar um de sítio, arraste-o; para apagar, toque na peça e no caixote.</p>
+        </section>
+
         <!-- Relatório (fase 3 da auditoria: um só passo, índice 11, depois do Quadro): o básico grátis — a planta, as divisões com os
              aparelhos e o quadro, com PDF (app.js desenharRelatorio) — e por baixo o relatório completo: o que traz, a amostra desfocada
              feita com esta casa e "Quero o relatório completo" (estado.compras.relatorio, o mesmo do passo Enviar; app.js desenharCompleto) -->
@@ -241,7 +248,7 @@
         <!-- 6. Divisões: o que a casa JÁ TEM, antes da obra (decisão do dono, 2026-10-03): separadores, um cartão por divisão só com os interruptores (quantos e os botões de cada um) e as tomadas (quantas e o tipo de cada uma), ou "Não tem"; o "Seguinte" só passa com todas as divisões respondidas (o que fazer a cada um e o trabalho novo: "Trocar e reparar") -->
         <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
           <h2 id="titulo-5" tabindex="-1">6. Divisões</h2>
-          <p class="ajuda">Diga o que a casa tem hoje: em cada divisão, os interruptores e as tomadas. O que quiser de novo pede-se depois, em "Pedir um serviço".</p>
+          <p class="ajuda">Diga como é cada interruptor e cada tomada que pôs na planta: quantos botões, simples ou dupla, e se já é inteligente. O que quiser de novo pede-se depois, em "Pedir um serviço".</p>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
             <p id="divisoes-progresso" aria-live="polite"></p>
@@ -412,8 +419,8 @@
         <!-- "Como fazer a simulação" (fase 1): só no Início, por baixo dos cartões — duas linhas curtas (os passos do funil
              escolhido e o que ter à mão; app.js desenharComo). O mesmo, para os 3 casos, no site (index.html #como-simular). -->
         <section class="sim-como" id="sim-como" aria-labelledby="sim-como-titulo">
-          <h2 id="sim-como-titulo">Como fazer a simulação · ~6 min</h2>
-          <p id="sim-como-passos">1 Início · 2 A casa · 3 Portas e janelas · 4 Equipamentos · 5 Divisões · 6 Quadro elétrico · 7 Relatório</p>
+          <h2 id="sim-como-titulo">Como fazer a simulação · ~7 min</h2>
+          <p id="sim-como-passos">1 Início · 2 A casa · 3 Portas e janelas · 4 Interruptores e tomadas · 5 Equipamentos · 6 Divisões · 7 Quadro elétrico · 8 Relatório</p>
           <p>Tenha à mão a fatura da luz, para ver a potência contratada, e o telemóvel para fotografar o quadro.</p>
         </section>
         <div class="sim-navegacao" id="sim-navegacao">

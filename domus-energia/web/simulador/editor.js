@@ -223,7 +223,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   /** Nome acessível: o que a divisão traz só quando o passo mostra os aparelhos (em "A casa" só as divisões). */
   // (Decisão do dono, 2026-10-10: uma divisão nova já não traz portas — põem-se no passo "Portas e janelas".)
   const semPorta = (txt) => txt.replace(/^(\d+ )?portas?, /, "");
-  const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}${podeAparelhos ? ` (com ${semPorta(resumoAparelhos(t.nome, t.w, t.h))})` : ""}`;
+  const rotuloDivisao = (t) => `Acrescentar ${t.nome === "Outra" ? "outra divisão" : t.nome}`;
   function botaoDivisao(t) {
     const b = botao("", "ferramenta tipo-divisao");
     b.dataset.divisao = t.nome;
@@ -601,6 +601,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
   let podeDivisoes = true;
   let podeAparelhos = true;
+  let soVisiveis = null;    // null = todas; ou os tipos de peça que o passo deixa ver (os outros ficam escondidos)
   let soElementos = null;   // null = todas; ou a lista das peças que o passo deixa pôr (["porta", "janela", "quadro"])
   let podeMaquinas = true;   // false: a linha das ferramentas sem as máquinas (passo "Equipamentos": marcam-se nos cartões)
   // O duplo clique (duplo toque e toque longo) abre a janela / mexe nos cantos? No passo Planta não (decisão do dono,
@@ -701,7 +702,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const divisoesPiso = () => planta.divisoes.filter(noPiso);
   // Lote 8 (definirPermissoes): sem aparelhos (passo "A casa") eles ficam escondidos — não se veem nem se tocam.
   /** Passo "Portas e janelas": só essas peças se veem e se tocam (as outras continuam na planta, escondidas). */
-  const pecaDoPasso = (e) => !soElementos || soElementos.includes(e.tipo);
+  const pecaDoPasso = (e) => !soVisiveis || soVisiveis.includes(e.tipo);
   const elementosPiso = () => (podeAparelhos ? planta.elementos.filter((e) => noPiso(e) && pecaDoPasso(e)) : []);
   /** N.º de separadores: os pisos da casa e os que já têm divisões ou elementos (ex.: mudou para apartamento). */
   const nPisos = () => Math.min(MAX_PISO + 1, Math.max(pisosPedidos, ...(planta ? [...planta.divisoes, ...planta.elementos].map((x) => pisoDe(x) + 1) : [1])));
@@ -939,7 +940,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const d = { id: novoId("d", planta.divisoes), nome: nomeNovaDivisao(div), piso: pisoAtual, x_cm: x, y_cm: y, largura_cm: t.w, altura_cm: t.h };
     planta.divisoes.push(d);
     let n = 0;
-    const base = aparelhosOmissao(d.nome, d).filter((a) => a.tipo !== "porta");
+    const base = [];   // (decisão do dono, 2026-10-10: uma divisão nova nasce vazia — as peças põem-se nos passos da planta)
     for (const a of base) {
       if (planta.elementos.length >= MAX_ELEMENTOS) break;
       planta.elementos.push({ id: novoId("e", planta.elementos), ...a, piso: pisoAtual, divisao: d.id });
@@ -958,12 +959,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
    * parede mais próxima de (x, y) neste piso. O quadro fica 5 cm para dentro, para contar nessa divisão (portas e
    * janelas têm tolerância: regras.js TIPOS_PAREDE). Outras peças, ou planta sem divisões: o ponto ajustado à grelha.
    */
-  const PECAS_PAREDE = ["porta", "janela", "quadro"];
+  const PECAS_PAREDE = ["porta", "janela", "quadro", "interruptor", "tomada"];
+  /** Quanto fica para dentro da divisão (cm): o quadro, o interruptor e a tomada estão na face de dentro da parede. */
+  const DENTRO_CM = { quadro: 5, interruptor: 10, tomada: 10 };
   function sitioDaPeca(tipo, x, y) {
     const livre = () => [limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm), limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm)];
     if (!PECAS_PAREDE.includes(tipo)) return livre();
     let q = null, melhor = Infinity, sala = null;
-    for (const d of divisoesPiso()) {
+    // As peças da face de dentro ficam na divisão onde o rato está (numa parede partilhada, do lado de quem a pôs).
+    const dentroDe = DENTRO_CM[tipo] ? divisoesPiso().filter((d) => pontoEmPoligono(x, y, pontosDivisao(d))) : [];
+    for (const d of dentroDe.length ? dentroDe : divisoesPiso()) {
       const pts = pontosDivisao(d);
       pts.forEach((a, i) => {
         const b = pts[(i + 1) % pts.length];
@@ -972,13 +977,29 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       });
     }
     if (!q) return livre();
-    if (tipo === "quadro") {
+    if (DENTRO_CM[tipo]) {
       const c = pontoInterior(sala);
-      const dx = c[0] - q[0], dy = c[1] - q[1], l = Math.hypot(dx, dy) || 1;
-      const dentro = [q[0] + (dx / l) * 5, q[1] + (dy / l) * 5];
+      const k = DENTRO_CM[tipo];
+      // Perpendicular à parede, para o lado de dentro (o lado do ponto interior da divisão).
+      const dentro = paraDentro(sala, q, k, c);
       if (pontoEmPoligono(dentro[0], dentro[1], sala)) q = dentro;
     }
     return [limitar(Math.round(q[0]), 0, planta.largura_cm), limitar(Math.round(q[1]), 0, planta.altura_cm)];
+  }
+  /** O ponto `q` de uma parede de `pts`, `k` cm para dentro da divisão, na perpendicular a essa parede. */
+  function paraDentro(pts, q, k, c) {
+    let n = null, melhor = Infinity;
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      const r = distanciaSegmento(q[0], q[1], a, b);
+      if (r.dist < melhor) { melhor = r.dist; const vx = b[0] - a[0], vy = b[1] - a[1], l = Math.hypot(vx, vy) || 1; n = [-vy / l, vx / l]; }
+    });
+    if (!n) return q;
+    const p1 = [q[0] + n[0] * k, q[1] + n[1] * k], p2 = [q[0] - n[0] * k, q[1] - n[1] * k];
+    if (pontoEmPoligono(p1[0], p1[1], pts)) return p1;
+    if (pontoEmPoligono(p2[0], p2[1], pts)) return p2;
+    const dx = c[0] - q[0], dy = c[1] - q[1], l = Math.hypot(dx, dy) || 1;
+    return [q[0] + (dx / l) * k, q[1] + (dy / l) * k];
   }
   function adicionarElemento(tipo, x, y, modelo = null) {
     if (!podeAparelhos) return null;
@@ -1556,7 +1577,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
         const posto = adicionarElemento(m.el, p.x, p.y, m.modelo);
         // Portas e janelas costumam ser várias (decisão do dono, 2026-10-10): a ferramenta fica escolhida para a
         // seguinte; Esc ou o botão outra vez desligam-na.
-        if (posto && (m.el === "porta" || m.el === "janela") && ev?.pointerType === "mouse") { definirModo(m); fantasma = { x: posto.x_cm, y: posto.y_cm }; desenhar(); }
+        if (posto && ["porta", "janela", "interruptor", "tomada", "luz"].includes(m.el) && ev?.pointerType === "mouse") { definirModo(m); fantasma = { x: posto.x_cm, y: posto.y_cm }; desenhar(); }
       }
       else if (m?.tipo === "calibrar") { calibracao = cal; pontoCalibracao(p); }
       return;
@@ -2312,8 +2333,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const ID_FANTASMA = "_a_por";
     const aPor = fantasma && modo?.tipo === "elemento"
       ? { id: ID_FANTASMA, tipo: modo.el, x_cm: fantasma.x, y_cm: fantasma.y, rot: 0, piso: pisoAtual, divisao: null, props: propsOmissao(modo.el, modo.modelo) } : null;
-    const aVista = !podeAparelhos ? [] : [...(soElementos ? planta.elementos.filter(pecaDoPasso) : planta.elementos), ...(aPor ? [aPor] : [])];
-    desenharPlanta(svg, podeAparelhos && !soElementos && !aPor ? planta : { ...planta, elementos: aVista }, { selecionado: aPor ? ID_FANTASMA : selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
+    const aVista = !podeAparelhos ? [] : [...(soVisiveis ? planta.elementos.filter(pecaDoPasso) : planta.elementos), ...(aPor ? [aPor] : [])];
+    desenharPlanta(svg, podeAparelhos && !soVisiveis && !aPor ? planta : { ...planta, elementos: aVista }, { selecionado: aPor ? ID_FANTASMA : selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -2441,12 +2462,16 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
      * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
      */
-    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true, maquinas = true, elementos = null } = {}) {
+    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true, maquinas = true, elementos = null, visiveis = undefined } = {}) {
       podeDuplo = duplo;
-      if (String(elementos) !== String(soElementos)) {
+      // `elementos`: as ferramentas que o passo deixa usar; `visiveis`: as peças que deixa ver (sem ele, as mesmas).
+      const ver = visiveis === undefined ? elementos : visiveis;
+      if (String(elementos) !== String(soElementos) || String(ver) !== String(soVisiveis)) {
         soElementos = Array.isArray(elementos) ? elementos : null;
+        soVisiveis = Array.isArray(ver) ? ver : null;
+        definirModo(null);   // outro passo, outras ferramentas: a que estava escolhida larga-se
         if (soElementos && modo?.tipo === "elemento" && !soElementos.includes(modo.el)) definirModo(null);
-        if (soElementos && planta && obterElemento(selecionado) && !pecaDoPasso(obterElemento(selecionado))) selecionado = null;
+        if (soVisiveis && planta && obterElemento(selecionado) && !pecaDoPasso(obterElemento(selecionado))) selecionado = null;
         acertarBarra();
         if (planta) desenharTudo();
       }

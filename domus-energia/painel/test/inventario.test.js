@@ -74,18 +74,19 @@ test('uma divisão fica por responder até os interruptores E as tomadas estarem
   toms[2].confirmado = true;
   assert.equal(inventarioDivisao(e, e.planta, sala).respondida, true);
   assert.equal(divisoesPorInventariar(e, e.planta).some((d) => d.id === sala.id), false);
-  // "Não tem": sem tomadas na divisão e a resposta dada; sem a resposta, zero aparelhos não conta como respondido.
+  // Decisão do dono (2026-10-10): as tomadas põem-se na planta ("Interruptores e tomadas"); uma divisão sem nenhuma não
+  // tem nada por responder, com ou sem "Não tem".
   const cozinha = e.planta.divisoes[1];
   responder(e, cozinha);
   e.planta.elementos = e.planta.elementos.filter((x) => !(x.tipo === 'tomada' && x.divisao === cozinha.id));
-  assert.equal(inventarioDivisao(e, e.planta, cozinha).tomada.respondido, false, 'zero tomadas sem "Não tem": por responder');
+  assert.equal(inventarioDivisao(e, e.planta, cozinha).tomada.respondido, true, 'zero tomadas: nada por responder');
   marcarNaoTem(e, 'tomada', cozinha, true, e.planta.divisoes);
   assert.ok(naoTem(e, 'tomada', cozinha));
   inv = inventarioDivisao(e, e.planta, cozinha);
   assert.deepEqual([inv.tomada.sem, inv.tomada.respondido, inv.respondida], [true, true, true]);
-  // Desmarcar volta a ficar por responder; com uma tomada na divisão o "Não tem" antigo deixa de valer.
+  // Desmarcar não deixa nada por responder (não há tomadas); com uma tomada na divisão o "Não tem" antigo deixa de valer.
   marcarNaoTem(e, 'tomada', cozinha, false, e.planta.divisoes);
-  assert.equal(inventarioDivisao(e, e.planta, cozinha).respondida, false);
+  assert.equal(inventarioDivisao(e, e.planta, cozinha).respondida, true);
   marcarNaoTem(e, 'tomada', cozinha, true, e.planta.divisoes);
   e.planta.elementos.push({ id: 'e900', tipo: 'tomada', x_cm: cozinha.x_cm + 50, y_cm: cozinha.y_cm + 50, rot: 0, piso: 0, divisao: cozinha.id, props: { dupla: false, inteligente: false, caixas: 1 } });
   inv = inventarioDivisao(e, e.planta, cozinha);
