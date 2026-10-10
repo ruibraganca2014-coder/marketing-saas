@@ -4216,7 +4216,8 @@ function desenharAvaria() {
   const { preco, semDesloc } = calcular();
   ultimoPreco = { preco, plano: null };
   pr.hidden = semDesloc.total === null;
-  pr.textContent = semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}, descontado na reparação. A reparação orça-se na visita.`;
+  pr.textContent = listaEspera ? "Fica em lista de espera, sem pagar nada. A reparação orça-se na visita, quando abrirmos."
+    : semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}, descontado na reparação. A reparação orça-se na visita.`;
 }
 /** As fotos da avaria já tiradas (chaves FOTOS_AVARIA, pela ordem). */
 const fotosAvaria = () => FOTOS_AVARIA.filter((k) => fotos.has(k));
@@ -5179,13 +5180,14 @@ function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 44,00 € + deslocação" (25 € + 0,5 h × tarifa de 38 €). */
-const textoDiagnostico = (valor) => `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`;
+// Em lista de espera não se paga nada (decisão do dono, 2026-10-10): o preço do diagnóstico não aparece; volta sozinho ao desligá-la.
+const textoDiagnostico = (valor) => (listaEspera ? "Lista de espera: sem pagar nada" : `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`);
 /** O cartão "Tenho uma avaria" do Início diz o preço do diagnóstico (DIAG-AVARIA + 0,5 h × tarifa) assim que o catálogo chega; sem ele, sem valor. */
 function ajudaAvaria() {
   const ajuda = $("funil-avaria")?.querySelector("small");
   if (!ajuda) return;
   const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo ?? null, configOrc, { valor_iva: 0 });
-  ajuda.textContent = total === null ? AJUDA_FUNIL.avaria : `Diagnóstico ${formatarEuro(total)} + deslocação, descontado na reparação.`;
+  ajuda.textContent = listaEspera ? "Fica em lista de espera, sem pagar nada." : total === null ? AJUDA_FUNIL.avaria : `Diagnóstico ${formatarEuro(total)} + deslocação, descontado na reparação.`;
 }
 /** Número ≥ 0 da configuração do servidor, ou o de omissão (preco.js). */
 function valorConfig(k) {
