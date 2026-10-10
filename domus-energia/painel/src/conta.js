@@ -592,6 +592,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
     // Avaria: não há "relatório básico" com estimativa; o passo seguinte é a visita do diagnóstico.
     if (sim?.funil === 'avaria' && estadoTexto === TEXTO_ESTADO.novo) estadoTexto = 'Pedido recebido. Vamos marcar a visita para o diagnóstico.';
+    // Prazo de contacto (decisão do dono, 2026-10-10; igual a web/simulador/app.js textoPrazo), enquanto o pedido é novo.
+    if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
+      ? ' Como é urgente, ligamos-lhe no próprio dia se chegou até às 18h de um dia útil; senão, na manhã do dia útil seguinte.'
+      : ' Contactamos no dia útil seguinte.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);

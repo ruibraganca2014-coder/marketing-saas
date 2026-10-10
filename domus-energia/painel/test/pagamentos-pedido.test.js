@@ -152,7 +152,7 @@ describe('modo simulado', () => {
     assert.equal(fo.estado, 201, fo.texto);
     // Na conta: básico já disponível; pormenorizado por comprar (29 €); visita por comprar (deslocação + 0,5 h).
     const l = await pedidoConta(c, r.pedido);
-    assert.equal(l.estado_texto, 'Pedido recebido. O relatório básico já está aqui.');
+    assert.equal(l.estado_texto, 'Pedido recebido. O relatório básico já está aqui. Contactamos no dia útil seguinte.');
     assert.equal(l.relatorio_basico, true);
     assert.equal(l.relatorio, 'por_comprar');
     assert.deepEqual([l.compras.ativas, l.compras.pode, l.compras.relatorio.valor, l.compras.visita.valor, l.compras.visita.fora_area], [true, true, 29, VISITA_SINTRA, false]);

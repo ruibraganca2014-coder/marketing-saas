@@ -738,12 +738,26 @@ function escolherProblema(k, sim) {
   desenharPerigo();
   agendarGravacao(false);
 }
-/** Cheiro a queimado, faíscas ou choque: o aviso de segurança, com os contactos (se há). */
+/**
+ * Conselho de segurança da avaria (decisão do dono, 2026-10-10): disjuntor que dispara → não o voltar a ligar; cheiro
+ * a queimado, faíscas ou choque → desligar o geral e, com fumo ou fogo, 112. null sem nenhum destes problemas.
+ */
+function conselhoSeguranca(problemas) {
+  const perigo = problemas.some((k) => AVARIA_PERIGO.includes(k));
+  const dispara = problemas.includes("disjuntor");
+  if (!perigo && !dispara) return null;
+  return ["Por segurança:",
+    dispara ? "não volte a ligar o disjuntor que disparou e desligue os aparelhos dessa zona." : null,
+    perigo ? `${dispara ? "Com" : "com"} cheiro a queimado, faíscas ou choque, desligue o disjuntor geral e não o volte a ligar até o eletricista ver. Se houver fumo ou fogo, ligue 112.` : null,
+  ].filter(Boolean).join(" ");
+}
+/** O conselho de segurança no Início, com os contactos (se há). */
 function desenharPerigo() {
   const c = $("inicio-perigo");
-  c.hidden = !(estado.funil === "avaria" && problemasAvaria().some((k) => AVARIA_PERIGO.includes(k)));
+  const conselho = estado.funil === "avaria" ? conselhoSeguranca(problemasAvaria()) : null;
+  c.hidden = !conselho;
   if (c.hidden) return;
-  c.replaceChildren(el("strong", null, "Desligue o disjuntor geral e contacte-nos já."));
+  c.replaceChildren(el("strong", null, conselho));
   const acoes = el("div", "msg-acoes");
   if (temTelefone()) {
     const t = el("a", "btn sec pequeno", `Ligar ${cfg.telefoneVisivel ?? cfg.telefone}`);
@@ -3796,7 +3810,9 @@ function desenharAvaria() {
   $("avaria-problema-caixa").hidden = !problemaAqui;
   $("avaria-problema-escolhido").hidden = problemaAqui;
   $("avaria-problema-texto").textContent = a.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ");
-  $("avaria-perigo").hidden = !avariaPerigosa(a);
+  const conselho = conselhoSeguranca([].concat(a.problema ?? []));
+  $("avaria-perigo").hidden = !conselho;
+  if (conselho) $("avaria-perigo").textContent = conselho;
   for (const i of document.querySelectorAll("input[name=avaria-onde]")) i.checked = a.onde.includes(i.value);
   for (const i of document.querySelectorAll("input[name=avaria-problema]")) i.checked = a.problema.includes(i.value);
   for (const i of document.querySelectorAll("input[name=avaria-urgencia]")) i.checked = i.value === estado.urgencia;
@@ -4771,11 +4787,19 @@ function textosPagamento() {
   TEXTO_ENVIAR = textoBotaoEnviar();
   if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
   if (!enviado) {
-    $("fim-texto").textContent = funilAvaria()
+    $("fim-texto").textContent = `${funilAvaria()
       ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
-      : "Recebemos o pedido. O relatório básico já está na sua conta.";
+      : "Recebemos o pedido. O relatório básico já está na sua conta."} ${textoPrazo()}`;
   }
 }
+
+/**
+ * Prazo de contacto (decisão do dono, 2026-10-10): pedido normal no dia útil seguinte; avaria urgente no próprio dia
+ * se chegar até às 18h de um dia útil, senão na manhã do dia útil seguinte. Igual em painel/src/conta.js prazoContacto.
+ */
+const textoPrazo = () => (estado.urgencia === "urgente"
+  ? "Como é urgente, ligamos-lhe ainda hoje se o pedido chegou até às 18h de um dia útil; depois disso, na manhã do dia útil seguinte."
+  : "Contactamos no dia útil seguinte.");
 
 // Fase 3: "O que quer receber?" (estado.compras): só o relatório básico (grátis), o pormenorizado, os dois com a visita,
 // ou só a visita. Os preços seguem a configuração e a localidade; fora da área, sem as opções com visita.
@@ -5062,7 +5086,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   enviado = true;
   if (pagamento) {
     // Avaria paga ao enviar: diagnóstico e deslocação (descontados se a reparação avançar); o CEO marca a visita.
-    $("fim-texto").textContent = `Recebemos o pedido e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. Vamos marcar a visita: a data fica na sua conta e vai por email.`;
+    $("fim-texto").textContent = `Recebemos o pedido e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. Vamos marcar a visita: a data fica na sua conta e vai por email. ${textoPrazo()}`;
     if (pagamento.modo === "simulado") $("fim-texto").textContent += " (Pagamento simulado: não foi cobrado nada.)";
   }
   clearTimeout(temporizador);
