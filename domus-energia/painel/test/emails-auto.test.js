@@ -152,6 +152,20 @@ describe('boas-vindas', () => {
     assert.deepEqual(registo(s.id), []);
   });
 
+  test('lista de espera (o simulador marca o pedido com lista_espera): email e conta sem prazo de contacto nem visita', async () => {
+    await ate('10:00');
+    const c = await p.contaConfirmada();
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Espera', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: { ...SIM, lista_espera: true } } });
+    assert.equal(r.estado, 201, r.texto);
+    const m = autos(c.email);
+    assert.equal(m.length, 1);
+    assert.match(m[0].texto, /1\. O seu pedido ficou em lista de espera/);
+    assert.match(m[0].texto, /Contactamos consigo quando abrirmos as marcações\./);
+    assert.doesNotMatch(m[0].texto, /dia útil seguinte|visita técnica/);
+    const l = (await conta(c, 'GET', 'pedidos')).json.pedidos.find((x) => x.id === r.json.pedido);
+    assert.equal(l.estado_texto, 'Pedido recebido e em lista de espera: contactamos quando abrirmos as marcações. O relatório básico já está aqui.');
+  });
+
   test('avaria paga ao enviar: o email "pagamento recebido" já confirma o pedido — não sai um segundo email', async () => {
     await ate('10:00');
     const c = await p.contaConfirmada();

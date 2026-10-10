@@ -593,7 +593,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Avaria: não há "relatório básico" com estimativa; o passo seguinte é a visita do diagnóstico.
     if (sim?.funil === 'avaria' && estadoTexto === TEXTO_ESTADO.novo) estadoTexto = 'Pedido recebido. Vamos marcar a visita para o diagnóstico.';
     // Prazo de contacto (decisão do dono, 2026-10-10; igual a web/simulador/app.js textoPrazo), enquanto o pedido é novo.
-    if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
+    // Lista de espera (web/config.js listaEspera; o simulador marca o pedido com `lista_espera`): sem prazo de contacto.
+    if (o.estado === 'novo' && sim?.lista_espera === true) {
+      estadoTexto = `Pedido recebido e em lista de espera: contactamos quando abrirmos as marcações.${sim.funil === 'avaria' ? '' : ' O relatório básico já está aqui.'}`;
+    } else if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
       ? ' Como é urgente, ligamos-lhe no próprio dia se chegou até às 18h de um dia útil; senão, na manhã do dia útil seguinte.'
       : ' Contactamos no dia útil seguinte.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;

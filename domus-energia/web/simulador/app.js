@@ -55,6 +55,9 @@ import { origemContacto } from "../origem.js";
 import { ehTelemovel, abrirFotoRemota } from "./fotos-remotas.js";
 
 const cfg = window.DOMUS ?? {};
+// Lista de espera (config.js `listaEspera`; decisão do dono, 2026-10-10): o texto do arranque, ou null com ela desligada.
+const listaEspera = cfg.listaEspera?.ativa ? String(cfg.listaEspera.arranque ?? "").trim() || "breve" : null;
+const ESPERA_QUANDO = listaEspera === "breve" ? "em breve" : `em ${listaEspera}`;
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, texto) => {
   const e = document.createElement(tag);
@@ -218,6 +221,16 @@ const casaDescrita = () => ordemPasso(visitado) >= ordemPasso(P.relatorio);
 /** O funil (o caso do Início); sem nenhum escolhido, conta como o da primeira vez (barra e tempos). */
 const funil = () => estado.funil ?? "primeira";
 const funilAvaria = () => estado.funil === "avaria";
+/** Lista de espera: o aviso do topo e o da avaria (quem tem uma avaria não pode esperar). */
+function avisosEspera() {
+  if (!listaEspera) return;
+  const topo = $("sim-espera");
+  topo.textContent = `As obras começam ${ESPERA_QUANDO}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos de serviço e de avaria ficam em lista de espera, sem pagar nada.`;
+  topo.hidden = false;
+  const av = $("avaria-espera");
+  av.textContent = `Ainda não fazemos reparações: só ${ESPERA_QUANDO}. Se for urgente ou houver perigo, desligue o disjuntor geral e chame já um eletricista habilitado.`;
+  av.hidden = false;
+}
 const funilPlanta = () => estado.funil === "planta";
 /** Os passos do funil, pela ordem da barra, e a posição de um passo nela (-1 fora do funil). */
 const sequencia = () => passosDoEstado(estado);
@@ -627,6 +640,7 @@ function montarServico() {
   }));
   $("planta-ficheiro").addEventListener("change", carregarPlanta);
   ajudaAvaria();
+  avisosEspera();
 }
 const TEXTOS_CAMINHO = {
   automatizar: ["Automatizar o que já tenho", "Tornamos inteligente o que existe."],
@@ -3987,7 +4001,7 @@ async function carregarCatalogo() {
     // Pagamentos do pedido: faixa "Modo de demonstração" (simulados). Desligados: enviar é grátis na mesma, mas não se
     // compra nada (nem o relatório completo, nem a visita) e a avaria vai sem pagar.
     faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
-    pagamentosAtivos = !(j.pagamentos && j.pagamentos.ativo === false);
+    pagamentosAtivos = !listaEspera && !(j.pagamentos && j.pagamentos.ativo === false);
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
     ajudaAvaria();       // o preço do diagnóstico no cartão "Tenho uma avaria" do Início
   } catch {
@@ -4750,7 +4764,7 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 // já existe: se o pagamento falhar, compra-se depois na conta). A avaria rápida paga o diagnóstico e a deslocação ao
 // enviar e volta-se para simulador.html?pagamento=<ref>. O valor a pagar é sempre o do servidor; os daqui são para mostrar.
 let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamento)
-let pagamentosAtivos = true;          // GET /api/catalogo `pagamentos.ativo`: desligados, não se compra nada
+let pagamentosAtivos = !listaEspera;  // GET /api/catalogo `pagamentos.ativo`: desligados (ou em lista de espera), não se compra nada
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
 function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
 /** A área servida como se diz ao cliente: "até 100 km de Lisboa" (`deslocacao_max_km` e `deslocacao_base` da configuração). */
@@ -4821,17 +4835,22 @@ function textosPagamento() {
   const fora = foraDaArea();
   // Os dias para a visita só com visita (decisão do dono, 2026-10-10: com "só o relatório básico" parecia marcar a visita
   // paga). A avaria leva sempre a visita do diagnóstico; sem pagamentos online não há visita paga e os dias ajudam a combinar.
-  $("enviar-visita").hidden = fora || (!funilAvaria() && pagamentosAtivos && !estado.compras.visita);
+  // Em lista de espera não se marca visita: os dias só se perguntam quando abrirmos.
+  $("enviar-visita").hidden = Boolean(listaEspera) || fora || (!funilAvaria() && pagamentosAtivos && !estado.compras.visita);
   desenharCompras();
-  $("enviar-texto").textContent = funilAvaria() && pagamentosAtivos
-    ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
-    : `Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório`;
+  $("enviar-texto").textContent = listaEspera
+    ? `As obras começam ${ESPERA_QUANDO}. O pedido fica em lista de espera e não paga nada. * obrigatório`
+    : funilAvaria() && pagamentosAtivos
+      ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
+      : `Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório`;
   TEXTO_ENVIAR = textoBotaoEnviar();
   if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
   if (!enviado) {
-    $("fim-texto").textContent = `${funilAvaria()
-      ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
-      : "Recebemos o pedido. O relatório básico já está na sua conta."} ${textoPrazo()}`;
+    $("fim-texto").textContent = listaEspera
+      ? `Recebemos o pedido e ficou em lista de espera. As obras começam ${ESPERA_QUANDO}: contactamos quando abrirmos as marcações.${funilAvaria() ? "" : " O relatório básico já está na sua conta."}`
+      : `${funilAvaria()
+        ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
+        : "Recebemos o pedido. O relatório básico já está na sua conta."} ${textoPrazo()}`;
   }
 }
 
@@ -4993,6 +5012,7 @@ async function enviar() {
   const { preco, plano, aceites } = ultimoPreco;
   const listaFotos = fotosParaEnvio();
   let sim = montarSimulacao(estado, preco, plano, listaFotos, linhaArtigo, melhoriasParaEnvio(aceites ?? []));
+  if (listaEspera) sim = { ...sim, lista_espera: true };   // a conta e o email de boas-vindas dizem-no (painel/src/conta.js, emails-auto.js)
   let semFundo = false;
   if (tamanhoSimulacao(sim) > MAX_SIMULACAO && sim.planta?.fundo) {
     sim = { ...sim, planta: { ...sim.planta, fundo: null } };

@@ -57,6 +57,8 @@
           <p class="sim-falta" id="sim-falta" aria-live="polite"></p>
         </div>
         <p class="msg info" id="sim-cliente" hidden></p>
+        <!-- Lista de espera (config.js listaEspera; app.js avisosEspera) -->
+        <p class="msg info" id="sim-espera" hidden></p>
       </div>
 
       <!-- Depois de "Começar de novo" (o do topo): aviso pequeno, não bloqueante, com "Anular" durante 10 s
@@ -345,6 +347,7 @@
             <div class="escolhas-grelha avaria-grelha" id="avaria-problema"></div>
           </fieldset>
           <p class="msg erro avaria-perigo" id="avaria-perigo" role="alert" hidden>Desligue o disjuntor geral e contacte-nos já.</p>
+          <p class="msg info" id="avaria-espera" hidden></p>
           <label>Descrição <small class="ajuda" id="avaria-descricao-ajuda">Opcional.</small><textarea id="avaria-descricao" maxlength="200" rows="2"></textarea></label>
           <div class="cartao quadro-foto" id="avaria-foto">
             <h3>Fotos da avaria *</h3>

@@ -33,6 +33,20 @@ document.querySelectorAll(".js-contactos-frase").forEach((x) => {
 });
 document.getElementById("ano").textContent = new Date().getFullYear();
 
+// Lista de espera (config.js `listaEspera`; decisão do dono, 2026-10-10): o aviso por baixo dos botões do topo e por cima
+// do formulário "Pedir contacto".
+if (cfg.listaEspera?.ativa) {
+  const quando = String(cfg.listaEspera.arranque ?? "").trim();
+  const aviso = () => {
+    const p = document.createElement("p");
+    p.className = "msg info lista-espera";
+    p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos de serviço e de avaria ficam em lista de espera, sem pagar nada.`;
+    return p;
+  };
+  document.querySelector(".acoes")?.after(aviso());
+  document.getElementById("form-orcamento")?.before(aviso());
+}
+
 // ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------
 // Decisão 3 do dono, 2026-10-04 (regresso.js botaoInicio): a página nasce com "Descrever a minha casa" (também sem
 // JavaScript) e só troca depois de saber quem é — casa guardada neste navegador ou sessão aberta: "Continuar com a minha

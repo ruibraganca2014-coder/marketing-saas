@@ -1023,3 +1023,6 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 
 /* Área de cliente: com o servidor das automações parado, o que depende dele fica a cinzento (cliente.js avaliarMotor). */
 #vista-painel [inert] { opacity: .45; }
+
+/* Lista de espera (site.js): o aviso por baixo dos botões do topo e por cima do formulário de contacto. */
+.lista-espera { margin: 16px 0; max-width: 60ch; font-weight: 500; }

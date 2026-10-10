@@ -27,6 +27,11 @@ window.DOMUS = {
   fotoTopo: null,
   trabalhos: [],
 
+  // Lista de espera (decisão do dono, 2026-10-10): as obras só começam depois do curso. Enquanto `ativa` for true, o site
+  // avisa que os pedidos de serviço e de avaria ficam em lista de espera, não se compra nada (relatório completo, visita)
+  // e cada pedido vai marcado (`simulacao.lista_espera`). `arranque` é o texto que o cliente lê. Para abrir: ativa: false.
+  listaEspera: { ativa: true, arranque: "setembro de 2027" },
+
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {
