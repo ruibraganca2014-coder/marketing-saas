@@ -44,10 +44,19 @@
           <!-- Decisão do dono (2026-10-10): aviso da lista de espera (config.js listaEspera) e a casa que o cliente desenhou. -->
           <div class="msg info" id="conta-espera" hidden></div>
           <section class="cartao conta-casa" id="conta-minha-casa" aria-labelledby="conta-minha-casa-titulo">
-            <h2 id="conta-minha-casa-titulo">A minha casa</h2>
+            <h2 id="conta-minha-casa-titulo">As minhas casas</h2>
+            <!-- Várias casas por conta (decisão do dono, 2026-10-10): a lista, com a casa aberta primeiro; a planta e os
+                 pedidos que se veem são os da casa aberta. GET/POST /api/conta/casas (conta.js). -->
+            <ul class="conta-casas-lista" id="conta-casas-lista"></ul>
+            <div class="msg" id="conta-casas-msg" role="status" hidden></div>
             <div id="conta-minha-casa-corpo"><p class="ajuda">A carregar…</p></div>
+            <form class="conta-casas-nova" id="conta-casas-nova" novalidate hidden>
+              <label>Adicionar outra casa <small class="ajuda">Dê-lhe um nome, por exemplo "Casa de férias".</small><input id="conta-casas-nome" maxlength="40" autocomplete="off"></label>
+              <div class="form-botoes"><button class="btn sec" type="submit" id="conta-casas-adicionar">Adicionar casa</button></div>
+            </form>
+            <p class="ajuda" id="conta-casas-cheio" hidden></p>
           </section>
-          <h2>Os meus pedidos</h2>
+          <h2 id="conta-pedidos-titulo">Os meus pedidos</h2>
           <div class="msg" id="conta-pedidos-msg" role="status" hidden></div>
           <div id="conta-pedidos" aria-live="polite"></div>
 

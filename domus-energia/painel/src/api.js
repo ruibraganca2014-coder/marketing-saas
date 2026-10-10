@@ -2152,7 +2152,7 @@ export function criarApi(ctx) {
       VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
       c.morada ?? null, c.servico, c.mensagem ?? null, codigoCli ?? null, sim ?? null, contaId,
       ORIGENS_CONTACTO.includes(origem?.contacto) ? origem.contacto : null, ENTRADAS.includes(origem?.entrada) ? origem.entrada : null, emEspera ? 1 : 0).lastInsertRowid);
-    if (contaId) contas.aposOrcamento(contaId, c);
+    if (contaId) contas.aposOrcamento(contaId, c, id);
     auditar(contaId ? { id: null, email: `conta:${contaId}` } : null, 'orcamento_recebido', `orcamento:${id}`,
       { origem: 'site', simulacao: Boolean(sim), conta: Boolean(contaId), ...(pagamento ? { pagamento, visita: comVisita } : {}) }, ip);
     registo.info(`orçamento ${id} recebido`);

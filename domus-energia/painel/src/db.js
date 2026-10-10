@@ -999,6 +999,23 @@ export const MIGRACOES = [
     ALTER TABLE orcamentos ADD COLUMN lista_espera INTEGER NOT NULL DEFAULT 0;
     UPDATE orcamentos SET lista_espera = 1 WHERE simulacao LIKE '%"lista_espera":true%';
   `),
+  // 43: várias casas por conta (decisão do dono, 2026-10-10; conta.js "casas"). A casa aberta continua nas colunas da
+  // conta (simulacao, casa_registada, casa_codigo, casa_cifra), como sempre: o simulador, a área de cliente e o painel
+  // não mudam. As outras casas ficam guardadas em `contas_casas`; abrir uma casa troca as colunas da conta com a linha
+  // dela. A primeira linha de cada conta cria-se quando é precisa (conta.js casaAtiva). Cada pedido fica preso à casa
+  // onde foi feito (`orcamentos.casa_id`).
+  (db) => db.exec(`
+    CREATE TABLE contas_casas (
+      id INTEGER PRIMARY KEY,
+      conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+      nome TEXT NOT NULL,
+      simulacao TEXT, simulacao_atualizada TEXT, casa_registada TEXT, casa_codigo TEXT, casa_cifra TEXT,
+      criado TEXT NOT NULL
+    );
+    CREATE INDEX contas_casas_conta ON contas_casas (conta_id);
+    ALTER TABLE contas ADD COLUMN casa_ativa INTEGER;
+    ALTER TABLE orcamentos ADD COLUMN casa_id INTEGER;
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

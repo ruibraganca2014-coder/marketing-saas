@@ -50,6 +50,7 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     desenharSenha(Boolean(eu.conta.tem_password));
     preencherDados(eu.conta);
     desenharCasa(eu);
+    desenharCasas();
     const r = $("conta-retomar");
     r.replaceChildren();
     r.hidden = !eu.simulacao_atualizada;
@@ -117,17 +118,19 @@ async function carregar() {
   if (regresso) await mostrarRegresso(); else if ($("conta-pedidos-msg").classList.contains("erro")) mensagem(null);
   const pedidos = Array.isArray(r?.pedidos) ? r.pedidos : [];
   if (!pedidos.length) {
-    const p = el("p", "vazio", "Ainda não há pedidos nesta conta. Quando simular e enviar, aparecem aqui com o relatório e o andamento. ");
+    const p = el("p", "vazio", `Ainda não há pedidos ${variasCasas ? "nesta casa" : "nesta conta"}. Quando simular e enviar, aparecem aqui com o relatório e o andamento. `);
     const a = el("a", null, "Simular orçamento");
     a.href = "simulador.html";
     p.append(a);
     zona.replaceChildren(p);
+    avisoOutraCasa(r?.noutras);
     return;
   }
   zona.replaceChildren(...pedidos.map(cartaoPedido));
   // Veio da pré-visualização da Área de cliente (conta.html#pedido-<id>): mostra esse pedido (uma vez).
   const alvo = /^#pedido-\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (alvo && !alvoMostrado) { alvoMostrado = true; alvo.scrollIntoView({ block: "start" }); }
+  avisoOutraCasa(r?.noutras);
 }
 let alvoMostrado = false;
 
@@ -1035,6 +1038,129 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
   if (D.email) { mail.href = `mailto:${D.email}`; mail.textContent = D.email; mail.hidden = false; }
 }
 
+// ---- As minhas casas (decisão do dono, 2026-10-10): até 5 por conta, cada uma com nome. Uma está aberta: a planta, os
+// pedidos, o simulador e a área de cliente são os dessa. Abrir outra troca tudo (POST /api/conta/casas/:id/abrir).
+// O simulador guarda a simulação neste navegador: ao mudar de casa apaga-se (a da casa aberta vem da conta), senão a
+// de uma casa ia parar à outra. `CHAVE_CASA_ID` diz de que casa é o que está guardado no navegador.
+const CHAVES_SIMULADOR = ["domus.simulador", "domus.simulador.casa"];
+const CHAVE_CASA_ID = "domus.simulador.casa-id";
+function acertarNavegador(casaId, forcar = false) {
+  try {
+    const tem = localStorage.getItem(CHAVE_CASA_ID);
+    if (forcar || (tem && tem !== String(casaId))) for (const k of CHAVES_SIMULADOR) localStorage.removeItem(k);
+    localStorage.setItem(CHAVE_CASA_ID, String(casaId));
+  } catch { /* navegador sem armazenamento */ }
+}
+let variasCasas = false;
+let casasVez = 0;
+const casasMsg = (t, tipo = "erro") => { const m = $("conta-casas-msg"); m.textContent = t ?? ""; m.className = `msg ${tipo}`; m.hidden = !t; };
+/** Faz um pedido às casas e redesenha tudo (a casa aberta pode ter mudado). `mudou`: a casa aberta é outra. */
+async function pedirCasas(caminho, corpo, mudou = false) {
+  casasMsg(null);
+  try {
+    const r = await pedirConta(caminho, { corpo });
+    if (mudou) {
+      const aberta = r.casas?.find((k) => k.aberta);
+      if (aberta) acertarNavegador(aberta.id, true);
+      location.hash = "";
+      await bloco.atualizar();   // a conta inteira: planta, pedidos e atalhos são os da casa aberta
+    } else pintarCasas(r);
+    return true;
+  } catch (e) {
+    casasMsg(e?.message || "Não foi possível. Tente de novo.");
+    return false;
+  }
+}
+async function desenharCasas() {
+  const vez = ++casasVez;
+  let r;
+  try { r = await pedirConta("casas"); } catch { return; }
+  if (vez !== casasVez) return;
+  const aberta = r.casas?.find((k) => k.aberta);
+  if (aberta) acertarNavegador(aberta.id);
+  pintarCasas(r);
+}
+function pintarCasas(r) {
+  const casas = Array.isArray(r?.casas) ? r.casas : [];
+  const antes = variasCasas;
+  variasCasas = casas.length > 1;
+  const aberta = casas.find((k) => k.aberta);
+  $("conta-pedidos-titulo").textContent = variasCasas && aberta ? `Os meus pedidos · ${aberta.nome}` : "Os meus pedidos";
+  if (antes !== variasCasas) carregar();
+  const lista = $("conta-casas-lista");
+  lista.replaceChildren(...casas.map((k) => {
+    const li = el("li", k.aberta ? "conta-casa-linha aberta" : "conta-casa-linha");
+    const topo = el("div", "conta-casa-topo");
+    topo.append(el("strong", null, k.nome));
+    if (k.aberta && variasCasas) topo.append(el("span", "selo-estado", "Aberta"));
+    const partes = [k.pedidos === 1 ? "1 pedido" : `${k.pedidos} pedidos`, k.planta ? "planta desenhada" : "planta por desenhar"];
+    if (k.instalada) partes.push("instalação feita");
+    const acoes = el("div", "form-botoes");
+    const botao = (texto, aoClicar, cls = "btn sec pequeno") => { const b = el("button", cls, texto); b.type = "button"; b.addEventListener("click", aoClicar); acoes.append(b); return b; };
+    if (!k.aberta) botao("Abrir", () => pedirCasas(`casas/${k.id}/abrir`, {}, true), "btn pequeno").setAttribute("aria-label", `Abrir a casa ${k.nome}`);
+    botao("Mudar o nome", () => {
+      const rot = el("label", null, "Nome da casa");
+      const campo = el("input");
+      campo.maxLength = 40;
+      campo.value = k.nome;
+      rot.append(campo);
+      const g = el("div", "form-botoes");
+      const sim = el("button", "btn pequeno", "Guardar"), nao = el("button", "btn sec pequeno", "Cancelar");
+      sim.type = nao.type = "button";
+      sim.addEventListener("click", () => { if (campo.value.trim()) pedirCasas(`casas/${k.id}/nome`, { nome: campo.value }); else campo.focus(); });
+      campo.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sim.click(); } });
+      nao.addEventListener("click", () => desenharCasas());
+      g.append(sim, nao);
+      li.replaceChildren(rot, g);
+      campo.focus();
+      campo.select();
+    });
+    if (casas.length > 1 && !k.pedidos && !k.instalada) {
+      botao("Apagar", (e) => {
+        const b = e.currentTarget;
+        if (b.dataset.certeza) { pedirCasas(`casas/${k.id}/apagar`, {}, k.aberta); return; }
+        b.dataset.certeza = "1";
+        b.textContent = "Apagar mesmo? A planta desta casa perde-se.";
+        b.className = "btn perigo pequeno";
+      });
+    }
+    li.append(topo, el("p", "ajuda", partes.join(" · ")), acoes);
+    return li;
+  }));
+  const cheio = casas.length >= (r?.max ?? 5);
+  $("conta-casas-nova").hidden = cheio;
+  $("conta-casas-cheio").hidden = !cheio;
+  $("conta-casas-cheio").textContent = cheio ? `Tem ${casas.length} casas, o máximo por conta. Se precisar de mais, fale connosco.` : "";
+}
+$("conta-casas-nova").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const campo = $("conta-casas-nome");
+  if (!campo.value.trim()) { casasMsg("Escreva o nome da casa nova."); campo.focus(); return; }
+  $("conta-casas-adicionar").disabled = true;
+  if (await pedirCasas("casas", { nome: campo.value }, true)) { campo.value = ""; casasMsg("Casa criada e aberta. Pode descrevê-la no simulador.", "ok"); }
+  $("conta-casas-adicionar").disabled = false;
+});
+/** Uma ligação de email para um pedido de outra casa (conta.html#pedido-N): diz em que casa está e deixa abri-la. */
+function avisoOutraCasa(noutras) {
+  const n = /^#pedido-(\d+)$/.exec(location.hash)?.[1];
+  const o = n ? (noutras ?? []).find((x) => String(x.id) === n) : null;
+  if (!o) return;
+  const m = $("conta-pedidos-msg");
+  const b = el("button", "btn sec pequeno", `Abrir ${o.nome}`);
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    try {
+      await pedirConta(`casas/${o.casa}/abrir`, { corpo: {} });
+      acertarNavegador(o.casa, true);
+      alvoMostrado = false;
+      await bloco.atualizar();
+    } catch (e) { mensagem(e?.message || "Não foi possível abrir essa casa."); }
+  });
+  m.replaceChildren(`O pedido n.º ${o.id} é da casa "${o.nome}". `, b);
+  m.className = "msg info";
+  m.hidden = false;
+}
+
 // ---- A minha casa (decisão do dono, 2026-10-10): a planta que o cliente desenhou no simulador, em pequeno, só de leitura.
 let casaPedida = 0;
 async function desenharCasa(eu) {
@@ -1043,8 +1169,8 @@ async function desenharCasa(eu) {
   const botao = (texto, href, id, principal = false) => { const a = el("a", principal ? "btn" : "btn sec", texto); a.href = href; a.id = id; return a; };
   const vazio = () => {
     const g = el("div", "form-botoes");
-    g.append(botao(comecada ? "Continuar a descrever a casa" : "Descrever a minha casa", "simulador.html", "conta-casa-descrever", true));
-    corpo.replaceChildren(el("p", null, comecada ? "Ainda não desenhou as divisões da casa. Continue de onde ficou: a planta aparece aqui." : "Ainda não descreveu a sua casa. Demora uns 7 minutos e fica com um relatório grátis."), g);
+    g.append(botao(comecada ? "Continuar a descrever a casa" : variasCasas ? "Descrever esta casa" : "Descrever a minha casa", "simulador.html", "conta-casa-descrever", true));
+    corpo.replaceChildren(el("p", null, comecada ? "Ainda não desenhou as divisões da casa. Continue de onde ficou: a planta aparece aqui." : (variasCasas ? "Ainda não descreveu esta casa." : "Ainda não descreveu a sua casa.") + " Demora uns 7 minutos e fica com um relatório grátis."), g);
   };
   let planta = null, comecada = false;
   try {

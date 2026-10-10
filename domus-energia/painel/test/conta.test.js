@@ -165,6 +165,54 @@ describe('conta de cliente', () => {
     assert.equal(v.json.conta.nome, null, 'vazio apaga');
   });
 
+  test('várias casas: a primeira fica com os pedidos da conta; criar abre a nova (simulação e pedidos à parte); abrir troca; limite 5; apagar só sem pedidos e nunca a última; só da própria conta', async () => {
+    const a = await p.contaConfirmada(email());
+    const b = await p.contaConfirmada(email());
+    const ped = await pedidoComConta(a);
+    const sim = (cookie) => conta('GET', 'simulacao', { cookie });
+    assert.equal((await conta('GET', 'casas')).estado, 401, 'sem sessão');
+    assert.equal((await conta('GET', 'eu', { cookie: b.cookie })).json.casa_ativa, null, 'conta sem pedidos: antes de abrir a lista');
+    const l1 = (await conta('GET', 'casas', { cookie: a.cookie })).json;
+    assert.deepEqual([l1.max, l1.casas.length, l1.casas[0].nome, l1.casas[0].aberta, l1.casas[0].pedidos], [5, 1, 'A minha casa', true, 1]);
+    const primeira = l1.casas[0].id;
+    assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.casa_ativa, primeira);
+    assert.equal((await conta('POST', 'simulacao', { cookie: a.cookie, corpo: { estado: { versao: 1, passo: 2, marca: 'casa-um' } } })).estado, 200);
+    // Casa nova: fica aberta, sem simulação nem pedidos.
+    assert.equal((await conta('POST', 'casas', { cookie: a.cookie, corpo: { nome: '' } })).estado, 400);
+    const l2 = await conta('POST', 'casas', { cookie: a.cookie, corpo: { nome: ' Casa de férias ' } });
+    assert.equal(l2.estado, 201);
+    assert.deepEqual(l2.json.casas.map((k) => [k.nome, k.aberta, k.pedidos, k.planta]), [['Casa de férias', true, 0, false], ['A minha casa', false, 1, true]]);
+    const segunda = l2.json.casas[0].id;
+    assert.equal((await sim(a.cookie)).json.estado, null, 'a casa nova começa vazia');
+    const pedidos2 = (await conta('GET', 'pedidos', { cookie: a.cookie })).json;
+    assert.deepEqual([pedidos2.pedidos.length, pedidos2.noutras], [0, [{ id: ped.id, casa: primeira, nome: 'A minha casa' }]]);
+    assert.equal((await conta('POST', 'simulacao', { cookie: a.cookie, corpo: { estado: { versao: 1, passo: 3, marca: 'casa-dois' } } })).estado, 200);
+    // Um pedido feito agora fica na casa aberta.
+    const ped2 = await pedidoComConta(a);
+    assert.equal(p.app.db.prepare('SELECT casa_id FROM orcamentos WHERE id = ?').get(ped2.id).casa_id, segunda);
+    // Abrir a primeira: volta a simulação e os pedidos dela.
+    assert.equal((await conta('POST', `casas/${primeira}/abrir`, { cookie: a.cookie, corpo: {} })).estado, 200);
+    assert.equal((await sim(a.cookie)).json.estado.marca, 'casa-um');
+    assert.deepEqual((await conta('GET', 'pedidos', { cookie: a.cookie })).json.pedidos.map((x) => x.id), [ped.id]);
+    assert.equal((await conta('POST', `casas/${segunda}/abrir`, { cookie: a.cookie, corpo: {} })).estado, 200);
+    assert.equal((await sim(a.cookie)).json.estado, null, 'o pedido enviado limpou a simulação em curso desta casa');
+    // Nome, e as casas dos outros.
+    assert.equal((await conta('POST', `casas/${segunda}/nome`, { cookie: a.cookie, corpo: { nome: 'Praia' } })).json.casas[0].nome, 'Praia');
+    for (const c of ['abrir', 'apagar']) assert.equal((await conta('POST', `casas/${segunda}/${c}`, { cookie: b.cookie, corpo: {} })).estado, 404, `outra conta: ${c}`);
+    assert.equal((await conta('POST', `casas/${segunda}/nome`, { cookie: b.cookie, corpo: { nome: 'x' } })).estado, 404);
+    // Apagar: com pedidos não; sem pedidos sim (a aberta passa a ser outra); a última nunca.
+    assert.equal((await conta('POST', `casas/${segunda}/apagar`, { cookie: a.cookie, corpo: {} })).estado, 409);
+    const l3 = await conta('POST', 'casas', { cookie: a.cookie, corpo: { nome: 'Terceira' } });
+    const terceira = l3.json.casas[0].id;
+    const l4 = await conta('POST', `casas/${terceira}/apagar`, { cookie: a.cookie, corpo: {} });
+    assert.deepEqual([l4.estado, l4.json.casas.length, l4.json.casas.filter((k) => k.aberta).length], [200, 2, 1]);
+    const unica = (await conta('GET', 'casas', { cookie: b.cookie })).json.casas[0].id;
+    assert.equal((await conta('POST', `casas/${unica}/apagar`, { cookie: b.cookie, corpo: {} })).estado, 409, 'a única');
+    // Limite: 5 casas.
+    for (const n of ['c3', 'c4', 'c5']) assert.equal((await conta('POST', 'casas', { cookie: a.cookie, corpo: { nome: n } })).estado, 201);
+    assert.equal((await conta('POST', 'casas', { cookie: a.cookie, corpo: { nome: 'c6' } })).estado, 409);
+  });
+
   test('definir a palavra-passe (com sessão e email confirmado): regras do painel; dá o "entrar" com palavra-passe; o código continua a entrar', async () => {
     const { cookie, email: e } = await p.contaConfirmada(email(), null);
     assert.equal((await conta('POST', 'palavra-passe', { corpo: { password: SENHA } })).estado, 401, 'sem sessão');

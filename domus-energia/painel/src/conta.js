@@ -21,7 +21,7 @@ import { hashSenha, verificarSenha, problemaSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, deCent } from './util.js';
 import { RE_ID_FOTO } from './fotos.js';
-import { ESTADO_ARQUIVADO } from './db.js';
+import { ESTADO_ARQUIVADO, transacao } from './db.js';
 
 export const COOKIE_CONTA = 'domus_conta';
 const RE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -178,6 +178,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     simulacao: lim(120, 3600_000),
     fotosIp: lim(config.limiteFotosHora, 3600_000),
     casa: lim(30, 3600_000),
+    casas: lim(40, 3600_000),   // abrir, criar, mudar o nome e apagar casas, por conta
     dados: lim(20, 3600_000),   // "Os meus dados", por conta
     mensagens: lim(10, 3600_000),   // respostas do cliente na conversa do pedido, por conta
     apagarIp: lim(5, 3600_000),   // apagar a própria conta (palavra-passe errada conta)
@@ -234,7 +235,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     return {
       id: s.conta_id, email: s.email, confirmado: Boolean(s.confirmado), sessao: id, tem_password: Boolean(s.hash),
       nome: s.nome, telefone: s.telefone, morada: s.morada, localidade: s.localidade,
-      simulacao_atualizada: s.simulacao_atualizada, casa_codigo: s.casa_codigo, sessaoExpira: iso(s.expira),
+      simulacao_atualizada: s.simulacao_atualizada, casa_codigo: s.casa_codigo, casa_ativa: s.casa_ativa ?? null, sessaoExpira: iso(s.expira),
     };
   }
 
@@ -413,6 +414,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   h.eu = ({ res, c }) => responder(res, 200, {
     conta: publico(c), simulacao_atualizada: c.simulacao_atualizada ?? null, simulacao_tipo: tipoSimulacao(c),
     tem_casa: Boolean(c.casa_codigo), sessao_expira: c.sessaoExpira,
+    // A casa aberta (várias casas por conta): null enquanto a conta nunca abriu a lista das casas.
+    casa_ativa: c.casa_ativa ?? null,
     // Pagamentos do pedido: {ativo, modo, demonstracao…} (a conta mostra a faixa "Modo de demonstração").
     pagamentos: pagamentos()?.info() ?? null,
   });
@@ -654,8 +657,105 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
 
   h.pedidos = ({ res, c }) => {
     eletricistas()?.prazos();   // 7 dias sem resposta do cliente: o trabalho fica aceite (verificado ao ler)
-    const linhas = db.prepare('SELECT * FROM orcamentos WHERE conta_id = ? ORDER BY id DESC LIMIT 50').all(c.id);
-    responder(res, 200, { pedidos: linhas.map(pedidoParaCliente) });
+    // Só os pedidos da casa aberta (decisão do dono, 2026-10-10); `noutras`: os das outras casas (só o número e a casa),
+    // para uma ligação de email (conta.html#pedido-N) dizer em que casa está o pedido.
+    const ativa = casaAtiva(c.id);
+    const linhas = db.prepare('SELECT * FROM orcamentos WHERE conta_id = ? AND casa_id = ? ORDER BY id DESC LIMIT 50').all(c.id, ativa);
+    const noutras = db.prepare(`SELECT o.id, k.id AS casa, k.nome FROM orcamentos o JOIN contas_casas k ON k.id = o.casa_id
+      WHERE o.conta_id = ? AND o.casa_id <> ? ORDER BY o.id DESC LIMIT 100`).all(c.id, ativa);
+    responder(res, 200, { pedidos: linhas.map(pedidoParaCliente), noutras });
+  };
+
+  // ------------------------------------------------------------ várias casas por conta (decisão do dono, 2026-10-10)
+  // A casa aberta vive nas colunas da conta (CAMPOS_CASA); as outras, em contas_casas. Abrir uma casa guarda a aberta na
+  // linha dela e traz a outra para a conta. Tudo o resto (simulador, área de cliente, painel) trabalha sobre a aberta.
+  const MAX_CASAS = 5;
+  const CAMPOS_CASA = ['simulacao', 'simulacao_atualizada', 'casa_registada', 'casa_codigo', 'casa_cifra'];
+  const NOME_PRIMEIRA = 'A minha casa';
+  /** O id da casa aberta; a primeira casa da conta cria-se aqui (e fica com os pedidos que a conta já tinha). */
+  function casaAtiva(contaId) {
+    const ativa = db.prepare('SELECT casa_ativa FROM contas WHERE id = ?').get(contaId)?.casa_ativa;
+    if (ativa) return ativa;
+    // Sem transação própria: também corre dentro da de um pagamento confirmado (aposOrcamento).
+    const id = Number(db.prepare('INSERT INTO contas_casas (conta_id, nome, criado) VALUES (?, ?, ?)').run(contaId, NOME_PRIMEIRA, agoraIso()).lastInsertRowid);
+    db.prepare('UPDATE contas SET casa_ativa = ? WHERE id = ?').run(id, contaId);
+    db.prepare('UPDATE orcamentos SET casa_id = ? WHERE conta_id = ? AND casa_id IS NULL').run(id, contaId);
+    return id;
+  }
+  /** Passa a casa `casaId` (desta conta) a ser a aberta. */
+  function abrirCasa(contaId, casaId) {
+    const ativa = casaAtiva(contaId);
+    if (ativa === casaId) return;
+    transacao(db, () => {
+      const lista = CAMPOS_CASA.join(', ');
+      const nova = db.prepare(`SELECT ${lista} FROM contas_casas WHERE id = ? AND conta_id = ?`).get(casaId, contaId);
+      if (!nova) throw new ErroApi(404, 'Casa não encontrada.');
+      const atual = db.prepare(`SELECT ${lista} FROM contas WHERE id = ?`).get(contaId);
+      const atribuir = CAMPOS_CASA.map((k) => `${k} = ?`).join(', ');
+      db.prepare(`UPDATE contas_casas SET ${atribuir} WHERE id = ?`).run(...CAMPOS_CASA.map((k) => atual[k] ?? null), ativa);
+      db.prepare(`UPDATE contas SET ${atribuir}, casa_ativa = ?, atualizado = ? WHERE id = ?`).run(...CAMPOS_CASA.map((k) => nova[k] ?? null), casaId, agoraIso(), contaId);
+      db.prepare(`UPDATE contas_casas SET ${CAMPOS_CASA.map((k) => `${k} = NULL`).join(', ')} WHERE id = ?`).run(casaId);
+    });
+  }
+  /** As casas da conta, para o cliente: a aberta primeiro. */
+  function listaCasas(contaId) {
+    const ativa = casaAtiva(contaId);
+    const conta = db.prepare('SELECT simulacao, casa_codigo FROM contas WHERE id = ?').get(contaId);
+    const casas = db.prepare(`SELECT k.id, k.nome, k.simulacao IS NOT NULL AS planta, k.casa_codigo IS NOT NULL AS instalada,
+      (SELECT COUNT(*) FROM orcamentos o WHERE o.conta_id = k.conta_id AND o.casa_id = k.id) AS pedidos
+      FROM contas_casas k WHERE k.conta_id = ? ORDER BY k.id`).all(contaId).map((k) => ({
+      id: k.id, nome: k.nome, aberta: k.id === ativa, pedidos: k.pedidos,
+      planta: Boolean(k.id === ativa ? conta?.simulacao : k.planta), instalada: Boolean(k.id === ativa ? conta?.casa_codigo : k.instalada),
+    }));
+    return { casas: casas.sort((a, b) => Number(b.aberta) - Number(a.aberta)), max: MAX_CASAS };
+  }
+  const nomeCasa = (v) => texto(v, 'o nome da casa', { max: 40, obrigatorio: true });
+  const casaDaConta = (c, idTexto) => {
+    casaAtiva(c.id);
+    const k = db.prepare('SELECT id, nome FROM contas_casas WHERE id = ? AND conta_id = ?').get(idNum(idTexto), c.id);
+    if (!k) throw new ErroApi(404, 'Casa não encontrada.');
+    return k;
+  };
+  const limiteCasas = (c) => { esperar([[L.casas, String(c.id)]]); contar([[L.casas, String(c.id)]]); };
+  h.casas = ({ res, c }) => responder(res, 200, listaCasas(c.id));
+  h.criarCasa = async ({ req, res, c, ip }) => {
+    limiteCasas(c);
+    const v = await lerJson(req, ['nome']);
+    const nome = nomeCasa(v.nome);
+    casaAtiva(c.id);
+    const n = db.prepare('SELECT COUNT(*) AS n FROM contas_casas WHERE conta_id = ?').get(c.id).n;
+    if (n >= MAX_CASAS) throw new ErroApi(409, `Cada conta pode ter até ${MAX_CASAS} casas. Se precisar de mais, fale connosco.`);
+    const id = Number(db.prepare('INSERT INTO contas_casas (conta_id, nome, criado) VALUES (?, ?, ?)').run(c.id, nome, agoraIso()).lastInsertRowid);
+    abrirCasa(c.id, id);
+    auditar(quem(c), 'conta_casa_criada', `conta:${c.id}`, { casa: id }, ip);
+    responder(res, 201, listaCasas(c.id));
+  };
+  h.abrirCasa = async ({ req, res, c, params }) => {
+    limiteCasas(c);
+    await lerJson(req, []);
+    abrirCasa(c.id, casaDaConta(c, params.id).id);
+    responder(res, 200, listaCasas(c.id));
+  };
+  h.nomeCasa = async ({ req, res, c, params }) => {
+    limiteCasas(c);
+    const v = await lerJson(req, ['nome']);
+    db.prepare('UPDATE contas_casas SET nome = ? WHERE id = ?').run(nomeCasa(v.nome), casaDaConta(c, params.id).id);
+    responder(res, 200, listaCasas(c.id));
+  };
+  // Só casas sem pedidos nem instalação (ficam as faturas e o histórico), e nunca a última.
+  h.apagarCasa = async ({ req, res, c, params, ip }) => {
+    limiteCasas(c);
+    await lerJson(req, []);
+    const k = casaDaConta(c, params.id);
+    const { casas } = listaCasas(c.id);
+    const esta = casas.find((x) => x.id === k.id);
+    if (casas.length < 2) throw new ErroApi(409, 'Esta é a sua única casa: não se pode apagar.');
+    if (esta.pedidos > 0) throw new ErroApi(409, 'Esta casa tem pedidos: não se pode apagar.');
+    if (esta.instalada) throw new ErroApi(409, 'Esta casa tem uma instalação feita: não se pode apagar.');
+    if (esta.aberta) abrirCasa(c.id, casas.find((x) => x.id !== k.id).id);
+    db.prepare('DELETE FROM contas_casas WHERE id = ? AND conta_id = ?').run(k.id, c.id);
+    auditar(quem(c), 'conta_casa_apagada', `conta:${c.id}`, { casa: k.id }, ip);
+    responder(res, 200, listaCasas(c.id));
   };
 
   /**
@@ -849,17 +949,21 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
    */
   function aoResultadoPedido(p, r) {
     if (p.tipo !== 'cliente' || !r.ok || !p.orcamento_id) return;
-    const o = db.prepare('SELECT conta_id, cliente FROM orcamentos WHERE id = ?').get(p.orcamento_id);
+    const o = db.prepare('SELECT conta_id, cliente, casa_id FROM orcamentos WHERE id = ?').get(p.orcamento_id);
     if (!o?.conta_id) return;
     const codigo = r.cliente || o.cliente || p.cliente;
     const cifra = r.password && config.contaChave ? cifrar(r.password, o.conta_id) : null;
-    db.prepare('UPDATE contas SET casa_codigo = ?, casa_cifra = COALESCE(?, casa_cifra), atualizado = ? WHERE id = ?').run(codigo, cifra, agoraIso(), o.conta_id);
+    // O pedido é de uma casa que não é a aberta: as credenciais ficam na linha dessa casa (passam para a conta ao abri-la).
+    const aberta = db.prepare('SELECT casa_ativa FROM contas WHERE id = ?').get(o.conta_id)?.casa_ativa ?? null;
+    if (o.casa_id && aberta && o.casa_id !== aberta) db.prepare('UPDATE contas_casas SET casa_codigo = ?, casa_cifra = COALESCE(?, casa_cifra) WHERE id = ? AND conta_id = ?').run(codigo, cifra, o.casa_id, o.conta_id);
+    else db.prepare('UPDATE contas SET casa_codigo = ?, casa_cifra = COALESCE(?, casa_cifra), atualizado = ? WHERE id = ?').run(codigo, cifra, agoraIso(), o.conta_id);
     auditar(null, 'conta_casa_ligada', `conta:${o.conta_id}`, { cliente: codigo, entrada_com_email: Boolean(cifra) });
   }
 
   // ------------------------------------------------------------ orçamento (POST /api/orcamento)
   /** Depois de um pedido com conta: guarda o contacto no perfil e apaga a simulação em curso (já foi enviada). */
-  function aposOrcamento(contaId, k) {
+  function aposOrcamento(contaId, k, orcamentoId = null) {
+    if (orcamentoId) db.prepare('UPDATE orcamentos SET casa_id = ? WHERE id = ? AND conta_id = ?').run(casaAtiva(contaId), orcamentoId, contaId);
     db.prepare(`UPDATE contas SET nome = COALESCE(?, nome), telefone = COALESCE(?, telefone), morada = COALESCE(?, morada),
       localidade = COALESCE(?, localidade), simulacao = NULL, simulacao_atualizada = NULL, atualizado = ? WHERE id = ?`)
       .run(k.nome ?? null, k.telefone ?? null, k.morada ?? null, k.localidade ?? null, agoraIso(), contaId);
@@ -1051,6 +1155,11 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'reenviar', 'sessao', 'reenviar'],
     ['POST', 'palavra-passe', 'confirmada', 'definirSenha'],
     ['POST', 'dados', 'confirmada', 'guardarDados'],
+    ['GET', 'casas', 'confirmada', 'casas'],
+    ['POST', 'casas', 'confirmada', 'criarCasa'],
+    ['POST', 'casas/:id/abrir', 'confirmada', 'abrirCasa'],
+    ['POST', 'casas/:id/nome', 'confirmada', 'nomeCasa'],
+    ['POST', 'casas/:id/apagar', 'confirmada', 'apagarCasa'],
     ['GET', 'simulacao', 'sessao', 'lerSimulacao'],
     ['POST', 'simulacao', 'sessao', 'guardarSimulacao'],
     ['GET', 'pedidos', 'confirmada', 'pedidos'],

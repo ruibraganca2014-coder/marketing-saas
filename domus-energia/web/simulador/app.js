@@ -29,7 +29,7 @@ import {
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
   PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
-  temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, usarCasa, ordemPasso, maisAdiantado,
+  temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, CHAVE_CASA_ID, CHAVE, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
 } from "./estado.js";
@@ -4710,6 +4710,23 @@ function aoMudarConta(eu) {
   const primeira = !contaVista;
   contaVista = true;
   if (!c) { pedidoAberto = null; desenharAvisoPedido(); return; }
+  // Várias casas por conta (decisão do dono, 2026-10-10): o que este navegador tem guardado é de uma casa
+  // (CHAVE_CASA_ID). Se a casa aberta na conta já é outra (trocada em "A minha conta" ou noutro aparelho), o guardado
+  // apaga-se e a página recomeça com a casa aberta, que vem da conta. Senão a planta de uma casa ia parar à outra.
+  if (eu.casa_ativa && armazem) {
+    try {
+      const tem = armazem.getItem(CHAVE_CASA_ID);
+      armazem.setItem(CHAVE_CASA_ID, String(eu.casa_ativa));
+      if (tem && tem !== String(eu.casa_ativa)) {
+        clearTimeout(temporizador);
+        temporizador = null;
+        armazem.removeItem(CHAVE);
+        armazem.removeItem(CHAVE_CASA);
+        location.reload();
+        return;
+      }
+    } catch { /* navegador sem armazenamento */ }
+  }
   if ((primeira || !antes) && c.confirmado) verPedidoEmAndamento();
   if (primeira) oferecerSimulacaoDaConta(eu);
   else if (!antes) guardarNaConta(0);   // entrou agora (no passo Enviar): a simulação desta página vai para a conta

@@ -1021,6 +1021,12 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 #conta-minha-casa-corpo, #conta-dados-form { display: grid; gap: 12px; }
 .conta-casa-svg { max-height: 300px; }
 #conta-espera { margin: 18px 0; }
+.conta-casas-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.conta-casa-linha { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 12px; }
+.conta-casa-linha.aberta { border-color: var(--musgo); }
+.conta-casa-topo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.conta-casa-topo strong { font-size: 1.05rem; color: var(--texto); }
+.conta-casas-nova { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--borda); }
 .conta-apagar { display: grid; gap: 12px; }
 .conta-apagar p { margin: 0; color: var(--texto-suave); }
 .conta-apagar .msg, .conta-apagar h2 { margin: 0; }

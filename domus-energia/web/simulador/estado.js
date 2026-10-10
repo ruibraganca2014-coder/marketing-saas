@@ -17,6 +17,7 @@ import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado }
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
+export const CHAVE_CASA_ID = "domus.simulador.casa-id";   // localStorage: de que casa da conta é o que está guardado (várias casas por conta)
 export const CHAVE_CODIGO = "domus.simulador.codigo";   // sessionStorage: código do cliente vindo da área de cliente
 export const MAX_SIMULACAO = 1024 * 1024;                // bytes (painel/src/validar.js)
 export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem de fundo
