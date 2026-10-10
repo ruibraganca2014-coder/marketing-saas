@@ -28,7 +28,7 @@ import {
   normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA, potenciaOmissao,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
-  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
+  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
@@ -220,7 +220,7 @@ const funil = () => estado.funil ?? "primeira";
 const funilAvaria = () => estado.funil === "avaria";
 const funilPlanta = () => estado.funil === "planta";
 /** Os passos do funil, pela ordem da barra, e a posição de um passo nela (-1 fora do funil). */
-const sequencia = () => passosDoFunil(estado.funil);
+const sequencia = () => passosDoEstado(estado);
 const posicao = (i) => sequencia().indexOf(i);
 /**
  * Só "Reparações / avarias" (primeira vez): fluxo curto — salta "Equipamentos", "Planta" e "Divisões" (as avarias
@@ -621,12 +621,14 @@ function montarServico() {
 const TEXTOS_CAMINHO = {
   automatizar: ["Automatizar o que já tenho", "Tornamos inteligente o que existe."],
   reparar: ["Reparações", "Trocar ou arranjar o que não funciona."],
+  quadro: ["Trocar o quadro elétrico", "Quadro novo com as proteções de hoje."],
   obras: ["Obras ou instalação nova", "Acrescentar tomadas, luzes ou circuitos."],
   carregar: ["Tenho a planta em PDF ou foto", "Carregue-a e marque os aparelhos por cima."],
 };
 const ICONES_CAMINHO = {
   automatizar: ICONES_SERVICO.automatizar,
   reparar: ICONES_SERVICO.reparar,
+  quadro: ["M12 7h24v34H12z", "M17 13v8M23 13v8M29 13v8", "M17 29h14", "M25.5 31.5 22 37h3l-1 4"],
   obras: ICONES_SERVICO.nova,
   carregar: ["M13 6h15l8 8v28H13z", "M28 6v8h8", "M24.5 36V22M19 27.5l5.5-5.5 5.5 5.5"],
 };
@@ -673,7 +675,13 @@ function escolherCaminho(k) {
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
   estado.caminho = k;
-  estado.servico = [k === "obras" ? "nova" : k];   // duas partes (2026-10-04): as obras também seguem na parte do serviço
+  estado.servico = [k === "obras" ? "nova" : k === "quadro" ? "reparar" : k];   // duas partes (2026-10-04): as obras também seguem na parte do serviço
+  if (k === "quadro") {
+    // Trocar o quadro: quadro novo no pedido; a proteção escolhe-se nas Melhorias (o passo seguinte).
+    estado.mexerQuadro = true;
+    estado.quadro.quadro_novo = "novo";
+    estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
+  }
   visitado = maisAdiantado(visitado, estado.visitado ?? 0, P.planta);
   estado.visitado = visitado;
   acertarPedido();

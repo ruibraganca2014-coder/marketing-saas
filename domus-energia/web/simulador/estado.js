@@ -142,7 +142,13 @@ export const SERVICO_PLANTA = ["automatizar", "reparar"];
  * casa guardada e esse serviço), obras (a casa guardada no funil da primeira vez, a passar pela casa e pela planta) ou
  * carregar a planta (PDF ou foto como fundo, no funil da primeira vez). null = ainda não escolheu (ou outro caso).
  */
-export const CAMINHOS = ["automatizar", "reparar", "obras", "carregar"];
+export const CAMINHOS = ["automatizar", "reparar", "quadro", "obras", "carregar"];
+/**
+ * "Trocar o quadro elétrico" (decisão do dono, 2026-10-10): com a casa guardada, vai direto às Melhorias (a proteção do
+ * quadro) sem passar divisão a divisão em Trocar e reparar. Os aparelhos ficam todos como estão (serviço "reparar").
+ */
+export const PASSOS_SO_QUADRO = [0, 10, 7, 8];
+export const passosDoEstado = (e) => (e?.funil === "planta" && e?.caminho === "quadro" ? PASSOS_SO_QUADRO : passosDoFunil(e?.funil));
 /** Ronda A: o passo novo (Relatório; o 12 foi reformado): um estado de antes dele não o viu (`relatoriosPorVer`). */
 export const PASSOS_NOVOS = [11];
 /** Fase 3 da auditoria: o passo 12 ("Relatório completo") já não existe — quem lá estava passa ao Relatório (11). */
@@ -651,8 +657,8 @@ export function normalizarEstado(v) {
   if (e.funil === "primeira" && e.visitado === PASSO.planta) e.visitado = PASSO.quadro;
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
-  if (e.funil === "planta" && !["automatizar", "reparar", "obras"].includes(e.caminho) && e.passo !== 0) e.caminho = e.servico.includes("nova") ? "obras" : e.servico.includes("automatizar") ? "automatizar" : "reparar";
-  if (e.funil === "planta" ? !["automatizar", "reparar", "obras", null].includes(e.caminho) : e.funil === "primeira" ? !["obras", "carregar", null].includes(e.caminho) : true) e.caminho = null;
+  if (e.funil === "planta" && !["automatizar", "reparar", "quadro", "obras"].includes(e.caminho) && e.passo !== 0) e.caminho = e.servico.includes("nova") ? "obras" : e.servico.includes("automatizar") ? "automatizar" : "reparar";
+  if (e.funil === "planta" ? !["automatizar", "reparar", "quadro", "obras", null].includes(e.caminho) : e.funil === "primeira" ? !["obras", "carregar", null].includes(e.caminho) : true) e.caminho = null;
   const guardavaVisitado = !migrar || [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);
