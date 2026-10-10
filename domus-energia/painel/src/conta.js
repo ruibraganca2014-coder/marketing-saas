@@ -781,7 +781,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const password = c.confirmado && r?.casa_cifra ? decifrar(r.casa_cifra, c.id) : null;
     if (!r?.casa_codigo || !password) {
       throw new ErroApi(404, r?.casa_codigo
-        ? `A entrada com email ainda não está disponível para a sua casa. Entre com o código de cliente (${r.casa_codigo}) e a palavra-passe que recebeu.`
+        ? `A entrada com email ainda não está disponível para a sua casa. Ligue-nos ou responda a um dos nossos emails: tratamos disso.`
         : 'A sua conta ainda não tem uma casa ligada. Fica disponível depois da instalação.');
     }
     responder(res, 200, { codigo: r.casa_codigo, password });

@@ -96,7 +96,13 @@ $("form-login").addEventListener("submit", (e) => {
 // Decisão do dono (2026-10-03): com o email entra-se com a palavra-passe ou com um código de 6 algarismos enviado para o
 // email (`semSenha`; as mesmas rotas, limites e mensagens de "A minha conta": POST /api/conta/codigo e confirmar).
 let semSenha = false;
+// Decisão do dono (2026-10-10): o cliente entra só com o email. "Entrar com o código de cliente" sai da vista e fica
+// de reserva em cliente.html?codigo (casas sem conta ligada, ou avaria do email) e em quem já guardou o código aqui.
+let reservaCodigo = new URLSearchParams(location.search).has("codigo");
+$("login-modo").hidden = !reservaCodigo;
 function modoLogin(comEmail) {
+  if (!comEmail) reservaCodigo = true;
+  $("login-modo").hidden = !reservaCodigo;
   $("form-login-email").hidden = !comEmail || semSenha;
   $("form-login-codigo").hidden = !comEmail || !semSenha;
   $("form-login").hidden = comEmail;
