@@ -192,6 +192,10 @@
           <!-- A foto do quadro (obrigatória; app.js desenharFotoQuadro). Ronda B: o passo é só a foto — o esquema do quadro é feito pelo
                eletricista no painel. Ronda de correções (B3): as perguntas do quadro (manter / melhorar com a proteção / quadro novo) estão
                no cartão "Quadro elétrico" do passo Melhorias; o para-raios em "A casa". -->
+          <!-- Decisão do dono (2026-10-10): este passo já não mostra a planta. À esquerda a foto e a idade do quadro; à
+               direita (por cima, no telemóvel) "Como fotografar o quadro". -->
+          <div class="quadro-colunas">
+          <div class="quadro-perguntas">
           <div class="cartao quadro-foto" id="quadro-foto">
             <h3 id="quadro-foto-titulo">Foto do quadro *</h3>
             <p class="ajuda">Abra a porta do quadro e fotografe-o de frente. É por esta foto que o eletricista desenha o esquema do quadro. Só a usamos para preparar o orçamento e a visita.</p>
@@ -199,11 +203,37 @@
             <p class="msg" id="quadro-foto-msg" role="status" hidden></p>
           </div>
           <!-- Idade do quadro (app.js montarIdadeQuadro; opcional): a frase com que o relatório abre. -->
-          <fieldset class="cartao quadro-idade" id="quadro-idade">
-            <legend><h3>Que idade tem o quadro?</h3></legend>
+          <div class="cartao quadro-idade" id="quadro-idade" role="radiogroup" aria-labelledby="quadro-idade-titulo">
+            <h3 id="quadro-idade-titulo">Que idade tem o quadro?</h3>
             <p class="ajuda">Se não souber, escolha "Não sei". Fusíveis de rosca ou de cartucho contam como antigo.</p>
             <div class="escolhas" id="quadro-idade-opcoes"></div>
-          </fieldset>
+          </div>
+          </div>
+          <aside class="cartao quadro-guia" aria-labelledby="quadro-guia-titulo">
+            <h3 id="quadro-guia-titulo">Como fotografar o quadro</h3>
+            <svg class="quadro-guia-desenho" viewBox="0 0 320 200" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <!-- a caixa do quadro, com duas filas de disjuntores -->
+              <rect x="70" y="24" width="150" height="152" rx="8"/>
+              <path d="M84 62h122M84 100h122M84 138h122" stroke-width="2"/>
+              <path d="M92 44h20v18H92zM118 44h10v18h-10zM132 44h10v18h-10zM146 44h10v18h-10zM160 44h10v18h-10zM174 44h10v18h-10zM188 44h10v18h-10z" stroke-width="2"/>
+              <path d="M92 82h20v18H92zM118 82h10v18h-10zM132 82h10v18h-10zM146 82h10v18h-10zM160 82h10v18h-10zM174 82h10v18h-10z" stroke-width="2"/>
+              <path d="M92 150h30M130 150h30M168 150h30" stroke-width="2"/>
+              <!-- a porta aberta -->
+              <path d="M70 24 30 40v152l40-16"/>
+              <!-- o telemóvel, de frente -->
+              <rect x="252" y="62" width="44" height="76" rx="7"/>
+              <circle cx="274" cy="100" r="11"/>
+              <path d="M240 100h-14M232 94l-6 6 6 6" stroke-width="2"/>
+            </svg>
+            <ol class="quadro-guia-passos">
+              <li><b>Abra a porta toda.</b> Os disjuntores têm de se ver, não a tampa.</li>
+              <li><b>Fotografe de frente,</b> a um passo de distância, com luz. Acenda a luz ou use o flash.</li>
+              <li><b>Apanhe o quadro inteiro:</b> todas as filas e as etiquetas, até às bordas.</li>
+              <li><b>Confirme que se lê.</b> Se os números dos disjuntores estiverem desfocados, tire outra.</li>
+            </ol>
+            <p class="ajuda">Não toque em nada dentro do quadro: é só abrir a porta e fotografar.</p>
+          </aside>
+          </div>
         </section>
 
         <!-- 6. Divisões: o que a casa JÁ TEM, antes da obra (decisão do dono, 2026-10-03): separadores, um cartão por divisão só com os interruptores (quantos e os botões de cada um) e as tomadas (quantas e o tipo de cada uma), ou "Não tem"; o "Seguinte" só passa com todas as divisões respondidas (o que fazer a cada um e o trabalho novo: "Trocar e reparar") -->

@@ -394,7 +394,8 @@ function irPara(i, { foco = true } = {}) {
 
 /** A planta não se vê no Início (o caso ainda não está escolhido) nem na avaria rápida (sem planta). */
 /** Ronda A: nem no Relatório (leva a planta dentro e a amostra do completo). */
-const semPlanta = () => [P.inicio, P.relatorio].includes(estado.passo) || funilAvaria();
+// Decisão do dono (2026-10-10): nem no Quadro elétrico (é só a foto e a idade; à direita, "Como fotografar o quadro").
+const semPlanta = () => [P.inicio, P.relatorio, P.quadro].includes(estado.passo) || funilAvaria();
 
 function mostrarPasso(foco = true) {
   for (let i = 0; i < PASSOS.length; i++) { const s = $(`passo-${i}`); if (s) s.hidden = i !== estado.passo; }   // (o 12 já não existe na página)
@@ -2040,10 +2041,17 @@ function desenharQuadro() {
   desenharFotoQuadro();
   for (const i of document.querySelectorAll("input[name=quadro-idade]")) i.checked = i.value === estado.quadroIdade;
 }
+/** Um desenho pequeno por resposta: quadro novo (visto), a meio (relógio), antigo (fusível) e "não sei" (?). */
+const ICONES_IDADE = {
+  recente: ["M10 8h28v32H10z", "M17 25l5 5 10-11"],
+  medio: ["M24 8a16 16 0 1 0 0 32 16 16 0 0 0 0-32z", "M24 15v10l7 4"],
+  antigo: ["M8 20h8v8H8z", "M32 20h8v8h-8z", "M16 24h4l3-5 3 10 3-5h3"],
+  naosei: ["M24 8a16 16 0 1 0 0 32 16 16 0 0 0 0-32z", "M19 19a5 5 0 1 1 7 4.6c-1.4.7-2 1.6-2 3.4", "M24 33v.5"],
+};
 /** "Que idade tem o quadro?" (decisão do dono, 2026-10-10): opcional; a resposta abre o relatório grátis. */
 function montarIdadeQuadro() {
   $("quadro-idade-opcoes").append(...Object.entries(IDADES_QUADRO).map(([k, x]) => {
-    const l = escolha("radio", "quadro-idade", k, x.nome, null, (sim) => { if (sim) { estado.quadroIdade = k; agendarGravacao(false); } });
+    const l = escolha("radio", "quadro-idade", k, x.nome, null, (sim) => { if (sim) { estado.quadroIdade = k; agendarGravacao(false); } }, iconeDe(ICONES_IDADE[k]));
     l.id = `quadro-idade-${k}`;
     return l;
   }));
