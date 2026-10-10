@@ -59,8 +59,8 @@ const IPS_LOCAIS = REDE_LOCAL ? Object.values(networkInterfaces()).flat().filter
 const ORIGENS_REDE = IPS_LOCAIS.map((ip) => `http://${ip}:${PORTA_REDE}`);
 // Acesso rápido (testes; ver o cabeçalho). ACESSO_RAPIDO=0 desliga.
 const ACESSO_RAPIDO = process.env.ACESSO_RAPIDO !== '0';
-// Origens aceites pelo painel nos pedidos que alteram dados (CSRF): a do site e as de ORIGENS_EXTRA.
-const ORIGENS = [ORIGEM, ...ORIGENS_REDE, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
+// Origens aceites pelo painel nos pedidos que alteram dados (CSRF): a do site e as de ORIGENS_EXTRA. Também http://127.0.0.1 (decisão do dono, 2026-10-10: o acesso rápido dava "origem desconhecida" nesse endereço).
+const ORIGENS = [ORIGEM, `http://127.0.0.1:${PORTA_SITE}`, ...ORIGENS_REDE, ...String(process.env.ORIGENS_EXTRA || '').split(',').map((o) => o.trim()).filter(Boolean)].join(',');
 
 for (const s of ['painel', 'planos', 'clientes', 'pagamentos', 'pedidos-admin', 'motor']) {
   mkdirSync(join(DADOS, s), { recursive: true });

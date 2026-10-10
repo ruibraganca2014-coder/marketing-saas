@@ -377,7 +377,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const simDe = (o) => { try { const s = JSON.parse(o.simulacao ?? 'null'); return s && typeof s === 'object' ? s : null; } catch { return null; } };
   const localidadeDe = (o) => o.localidade || simDe(o)?.casa?.localidade || '';
   /** Ainda se compra o relatório ou a visita: com simulação, antes de aceitar a proposta e da obra. */
-  const podeComprar = (o) => Boolean(o.simulacao) && ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.cliente;
+  // Um pedido em lista de espera ainda por tratar ("novo") não compra nada (decisão do dono, 2026-10-10): só depois de a
+  // empresa lhe pegar (o estado muda) se pode comprar o relatório completo ou a visita.
+  const podeComprar = (o) => Boolean(o.simulacao) && ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.cliente
+    && !(o.lista_espera === 1 && o.estado === 'novo');
 
   /**
    * Comprar o relatório completo, a visita técnica ou os dois (`fase`: relatorio_pormenorizado | visita |

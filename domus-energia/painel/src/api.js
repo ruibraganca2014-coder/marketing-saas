@@ -2119,7 +2119,8 @@ export function criarApi(ctx) {
     };
     // Avaria rápida = pagar o diagnóstico e a deslocação ao enviar: fica "a aguardar pagamento" (não aparece no painel)
     // e só passa a orçamento quando o pagamento for confirmado. Fora da área servida: 409 (fale connosco).
-    if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria') {
+    // Em lista de espera (decisão do dono, 2026-10-10: não se paga nada) a avaria entra logo, grátis, como os outros pedidos.
+    if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria' && simObj?.lista_espera !== true) {
       const local = c.localidade ?? simObj?.casa?.localidade ?? null;
       const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip, origem }, localidade: local });
       registo.info(`avaria a aguardar pagamento (${pagamento.ref})`);
