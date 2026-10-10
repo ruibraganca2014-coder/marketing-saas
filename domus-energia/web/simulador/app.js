@@ -576,7 +576,7 @@ const ICONES_FUNIL = {
   avaria: ["M26 6 12 27h10l-3 15 16-22H24z"],
 };
 const AJUDA_FUNIL = {
-  primeira: "A casa que tem hoje · relatório grátis · ~5 min",
+  primeira: "A casa que tem hoje · relatório grátis · ~6 min",
   avaria: "Diagnóstico + deslocação, descontado na reparação.",   // com o catálogo leva o valor (ajudaAvaria)
 };
 /** A casa para o funil "Já tenho a planta": a desta simulação (se já tem) ou a guardada. */
@@ -937,8 +937,8 @@ const TEXTOS_CONFIRMAR = {
     pontos: ["Estão marcadas todas as máquinas que tem hoje.", "A quantidade de cada uma está certa.", "O que quer pôr de novo escolhe mais à frente."] },
   [P.divisoes]: { titulo: "Está certo o que cada divisão tem hoje?",
     pontos: ["Os interruptores e as tomadas de cada divisão.", "Os que já são inteligentes estão marcados."] },
-  [P.planta]: { titulo: "A planta está como a sua casa?",
-    pontos: ["Cada aparelho está na divisão certa.", "Não falta nenhuma divisão nem aparelho."] },
+  [P.planta]: { titulo: "As portas, as janelas e o quadro estão no sítio certo?",
+    pontos: ["Cada porta e cada janela está na parede certa.", "O quadro elétrico está onde fica em sua casa.", "Apagou as que não existem e acrescentou as que faltavam."] },
   [P.quadro]: { titulo: "A foto do quadro está boa?",
     pontos: ["Mostra o quadro de frente, com a porta aberta.", "As etiquetas leem-se."] },
   [P.trocar]: { titulo: "Está certo o que quer fazer?",
@@ -1878,16 +1878,18 @@ function atualizarPlanta() {
   // Lote 8: o que se pode mudar na planta em cada passo — as divisões só em "A casa" e "Planta"; os aparelhos
   // escondidos em "A casa" (e no "Serviço" enquanto a planta ainda não os mostra).
   editor.definirPermissoes({
-    divisoes: estado.passo === P.casa || estado.passo === P.planta,
+    divisoes: estado.passo === P.casa,
     aparelhos: estado.passo !== P.casa && (estado.passo !== P.inicio || fasePlanta() === "tudo"),
     // Decisão do dono (2026-10-04): sem duplo clique (nem duplo toque ou toque longo) em nenhum passo — na planta
     // arrasta-se; a janela de cada coisa abre-se no botão "Opções" (ou Enter).
     duplo: false,
     // Decisão do dono (2026-10-10): em "Equipamentos" e em "Divisões" a linha por cima da planta não tem máquinas
     // (marcam-se nos cartões de "Equipamentos"); ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores.
-    maquinas: estado.passo !== P.quer && estado.passo !== P.divisoes,
+    maquinas: estado.passo !== P.quer && estado.passo !== P.divisoes && estado.passo !== P.planta,
+    // "Portas e janelas" (decisão do dono, 2026-10-10): neste passo só se põem portas, janelas e o quadro.
+    elementos: estado.passo === P.planta ? ["porta", "janela", "quadro"] : null,
   });
-  if (estado.passo === P.casa || estado.passo === P.planta) $("planta-presa").hidden = true;
+  if (estado.passo === P.casa) $("planta-presa").hidden = true;
   const n = pisosDaCasa(estado.casa);
   if (n !== pisosEditor) { pisosEditor = n; editor.definirPisos(n); }
   if (editor.planta !== estado.planta) editor.abrir(estado.planta, { reiniciarVista: true });

@@ -32,14 +32,16 @@ export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem d
  * básico grátis com PDF + a amostra do completo e "Quero o relatório completo"); o 12 fica reformado (em nenhum funil;
  * os estados que lá estavam passam ao 11).
  */
-export const PASSOS = ["Início", "A casa", "Equipamentos", "Planta", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Portas e janelas", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo"];
 /** Índices dos passos (os mesmos ids `passo-N` da página). */
 export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12 };
 /**
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
  * chegou" comparam-se por esta ordem, não pelo índice.
  */
-export const ORDEM_PASSOS = [0, 1, 2, 5, 3, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
+// Decisão do dono (2026-10-10): o passo 3 ("Portas e janelas", o antigo "Planta") volta ao funil da primeira vez, logo a
+// seguir a "A casa". Os estados guardados ficam como estão: quem já ia nos Equipamentos tem-no como passado.
+export const ORDEM_PASSOS = [0, 1, 3, 2, 5, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
@@ -55,7 +57,7 @@ export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordem
  * Orçamento e Enviar com a casa guardada, ~5 min). As chaves dos funis ficam as de sempre (estados e pedidos guardados).
  */
 export const FUNIS = {
-  primeira: { nome: "Descrever a minha casa", passos: [0, 1, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
+  primeira: { nome: "Descrever a minha casa", passos: [0, 1, 3, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 3: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
   planta: { nome: "Pedir um serviço", passos: [0, 6, 10, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
 };
@@ -239,6 +241,8 @@ function reordenar(e, ordemAntes = ORDEM_10, funisAntes = FUNIS_10) {
   if (e.funil === "avaria" || !e.funil) return;
   const lim = ordemAntes.indexOf(e.visitado);
   const vistos = new Set(funisAntes[e.funil].filter((i) => ordemAntes.indexOf(i) <= lim));
+  // "Portas e janelas" (o passo 3, de volta ao funil logo a seguir a "A casa"): não prende quem já ia mais à frente.
+  if (vistos.has(PASSO.casa)) vistos.add(PASSO.planta);
   const seq = passosDoFunil(e.funil);
   let k = 0;
   while (k + 1 < seq.length && (vistos.has(seq[k + 1]) || PASSOS_NOVOS.includes(seq[k + 1]))) k++;
@@ -667,9 +671,7 @@ export function normalizarEstado(v) {
   if (de11) { reordenar(e, ORDEM_11, FUNIS_11); e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado)); }
   else if (!deAgora && !de12) reordenar(e);
   else e.relatoriosPorVer = PASSOS_NOVOS.filter((i) => lista(v.relatoriosPorVer, 2).includes(i) && ordemPasso(i) < ordemPasso(e.visitado));
-  // Estados de antes (reordenar): o mesmo — a Planta já não é passo, segue para o Quadro.
-  if (e.funil === "primeira" && e.passo === PASSO.planta) e.passo = PASSO.quadro;
-  if (e.funil === "primeira" && e.visitado === PASSO.planta) e.visitado = PASSO.quadro;
+  // (Decisão do dono, 2026-10-10: o passo 3 voltou ao funil como "Portas e janelas" — quem lá estava fica nele.)
   // O caminho segue o funil: automatizar/reparar só no "Já tenho a planta"; obras/carregar só na primeira vez. Um
   // estado de antes, já para lá do Início no "Já tenho a planta", fica com o do serviço.
   if (e.funil === "planta" && !["automatizar", "reparar", "quadro", "obras"].includes(e.caminho) && e.passo !== 0) e.caminho = e.servico.includes("nova") ? "obras" : e.servico.includes("automatizar") ? "automatizar" : "reparar";

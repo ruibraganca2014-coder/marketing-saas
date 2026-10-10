@@ -347,6 +347,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     acertarBotoesDivisao();
     barraDiv.classList.toggle("sem-permissao", !podeDivisoes);
     barra.classList.toggle("sem-permissao", !podeAparelhos);
+    // Só algumas peças (passo "Portas e janelas"): as outras ferramentas escondem-se.
+    for (const b of barra.children) b.hidden = !!soElementos && !soElementos.includes(b.dataset.ferramenta);
     barraMaq.classList.toggle("sem-permissao", !podeAparelhos || !podeMaquinas);
     for (const g of [barraDiv, barra, barraMaq]) g.hidden = g.classList.contains("sem-permissao") || !g.children.length;
     rovingFerramentas?.();
@@ -589,6 +591,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // Lote 8 (definirPermissoes): o que o passo deixa mudar. Divisões só em "A casa" e "Planta"; aparelhos escondidos em "A casa".
   let podeDivisoes = true;
   let podeAparelhos = true;
+  let soElementos = null;   // null = todas; ou a lista das peças que o passo deixa pôr (["porta", "janela", "quadro"])
   let podeMaquinas = true;   // false: a linha das ferramentas sem as máquinas (passo "Equipamentos": marcam-se nos cartões)
   // O duplo clique (duplo toque e toque longo) abre a janela / mexe nos cantos? No passo Planta não (decisão do dono,
   // 2026-10-04): aí arrasta-se; a janela continua no botão "Opções" e no Enter.
@@ -687,7 +690,9 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   const noPiso = (x) => pisoDe(x) === pisoAtual;
   const divisoesPiso = () => planta.divisoes.filter(noPiso);
   // Lote 8 (definirPermissoes): sem aparelhos (passo "A casa") eles ficam escondidos — não se veem nem se tocam.
-  const elementosPiso = () => (podeAparelhos ? planta.elementos.filter(noPiso) : []);
+  /** Passo "Portas e janelas": só essas peças se veem e se tocam (as outras continuam na planta, escondidas). */
+  const pecaDoPasso = (e) => !soElementos || soElementos.includes(e.tipo);
+  const elementosPiso = () => (podeAparelhos ? planta.elementos.filter((e) => noPiso(e) && pecaDoPasso(e)) : []);
   /** N.º de separadores: os pisos da casa e os que já têm divisões ou elementos (ex.: mudou para apartamento). */
   const nPisos = () => Math.min(MAX_PISO + 1, Math.max(pisosPedidos, ...(planta ? [...planta.divisoes, ...planta.elementos].map((x) => pisoDe(x) + 1) : [1])));
   function desenharSeparadores() {
@@ -2253,7 +2258,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (!planta) return;
     const { ppc, raio, raioToque, letra, pega } = tamanhos();
     // Lote 8: sem aparelhos (passo "A casa") desenha-se só as divisões; divisões presas sem as pegas dos cantos.
-    desenharPlanta(svg, podeAparelhos ? planta : { ...planta, elementos: [] }, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
+    desenharPlanta(svg, podeAparelhos ? (soElementos ? { ...planta, elementos: planta.elementos.filter(pecaDoPasso) } : planta) : { ...planta, elementos: [] }, { selecionado, vista: caixaVista(), raio, raioToque, letra, pega, piso: pisoAtual, pegas: podeDivisoes, acoes: acoesOmissao ? { omissao: acoesOmissao, ...acoesOpcoes } : null });
     const extra = (tag, atrs, estilo) => {
       const n = svgEl(tag);
       for (const [k, v] of Object.entries(atrs)) n.setAttribute(k, String(v));
@@ -2386,8 +2391,15 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * false: os aparelhos ficam escondidos (não apagados) e as ferramentas deles também. Mudar as permissões esquece o
      * anular/refazer (cada passo só anula o que ele próprio deixa fazer).
      */
-    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true, maquinas = true } = {}) {
+    definirPermissoes({ divisoes = true, aparelhos = true, duplo = true, maquinas = true, elementos = null } = {}) {
       podeDuplo = duplo;
+      if (String(elementos) !== String(soElementos)) {
+        soElementos = Array.isArray(elementos) ? elementos : null;
+        if (soElementos && modo?.tipo === "elemento" && !soElementos.includes(modo.el)) definirModo(null);
+        if (soElementos && planta && obterElemento(selecionado) && !pecaDoPasso(obterElemento(selecionado))) selecionado = null;
+        acertarBarra();
+        if (planta) desenharTudo();
+      }
       // `maquinas` false (passo "Equipamentos", decisão do dono 2026-10-10): as máquinas marcam-se nos cartões do passo
       // e saem da linha; ficam porta, janela, quadro, tomada, ponto de luz, interruptor e sensores. As que já estão na
       // planta continuam lá e mexem-se.
