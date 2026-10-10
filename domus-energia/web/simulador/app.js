@@ -410,7 +410,8 @@ function irPara(i, { foco = true } = {}) {
   const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
   mostrarPasso(foco);
   if (porVerAoEntrar) mostrarNaPlanta(porVerAoEntrar);
-  if (estado.passo === P.tomadas && estado.passo !== de) porLuzesEmFalta();
+  // (Também nos passos seguintes: uma divisão acrescentada mais tarde em "A casa", ou um salto pela barra, não escapa.)
+  if (estado.passo !== de && sequencia().includes(P.tomadas) && ordemPasso(estado.passo) >= ordemPasso(P.tomadas)) porLuzesEmFalta();
   // "Portas e janelas" (decisão do dono, 2026-10-10): ao entrar carrega-se no "Ajustar" — a folha (2× no passo "A casa")
   // volta ao tamanho das divisões e a casa fica centrada.
   if (estado.passo === P.planta && estado.passo !== de && editor.planta === estado.planta) editor.ajustar();

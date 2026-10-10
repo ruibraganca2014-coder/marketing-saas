@@ -2129,6 +2129,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     memorizar();
     const dx = e.x_cm + 50 <= planta.largura_cm ? 50 : -50;
     const c = { ...structuredClone(e), id: novoId("e", planta.elementos), x_cm: limitar(e.x_cm + dx, 0, planta.largura_cm) };
+    // Uma peça de parede fica na parede: 50 cm ao lado, ao longo dela (numa parede vertical, para baixo ou para cima).
+    if (PECAS_PAREDE.includes(e.tipo)) {
+      for (const [ox, oy] of [[dx, 0], [0, 50], [0, -50], [-dx, 0]]) {
+        const [x, y] = sitioDaPeca(e.tipo, e.x_cm + ox, e.y_cm + oy);
+        if (Math.hypot(x - e.x_cm, y - e.y_cm) >= 20) { c.x_cm = x; c.y_cm = y; break; }
+      }
+    }
     delete c.confirmado;   // a cópia fica por responder no inventário das Divisões
     planta.elementos.push(c);   // fica na divisão do original enquanto lá couber (confirmar: atualizarDivisoes manter)
     selecionado = c.id;
