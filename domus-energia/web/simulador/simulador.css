@@ -885,6 +885,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 /* Ícone ao lado do texto, o conjunto centrado no cartão na horizontal e na vertical (decisão do dono, 2026-10-10). */
 .quadro-idade .escolha.com-icone { justify-content: center; align-items: center; }
 .quadro-idade .escolha.com-icone > span { grid-template-columns: 44px auto; width: auto; max-width: 100%; align-content: center; }
+/* O texto a meio da altura do ícone (o ícone ocupava duas linhas e o texto ficava na de cima). */
+.quadro-idade .escolha.com-icone > span { display: flex; align-items: center; gap: 12px; }
+.quadro-idade .escolha.com-icone .escolha-icone { flex: none; }
 .quadro-guia { display: grid; gap: 12px; align-content: start; padding: 16px; order: -1; }
 .quadro-guia h3 { margin: 0; font-size: 1.15rem; }
 .quadro-guia p { margin: 0; }
@@ -914,3 +917,7 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-planta-sitio p { flex: 1 1 16em; margin: 0; }
 .sim-planta-sitio small { flex-basis: 100%; }
 .editor-svg.a-seguir { cursor: grabbing; }
+
+/* Equipamentos: com um por confirmar na planta, os outros cartões ficam apagados (app.js acertarCartoesSitio). */
+.quer-item.em-espera { opacity: .45; }
+.quer-item.em-espera .escolha { cursor: not-allowed; }

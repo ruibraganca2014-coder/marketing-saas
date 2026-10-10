@@ -1489,7 +1489,31 @@ function sitiosPendentes() {
 }
 const nomeSitio = (k) => (k === "outro" ? "Outro equipamento" : MODELOS[k].nome);
 /** A caixa por cima da planta: o primeiro por confirmar, a piscar na planta, e "Está bem aqui". */
+/**
+ * Um de cada vez (decisão do dono, 2026-10-10): com um equipamento por confirmar, os outros cartões e os "+" ficam
+ * apagados; o dele continua a poder ser desmarcado. Voltam quando o equipamento é largado na planta.
+ */
+function acertarCartoesSitio() {
+  const pend = estado.passo === P.quer && !enviado ? sitiosPendentes().filter((x) => x.piso === pisoQuer) : [];
+  const deles = new Set(pend.map((x) => x.k));
+  for (const item of document.querySelectorAll("#passo-2 .quer-item")) {
+    const k = item.dataset.maquina;
+    const espera = pend.length > 0 && !deles.has(k);
+    item.classList.toggle("em-espera", espera);
+    const i = item.querySelector("input[type=checkbox]");
+    if (i) i.disabled = espera;
+    const mais = $(`quer-qtd-${k}-mais`);
+    if (mais) mais.disabled = pend.length > 0 || quantidadeNoPiso(estado.quer, k, pisoQuer) >= MAX_QUANTIDADE;
+  }
+}
+/** Acabou de marcar um equipamento: a planta já com ele, à vista (no telemóvel abre por cima), e a pergunta do sítio. */
+function mostrarSitio(origem) {
+  atualizarPlanta();
+  if (!ecraLargo.matches && sitiosPendentes().length) abrirPlanta(origem);
+  desenharSitio();
+}
 function desenharSitio() {
+  acertarCartoesSitio();
   const caixa = $("planta-sitio");
   const pend = estado.passo === P.quer && !enviado && (ecraLargo.matches || plantaAberta()) ? sitiosPendentes() : [];
   const p = pend.find((x) => x.el);
@@ -1574,6 +1598,7 @@ function desenharQuer() {
       desenharExtraQuer(k);
       desenharPisosQuer();
       agendarGravacao();
+      mostrarSitio($(`quer-extra-${k}`)?.parentElement.querySelector("input"));
     };
     const maquina = (lista) => (k) => {
       const caixaM = el("div", "quer-item");
@@ -1709,6 +1734,7 @@ function desenharExtraQuer(k) {
       agendarGravacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
+      mostrarSitio($(`quer-qtd-${k}-menos`));
       // No mínimo (1) ou no máximo o botão carregado fica desativado: o foco passa para o outro (não cai no body).
       const mesmo = $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`);
       (mesmo && !mesmo.disabled ? mesmo : $(`quer-qtd-${k}-${d > 0 ? "menos" : "mais"}`))?.focus();
