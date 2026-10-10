@@ -203,11 +203,10 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
     const irPara = (m) => { emailRepor = email.i.value.trim() || emailRepor; modo = m; mensagem(null); desenhar(); focar(); };
     /** Pede o código para `e` ("criar" cria a conta se não existe; "codigo" só para contas que existem) e passa ao código. */
     const pedirCodigo = async (e, origem) => {
-      const r = await pedirConta(origem, { corpo: { email: e } });
+      await pedirConta(origem, { corpo: { email: e } });
       pendente = { email: e, origem };
       modo = "codigo";
       desenhar();
-      mensagem(r?.mensagem ?? "Enviámos um código para o email.", "info");
       document.getElementById(id("codigo"))?.focus();
     };
     if (modo === "criar") {
@@ -221,7 +220,6 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
           pendente = { email: e, origem: "criar" };
           modo = "codigo";
           desenhar();
-          mensagem(r.mensagem ?? "Enviámos um código para o email.", "info");
           document.getElementById(id("codigo"))?.focus();
           return;
         }

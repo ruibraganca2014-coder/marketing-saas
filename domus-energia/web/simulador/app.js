@@ -436,8 +436,18 @@ function mostrarPasso(foco = true) {
   }
 }
 
+/** Numa avaria a página não é "Simular orçamento" (o cliente quer ajuda, não um orçamento). */
+function atualizarTitulo() {
+  const titulo = funilAvaria() ? "Pedir ajuda para uma avaria" : "Simular orçamento";
+  document.title = `${titulo} | Domus Energia`;
+  const h1 = document.querySelector(".sim-cabecalho h1");
+  if (h1 && h1.textContent !== titulo) h1.textContent = titulo;
+}
 function textoSeguinte() {
   $("sim-seguinte").textContent = estado.passo === P.enviar ? TEXTO_ENVIAR : fimDaParteCasa() ? "Concluir" : "Seguinte";
+  atualizarTitulo();
+  // 3. No Relatório ainda fechado (falta a conta), o "Concluir" não aparece ao lado do "Continuar" da conta.
+  $("sim-seguinte").hidden = estado.passo === P.relatorio && relatorioFechado();
 }
 /** Duas partes (2026-10-04): o Relatório é o último passo de "Descrever a minha casa". */
 const fimDaParteCasa = () => estado.passo === P.relatorio && funil() === "primeira";
@@ -658,6 +668,7 @@ function escolherFunil(k) {
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharInicio();
   desenharProgresso();
+  atualizarTitulo();
   agendarGravacao();
 }
 /**
@@ -4485,7 +4496,7 @@ const blocoConta = criarBlocoConta($("enviar-conta-bloco"), {
  */
 const blocoContaRelatorio = criarBlocoConta($("relatorio-conta-bloco"), {
   prefixo: "conta-rel",
-  texto: { fora: "É grátis. Só o email: a sua casa fica guardada na conta, para a ver noutro aparelho e pedir serviços sem a descrever outra vez. Não o contactamos por isto." },
+  texto: { fora: "É grátis: a sua casa fica guardada na conta, para a ver noutro aparelho e pedir serviços sem a descrever outra vez. Não o contactamos por isto." },
   aoMudar: () => { blocoConta.atualizar(); },
 });
 const relatorioFechado = () => funil() === "primeira" && !contaEu?.conta?.confirmado;
@@ -4494,6 +4505,7 @@ function portaoRelatorio() {
   const fechado = relatorioFechado();
   $("relatorio-conta").hidden = !fechado;
   $("relatorio-conteudo").hidden = fechado;
+  if (estado.passo === P.relatorio) $("sim-seguinte").hidden = fechado;   // o "Concluir" volta ao entrar na conta
   if (portaoEstavaFechado && !fechado && estado.passo === P.relatorio) focar(`titulo-${P.relatorio}`);
   portaoEstavaFechado = fechado;
 }
@@ -4774,6 +4786,11 @@ function precoVisita() {
   if (d.estado !== "estimada") return null;
   return cent((d.valor_iva ?? 0) + VISITA_HORAS * valorConfig("tarifa_hora_iva"));
 }
+/** "deslocação 46,40 € + 30 min no local 17,50 €": de onde vem o preço da visita (a estimativa só mostra a deslocação). */
+function partesVisita() {
+  const d = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
+  return `deslocação ${formatarEuro(d.valor_iva ?? 0)} + 30 min no local ${formatarEuro(cent(VISITA_HORAS * valorConfig("tarifa_hora_iva")))}`;
+}
 /** A localidade escrita não é um concelho da lista (deslocação "visita"): sem visita técnica até escolher um. */
 const semConcelho = () => calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "visita";
 /** Compras no passo Enviar: com os pagamentos ligados e fora da avaria (lá o diagnóstico já inclui a visita). */
@@ -4789,7 +4806,8 @@ const chaveCompra = (c) => (c.relatorio ? (c.visita ? "pormenorizado_visita" : "
 function textoBotaoEnviar() {
   if (funilAvaria()) {
     if (!pagamentosAtivos || foraDaArea()) return "Enviar pedido";
-    const t = calcular().preco.total;
+    const { total: t, deslocacao: d } = calcular().preco;
+    if (t !== null && d?.estado === "sem_localidade") return `Pagar ${formatarEuro(t)} + deslocação e enviar`;
     return t !== null ? `Pagar ${formatarEuro(t)} e enviar` : "Pagar e enviar";
   }
   const c = compraEfetiva();
@@ -4860,8 +4878,8 @@ function desenharCompras() {
     basico: ["Só o relatório básico (grátis)", "Estimativa e lista do trabalho, logo na conta."],
     pormenorizado: [`Relatório completo: ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
     pormenorizado_visita: [`Relatório completo e visita: ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
-      pv ? `Relatório ${pr} + visita ${pv} (deslocação e 30 min).` : semVisita],
-    visita: [`Só a visita técnica${pv ? `: ${pv}` : ""}`, pv ? "Deslocação e 30 min no local." : semVisita],
+      pv ? `Relatório ${pr} + visita ${pv} (${partesVisita()}).` : semVisita],
+    visita: [`Só a visita técnica${pv ? `: ${pv}` : ""}`, pv ? `${partesVisita()[0].toUpperCase()}${partesVisita().slice(1)}.` : semVisita],
   };
   const atual = chaveCompra(compraEfetiva());
   for (const l of $("enviar-compras-opcoes").children) {

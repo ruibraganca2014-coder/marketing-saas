@@ -927,7 +927,7 @@ function atualizar(id, comResumo = true) {
       else if (m.semNoticias) {
         ligacao = `Sem notícias há ${Math.floor((agora - m.ultimaNoticia) / 3600_000)} h`;
         k.detalhes.classList.add("aviso");
-      } else ligacao = `Última notícia ${E.tempoRelativo(m.ultimaNoticia, agora)}`;
+      } else ligacao = `Último sinal ${E.tempoRelativo(m.ultimaNoticia, agora)}`;
     } else ligacao = m.online ? "Online" : "Offline";
     k.detalhes.textContent = [
       ligacao,
