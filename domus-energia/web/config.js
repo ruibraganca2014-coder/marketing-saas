@@ -32,6 +32,12 @@ window.DOMUS = {
   // e cada pedido vai marcado (`simulacao.lista_espera`). `arranque` é o texto que o cliente lê. Para abrir: ativa: false.
   listaEspera: { ativa: true, arranque: "setembro de 2027" },
 
+  // Parceria com um agente de seguros (decisão do dono, 2026-10-10): secção "Seguro Multirriscos" na página inicial e a
+  // opção "Seguro Multirriscos" no formulário "Pedir contacto". A Domus só passa o contacto ao agente, com o acordo do
+  // cliente; não vende nem aconselha seguros. Desligado até haver agente. `agente` e `mediador` (n.º na ASF) são
+  // opcionais: preenchidos, aparecem na secção.
+  seguros: { ativo: false, agente: "", mediador: "" },
+
   // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {

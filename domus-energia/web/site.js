@@ -106,6 +106,26 @@ if (cfg.listaEspera?.ativa) {
 
 // Formulário de orçamento → POST /api/orcamento (servidor do painel da empresa, docs/PAINEL-EMPRESA.md §3).
 const form = document.getElementById("form-orcamento");
+
+// Seguro Multirriscos com um agente parceiro (config.js `seguros`; decisão do dono, 2026-10-10): a secção, a opção no
+// formulário e a frase do acordo (o contacto só passa ao agente com ela à vista).
+{
+  const seccao = document.getElementById("seguros");
+  const servico = form?.elements.servico;
+  if (cfg.seguros?.ativo && seccao && servico) {
+    const SEGURO = "Seguro Multirriscos";
+    servico.insertBefore(new Option(SEGURO), servico.options[servico.options.length - 1]);
+    const acordo = document.getElementById("seguros-acordo");
+    const mostrarAcordo = () => { acordo.hidden = servico.value !== SEGURO; };
+    servico.addEventListener("change", mostrarAcordo);
+    form.addEventListener("reset", () => { acordo.hidden = true; });
+    document.getElementById("seguros-botao").addEventListener("click", () => { servico.value = SEGURO; mostrarAcordo(); });
+    const agente = String(cfg.seguros.agente ?? "").trim();
+    const mediador = String(cfg.seguros.mediador ?? "").trim();
+    if (agente) document.getElementById("seguros-agente").textContent = ` Agente parceiro: ${agente}${mediador ? `, mediador de seguros n.º ${mediador} na ASF` : ""}.`;
+    seccao.hidden = false;
+  }
+}
 const msg = document.getElementById("form-msg");
 // Pedido de contacto SEM simulação: não precisa de conta de cliente (só o simulador a exige). Com DOMUS.apiBase
 // (site no Vercel) vai para o painel noutro endereço (CORS em SITE_ORIGENS, docs/CONTA-CLIENTE.md).
