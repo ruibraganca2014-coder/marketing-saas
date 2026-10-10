@@ -882,6 +882,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .quadro-idade h3 { margin: 0; font-size: 1.15rem; }
 .quadro-idade p { margin: 0; font-size: .92rem; }
 .quadro-idade .escolhas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Ícone ao lado do texto, o conjunto centrado no cartão na horizontal e na vertical (decisão do dono, 2026-10-10). */
+.quadro-idade .escolha.com-icone { justify-content: center; align-items: center; }
+.quadro-idade .escolha.com-icone > span { grid-template-columns: 44px auto; width: auto; max-width: 100%; align-content: center; }
 .quadro-guia { display: grid; gap: 12px; align-content: start; padding: 16px; order: -1; }
 .quadro-guia h3 { margin: 0; font-size: 1.15rem; }
 .quadro-guia p { margin: 0; }
