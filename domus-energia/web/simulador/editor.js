@@ -963,46 +963,31 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
    * janelas têm tolerância: regras.js TIPOS_PAREDE). Outras peças, ou planta sem divisões: o ponto ajustado à grelha.
    */
   const PECAS_PAREDE = ["porta", "janela", "quadro", "interruptor", "tomada"];
-  /** Quanto fica para dentro da divisão (cm): o quadro, o interruptor e a tomada estão na face de dentro da parede. */
-  const DENTRO_CM = { quadro: 5, interruptor: 10, tomada: 10 };
+  /**
+   * O quadro, o interruptor e a tomada são de uma divisão (a face de dentro da parede). Decisão do dono (2026-10-10,
+   * que corrigiu os 5 a 10 cm para dentro do mesmo dia): o centro fica em cima da linha, como as portas e as janelas;
+   * a divisão é aquela onde o rato está (`salaDoSitio`; numa parede partilhada, o lado de quem a pôs) e a peça conta
+   * nela pela tolerância de regras.js TIPOS_PAREDE.
+   */
+  const FACE_DE_DENTRO = ["quadro", "interruptor", "tomada"];
+  let salaDoSitio = null;   // a divisão (id) onde o rato estava no último sitioDaPeca de uma peça da face de dentro
   function sitioDaPeca(tipo, x, y) {
     const livre = () => [limitar(ajustar(x, PASSO_ELEMENTO), 0, planta.largura_cm), limitar(ajustar(y, PASSO_ELEMENTO), 0, planta.altura_cm)];
+    salaDoSitio = null;
     if (!PECAS_PAREDE.includes(tipo)) return livre();
     let q = null, melhor = Infinity, sala = null;
-    // As peças da face de dentro ficam na divisão onde o rato está (numa parede partilhada, do lado de quem a pôs).
-    const dentroDe = DENTRO_CM[tipo] ? divisoesPiso().filter((d) => pontoEmPoligono(x, y, pontosDivisao(d))) : [];
+    const dentroDe = FACE_DE_DENTRO.includes(tipo) ? divisoesPiso().filter((d) => pontoEmPoligono(x, y, pontosDivisao(d))) : [];
     for (const d of dentroDe.length ? dentroDe : divisoesPiso()) {
       const pts = pontosDivisao(d);
       pts.forEach((a, i) => {
         const b = pts[(i + 1) % pts.length];
         const r = distanciaSegmento(x, y, a, b);
-        if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; sala = pts; }
+        if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; sala = d.id; }
       });
     }
     if (!q) return livre();
-    if (DENTRO_CM[tipo]) {
-      const c = pontoInterior(sala);
-      const k = DENTRO_CM[tipo];
-      // Perpendicular à parede, para o lado de dentro (o lado do ponto interior da divisão).
-      const dentro = paraDentro(sala, q, k, c);
-      if (pontoEmPoligono(dentro[0], dentro[1], sala)) q = dentro;
-    }
+    if (dentroDe.length) salaDoSitio = sala;
     return [limitar(Math.round(q[0]), 0, planta.largura_cm), limitar(Math.round(q[1]), 0, planta.altura_cm)];
-  }
-  /** O ponto `q` de uma parede de `pts`, `k` cm para dentro da divisão, na perpendicular a essa parede. */
-  function paraDentro(pts, q, k, c) {
-    let n = null, melhor = Infinity;
-    pts.forEach((a, i) => {
-      const b = pts[(i + 1) % pts.length];
-      const r = distanciaSegmento(q[0], q[1], a, b);
-      if (r.dist < melhor) { melhor = r.dist; const vx = b[0] - a[0], vy = b[1] - a[1], l = Math.hypot(vx, vy) || 1; n = [-vy / l, vx / l]; }
-    });
-    if (!n) return q;
-    const p1 = [q[0] + n[0] * k, q[1] + n[1] * k], p2 = [q[0] - n[0] * k, q[1] - n[1] * k];
-    if (pontoEmPoligono(p1[0], p1[1], pts)) return p1;
-    if (pontoEmPoligono(p2[0], p2[1], pts)) return p2;
-    const dx = c[0] - q[0], dy = c[1] - q[1], l = Math.hypot(dx, dy) || 1;
-    return [q[0] + (dx / l) * k, q[1] + (dy / l) * k];
   }
   function adicionarElemento(tipo, x, y, modelo = null) {
     if (!podeAparelhos) return null;
@@ -1024,7 +1009,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (tipo === "porta" && !planta.elementos.some((x) => x.tipo === "porta")) e.props = { ...e.props, entrada: true };
     planta.elementos.push(e);
     // Numa zona sobreposta: a divisão selecionada (ex.: "+" do passo Divisões); sem ela, a desenhada por cima.
-    e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? divisaoDoElemento(planta, e);
+    e.divisao = selecionadaEm(e.x_cm, e.y_cm)?.id ?? salaDoSitio ?? divisaoDoElemento(planta, e);
     selecionado = e.id;
     const onde = e.divisao ? `divisão ${obterDivisao(e.divisao)?.nome || "sem nome"}` : "fora das divisões: arraste-o para dentro";
     confirmar(`Na planta: ${nomeFerramenta(tipo, modelo)} (${onde}).`);
@@ -1551,6 +1536,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       case "elemento":
         if (inicio) memorizar();
         [arrasto.e.x_cm, arrasto.e.y_cm] = sitioDaPeca(arrasto.e.tipo, arrasto.x0 + dx, arrasto.y0 + dy);
+        if (salaDoSitio) arrasto.e.divisao = salaDoSitio;   // em cima da linha: a divisão é a do lado onde o rato está
         desenhar();
         break;
       case "divisao": {
@@ -2434,12 +2420,36 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     },
     redesenhar: () => desenharTudo(),
     /** O botão "Ajustar" sem mensagem nem anular: a folha volta ao tamanho das divisões e a vista mostra-as todas. */
-    ajustar() {
+    ajustar({ dobro = false } = {}) {
       if (!planta) return;
       delete planta.tamanho_fixo;
       ajustarFolha();
+      // Passo "A casa" (decisão do dono, 2026-10-10): a cada escolha a folha fica com o dobro do tamanho das divisões,
+      // como o botão "2×" (espaço para as arrastar e acrescentar).
+      if (dobro && planta.divisoes.length) {
+        planta.largura_cm = limitar(Math.ceil((planta.largura_cm * 2) / ESCALA_CM) * ESCALA_CM, 100, MAX_LADO_CM);
+        planta.altura_cm = limitar(Math.ceil((planta.altura_cm * 2) / ESCALA_CM) * ESCALA_CM, 100, MAX_LADO_CM);
+        planta.tamanho_fixo = true;
+      }
       verTudo();
       desenharTudo();
+    },
+    /**
+     * Passo "Interruptores e tomadas" (decisão do dono, 2026-10-10): um `tipo` (o ponto de luz) ao centro de cada
+     * divisão de `divisoes` (ids), num só passo de anular. Devolve quantos pôs.
+     */
+    porNoCentro(tipo, divisoes) {
+      if (!planta || !ELEMENTOS[tipo]) return 0;
+      const alvo = divisoes.map(obterDivisao).filter(Boolean).slice(0, Math.max(0, MAX_ELEMENTOS - planta.elementos.length));
+      if (!alvo.length) return 0;
+      memorizar();
+      for (const d of alvo) {
+        const [x, y] = pontoInterior(pontosDivisao(d));
+        planta.elementos.push({ id: novoId("e", planta.elementos), tipo, x_cm: Math.round(x), y_cm: Math.round(y), rot: 0, piso: pisoDe(d), divisao: d.id, props: propsOmissao(tipo, null) });
+      }
+      confirmar(alvo.length === 1 ? `Pusemos um ${ELEMENTOS[tipo].nome.toLowerCase()} ao centro de ${alvo[0].nome || "uma divisão"}: arraste-o para o sítio certo.`
+        : `Pusemos um ${ELEMENTOS[tipo].nome.toLowerCase()} ao centro de cada divisão (${alvo.length}): arraste cada um para o sítio certo.`);
+      return alvo.length;
     },
     /** Ronda A: ajusta e centra a vista na planta (o "Ver tudo"): ao abrir uma planta guardada, ao mudar de passo… */
     verTudo() {

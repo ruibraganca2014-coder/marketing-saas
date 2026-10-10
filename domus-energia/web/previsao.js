@@ -55,7 +55,7 @@ export function textoInventario(i) {
 
 /** Tipos de aparelho da planta que entram no resumo de uma divisão (a porta é só desenho): [tipo, singular, plural]. */
 const TIPOS_NA_PLANTA = [["interruptor", "interruptor", "interruptores"], ["tomada", "tomada", "tomadas"], ["luz", "ponto de luz", "pontos de luz"],
-  ["janela", "janela", "janelas"], ["sensor_movimento", "sensor de movimento", "sensores de movimento"],
+  ["porta", "porta", "portas"], ["janela", "janela", "janelas"], ["sensor_movimento", "sensor de movimento", "sensores de movimento"],
   ["sensor_porta", "sensor de porta ou janela", "sensores de porta ou janela"], ["maquina", "máquina ou aparelho", "máquinas e aparelhos"],
   ["quadro", "quadro elétrico", "quadros elétricos"]];
 /**
@@ -63,9 +63,9 @@ const TIPOS_NA_PLANTA = [["interruptor", "interruptor", "interruptores"], ["toma
  * "Divisões" não trazem as respostas, e a lista tem de bater com o desenho): "1 interruptor · 3 tomadas · 2 máquinas e
  * aparelhos"; null sem nada desenhado.
  */
-export function textoDaPlanta(planta, divisaoId) {
+export function textoDaPlanta(planta, divisaoId, { sem = [] } = {}) {
   const els = (Array.isArray(planta?.elementos) ? planta.elementos : []).filter((e) => e?.divisao === divisaoId);
-  const partes = TIPOS_NA_PLANTA.map(([tipo, um, varios]) => {
+  const partes = TIPOS_NA_PLANTA.filter(([tipo]) => !sem.includes(tipo)).map(([tipo, um, varios]) => {
     const doTipo = els.filter((e) => e.tipo === tipo);
     if (!doTipo.length) return null;
     // As máquinas pelo nome (o servidor manda-o: "Forno", "Placa de cozinha"), quando todas o têm e são poucas.
@@ -85,9 +85,16 @@ export function divisoesDaPrevisao(planta, inventario = null) {
   if (!temPlanta(planta)) return [];
   const piso = (d) => { const n = Math.round(Number(d?.piso)); return Number.isFinite(n) && n > 0 ? n : 0; };
   const inv = new Map((Array.isArray(inventario) ? inventario : []).map((x) => [x?.divisao, x]));
+  // Decisão do dono (2026-10-10): tudo o que está na planta. Com as respostas do inventário, os interruptores e as
+  // tomadas vêm delas (botões, simples/dupla) e o resto (pontos de luz, portas, janelas, quadro, equipamentos) do desenho.
+  const texto = (d) => {
+    const respostas = textoInventario(inv.get(d.id));
+    if (!respostas) return textoDaPlanta(planta, d.id) ?? "Sem aparelhos desenhados.";
+    const resto = textoDaPlanta(planta, d.id, { sem: ["interruptor", "tomada"] });
+    return resto ? `${respostas} · ${resto}` : respostas;
+  };
   return [...planta.divisoes].sort((a, b) => piso(a) - piso(b)).map((d) => ({
-    id: d.id, nome: String(d.nome ?? "").trim() || "Divisão", piso: piso(d),
-    texto: textoInventario(inv.get(d.id)) ?? textoDaPlanta(planta, d.id) ?? "Sem aparelhos desenhados.",
+    id: d.id, nome: String(d.nome ?? "").trim() || "Divisão", piso: piso(d), texto: texto(d),
   }));
 }
 

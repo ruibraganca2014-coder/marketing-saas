@@ -394,8 +394,28 @@ function irPara(i, { foco = true } = {}) {
   const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
   mostrarPasso(foco);
   if (porVerAoEntrar) mostrarNaPlanta(porVerAoEntrar);
+  if (estado.passo === P.tomadas && estado.passo !== de) porLuzesEmFalta();
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
+}
+/**
+ * Ponto de luz obrigatório (decisão do dono, 2026-10-10): cada divisão de dentro tem pelo menos um. As de fora (jardim,
+ * exterior, varanda/terraço) ficam livres. Ao chegar a "Interruptores e tomadas", as que não têm ganham um ao centro
+ * (o cliente arrasta-o ou acrescenta mais); sem ele, o "Seguinte" não avança.
+ */
+const semLuz = () => estado.planta.divisoes.filter((d) => !["jardim", "varanda"].includes(tipoDivisao(d.nome))
+  && !estado.planta.elementos.some((e) => e.tipo === "luz" && e.divisao === d.id));
+function porLuzesEmFalta() {
+  const falta = semLuz();
+  if (!falta.length || enviado || editor.planta !== estado.planta) return;
+  editor.porNoCentro("luz", falta.map((d) => d.id));
+}
+function bloquearLuz() {
+  const falta = semLuz();
+  if (!falta.length) return false;
+  if (!ecraLargo.matches) abrirPlanta($("sim-seguinte"));
+  assinalar($("editor"), `Falta um ponto de luz em: ${listaPt(falta.map((d) => d.nome || "Divisão"))}. Escolha "Ponto de luz" e toque na divisão.`);
+  return true;
 }
 
 /** A planta não se vê no Início (o caso ainda não está escolhido) nem na avaria rápida (sem planta). */
@@ -530,6 +550,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.casa && confirmarCasa()) return;
   if (estado.passo === P.quadro && bloquearQuadro()) return;   // a foto do quadro é obrigatória
   if (estado.passo === P.quer && bloquearSitios()) return;     // o sítio de cada equipamento confirmado na planta
+  if (estado.passo === P.tomadas && bloquearLuz()) return;     // um ponto de luz em cada divisão de dentro
   // Para lá das Divisões com o inventário por responder (um estado de antes da regra): volta a elas.
   if (estado.passo !== P.divisoes && bloquearInventario(passoAo(estado.passo, 1))) return;
   // Divisões e "Trocar e reparar": primeiro a divisão seguinte ainda por responder / por ver (divisão a divisão).
@@ -1932,7 +1953,7 @@ function atualizarPlanta() {
   if (n !== pisosEditor) { pisosEditor = n; editor.definirPisos(n); }
   if (editor.planta !== estado.planta) editor.abrir(estado.planta, { reiniciarVista: true });
   // "A casa" (decisão do dono): cada mudança à esquerda que mexe na planta carrega também no "Ajustar".
-  if (redesenhada && estado.passo === P.casa) editor.ajustar();
+  if (redesenhada && estado.passo === P.casa) editor.ajustar({ dobro: true });   // (2026-10-10: e a folha fica 2×)
   plantaAutoJson = estado.plantaAuto ? JSON.stringify(estado.planta) : plantaAutoJson;
   desenharPlantaOrigem();
   desenharPlantaVazia();
@@ -2691,6 +2712,7 @@ function responderInventario(d, id, mudar, focoId) {
   if (!garantirPlanta()) return;
   const e = elementoDoEstado(id);
   if (!e) return;
+  const primeiraResposta = e.confirmado !== true;
   mudar(e);
   e.confirmado = true;
   estado.plantaAuto = false;   // o cliente mexeu na planta: não a redesenhamos sozinhos
@@ -2701,7 +2723,27 @@ function responderInventario(d, id, mudar, focoId) {
   agendarGravacao();
   desenharDivisoes();
   desenharEstimativaProvisoria();
-  focar(focoId);
+  // Decisão do dono (2026-10-10): respondida uma, passa sozinho à próxima por responder (destacada na lista e na
+  // planta); acabada a divisão, à divisão seguinte com alguma por responder. Mudar uma resposta já dada não salta.
+  const prox = primeiraResposta ? proximaPorResponder(d) : null;
+  if (!prox) { focar(focoId); return; }
+  if (prox.d.id !== d.id) escolherDivisao(prox.d.id);
+  // Primeiro o foco (o cartão, ao receber o foco, seleciona a divisão na planta); depois a peça, que fica selecionada.
+  const li = [...document.querySelectorAll("#divisoes .inventario-item")].find((x) => x.dataset.elemento === prox.e.id);
+  (li?.querySelector(".inventario-opcoes button") ?? $(focoId))?.focus({ preventScroll: true });
+  doCartao = true;
+  editor.focarElemento(prox.e.id);
+  doCartao = false;
+  marcarLinhaInventario(prox.e.id, true);
+}
+/** A próxima tomada ou interruptor por responder: nesta divisão; senão na divisão seguinte (pela ordem dos separadores) que tenha alguma. */
+function proximaPorResponder(d) {
+  const planta = plantaDivisoes();
+  const primeira = (x) => { const inv = inventarioDivisao(estado, planta, x); for (const t of TIPOS_INVENTARIO) { const e = inv[t].els.find((y) => y.confirmado !== true); if (e) return e; } return null; };
+  const ordem = divisoesPorOrdem(planta);
+  const i = Math.max(0, ordem.findIndex((x) => x.id === d.id));
+  for (const x of [...ordem.slice(i), ...ordem.slice(0, i)]) { const e = primeira(x); if (e) return { d: x, e }; }
+  return null;
 }
 
 /**
@@ -3307,7 +3349,8 @@ function blocoInventario(d, tipo, { els, falta, sem, respondido }) {
   g.append(el("p", "ajuda", `${I.pergunta}${tipo === "tomada" ? " Marque \"Inteligente\" nas que já se comandam pelo telemóvel." : " Marque \"Inteligente\" nos que já se comandam pelo telemóvel."}`));
   const ul = el("ul", "inventario-itens");
   els.forEach((e, i) => {
-    const li = el("li", `inventario-item${e.confirmado === true ? "" : " por-responder"}`);
+    const li = el("li", `inventario-item${e.confirmado === true ? "" : " por-responder"}${e.id === aparelhoTocado ? " na-planta" : ""}`);
+    li.dataset.elemento = e.id;
     const nome = n > 1 ? `${I.um} ${i + 1}` : I.um;
     const rot = el("button", "inventario-nome", nome);
     rot.type = "button";
@@ -3937,9 +3980,19 @@ function desenharQuadroTrocar() {
 let aparelhoTocado = null;
 function aoTocarAparelho(id) {
   aparelhoTocado = id;
+  // "Divisões" (decisão do dono, 2026-10-10): a tomada ou o interruptor tocado na planta fica destacado na lista (o
+  // separador da divisão dele já mudou: destacarCartao) e a lista desliza até ele.
+  if (estado.passo === P.divisoes) { marcarLinhaInventario(id, ecraLargo.matches && !doCartao); return; }
   if (estado.passo !== P.trocar) return;
   desenharAcaoPlanta();
   marcarLinhaTocada(id, ecraLargo.matches);
+}
+function marcarLinhaInventario(id, rolar) {
+  for (const x of document.querySelectorAll("#divisoes .inventario-item.na-planta")) x.classList.remove("na-planta");
+  const li = id ? [...document.querySelectorAll("#divisoes .inventario-item")].find((x) => x.dataset.elemento === id) : null;
+  if (!li) return;
+  li.classList.add("na-planta");
+  if (rolar) li.scrollIntoView({ block: "nearest", behavior: reduzido() ? "auto" : "smooth" });
 }
 function marcarLinhaTocada(id, rolar) {
   for (const x of document.querySelectorAll("#trocar .aparelho.na-planta")) x.classList.remove("na-planta");

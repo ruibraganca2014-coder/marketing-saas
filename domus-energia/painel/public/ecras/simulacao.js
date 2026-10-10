@@ -230,7 +230,7 @@ export function divisaoDoElemento(planta, e) {
   const divs = arr(planta?.divisoes).filter((d) => d && typeof d === "object" && pisoDe(d) === piso);
   let r = null;
   for (const d of divs) if (distanciaDivisao(d, x, y) === 0) r = d.id;
-  if (r != null || !["porta", "janela", "sensor_porta"].includes(e?.tipo)) return r;
+  if (r != null || !["porta", "janela", "sensor_porta", "quadro", "interruptor", "tomada"].includes(e?.tipo)) return r;
   let melhor = TOLERANCIA_PORTA_CM;
   for (const d of divs) {
     const dist = distanciaDivisao(d, x, y);

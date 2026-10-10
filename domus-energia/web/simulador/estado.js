@@ -8,6 +8,7 @@ import {
   perfilCasa, maquinasGrandesDe, maquinasPequenasDe, objetivosDe, sugerirFases, codigoCircuito, seccaoCabo,
   TIPOS_COM_PISOS, MAX_PISO, ALTURA_MAX_CM, pisoDe, alturaTipica, temPergunta, porResponderAntigo, FIM_AVISO, FIM_AVISO_FORA,
   comandoDe, caixasDe,
+  colarNaParede,
 } from "./regras.js";
 import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente, perguntaMedicao } from "./acoes.js";
@@ -533,7 +534,8 @@ export function normalizarPlanta(p, { pisosAntigos = false } = {}) {
   // cima não lhe tira os aparelhos); senão, a que o contém (regras.js atualizarDivisoes).
   atualizarDivisoes(r, { manter: true });
   if (pisosAntigos) migrarPisos(r);
-  return atualizarDivisoes(r, { manter: true });
+  atualizarDivisoes(r, { manter: true });
+  return colarNaParede(r);
 }
 
 /** Só as propriedades da tabela do §2 para cada tipo, com tipos certos. */

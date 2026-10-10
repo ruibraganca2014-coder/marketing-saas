@@ -542,7 +542,28 @@ export function divisaoEm(planta, x, y, piso = null) {
 }
 
 /** Elementos que ficam na parede: fora das divisões mas a ≤ 30 cm de uma contam na mais próxima. */
-export const TIPOS_PAREDE = ["porta", "janela", "sensor_porta"];
+// O quadro, o interruptor e a tomada também (decisão do dono, 2026-10-10: o centro em cima da linha da parede).
+export const TIPOS_PAREDE = ["porta", "janela", "sensor_porta", "quadro", "interruptor", "tomada"];
+/**
+ * Plantas de antes de 2026-10-10: o quadro, os interruptores e as tomadas ficavam 5 a 10 cm para dentro da divisão.
+ * Passam para cima da linha da parede (a mais próxima da divisão deles, até 12 cm). Muda a planta.
+ */
+export function colarNaParede(planta) {
+  for (const e of planta?.elementos ?? []) {
+    if (!["quadro", "interruptor", "tomada"].includes(e.tipo) || !e.divisao) continue;
+    const d = planta.divisoes.find((x) => x.id === e.divisao);
+    if (!d) continue;
+    const pts = pontosDivisao(d);
+    let melhor = Infinity, q = null;
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length];
+      const r = distanciaSegmento(Number(e.x_cm) || 0, Number(e.y_cm) || 0, a, b);
+      if (r.dist < melhor) { melhor = r.dist; q = [a[0] + r.t * (b[0] - a[0]), a[1] + r.t * (b[1] - a[1])]; }
+    });
+    if (q && melhor > 0.5 && melhor <= 12) { e.x_cm = Math.round(q[0]); e.y_cm = Math.round(q[1]); }
+  }
+  return planta;
+}
 
 /**
  * Divisão de um elemento, só entre as divisões do piso dele: a que contém o centro (retângulo ou polígono);

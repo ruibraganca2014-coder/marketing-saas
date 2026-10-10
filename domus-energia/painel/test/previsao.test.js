@@ -53,11 +53,12 @@ test('as divisões e o que a casa tem: o inventário em palavras; "sem …" no "
   assert.equal(divisoesDaPrevisao(PLANTA, null).every((d) => d.texto === (textoDaPlanta(PLANTA, d.id) ?? 'Sem aparelhos desenhados.')), true);
   const desenho = { divisoes: [{ id: 'a', nome: 'Cozinha' }, { id: 'b', nome: 'Hall' }], elementos: [{ tipo: 'interruptor', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' }, { tipo: 'tomada', divisao: 'a' },
     { tipo: 'maquina', divisao: 'a', props: { modelo: 'forno' } }, { tipo: 'maquina', divisao: 'a', props: { modelo: 'placa' } }, { tipo: 'luz', divisao: 'a' }, { tipo: 'porta', divisao: 'a' }, { tipo: 'porta', divisao: 'b' }] };
-  assert.equal(textoDaPlanta(desenho, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · 2 máquinas e aparelhos');
-  assert.equal(textoDaPlanta(desenho, 'b'), null, 'a porta é só desenho');
+  assert.equal(textoDaPlanta(desenho, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · 1 porta · 2 máquinas e aparelhos');
+  assert.equal(textoDaPlanta(desenho, 'b'), '1 porta', 'tudo o que está na planta (decisão do dono, 2026-10-10)');
+  assert.equal(textoDaPlanta(desenho, 'a', { sem: ['interruptor', 'tomada'] }), '1 ponto de luz · 1 porta · 2 máquinas e aparelhos');
   const comNomes = { ...desenho, elementos: desenho.elementos.map((e) => (e.tipo === 'maquina' ? { ...e, nome: e.props.modelo === 'forno' ? 'Forno' : 'Placa de cozinha' } : e)) };
-  assert.equal(textoDaPlanta(comNomes, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · forno, placa de cozinha', 'as máquinas pelo nome');
-  assert.deepEqual(divisoesDaPrevisao(desenho, null).map((d) => d.texto), ['1 interruptor · 3 tomadas · 1 ponto de luz · 2 máquinas e aparelhos', 'Sem aparelhos desenhados.']);
+  assert.equal(textoDaPlanta(comNomes, 'a'), '1 interruptor · 3 tomadas · 1 ponto de luz · 1 porta · forno, placa de cozinha', 'as máquinas pelo nome');
+  assert.deepEqual(divisoesDaPrevisao(desenho, null).map((d) => d.texto), ['1 interruptor · 3 tomadas · 1 ponto de luz · 1 porta · 2 máquinas e aparelhos', '1 porta']);
   assert.deepEqual(divisoesDaPrevisao(null), []);
 });
 
@@ -105,7 +106,7 @@ test('o rascunho guardado na conta lê-se como o simulador o lê: a planta e o i
   const inv = inventarioParaEnvio(lido, lido.planta);
   const l = divisoesDaPrevisao(lido.planta, inv);
   assert.equal(l.length, lido.planta.divisoes.length);
-  assert.deepEqual([l[0].nome, l[0].texto], ['Sala', '1 interruptor (2 botões) · sem tomadas']);
+  assert.deepEqual([l[0].nome, l[0].texto], ['Sala', '1 interruptor (2 botões) · sem tomadas · 1 porta']);
   assert.match(l[1].texto, /interruptor|tomada/, 'sem resposta: o que está desenhado');
   assert.deepEqual(fontesDePlanta([], { planta: lido.planta, atualizado: null }).map((f) => f.texto), ['Simulação por enviar']);
   // Um estado de antes do inventário (ordem 13): abre na mesma, com tudo por dizer.

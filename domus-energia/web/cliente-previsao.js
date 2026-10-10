@@ -23,9 +23,12 @@ async function lerRascunho() {
   if (!r?.estado) return null;
   try {
     const { normalizarEstado, inventarioParaEnvio, temProgresso } = await import("./simulador/estado.js");
+    const { MODELOS } = await import("./simulador/regras.js");
     const e = normalizarEstado(r.estado);
     if (!e || e.soCasa || !temProgresso(e)) return null;
-    return { planta: e.planta, inventario: inventarioParaEnvio(e, e.planta), atualizado: r.atualizado ?? null };
+    // Os equipamentos pelo nome na lista de cada divisão (nos pedidos enviados é o servidor que o manda).
+    const planta = { ...e.planta, elementos: e.planta.elementos.map((x) => (x.tipo === "maquina" && MODELOS[x.props?.modelo] ? { ...x, nome: MODELOS[x.props.modelo].nome } : x)) };
+    return { planta, inventario: inventarioParaEnvio(e, e.planta), atualizado: r.atualizado ?? null };
   } catch {
     return null;
   }

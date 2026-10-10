@@ -292,6 +292,8 @@ input, select { min-height: 44px; }
 .inventario-nome { min-height: 44px; padding: 0 4px 0 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 700; text-align: left; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 4px; }
 .inventario-nome:hover, .inventario-nome:focus-visible { color: var(--musgo-texto); }
 .inventario-item.por-responder .inventario-opcoes { border-color: var(--alarme-texto); }
+/* A tomada ou o interruptor tocado na planta (decisão do dono, 2026-10-10): o mesmo laranja da planta. */
+.inventario-item.na-planta { border-radius: 10px; box-shadow: 0 0 0 3px var(--argila); padding-inline: 6px; }
 .inventario-opcoes .acao-botao { min-height: 44px; min-width: 44px; }
 /* Interruptores: o desenho das teclas (1 a 4) por cima do número. */
 .inventario-opcoes .acao-botao.com-desenho { display: grid; justify-items: center; gap: 2px; padding: 6px 10px; min-height: 60px; line-height: 1.1; }
