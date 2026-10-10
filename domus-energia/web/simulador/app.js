@@ -1457,6 +1457,7 @@ function acertarQuer() {
 // com "Está bem aqui" — arrastá-lo na planta também confirma. "Seguinte" só avança com todos confirmados. No telemóvel
 // a planta não está à vista: confirmam-se no fim, quando "Seguinte" a abre por cima.
 let sitioVisto = null;   // { chave, id, x, y } do equipamento que está a ser confirmado
+const comRato = matchMedia("(hover: hover) and (pointer: fine)");
 /** Marcou mais um (`d` = 1) ou mudou a quantidade (`d` = 0): quantos falta confirmar nesse piso, nunca mais do que há. */
 function sitioPorVer(k, d) {
   const chave = `${k}|${pisoQuer}`;
@@ -1484,10 +1485,14 @@ function desenharSitio() {
   const caixa = $("planta-sitio");
   const pend = estado.passo === P.quer && !enviado && (ecraLargo.matches || plantaAberta()) ? sitiosPendentes() : [];
   const p = pend.find((x) => x.el);
-  if (!p) { caixa.hidden = true; caixa.replaceChildren(); sitioVisto = null; return; }
+  if (!p) { caixa.hidden = true; caixa.replaceChildren(); sitioVisto = null; editor.seguirElemento(null); return; }
   if (sitioVisto?.id !== p.el.id) {
     sitioVisto = { chave: p.chave, id: p.el.id, x: p.el.x_cm, y: p.el.y_cm };
-    if (editor.planta === estado.planta) editor.focarElemento(p.el.id);
+    if (editor.planta === estado.planta) {
+      editor.focarElemento(p.el.id);
+      // Com rato: o equipamento segue-o sobre a planta e um clique larga-o no sítio (e fica confirmado).
+      editor.seguirElemento(p.el.id, { aoLargar: (id) => { if (sitioVisto?.id === id) confirmarSitio(); } });
+    }
   }
   const divisao = estado.planta.divisoes.find((d) => d.id === p.el.divisao)?.nome;
   const falta = pend.reduce((s, x) => s + x.n, 0);
@@ -1496,7 +1501,7 @@ function desenharSitio() {
   b.id = "planta-sitio-ok";
   b.addEventListener("click", confirmarSitio);
   caixa.replaceChildren(
-    el("p", null, `${nomeSitio(p.k)}: ficou ${divisao ? `em ${divisao}` : "na planta"}. Está no sítio certo? Se não, arraste na planta para onde está.`),
+    el("p", null, `${nomeSitio(p.k)}: ${comRato.matches ? "leve o rato à planta e clique onde está." : "arraste na planta para onde está."} ${divisao ? `Ficou em ${divisao}: se` : "Se"} já está certo, confirme.`),
     b, ...(falta > 1 ? [el("small", "ajuda", `Faltam ${falta} por confirmar.`)] : []));
   caixa.hidden = false;
 }

@@ -910,3 +910,4 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .sim-planta-sitio[hidden] { display: none; }
 .sim-planta-sitio p { flex: 1 1 16em; margin: 0; }
 .sim-planta-sitio small { flex-basis: 100%; }
+.editor-svg.a-seguir { cursor: grabbing; }

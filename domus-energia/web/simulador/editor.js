@@ -1304,8 +1304,60 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // ---------------------------------------------------------------- ponteiro
   const pararToqueLongo = () => { clearTimeout(toqueLongo); toqueLongo = null; };
 
+  // "A seguir o rato" (seguirElemento; passo "Equipamentos", decisão do dono 2026-10-10): o aparelho acabado de marcar
+  // acompanha o rato sobre a planta, sem carregar em nada, até um clique o largar. Se o rato sair da planta sem
+  // clicar, volta ao sítio onde estava. Só com rato (com o dedo não há "passar por cima").
+  let seguir = null;   // { id, x0, y0, mexeu, aoLargar }
+  function pararSeguir({ repor = true } = {}) {
+    const s = seguir;
+    seguir = null;
+    svg.classList.remove("a-seguir");
+    const e = s ? obterElemento(s.id) : null;
+    if (!e || !s.mexeu) return;
+    if (repor) { e.x_cm = s.x0; e.y_cm = s.y0; desfazer.pop(); }
+    desenhar();
+  }
+  svg.addEventListener("pointermove", (ev) => {
+    if (!seguir || ev.pointerType !== "mouse" || ponteiros.size) return;
+    const e = obterElemento(seguir.id);
+    if (!e) { seguir = null; return; }
+    if (!seguir.mexeu) { memorizar(); seguir.mexeu = true; }
+    const p = paraPlanta(ev.clientX, ev.clientY);
+    e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
+    e.y_cm = limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm);
+    desenhar();
+  });
+  svg.addEventListener("pointerleave", () => {
+    if (!seguir?.mexeu) return;
+    const s = seguir;
+    pararSeguir();
+    seguir = { ...s, mexeu: false };   // continua à espera: volta a seguir quando o rato regressar à planta
+    svg.classList.add("a-seguir");
+  });
+  svg.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && seguir) pararSeguir(); });
+
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
+    if (seguir && ev.pointerType === "mouse") {
+      // O clique larga o aparelho onde o rato está: um só passo de anular, e quem o pediu fica a saber.
+      ev.preventDefault();
+      const s = seguir;
+      const e = obterElemento(s.id);
+      if (e && !s.mexeu) memorizar();
+      const p = paraPlanta(ev.clientX, ev.clientY);
+      if (e) {
+        e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
+        e.y_cm = limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm);
+      }
+      seguir = null;
+      svg.classList.remove("a-seguir");
+      if (!e) return;
+      selecionado = e.id;
+      confirmar();
+      desenharTudo();
+      s.aoLargar?.(s.id);
+      return;
+    }
     svg.setPointerCapture?.(ev.pointerId);
     // O 1.º dedo (ou o rato) de um gesto novo: esquece ponteiros cujo "pointerup" não chegou à planta
     // (ex.: o toque longo abriu a janela por cima e o dedo foi levantado nela) — senão parecia uma pinça.
@@ -2514,6 +2566,19 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * dele, seleciona-o (aro a piscar) e, se estiver fora do que se vê, desloca a vista para o centrar, sem mudar a
      * ampliação. Devolve false se não existir.
      */
+    /**
+     * Passo "Equipamentos": o aparelho `id` passa a seguir o rato sobre a planta até um clique o largar (`aoLargar(id)`).
+     * Sem `id` (ou um que não existe) deixa de seguir, e o aparelho volta ao sítio onde estava.
+     */
+    seguirElemento(id, { aoLargar = null } = {}) {
+      if (seguir && seguir.id === id) { seguir.aoLargar = aoLargar; return true; }
+      pararSeguir();
+      const e = planta && id ? obterElemento(id) : null;
+      if (!e) return false;
+      seguir = { id: e.id, x0: e.x_cm, y0: e.y_cm, mexeu: false, aoLargar };
+      svg.classList.add("a-seguir");
+      return true;
+    },
     focarElemento(id) {
       const e = planta ? obterElemento(id) : null;
       if (!e) return false;
