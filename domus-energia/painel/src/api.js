@@ -303,6 +303,9 @@ export function criarApi(ctx) {
     criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
     // "Visita sem defeito" (eletricistas.js): a data em que o CEO decidiu cobrar a visita ao cliente, ou null.
     visitaSemDefeito: (o) => (config.eletricistas ? eletricistas.visitaSemDefeito(o) : null),
+    // O cliente já confirmou a obra feita por um eletricista externo (o "Sim", ou os 7 dias)? A data, ou null: com as
+    // propostas na bolsa o restante paga-se a partir daí, antes de o CEO aprovar (decisão do dono, 2026-10-11).
+    clienteConfirmou: (o) => (config.eletricistas ? eletricistas.clienteConfirmou(o) : null),
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
   // Procedimentos (SOP) e checklists por obra (procedimentos.js; docs/PROCEDIMENTOS.md).
@@ -2266,8 +2269,9 @@ export function criarApi(ctx) {
     const cfg = lerConfigOrcamento();
     const config = Object.fromEntries(CONFIG_PUBLICA.filter((k) => cfg[k] !== undefined).map((k) => [k, cfg[k]]));
     // Pagamentos do pedido: o simulador mostra a faixa "Modo de demonstração" e as compras do passo Enviar (desligados: não há).
-    const { ativo, modo, demonstracao } = pagPed.info();
-    responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao } }, { 'Cache-Control': 'public, max-age=60' });
+    // `visita_a_parte: false` (só com as propostas na bolsa): a visita já não se vende no passo Enviar (decisão do dono, 2026-10-11).
+    const { ativo, modo, demonstracao, visita_a_parte: visitaAParte } = pagPed.info();
+    responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao, ...(visitaAParte === false ? { visita_a_parte: false } : {}) } }, { 'Cache-Control': 'public, max-age=60' });
   }
 
   // ------------------------------------------------------------ despacho

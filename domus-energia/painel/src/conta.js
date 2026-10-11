@@ -595,12 +595,16 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const pag = pagamentos()?.paraCliente(o) ?? null;
     const temProposta = valor !== null && ['proposta_enviada', 'aceite'].includes(o.estado);
     const depoisVisita = ['proposta_enviada', 'aceite'].includes(o.estado) || Boolean(obra);
+    // Propostas na bolsa (decisão do dono, 2026-10-11): nos pedidos com planta a visita já não vem antes da proposta nem
+    // se paga à parte — vem depois de o cliente aceitar, com a obra. O andamento passa a "Pedido recebido / Proposta /
+    // Proposta aceite / Visita e instalação". Nas avarias, e com PROPOSTAS_BOLSA=0, fica como estava.
+    const visitaDepois = Boolean(pag?.compras?.visita?.incluida);
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
-      { chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita },
+      ...(visitaDepois ? [] : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
       { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
-      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
+      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e instalação' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
     if (pag?.aguarda_sinal) estadoTexto = 'Proposta aceite — falta pagar o sinal para confirmarmos a instalação.';
@@ -608,6 +612,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (obra) {
       estadoTexto = obra.estado === 'concluida' ? (pag?.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.')
         : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : agendada ? 'Instalação marcada.' : estadoTexto;
+      // O cliente já confirmou o trabalho e o CEO ainda não aprovou (decisão do dono, 2026-10-11): para o cliente a
+      // instalação está feita e o restante já se paga.
+      if (pag?.restante?.confirmada && obra.estado !== 'cancelada') estadoTexto = pag.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.';
     }
     const podeFotos = !['aceite', 'perdido'].includes(o.estado) && !o.cliente;
     let sim = null;

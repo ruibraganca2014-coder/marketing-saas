@@ -196,8 +196,11 @@ export function valorVisitaCent(localidade, cfg) {
  *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
  */
 export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch,
-  visitaSemDefeito = () => null }) {
+  visitaSemDefeito = () => null, clienteConfirmou = () => null }) {
   const modo = config.pagamentosModo;
+  // Fluxo das propostas na bolsa (docs/ELETRICISTAS.md "Propostas na bolsa"): só com o módulo dos eletricistas e
+  // PROPOSTAS_BOLSA ligados. Com um deles desligado, tudo aqui fica como antes.
+  const fluxoPropostas = Boolean(config.eletricistas && config.propostasBolsa);
   const agoraIso = () => iso(relogio());
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
   const linha = (ref) => db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
@@ -376,6 +379,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const temVisita = (o) => Boolean(visitaPaga.get(o.id, ...FASES_VISITA)) || Boolean(relatorioComVisita.get(o.id));
   const simDe = (o) => { try { const s = JSON.parse(o.simulacao ?? 'null'); return s && typeof s === 'object' ? s : null; } catch { return null; } };
   const localidadeDe = (o) => o.localidade || simDe(o)?.casa?.localidade || '';
+  /**
+   * A visita deixou de se pagar à parte (decisão do dono, 2026-10-11): com as propostas na bolsa, num pedido que não é
+   * avaria, a visita vem DEPOIS de o cliente aceitar a proposta e vai incluída no sinal — já não se vende "Visita
+   * técnica" e o pedido vai para a bolsa sem pagamento nenhum (eletricistas.js tipoAtribuivel). Quem já a tinha pago
+   * antes mantém tudo: o valor continua descontado no sinal e a devolução continua a funcionar. Na avaria nada muda (o
+   * diagnóstico paga-se ao enviar).
+   */
+  const visitaIncluida = (o) => fluxoPropostas && simDe(o)?.funil !== 'avaria';
   /** Ainda se compra o relatório ou a visita: com simulação, antes de aceitar a proposta e da obra. */
   // Um pedido em lista de espera ainda por tratar ("novo") não compra nada (decisão do dono, 2026-10-10): só depois de a
   // empresa lhe pegar (o estado muda) se pode comprar o relatório completo ou a visita.
@@ -395,6 +406,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!config.pagamentoPedido) throw new ErroApi(409, 'Os pagamentos online estão desligados. Fale connosco para pedir o relatório ou a visita.');
     // Avaria: o diagnóstico já inclui a visita; só se compra uma visita nova depois de o cliente faltar ao diagnóstico.
     if (simDe(o)?.funil === 'avaria' && (inclui.relatorio || temVisita(o))) throw new ErroApi(409, 'Na avaria, o diagnóstico já inclui a visita.');
+    // Não basta a conta e o simulador esconderem o botão: o servidor recusa (decisão do dono, 2026-10-11).
+    if (inclui.visita && visitaIncluida(o)) throw new ErroApi(409, 'A visita técnica já não se paga à parte: está incluída na obra e fazemo-la depois de aceitar a proposta.');
     if (!podeComprar(o)) throw new ErroApi(409, 'Este pedido já não aceita esta compra.');
     if (inclui.relatorio && temRelatorio(o)) throw new ErroApi(409, 'Já comprou o relatório completo.');
     if (inclui.visita && temVisita(o)) throw new ErroApi(409, 'A visita técnica já está paga.');
@@ -437,12 +450,22 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       avaria,
       relatorio: { valor: deCent(precoRelatorioCent(cfg)), comprado: temRelatorio(o), pendente: pendente(['relatorio_pormenorizado', 'pormenorizado_visita']) },
       // `sem_concelho`: localidade sem concelho reconhecido — sem visita (B2); `fora_area`: concelho fora da área servida.
-      visita: { valor: visitaCent === null ? null : deCent(visitaCent), paga: temVisita(o), fora_area: visitaCent === null && !semConcelho, sem_concelho: semConcelho, pendente: pendente(['visita', 'pormenorizado_visita']) },
+      // `incluida`: a visita já não se vende à parte neste pedido (visitaIncluida); uma já paga antes continua em `paga`.
+      visita: { valor: visitaCent === null ? null : deCent(visitaCent), paga: temVisita(o), fora_area: visitaCent === null && !semConcelho, sem_concelho: semConcelho, pendente: pendente(['visita', 'pormenorizado_visita']),
+        ...(visitaIncluida(o) ? { incluida: true } : {}) },
     };
   }
 
   const obraDe = db.prepare('SELECT estado FROM obras WHERE id = ?');
   const obraConcluida = (o) => Boolean(o.obra_concluida) || (o.obra_id ? obraDe.get(o.obra_id)?.estado === 'concluida' : false);
+  /**
+   * O restante já se pode pagar? Como sempre, com a obra dada por concluída no painel; e (decisão do dono, 2026-10-11,
+   * só com as propostas na bolsa) logo que o cliente confirma o trabalho do eletricista externo — o "Sim" na conta, ou os
+   * 7 dias sem resposta —, ANTES de o CEO aprovar. A aprovação continua a ser precisa para a obra ficar concluída no
+   * painel e para pagar ao eletricista (as três condições não mudam), e pode vir antes ou depois deste pagamento. O
+   * valor é o mesmo (`valores`: não depende de a obra estar concluída). Numa obra sem eletricista externo nada muda.
+   */
+  const restanteDisponivel = (o) => obraConcluida(o) || (fluxoPropostas && Boolean(clienteConfirmou(o)));
 
   /**
    * Custo do material de um pedido para o sinal (decisão 6): a soma dos artigos do pedido × o custo de compra do
@@ -751,7 +774,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       descricao = `${v.sinal_material ? 'Sinal da proposta' : `Sinal de ${SINAL_PCT} % da proposta`} do pedido n.º ${o.id} (${euro(v.total)} com IVA)${v.sinal_material ? ': cobre o material' : ''}${v.desconto ? `, menos os ${euro(v.desconto)} já pagos` : ''}`;
     } else {
       if (o.estado !== 'aceite' || !pagoDe(o.id, 'sinal') && valores(o).sinal > 0) throw new ErroApi(409, 'Ainda não há nada para pagar neste pedido.');
-      if (!obraConcluida(o)) throw new ErroApi(409, 'O restante paga-se quando a obra estiver concluída.');
+      if (!restanteDisponivel(o)) throw new ErroApi(409, 'O restante paga-se quando a obra estiver concluída.');
       valorCent = v.restante;
       descricao = `Restante da obra do pedido n.º ${o.id} (${euro(v.total)} com IVA, menos o que já foi pago)`;
     }
@@ -1414,6 +1437,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     demonstracao: Boolean(config.pagamentoPedido) && modo === 'simulado',
     desligados_sem_configuracao: Boolean(config.pagamentosDesligadosSemModo),
     iva_pct: ivaAtual(),
+    // A visita técnica ainda se vende à parte? Não com as propostas na bolsa (decisão do dono, 2026-10-11): o simulador
+    // deixa de a oferecer no passo Enviar e diz "o valor certo vem na proposta". (Sem o fluxo, o campo nem vai.)
+    ...(fluxoPropostas ? { visita_a_parte: false } : {}),
   });
 
   /** O que a conta vê dos pagamentos de um pedido (conta.js pedidoParaCliente). */
@@ -1431,6 +1457,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const cp = compras(o);
     const aguardaSinal = o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite) && !sinalPago;
     const concluida = obraConcluida(o);
+    // O cliente confirmou o trabalho do eletricista externo e o CEO ainda não aprovou: o restante já se paga (restanteDisponivel).
+    const confirmada = !concluida && restanteDisponivel(o);
     return {
       pagamentos: Object.values(porFase).sort((a, b) => a.id - b.id).map(publico),
       // Relatório básico: logo, grátis, com a simulação. O pormenorizado: por comprar → em revisão (pago) → disponível
@@ -1456,8 +1484,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       sinal: v.sinal === null ? null : { valor: deCent(v.sinal), pct: SINAL_PCT, desconto: deCent(v.desconto), pago: sinalPago, cobre_material: v.sinal_material },
       aguarda_sinal: aguardaSinal,
       pode_pagar_sinal: aguardaSinal && v.sinal > 0,
-      restante: o.estado === 'aceite' && v.restante !== null ? { valor: deCent(v.restante), pago: Boolean(pagoDe(o.id, 'restante')), obra_concluida: concluida } : null,
-      pode_pagar_restante: o.estado === 'aceite' && concluida && v.restante > 0 && !pagoDe(o.id, 'restante'),
+      restante: o.estado === 'aceite' && v.restante !== null ? { valor: deCent(v.restante), pago: Boolean(pagoDe(o.id, 'restante')), obra_concluida: concluida, ...(confirmada ? { confirmada: true } : {}) } : null,
+      pode_pagar_restante: o.estado === 'aceite' && (concluida || confirmada) && v.restante > 0 && !pagoDe(o.id, 'restante'),
       plano: o.plano_escolhido ? { chave: o.plano_escolhido, nome: NOME_PLANO[o.plano_escolhido] } : null,
       modo: config.pagamentoPedido ? modo : null,
     };
@@ -1640,7 +1668,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
-    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta,
+    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida,
     // Pré-visualização da Área de cliente (conta.js plantaPedido): a planta do cliente só com o desenho.
     plantaParaCliente: plantaParaRelatorio,
     PLANOS: PLANOS_MENSAIS,

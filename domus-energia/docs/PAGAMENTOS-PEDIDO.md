@@ -28,6 +28,17 @@ Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €), relatório complet
 
 Sem compras antes, o sinal é 369 € (e o restante 861 € na mesma). O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)` (ou a obra mínima); `pago_antes` = soma dos pagos nas fases `relatorio`, `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` e `avaria` (menos o que foi devolvido); sinal = `calcularSinal(total, desconto, custo do material)`; restante = total − tudo o que já foi pago para a obra − o sinal por pagar.
 
+## Decisões de 2026-10-11 (propostas na bolsa)
+
+Só com o módulo dos eletricistas e `PROPOSTAS_BOLSA` ligados (docs/ELETRICISTAS.md "Propostas na bolsa"); com um deles desligado, tudo o que está abaixo neste documento vale como está escrito.
+
+- **Deixa de haver "Visita técnica" paga à parte nos pedidos com planta** (os que não são avaria; `visitaIncluida`). `POST /api/conta/pedidos/:id/pagar` com `visita` ou `pormenorizado_visita` responde **409** "A visita técnica já não se paga à parte…"; no envio, uma `compra` com visita fica em `pagamento_erro` (o pedido é recebido na mesma). `compras.visita` leva `incluida: true`: a conta não mostra "Marcar visita técnica" e o andamento passa a "Pedido recebido / Proposta / Proposta aceite / Visita e instalação". `GET /api/catalogo` leva `pagamentos.visita_a_parte: false`: o passo Enviar só oferece o relatório básico e o completo, e a estimativa diz "o valor certo vem na proposta". O relatório completo (29 €) e o diagnóstico da avaria não mudam.
+- **Quem já pagou uma visita mantém tudo:** continua a contar em `pago_antes` (sai do sinal), a conta continua a mostrar "Visita paga" e "Cancelar visita", e a devolução funciona como em "Devoluções". Só não se vende de novo.
+- **O restante paga-se logo que o cliente confirma o trabalho do eletricista externo** ("Sim", 7 dias sem resposta, ou "sem defeito"), antes de o CEO aprovar (`restanteDisponivel`): `pode_pagar_restante` fica `true` e `restante` leva `confirmada: true` (com `obra_concluida: false`). O valor é o de sempre (`valores` não depende de a obra estar concluída). O que continua a depender da aprovação do CEO ("Obra concluída"): `orcamentos.obra_concluida`, a saída do stock, o email "obra concluída" (só sai se ainda houver restante por pagar), os lembretes automáticos de pagamento em falta (`emFalta` conta de `obra_concluida`) e o pagamento ao eletricista. "Ligar casa" depende só de a obra estar toda paga, como antes. Numa obra sem eletricista externo nada muda.
+- **O preço da proposta é definitivo, salvo surpresa no local** (só textos, na conta): "Este é o preço da obra. Só muda se, no local, a obra for diferente do que a planta e as fotos mostravam: nesse caso dizemos-lhe antes e só avançamos se aceitar."
+
+Testes: `painel/test/proposta-definitiva.test.js`.
+
 ## Decisões de 2026-10-02 (fluxo do dinheiro)
 
 Decisões finais do dono depois da auditoria do fluxo do dinheiro. Do lado do simulador (pontos de preço fechado com horas, deslocação ida e volta por dia de obra, linhas dedicadas, aviso da obra mínima): docs/SIMULADOR-ORCAMENTO.md §0 "Ronda dinheiro".

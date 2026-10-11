@@ -4352,6 +4352,11 @@ async function carregarCatalogo() {
     // compra nada (nem o relatório completo, nem a visita) e a avaria vai sem pagar.
     faixaDemonstracao(Boolean(j.pagamentos?.demonstracao));
     pagamentosAtivos = !listaEspera && !(j.pagamentos && j.pagamentos.ativo === false);
+    // Propostas na bolsa (decisão do dono, 2026-10-11): o servidor diz `visita_a_parte: false` — a visita já não se vende
+    // no passo Enviar (vem depois de aceitar a proposta) e a estimativa diz "o valor certo vem na proposta".
+    visitaAParte = j.pagamentos?.visita_a_parte !== false;
+    const subMelhorias = document.querySelector("#passo-10 .sub-passo");
+    if (subMelhorias && !visitaAParte) subMelhorias.textContent = "Opcional. Preço para esta casa; o valor certo vem na proposta.";
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
     ajudaAvaria();       // o preço do diagnóstico no cartão "Tenho uma avaria" do Início
   } catch {
@@ -4552,7 +4557,7 @@ function dadosPdfOrcamento() {
     inclui: pedidos.length ? listaInclui(pedidos) : [],
     melhorias: aceites.map(textoMelhoria),
     intervalo: pedidos.length && semDesloc.min !== null ? `${textoIntervalo(semDesloc)}${foraDaArea() ? "" : " + deslocação"}` : null,
-    nota: `Estimativa; valor final após a visita.${pedidos.length && semDesloc.dias ? ` ${textoDias(semDesloc.dias)}.` : ""}${semDesloc.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}.` : ""}`,
+    nota: `${visitaAParte ? "Estimativa; valor final após a visita." : TEXTO_ESTIMATIVA_PROPOSTA}${pedidos.length && semDesloc.dias ? ` ${textoDias(semDesloc.dias)}.` : ""}${semDesloc.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}.` : ""}`,
   };
 }
 $("preco-pdf").addEventListener("click", async () => {
@@ -5177,6 +5182,11 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 // enviar e volta-se para simulador.html?pagamento=<ref>. O valor a pagar é sempre o do servidor; os daqui são para mostrar.
 let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamento)
 let pagamentosAtivos = !listaEspera;  // GET /api/catalogo `pagamentos.ativo`: desligados (ou em lista de espera), não se compra nada
+// A visita técnica ainda se vende à parte? GET /api/catalogo `pagamentos.visita_a_parte` (false com as propostas na bolsa:
+// decisão do dono, 2026-10-11). Até o catálogo chegar, e num servidor sem o campo, fica como sempre.
+let visitaAParte = true;
+// A estimativa continua a ser estimativa; o preço certo é o da proposta (já não "após a visita").
+const TEXTO_ESTIMATIVA_PROPOSTA = "Estimativa; o valor certo vem na proposta.";
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
 function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
 /** A área servida como se diz ao cliente: "até 100 km de Lisboa" (`deslocacao_max_km` e `deslocacao_base` da configuração). */
@@ -5186,7 +5196,7 @@ const foraAreaTexto = () => `fora da área servida (até ${kmMaximo()} km de ${b
 /** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** A nota da estimativa: fora da área, sem a visita. */
-const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : TEXTO_ESTIMATIVA);
+const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : visitaAParte ? TEXTO_ESTIMATIVA : TEXTO_ESTIMATIVA_PROPOSTA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 44,00 € + deslocação" (25 € + 0,5 h × tarifa de 38 €). */
 // Em lista de espera não se paga nada (decisão do dono, 2026-10-10): o preço do diagnóstico não aparece; volta sozinho ao desligá-la.
 const textoDiagnostico = (valor) => (listaEspera ? "Lista de espera: sem pagar nada" : `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`);
@@ -5225,7 +5235,7 @@ const comprasAtivas = () => pagamentosAtivos && !funilAvaria();
 /** O que se compra de facto: estado.compras, sem a visita fora da área nem sem concelho reconhecido (B2). */
 function compraEfetiva() {
   if (!comprasAtivas()) return { relatorio: false, visita: false };
-  return { relatorio: estado.compras.relatorio, visita: estado.compras.visita && !foraDaArea() && !semConcelho() };
+  return { relatorio: estado.compras.relatorio, visita: visitaAParte && estado.compras.visita && !foraDaArea() && !semConcelho() };
 }
 /** Chave da compra no pedido (`compra` do POST /api/orcamento). */
 const chaveCompra = (c) => (c.relatorio ? (c.visita ? "pormenorizado_visita" : "pormenorizado") : c.visita ? "visita" : "basico");
@@ -5249,7 +5259,8 @@ function textosPagamento() {
   // Os dias para a visita só com visita (decisão do dono, 2026-10-10: com "só o relatório básico" parecia marcar a visita
   // paga). A avaria leva sempre a visita do diagnóstico; sem pagamentos online não há visita paga e os dias ajudam a combinar.
   // Em lista de espera não se marca visita: os dias só se perguntam quando abrirmos.
-  $("enviar-visita").hidden = Boolean(listaEspera) || fora || (!funilAvaria() && pagamentosAtivos && !estado.compras.visita);
+  // Sem visita à parte (propostas na bolsa) os dias também não se perguntam aqui: a visita marca-se depois de aceitar a proposta.
+  $("enviar-visita").hidden = Boolean(listaEspera) || fora || (!funilAvaria() && pagamentosAtivos && !(visitaAParte && estado.compras.visita));
   desenharCompras();
   $("enviar-texto").textContent = listaEspera
     ? `As obras começam ${ESPERA_QUANDO}. O pedido fica em lista de espera e não paga nada. * obrigatório`
@@ -5320,11 +5331,12 @@ function desenharCompras() {
     const s = l.querySelector("span");
     s.firstChild.textContent = t.replace(/ €/g, " €");   // o "€" nunca fica sozinho na linha
     s.querySelector("small").textContent = a;
-    l.hidden = OPCOES_COMPRA[k].visita && foraDaArea();
+    l.hidden = OPCOES_COMPRA[k].visita && (foraDaArea() || !visitaAParte);   // sem visita à parte: só o básico e o relatório completo
     l.querySelector("input").disabled = OPCOES_COMPRA[k].visita && semConc;
     l.querySelector("input").checked = k === atual;
   }
-  $("enviar-compras-nota").textContent = foraDaArea() ? `${foraAreaTexto()}: sem visita técnica.`
+  $("enviar-compras-nota").textContent = !visitaAParte ? "O que pagar agora é descontado na obra. A visita fazemo-la depois de aceitar a proposta: não se paga à parte."
+    : foraDaArea() ? `${foraAreaTexto()}: sem visita técnica.`
     : semConc ? "Escolha o concelho da lista para marcar a visita."
       : `O que pagar agora é descontado na obra.${semLocal && estado.compras.visita ? " Para a visita, escreva a localidade." : ""}`;
 }

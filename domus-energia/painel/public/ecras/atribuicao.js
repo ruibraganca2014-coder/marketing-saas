@@ -159,7 +159,9 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     };
     const partes = [h("h4", { id: "propostas-titulo", text: `Propostas dos eletricistas (${lista.length})` }),
       h("div", { class: "propostas-lista", id: "tabela-propostas", role: "group", "aria-labelledby": "propostas-titulo" }, ...lista.map(linha))];
-    if (!a.pode_escolher && lista.some((x) => x.estado !== "escolhida")) {
+    // As de reserva só interessam enquanto o pedido ainda pode ir (ou voltar) à bolsa por proposta: num pedido já aceite
+    // ou acabado a nota não se mostra (pedido do teste, 2026-10-11).
+    if (!a.pode_escolher && a.tipo === "visita" && (a.trabalho?.ativo || a.pode) && lista.some((x) => x.estado !== "escolhida")) {
       partes.push(h("p", { class: "ajuda", id: "propostas-reserva", text: a.trabalho?.ativo ? "As outras propostas ficam de reserva: se retirar o eletricista escolhido e voltar a pôr o pedido na bolsa, pode escolher uma delas."
         : "Propostas de reserva: valide o pedido (se voltou a ficar por validar) e ponha-o na bolsa para poder escolher uma delas." }));
     }

@@ -422,7 +422,7 @@ async function trabalhosLista() {
   contadores(null, r.trabalhos.filter((t) => t.estado === "aceite" && t.aberto && !t.espera_cliente).length);
   const out = [el("h2", null, "Os meus trabalhos")];
   if (!r.trabalhos.length) {
-    out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos em curso."), el("p", "suave pequeno", "Os trabalhos que aceitar na Bolsa aparecem aqui.")));
+    out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos em curso."), el("p", "suave pequeno", r.propostas_bolsa ? "Os trabalhos em que for escolhido (ou que aceitar) aparecem aqui." : "Os trabalhos que aceitar na Bolsa aparecem aqui.")));
     return out;
   }
   for (const t of r.trabalhos) {
@@ -747,6 +747,13 @@ function seccaoQuadro(t) {
  * quantidades. Sem valores em euros: a Domus Energia calcula o preço, revê e envia a proposta ao cliente.
  */
 let catalogoProposta = null;
+// Os nomes das categorias do catálogo, como no painel (painel/public/ecras/catalogo.js CATEGORIAS): os grupos do seletor
+// de artigos apareciam com a chave crua ("acessorio", "disjuntor", "outro").
+const CATEGORIAS = {
+  disjuntor: "Disjuntor", interruptor: "Interruptor", sensor: "Sensor", estore: "Estore", tomada: "Tomada", luz: "Luz",
+  termostato: "Termóstato", central: "Central", acessorio: "Acessório", outro: "Outro",
+};
+const nomeCategoria = (k) => CATEGORIAS[k] ?? (k ? `${String(k)[0].toUpperCase()}${String(k).slice(1)}` : "Outro");
 function seccaoProposta(t) {
   const p = t.proposta;
   const corpo = [];
@@ -756,6 +763,8 @@ function seccaoProposta(t) {
       p.notas ? el("p", "pequeno suave", `«${p.notas}»`) : null,
       el("p", "pequeno suave", "A Domus Energia calcula o preço e envia a proposta ao cliente."));
   }
+  // Obra vinda de proposta: o preço que o cliente aceitou é definitivo, salvo surpresa no local (decisão do dono, 2026-10-11).
+  if (t.de_proposta) corpo.push(el("p", "nota calma", "Se no local a obra for diferente do combinado, não avance com o trabalho a mais: diga à Domus Energia (o cliente tem de aceitar primeiro)."));
   if (!t.pode_proposta) return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
   const msg = el("p", "erro");
   msg.hidden = true;
@@ -794,7 +803,7 @@ function camposProposta(p, msg) {
     s.append(new Option("Escolha o artigo…", ""));
     let grupo = null, cat = null;
     for (const a of catalogoProposta ?? []) {
-      if (a.categoria !== cat) { cat = a.categoria; grupo = document.createElement("optgroup"); grupo.label = cat; s.append(grupo); }
+      if (a.categoria !== cat) { cat = a.categoria; grupo = document.createElement("optgroup"); grupo.label = nomeCategoria(cat); s.append(grupo); }
       grupo.append(new Option(a.nome, a.sku, false, a.sku === sku));
     }
     const q = el("input");

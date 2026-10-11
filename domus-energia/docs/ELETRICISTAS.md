@@ -32,6 +32,13 @@ Interruptor `PROPOSTAS_BOLSA` (`config.propostasBolsa`): **ligado por omissão**
 6. **O cliente aceita** (o pedido passa a `aceite` e a obra nasce — `api.js obraDoPedido`, em todos os caminhos): a visita dele fecha sem email (`retirado`, evento por `sistema`) e nasce o trabalho `obra`, modo `direto`, com a mesma percentagem e `aceite_em` = agora. Email: "O cliente aceitou a proposta: tem 48 h para marcar a visita. Pode fazer a obra nessa visita." Daí em diante é o fluxo de obra de sempre; a visita está incluída (não se paga à parte).
 7. Se a obra caducar ou ele a largar vale a regra dos trabalhos diretos: volta ao CEO, por atribuir.
 
+### Decisões do dono de 2026-10-11 (só com `PROPOSTAS_BOLSA` e o módulo ligados)
+
+- **A visita técnica já não se paga à parte** nos pedidos que não são avaria (`pagamentos-pedido.js visitaIncluida`): com os pagamentos online ligados o pedido por visitar vai para a bolsa **sem pagamento nenhum** (`tipoAtribuivel`); a visita vem depois de o cliente aceitar e vai incluída no sinal. A avaria continua a exigir o diagnóstico pago. O resto (compra recusada pelo servidor, conta, simulador): docs/PAGAMENTOS-PEDIDO.md "Decisões de 2026-10-11".
+- **O cliente paga o restante logo que confirma** a obra feita por um eletricista externo (trabalho `obra` em `confirmada`: o "Sim", os 7 dias sem resposta ou o "sem defeito" do CEO), **antes de o CEO aprovar** (`clienteConfirmou` → `pagamentos-pedido.js restanteDisponivel`). A aprovação continua a ser precisa para a obra ficar concluída no painel (stock, `obra_concluida`) e para pagar ao eletricista: as três condições de `estadoPagamento` não mudam, e a aprovação pode vir antes ou depois do pagamento. Com "Não" (ou se o CEO devolver o trabalho) não há pagamento.
+- **O preço da proposta é definitivo, salvo surpresa no local** (só textos): a conta di-lo em "A nossa proposta" e ao confirmar a aceitação; a ficha da obra vinda de proposta (`de_proposta` em `GET trabalhos/:id`) avisa o eletricista para não avançar com trabalho a mais sem a Domus (o cliente tem de aceitar primeiro). Não há mecanismo de "proposta de diferença".
+- `GET trabalhos` leva `propostas_bolsa: true` (o estado vazio diz "em que for escolhido (ou que aceitar)").
+
 ## Decisões do dono
 
 1. **Atribuição:** o CEO atribui o pedido a um eletricista ou põe-no na **bolsa**. Na bolsa só veem o trabalho os eletricistas aprovados que declararam o concelho do pedido; o primeiro a aceitar fica com ele.
@@ -58,7 +65,7 @@ Um trabalho por pedido e por tipo:
 | Tipo | Quando | Fecha quando |
 |---|---|---|
 | `obra` | pedido "aceite" com a obra criada (nasce com o sinal pago) e ainda por fazer | a obra fica concluída ou cancelada, ou o pedido deixa de estar aceite |
-| `visita` | pedido "novo", "contactado" ou "visita marcada" com a visita técnica **paga** | a proposta é enviada, o pedido fica perdido, ou o cliente falta |
+| `visita` | pedido "novo", "contactado" ou "visita marcada" com a visita técnica **paga** (com as propostas na bolsa: sem pagamento nenhum, decisão de 2026-10-11) | a proposta é enviada, o pedido fica perdido, ou o cliente falta |
 | `avaria` | o mesmo, num pedido de avaria com o diagnóstico **pago** | o mesmo |
 
 O concelho é o da localidade do pedido. Se a localidade não for um dos 308 concelhos, o painel pede para a corrigir antes de atribuir. Com os pagamentos online desligados não há visita nem diagnóstico pagos, por isso só se atribuem obras.

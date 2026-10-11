@@ -227,17 +227,24 @@ function cartaoPedido(p) {
   if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido e voltamos a contactá-lo.`));
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
-  if (p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
-  else if (p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", "Instalação: vamos marcar a data consigo."));
+  // Com a obra feita já não se fala em marcar a instalação nem se mostra a data dela (pedido do teste, 2026-10-11).
+  const feita = obraFeita(p);
+  if (!feita && p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
+  else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", "Instalação: vamos marcar a data consigo."));
   // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
-  if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", "Não o encontrámos na visita: a visita não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova."));
+  // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)
+  if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", `Não o encontrámos na visita: a visita não é devolvida nem descontada na obra.${p.compras?.visita?.incluida ? "" : " Para avançar, marque e pague uma visita nova."}`));
   for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
   if (p.confirmacao) c.append(blocoConfirmacao(p));
+  // O cliente confirmou o trabalho e o CEO ainda não aprovou (decisão do dono, 2026-10-11): o pagamento do restante
+  // vem logo a seguir ao "Sim" (e não lá em baixo, depois da proposta).
+  const restanteJa = Boolean(p.restante?.confirmada) && (p.pode_pagar_restante || p.restante?.pago);
+  if (restanteJa) c.append(blocoRestante(p));
   if (p.avaliacao) c.append(blocoAvaliacao(p));
   if (p.mensagens?.length) c.append(blocoMensagens(p));
   if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
   if (p.proposta) c.append(blocoProposta(p));
-  if (p.pode_pagar_restante || p.restante?.pago) c.append(blocoRestante(p));
+  if (!restanteJa && (p.pode_pagar_restante || p.restante?.pago)) c.append(blocoRestante(p));
   if (p.relatorio_basico) c.append(blocoBasico(p));
   if (p.relatorio) c.append(blocoRelatorio(p));
   if (p.compras && !p.obra) { const v = blocoVisita(p); if (v) c.append(v); }
@@ -246,6 +253,14 @@ function cartaoPedido(p) {
   c.append(blocoFotos(p));
   return c;
 }
+
+/** A obra já está feita: concluída no painel, ou confirmada pelo cliente (o "Sim") à espera da aprovação. */
+const obraFeita = (p) => p.obra?.estado === "concluida" || Boolean(p.restante?.obra_concluida) || Boolean(p.restante?.confirmada);
+
+// O preço da proposta é definitivo, salvo surpresa no local (decisão do dono, 2026-10-11): só nos pedidos com planta
+// do fluxo das propostas (`compras.visita.incluida`), em "A nossa proposta" e na janela de confirmar a aceitação.
+const PRECO_DEFINITIVO = "Este é o preço da obra. Só muda se, no local, a obra for diferente do que a planta e as fotos mostravam: nesse caso dizemos-lhe antes e só avançamos se aceitar.";
+const precoDefinitivo = (p) => Boolean(p.compras?.visita?.incluida);
 
 function blocoProposta(p) {
   const b = el("section", "conta-proposta");
@@ -265,6 +280,7 @@ function blocoProposta(p) {
   if (p.obra_minima != null) b.append(el("p", "msg info conta-minima", `Obra mínima: ${formatarEuroRedondo(p.obra_minima)} com IVA${pp?.deslocacao > 0 ? ", mais a deslocação" : ""}. Esta proposta fica abaixo: paga ${pi ? euro(pi.total) : "o mínimo"} e o que já pagou (visita, diagnóstico) não é descontado.`));
   else if (pi && !pp) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
   if (p.proposta.texto) b.append(el("p", null, p.proposta.texto));
+  if (precoDefinitivo(p) && !obraFeita(p)) b.append(el("p", "ajuda conta-preco-definitivo", PRECO_DEFINITIVO));
   const msg = el("div", "msg", null);
   msg.hidden = true;
   msg.setAttribute("role", "status");
@@ -275,7 +291,7 @@ function blocoProposta(p) {
       b.append(ja.caixa, soMultibanco(p, p.sinal.valor), botaoPagar(p, "sinal", `Pagar o sinal (${euro(p.sinal.valor)})`, msg, () => ({ inicio_imediato: ja.entrada.checked })), msg);
     }
   } else if (p.proposta.aceite && p.estado === "aceite") {
-    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}. Vamos contactá-lo para marcar a instalação.`));
+    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${obraFeita(p) ? "" : " Vamos contactá-lo para marcar a instalação."}`));
     if (p.inicio_imediato) b.append(el("p", "ajuda", "Pediu para começarmos já: prescindiu do direito de livre resolução de 14 dias sobre o que for executado."));
     if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {
@@ -392,9 +408,10 @@ function blocoConfirmacao(p) {
   const enviar = async (botao, corpo) => {
     botao.disabled = true;
     try {
-      await pedirConta(`pedidos/${p.id}/confirmar-trabalho`, { corpo });
+      const r = await pedirConta(`pedidos/${p.id}/confirmar-trabalho`, { corpo });
       await carregar();
-      mensagem(corpo.concluido ? "Obrigado! Registámos que ficou tudo concluído." : "Recebemos. O técnico vai voltar para terminar; combinamos a data consigo.", "ok");
+      // Depois do "Sim" o restante já se paga (decisão do dono, 2026-10-11): o bloco "Fim da obra" aparece logo abaixo.
+      mensagem(corpo.concluido ? `Obrigado! Registámos que ficou tudo concluído.${r?.pedido?.pode_pagar_restante ? " Já pode pagar o restante, aqui no pedido." : ""}` :"Recebemos. O técnico vai voltar para terminar; combinamos a data consigo.", "ok");
     } catch (e) {
       botao.disabled = false;
       erro(e.message);
@@ -856,6 +873,9 @@ function blocoVisita(p) {
   const cp = p.compras;
   const v = cp.visita;
   if (p.data_visita) return null;   // já marcada: a data está no topo do cartão
+  // Propostas na bolsa (decisão do dono, 2026-10-11): a visita já não se vende à parte (vem depois de aceitar a
+  // proposta, incluída no sinal). Quem a pagou antes continua a ver "Visita paga" e pode cancelá-la com devolução.
+  if (v.incluida && !v.paga) return null;
   const b = el("section", "conta-relatorio conta-visita");
   b.setAttribute("aria-label", "Visita técnica");
   b.append(el("h4", null, "Visita técnica"));
@@ -976,6 +996,7 @@ function confirmarAceitar(p, b, botao, msg, comecarJa = null) {
   caixa.setAttribute("role", "alert");
   const sinal = p.sinal && p.sinal.valor > 0 ? p.sinal : null;
   caixa.append(el("p", null, `Confirma que aceita a proposta de ${euro(p.proposta.valor)} + IVA${p.proposta_iva ? ` (${euro(p.proposta_iva.total)} com IVA)` : ""}?${sinal ? ` A seguir paga o sinal de ${euro(sinal.valor)} (com IVA).` : ""}`));
+  if (precoDefinitivo(p)) caixa.append(el("p", "ajuda", PRECO_DEFINITIVO));
   const sim = el("button", "btn pequeno", "Sim, aceito");
   sim.type = "button";
   sim.id = `aceitar-sim-${p.id}`;

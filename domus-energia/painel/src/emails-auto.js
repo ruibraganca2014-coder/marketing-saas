@@ -169,6 +169,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const comConta = Boolean(o.conta_id);
     // Lista de espera (coluna `lista_espera`: simulador ou formulário do site): sem prazo de contacto nem visita.
     const espera = o.lista_espera === 1;
+    const visitaDepois = Boolean(pagamentos()?.visitaIncluida?.(o));
     const passos = espera ? [
       'O seu pedido ficou em lista de espera: ainda não começámos as obras.',
       ...(comConta ? ['O relatório básico (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),
@@ -176,8 +177,10 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     ] : comConta ? [
       'O relatório básico (o intervalo de preço e a lista de trabalho) já está na sua conta.',
       'Vamos contactá-lo em breve, normalmente no dia útil seguinte, para confirmar o que precisa.',
-      ...(config.pagamentoPedido ? ['Se quiser avançar já, pode pedir na sua conta o relatório completo ou a visita técnica.'] : []),
-      'Depois da visita técnica enviamos-lhe a proposta, que pode aceitar na sua conta.',
+      // Propostas na bolsa (decisão do dono, 2026-10-11): a visita já não se vende à parte nem vem antes da proposta.
+      ...(config.pagamentoPedido ? [visitaDepois ? 'Se quiser saber mais já, pode pedir na sua conta o relatório completo.' : 'Se quiser avançar já, pode pedir na sua conta o relatório completo ou a visita técnica.'] : []),
+      visitaDepois ? 'Enviamos-lhe a proposta, com o preço da obra, que pode aceitar na sua conta. A visita fazemo-la depois de aceitar.'
+        : 'Depois da visita técnica enviamos-lhe a proposta, que pode aceitar na sua conta.',
     ] : [
       'Vamos contactá-lo em breve, normalmente no dia útil seguinte, para perceber o que precisa.',
       'Se for preciso ver a casa, marcamos consigo uma visita técnica.',

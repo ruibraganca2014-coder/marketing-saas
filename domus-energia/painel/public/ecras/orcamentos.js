@@ -112,7 +112,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-selos" },
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
-        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
+        campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -166,7 +166,7 @@ export default function orcamentos(el, ctx) {
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
-        campo(o, "lista_espera") === true ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
+        campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),

@@ -399,8 +399,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const localidadeDe = (o) => o.localidade || simDe(o)?.casa?.localidade || '';
 
   /**
-   * O que se pode atribuir num pedido AGORA: 'obra' (pedido aceite com a obra por fazer), 'visita' (visita técnica paga)
-   * ou 'avaria' (diagnóstico pago), ou null. Um trabalho está ABERTO enquanto isto for o tipo dele: com a obra
+   * O que se pode atribuir num pedido AGORA: 'obra' (pedido aceite com a obra por fazer), 'visita' (visita técnica paga;
+   * com as propostas na bolsa, qualquer pedido por visitar que não seja avaria, sem pagamento nenhum) ou 'avaria'
+   * (diagnóstico pago), ou null. Um trabalho está ABERTO enquanto isto for o tipo dele: com a obra
    * concluída ou cancelada, a proposta enviada depois da visita, ou o pedido perdido, fecha (e os dados do cliente
    * deixam de sair para o eletricista). Um trabalho aprovado pelo CEO (ou já pago) está sempre fechado.
    */
@@ -412,7 +413,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
     // Com os pagamentos online desligados (decisão do dono, 2026-10-04) a visita não se paga antes: o pedido por
     // visitar atribui-se na mesma, como visita sem custo (o eletricista só recebe se houver obra: recebeDe).
-    if (['novo', 'contactado', 'visita_marcada'].includes(o.estado) && (pagamentos().temVisita(o) || !config.pagamentoPedido)) return simDe(o)?.funil === 'avaria' ? 'avaria' : 'visita';
+    // Propostas na bolsa (decisão do dono, 2026-10-11): deixou de haver visita técnica paga à parte — o pedido com planta
+    // vai para a bolsa sem pagamento nenhum (a visita vem depois de o cliente aceitar, incluída no sinal). A avaria
+    // continua a exigir o diagnóstico pago (pagamentos-pedido.js visitaIncluida).
+    if (['novo', 'contactado', 'visita_marcada'].includes(o.estado) && (pagamentos().temVisita(o) || !config.pagamentoPedido || pagamentos().visitaIncluida(o))) return simDe(o)?.funil === 'avaria' ? 'avaria' : 'visita';
     return null;
   }
   // Propostas na bolsa (decisão do dono, 2026-10-10): uma visita posta na bolsa é POR PROPOSTA (não se aceita: o CEO
@@ -552,6 +556,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
     // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
     r.proposta = estaAberto ? propostaDe(t) : null;
+    // Obra vinda de proposta (propostas na bolsa): o preço que o cliente aceitou é definitivo — a ficha avisa que trabalho
+    // a mais só com o cliente a aceitar primeiro (decisão do dono, 2026-10-11).
+    if (config.propostasBolsa && t.tipo === 'obra' && r.proposta) r.de_proposta = true;
     // Quadro elétrico (decisão do dono, 2026-10-05): o existente, que o eletricista desenha (pela foto ou na visita), e a
     // casa do pedido (planta, potência e fases), para a área dele calcular o quadro ideal e o que falta.
     r.quadro = estaAberto ? quadroDoPedido(o, r) : null;
@@ -825,7 +832,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     expirar();
     const lista = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE eletricista_id = ? AND estado IN ${DO_ELETRICISTA} ORDER BY id DESC LIMIT 200`).all(e.id)
       .map((t) => [t, pedidoDe(t.orcamento_id)]).filter(([, o]) => o).map(([t, o]) => paraEletricista(t, o));
-    responder(res, 200, { trabalhos: lista });
+    // `propostas_bolsa` (só com o fluxo ligado): a página diz "em que for escolhido" no estado vazio.
+    responder(res, 200, { trabalhos: lista, ...(config.propostasBolsa ? { propostas_bolsa: true } : {}) });
   };
 
   /** Trabalho deste eletricista (404 para os outros). */
@@ -1597,6 +1605,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
   }
 
+  /**
+   * A data em que o cliente confirmou a OBRA feita por um eletricista externo (o "Sim" na conta, os 7 dias sem resposta,
+   * ou o "sem defeito" do CEO — tudo o que deixa o trabalho `confirmada`) e que o CEO ainda não aprovou; null sem isso.
+   * Com as propostas na bolsa, o restante paga-se a partir daqui (decisão do dono, 2026-10-11; pagamentos-pedido.js
+   * restanteDisponivel). Com um "Não" o trabalho volta a `visita_marcada`: não há pagamento.
+   */
+  const clienteConfirmou = (o) => (config.propostasBolsa
+    ? db.prepare("SELECT confirmada FROM trabalhos_eletricista WHERE orcamento_id = ? AND tipo = 'obra' AND estado = 'confirmada' ORDER BY id DESC LIMIT 1").get(o.id)?.confirmada ?? null : null);
+
   /** A data em que o CEO decidiu "sem defeito: cobrar visita ao cliente" neste pedido (pagamentos-pedido.js: visitaExtra), ou null. */
   const visitaSemDefeito = (o) => db.prepare("SELECT reclamacao_decidida FROM trabalhos_eletricista WHERE orcamento_id = ? AND reclamacao_decisao = 'sem_defeito' ORDER BY id DESC LIMIT 1").get(o.id)?.reclamacao_decidida ?? null;
 
@@ -2122,7 +2139,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   return {
     tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
-    prazos: expirar, paraCliente, confirmarCliente, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
+    prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
