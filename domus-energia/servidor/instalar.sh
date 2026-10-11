@@ -43,6 +43,9 @@ HTTPS_OK=0
 SERVICOS_FALTA=""                 # serviços que não arrancaram (vazio = todos a correr)
 SERVICOS_CONSTRUIDOS="motor pagamentos painel"   # os que têm imagem feita a partir do código (build)
 SERVICOS_ANTIGOS=""               # ao atualizar: serviços que ficaram a correr a imagem antiga
+SITE_PROBLEMAS=""                 # ao atualizar: o que o teste rápido do site encontrou (vazio = tudo bem)
+SITE_OK=""                        # a linha "SITE OK: ..." do teste rápido
+CADDY_INVALIDO=0                  # 1 = o Caddyfile novo não passou a validação (o caddy ficou com a configuração antiga)
 CODIGO_ANTES=""                   # ao atualizar: commit antes e depois do git pull
 CODIGO_DEPOIS=""
 ESPERA_APT_S=600                  # espera máxima pelo cloud-init e pelos cadeados do apt
@@ -583,24 +586,41 @@ verificar_versao() {
   [[ -z "$SERVICOS_ANTIGOS" ]] || aviso "ficaram na versão antiga: $SERVICOS_ANTIGOS"
 }
 
+# Ao atualizar: teste rápido do site (painel/src/verificar-site.js) — abre as páginas principais e os ficheiros que
+# pedem, só com pedidos GET. Corre com o node da imagem do painel, na rede do servidor.
+verificar_site() {
+  (( SIMULAR )) && return 0
+  (( HTTPS_OK )) || { SITE_PROBLEMAS="  - https://$HOST/ não responde"; return 0; }
+  local c imagem saida
+  c="$(compose ps -q painel 2>/dev/null | head -n 1)"
+  imagem="$([[ -n "$c" ]] && docker inspect -f '{{.Config.Image}}' "$c" 2>/dev/null || true)"
+  [[ -n "$imagem" ]] || { aviso "teste rápido do site não correu (o painel não está a correr)"; return 0; }
+  info "teste rápido do site (páginas e ficheiros)..."
+  if saida="$(docker run --rm --network host --entrypoint node "$imagem" src/verificar-site.js "https://$HOST" 2>&1)"; then
+    SITE_OK="$(grep -m 1 '^SITE OK' <<< "$saida" || true)"
+    info "${SITE_OK:-site verificado}"
+  else
+    SITE_PROBLEMAS="$(grep -E '^  - ' <<< "$saida" || printf '  - %s' "$(tail -n 1 <<< "$saida")")"
+    aviso "o teste rápido do site encontrou problemas"
+  fi
+}
+
 # Uma linha clara no fim da atualização: o que mudou e se ficou tudo na versão nova.
 veredicto() {
   local de="${CODIGO_ANTES:-?}" para="${CODIGO_DEPOIS:-?}"
-  if [[ -n "$SERVICOS_FALTA" || -n "$SERVICOS_ANTIGOS" ]]; then
-    printf ' FALHOU: a atualização não ficou completa (código em %s).
-' "$para"
-    [[ -z "$SERVICOS_FALTA" ]] || printf '   Parados: %s
-' "$SERVICOS_FALTA"
-    [[ -z "$SERVICOS_ANTIGOS" ]] || printf '   Ainda na versão antiga: %s
-' "$SERVICOS_ANTIGOS"
-    printf '   Corra de novo o mesmo comando e espere até ao fim.
-'
+  if [[ -n "$SERVICOS_FALTA" || -n "$SERVICOS_ANTIGOS" || -n "$SITE_PROBLEMAS" ]] || (( CADDY_INVALIDO )); then
+    printf ' FALHOU: a atualização não ficou completa (código em %s).\n' "$para"
+    [[ -z "$SERVICOS_FALTA" ]] || printf '   Parados: %s\n' "$SERVICOS_FALTA"
+    [[ -z "$SERVICOS_ANTIGOS" ]] || printf '   Ainda na versão antiga: %s\n' "$SERVICOS_ANTIGOS"
+    (( ! CADDY_INVALIDO )) || printf '   A configuração nova do servidor web (Caddyfile) tem um erro: ficou a antiga a funcionar.\n'
+    [[ -z "$SITE_PROBLEMAS" ]] || printf '   O site respondeu com problemas:\n%s\n' "$SITE_PROBLEMAS"
+    if [[ -n "$SERVICOS_FALTA" || -n "$SERVICOS_ANTIGOS" ]]; then printf '   Corra de novo o mesmo comando e espere até ao fim.\n'; else printf '   Mostre esta mensagem a quem trata do servidor.\n'; fi
   elif [[ "$de" == "$para" ]]; then
-    printf ' NADA MUDOU no código (continua em %s). Serviços a correr na versão certa.
-' "$para"
+    printf ' NADA MUDOU no código (continua em %s). Serviços a correr na versão certa.\n' "$para"
+    [[ -z "$SITE_OK" ]] || printf ' %s\n' "$SITE_OK"
   else
-    printf ' ATUALIZADO de %s para %s. Serviços a correr na versão nova.
-' "$de" "$para"
+    printf ' ATUALIZADO de %s para %s. Serviços a correr na versão nova.\n' "$de" "$para"
+    [[ -z "$SITE_OK" ]] || printf ' %s\n' "$SITE_OK"
   fi
 }
 
@@ -610,8 +630,15 @@ arrancar() {
   correr docker compose up -d --build --remove-orphans || erro "docker compose up falhou (ver as mensagens acima)"
   # O Caddyfile é um bind mount só de leitura: o git pull substitui o ficheiro (inode novo) e o contentor fica com o
   # antigo. Ao atualizar, recria-se o caddy para ler a configuração nova (uns segundos sem resposta).
+  # Antes disso valida-se o Caddyfile novo num contentor à parte: com um erro lá dentro o caddy não arrancava e o site
+  # ficava em baixo. Se não passar, o caddy fica como está (com a configuração antiga) e a atualização diz que falhou.
   if (( ATUALIZAR )); then
-    correr docker compose up -d --force-recreate caddy || aviso "não foi possível recriar o caddy (configuração nova pode não estar ativa)"
+    if (( ! SIMULAR )) && ! docker compose run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile > /dev/null 2>&1; then
+      CADDY_INVALIDO=1
+      aviso "o Caddyfile novo não é válido: o caddy fica com a configuração antiga (ver: sudo docker compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile)"
+    else
+      correr docker compose up -d --force-recreate caddy || aviso "não foi possível recriar o caddy (configuração nova pode não estar ativa)"
+    fi
   fi
   # shellcheck disable=SC2086
   esperar_servicos 180 $SERVICOS || true
@@ -627,6 +654,7 @@ arrancar() {
       aviso "https://$HOST/ ainda não responde: portas 80/443 abertas no fornecedor? DNS? (sudo docker compose logs caddy)"
     fi
   fi
+  if (( ATUALIZAR )); then verificar_site; fi
 }
 
 criar_ceo() {
@@ -661,6 +689,8 @@ resumo() {
   (( ! ATUALIZAR )) || titulo="Domus Energia atualizada"
   [[ -z "$SERVICOS_FALTA" ]] || titulo="Domus Energia: INSTALAÇÃO INCOMPLETA (serviços parados: $SERVICOS_FALTA)"
   [[ -z "$SERVICOS_ANTIGOS" ]] || titulo="Domus Energia: ATUALIZAÇÃO INCOMPLETA (na versão antiga: $SERVICOS_ANTIGOS)"
+  [[ -z "$SITE_PROBLEMAS" ]] || titulo="Domus Energia: ATUALIZADA, MAS O SITE TEM PROBLEMAS"
+  (( ! CADDY_INVALIDO )) || titulo="Domus Energia: ATUALIZAÇÃO INCOMPLETA (Caddyfile com erro)"
   printf '\n%s\n %s%s\n%s\n' "$linha" "$titulo" "$( (( SIMULAR )) && printf ' (SIMULAÇÃO: nada foi alterado)')" "$linha"
   if (( ATUALIZAR && ! SIMULAR )); then veredicto; printf '%s\n' "$linha"; fi
   if [[ -n "$SERVICOS_FALTA" ]]; then
@@ -745,7 +775,7 @@ main() {
     instalar_temporizadores
     resumo
     # Atualização incompleta sai com erro (quem corre o comando, ou um script, vê que falhou).
-    [[ -z "$SERVICOS_FALTA" && -z "$SERVICOS_ANTIGOS" ]] || exit 1
+    [[ -z "$SERVICOS_FALTA" && -z "$SERVICOS_ANTIGOS" && -z "$SITE_PROBLEMAS" ]] && (( ! CADDY_INVALIDO )) || exit 1
     return 0
   fi
   verificar_so
