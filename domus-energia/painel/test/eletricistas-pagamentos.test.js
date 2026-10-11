@@ -408,12 +408,17 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
 
   test('as três condições no servidor, em todas as combinações: "Pago" só com cliente confirmado + CEO aprovado + restante pago (e a fatura)', async () => {
     const e = await aprovado();
-    // Duas obras: numa o cliente já pagou o restante (o CEO deu a obra por concluída à mão), na outra ainda não.
+    // Duas obras: numa o cliente já pagou o restante, na outra ainda não. Com a obra nas mãos do eletricista e o cliente
+    // por confirmar, o painel já não a conclui à mão (2026-10-11): aqui a obra fica concluída diretamente na base.
+    const concluirNaBase = (id) => p.app.db.prepare('UPDATE orcamentos SET obra_concluida = ? WHERE id = ?').run(new Date(p.relogio.agora()).toISOString(), id);
     const paga = await obraConcluida(e);
-    assert.equal((await painel('POST', `orcamentos/${paga.id}/obra-concluida`, 'ceo', {})).estado, 200);
+    const recusa = await painel('POST', `orcamentos/${paga.id}/obra-concluida`, 'ceo', {});
+    assert.equal(recusa.estado, 409);
+    assert.match(recusa.json.erro, /falta o cliente confirmar/);
+    concluirNaBase(paga.id);
     await pagarRestante(paga.c, paga.id);
     const porPagar = await obraConcluida(e);
-    assert.equal((await painel('POST', `orcamentos/${porPagar.id}/obra-concluida`, 'ceo', {})).estado, 200);
+    concluirNaBase(porPagar.id);
     const agora = new Date(p.relogio.agora()).toISOString();
     const por = p.app.db.prepare(`UPDATE trabalhos_eletricista SET estado = ?, confirmada = ?, aprovada = ?, concluida = ?, valor_cent = 68000, fatura_id = ?, fatura_tipo = 'application/pdf', fatura_bytes = 10 WHERE id = ?`);
     for (const [obra, restante] of [[porPagar, false], [paga, true]]) {

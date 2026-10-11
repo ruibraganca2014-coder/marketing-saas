@@ -524,8 +524,15 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     const outra = lisboa(p.relogio.agora() + 50 * HORA);
     assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: outra })).json.trabalho.visita, outra);
     assert.deepEqual(eventos(tid).map((x) => x.evento), ['posto_na_bolsa', 'aceite', 'visita_marcada', 'visita_marcada']);
-    // Obra concluída: o trabalho fecha e os dados do cliente deixam de sair.
-    assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {})).estado, 200);
+    // Com a obra nas mãos do eletricista, o painel não a conclui à mão (2026-10-11): nem pelo pedido, nem pelo ecrã Obras.
+    const recusa = await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {});
+    assert.equal(recusa.estado, 409);
+    assert.match(recusa.json.erro, /com o eletricista/);
+    assert.equal((await painel('GET', `orcamentos/${id}`)).json.obra_por_confirmar.estado, 'visita_marcada');
+    const obraId = p.app.db.prepare('SELECT obra_id FROM orcamentos WHERE id = ?').get(id).obra_id;
+    if (obraId) assert.equal((await painel('POST', `obras/${obraId}`, 'ceo', { estado: 'concluida' })).estado, 409);
+    // Obra concluída (aqui diretamente na base): o trabalho fecha e os dados do cliente deixam de sair.
+    p.app.db.prepare('UPDATE orcamentos SET obra_concluida = ? WHERE id = ?').run(new Date(p.relogio.agora()).toISOString(), id);
     const fim = (await area(e, 'GET', `trabalhos/${tid}`)).json.trabalho;
     assert.deepEqual([fim.aberto, fim.cliente, fim.relatorio, fim.material], [false, null, null, []]);
     assert.ok(!JSON.stringify(fim).includes('Carla'));

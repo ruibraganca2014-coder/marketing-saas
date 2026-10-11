@@ -468,7 +468,13 @@ export default function orcamentos(el, ctx) {
       out.unshift(...linhas);
     }
     if (arquivado) { /* sem ações: o pedido não muda */ }
-    else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
+    else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida") && campo(o, "obra_por_confirmar")) {
+      // Com um eletricista externo a obra não se conclui à mão: saltava a confirmação e as estrelas do cliente.
+      const t = campo(o, "obra_por_confirmar");
+      out.push(h("p", { class: "ajuda", id: "obra-por-confirmar", text: campo(t, "estado") === "concluida_eletricista"
+        ? "O eletricista deu a obra por concluída. Falta o cliente confirmar na conta (fica aceite ao fim de 7 dias sem resposta); a seguir paga o restante."
+        : `A obra está ${campo(t, "estado") === "na_bolsa" ? "na bolsa dos eletricistas" : `com o eletricista ${campo(t, "nome") ?? ""}`.trim()}. Fica concluída quando ele a terminar e o cliente confirmar.` }));
+    } else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
       acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
         onclick: (e) => acao(e.currentTarget, "obra-concluida", "Obra concluída: o cliente pode pagar o restante na conta.") }));
     } else if (campo(o, "obra_concluida")) out.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));

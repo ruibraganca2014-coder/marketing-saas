@@ -1619,6 +1619,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * Com as propostas na bolsa, o restante paga-se a partir daqui (decisão do dono, 2026-10-11; pagamentos-pedido.js
    * restanteDisponivel). Com um "Não" o trabalho volta a `visita_marcada`: não há pagamento.
    */
+  /**
+   * A obra deste pedido está com um eletricista externo e o cliente ainda não a confirmou (na bolsa, em curso, ou dada
+   * por concluída à espera do "Sim" do cliente)? Devolve { estado, nome } ou null. Enquanto assim for, o painel não a
+   * marca como concluída à mão (decisão do dono, 2026-10-11): saltava a confirmação e as estrelas do cliente, e
+   * pedia-lhe o restante por um trabalho que ele ainda não viu. O caminho certo é o eletricista concluir e o cliente
+   * confirmar (ou os 7 dias sem resposta); para tirar o trabalho ao eletricista, "Retirar" na ficha do pedido.
+   */
+  const obraPorConfirmar = (o) => db.prepare(`SELECT t.estado, e.nome FROM trabalhos_eletricista t LEFT JOIN eletricistas e ON e.id = t.eletricista_id
+    WHERE t.orcamento_id = ? AND t.tipo = 'obra' AND t.estado IN ('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista') ORDER BY t.id DESC LIMIT 1`).get(o.id) ?? null;
   const clienteConfirmou = (o) => (config.propostasBolsa
     ? db.prepare("SELECT confirmada FROM trabalhos_eletricista WHERE orcamento_id = ? AND tipo = 'obra' AND estado = 'confirmada' ORDER BY id DESC LIMIT 1").get(o.id)?.confirmada ?? null : null);
 
@@ -2158,7 +2167,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   return {
     tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, aoClienteRecusar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
-    prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
+    prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, obraPorConfirmar, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };

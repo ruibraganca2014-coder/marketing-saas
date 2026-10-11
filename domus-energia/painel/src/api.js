@@ -390,6 +390,8 @@ export function criarApi(ctx) {
       // Pagamentos do pedido: aceite pelo cliente mas o sinal ainda por pagar = "Aceite — a aguardar sinal".
       aguarda_sinal: o.estado === 'proposta_enviada' && Boolean(o.proposta_aceite),
       relatorio_libertado: o.relatorio_libertado ?? null, plano_escolhido: o.plano_escolhido ?? null, obra_concluida: o.obra_concluida ?? null,
+      // A obra está com um eletricista externo e o cliente ainda não a confirmou: o painel não mostra "Marcar obra concluída".
+      obra_por_confirmar: eletricistas?.obraPorConfirmar(o) ?? null,
       // Ensaios medidos na visita/obra (migração 16; o relatório completo mostra-os), ou null.
       ensaios: pagPed.ensaiosDe(o),
       // Esquema do quadro feito pelo eletricista (migração 17; {…esquema, data, por}), ou null.
@@ -1606,9 +1608,20 @@ export function criarApi(ctx) {
   // Obra concluída: o cliente passa a ver "Pagar o restante" na conta.
   h.obraConcluida = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
-    concluirObra(naoArquivado(obterOrcamento(params.id)), u, ip);
+    const o = naoArquivado(obterOrcamento(params.id));
+    recusarSeComEletricista(o);
+    concluirObra(o, u, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
+
+  /** Obra com um eletricista externo e ainda por confirmar pelo cliente: não se conclui à mão (eletricistas.js obraPorConfirmar). */
+  function recusarSeComEletricista(o) {
+    const t = eletricistas?.obraPorConfirmar(o);
+    if (!t) return;
+    throw new ErroApi(409, t.estado === 'concluida_eletricista'
+      ? 'O eletricista já deu a obra por concluída: falta o cliente confirmar na conta (fica aceite ao fim de 7 dias sem resposta).'
+      : `A obra está ${t.estado === 'na_bolsa' ? 'na bolsa dos eletricistas' : `com o eletricista ${t.nome ?? ''}`.trim()}: fica concluída quando ele a terminar e o cliente confirmar. Para a concluir aqui, retire primeiro o trabalho ao eletricista.`);
+  }
 
   /** Marca a obra de um pedido como concluída (o botão do painel e a aprovação do trabalho de um eletricista externo). */
   function concluirObra(o, u, ip) {
@@ -1708,6 +1721,7 @@ export function criarApi(ctx) {
       if (v.estado === 'cancelada') throw new ErroApi(403, 'Só o CEO cancela obras.');
     }
     const r = await camposObra(v, true);
+    if (r.estado === 'concluida' && o.estado !== 'concluida' && o.orcamento_id) recusarSeComEletricista({ id: o.orcamento_id });
     // Obra criada com o sinal pago, com data provisória: escolher a data agenda-a.
     if (r.data !== undefined && o.por_agendar) r.por_agendar = 0;
     const tecs = v.tecnicos === undefined ? null : tecnicos(v.tecnicos);
