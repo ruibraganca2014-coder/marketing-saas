@@ -45,7 +45,7 @@ import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO, semMetadados } from './fotos
 import { ESTADO_ARQUIVADO, GRUPOS_FOTO_TRABALHO } from './db.js';
 import { CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
-import { concelho as concelhoDe, deslocacaoServidor, diasDeObra, partirIva, VISITA_HORAS } from './pagamentos-pedido.js';
+import { concelho as concelhoDe, deslocacaoServidor, diasDeObra, partirIva, comIva, VISITA_HORAS } from './pagamentos-pedido.js';
 
 export const COOKIE_ELETRICISTA = 'domus_eletricista';
 export const CAMINHO_API = '/api/eletricista/';
@@ -582,6 +582,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.ensaios = estaAberto ? ensaiosDoPedido(o) : null;
     r.diagnostico = estaAberto && t.tipo === 'avaria' ? { modelo: MODELO_DIAGNOSTICO, atual: diagnosticoDoPedido(o) } : null;
     r.falta = r.editavel ? faltaParaConcluir(t, o) : [];
+    // Trabalho a mais (decisão do dono, 2026-10-11): os que ele propôs nesta obra, com o estado — nunca o preço ao
+    // cliente — e se pode propor outro (um à espera de cada vez).
+    r.extras = t.tipo === 'obra' ? extrasParaEletricista(t) : [];
+    r.pode_extra = r.editavel && t.tipo === 'obra' && !extraPendente(t.id);
     // Checklists dos procedimentos (docs/PROCEDIMENTOS.md): só numa obra, com a obra do pedido, enquanto está aberta.
     r.checklists = estaAberto && t.tipo === 'obra' && o.obra_id && procedimentos ? procedimentos.daObra(o.obra_id, { eletricista: t.eletricista_id }) : null;
     return r;
@@ -672,6 +676,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const e = pagamentos().ensaiosDe(o) ?? {};
     for (const k of ENSAIOS_OBRIGATORIOS) if (e[k] === null || e[k] === undefined) falta.push(`ensaio: ${NOME_ENSAIO[k]}`);
     if (t.tipo === 'avaria' && !diagnosticoDoPedido(o)?.conclusao) falta.push('a conclusão do diagnóstico');
+    // Trabalho a mais à espera da Domus Energia ou do cliente: a obra não se dá por concluída sem a resposta.
+    if (extraPendente(t.id)) falta.push('a resposta ao trabalho a mais');
     return falta;
   }
 
@@ -709,6 +715,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
           WHERE id = ? AND eletricista_id = ? AND estado IN ('aceite', 'visita_marcada')`).run(agora, t.id, t.eletricista_id);
     if (!r.changes) return false;
     evento(t, nomeEvento, t.eletricista_id, por);
+    fecharExtras(t, agora);
     // Propostas na bolsa: a proposta de quem largou (ou deixou caducar) não volta a aparecer ao CEO, e a cópia que ficou
     // no trabalho sai com ele (senão "Preencher pela proposta do eletricista" continuava a mostrá-la). As de reserva ficam.
     if (config.propostasBolsa) {
@@ -1387,6 +1394,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     contar([[L.acoes, String(e.id)]]);
     expirar();
     const { t, o } = meuEditavel(e, params.id);
+    if (extraPendente(t.id)) throw new ErroApi(409, 'Há um trabalho a mais à espera de resposta.');
     const falta = faltaParaConcluir(t, o);
     if (falta.length) throw new ErroApi(409, `Ainda falta: ${falta.join('; ')}.`);
     const agora = agoraIso();
@@ -1407,6 +1415,191 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     responder(res, 200, fichaAtual(t));
   };
 
+  // ------------------------------------------------------------ trabalho a mais (decisão do dono, 2026-10-11; migração 47)
+  // O preço da proposta aceite é definitivo. Se no local o eletricista encontrar o que não se via na planta nem nas fotos,
+  // PROPÕE o trabalho a mais (descrição, horas e material do catálogo: nunca euros); o CEO põe o preço e envia ao cliente;
+  // o cliente aceita ou não na conta. Só com o "aceito" o eletricista faz esse trabalho, e o valor soma ao restante que o
+  // cliente paga no fim (pagamentos-pedido.js valores). O eletricista nunca vê o preço ao cliente.
+  const extraDe = (idTexto) => db.prepare('SELECT * FROM trabalhos_extra WHERE id = ?').get(idNum(idTexto)) ?? null;
+  const extraPendente = (trabalhoId) => Boolean(db.prepare("SELECT 1 FROM trabalhos_extra WHERE trabalho_id = ? AND estado IN ('proposto', 'enviado') LIMIT 1").get(trabalhoId));
+  /** O material de um extra com os nomes do catálogo (sem preços): [{sku, nome, qtd}]. */
+  const materialDoExtra = (x) => { let m = []; try { m = JSON.parse(x.material); } catch { m = []; } return propostaDe({ proposta: JSON.stringify({ horas: x.horas, material: m }) }).material; };
+  /** O que o eletricista recebe por um extra (€ sem IVA), no formato de `recebe`: a percentagem dele × a mão de obra. */
+  function recebeDoExtra(maoObraCent, pct) {
+    const parte = Math.round((maoObraCent * pct) / 100);
+    return { percentagem: pct, mao_obra: deCent(maoObraCent), parte_mao_obra: deCent(parte), deslocacao: 0, total: deCent(parte), provisoria: false };
+  }
+  const pctDoTrabalho = (t) => (Number.isFinite(t?.percentagem) ? t.percentagem : percentagemOmissao());
+  /** O trabalho do extra ainda está com o eletricista que o propôs, por concluir? (Só assim se envia ao cliente e se aceita.) */
+  function extraVivo(x) {
+    const t = trabalho(x.trabalho_id);
+    return Boolean(t) && t.eletricista_id === x.eletricista_id && EDITAVEIS.includes(t.estado);
+  }
+  /** O trabalho saiu do eletricista (largou, caducou ou foi retirado): os extras à espera de resposta deixam de valer. */
+  function fecharExtras(t, agora) {
+    db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = 'O trabalho saiu do eletricista.', atualizado = ? WHERE trabalho_id = ? AND estado IN ('proposto', 'enviado')").run(agora, t.id);
+  }
+  /** A mão de obra (cêntimos sem IVA) dos extras que o cliente aceitou neste trabalho: é sobre ela que o eletricista recebe a mais. */
+  const maoObraExtras = (trabalhoId) => db.prepare("SELECT COALESCE(SUM(COALESCE(mao_obra_cent, 0)), 0) AS s FROM trabalhos_extra WHERE trabalho_id = ? AND estado = 'aceite'").get(trabalhoId).s;
+  /** O valor a receber por um trabalho com o trabalho a mais aceite: junta `extras` (mão de obra) e `parte_extras` e soma ao total. */
+  function comExtras(valor, t) {
+    const mao = valor && t.tipo === 'obra' ? maoObraExtras(t.id) : 0;
+    if (!mao) return valor;
+    const parte = Math.round((mao * valor.percentagem) / 100);
+    return { ...valor, extras: deCent(mao), parte_extras: deCent(parte), total: deCent(Math.round(valor.total * 100) + parte) };
+  }
+
+  /** Os extras de um trabalho para quem o tem: descrição, horas, material e estado. Nunca o preço ao cliente. */
+  function extrasParaEletricista(t) {
+    return db.prepare('SELECT * FROM trabalhos_extra WHERE trabalho_id = ? ORDER BY id').all(t.id)
+      // Os de outro eletricista que teve este trabalho antes: só os que o cliente aceitou (são para fazer).
+      .filter((x) => x.eletricista_id === t.eletricista_id || x.estado === 'aceite')
+      .map((x) => ({
+        id: x.id, descricao: x.descricao, horas: x.horas, material: materialDoExtra(x), estado: x.estado, quando: x.respondido_em ?? x.enviado_em ?? x.atualizado,
+        // Só o motivo da Domus Energia quando não avançou (o que o cliente escreveu ao recusar não vai para o eletricista).
+        nota: x.estado === 'retirado' ? x.nota ?? null : null,
+        recebe: x.estado === 'aceite' ? recebeDoExtra(x.mao_obra_cent ?? 0, pctDoTrabalho(t)) : null,
+        pode_retirar: x.estado === 'proposto' && x.eletricista_id === t.eletricista_id,
+      }));
+  }
+
+  // POST trabalhos/:id/extra {descricao, horas, material: [{sku, qtd}]}: propor trabalho a mais na sua obra, enquanto
+  // ainda está a trabalhar. Um à espera de resposta de cada vez. Os CEO são avisados por email.
+  h.proporExtra = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['descricao', 'horas', 'material']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    if (t.tipo !== 'obra') throw new ErroApi(409, 'O trabalho a mais só se propõe numa obra.');
+    const descricao = texto(v.descricao, 'o que encontrou e o que é preciso fazer', { max: 600, min: 5, multilinha: true, obrigatorio: true });
+    const { horas, material } = lerProposta({ horas: v.horas, material: v.material });
+    if (extraPendente(t.id)) throw new ErroApi(409, 'Já há um trabalho a mais à espera de resposta nesta obra: espere pela resposta ou retire-o antes de propor outro.');
+    // Com o restante já pago online não há onde somar o valor (o restante paga-se uma vez): trata-se por fora.
+    if (pagamentos().restantePago(o).quando) throw new ErroApi(409, 'O cliente já pagou o restante desta obra: fale com a Domus Energia.');
+    const agora = agoraIso();
+    const id = Number(db.prepare(`INSERT INTO trabalhos_extra (orcamento_id, trabalho_id, eletricista_id, descricao, horas, material, estado, criado, atualizado)
+      VALUES (?, ?, ?, ?, ?, ?, 'proposto', ?, ?)`).run(o.id, t.id, e.id, descricao, horas, JSON.stringify(material), agora, agora).lastInsertRowid);
+    auditar(quem(e), 'trabalho_extra_proposto', `orcamento:${o.id}`, { extra: id, trabalho: t.id, eletricista: e.id, horas, artigos: material.length }, ip);
+    avisarEmpresa('Domus Energia: um eletricista propôs trabalho a mais', [
+      `O eletricista encontrou trabalho a mais na obra do pedido n.º ${o.id} (${t.concelho}): diz o que é, as horas e o material.`,
+      'Veja-o na ficha do pedido, em Orçamentos: ponha o preço e envie ao cliente, ou não avance. Sem o cliente aceitar, esse trabalho não é feito.']);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  // POST trabalhos/:id/extra/:extra/retirar: o eletricista desiste do que propôs, só enquanto a Domus Energia não o enviou ao cliente.
+  h.retirarExtra = async ({ req, res, e, params, ip }) => {
+    await lerJson(req, []);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meu(e, params.id);
+    const x = extraDe(params.extra);
+    if (!x || x.trabalho_id !== t.id || x.eletricista_id !== e.id) throw new ErroApi(404, 'Trabalho a mais não encontrado.');
+    const agora = agoraIso();
+    const r = db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = NULL, atualizado = ? WHERE id = ? AND estado = 'proposto'").run(agora, x.id);
+    if (!r.changes) throw new ErroApi(409, x.estado === 'enviado' ? 'Este trabalho a mais já foi enviado ao cliente: já não se retira aqui. Fale com a Domus Energia.' : 'Este trabalho a mais já teve resposta.');
+    auditar(quem(e), 'trabalho_extra_retirado', `orcamento:${o.id}`, { extra: x.id, trabalho: t.id, eletricista: e.id }, ip);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  /**
+   * Os extras de um pedido para o painel (ficha do pedido), todos: o que o eletricista propôs, a `sugestao` de preço
+   * (SEM IVA, como na proposta: mão de obra = horas × a tarifa/hora; material ao preço de venda do catálogo), o preço que
+   * o CEO pôs (`valores`, com o total com IVA) e o que o eletricista recebe (a percentagem dele × a mão de obra).
+   */
+  function extrasDoPedido(o) {
+    return db.prepare('SELECT * FROM trabalhos_extra WHERE orcamento_id = ? ORDER BY id').all(o.id).map((x) => {
+      const e = x.eletricista_id ? linha(x.eletricista_id) : null;
+      const { material, sugestao } = valoresDaProposta(o, { horas: x.horas, material: materialDoExtra(x) });
+      const posto = x.mao_obra_cent !== null && x.mao_obra_cent !== undefined;
+      const cent = posto ? x.mao_obra_cent + (x.material_cent ?? 0) : null;
+      return {
+        id: x.id, trabalho: x.trabalho_id, eletricista: e ? { id: e.id, nome: e.nome } : null, descricao: x.descricao, horas: x.horas, material,
+        estado: x.estado, nota: x.nota ?? null, criado: x.criado, enviado_em: x.enviado_em ?? null, respondido_em: x.respondido_em ?? null,
+        sugestao: { mao_obra: sugestao.mao_obra, material: sugestao.material },
+        valores: posto ? { mao_obra: deCent(x.mao_obra_cent), material: deCent(x.material_cent ?? 0), total: deCent(cent), total_iva: deCent(comIva(cent, pagamentos().ivaDoPedido(o))) } : null,
+        recebe: recebeDoExtra(posto ? x.mao_obra_cent : Math.round(sugestao.mao_obra * 100), pctDoTrabalho(trabalho(x.trabalho_id))),
+        pode_enviar: x.estado === 'proposto' && extraVivo(x), pode_nao_avancar: ['proposto', 'enviado'].includes(x.estado),
+      };
+    });
+  }
+  /** O extra `idTexto` deste pedido (404 se for de outro). */
+  function extraDoPedido(o, idTexto) {
+    const x = extraDe(idTexto);
+    if (!x || x.orcamento_id !== o.id) throw new ErroApi(404, 'Trabalho a mais não encontrado.');
+    return x;
+  }
+
+  /**
+   * "Enviar ao cliente" (só o CEO): põe o preço do trabalho a mais — mão de obra e material, € SEM IVA — e o extra fica
+   * à espera do cliente. Devolve { extra, total (cêntimos com IVA) } para o email ao cliente (api.js).
+   */
+  function enviarExtra(o, idTexto, v, u, ip) {
+    expirar();
+    const x = extraDoPedido(o, idTexto);
+    const mao = numero(v.mao_obra, 'a mão de obra do trabalho a mais', { min: 0, max: 100_000, nulo: false });
+    const mat = numero(v.material, 'o material do trabalho a mais', { min: 0, max: 100_000, nulo: false });
+    const maoCent = Math.round(mao * 100), matCent = Math.round(mat * 100);
+    if (maoCent + matCent <= 0) falha('Indique o preço do trabalho a mais: a mão de obra, o material, ou os dois.');
+    if (x.estado !== 'proposto') throw new ErroApi(409, x.estado === 'enviado' ? 'Este trabalho a mais já foi enviado ao cliente.' : 'Este trabalho a mais já não está à espera de preço.');
+    if (!extraVivo(x)) throw new ErroApi(409, 'A obra já não está com o eletricista que propôs este trabalho a mais: não avance com ele.');
+    const agora = agoraIso();
+    const r = db.prepare("UPDATE trabalhos_extra SET estado = 'enviado', mao_obra_cent = ?, material_cent = ?, enviado_em = ?, atualizado = ? WHERE id = ? AND estado = 'proposto'").run(maoCent, matCent, agora, agora, x.id);
+    if (!r.changes) throw new ErroApi(409, 'Este trabalho a mais já não está à espera de preço.');
+    auditar(u, 'trabalho_extra_enviado', `orcamento:${o.id}`, { extra: x.id, trabalho: x.trabalho_id, mao_obra: mao, material: mat }, ip);
+    return { extra: db.prepare('SELECT * FROM trabalhos_extra WHERE id = ?').get(x.id), total: comIva(maoCent + matCent, pagamentos().ivaDoPedido(o)) };
+  }
+
+  /** "Não avançar" (só o CEO), com o motivo: o extra por rever, ou já enviado ao cliente e ainda sem resposta, fica `retirado`. */
+  function naoAvancarExtra(o, idTexto, motivo, u, ip) {
+    const x = extraDoPedido(o, idTexto);
+    const porque = texto(motivo, 'o motivo', { max: 500, min: 3, multilinha: true, obrigatorio: true });
+    const agora = agoraIso();
+    const r = db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = ?, atualizado = ? WHERE id = ? AND estado IN ('proposto', 'enviado')").run(porque, agora, x.id);
+    if (!r.changes) throw new ErroApi(409, 'Este trabalho a mais já teve resposta.');
+    auditar(u, 'trabalho_extra_nao_avancou', `orcamento:${o.id}`, { extra: x.id, trabalho: x.trabalho_id, estava: x.estado }, ip);
+  }
+
+  /** O que a conta do cliente vê: só os extras enviados (por responder), aceites ou não aceites, com o valor sem IVA e o total com IVA. */
+  function extrasParaCliente(o) {
+    const iva = pagamentos().ivaDoPedido(o);
+    return db.prepare("SELECT * FROM trabalhos_extra WHERE orcamento_id = ? AND estado IN ('enviado', 'aceite', 'recusado') ORDER BY id").all(o.id).map((x) => {
+      const cent = (x.mao_obra_cent ?? 0) + (x.material_cent ?? 0);
+      return { id: x.id, descricao: x.descricao, valor: deCent(cent), valor_iva: deCent(comIva(cent, iva)), estado: x.estado, quando: x.respondido_em ?? x.enviado_em ?? x.atualizado };
+    });
+  }
+
+  /**
+   * "Aceito" / "Não aceito" do cliente (conta.js; só o dono do pedido, só num extra enviado). Aceite: soma ao restante e
+   * o eletricista pode fazer esse trabalho. Não aceite: nada muda no dinheiro e o eletricista não o faz; o que o cliente
+   * escreveu fica na `nota` (só para a Domus Energia). O eletricista é avisado por email.
+   */
+  function responderExtra(o, idTexto, aceita, textoCliente, c, ip) {
+    expirar();
+    const x = extraDoPedido(o, idTexto);
+    const nota = aceita ? null : texto(textoCliente, 'o motivo', { max: 500, multilinha: true });
+    if (x.estado !== 'enviado') throw new ErroApi(409, 'Este trabalho a mais já não está à espera da sua resposta.');
+    const agora = agoraIso();
+    // A obra já não está com quem o propôs (ou já foi dada por concluída): já não se aceita.
+    if (aceita && !extraVivo(x)) throw new ErroApi(409, 'Este trabalho a mais já não está disponível. Fale connosco.');
+    const r = db.prepare("UPDATE trabalhos_extra SET estado = ?, nota = ?, respondido_em = ?, atualizado = ? WHERE id = ? AND orcamento_id = ? AND estado = 'enviado'").run(aceita ? 'aceite' : 'recusado', nota, agora, agora, x.id, o.id);
+    if (!r.changes) throw new ErroApi(409, 'Este trabalho a mais já não está à espera da sua resposta.');
+    const cent = (x.mao_obra_cent ?? 0) + (x.material_cent ?? 0);
+    auditar({ id: null, email: `conta:${c.id}` }, aceita ? 'trabalho_extra_aceite_cliente' : 'trabalho_extra_recusado_cliente', `orcamento:${o.id}`, { extra: x.id, trabalho: x.trabalho_id, valor: deCent(cent), via: 'online' }, ip);
+    const t = trabalho(x.trabalho_id);
+    const e = x.eletricista_id ? linha(x.eletricista_id) : null;
+    if (e && !e.anonimizado && t && t.eletricista_id === e.id) {
+      correio.enviar({ para: e.email, assunto: aceita ? 'Domus Energia: o cliente aceitou o trabalho a mais' : 'Domus Energia: o cliente não aceitou o trabalho a mais',
+        resumo: `trabalho ${t.id}: trabalho a mais ${x.id} ${aceita ? 'aceite' : 'não aceite'} pelo cliente`,
+        texto: [`Olá ${e.nome},`, '', aceita ? `O cliente aceitou o trabalho a mais do pedido n.º ${o.id} (obra em ${t.concelho}): pode avançar.`
+          : `O cliente não aceitou o trabalho a mais do pedido n.º ${o.id} (obra em ${t.concelho}): não faça esse trabalho.`,
+          'Está na ficha do trabalho, na área do eletricista.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    }
+  }
+  /** Quantos extras estão à espera do CEO (Início do painel: "trabalho a mais por rever"). */
+  const extrasPorRever = () => db.prepare("SELECT COUNT(*) AS n FROM trabalhos_extra WHERE estado = 'proposto'").get().n;
+
   // ------------------------------------------------------------ pagamento ao eletricista (ronda 3)
   const pastaFatura = (trabalhoId) => join(config.eletricistasDir, 'faturas', String(trabalhoId));
   const ficheiroFatura = (t) => join(pastaFatura(t.id), `${t.fatura_id}.${EXTENSAO[t.fatura_tipo]}`);
@@ -1425,7 +1618,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     });
     return {
       pagamento: estado, pagamento_texto: TEXTO_PAGAMENTO[estado],
-      valor: detalheDe(t) ?? recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
+      valor: detalheDe(t) ?? comExtras(recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), t), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
       prazo: t.confirmada && t.aprovada && restante.pago ? prazoPagamento([t.confirmada, t.aprovada, restante.quando]) : null,
       pago_em: t.paga ?? null,
       fatura: t.fatura_id ? { tipo: t.fatura_tipo, bytes: t.fatura_bytes, quando: t.fatura_quando, url: urlFatura } : null,
@@ -1652,14 +1845,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const nomeTrabalho = `${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()} em ${t.concelho}`;
     if (acao === 'aprovar') {
       if (t.estado !== 'confirmada') throw new ErroApi(409, t.estado === 'concluida_eletricista' ? 'O cliente ainda não confirmou o trabalho (fica aceite ao fim de 7 dias sem resposta).' : 'Só se aprova um trabalho dado por concluído e confirmado pelo cliente.');
-      const valor = recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e));
+      // Com trabalho a mais aceite pelo cliente (migração 47): a percentagem dele × essa mão de obra soma ao valor (`extras`, `parte_extras`).
+      const valor = comExtras(recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)), t);
       if (!valor) throw new ErroApi(409, 'Não foi possível calcular o valor a pagar ao eletricista: preencha a proposta em três partes (mão de obra, material e deslocação).');
       if (t.tipo === 'obra' && !o.obra_concluida) concluirObra(o, u, ip);
       const r = db.prepare("UPDATE trabalhos_eletricista SET estado = 'aprovada', aprovada = ?, aprovada_por = ?, valor_cent = ?, valor_detalhe = ?, atualizado = ? WHERE id = ? AND estado = 'confirmada'")
         .run(agora, u.email, Math.round(valor.total * 100), JSON.stringify({ ...valor, provisoria: undefined }), agora, t.id);
       if (!r.changes) throw new ErroApi(409, 'Este trabalho já foi aprovado.');
       evento(t, 'aprovada', e.id, u.email);
-      auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: valor.total, percentagem: valor.percentagem }, ip);
+      auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: valor.total, percentagem: valor.percentagem, ...(valor.parte_extras ? { trabalho_a_mais: valor.parte_extras } : {}) }, ip);
       correio.enviar({ para: e.email, assunto: 'Domus Energia: trabalho aprovado', resumo: `trabalho ${t.id} aprovado`,
         texto: [`Olá ${e.nome},`, '', `O trabalho (${nomeTrabalho}) foi aprovado.`,
           'Envie a fatura-recibo na área do eletricista, em "Pagamentos": o valor está lá. Confirme também o seu IBAN.',
@@ -1931,6 +2125,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   /** As fotos tiradas pelos eletricistas num pedido saem com ele (conta de cliente apagada, RGPD), e o que o cliente escreveu (comentário, reclamação) também. */
   async function apagarFotosDoPedido(orcamentoId) {
+    // Trabalho a mais: o que o cliente escreveu ao não aceitar sai (o motivo da Domus Energia fica).
+    db.prepare("UPDATE trabalhos_extra SET nota = NULL WHERE orcamento_id = ? AND estado = 'recusado'").run(orcamentoId);
     db.prepare("UPDATE trabalhos_eletricista SET comentario = NULL, comentario_site = NULL, reclamacao = CASE WHEN reclamacao_de = 'cliente' THEN NULL ELSE reclamacao END WHERE orcamento_id = ?").run(orcamentoId);
     for (const { id } of db.prepare('SELECT id FROM trabalhos_eletricista WHERE orcamento_id = ?').all(orcamentoId)) {
       db.prepare('DELETE FROM trabalhos_eletricista_fotos WHERE trabalho_id = ?').run(id);
@@ -2054,6 +2250,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!t) throw new ErroApi(409, 'Este pedido não está na bolsa nem atribuído.');
     db.prepare("UPDATE trabalhos_eletricista SET estado = 'retirado', atualizado = ? WHERE id = ?").run(agoraIso(), t.id);
     evento(t, 'retirado', t.eletricista_id, u.email);
+    fecharExtras(t, agoraIso());
     auditar(u, 'trabalho_retirado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: t.eletricista_id ?? null, estava: t.estado }, ip);
     // Propostas na bolsa: retirado pelo CEO (ou pelo "Não aceito" do cliente), o escolhido não largou nada — a proposta
     // dele volta a ficar de reserva, com as dos outros, para quando o pedido voltar à bolsa.
@@ -2121,6 +2318,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/ensaios', true, 'ensaios'],
     ['POST', 'trabalhos/:id/diagnostico', true, 'diagnostico'],
     ['POST', 'trabalhos/:id/concluir', true, 'concluir'],
+    ['POST', 'trabalhos/:id/extra', true, 'proporExtra'],   // {descricao, horas, material: [{sku, qtd}]}: trabalho a mais, numa obra
+    ['POST', 'trabalhos/:id/extra/:extra/retirar', true, 'retirarExtra'],   // só enquanto a Domus Energia não o enviou ao cliente
     ['GET', 'trabalhos/:id/fotos/:foto', true, 'foto'],
     ['POST', 'trabalhos/:id/fotos/:foto', true, 'receberFoto'],   // :foto = o grupo (quadro_antes…); o corpo são os bytes
     ['POST', 'trabalhos/:id/fotos/:foto/apagar', true, 'apagarFoto'],
@@ -2169,6 +2368,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     apagar, fotoParaPainel, apagarFotosDoPedido,
     prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, obraPorConfirmar, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
+    extrasDoPedido, enviarExtra, naoAvancarExtra, extrasParaCliente, responderExtra, extrasPorRever,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

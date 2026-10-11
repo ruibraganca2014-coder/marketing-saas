@@ -475,6 +475,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * sem IVA (`origem: 'venda'`: nunca abaixo do custo, por isso é um substituto prudente); sem nenhum dos dois, null
    * (vale só a regra dos 30 %).
    */
+  /** Trabalho a mais aceite pelo cliente neste pedido (cêntimos SEM IVA: mão de obra + material; migração 47). Só com o módulo dos eletricistas. */
+  const extrasAceites = (orcamentoId) => (config.eletricistas
+    ? prep("SELECT COALESCE(SUM(COALESCE(mao_obra_cent, 0) + COALESCE(material_cent, 0)), 0) AS s FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'aceite'").get(orcamentoId).s : 0);
+
   function materialDoSinal(o) {
     const c = stock?.custoMaterial(o) ?? null;
     if (c?.completo) return { cent: c.cent, origem: 'custo' };
@@ -494,7 +498,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const antes = pagoAntes(o.id);
     const proposta = o.valor_proposta_cent;
     if (proposta === null || proposta === undefined) {
-      return { pago_antes: antes, desconto: antes, sinal: null, restante: null, em_falta: null, proposta: null, base: null, total: null, iva: null, iva_pct: ivaAtual(), minima: null, material: null, sinal_material: false };
+      return { pago_antes: antes, desconto: antes, sinal: null, restante: null, em_falta: null, proposta: null, base: null, total: null, iva: null, iva_pct: ivaAtual(), minima: null, material: null, sinal_material: false, extras: 0 };
     }
     const sinalPago = pagoDe(o.id, 'sinal');
     const ivaPct = sinalPago ? ivaDe(sinalPago) : ivaAtual();
@@ -511,12 +515,19 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const materialIva = material ? comIva(material.cent, ivaPct) : 0;
     const sinal = sinalPago ? sinalPago.valor_cent : calcularSinal(total, desconto, materialIva);
     const pagoObra = totalPago(o.id) - (antes - desconto);
+    // Trabalho a mais (decisão do dono, 2026-10-11): o que o cliente aceitou na conta soma por cima — à base e ao total
+    // com IVA, logo ao restante e ao que falta. O sinal e a regra da obra mínima são só sobre a proposta: não mudam.
+    const extras = extrasAceites(o.id);
+    const totalFinal = total + comIva(extras, ivaPct);
     return {
-      pago_antes: antes, desconto, sinal, restante: Math.max(0, total - pagoObra - (sinalPago ? 0 : sinal)), em_falta: Math.max(0, total - pagoObra),
-      proposta, base, total, iva: total - base, iva_pct: ivaPct, minima: minima ? minimoCent : null, material,
+      pago_antes: antes, desconto, sinal, restante: Math.max(0, totalFinal - pagoObra - (sinalPago ? 0 : sinal)), em_falta: Math.max(0, totalFinal - pagoObra),
+      proposta, base: base + extras, total: totalFinal, iva: totalFinal - base - extras, iva_pct: ivaPct, minima: minima ? minimoCent : null, material,
       sinal_material: Boolean(material) && materialIva > Math.round((total * SINAL_PCT) / 100),
+      extras,
     };
   }
+  /** A taxa de IVA de um pedido: a do sinal já pago (não muda a meio); senão a de agora. */
+  const ivaDoPedido = (o) => { const s = pagoDe(o.id, 'sinal'); return s ? ivaDe(s) : ivaAtual(); };
 
   /** A proposta em três partes (€ sem IVA): {mao_obra, material, deslocacao}; null nas propostas de um só valor. */
   const partes = (o) => (o.proposta_mao_obra_cent === null || o.proposta_mao_obra_cent === undefined ? null
@@ -1404,6 +1415,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // se desconta no sinal, de onde vem o material que o sinal cobre ('custo' de compra ou valor de 'venda'; o valor
       // não vai: o comercial não vê custos) e o que falta para a obra estar toda paga.
       base: deCent(v.base), minima: deCent(v.minima), desconto: deCent(v.desconto), em_falta: deCent(v.em_falta),
+      // Trabalho a mais aceite pelo cliente (€ sem IVA; o campo só vai quando há): já está dentro da base, do total, do restante e do que falta.
+      ...(v.extras > 0 ? { extras: deCent(v.extras) } : {}),
       material_origem: v.material?.origem ?? null, sinal_material: v.sinal_material,
     };
   }
@@ -1472,6 +1485,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       compras: cp,
       // A proposta é sem IVA; o que se paga online inclui-o (total = proposta + IVA).
       proposta_iva: v.total === null ? null : { base: deCent(v.base), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total) },
+      // Trabalho a mais aceite (migração 47): já vai dentro do total e do restante; aqui o valor à parte, para a conta o
+      // mostrar ({valor sem IVA, total com IVA}), ou null sem nenhum.
+      trabalho_a_mais: v.extras > 0 ? { valor: deCent(v.extras), total: deCent(comIva(v.extras, v.iva_pct)) } : null,
       // Decisões de 2026-10-02: o detalhe da proposta (três partes, sem IVA), a obra mínima aplicada (€ c/ IVA ou null),
       // o limite do cartão, "Quero que comecem já", cancelar a visita e se a obra já está toda paga (a app fica ativa).
       proposta_partes: partes(o),
@@ -1672,7 +1688,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
-    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida,
+    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida, ivaDoPedido,
     // Pré-visualização da Área de cliente (conta.js plantaPedido): a planta do cliente só com o desenho.
     plantaParaCliente: plantaParaRelatorio,
     PLANOS: PLANOS_MENSAIS,

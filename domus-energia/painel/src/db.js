@@ -1063,6 +1063,33 @@ export const MIGRACOES = [
       visto TEXT
     );
   `),
+  // 47: trabalho a mais (decisão do dono, 2026-10-11; docs/ELETRICISTAS.md "Trabalho a mais"): o preço da proposta aceite
+  // é definitivo. Se no local o eletricista encontrar o que não se via na planta nem nas fotos, propõe o trabalho a mais
+  // (descrição, horas e material do catálogo, nunca euros); o CEO põe o preço (sem IVA) e envia ao cliente; o cliente
+  // aceita ou não na conta. Só os `aceite` somam ao restante do pedido. `proposto` = à espera do CEO; `enviado` = à
+  // espera do cliente; `recusado` = o cliente não aceitou; `retirado` = o eletricista retirou ou o CEO não avançou.
+  // `nota`: o motivo do CEO ao não avançar, ou o que o cliente escreveu ao recusar. `eletricista_id` sem chave
+  // estrangeira: é só para saber de quem era (apagar o eletricista não mexe aqui).
+  (db) => db.exec(`
+    CREATE TABLE trabalhos_extra (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      trabalho_id INTEGER NOT NULL REFERENCES trabalhos_eletricista(id) ON DELETE CASCADE,
+      eletricista_id INTEGER,
+      descricao TEXT NOT NULL,
+      horas REAL NOT NULL,
+      material TEXT NOT NULL DEFAULT '[]',      -- JSON [{sku, qtd}]
+      estado TEXT NOT NULL CHECK (estado IN ('proposto', 'enviado', 'aceite', 'recusado', 'retirado')),
+      mao_obra_cent INTEGER,                    -- sem IVA, postos pelo CEO ao enviar
+      material_cent INTEGER,
+      nota TEXT,
+      criado TEXT NOT NULL,
+      enviado_em TEXT,
+      respondido_em TEXT,
+      atualizado TEXT NOT NULL
+    );
+    CREATE INDEX trabalhos_extra_orcamento ON trabalhos_extra(orcamento_id);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

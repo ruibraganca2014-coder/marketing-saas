@@ -184,6 +184,69 @@ function caixaRecusar(p) {
   caixa.append(abrir, form);
   return caixa;
 }
+/**
+ * Trabalho a mais (decisão do dono, 2026-10-11): no local apareceu trabalho que não estava na proposta. A empresa diz o
+ * que é e quanto custa; o cliente aceita ou não (POST pedidos/:id/extras/:extra/aceitar | recusar). Sem resposta, esse
+ * trabalho não é feito. Se aceitar, o valor soma ao que paga no fim da obra. Depois de responder mostra o que respondeu.
+ */
+function blocoExtras(p) {
+  const b = el("section", "conta-proposta conta-extras");
+  b.id = `extras-${p.id}`;
+  b.setAttribute("aria-label", "Trabalho a mais");
+  b.append(el("h4", null, "Trabalho a mais"));
+  for (const x of p.extras) {
+    b.append(el("p", null, x.descricao), el("p", "valor num", `${euro(x.valor)} + IVA (${euro(x.valor_iva)} com IVA)`));
+    if (x.estado === "aceite") { b.append(el("p", "msg ok", `Aceitou em ${dataTxt(x.quando, true)}. Este valor soma ao que paga no fim da obra.`)); continue; }
+    if (x.estado === "recusado") { b.append(el("p", "msg info", `Não aceitou em ${dataTxt(x.quando, true)}. Este trabalho não é feito e o valor da obra não muda.`)); continue; }
+    b.append(el("p", "ajuda", "No local encontrámos trabalho que não estava na proposta. Sem a sua resposta, este trabalho não é feito."),
+      el("p", "ajuda", "Este valor soma ao que paga no fim da obra."));
+    const msg = msgPequena();
+    const erro = (e) => { msg.textContent = e?.message || "Não foi possível. Tente de novo."; msg.className = "msg erro"; msg.hidden = false; };
+    const aceito = el("button", "btn pequeno", "Aceito");
+    aceito.type = "button";
+    aceito.id = `extra-aceitar-${x.id}`;
+    const naoAceito = el("button", "btn sec pequeno", "Não aceito");
+    naoAceito.type = "button";
+    naoAceito.id = `extra-recusar-${x.id}`;
+    // "Não aceito" abre a caixa de texto (opcional) e a confirmação, como na proposta.
+    const form = el("div", "conta-recusar-form");
+    form.hidden = true;
+    const txt = document.createElement("textarea");
+    txt.rows = 2;
+    txt.maxLength = 500;
+    txt.id = `extra-texto-${x.id}`;
+    const rot = el("label", null, "Quer dizer porquê? (opcional)");
+    rot.append(txt);
+    const sim = el("button", "btn sec pequeno", "Confirmar: não aceito");
+    sim.type = "button";
+    sim.id = `extra-recusar-sim-${x.id}`;
+    const cancelar = el("button", "btn sec pequeno", "Cancelar");
+    cancelar.type = "button";
+    const g = el("div", "form-botoes");
+    g.append(aceito, naoAceito);
+    const g2 = el("div", "form-botoes");
+    g2.append(sim, cancelar);
+    form.append(rot, g2);
+    const responder = async (botao, caminho, corpo) => {
+      botao.disabled = true;
+      msg.hidden = true;
+      try {
+        await pedirConta(`pedidos/${p.id}/extras/${x.id}/${caminho}`, { corpo });
+        await carregar();
+      } catch (e) {
+        botao.disabled = false;
+        erro(e);
+        if (e instanceof ErroConta && e.estado === 409) carregar();
+      }
+    };
+    aceito.addEventListener("click", () => responder(aceito, "aceitar", {}));
+    naoAceito.addEventListener("click", () => { form.hidden = false; g.hidden = true; txt.focus(); });
+    cancelar.addEventListener("click", () => { form.hidden = true; g.hidden = false; naoAceito.focus(); });
+    sim.addEventListener("click", () => responder(sim, "recusar", { texto: txt.value }));
+    b.append(g, form, msg);
+  }
+  return b;
+}
 function blocoCorrecao(p) {
   const b = el("section", "msg info conta-correcao");
   b.id = `correcao-${p.id}`;
@@ -224,6 +287,8 @@ function cartaoPedido(p) {
   }
   c.append(passos);
   if (p.correcao) c.append(blocoCorrecao(p));
+  const extraPorResponder = (p.extras ?? []).some((x) => x.estado === "enviado");
+  if (extraPorResponder) c.append(blocoExtras(p));
   if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido. Se fizermos uma proposta nova, aparece aqui.`));
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
@@ -244,6 +309,7 @@ function cartaoPedido(p) {
   if (p.mensagens?.length) c.append(blocoMensagens(p));
   if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
   if (p.proposta) c.append(blocoProposta(p));
+  if (p.extras?.length && !extraPorResponder) c.append(blocoExtras(p));
   if (!restanteJa && (p.pode_pagar_restante || p.restante?.pago)) c.append(blocoRestante(p));
   if (p.relatorio_basico) c.append(blocoBasico(p));
   if (p.relatorio) c.append(blocoRelatorio(p));
@@ -270,15 +336,18 @@ function blocoProposta(p) {
   b.append(el("h4", null, "A nossa proposta"), el("p", "valor num", `${euro(p.proposta.valor)} + IVA`));
   // O detalhe (decisão 15): mão de obra, material e deslocação, sem IVA; depois o IVA e o total.
   const pp = p.proposta_partes;
+  // Trabalho a mais que aceitou (sem IVA): já vai dentro do total com IVA e do restante.
+  const tm = p.trabalho_a_mais;
   if (pp) {
     const dl = el("dl", "dados-simples conta-partes");
-    for (const [k, v] of [["Mão de obra", pp.mao_obra], ["Material", pp.material], ["Deslocação", pp.deslocacao]]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
+    for (const [k, v] of [["Mão de obra", pp.mao_obra], ["Material", pp.material], ["Deslocação", pp.deslocacao], ...(tm && !p.obra_minima ? [["Trabalho a mais", tm.valor]] : [])]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
     if (pi && !p.obra_minima) dl.append(el("dt", null, `IVA ${pctTxt(pi.iva_pct)}`), el("dd", "num", euro(pi.iva)), el("dt", null, "Total com IVA"), el("dd", "num", euro(pi.total)));
     b.append(dl);
   }
   // Obra mínima (decisão 9): abaixo dela cobra-se o mínimo e o que pagou antes não é descontado.
   if (p.obra_minima != null) b.append(el("p", "msg info conta-minima", `Obra mínima: ${formatarEuroRedondo(p.obra_minima)} com IVA${pp?.deslocacao > 0 ? ", mais a deslocação" : ""}. Esta proposta fica abaixo: paga ${pi ? euro(pi.total) : "o mínimo"} e o que já pagou (${precoDefinitivo(p) ? "relatório, diagnóstico" : "visita, diagnóstico"}) não é descontado.`));
   else if (pi && !pp) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
+  if (tm && (!pp || p.obra_minima)) b.append(el("p", "ajuda num", `O total já inclui o trabalho a mais que aceitou: ${euro(tm.valor)} + IVA (${euro(tm.total)} com IVA).`));
   if (p.proposta.texto) b.append(el("p", null, p.proposta.texto));
   if (precoDefinitivo(p) && !obraFeita(p)) b.append(el("p", "ajuda conta-preco-definitivo", PRECO_DEFINITIVO));
   const msg = el("div", "msg", null);
@@ -357,8 +426,11 @@ function blocoRestante(p) {
   msg.hidden = true;
   msg.setAttribute("role", "status");
   b.append(el("h4", null, "Fim da obra"));
+  // Com trabalho a mais aceite: "a proposta mais o trabalho a mais, menos o que já pagou".
+  const tm = p.trabalho_a_mais;
+  const contas = !p.proposta_iva ? "" : tm ? `: ${euro(Math.round((p.proposta_iva.total - tm.total) * 100) / 100)} mais ${euro(tm.total)} do trabalho a mais, menos o que já pagou` : `: ${euro(p.proposta_iva.total)} menos o que já pagou`;
   if (p.restante?.pago) b.append(el("p", "msg ok", "A obra está paga. Obrigado!"));
-  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${p.proposta_iva ? `: ${euro(p.proposta_iva.total)} menos o que já pagou` : ""}).`),
+  else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${contas}).`),
     el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."), soMultibanco(p, p.restante.valor),
     botaoPagar(p, "restante", `Pagar o restante (${euro(p.restante.valor)})`, msg), msg);
   return b;

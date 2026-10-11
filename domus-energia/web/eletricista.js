@@ -763,8 +763,6 @@ function seccaoProposta(t) {
       p.notas ? el("p", "pequeno suave", `«${p.notas}»`) : null,
       el("p", "pequeno suave", "A Domus Energia calcula o preço e envia a proposta ao cliente."));
   }
-  // Obra vinda de proposta: o preço que o cliente aceitou é definitivo, salvo surpresa no local (decisão do dono, 2026-10-11).
-  if (t.de_proposta) corpo.push(el("p", "nota calma", "Se no local a obra for diferente do combinado, não avance com o trabalho a mais: diga à Domus Energia (o cliente tem de aceitar primeiro)."));
   if (!t.pode_proposta) return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
   const msg = el("p", "erro");
   msg.hidden = true;
@@ -933,8 +931,75 @@ function parteTrabalho(t) {
     seccao("Material a levantar", selo(`${nRec}/${mat.length}`, mat.length && nRec === mat.length ? "bom" : ""),
       el("p", "nota calma", "Material fornecido pela Domus Energia: combinamos consigo onde o levanta ou se segue para a obra. Marque o que já levantou ou recebeu."),
       mat.length ? acoes : null, mat.length ? lista : el("p", "suave", "Sem lista de material.")),
+    seccaoExtras(t),
     seccaoChecklists(t),
   ].filter(Boolean);
+}
+
+/**
+ * Trabalho a mais (decisão do dono, 2026-10-11): o preço que o cliente aceitou é definitivo. Se no local aparecer o que
+ * não se via na planta nem nas fotos, o eletricista diz aqui o que é, as horas e o material (sem preços: a Domus
+ * Energia põe o preço e pergunta ao cliente). Só com o cliente a aceitar é que esse trabalho se faz. Só numa obra.
+ */
+const ESTADO_EXTRA = {
+  proposto: ["À espera da Domus Energia", "aviso"], enviado: ["À espera do cliente", "aviso"],
+  aceite: ["Aceite pelo cliente: pode fazer este trabalho", "bom"], recusado: ["O cliente não aceitou: não faça este trabalho", "mau"], retirado: ["Retirado", ""],
+};
+function seccaoExtras(t) {
+  if (t.tipo !== "obra") return null;
+  const extras = t.extras ?? [];
+  const corpo = [el("p", "nota calma", "Não avance com trabalho a mais sem o cliente aceitar.")];
+  for (const x of extras) {
+    const [txt, tipo] = ESTADO_EXTRA[x.estado] ?? [x.estado, ""];
+    const c = com(el("div", "cartao pilha"), com(el("div", "selos"), selo(txt, tipo)),
+      el("p", null, x.descricao),
+      el("p", "pequeno", `${decimal(x.horas)} h de trabalho${x.material.length ? ` e ${x.material.length} ${x.material.length === 1 ? "artigo" : "artigos"}` : ""}.`),
+      x.material.length ? com(el("ul", "pequeno"), ...x.material.map((m) => el("li", null, `${m.qtd} × ${m.nome}`))) : null,
+      x.estado === "retirado" && x.nota ? el("p", "pequeno suave", `A Domus Energia não avançou: «${x.nota}»`) : null,
+      x.recebe ? com(el("p", "pequeno"), "Por este trabalho recebe mais ", el("b", "num", euro(x.recebe.total)), ` · ${decimal(x.recebe.percentagem)} % da mão de obra, sem IVA`) : null);
+    c.id = `extra-${x.id}`;
+    if (x.pode_retirar) {
+      const retirar = el("button", "btn sec mini", "Retirar");
+      retirar.type = "button";
+      retirar.addEventListener("click", () => acaoFicha(t, `extra/${x.id}/retirar`, {}, { botao: retirar, texto: "Trabalho a mais retirado." }));
+      c.append(com(el("div", "fila"), retirar));
+    }
+    corpo.push(c);
+  }
+  const pendente = extras.some((x) => x.estado === "proposto" || x.estado === "enviado");
+  if (t.pode_extra) {
+    const abrir = el("button", "btn sec", "Propor trabalho a mais");
+    abrir.type = "button";
+    abrir.id = "extra-abrir";
+    const zona = el("div", "pilha");
+    zona.hidden = true;
+    abrir.addEventListener("click", () => {
+      abrir.hidden = true;
+      zona.hidden = false;
+      const msg = el("p", "erro");
+      msg.hidden = true;
+      msg.setAttribute("role", "alert");
+      // Os mesmos campos da proposta (horas e material do catálogo); em vez das notas, o que encontrou.
+      const f = camposProposta(null, msg);
+      const descricao = el("textarea");
+      descricao.rows = 4; descricao.maxLength = 600; descricao.id = "extra-descricao";
+      const enviar = el("button", "btn", "Enviar à Domus Energia");
+      enviar.type = "button";
+      enviar.id = "extra-enviar";
+      enviar.addEventListener("click", () => {
+        msg.hidden = true;
+        const d = descricao.value.trim();
+        if (d.length < 5) { msg.textContent = "Diga o que encontrou e o que é preciso fazer."; msg.hidden = false; descricao.focus(); return; }
+        const v = f.ler();
+        if (v) acaoFicha(t, "extra", { descricao: d, horas: v.horas, material: v.material }, { botao: enviar, msg, texto: "Trabalho a mais enviado à Domus Energia." });
+      });
+      zona.replaceChildren(el("p", "pequeno suave", "Diga o que é, as horas e o material. Não escreva preços nem fale de preços com o cliente: a Domus Energia põe o preço e pergunta ao cliente."),
+        f.campo("O que encontrou e o que é preciso fazer", descricao), f.horas, ...f.material, msg, com(el("div", "fila"), enviar));
+      descricao.focus();
+    });
+    corpo.push(com(el("div"), abrir), zona);
+  } else if (pendente) corpo.push(el("p", "pequeno suave", "Só pode propor outro depois de este ter resposta. Até lá, a obra não se dá por concluída."));
+  return seccao("Encontrou trabalho a mais?", pendente ? selo("À espera", "aviso") : null, ...corpo.filter(Boolean));
 }
 
 // ---- Procedimentos da obra: as checklists (cada passo é uma caixa; fica quem marcou e quando) e "Começar checklist"
@@ -1305,7 +1370,8 @@ function cartaoPagamento(x) {
   if (x.parte === "regresso") c.append(el("p", "pequeno suave", "Voltou ao cliente e não havia defeito: esta ida paga-se à parte, depois de o cliente pagar a visita."));
   if (v) {
     const dl = el("dl", "dados");
-    for (const [k, val] of [["Mão de obra (sem IVA)", euro(v.mao_obra)], [`${decimal(v.percentagem)} % da mão de obra`, euro(v.parte_mao_obra)], ["Deslocação (sem IVA)", euro(v.deslocacao)], ["Total", euro(v.total)]]) dl.append(el("dt", null, k), el("dd", "num", val));
+    for (const [k, val] of [["Mão de obra (sem IVA)", euro(v.mao_obra)], [`${decimal(v.percentagem)} % da mão de obra`, euro(v.parte_mao_obra)], ["Deslocação (sem IVA)", euro(v.deslocacao)],
+      ...(v.parte_extras ? [[`Trabalho a mais: ${decimal(v.percentagem)} % de ${euro(v.extras)}`, euro(v.parte_extras)]] : []), ["Total", euro(v.total)]]) dl.append(el("dt", null, k), el("dd", "num", val));
     c.append(dl);
     if (!x.valor_fixado) c.append(el("p", "pequeno suave", "Estimativa: o valor fica fixado quando a Domus Energia aprovar o trabalho."));
     if (x.tipo === "avaria" && x.parte !== "regresso") c.append(el("p", "pequeno suave", "A taxa de diagnóstico fica na Domus Energia."));

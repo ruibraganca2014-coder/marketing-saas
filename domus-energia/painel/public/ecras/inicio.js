@@ -56,6 +56,7 @@ export default function inicio(el, ctx) {
       linha(t.alertas_criticos, "alerta crítico numa casa", "alertas críticos nas casas", "#/alertas", true),
       linha(t.pedidos_novos, "pedido novo por tratar", "pedidos novos por tratar", "#/orcamentos"),
       linha(t.propostas_eletricista, "proposta de eletricista por rever", "propostas de eletricistas por rever", "#/orcamentos"),
+      linha(t.extras, "trabalho a mais por rever", "trabalhos a mais por rever", "#/orcamentos"),
       linha(t.propostas_aceites, "proposta aceite, falta marcar a obra", "propostas aceites, falta marcar a obra", "#/orcamentos"),
       linha(t.mensagens, "mensagem de cliente por responder", "mensagens de clientes por responder", "#/orcamentos"),
       linha(t.ativacoes, "ativação de aparelho por aprovar", "ativações de aparelhos por aprovar", "#/ativacoes"),

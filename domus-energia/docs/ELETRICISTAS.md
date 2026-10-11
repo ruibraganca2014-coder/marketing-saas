@@ -36,8 +36,22 @@ Interruptor `PROPOSTAS_BOLSA` (`config.propostasBolsa`): **ligado por omissão**
 
 - **A visita técnica já não se paga à parte** nos pedidos que não são avaria (`pagamentos-pedido.js visitaIncluida`): com os pagamentos online ligados o pedido por visitar vai para a bolsa **sem pagamento nenhum** (`tipoAtribuivel`); a visita vem depois de o cliente aceitar e vai incluída no sinal. A avaria continua a exigir o diagnóstico pago. O resto (compra recusada pelo servidor, conta, simulador): docs/PAGAMENTOS-PEDIDO.md "Decisões de 2026-10-11".
 - **O cliente paga o restante logo que confirma** a obra feita por um eletricista externo (trabalho `obra` em `confirmada`: o "Sim", os 7 dias sem resposta ou o "sem defeito" do CEO), **antes de o CEO aprovar** (`clienteConfirmou` → `pagamentos-pedido.js restanteDisponivel`). A aprovação continua a ser precisa para a obra ficar concluída no painel (stock, `obra_concluida`) e para pagar ao eletricista: as três condições de `estadoPagamento` não mudam, e a aprovação pode vir antes ou depois do pagamento. Com "Não" (ou se o CEO devolver o trabalho) não há pagamento.
-- **O preço da proposta é definitivo, salvo surpresa no local** (só textos): a conta di-lo em "A nossa proposta" e ao confirmar a aceitação; a ficha da obra vinda de proposta (`de_proposta` em `GET trabalhos/:id`) avisa o eletricista para não avançar com trabalho a mais sem a Domus (o cliente tem de aceitar primeiro). Não há mecanismo de "proposta de diferença".
+- **O preço da proposta é definitivo, salvo surpresa no local** (só textos): a conta di-lo em "A nossa proposta" e ao confirmar a aceitação; a ficha da obra vinda de proposta (`de_proposta` em `GET trabalhos/:id`) avisa o eletricista para não avançar com trabalho a mais sem a Domus (o cliente tem de aceitar primeiro). O mecanismo é o "Trabalho a mais", abaixo (a nota fixa da ficha deu lugar ao bloco "Encontrou trabalho a mais?").
 - `GET trabalhos` leva `propostas_bolsa: true` (o estado vazio diz "em que for escolhido (ou que aceitar)").
+
+## Trabalho a mais (decisão do dono, 2026-10-11)
+
+O preço da proposta aceite é definitivo. Se no local o eletricista encontrar o que não se via na planta nem nas fotos:
+
+1. **O eletricista propõe** na ficha da obra ("Encontrou trabalho a mais?"): o que encontrou, as horas e o material do catálogo. Nunca escreve preços, não fala de preços com o cliente e não vê o preço ao cliente. Só numa obra sua ainda em curso (`aceite` ou `visita_marcada`), e só **um à espera de resposta de cada vez**. Enquanto está por rever pode retirá-lo.
+2. **O CEO põe o preço** na ficha do pedido (cartão "Trabalho a mais"): mão de obra e material, em euros sem IVA, pré-preenchidos com a sugestão (horas × a tarifa/hora; material ao preço de venda). "Enviar ao cliente" manda o email "trabalho a mais por aceitar" com o total com IVA; "Não avançar" (com o motivo, que o eletricista vê) fecha-o. No Início do CEO aparece "trabalho a mais por rever". O comercial vê o cartão sem botões.
+3. **O cliente responde na conta** ("Trabalho a mais" no cartão do pedido): "Aceito" ou "Não aceito" (com um texto opcional, que só a empresa vê). Sem resposta, esse trabalho não é feito. O eletricista recebe um email com a resposta.
+4. **Dinheiro:** só o que o cliente aceitou conta. O valor soma à base e ao total com IVA do pedido, logo ao **restante** que o cliente paga no fim (`pagamentos-pedido.js valores`, campo `extras`); não há pagamento a meio, e o sinal e a regra da obra mínima não mudam. Ao aprovar o trabalho, o eletricista recebe a mais a percentagem dele × a mão de obra do trabalho a mais aceite (`valor_detalhe`: `extras` e `parte_extras`).
+5. **Concluir fica bloqueado** enquanto houver um trabalho a mais à espera do CEO ou do cliente (`409 Há um trabalho a mais à espera de resposta.`; também em `falta`).
+
+Estados (`trabalhos_extra.estado`, migração 47): `proposto` (à espera do CEO) → `enviado` (à espera do cliente) → `aceite` ou `recusado`; `retirado` = o eletricista retirou, o CEO não avançou, ou a obra saiu do eletricista (largou, caducou ou foi retirada) com o trabalho a mais ainda à espera. Com o restante já pago online não se propõe (`409`): trata-se por fora. Ao apagar a conta do cliente, o texto que ele escreveu ao não aceitar sai (`nota`).
+
+Rotas: `POST /api/eletricista/trabalhos/:id/extra` `{descricao, horas, material: [{sku, qtd}]}` e `POST …/extra/:extra/retirar`; `POST /painel/api/orcamentos/:id/extras/:extra/enviar` `{mao_obra, material}` e `…/nao-avancar` `{motivo}` (só CEO); `POST /api/conta/pedidos/:id/extras/:extra/aceitar` e `…/recusar` `{texto?}`. A ficha do eletricista leva `extras` e `pode_extra`; a ficha do pedido no painel leva `extras` (com `sugestao`, `valores` e `recebe`); o pedido na conta leva `extras` (só os enviados, aceites e não aceites: `{id, descricao, valor, valor_iva, estado, quando}`) e `trabalho_a_mais` (`{valor, total}` do que aceitou, ou `null`). Tudo isto só existe com o módulo ligado (`ELETRICISTAS=1`). Testes: `painel/test/trabalho-a-mais.test.js`.
 
 ## Decisões do dono
 
@@ -297,6 +311,8 @@ O botão "Eletricista de teste" (`POST /api/eletricista/dev/entrar {n: 1}`) cria
 ## Base de dados
 
 Migração 30 (recria `trabalhos_eletricista` e `trabalhos_eletricista_eventos` pelo procedimento da 29, para os estados e eventos novos): colunas `confirmada`, `confirmada_auto`, `estrelas` (1 a 5), `comentario`, `comentario_site`, `reclamacao`, `reclamacao_de` (`cliente` / `ceo`), `reclamacao_quando`, `reclamacao_decisao` (`defeito` / `sem_defeito`), `reclamacao_decidida`, `aprovada`, `aprovada_por`, `valor_cent`, `valor_detalhe`, `fatura_id`, `fatura_tipo`, `fatura_bytes`, `fatura_quando`, `paga`, `paga_por`; e `eletricistas.iban`. Migração 31: a ida sem defeito — `regresso_desde`, `regresso_cent`, `regresso_detalhe`, `regresso_fatura_id`, `regresso_fatura_tipo`, `regresso_fatura_bytes`, `regresso_fatura_quando`, `regresso_paga`, `regresso_paga_por`.
+
+Migração 47: `trabalhos_extra` (trabalho a mais; ver "Trabalho a mais").
 
 ## Rondas seguintes
 

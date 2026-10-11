@@ -174,6 +174,9 @@ export const ROTAS = [
   ['GET', 'eletricistas/:id/seguro', ['ceo'], 'seguroEletricista'],
   ['GET', 'orcamentos/:id/eletricista', ['ceo'], 'atribuicaoEletricista'],
   ['POST', 'orcamentos/:id/eletricista', ['ceo'], 'atribuirEletricista'],
+  // Trabalho a mais (migração 47): o CEO põe o preço e envia ao cliente, ou não avança (com o motivo).
+  ['POST', 'orcamentos/:id/extras/:extra/enviar', ['ceo'], 'enviarExtra'],              // {mao_obra, material} — € sem IVA
+  ['POST', 'orcamentos/:id/extras/:extra/nao-avancar', ['ceo'], 'naoAvancarExtra'],     // {motivo}
   ['POST', 'eletricistas/:id/apagar', ['ceo'], 'apagarEletricista'],
   ['GET', 'trabalhos-eletricista/:id/fotos/:foto', ['ceo'], 'fotoTrabalhoEletricista'],
   ['GET', 'pagamentos-eletricistas', ['ceo'], 'pagamentosEletricistas'],
@@ -216,7 +219,7 @@ export const ROTAS = [
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista']);
+  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -423,6 +426,8 @@ export function criarApi(ctx) {
       r.proposta_sugerida = o.simulacao ? pagPed.propostaSugerida(o) : null;
       // Proposta do eletricista depois da visita (horas + material do catálogo; valores sem IVA calculados aqui), ou null.
       if (config.eletricistas) r.proposta_eletricista = eletricistas.propostaDoPedido(o);
+      // Trabalho a mais proposto pelo eletricista na obra (migração 47): todos, com a sugestão de preço e o que ele recebe.
+      if (config.eletricistas) r.extras = eletricistas.extrasDoPedido(o);
       r.stock = o.simulacao ? stock.resumoPedido(o) : null;
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
       r.catalogo = artigosDaSimulacao(r.simulacao);
@@ -713,6 +718,8 @@ export function criarApi(ctx) {
           candidaturas: n("SELECT COUNT(*) AS n FROM eletricistas WHERE estado = 'pendente'"),
           trabalhos_por_aprovar: n("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE estado = 'confirmada'"),
           pagamentos_eletricistas: n("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE estado = 'aprovada'"),
+          // Trabalho a mais proposto por um eletricista, à espera de o CEO pôr o preço e enviar ao cliente.
+          extras: eletricistas.extrasPorRever(),
         });
       }
       r.visitas_semana = db.prepare(`SELECT id, nome, localidade, data_visita FROM orcamentos
@@ -2213,6 +2220,33 @@ export function criarApi(ctx) {
     // do cliente (defeito: o eletricista volta sem receber mais; sem defeito: o cliente paga uma visita).
     else eletricistas.decidir(o, acao, v.motivo, u, ip);
     responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
+  };
+
+  // Trabalho a mais (decisão do dono, 2026-10-11; eletricistas.js): "Enviar ao cliente" com o preço (mão de obra e
+  // material, € sem IVA). O cliente recebe o email com o total com IVA e responde na conta; sem resposta, não se faz.
+  h.enviarExtra = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['mao_obra', 'material']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const { extra, total } = eletricistas.enviarExtra(o, params.extra, v, u, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      const valor = `${(total / 100).toFixed(2).replace('.', ',')} €`;
+      // A descrição é texto técnico do eletricista: vai, mas cortada (o resto vê-se na conta).
+      const descricao = extra.descricao.length > 300 ? `${extra.descricao.slice(0, 300).trimEnd()}…` : extra.descricao;
+      correio.enviar({ para: email, assunto: 'Domus Energia: trabalho a mais por aceitar', resumo: `trabalho a mais ${extra.id} do pedido ${o.id} enviado ao cliente (${valor} com IVA)`,
+        texto: ['Olá,', '', `Na obra do seu pedido n.º ${o.id} o nosso técnico encontrou trabalho que não estava na proposta:`, '', descricao, '',
+          `Este trabalho a mais custa ${valor} (com IVA). Se aceitar, o valor soma ao que paga no fim da obra.`,
+          'Na sua conta diz se aceita ou não. Sem a sua resposta, este trabalho não é feito.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // "Não avançar" (com o motivo): o trabalho a mais por rever, ou enviado e ainda sem resposta do cliente, cai.
+  h.naoAvancarExtra = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['motivo']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    eletricistas.naoAvancarExtra(o, params.extra, v.motivo, u, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
   // ------------------------------------------------------------ públicos

@@ -115,7 +115,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     if (!p) return [];
     const v = p.valor;
     return [dados([
-      [p.valor_fixado ? "A pagar ao eletricista (sem IVA)" : "Recebe (estimativa, sem IVA)", v ? `${euros(v.total)} — ${String(v.percentagem).replace(".", ",")} % de ${euros(v.mao_obra)} + ${euros(v.deslocacao)} de deslocação` : "—"],
+      [p.valor_fixado ? "A pagar ao eletricista (sem IVA)" : "Recebe (estimativa, sem IVA)", v ? `${euros(v.total)} — ${String(v.percentagem).replace(".", ",")} % de ${euros(v.mao_obra)} + ${euros(v.deslocacao)} de deslocação${v.parte_extras ? ` + ${euros(v.parte_extras)} do trabalho a mais` : ""}` : "—"],
       ["Pagamento", `${p.pagamento_texto}${p.prazo && p.pagamento === "a_pagar" ? ` até ${data(p.prazo)}` : ""}${p.pago_em ? ` em ${data(p.pago_em)}${t.pago_por ? ` (${t.pago_por})` : ""}` : ""}`],
       ...(p.fatura ? [["Fatura-recibo", h("a", { href: p.fatura.url, target: "_blank", rel: "noopener", text: `Abrir (${data(p.fatura.quando)})` })]] : []),
       ...(t.aprovada ? [["Aprovado", `${data(t.aprovada)}${t.aprovada_por ? ` (${t.aprovada_por})` : ""}`]] : []),

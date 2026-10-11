@@ -245,6 +245,67 @@ export default function orcamentos(el, ctx) {
     if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id, {
       aoEscolher: () => pedir(`orcamentos/${encodeURIComponent(id)}`).then((r) => { const novo = campo(r, "orcamento") ?? r; substituir(novo); if (ficha?.j === j) desenharFicha(j, novo); }).catch(() => {}),
     }));
+    // Trabalho a mais (docs/ELETRICISTAS.md "Trabalho a mais"): o que o eletricista encontrou na obra e propôs. O CEO põe
+    // o preço (pré-preenchido com a sugestão) e envia ao cliente, ou não avança; os outros papéis veem sem botões.
+    const extras = ctx.eletricistas && !arquivado ? lista(campo(o, "extras") ?? [], "extras") : [];
+    if (extras.length) {
+      const ESTADO_EXTRA = { proposto: ["Por rever: falta o preço", "aviso"], enviado: ["Enviado — à espera do cliente", "aviso"], aceite: ["Aceite pelo cliente", "estado-ativo"],
+        recusado: ["O cliente não aceitou", "estado-suspenso"], retirado: ["Retirado", "info"] };
+      const numTxt = (v) => String(v).replace(".", ",");
+      const acaoExtra = async (b, x, caminho, corpo, aviso) => {
+        b.disabled = true;
+        try {
+          const novo = await pedir(`orcamentos/${encodeURIComponent(id)}/extras/${x.id}/${caminho}`, { corpo });
+          substituir(novo);
+          avisar(aviso);
+          if (ficha?.j === j) desenharFicha(j, novo);
+        } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+      };
+      const cartao = (x) => {
+        const [estadoTxt, estadoTipo] = ESTADO_EXTRA[x.estado] ?? [x.estado, "info"];
+        const material = x.material?.length ? h("ul", { class: "diag-sugestoes" }, ...x.material.map((m) => h("li", { text: `${m.qtd} × ${m.nome}${m.valor == null ? "" : ` — ${euros(m.valor)}`}` }))) : "Sem material";
+        const v = x.valores;
+        const c = h("div", { class: "proposta-cartao", id: `extra-${x.id}` },
+          h("div", { class: "proposta-topo" }, h("strong", { text: x.eletricista?.nome ?? "Eletricista" }), selo(estadoTxt, estadoTipo)),
+          h("p", { class: "mensagem-cliente", text: x.descricao }),
+          dados([
+            ["Horas", `${numTxt(x.horas)} h`],
+            ["Material", material],
+            ...(v ? [["Preço para o cliente", `${euros(v.total)} sem IVA (${euros(v.total_iva)} com IVA) — mão de obra ${euros(v.mao_obra)} + material ${euros(v.material)}`]]
+              : [["Sugestão (sem IVA)", `mão de obra ${euros(x.sugestao.mao_obra)} + material ${euros(x.sugestao.material)}`]]),
+            ["O eletricista recebe", x.recebe ? `${euros(x.recebe.total)} (${numTxt(x.recebe.percentagem)} % da mão de obra)${v ? "" : " — pela sugestão"}` : "—"],
+            ["Proposto em", data(x.criado)],
+            ...(x.enviado_em ? [["Enviado ao cliente", data(x.enviado_em)]] : []),
+            ...(x.respondido_em ? [["Resposta do cliente", data(x.respondido_em)]] : []),
+            ...(x.nota ? [[x.estado === "recusado" ? "O cliente escreveu" : "Motivo", `«${x.nota}»`]] : []),
+          ]));
+        if (!ctx.pode("ceo")) return c;
+        if (x.pode_enviar) {
+          const iMao = h("input", { type: "number", min: "0", step: "0.01", inputmode: "decimal", id: `extra-mao-${x.id}`, value: x.sugestao.mao_obra ?? "" });
+          const iMat = h("input", { type: "number", min: "0", step: "0.01", inputmode: "decimal", id: `extra-material-${x.id}`, value: x.sugestao.material ?? "" });
+          c.append(h("div", { class: "tres" }, campoForm("Mão de obra (€, sem IVA)", iMao), campoForm("Material (€, sem IVA)", iMat)),
+            h("p", { class: "ajuda", text: "Reveja o preço antes de enviar. O cliente recebe um email e diz na conta se aceita; se aceitar, o valor soma ao restante que paga no fim da obra." }),
+            h("div", { class: "form-botoes" }, h("button", { class: "btn pequeno", type: "button", id: `extra-enviar-${x.id}`, text: "Enviar ao cliente",
+              onclick: (e) => {
+                const mao = numero(iMao.value) ?? 0, mat = numero(iMat.value) ?? 0;
+                if (!(mao >= 0) || !(mat >= 0) || mao + mat <= 0) { avisar("Indique o preço do trabalho a mais: a mão de obra, o material, ou os dois.", "erro"); iMao.focus(); return; }
+                acaoExtra(e.currentTarget, x, "enviar", { mao_obra: mao, material: mat }, "Trabalho a mais enviado ao cliente: seguiu o email.");
+              } })));
+        } else if (x.estado === "proposto") c.append(h("p", { class: "ajuda", text: "A obra já não está com este eletricista: não se envia ao cliente." }));
+        if (x.pode_nao_avancar) {
+          const motivo = h("textarea", { rows: "2", maxlength: "500", id: `extra-motivo-${x.id}`, "aria-label": "Motivo para não avançar" });
+          const zona = h("div", { class: "form-grelha", hidden: true }, h("label", { class: "campo" }, h("span", { text: "Porque não avança (o eletricista vê este texto)" }), motivo),
+            h("div", { class: "form-botoes" }, h("button", { class: "btn pequeno", type: "button", id: `extra-nao-avancar-confirmar-${x.id}`, text: "Confirmar: não avançar",
+              onclick: (e) => { if (motivo.value.trim().length < 3) { avisar("Escreva o motivo.", "erro"); motivo.focus(); return; } acaoExtra(e.currentTarget, x, "nao-avancar", { motivo: motivo.value.trim() }, "Registado: este trabalho a mais não avança."); } })));
+          c.append(h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: `extra-nao-avancar-${x.id}`, text: "Não avançar",
+            onclick: (e) => { zona.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })), zona);
+        }
+        return c;
+      };
+      partes.push(h("section", { class: "eletricista-externo", id: "trabalho-a-mais" }, h("h3", { text: "Trabalho a mais" }),
+        h("p", { class: "ajuda", text: "O preço da proposta aceite é definitivo. O que o eletricista encontrou a mais só se faz se o cliente aceitar; o valor soma ao restante." }),
+        h("div", { class: "propostas-lista" }, ...extras.map(cartao))));
+    }
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
     if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
@@ -453,7 +514,7 @@ export default function orcamentos(el, ctx) {
       const desconto = vp.desconto ?? vp.pago_antes ?? vp.relatorio ?? 0;
       const sinalTxt = vp.sinal_material ? `cobre o material${vp.material_origem === "venda" ? ", pelo valor de venda" : ""}` : "30 %";
       const pp = campo(o, "proposta_partes");
-      const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
+      const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)}${vp.extras > 0 ? ` + trabalho a mais ${euros(vp.extras)}` : ""} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
       if (pp) linhas.push(h("p", { class: "ajuda", id: "valores-partes", text: `Mão de obra ${euros(pp.mao_obra)} · material ${euros(pp.material)} · deslocação ${euros(pp.deslocacao)} (sem IVA).` }));
       if (vp.minima != null) linhas.push(h("p", { class: "msg info", id: "obra-minima", text: `Obra mínima: ${euros(vp.minima)} com IVA. A proposta fica abaixo: cobra-se o mínimo${pp && pp.deslocacao > 0 ? " (mais a deslocação)" : ""} e o que o cliente pagou antes não é descontado.` }));
       if (vp.sinal_material) linhas.push(h("p", { class: "ajuda", id: "sinal-material", text: "O sinal cobre o material: é o maior entre 30 % do total e o custo do material." }));
@@ -1166,6 +1227,9 @@ const ACOES = {
   trabalho_aprovado: "Trabalho aprovado pelo CEO", fatura_eletricista: "Fatura-recibo enviada pelo eletricista", eletricista_pago: "Pagamento ao eletricista registado",
   trabalho_atribuido: "Trabalho atribuído a um eletricista", trabalho_aceite: "Trabalho aceite por um eletricista (bolsa)", proposta_eletricista: "Proposta do eletricista depois da visita",
   pedido_validado: "Pedido validado pelo CEO", pedido_devolvido_cliente: "Devolvido ao cliente para corrigir", pedido_corrigido_cliente: "O cliente disse que já corrigiu",
+  trabalho_extra_proposto: "Trabalho a mais proposto pelo eletricista", trabalho_extra_retirado: "Trabalho a mais retirado pelo eletricista",
+  trabalho_extra_enviado: "Trabalho a mais enviado ao cliente (com o preço)", trabalho_extra_nao_avancou: "Trabalho a mais: o CEO não avançou",
+  trabalho_extra_aceite_cliente: "Trabalho a mais aceite pelo cliente (online)", trabalho_extra_recusado_cliente: "Trabalho a mais não aceite pelo cliente",
   proposta_recusada_cliente: "Proposta não aceite pelo cliente", trabalho_na_bolsa: "Posto na bolsa dos eletricistas", trabalho_retirado: "Trabalho retirado ao eletricista ou da bolsa",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",
   orcamento_anonimizado_rgpd: "Anonimizado (RGPD): a conta foi apagada; os pagamentos ficam",

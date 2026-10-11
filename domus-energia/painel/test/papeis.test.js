@@ -79,6 +79,8 @@ const MATRIZ = [
   ['GET', 'eletricistas/999/seguro', [C]],
   ['GET', 'orcamentos/999/eletricista', [C]],
   ['POST', 'orcamentos/999/eletricista', [C], {}],
+  ['POST', 'orcamentos/999/extras/997/enviar', [C], { mao_obra: 10, material: 0 }],
+  ['POST', 'orcamentos/999/extras/997/nao-avancar', [C], { motivo: 'Não se justifica' }],
   ['POST', 'eletricistas/999/apagar', [C], {}],
   ['GET', 'trabalhos-eletricista/999/fotos/0123456789abcdef01234567', [C]],
   ['GET', 'pagamentos-eletricistas', [C]],
@@ -127,7 +129,7 @@ before(async () => {
 after(() => p.fechar());
 
 const padrao = (caminho) => caminho.replace(/^clientes\/joao/, 'clientes/:c').replace(/aparelhos\/sala/, 'aparelhos/:a')
-  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista');
+  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista').replace(/extras\/997/, 'extras/:extra');
 
 test('a matriz cobre exatamente as rotas do servidor', () => {
   const doServidor = ROTAS.map((r) => `${r.metodo} ${r.caminho}`).sort();

@@ -667,6 +667,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       // Trabalho feito por um eletricista externo (docs/ELETRICISTAS.md): "O trabalho ficou concluído?" — por confirmar,
       // confirmado (com a avaliação) ou devolvido; nunca quem o fez. null sem o módulo ou sem trabalho.
       confirmacao,
+      // Trabalho a mais (migração 47): o que a empresa enviou para o cliente aceitar ou não, e o que ele já respondeu
+      // ({id, descricao, valor sem IVA, valor_iva, estado, quando}). Vazio sem o módulo dos eletricistas.
+      extras: eletricistas()?.extrasParaCliente(o) ?? [],
       // Avaliação do trabalho (1 a 5 estrelas) e, depois de avaliar, o convite para a avaliação no Google
       // (docs/EMAILS-AUTOMATICOS.md): {pode, estrelas, do_pedido, google} ou null.
       avaliacao: emails()?.paraCliente(o, confirmacao) ?? null,
@@ -890,6 +893,23 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     eletricistas().confirmarCliente(o, v, c, ip);
     // Avaliação baixa (1 a 3 estrelas): tarefa urgente para os CEO (docs/EMAILS-AUTOMATICOS.md).
     if (v.concluido === true) emails()?.aposAvaliar(o, v.estrelas);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+
+  // Trabalho a mais (decisão do dono, 2026-10-11; docs/ELETRICISTAS.md): "Aceito" — o valor soma ao restante e o
+  // eletricista pode fazer esse trabalho — ou "Não aceito" (com um texto opcional): nada muda. Só o dono do pedido, só
+  // num trabalho a mais enviado pela empresa e ainda sem resposta.
+  h.aceitarExtra = async ({ req, res, c, params, ip }) => {
+    await lerJson(req, []);
+    const o = pedidoDaConta(c, params.id);
+    eletricistas().responderExtra(o, params.extra, true, null, c, ip);
+    registo.info(`orçamento ${o.id}: trabalho a mais ${params.extra} aceite pelo cliente (online)`);
+    responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
+  };
+  h.recusarExtra = async ({ req, res, c, params, ip }) => {
+    const v = await lerJson(req, ['texto']);
+    const o = pedidoDaConta(c, params.id);
+    eletricistas().responderExtra(o, params.extra, false, v.texto, c, ip);
     responder(res, 200, { pedido: pedidoParaCliente(db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(o.id)) });
   };
 
@@ -1246,7 +1266,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     ['POST', 'pedidos/:id/corrigido', 'confirmada', 'pedidoCorrigido'],
     ['POST', 'pedidos/:id/recusar', 'confirmada', 'recusarProposta'],
     // Só com o módulo dos eletricistas ligado (ELETRICISTAS=1); sem ele a rota não existe (404).
-    ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho']] : []),
+    ...(config.eletricistas ? [['POST', 'pedidos/:id/confirmar-trabalho', 'confirmada', 'confirmarTrabalho'],
+      ['POST', 'pedidos/:id/extras/:extra/aceitar', 'confirmada', 'aceitarExtra'],     // trabalho a mais: aceito
+      ['POST', 'pedidos/:id/extras/:extra/recusar', 'confirmada', 'recusarExtra']] : []),   // … ou não aceito {texto?}
     ['GET', 'casa', 'confirmada', 'casa'],
     ['POST', 'casa-registada', 'confirmada', 'registarCasa'],
     ['POST', 'apagar', 'sessao', 'apagarConta'],
