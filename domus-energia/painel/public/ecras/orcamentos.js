@@ -1151,6 +1151,7 @@ const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
   proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
+  proposta_bolsa: "Proposta de um eletricista (bolsa)", trabalho_escolhido: "Eletricista escolhido pelo CEO", trabalho_obra_do_escolhido: "Obra atribuída ao eletricista escolhido",
   pedido_validado: "Pedido validado pelo CEO", pedido_devolvido_cliente: "Devolvido ao cliente para corrigir", pedido_corrigido_cliente: "O cliente disse que já corrigiu",
   proposta_recusada_cliente: "Proposta não aceite pelo cliente", trabalho_na_bolsa: "Posto na bolsa dos eletricistas", trabalho_retirado: "Trabalho retirado ao eletricista ou da bolsa",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",

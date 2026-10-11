@@ -5,6 +5,9 @@
 // falta, o material já recebido, os ensaios (fora do limite assinalados) e as fotos antes e depois.
 // Ronda 3: a confirmação e a avaliação do cliente, o "Não" do cliente (defeito / sem defeito), "Aprovar trabalho" e
 // "Devolver ao eletricista"; depois de aprovado, o valor fixado, o estado do pagamento e a fatura-recibo.
+// Propostas na bolsa (decisão do dono, 2026-10-10; só com `propostas_bolsa` na resposta): num pedido com planta os
+// eletricistas propõem em vez de aceitar — a tabela comparativa (horas, material, preço para o cliente, o que fica para a
+// Domus, avaliação, disponibilidade) e "Escolher"; o escolhido fica à espera de o cliente aceitar a proposta.
 import { pedir } from "../api.js";
 import { h, euros, data, selo, dados, avisar, botaoConfirmar } from "../ui.js";
 
@@ -41,6 +44,11 @@ function fichaDeObra(t) {
 /** "AAAA-MM-DDTHH:MM" (hora de Lisboa) → "09/10/2026 10:00". */
 const visitaTxt = (v) => (v ? `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)} ${v.slice(11, 16)}` : "Por marcar");
 const veem = (n) => `${n} ${n === 1 ? "eletricista vê" : "eletricistas veem"}`;
+const quantas = (n) => `${n} ${n === 1 ? "proposta" : "propostas"}`;
+/** O histórico: o que o sistema fez sozinho quando o cliente aceitou a proposta não é "Retirado pelo CEO". */
+const eventoTxt = (x) => (x.por === "sistema" && x.evento === "retirado" ? "Visita fechada: o cliente aceitou a proposta"
+  : String(x.por ?? "").startsWith("conta:") && x.evento === "retirado" ? "Retirado: o cliente não aceitou a proposta"
+  : x.por === "sistema" && x.evento === "atribuido" ? "Obra atribuída ao eletricista escolhido" : EVENTOS[x.evento] ?? x.evento);
 
 export function blocoEletricista(orcamentoId) {
   const corpo = h("div", { class: "form-grelha" }, h("p", { class: "ajuda", role: "status", text: "A carregar…" }));
@@ -112,6 +120,50 @@ export function blocoEletricista(orcamentoId) {
     ]), h("p", { class: "ajuda" }, "Pagamentos aos eletricistas: ", h("a", { href: "#/pagamentos", text: "Pagamentos" }), ".")];
   }
 
+  /**
+   * Propostas na bolsa (decisão do dono, 2026-10-10): a tabela comparativa das propostas do pedido. Valores sem IVA,
+   * calculados no servidor (o eletricista nunca escreve euros). "Escolher" só com o pedido na bolsa; as de reserva ficam
+   * à vista para quando o pedido lá voltar.
+   */
+  function tabelaPropostas(a) {
+    const lista = a.propostas ?? [];
+    if (!lista.length) return [];
+    const pct = (v) => String(v).replace(".", ",");
+    const linha = (x) => {
+      const av = x.avaliacao?.n ? `★ ${numTxt(x.avaliacao.media)} (${x.avaliacao.n} ${x.avaliacao.n === 1 ? "avaliação" : "avaliações"})` : "Sem avaliações";
+      const material = x.artigos
+        ? h("details", {}, h("summary", { text: `${x.artigos} ${x.artigos === 1 ? "artigo" : "artigos"}` }),
+          h("ul", {}, ...x.material.map((m) => h("li", { text: `${m.qtd} × ${m.nome}${m.valor == null ? "" : ` — ${euros(m.valor)}`}` }))))
+        : "Sem material";
+      const fim = x.pode_escolher
+        ? botaoConfirmar("Escolher", "Confirmar: escolher?", (b) => acao(b, { acao: "escolher", eletricista_id: x.eletricista.id },
+          `${x.eletricista.nome} foi escolhido e avisado por email. Os outros ficam de reserva.`), { classe: "btn pequeno" })
+        : x.estado === "escolhida" ? selo("Escolhido", "estado-ativo") : x.estado === "reserva" ? selo("Reserva", "info") : null;
+      if (fim instanceof HTMLButtonElement) fim.id = `escolher-${x.eletricista.id}`;
+      // Um cartão por proposta (teste de 2026-10-11: a tabela larga não cabia na ficha e o "Escolher" ficava escondido).
+      return h("div", { class: "proposta-cartao", id: `proposta-${x.eletricista.id}` },
+        h("div", { class: "proposta-topo" }, h("strong", {}, h("a", { href: "#/eletricistas", text: x.eletricista.nome })), fim),
+        dados([
+          ["Preço para o cliente (sem IVA)", h("span", {}, h("strong", { text: euros(x.preco) }), ` — mão de obra ${euros(x.mao_obra)} + material ${euros(x.material_valor)} + deslocação ${euros(x.deslocacao)}`)],
+          ["O eletricista recebe", `${euros(x.recebe)} (${pct(x.percentagem)} % da mão de obra + deslocação)`],
+          ["Preço menos o eletricista", `${euros(x.domus)} (ainda inclui o material, ao preço de venda)`],
+          ["Horas", `${numTxt(x.horas)} h`],
+          ["Material", material],
+          ["Quando pode ir", x.disponibilidade],
+          ["Avaliação", `${av} · ${x.concluidos} ${x.concluidos === 1 ? "trabalho concluído" : "trabalhos concluídos"}`],
+          ...(x.notas ? [["Notas", `«${x.notas}»`]] : []),
+          ["Proposta de", data(x.quando)],
+        ]));
+    };
+    const partes = [h("h4", { id: "propostas-titulo", text: `Propostas dos eletricistas (${lista.length})` }),
+      h("div", { class: "propostas-lista", id: "tabela-propostas", role: "group", "aria-labelledby": "propostas-titulo" }, ...lista.map(linha))];
+    if (!a.pode_escolher && lista.some((x) => x.estado !== "escolhida")) {
+      partes.push(h("p", { class: "ajuda", id: "propostas-reserva", text: a.trabalho?.ativo ? "As outras propostas ficam de reserva: se retirar o eletricista escolhido e voltar a pôr o pedido na bolsa, pode escolher uma delas."
+        : "Propostas de reserva: valide o pedido (se voltou a ficar por validar) e ponha-o na bolsa para poder escolher uma delas." }));
+    }
+    return partes;
+  }
+
   const SELO_ESTADO = {
     concluida_eletricista: ["Concluída pelo eletricista — a aguardar confirmação do cliente", "estado-ativo"], confirmada: ["Confirmado — falta aprovar", "aviso"],
     visita_marcada: ["Visita marcada", "estado-ativo"], aceite: ["Atribuído — marcar visita", "aviso"], aprovada: ["Aprovado", "estado-ativo"], paga: ["Pago ao eletricista", "estado-ativo"],
@@ -141,32 +193,39 @@ export function blocoEletricista(orcamentoId) {
           : h("p", { class: "msg info", text: `Ainda não há eletricistas aprovados em ${a.concelho}.` }),
         h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "por-na-bolsa", text: `Pôr na bolsa · ${veem(a.candidatos.length)}`,
           onclick: (e) => acao(e.currentTarget, { acao: "bolsa" }, "Trabalho na bolsa.") })),
-        h("p", { class: "ajuda", id: "bolsa-quem", text: `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem 48 h para marcar a visita.` }));
+        h("p", { class: "ajuda", id: "bolsa-quem", text: a.propostas_bolsa && a.tipo === "visita"
+          ? `Na bolsa, veem o trabalho: ${nomes}. Cada um envia a sua proposta (horas, material e quando pode ir) e é você que escolhe, quando quiser.`
+          : `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem 48 h para marcar a visita.` }));
     } else if (t.estado === "na_bolsa") {
       partes.push(
         h("p", { class: "linha-selos" }, selo("Na bolsa", "aviso"), selo(a.concelho, "info")),
-        h("p", { id: "bolsa-estado", text: `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
+        h("p", { id: "bolsa-estado", text: t.por_proposta
+          ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
+          : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
         h("div", { class: "form-botoes" }, botaoConfirmar("Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Retirado da bolsa."))));
     } else {
       const r = t.recebe;
-      const [seloTxt, seloTipo] = SELO_ESTADO[t.estado] ?? SELO_ESTADO.aceite;
+      // Escolhido entre as propostas, com o cliente ainda por aceitar: sem prazo e sem visita por marcar.
+      const [seloTxt, seloTipo] = t.espera_cliente ? ["Escolhido — à espera de o cliente aceitar a proposta", "aviso"] : SELO_ESTADO[t.estado] ?? SELO_ESTADO.aceite;
       partes.push(
         h("p", { class: "linha-selos" }, selo(seloTxt, seloTipo), t.aberto ? null : selo("Fechado", "info")),
         dados([
           ["Eletricista", t.eletricista ? h("a", { href: "#/eletricistas", text: t.eletricista.nome }) : "—"],
-          ["Como", t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
+          ["Como", t.por_proposta ? "Escolhido entre as propostas da bolsa" : t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
           ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total)} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
           ...(t.concluida ? [["Concluída pelo eletricista", data(t.concluida)]] : []),
-          ["Visita", t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],
+          ["Visita", t.espera_cliente ? "Só depois de o cliente aceitar a proposta: aí a obra fica com ele e tem 48 h para marcar"
+            : t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],
         ]),
         ...confirmacao(t),
         ...fichaDeObra(t),
         h("div", { class: "form-botoes" }, botaoConfirmar("Retirar atribuição", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Atribuição retirada: o eletricista deixa de ver o cliente."))));
     }
+    partes.push(...tabelaPropostas(a));
     if (a.historico.length) {
       partes.push(h("details", { class: "eletricista-historico" }, h("summary", { text: `Histórico da atribuição (${a.historico.length})` }),
         h("ol", { class: "historico-p" }, ...a.historico.map((x) => h("li", {}, h("span", { class: "num ajuda", text: data(x.quando) }), " ",
-          `${EVENTOS[x.evento] ?? x.evento}${x.eletricista ? ` — ${x.eletricista}` : ""}`)))));
+          `${eventoTxt(x)}${x.eletricista ? ` — ${x.eletricista}` : ""}`)))));
     }
     corpo.replaceChildren(...partes);
   }

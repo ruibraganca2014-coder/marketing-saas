@@ -7,6 +7,10 @@
 // restante, fatura em falta, a pagar até, pago em), o envio da fatura-recibo e o IBAN (só se vê mascarado).
 // Procedimentos (docs/PROCEDIMENTOS.md): os publicados leem-se na Ajuda técnica; numa obra, as checklists estão no
 // separador "Trabalho" da ficha (começar a checklist de um procedimento e marcar os passos).
+// Propostas na bolsa (decisão do dono, 2026-10-10; só quando o servidor diz `por_proposta` no trabalho): numa visita
+// técnica da bolsa não há "Aceitar" — o eletricista vê o relatório e as fotos do cliente e envia a proposta (horas,
+// material, notas e quando pode ir), que pode corrigir; a Domus escolhe. O escolhido fica "à espera de o cliente aceitar"
+// (sem dados do cliente nem "Marcar visita"); quando o cliente aceita, a obra aparece nos trabalhos dele.
 // Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
@@ -210,17 +214,25 @@ function cartaoRecebe(t) {
 async function bolsaLista() {
   const r = await pedir("bolsa");
   contadores(r.trabalhos.length, null);
-  const out = [el("h2", null, "Bolsa"), el("p", "suave pequeno", `Trabalhos em ${r.concelhos.join(", ")}. O primeiro a aceitar fica com o trabalho.`)];
+  const out = [el("h2", null, "Bolsa"), el("p", "suave pequeno", r.propostas_bolsa
+    ? `Trabalhos em ${r.concelhos.join(", ")}. Nas visitas técnicas envia a sua proposta e a Domus Energia escolhe; nos outros, o primeiro a aceitar fica com o trabalho.`
+    : `Trabalhos em ${r.concelhos.join(", ")}. O primeiro a aceitar fica com o trabalho.`)];
   if (!r.trabalhos.length) {
     out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos na bolsa."), el("p", "suave pequeno", "Os trabalhos novos dos seus concelhos aparecem aqui.")));
     return out;
   }
   for (const t of r.trabalhos) {
-    const b = com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso")),
-      el("h3", null, t.titulo),
-      com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar")),
-      duracaoTxt(t) ? el("span", "pequeno suave", `Duração: ${duracaoTxt(t)}`) : null,
-      el("span", "pequeno suave", "Nome e morada do cliente só depois de aceitar."));
+    // Por proposta: não há valor nem "aceitar" — diz-se se a proposta já foi enviada.
+    const b = t.por_proposta
+      ? com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+        el("h3", null, t.titulo),
+        el("span", null, t.proposta_enviada ? "A Domus Energia escolhe o eletricista e avisa por email." : "Veja o relatório e as fotos e envie a sua proposta."),
+        el("span", "pequeno suave", "Nome e morada do cliente só depois de o cliente aceitar a proposta."))
+      : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso")),
+        el("h3", null, t.titulo),
+        com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar")),
+        duracaoTxt(t) ? el("span", "pequeno suave", `Duração: ${duracaoTxt(t)}`) : null,
+        el("span", "pequeno suave", "Nome e morada do cliente só depois de aceitar."));
     b.type = "button";
     b.id = `bolsa-trabalho-${t.id}`;
     b.addEventListener("click", () => ir(`bolsa/${t.id}`));
@@ -232,6 +244,7 @@ async function bolsaLista() {
 async function bolsaDetalhe(id) {
   const r = await pedir(`bolsa/${id}`);
   const t = r.trabalho;
+  if (t.por_proposta) return detalhePorProposta(t);
   const aceitar = el("button", "btn cheio", "Aceitar trabalho");
   aceitar.type = "button";
   aceitar.id = "aceitar-trabalho";
@@ -261,6 +274,101 @@ async function bolsaDetalhe(id) {
     el("p", "nota", `Nome, morada e telefone do cliente só aparecem depois de aceitar. Tem ${r.prazo_visita_horas ?? 48} h para marcar a visita; sem visita, o trabalho volta à bolsa.`),
     msg, aceitar,
   ].filter(Boolean);
+}
+
+/**
+ * Trabalho por proposta (decisão do dono, 2026-10-10): em vez de "Aceitar", o relatório técnico, as fotos que o cliente
+ * enviou e o formulário da proposta. Nada do cliente aqui: nome, morada e telefone só depois de o cliente aceitar.
+ */
+function detalhePorProposta(t) {
+  const pct = t.recebe?.percentagem ?? eu?.percentagem;
+  return [
+    botaoVoltar("Bolsa", "bolsa"),
+    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+    el("h2", null, t.titulo),
+    com(el("div", "cartao pilha"), el("p", "rotulo", "Como funciona"),
+      el("p", null, "Envie a sua proposta: as horas de trabalho, o material e quando pode ir. A Domus Energia compara as propostas e escolhe o eletricista."),
+      el("p", "pequeno suave", `Se for escolhido e o cliente aceitar a proposta, a obra é sua: recebe ${pct === undefined || pct === null ? "a sua percentagem" : `${decimal(pct)} %`} da mão de obra + a deslocação, sem IVA. A visita está incluída e o material é fornecido pela Domus.`)),
+    blocoRelatorio(t.relatorio, "Relatório técnico (sem preços)"),
+    fotosDoCliente(t),
+    formPropostaBolsa(t),
+    el("p", "nota", "Nome, morada e telefone do cliente só aparecem depois de o cliente aceitar a proposta. Aí tem 48 h para marcar a visita."),
+  ].filter(Boolean);
+}
+/** As fotos que o cliente enviou com o pedido (a do quadro e as das divisões): só a imagem e de onde é. */
+function fotosDoCliente(t) {
+  const fotos = t.fotos ?? [];
+  const c = com(el("div", "cartao pilha"), el("h3", null, "Fotos enviadas pelo cliente"));
+  c.id = "fotos-cliente";
+  if (!fotos.length) { c.append(el("p", "suave", "O cliente não enviou fotos.")); return c; }
+  const grelha = el("div", "fotos-grelha");
+  for (const f of fotos) {
+    const img = el("img");
+    img.src = urlServidor(f.url);
+    img.alt = f.nome;
+    img.loading = "lazy";
+    if (base) img.crossOrigin = "use-credentials";
+    const a = com(el("a"), img);
+    a.href = urlServidor(f.url);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = "Abrir a foto inteira";
+    grelha.append(com(el("figure", "mini-foto"), a, el("figcaption", "pequeno suave", f.nome)));
+  }
+  c.append(grelha);
+  return c;
+}
+/** O formulário da proposta na bolsa: o da proposta depois da visita (horas, material, notas) mais "Quando pode ir?". Depois de enviada, pode corrigir-se. */
+function formPropostaBolsa(t) {
+  const p = t.minha_proposta;
+  const c = com(el("div", "cartao pilha"), el("h3", null, p ? "A sua proposta" : "Fazer proposta"));
+  c.id = "proposta-bolsa";
+  const msg = el("p", "erro");
+  msg.hidden = true;
+  msg.setAttribute("role", "alert");
+  const f = camposProposta(p, msg);
+  const quando = el("input");
+  quando.type = "text"; quando.maxLength = 200; quando.id = "proposta-disponibilidade";
+  quando.placeholder = "ex.: a partir de 20 de outubro, manhãs";
+  quando.value = p?.disponibilidade ?? "";
+  const enviar = el("button", "btn cheio", p ? "Enviar proposta corrigida" : "Enviar proposta");
+  enviar.type = "button";
+  enviar.id = "proposta-enviar";
+  enviar.addEventListener("click", async () => {
+    msg.hidden = true;
+    const v = f.ler();
+    if (!v) return;
+    const disponibilidade = quando.value.trim();
+    if (disponibilidade.length < 3) { msg.textContent = "Diga quando pode ir (ex.: a partir de 20 de outubro, manhãs)."; msg.hidden = false; quando.focus(); return; }
+    enviar.disabled = true;
+    try {
+      const r = await pedir(`bolsa/${t.id}/proposta`, { ...v, disponibilidade });
+      aviso(r.mensagem ?? "Proposta enviada. A Domus Energia escolhe o eletricista e avisa por email.");
+      $("el-vista").replaceChildren(...detalhePorProposta(r.trabalho));
+      window.scrollTo(0, 0);
+    } catch (e) {
+      if (e.estado === 401) return;
+      msg.textContent = e.message;
+      msg.hidden = false;
+      if (e.estado !== 409 && e.estado !== 404) enviar.disabled = false;
+    }
+  });
+  const zona = com(el("div", "pilha"), el("p", "pequeno suave", "Diga o que a obra precisa pelo relatório e pelas fotos. Não escreva preços: a Domus Energia calcula-os."),
+    f.horas, ...f.material, f.campo("Quando pode ir?", quando), f.notas, msg, enviar);
+  if (p) {
+    const nota = el("div", "nota calma");
+    nota.id = "proposta-enviada";
+    com(nota, el("p", null, "Proposta enviada. A Domus Energia escolhe o eletricista e avisa por email."),
+      el("p", "pequeno", `${dataCurta(p.quando)}: ${decimal(p.horas)} h de trabalho${p.material.length ? `, ${p.material.length} ${p.material.length === 1 ? "artigo" : "artigos"}` : ""} · ${p.disponibilidade}`));
+    const corrigir = el("button", "btn sec", "Corrigir proposta");
+    corrigir.type = "button";
+    corrigir.id = "proposta-corrigir";
+    zona.hidden = true;
+    corrigir.addEventListener("click", () => { zona.hidden = false; corrigir.hidden = true; zona.querySelector("input")?.focus(); });
+    c.append(nota, el("p", "pequeno suave", "Pode corrigi-la enquanto o trabalho estiver na bolsa."), com(el("div"), corrigir));
+  }
+  c.append(zona);
+  return c;
 }
 
 // ---------------------------------------------------------------- relatório técnico (sem preços)
@@ -311,7 +419,7 @@ function blocoRelatorio(rel, titulo, extra = []) {
 // ---------------------------------------------------------------- Os meus trabalhos
 async function trabalhosLista() {
   const r = await pedir("trabalhos");
-  contadores(null, r.trabalhos.filter((t) => t.estado === "aceite" && t.aberto).length);
+  contadores(null, r.trabalhos.filter((t) => t.estado === "aceite" && t.aberto && !t.espera_cliente).length);
   const out = [el("h2", null, "Os meus trabalhos")];
   if (!r.trabalhos.length) {
     out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos em curso."), el("p", "suave pequeno", "Os trabalhos que aceitar na Bolsa aparecem aqui.")));
@@ -319,7 +427,8 @@ async function trabalhosLista() {
   }
   for (const t of r.trabalhos) {
     const b = com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), seloEstado(t)), el("h3", null, t.titulo));
-    if (t.aberto && t.estado === "aceite" && t.prazo) b.append(contagem(t.prazo, "para marcar a visita"));
+    if (t.espera_cliente) b.append(el("span", "pequeno", "Escolhido. À espera de o cliente aceitar a proposta."));
+    else if (t.aberto && t.estado === "aceite" && t.prazo) b.append(contagem(t.prazo, "para marcar a visita"));
     else if (t.visita) b.append(el("span", "pequeno", `Visita: ${visitaTxt(t.visita)}`));
     b.type = "button";
     b.id = `meu-trabalho-${t.id}`;
@@ -329,6 +438,7 @@ async function trabalhosLista() {
   return out;
 }
 const seloEstado = (t) => (t.estado === "paga" ? selo("Pago", "bom") : t.estado === "aprovada" ? selo("Aprovado", "bom") : !t.aberto ? selo("Fechado")
+  : t.espera_cliente ? selo("Escolhido", "bom")
   : t.estado === "concluida_eletricista" ? selo("A aguardar o cliente", "aviso") : t.estado === "confirmada" ? selo("A aguardar aprovação", "aviso")
   : t.estado === "aceite" ? selo("Marcar visita", "aviso") : selo(`Visita ${visitaTxt(t.visita)}`, "bom"));
 
@@ -365,7 +475,8 @@ async function acaoFicha(t, caminho, corpo, { botao = null, msg = null, texto = 
 
 function desenharFicha(t) {
   const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEstado(t)), el("h2", null, t.titulo),
-    t.recebe?.gratis ? el("p", "pequeno", "Visita de orçamento: não é paga. Recebe se o cliente aceitar a proposta e fizer a obra.")
+    t.espera_cliente ? el("p", "pequeno", "Recebe a sua percentagem da mão de obra + a deslocação quando fizer a obra (a visita está incluída).")
+    : t.recebe?.gratis ? el("p", "pequeno", "Visita de orçamento: não é paga. Recebe se o cliente aceitar a proposta e fizer a obra.")
       : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação` : "")];
   if (!t.aberto) {
     out.push(el("p", "nota calma", "Trabalho fechado: os dados do cliente já não estão disponíveis."));
@@ -376,6 +487,22 @@ function desenharFicha(t) {
       out.push(b);
     }
     return out;
+  }
+  // Escolhido entre as propostas da bolsa, com o cliente ainda por aceitar (decisão do dono, 2026-10-10): sem dados do
+  // cliente, sem "Marcar visita" e sem prazo. Fica o relatório, a proposta que enviou e "Largar trabalho".
+  if (t.espera_cliente) {
+    const n = el("div", "nota calma");
+    n.id = "espera-cliente";
+    com(n, el("p", null, "Escolhido. À espera de o cliente aceitar a proposta."),
+      el("p", "pequeno", "Quando o cliente aceitar, avisamos por email: passa a ver o nome, a morada e o telefone e tem 48 h para marcar a visita. Pode fazer a obra nessa visita."));
+    const pr = t.proposta;
+    out.push(n, pr ? com(el("div", "cartao pilha"), el("h3", null, "A sua proposta"),
+      el("p", null, `${decimal(pr.horas)} h de trabalho${pr.material.length ? ` e ${pr.material.length} ${pr.material.length === 1 ? "artigo" : "artigos"}` : ""}.`),
+      pr.material.length ? com(el("ul", "pequeno"), ...pr.material.map((m) => el("li", null, `${m.qtd} × ${m.nome}`))) : null,
+      pr.notas ? el("p", "pequeno suave", `«${pr.notas}»`) : null) : null,
+      blocoRelatorio(t.relatorio, "Relatório técnico (sem preços)"),
+      com(el("div", "pilha fecho"), el("p", "pequeno suave", "Se já não puder fazer este trabalho, largue-o: volta à bolsa e fica registado."), botaoLargar(t)));
+    return out.filter(Boolean);
   }
   if (t.estado === "concluida_eletricista" || t.estado === "confirmada") {
     const n = el("p", "nota calma");
@@ -633,6 +760,25 @@ function seccaoProposta(t) {
   const msg = el("p", "erro");
   msg.hidden = true;
   msg.setAttribute("role", "alert");
+  const f = camposProposta(p, msg);
+  const enviar = el("button", "btn", p ? "Enviar outra vez" : "Enviar proposta à Domus");
+  enviar.type = "button";
+  enviar.id = "proposta-enviar";
+  enviar.addEventListener("click", () => {
+    msg.hidden = true;
+    const v = f.ler();
+    if (v) acaoFicha(t, "proposta", v, { botao: enviar, msg, texto: "Proposta enviada à Domus Energia." });
+  });
+  corpo.push(el("p", "pequeno suave", "Depois de ver a casa, diga o que a obra precisa. Não escreva preços: a Domus Energia calcula-os e envia a proposta ao cliente."),
+    f.horas, ...f.material, f.notas, msg, com(el("div", "fila"), enviar));
+  return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
+}
+/**
+ * Os campos de uma proposta (horas, artigos do catálogo com quantidade e notas), preenchidos com `p` se já houver uma:
+ * os mesmos na proposta depois da visita e na proposta da bolsa. `ler()` valida e devolve {horas, material, notas}, ou
+ * null com o erro escrito em `msg`.
+ */
+function camposProposta(p, msg) {
   const horas = el("input");
   horas.type = "number"; horas.min = "0.5"; horas.max = "500"; horas.step = "0.5"; horas.inputMode = "decimal"; horas.id = "proposta-horas";
   horas.value = p ? String(p.horas) : "";
@@ -665,22 +811,18 @@ function seccaoProposta(t) {
   mais.type = "button";
   mais.id = "proposta-mais";
   mais.addEventListener("click", () => novaLinha().focus());
-  const enviar = el("button", "btn", p ? "Enviar outra vez" : "Enviar proposta à Domus");
-  enviar.type = "button";
-  enviar.id = "proposta-enviar";
-  enviar.addEventListener("click", () => {
-    msg.hidden = true;
+  const ler = () => {
     const h0 = Number(String(horas.value).replace(",", "."));
-    if (!(h0 >= 0.5)) { msg.textContent = "Indique as horas de trabalho (pelo menos meia hora)."; msg.hidden = false; horas.focus(); return; }
+    if (!(h0 >= 0.5)) { msg.textContent = "Indique as horas de trabalho (pelo menos meia hora)."; msg.hidden = false; horas.focus(); return null; }
     const material = [];
     for (const f of linhas.querySelectorAll(".proposta-linha")) {
       const sku = f.querySelector("select").value, qtd = Math.round(Number(f.querySelector("input").value));
       if (!sku) continue;
-      if (!(qtd >= 1 && qtd <= 999)) { msg.textContent = "Cada artigo precisa de uma quantidade entre 1 e 999."; msg.hidden = false; f.querySelector("input").focus(); return; }
+      if (!(qtd >= 1 && qtd <= 999)) { msg.textContent = "Cada artigo precisa de uma quantidade entre 1 e 999."; msg.hidden = false; f.querySelector("input").focus(); return null; }
       material.push({ sku, qtd });
     }
-    acaoFicha(t, "proposta", { horas: h0, material, notas: notas.value.trim() || null }, { botao: enviar, msg, texto: "Proposta enviada à Domus Energia." });
-  });
+    return { horas: h0, material, notas: notas.value.trim() || null };
+  };
   const carregar = async () => {
     if (!catalogoProposta) {
       try { catalogoProposta = (await pedir("catalogo")).artigos ?? []; } catch (e) { msg.textContent = e.message; msg.hidden = false; return; }
@@ -690,11 +832,8 @@ function seccaoProposta(t) {
   };
   carregar();
   const campo = (rotulo, input) => com(el("label", "campo"), el("span", null, rotulo), input);
-  corpo.push(el("p", "pequeno suave", "Depois de ver a casa, diga o que a obra precisa. Não escreva preços: a Domus Energia calcula-os e envia a proposta ao cliente."),
-    campo("Horas de trabalho", horas),
-    el("p", "rotulo", "Material (do catálogo da Domus)"), linhas, com(el("div"), mais),
-    campo("Notas para a Domus (opcional)", notas), msg, com(el("div", "fila"), enviar));
-  return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
+  return { campo, ler, horas: campo("Horas de trabalho", horas), material: [el("p", "rotulo", "Material (do catálogo da Domus)"), linhas, com(el("div"), mais)],
+    notas: campo("Notas para a Domus (opcional)", notas) };
 }
 
 function seccaoVisita(t) {
@@ -1028,25 +1167,8 @@ function parteFotos(t) {
   return [grelha, el("p", "pequeno suave", `Para fechar ${t.tipo === "obra" ? "a obra" : "o trabalho"}: pelo menos uma foto de antes e uma de depois; até ${max} por grupo.`)];
 }
 
-// ---- Fecho: o que falta, "Obra concluída" e "Largar trabalho"
-function parteFim(t) {
-  if (t.estado === "concluida_eletricista") {
-    return com(el("div", "pilha"), el("p", "pequeno suave", "Quando o cliente confirmar (ou ao fim de 7 dias sem resposta), a Domus Energia aprova o trabalho e o pagamento. Se for preciso corrigir alguma coisa, avisamos."));
-  }
-  if (t.estado === "confirmada") {
-    return com(el("div", "pilha"), el("p", "pequeno suave", "Depois da aprovação, envie a fatura-recibo em Pagamentos."));
-  }
-  const falta = t.falta ?? [];
-  const nomeFim = t.tipo === "obra" ? "Obra concluída" : "Trabalho concluído";
-  const concluir = el("button", "btn cheio", nomeFim);
-  concluir.type = "button";
-  concluir.id = "obra-concluida";
-  concluir.disabled = falta.length > 0;
-  concluir.addEventListener("click", () => acaoFicha(t, "concluir", {}, { botao: concluir, texto: `${nomeFim}. Pedimos a confirmação ao cliente.` }));
-  const estado = falta.length
-    ? com(el("div", "nota"), el("b", null, "Falta: "), falta.join("; "), ".")
-    : el("p", "nota calma", "Tudo preenchido. A seguir, o cliente confirma na conta dele.");
-  estado.id = "falta-fechar";
+/** "Largar trabalho", com confirmação em dois toques. */
+function botaoLargar(t) {
   const largar = el("button", "btn perigo cheio", "Largar trabalho");
   largar.type = "button";
   largar.id = "largar-trabalho";
@@ -1067,6 +1189,29 @@ function parteFim(t) {
       ir("trabalhos");
     } catch (e) { if (e.estado !== 401) { aviso(e.message); largar.disabled = false; } }
   });
+  return largar;
+}
+
+// ---- Fecho: o que falta, "Obra concluída" e "Largar trabalho"
+function parteFim(t) {
+  if (t.estado === "concluida_eletricista") {
+    return com(el("div", "pilha"), el("p", "pequeno suave", "Quando o cliente confirmar (ou ao fim de 7 dias sem resposta), a Domus Energia aprova o trabalho e o pagamento. Se for preciso corrigir alguma coisa, avisamos."));
+  }
+  if (t.estado === "confirmada") {
+    return com(el("div", "pilha"), el("p", "pequeno suave", "Depois da aprovação, envie a fatura-recibo em Pagamentos."));
+  }
+  const falta = t.falta ?? [];
+  const nomeFim = t.tipo === "obra" ? "Obra concluída" : "Trabalho concluído";
+  const concluir = el("button", "btn cheio", nomeFim);
+  concluir.type = "button";
+  concluir.id = "obra-concluida";
+  concluir.disabled = falta.length > 0;
+  concluir.addEventListener("click", () => acaoFicha(t, "concluir", {}, { botao: concluir, texto: `${nomeFim}. Pedimos a confirmação ao cliente.` }));
+  const estado = falta.length
+    ? com(el("div", "nota"), el("b", null, "Falta: "), falta.join("; "), ".")
+    : el("p", "nota calma", "Tudo preenchido. A seguir, o cliente confirma na conta dele.");
+  estado.id = "falta-fechar";
+  const largar = botaoLargar(t);
   // Visita de orçamento sem custo (pagamentos online desligados): não se "conclui" — fecha quando a Domus envia a proposta.
   const gratis = t.recebe?.gratis === true;
   return com(el("div", "pilha fecho"),

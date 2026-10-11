@@ -311,7 +311,7 @@ export function criarApi(ctx) {
   // Os aparelhos e os chips ficam definidos mais abaixo (camposAparelho, guardarChip): a área do eletricista chega-lhes por aqui.
   let aparelhosCtx = null;
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, aparelhos: () => aparelhosCtx, pagamentos: () => pagPed,
-    concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos });
+    concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos, fotos });
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
   crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed, emails: () => emailsAuto });
   const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio, procedimentos });
@@ -1155,6 +1155,7 @@ export function criarApi(ctx) {
         auditar(u, 'obra_atualizada', `obra:${existente.id}`, { estado: 'agendada', orcamento: o.id, motivo: 'o pedido voltou a aceite' }, ip);
       }
       if (o.obra_id !== existente.id) db.prepare('UPDATE orcamentos SET obra_id = ? WHERE id = ?').run(existente.id, o.id);
+      obraParaOEscolhido(o);
       return existente.id;
     }
     const reserva = pagPed.reservaMaterial(o);
@@ -1163,7 +1164,17 @@ export function criarApi(ctx) {
       VALUES ('', ?, ?, 'agendada', ?, ?, 1, ?, ?)`).run(o.id, data, JSON.stringify(materialDaSimulacao(o)), horasDaSimulacao(o.simulacao), agora, agora).lastInsertRowid);
     db.prepare('UPDATE orcamentos SET obra_id = ? WHERE id = ?').run(id, o.id);
     auditar(u, 'obra_criada', `obra:${id}`, { orcamento: o.id, data, por_agendar: true, casa_ligada: false }, ip);
+    obraParaOEscolhido(o);
     return id;
+  }
+  /**
+   * Propostas na bolsa (decisão do dono, 2026-10-10): o pedido ficou aceite e a obra existe — a obra fica com o
+   * eletricista que o CEO escolheu (eletricistas.js aoClienteAceitar). Passa por aqui em todos os caminhos do "aceite"
+   * (sinal pago, sinal 0, sem pagamentos online, ou à mão no painel). Um erro aqui nunca desfaz o aceite nem o pagamento.
+   */
+  function obraParaOEscolhido(o) {
+    if (!config.eletricistas || !config.propostasBolsa) return;
+    try { eletricistas.aoClienteAceitar(obterOrcamento(o.id)); } catch (e) { registo.erro(`orçamento ${o.id}: a obra não ficou com o eletricista escolhido: ${e?.stack || e}`); }
   }
 
   /** O pedido deixou de estar aceite (ou o sinal foi devolvido) antes de a obra ser feita: a obra fica cancelada. */
@@ -2110,12 +2121,15 @@ export function criarApi(ctx) {
   h.atribuirEletricista = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, ['acao', 'eletricista_id', 'motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
-    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito']);
+    // 'escolher' (propostas na bolsa, decisão do dono, 2026-10-10): só existe com PROPOSTAS_BOLSA ligado.
+    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito', ...(config.propostasBolsa ? ['escolher'] : [])]);
     // Só um pedido validado pelo CEO vai para um eletricista ou para a bolsa (decisão do dono, 2026-10-10).
     if (config.validacaoCeo && (acao === 'atribuir' || acao === 'bolsa') && o.validacao !== 'validado') throw new ErroApi(409, 'Valide primeiro o pedido (lista de verificação) antes de o pôr na bolsa ou de o atribuir.');
     if (acao === 'atribuir') eletricistas.atribuir(o, v.eletricista_id, u, ip);
     else if (acao === 'bolsa') eletricistas.porNaBolsa(o, u, ip);
     else if (acao === 'retirar') eletricistas.retirar(o, u, ip);
+    // "Escolher" uma das propostas da bolsa: o trabalho passa para esse eletricista e os outros ficam de reserva.
+    else if (acao === 'escolher') eletricistas.escolher(o, v.eletricista_id, u, ip);
     // Ronda 3: aprovar o trabalho confirmado pelo cliente, devolvê-lo ao eletricista (com o motivo) ou decidir o "Não"
     // do cliente (defeito: o eletricista volta sem receber mais; sem defeito: o cliente paga uma visita).
     else eletricistas.decidir(o, acao, v.motivo, u, ip);

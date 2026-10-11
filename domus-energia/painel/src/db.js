@@ -1027,6 +1027,28 @@ export const MIGRACOES = [
     ALTER TABLE orcamentos ADD COLUMN proposta_recusada_em TEXT;   -- o cliente carregou em "Não aceito" (o motivo fica em validacao_nota)
     UPDATE orcamentos SET validacao = 'validado', validacao_em = atualizado WHERE estado <> 'novo';
   `),
+  // 45: propostas na bolsa (decisão do dono, 2026-10-10; docs/ELETRICISTAS.md "Propostas na bolsa"): num pedido com
+  // planta vários eletricistas do concelho propõem — horas, material do catálogo (JSON [{sku, qtd}], nunca euros), notas
+  // e quando podem ir — e o CEO escolhe um. Uma proposta por PEDIDO e por eletricista (não por trabalho: o trabalho
+  // retirado e posto outra vez na bolsa é uma linha nova, e as propostas de reserva têm de continuar lá). `enviada` =
+  // à espera da escolha; `escolhida` = a do eletricista que ficou com o trabalho; `reserva` = o CEO escolheu outro (ou
+  // retirou o escolhido) e esta continua a poder ser escolhida; `retirada` = de quem largou o trabalho, não volta a aparecer.
+  (db) => db.exec(`
+    CREATE TABLE propostas_bolsa (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      eletricista_id INTEGER NOT NULL REFERENCES eletricistas(id) ON DELETE CASCADE,
+      horas REAL NOT NULL,
+      material TEXT NOT NULL DEFAULT '[]',      -- JSON [{sku, qtd}]
+      notas TEXT,
+      disponibilidade TEXT NOT NULL,            -- "a partir de 20 de outubro, manhãs"
+      estado TEXT NOT NULL CHECK (estado IN ('enviada', 'escolhida', 'reserva', 'retirada')),
+      criado TEXT NOT NULL,
+      atualizado TEXT NOT NULL,
+      UNIQUE (orcamento_id, eletricista_id)
+    );
+    CREATE INDEX propostas_bolsa_eletricista ON propostas_bolsa(eletricista_id);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

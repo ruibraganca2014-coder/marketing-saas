@@ -171,6 +171,11 @@ export function lerConfig(env = process.env) {
     eletricistas: env.ELETRICISTAS === '1',
     // Validação do CEO antes da bolsa (decisão do dono, 2026-10-10): ligada por omissão; VALIDACAO_CEO=0 desliga-a.
     validacaoCeo: env.VALIDACAO_CEO !== '0',
+    // Propostas na bolsa (decisão do dono, 2026-10-10; docs/ELETRICISTAS.md "Propostas na bolsa"): num pedido com planta
+    // (trabalho 'visita') vários eletricistas do concelho propõem (horas, material e quando podem ir) e o CEO escolhe;
+    // a obra fica com o escolhido quando o cliente aceita. Ligadas por omissão; PROPOSTAS_BOLSA=0 volta ao "primeiro a
+    // aceitar" em tudo. As avarias e as atribuições diretas não mudam com isto.
+    propostasBolsa: env.PROPOSTAS_BOLSA !== '0',
     avisos,
     erros,
   };

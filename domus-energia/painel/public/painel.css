@@ -705,3 +705,7 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .validacao-ponto input { margin-top: 4px; }
 .validacao-nota { display: grid; gap: 6px; }
 .aviso-na-janela { position: fixed; right: 16px; bottom: 16px; max-width: min(420px, calc(100vw - 32px)); z-index: 5; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+/* Propostas dos eletricistas (2026-10-11): um cartão por proposta, com o "Escolher" sempre à vista. */
+.propostas-lista { display: grid; gap: 10px; }
+.proposta-cartao { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 12px; }
+.proposta-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
