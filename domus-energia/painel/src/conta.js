@@ -1090,6 +1090,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       // ficam, anonimizados ou convertidos) e a recusa "Não quero receber" deste email saem com ela.
       db.prepare('DELETE FROM emails_automaticos WHERE orcamento_id IN (SELECT id FROM orcamentos WHERE conta_id = ?)').run(c.id);
       db.prepare('DELETE FROM emails_recusados WHERE email = ?').run(String(c.email).toLowerCase());
+      db.prepare('DELETE FROM emails_falhados WHERE lower(para) = ?').run(String(c.email).toLowerCase());
       // Auditoria: o histórico dos pedidos apagados/anonimizados e da conta sai (com os IPs e os detalhes); de cada
       // pedido fica só uma linha "apagado (RGPD)" / "anonimizado (RGPD)" sem dados pessoais (a da conta é a
       // "conta_apagada" que o chamador escreve). Nas linhas que ficam (pedidos convertidos, mantidos) sai o IP da conta.

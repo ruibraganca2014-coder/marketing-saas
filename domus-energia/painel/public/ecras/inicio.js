@@ -1,7 +1,7 @@
 // Início: resumo por papel (GET resumo). O servidor já só manda o que o papel pode ver;
 // aqui mostra-se o que vier, com nomes conhecidos para os campos do §3.
 import { pedir, campo, numero, lista } from "../api.js";
-import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt } from "../ui.js";
+import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt, avisar } from "../ui.js";
 import { blocoNegocio } from "./negocio.js";
 
 const saudacao = () => { const hr = new Date().getHours(); return hr < 13 ? "Bom dia" : hr < 20 ? "Boa tarde" : "Boa noite"; };
@@ -31,7 +31,13 @@ export default function inicio(el, ctx) {
       let porReceber = null;
       try { porReceber = campo(await pedir("resumo/negocio?periodo=mes", { sinal: ctrl.signal }), "por_receber") ?? null; }
       catch (e) { if (e.name === "AbortError") return; }
-      zona.replaceChildren(...montarSimples(r ?? {}, tarefas, porReceber));
+      // Emails ao cliente que falharam de vez (só quando os há).
+      let falhados = [];
+      if (numero(campo(campo(r, "tratar"), "emails_falhados")) > 0) {
+        try { falhados = lista(await pedir("emails-falhados", { sinal: ctrl.signal }), "emails"); }
+        catch (e) { if (e.name === "AbortError") return; }
+      }
+      zona.replaceChildren(...montarSimples(r ?? {}, tarefas, porReceber, falhados));
       return;
     }
     zona.replaceChildren(...montar(r ?? {}, tarefas));
@@ -41,7 +47,7 @@ export default function inicio(el, ctx) {
    * Início do CEO num só ecrã: "Para tratar" (uma linha por coisa à espera dele, só as que têm alguma coisa), "Esta
    * semana" (visitas e obras) e "Por receber". As estatísticas ficam em "Números" (#/numeros).
    */
-  function montarSimples(r, tarefas, porReceber) {
+  function montarSimples(r, tarefas, porReceber, falhados = []) {
     const t = campo(r, "tratar") ?? {};
     const linha = (n, um, varios, href, perigo = false) => (numero(n) > 0
       ? h("li", {}, h("a", { class: `lista-curta-item tratar-linha${perigo ? " perigo" : ""}`, href }, h("span", { class: "num quando", text: num(n) }), h("span", { class: "lc-quem", text: numero(n) === 1 ? um : varios })))
@@ -78,7 +84,21 @@ export default function inicio(el, ctx) {
         h("span", { class: "num quando", text: data(campo(o, "desde"), { hora: false }) }), h("span", { class: "lc-quem", text: String(campo(o, "nome") ?? "—") }),
         h("span", { class: "ajuda", text: `${campo(o, "fase") === "sinal" ? "Sinal" : "Restante"} · ${euros(campo(o, "valor"))}` })))))) : null;
 
-    return [h("div", { class: "blocos inicio-simples" }, ...[tratar, estaSemana, receber].filter(Boolean)),
+    // Emails que não chegaram ao cliente (3 tentativas falhadas): fica à vista até "Marcar como vistos".
+    const visto = h("button", { class: "btn sec pequeno", type: "button", id: "emails-falhados-vistos", text: "Marcar como vistos" });
+    visto.addEventListener("click", async () => {
+      visto.disabled = true;
+      try { await pedir("emails-falhados/vistos", { corpo: {} }); carregar(); } catch (e) { visto.disabled = false; avisar(e.message, "erro"); }
+    });
+    const emails = falhados.length ? h("section", { class: "cartao", id: "inicio-emails-falhados" },
+      h("h2", { text: `Emails que não chegaram ao cliente (${num(falhados.length)})` }),
+      h("p", { class: "ajuda", text: "Tentámos enviar três vezes e falhou. Contacte o cliente por outro meio, ou envie de novo." }),
+      h("ul", { class: "lista-curta" }, ...falhados.map((x) => h("li", {}, h("div", { class: "lista-curta-item" },
+        h("span", { class: "num quando", text: data(campo(x, "quando")) }), h("span", { class: "lc-quem", text: `${campo(x, "para")} · ${String(campo(x, "assunto")).replace(/^Domus Energia: /, "")}` }),
+        h("span", { class: "ajuda", text: String(campo(x, "erro")) }))))),
+      h("div", { class: "form-botoes" }, visto)) : null;
+
+    return [h("div", { class: "blocos inicio-simples" }, ...[emails, tratar, estaSemana, receber].filter(Boolean)),
       h("p", { class: "inicio-numeros" }, h("a", { class: "btn sec pequeno", href: "#/numeros", text: "Ver números" }))];
   }
 

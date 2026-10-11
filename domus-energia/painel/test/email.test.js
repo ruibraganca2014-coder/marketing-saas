@@ -119,6 +119,47 @@ describe('cliente SMTP (servidor falso em memória)', () => {
     assert.doesNotMatch(m, /^Bcc:/m);
   });
 
+  test('email que falha: tenta 3 vezes em segundo plano e só então avisa (aoFalhar); repetir:false não repete nem avisa; servidor em baixo volta a ser tentado', async () => {
+    const registo = { info() {}, aviso() {}, erro() {} };
+    const espera = (ms) => new Promise((ok) => setTimeout(ok, ms));
+    const mau = await servidorFalso({ falhar535: true });
+    abertos.push(mau.srv);
+    const falhas = [];
+    const c = criarCorreio({ config: { smtp: smtp(mau.porta), emailRemetente: 'nao-responder@domusenergia.pt' }, registo, aoFalhar: (x) => falhas.push(x), esperas: [20, 20] });
+    assert.equal(await c.enviar({ para: 'cliente@exemplo.pt', assunto: 'Domus Energia: a sua proposta está pronta', texto: 'segredo 123456' }), false, 'a 1.ª tentativa responde logo');
+    assert.equal(falhas.length, 0, 'ainda não falhou de vez');
+    for (let i = 0; i < 100 && !falhas.length; i += 1) await espera(20);
+    assert.equal(mau.sessoes.length, 3, 'três tentativas');
+    assert.deepEqual(Object.keys(falhas[0]).sort(), ['assunto', 'erro', 'para', 'tentativas']);
+    assert.equal(falhas[0].para, 'cliente@exemplo.pt');
+    assert.equal(falhas[0].assunto, 'Domus Energia: a sua proposta está pronta');
+    assert.equal(falhas[0].tentativas, 3);
+    assert.ok(!JSON.stringify(falhas).includes('123456'), 'o texto do email nunca vai no aviso');
+    // Enviado à mão (quem enviou vê o erro): uma tentativa só, sem aviso.
+    assert.equal(await c.enviar({ para: 'cliente@exemplo.pt', assunto: 'x', texto: 'y', repetir: false }), false);
+    await espera(120);
+    assert.equal(mau.sessoes.length, 4);
+    assert.equal(falhas.length, 1);
+    // Endereço mal escrito: não vale a pena repetir, avisa logo.
+    assert.equal(await c.enviar({ para: 'sem-arroba', assunto: 'z', texto: 'y' }), false);
+    assert.equal(falhas.length, 2);
+    assert.equal(falhas[1].tentativas, 1);
+    // Servidor em baixo (porta fechada) na 1.ª tentativa: a 2.ª volta a ligar-se.
+    const livre = await servidorFalso();
+    const porta = livre.porta;
+    await new Promise((ok) => livre.srv.close(ok));
+    const falhas2 = [];
+    const c2 = criarCorreio({ config: { smtp: smtp(porta), emailRemetente: 'nao-responder@domusenergia.pt' }, registo, aoFalhar: (x) => falhas2.push(x), esperas: [150, 20] });
+    assert.equal(await c2.enviar({ para: 'cliente@exemplo.pt', assunto: 'a', texto: 'b' }), false);
+    const volta = net.createServer();
+    abertos.push(volta);
+    const sessoes = [];
+    await new Promise((ok) => volta.listen(porta, '127.0.0.1', ok));
+    volta.on('connection', (s) => { sessoes.push(1); s.destroy(); });
+    await espera(400);
+    assert.ok(sessoes.length >= 1, 'houve nova tentativa');
+  });
+
   test('criarCorreio com SMTP: envia, regista sem a palavra-passe; erro não rejeita (vai para o registo)', async () => {
     const f = await servidorFalso();
     abertos.push(f.srv);

@@ -1049,6 +1049,20 @@ export const MIGRACOES = [
     );
     CREATE INDEX propostas_bolsa_eletricista ON propostas_bolsa(eletricista_id);
   `),
+  // 46: emails ao cliente que falharam de vez, depois de 3 tentativas (decisão do dono, 2026-10-11): ficam à vista do CEO
+  // no Início até ele os marcar como vistos. Guarda-se para quem era, o assunto (nunca leva códigos) e o erro; nunca o
+  // texto. Saem ao fim de 90 dias e quando a conta desse email é apagada.
+  (db) => db.exec(`
+    CREATE TABLE emails_falhados (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quando TEXT NOT NULL,
+      para TEXT NOT NULL,
+      assunto TEXT NOT NULL,
+      erro TEXT NOT NULL,
+      tentativas INTEGER NOT NULL,
+      visto TEXT
+    );
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

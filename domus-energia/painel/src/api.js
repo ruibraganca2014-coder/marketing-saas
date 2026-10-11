@@ -105,6 +105,8 @@ export const ROTAS = [
   ['GET', 'eu', TODOS, 'eu'],
   ['POST', 'eu/senha', TODOS, 'mudarSenha'],
   ['GET', 'resumo', TODOS, 'resumo'],
+  ['GET', 'emails-falhados', ['ceo'], 'emailsFalhados'],
+  ['POST', 'emails-falhados/vistos', ['ceo'], 'emailsFalhadosVistos'],
   // Dashboard do negócio no Início (docs/DASHBOARD.md; negocio.js): os valores em euros só vão para o CEO; o técnico não entra.
   ['GET', 'resumo/negocio', ['ceo', 'comercial'], 'resumoNegocio'],
   ['GET', 'clientes', TODOS, 'clientes'],
@@ -286,7 +288,13 @@ export function criarApi(ctx) {
     limiteConsultas: new LimiteTaxa(config.limiteFotosConsultasHora, 3600_000, relogio), limiteTokens: new LimiteTaxa(config.limiteFotosTokensHora, 3600_000, relogio) });
 
   // Conta de cliente (/api/conta/*, conta.js) e emails (códigos) por SMTP ou, sem SMTP, no registo.
-  const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal });
+  const emailFalhou = ({ para, assunto, erro, tentativas }) => {
+    const agora = agoraIso();
+    db.prepare('DELETE FROM emails_falhados WHERE quando < ?').run(new Date(Date.parse(agora) - 90 * 24 * 3600_000).toISOString());
+    db.prepare('INSERT INTO emails_falhados (quando, para, assunto, erro, tentativas) VALUES (?, ?, ?, ?, ?)')
+      .run(agora, String(para).slice(0, 254), String(assunto).slice(0, 200), String(erro).slice(0, 300), tentativas);
+  };
+  const correio = ctx.correio ?? criarCorreio({ config, registo, local: config.emailLocal, aoFalhar: emailFalhou });
   // Pagamentos do pedido (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md): criados a seguir, as contas usam-nos.
   let pagPed = null;
   let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
@@ -618,6 +626,17 @@ export function criarApi(ctx) {
     WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL ORDER BY proposta_aceite DESC LIMIT 50`).all()
     .map((o) => ({ id: o.id, nome: o.nome, quando: o.proposta_aceite, valor_proposta: deCent(o.valor_proposta_cent) }));
 
+  // Emails ao cliente que falharam de vez (só o CEO; decisão do dono, 2026-10-11): a lista por ver e "Marcar como vistos".
+  h.emailsFalhados = async ({ res }) => {
+    responder(res, 200, { emails: db.prepare('SELECT id, quando, para, assunto, erro, tentativas FROM emails_falhados WHERE visto IS NULL ORDER BY id DESC LIMIT 50').all() });
+  };
+  h.emailsFalhadosVistos = async ({ req, res, u, ip }) => {
+    await lerJson(req, []);
+    const r = db.prepare('UPDATE emails_falhados SET visto = ? WHERE visto IS NULL').run(agoraIso());
+    if (r.changes) auditar(u, 'emails_falhados_vistos', 'emails', { quantos: Number(r.changes) }, ip);
+    responder(res, 200, { ok: true });
+  };
+
   h.resumo = async ({ res, u }) => {
     const hoje = diaLisboa(new Date(relogio()));
     const { inicio, fim } = semanaLisboa(new Date(relogio()));
@@ -663,6 +682,8 @@ export function criarApi(ctx) {
         alertas_criticos: al.contagem?.critica ?? 0,
         // Chips registados por eletricistas, à espera de aprovação (ativação de aparelhos).
         ativacoes: n("SELECT COUNT(*) AS n FROM aparelhos_ativacoes WHERE estado = 'pendente'"),
+        // Emails ao cliente que falharam de vez (3 tentativas) e que o CEO ainda não viu.
+        emails_falhados: n('SELECT COUNT(*) AS n FROM emails_falhados WHERE visto IS NULL'),
       };
       if (config.eletricistas) {
         Object.assign(r.tratar, {
@@ -1547,7 +1568,7 @@ export function criarApi(ctx) {
     limiteMensagens.registar(u.id);
     // Com conta, o email leva no fim a ligação para o cliente responder na conta (a resposta entra na ficha do pedido).
     const rodape = o.conta_id && config.siteUrl ? `\n\nPara responder, entre na sua conta: ${config.siteUrl}/conta.html#pedido-${o.id}` : '';
-    if (!(await correio.enviar({ para, assunto, texto: `${corpo}${rodape}`, resumo: `mensagem ao cliente do pedido ${o.id}` }))) {
+    if (!(await correio.enviar({ para, assunto, texto: `${corpo}${rodape}`, resumo: `mensagem ao cliente do pedido ${o.id}`, repetir: false }))) {
       throw new ErroApi(502, 'O email não foi enviado (falha no servidor de email). Tente outra vez.');
     }
     db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, assunto, texto, por_email, criado) VALUES (?, 'equipa', ?, ?, ?, ?)").run(o.id, assunto, corpo, u.email, agoraIso());
@@ -2130,7 +2151,7 @@ export function criarApi(ctx) {
     const rodape = o.conta_id && config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html#pedido-${o.id}`] : [];
     const corpo = ['Olá,', '', `Vimos o seu pedido n.º ${o.id} e, antes de avançarmos, falta corrigir:`, '', nota, '',
       o.conta_id ? 'Corrija na sua conta e carregue em "Já corrigi": voltamos a ver o pedido.' : 'Responda a este email com o que falta.', ...rodape, '', 'Domus Energia'].join('\n');
-    if (!(await correio.enviar({ para, assunto, texto: corpo, resumo: `pedido ${o.id} devolvido ao cliente para corrigir` }))) {
+    if (!(await correio.enviar({ para, assunto, texto: corpo, resumo: `pedido ${o.id} devolvido ao cliente para corrigir`, repetir: false }))) {
       throw new ErroApi(502, 'O email não foi enviado (falha no servidor de email). Tente outra vez.');
     }
     const agora = agoraIso();

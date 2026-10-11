@@ -253,7 +253,14 @@ export async function enviarSmtp(smtp, { de, para, assunto, texto, html, cabecal
  */
 export const enderecoRemetente = (s) => (/<\s*([^<>\s]+)\s*>\s*$/.exec(String(s ?? ''))?.[1] ?? String(s ?? '')).trim();
 
-export function criarCorreio({ config, registo, local = false }) {
+/** Esperas entre tentativas de um email que falhou: 1 minuto e depois 10 (3 tentativas ao todo; os códigos valem 15 min). */
+export const ESPERAS_EMAIL_MS = [60_000, 600_000];
+
+/**
+ * `aoFalhar({ para, assunto, erro, tentativas })`: chamado quando um email falha de vez (depois de todas as tentativas),
+ * para ficar à vista no painel. `esperas`: só para os testes.
+ */
+export function criarCorreio({ config, registo, local = false, aoFalhar = null, esperas = ESPERAS_EMAIL_MS }) {
   const smtp = local ? null : config.smtp;
   const de = enderecoRemetente(config.emailRemetente) || (config.smtp?.utilizador && RE_EMAIL.test(config.smtp.utilizador) ? config.smtp.utilizador : 'nao-responder@domus.localhost');
   // Um remetente mal escrito fazia falhar todos os envios sem ninguém dar por isso: fica à vista no arranque.
@@ -267,7 +274,16 @@ export function criarCorreio({ config, registo, local = false }) {
   // Sem SMTP o código não chega a ninguém: o último de cada email fica em memória para o acesso rápido de testes o
   // mostrar no ecrã (acesso-rapido.js ROTA_CODIGO, só no lançador local). Com SMTP nunca se guarda.
   const ultimos = new Map();
-  function enviar({ para, assunto, texto, resumo, cabecalhos }) {
+  function falhouDeVez(para, assunto, erro, tentativas) {
+    registo.erro(`email para o cliente falhou de vez (${tentativas} ${tentativas === 1 ? 'tentativa' : 'tentativas'}): ${erro.message}`);
+    try { aoFalhar?.({ para, assunto, erro: erro.message, tentativas }); } catch (e) { registo.erro(`falha de email não ficou registada: ${e?.message || e}`); }
+  }
+  /**
+   * `repetir` (por omissão): se falhar, tenta de novo em segundo plano (1 min e 10 min depois) e, se falhar sempre, avisa
+   * (`aoFalhar`). Com `repetir: false` — quem enviou está a ver o erro no ecrã e envia de novo — não se repete nem avisa.
+   * A promessa resolve logo com o resultado da 1.ª tentativa (true/false), como antes.
+   */
+  function enviar({ para, assunto, texto, resumo, cabecalhos, repetir = true }) {
     if (!smtp) {
       const codigo = /^código (\d{6})\b/.exec(resumo ?? '')?.[1];
       if (codigo) { const k = String(para).trim().toLowerCase(); ultimos.delete(k); ultimos.set(k, { codigo, quando: Date.now() }); if (ultimos.size > 50) ultimos.delete(ultimos.keys().next().value); }
@@ -278,12 +294,20 @@ export function criarCorreio({ config, registo, local = false }) {
     }
     // Com SMTP nunca se regista o assunto nem o corpo (podem levar códigos): só o resultado.
     const html = htmlDoEmail({ assunto, texto, site: config.siteUrl, responder: 'Reply-To' in responderPara });
-    const p = enviarSmtp(smtp, { de, para, assunto, texto, html, cabecalhos: { ...responderPara, ...cabecalhos } })
-      .then(() => { registo.info('email enviado'); return true; })
-      .catch((e) => { registo.erro(`email para o cliente não enviado: ${e.message}`); return false; });
-    emCurso.add(p);
-    p.finally(() => emCurso.delete(p));
-    return p;
+    const tentar = () => enviarSmtp(smtp, { de, para, assunto, texto, html, cabecalhos: { ...responderPara, ...cabecalhos } }).then(() => null, (e) => e);
+    const seguir = (p) => { emCurso.add(p); p.finally(() => emCurso.delete(p)); return p; };
+    const outraVez = (i, erro) => {
+      // Um endereço mal escrito não passa a estar certo: não vale a pena repetir.
+      if (i >= esperas.length || erro.message === 'endereço de email inválido') { falhouDeVez(para, assunto, erro, i + 1); return; }
+      const t = setTimeout(() => seguir(tentar().then((e) => { if (e) outraVez(i + 1, e); else registo.info(`email enviado à ${i + 2}.ª tentativa`); })), esperas[i]);
+      t.unref?.();
+    };
+    return seguir(tentar().then((e) => {
+      if (!e) { registo.info('email enviado'); return true; }
+      registo.erro(`email para o cliente não enviado: ${e.message}`);
+      if (repetir) outraVez(0, e);
+      return false;
+    }));
   }
   /** O último código que ficou só no registo (sem SMTP) para o email `para`, se tem menos de 15 minutos; senão null. */
   const ultimoCodigo = (para) => {
