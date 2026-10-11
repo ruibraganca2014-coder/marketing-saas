@@ -2087,7 +2087,7 @@ export function criarApi(ctx) {
     // A validação fica feita mesmo que a bolsa não o aceite (ex.: falta pagar a visita): o painel diz porquê (`aviso`).
     let aviso = null;
     if (v.bolsa === true) {
-      if (!eletricistas) aviso = 'Pedido validado, mas a bolsa dos eletricistas está desligada.';
+      if (!config.eletricistas) aviso = 'Pedido validado, mas a bolsa dos eletricistas está desligada.';
       else try { eletricistas.porNaBolsa(obterOrcamento(params.id), u, ip); } catch (e) {
         if (!(e instanceof ErroApi)) throw e;
         aviso = `Pedido validado, mas não foi para a bolsa: ${e.message}`;

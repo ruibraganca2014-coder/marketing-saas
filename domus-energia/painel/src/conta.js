@@ -920,7 +920,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const r = db.prepare(`UPDATE orcamentos SET estado = 'contactado', validacao = NULL, validacao_nota = ?, validacao_em = ?, proposta_recusada_em = ?, atualizado = ?
       WHERE id = ? AND conta_id = ? AND estado = 'proposta_enviada' AND proposta_aceite IS NULL`).run(nota, agora, agora, agora, o.id, c.id);
     if (!r.changes) throw new ErroApi(409, 'Não há uma proposta por aceitar neste pedido.');
-    try { eletricistas()?.retirar(o, quem(c), ip); } catch { /* sem trabalho ativo: nada a retirar */ }
+    try { eletricistas()?.aoClienteRecusar(o, quem(c), ip); } catch (e) { registo.erro(`orçamento ${o.id}: trabalho do eletricista não retirado depois do "Não aceito": ${e?.message || e}`); }
     db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', ?, ?)")
       .run(o.id, `Não aceito a proposta (${MOTIVOS_RECUSA[v.motivo]})${porque ? `: ${porque}` : '.'}`.replace('(mudou de ideias)', '(mudei de ideias)'), agora);
     auditar(quem(c), 'proposta_recusada_cliente', `orcamento:${o.id}`, { motivo: v.motivo, valor_proposta: deCent(o.valor_proposta_cent) }, ip);
@@ -1099,7 +1099,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         db.prepare('DELETE FROM mensagens_pedido WHERE orcamento_id = ?').run(id);
         db.prepare(`UPDATE orcamentos SET nome = 'Anonimizado (RGPD)', telefone = NULL, email = NULL, localidade = NULL, morada = NULL,
           mensagem = NULL, notas = NULL, motivo_perda = NULL, simulacao = NULL, leitura_quadro = NULL, codigo_cliente = NULL,
-          ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL, ia = NULL,
+          ensaios = NULL, esquema_quadro = NULL, diagnostico = NULL, ia = NULL, validacao_nota = NULL, validacao_por = NULL,
           conta_id = NULL, anonimizado = ?, estado = ?, atualizado = ? WHERE id = ?`).run(agora, ESTADO_ARQUIVADO, agora, id);
         db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`orcamento:${id}`);
         auditar(null, 'orcamento_anonimizado_rgpd', `orcamento:${id}`, { estado: ESTADO_ARQUIVADO, pagamentos_mantidos: db.prepare('SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE orcamento_id = ?').get(id).n });
@@ -1134,6 +1134,16 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       const linha = db.prepare('SELECT hash FROM contas WHERE id = ?').get(c.id);
       if (v.password.length > 200 || !(await verificarSenha(v.password, linha?.hash))) throw new ErroApi(403, 'Palavra-passe errada.');
     }
+    // Revisão de segurança (2026-10-11): com uma obra aceite por pagar ou um trabalho de eletricista em curso, o cliente
+    // não apaga a conta sozinho (o pedido ficava anonimizado: o restante deixava de se cobrar e o eletricista ficava
+    // "a pagar" sem o cliente ter pago, ou preso sem aprovação). O CEO continua a poder apagar pelo painel.
+    const emCurso = db.prepare("SELECT id FROM orcamentos WHERE conta_id = ? AND estado = 'aceite'").all(c.id).some((x) => {
+      const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(x.id);
+      const falta = pagamentos()?.valores?.(o)?.em_falta;
+      return Number.isFinite(falta) && falta > 0;
+    }) || Boolean(db.prepare(`SELECT 1 FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
+      WHERE o.conta_id = ? AND t.estado IN ('aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada', 'aprovada') LIMIT 1`).get(c.id));
+    if (emCurso) throw new ErroApi(409, 'Tem uma obra em curso ou por pagar: a conta não se pode apagar agora. Fale connosco.');
     const r = await apagar(String(c.id));
     auditar(null, 'conta_apagada', `conta:${r.conta}`, { por: 'cliente', pedidos_apagados: r.pedidos_apagados, pedidos_anonimizados: r.pedidos_anonimizados, pedidos_mantidos: r.pedidos_mantidos });
     responder(res, 200, { ok: true, pedidos_apagados: r.pedidos_apagados, pedidos_anonimizados: r.pedidos_anonimizados, pedidos_mantidos: r.pedidos_mantidos }, { 'Set-Cookie': cookieApagar(req) });

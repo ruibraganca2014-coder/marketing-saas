@@ -423,7 +423,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // escolhe). O escolhido fica com o trabalho `aceite` mas SEM `aceite_em` — é isso que diz "à espera de o cliente
   // aceitar": o prazo das 48 h não conta (expirar só olha para quem tem `aceite_em`), não vê o cliente e não marca visita.
   const porProposta = (t) => config.propostasBolsa && t.tipo === 'visita' && t.modo === 'bolsa';
-  const esperaCliente = (t) => porProposta(t) && t.estado === 'aceite' && (t.aceite_em === null || t.aceite_em === undefined);
+  // (Não depende do interruptor: um 'aceite' sem `aceite_em` só nasce da escolha entre propostas. Desligar PROPOSTAS_BOLSA
+  // com um escolhido à espera não lhe pode abrir os dados do cliente nem deixar o trabalho preso.)
+  const esperaCliente = (t) => t.tipo === 'visita' && t.modo === 'bolsa' && t.estado === 'aceite' && (t.aceite_em === null || t.aceite_em === undefined);
   // O trabalho do escolhido continua aberto com a proposta já enviada ao cliente (senão fechava antes de o cliente aceitar).
   const aberto = (t, o) => !['aprovada', 'paga'].includes(t.estado)
     && (tipoAtribuivel(o) === t.tipo || (esperaCliente(t) && o?.estado === 'proposta_enviada' && !o.anonimizado));
@@ -534,7 +536,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** As fotos do pedido para quem propõe: id, de onde é ("Quadro elétrico" ou o nome da divisão) e o endereço na área do eletricista. */
   function fotosDoCliente(t, o) {
     if (!fotos) return [];
-    return fotos.listar(o, simDe(o), `/api/eletricista/bolsa/${t.id}/fotos/`).map((f) => ({ id: f.id, nome: f.chave === 'quadro' ? 'Quadro elétrico' : f.divisao_nome ?? 'Foto do cliente', url: f.url }));
+    // Revisão de segurança (2026-10-11): só as fotos que já existiam quando o CEO validou o pedido (o cliente pode
+    // juntar ou trocar fotos depois; essas não vão para a bolsa sem nova validação) e sem o nome da divisão, que é
+    // texto escrito pelo cliente.
+    let n = 0;
+    return fotos.listar(o, simDe(o), `/api/eletricista/bolsa/${t.id}/fotos/`).filter((f) => !o.validacao_em || !f.criado || f.criado <= o.validacao_em)
+      .map((f) => ({ id: f.id, nome: f.chave === 'quadro' ? 'Quadro elétrico' : `Foto ${++n}`, url: f.url }));
   }
 
   /** O trabalho do próprio eletricista: os dados do cliente só enquanto está aberto. */
@@ -1255,7 +1262,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // 404 para os outros), e só num trabalho por proposta. O nome do ficheiro não leva o n.º do pedido (o do painel leva).
   h.fotoBolsa = async ({ res, e, params }) => {
     const { t, o } = daBolsa(e, params.id);
-    const f = porProposta(t) && fotos ? fotos.obter(o.id, params.foto) : null;
+    const f = porProposta(t) && fotos && fotosDoCliente(t, o).some((x) => x.id === params.foto) ? fotos.obter(o.id, params.foto) : null;
     if (!f) throw new ErroApi(404, 'Foto não encontrada.');
     let corpo;
     try { corpo = await fotos.ler(f); } catch { throw new ErroApi(404, 'Foto não encontrada.'); }
@@ -1343,7 +1350,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * nada muda. Devolve o trabalho da obra, ou null.
    */
   function aoClienteAceitar(o) {
-    if (!config.propostasBolsa || !o) return null;
+    if (!o) return null;
     const t = db.prepare("SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND tipo = 'visita' AND modo = 'bolsa' AND estado = 'aceite' AND aceite_em IS NULL ORDER BY id DESC LIMIT 1").get(o.id);
     const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
     if (!t || !e) return null;
@@ -2020,6 +2027,16 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
 
   /** O CEO retira o trabalho (da bolsa ou de quem o tem), em qualquer altura até o aprovar. As datas do pedido ficam como estão. */
+  /**
+   * O cliente não aceitou a proposta (conta.js recusarProposta): sai só o trabalho que estava à espera dele — o do
+   * eletricista escolhido, ou o que ainda estava na bolsa. Um trabalho já feito (visita ou diagnóstico concluídos,
+   * por aprovar ou por pagar) fica como está (revisão de segurança, 2026-10-11).
+   */
+  function aoClienteRecusar(o, u, ip) {
+    const t = ativoDoPedido(o.id);
+    if (!t || !(t.estado === 'na_bolsa' || esperaCliente(t))) return null;
+    return retirar(o, u, ip);
+  }
   function retirar(o, u, ip) {
     expirar();
     const t = ativoDoPedido(o.id);
@@ -2137,7 +2154,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
 
   return {
-    tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, expirar, limpar,
+    tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, aoClienteRecusar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
     prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
