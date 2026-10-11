@@ -1225,7 +1225,7 @@ const ACOES = {
   reclamacao_defeito: "Decidido: é defeito, o eletricista volta sem receber", reclamacao_sem_defeito: "Decidido: sem defeito, cobra-se a visita ao cliente",
   trabalho_confirmado_cliente: "O cliente confirmou que ficou concluído", trabalho_confirmado_auto: "Confirmado sozinho: 7 dias sem resposta do cliente",
   trabalho_aprovado: "Trabalho aprovado pelo CEO", fatura_eletricista: "Fatura-recibo enviada pelo eletricista", eletricista_pago: "Pagamento ao eletricista registado",
-  trabalho_atribuido: "Trabalho atribuído a um eletricista", trabalho_aceite: "Trabalho aceite por um eletricista (bolsa)", proposta_eletricista: "Proposta do eletricista depois da visita",
+  trabalho_atribuido: "Trabalho atribuído a um eletricista", trabalho_proposta_pedida: "Proposta pedida só a um eletricista", trabalho_aceite: "Trabalho aceite por um eletricista (bolsa)", proposta_eletricista: "Proposta do eletricista depois da visita",
   pedido_validado: "Pedido validado pelo CEO", pedido_devolvido_cliente: "Devolvido ao cliente para corrigir", pedido_corrigido_cliente: "O cliente disse que já corrigiu",
   trabalho_extra_proposto: "Trabalho a mais proposto pelo eletricista", trabalho_extra_retirado: "Trabalho a mais retirado pelo eletricista",
   trabalho_extra_enviado: "Trabalho a mais enviado ao cliente (com o preço)", trabalho_extra_nao_avancou: "Trabalho a mais: o CEO não avançou",

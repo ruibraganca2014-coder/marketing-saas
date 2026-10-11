@@ -29,11 +29,12 @@ export function h(tag, attrs = {}, ...filhos) {
 export const PAPEIS = { ceo: "CEO", tecnico: "Técnico", comercial: "Comercial" };
 export const PLANOS = { base: "Base", conforto: "Conforto", premium: "Premium" };
 export const ESTADOS_CLIENTE = { ativo: "Ativo", teste: "Em teste", em_atraso: "Em atraso", suspenso: "Suspenso", cancelado: "Cancelado", sem_plano: "Sem plano", pendente: "A criar" };
-export const ESTADOS_ORC = { novo: "Novo", contactado: "Contactado", visita_marcada: "Visita marcada", proposta_enviada: "Proposta enviada", aceite: "Aceite", perdido: "Perdido" };
+// "Em preparação" (era "Contactado"; decisão do dono, 2026-10-11): o pedido está a ser tratado — validação, bolsa, propostas.
+export const ESTADOS_ORC = { novo: "Novo", contactado: "Em preparação", visita_marcada: "Visita marcada", proposta_enviada: "Proposta enviada", aceite: "Aceite", perdido: "Perdido" };
 /** Os estados e o dos pedidos anonimizados pelo RGPD (fora do quadro e da escolha do estado: só o filtro do CEO). */
 export const NOMES_ESTADO_ORC = { ...ESTADOS_ORC, arquivado: "Arquivado (RGPD)" };
 /** CRM (docs/CRM-TAREFAS.md): fases do negócio (= estado do pedido), origem do contacto, motivo de perda, registos. */
-export const FASES_CRM = { novo: "Novo", contactado: "Contactado", visita: "Visita", proposta: "Proposta", aceite: "Aceite", perdido: "Perdido" };
+export const FASES_CRM = { novo: "Novo", contactado: "Em preparação", visita: "Visita", proposta: "Proposta", aceite: "Aceite", perdido: "Perdido" };
 export const ESTADO_DA_FASE = { novo: "novo", contactado: "contactado", visita: "visita_marcada", proposta: "proposta_enviada", aceite: "aceite", perdido: "perdido" };
 export const ORIGENS_CONTACTO = { google: "Google", facebook: "Facebook", instagram: "Instagram", facebook_instagram: "Facebook / Instagram", recomendacao: "Recomendação de um amigo",
   eletricista_parceiro: "Eletricista parceiro", carrinha_rua: "Carrinha / passou na rua", direto: "Direto", outro: "Outro" };

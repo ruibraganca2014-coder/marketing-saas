@@ -188,12 +188,17 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     if (!t && !a.pode) { if (!feito) partes.push(h("p", { class: "ajuda", id: "eletricista-motivo", text: a.motivo ?? "Este pedido não se pode atribuir agora." })); }
     else if (!t) {
       const sel = h("select", { name: "eletricista", id: "atribuir-a", "aria-label": "Atribuir a" },
-        ...a.candidatos.map((c) => h("option", { value: String(c.id), text: c.recebe === 0 ? `${c.nome} · visita sem custo (só recebe com a obra)` : `${c.nome} · recebe ${c.recebe == null ? "a combinar" : euros(c.recebe)} (${String(c.percentagem).replace(".", ",")} %)` })));
+        // Pedido com planta por propor: o que ele recebe sai da proposta que fizer, por isso aqui vai só o nome.
+        ...a.candidatos.map((c) => h("option", { value: String(c.id), text: a.propostas_bolsa && a.tipo === "visita" ? c.nome : c.recebe === 0 ? `${c.nome} · visita sem custo (só recebe com a obra)` : `${c.nome} · recebe ${c.recebe == null ? "a combinar" : euros(c.recebe)} (${String(c.percentagem).replace(".", ",")} %)` })));
       partes.push(
-        h("p", { class: "ajuda", text: `${a.tipo_nome} em ${a.concelho}. Só eletricistas aprovados com ${a.concelho} nos concelhos.` }),
+        h("p", { class: "ajuda", text: `${a.propostas_bolsa && a.tipo === "visita" ? "Pedido com planta" : a.tipo_nome} em ${a.concelho}. Só eletricistas aprovados com ${a.concelho} nos concelhos.` }),
         a.candidatos.length
-          ? h("div", { class: "form-botoes" }, sel, h("button", { class: "btn pequeno", type: "button", id: "atribuir", text: "Atribuir",
-            onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, "Atribuído: o eletricista tem 48 h para marcar a visita.") }))
+          ? h("div", { class: "form-botoes" }, sel, a.propostas_bolsa && a.tipo === "visita"
+            // Pedido com planta por propor: já não se entrega o cliente a um eletricista antes da proposta; pede-se a proposta só a ele.
+            ? h("button", { class: "btn pequeno", type: "button", id: "atribuir", text: "Pedir proposta só a este",
+              onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, "Proposta pedida: só este eletricista vê o pedido, sem os dados do cliente.") })
+            : h("button", { class: "btn pequeno", type: "button", id: "atribuir", text: "Atribuir",
+              onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, "Atribuído: o eletricista tem 48 h para marcar a visita.") }))
           : h("p", { class: "msg info", text: `Ainda não há eletricistas aprovados em ${a.concelho}.` }),
         h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "por-na-bolsa", text: `Pôr na bolsa · ${veem(a.candidatos.length)}`,
           onclick: (e) => acao(e.currentTarget, { acao: "bolsa" }, "Trabalho na bolsa.") })),
@@ -203,7 +208,9 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     } else if (t.estado === "na_bolsa") {
       partes.push(
         h("p", { class: "linha-selos" }, selo("Na bolsa", "aviso"), selo(a.concelho, "info")),
-        h("p", { id: "bolsa-estado", text: t.por_proposta
+        h("p", { id: "bolsa-estado", text: t.so_para
+          ? `Proposta pedida só a ${t.so_para.nome ?? "um eletricista"}: ${(a.propostas ?? []).some((x) => x.estado === "enviada") ? "já a enviou, pode escolhê-la abaixo" : "ainda não a enviou"}. Os outros eletricistas não veem este pedido. Para o abrir a todos, retire-o e ponha-o na bolsa.`
+          : t.por_proposta
           ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
           : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
         h("div", { class: "form-botoes" }, botaoConfirmar("Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Retirado da bolsa."))));

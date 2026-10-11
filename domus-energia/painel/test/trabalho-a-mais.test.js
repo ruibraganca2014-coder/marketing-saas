@@ -333,18 +333,24 @@ describe('trabalho a mais: o eletricista propõe, o CEO põe o preço, o cliente
     assert.deepEqual(f.falta.filter((x) => /trabalho a mais/.test(x)), []);
   });
 
-  test('numa visita (não é obra) não se propõe; e se o trabalho sai do eletricista, o que estava à espera cai', async () => {
-    // Visita técnica atribuída diretamente: não é uma obra.
+  test('atribuir num pedido com planta pede a proposta só a esse eletricista; e se o trabalho sai do eletricista, o trabalho a mais à espera cai', async () => {
+    // Pedido com planta ainda sem proposta aceite: "atribuir" já não entrega o cliente nem pede visita (decisão do dono,
+    // 2026-10-11) — pede a proposta só a esse eletricista. O trabalho fica na bolsa, visível só para ele.
     const v = await pedido();
     const a = await painel('POST', `orcamentos/${v.id}/eletricista`, 'ceo', { acao: 'atribuir', eletricista_id: e.id });
     assert.equal(a.estado, 200, a.texto);
-    assert.equal(a.json.trabalho.tipo, 'visita');
-    assert.equal((await area(e, 'POST', `trabalhos/${a.json.trabalho.id}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
-    const r = await propor(e, a.json.trabalho.id);
-    assert.equal(r.estado, 409);
-    assert.match(r.json.erro, /só se propõe numa obra/);
-    assert.deepEqual((await ficha(e, a.json.trabalho.id)).extras, []);
-    assert.equal((await ficha(e, a.json.trabalho.id)).pode_extra, false);
+    assert.deepEqual([a.json.trabalho.tipo, a.json.trabalho.estado, a.json.trabalho.eletricista, a.json.trabalho.so_para.id], ['visita', 'na_bolsa', null, e.id]);
+    assert.match(p.emails.at(-1).assunto, /pedimos-lhe uma proposta/);
+    const naBolsa = async (x) => (await area(x, 'GET', 'bolsa')).json.trabalhos.map((t) => t.id);
+    assert.ok((await naBolsa(e)).includes(a.json.trabalho.id), 'ele vê o pedido na bolsa');
+    assert.ok(!(await naBolsa(outro)).includes(a.json.trabalho.id), 'os outros do concelho não');
+    assert.equal((await area(outro, 'GET', `bolsa/${a.json.trabalho.id}`)).estado, 404);
+    const visto = (await area(e, 'GET', `bolsa/${a.json.trabalho.id}`)).json.trabalho;
+    assert.ok(!JSON.stringify(visto).includes('912 345 678') && !visto.cliente, 'sem os dados do cliente');
+    // Ainda não é dele: não marca visita nem propõe trabalho a mais.
+    assert.equal((await area(e, 'POST', `trabalhos/${a.json.trabalho.id}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 404);
+    assert.notEqual((await propor(e, a.json.trabalho.id)).estado, 200);
+    assert.equal((await painel('POST', `orcamentos/${v.id}/eletricista`, 'ceo', { acao: 'retirar' })).estado, 200);
 
     // O CEO retira a obra ao eletricista com um trabalho a mais enviado ao cliente: cai, e o cliente já não o aceita.
     const { c, id, tid } = await obra();

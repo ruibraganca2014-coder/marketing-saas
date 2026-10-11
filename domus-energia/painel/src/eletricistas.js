@@ -757,7 +757,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       : 'Veja o relatório técnico e o valor que recebe na área do eletricista. O primeiro a aceitar fica com o trabalho.';
     let n = 0;
     for (const e of aprovadosEm(t.concelho).slice(0, 500)) {
-      if (largouOuExpirou(t, e)) continue;
+      if (largouOuExpirou(t, e) || (t.so_para && t.so_para !== e.id)) continue;
       if (!ins.run(t.id, e.id, agoraIso()).changes) {
         if (!voltou) continue;
         n += 1;
@@ -798,7 +798,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // Quem largou o trabalho ou o deixou caducar: não o volta a ver na bolsa, e NUNCA recebe por ele.
   const largouOuExpirou = (t, e) => Boolean(db.prepare("SELECT 1 FROM trabalhos_eletricista_eventos WHERE trabalho_id = ? AND eletricista_id = ? AND evento IN ('largou', 'expirou') LIMIT 1").get(t.id, e.id));
   /** O eletricista vê este trabalho na bolsa? Concelho dele, pedido aberto, e nunca o largou nem deixou caducar. */
-  const visivelNaBolsa = (t, e, o) => t.estado === 'na_bolsa' && concelhosDe(e).includes(t.concelho) && Boolean(o) && aberto(t, o) && !largouOuExpirou(t, e);
+  // `so_para` (migração 48): a proposta foi pedida só a um eletricista — os outros do concelho não veem o trabalho.
+  const visivelNaBolsa = (t, e, o) => t.estado === 'na_bolsa' && concelhosDe(e).includes(t.concelho) && Boolean(o) && aberto(t, o) && !largouOuExpirou(t, e)
+    && (t.so_para === null || t.so_para === undefined || t.so_para === e.id);
 
   h.bolsa = ({ res, e }) => {
     expirar();
@@ -2176,6 +2178,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         regresso: e ? regressoDe(t, o, `/painel/api/trabalhos-eletricista/${t.id}/fatura`) : null,
         pode_aprovar: t.estado === 'confirmada', pode_devolver: ['concluida_eletricista', 'confirmada'].includes(t.estado), pode_decidir: Boolean(doCliente),
         id: t.id, tipo: t.tipo, estado: t.estado, modo: t.modo, aberto: aberto(t, o), eletricista: e ? { id: e.id, nome: e.nome } : null,
+        so_para: t.so_para ? { id: t.so_para, nome: linha(t.so_para)?.nome ?? null } : null,
         // Por proposta: escolhido pelo CEO; `espera_cliente` = o cliente ainda não aceitou (sem prazo, sem dados do cliente).
         ...(config.propostasBolsa ? { por_proposta: porProposta(t), espera_cliente: esperaCliente(t) } : {}),
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
@@ -2197,7 +2200,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
 
   /** Cria o trabalho do pedido (um ativo por pedido): na bolsa, ou já atribuído (48 h para marcar a visita). */
-  function novoTrabalho(o, modo, e) {
+  function novoTrabalho(o, modo, e, soPara = null) {
     expirar();
     const tipo = tipoAtribuivel(o);
     if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.');
@@ -2205,10 +2208,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (feitoDoPedido(o.id, tipo)) throw new ErroApi(409, 'Este trabalho já foi feito e aprovado neste pedido.');
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     if (!c) throw new ErroApi(409, 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.');
-    if (e && (e.estado !== 'aprovado' || !concelhosDe(e).includes(c))) throw new ErroApi(409, `Só se atribui a um eletricista aprovado que trabalhe em ${c}.`);
+    for (const x of [e, soPara]) if (x && (x.estado !== 'aprovado' || !concelhosDe(x).includes(c))) throw new ErroApi(409, `Só se atribui a um eletricista aprovado que trabalhe em ${c}.`);
     const agora = relogio();
-    const id = Number(db.prepare(`INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, eletricista_id, percentagem, aceite_em, criado, atualizado)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(o.id, tipo, e ? 'aceite' : 'na_bolsa', modo, c, e?.id ?? null, e ? percentagemDe(e) : null, e ? agora : null, iso(agora), iso(agora)).lastInsertRowid);
+    const id = Number(db.prepare(`INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, eletricista_id, percentagem, aceite_em, criado, atualizado, so_para)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(o.id, tipo, e ? 'aceite' : 'na_bolsa', modo, c, e?.id ?? null, e ? percentagemDe(e) : null, e ? agora : null, iso(agora), iso(agora), soPara?.id ?? null).lastInsertRowid);
     return trabalho(id);
   }
 
@@ -2216,6 +2219,21 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!Number.isInteger(idEletricista)) falha('Escolha o eletricista.');
     const e = linha(idEletricista);
     if (!e) throw new ErroApi(404, 'Eletricista não encontrado.');
+    // Pedido com planta ainda sem proposta aceite, com as propostas na bolsa (decisão do dono, 2026-10-11): atribuir
+    // diretamente já não entrega os dados do cliente nem pede visita — pede a proposta só a este eletricista. O trabalho
+    // vai para a bolsa visível só para ele; o resto é igual (ele propõe, o CEO escolhe e envia, o cliente aceita, e só
+    // então ele vê o nome e a morada).
+    if (config.propostasBolsa && tipoAtribuivel(o) === 'visita') {
+      const t = novoTrabalho(o, 'bolsa', null, e);
+      evento(t, 'posto_na_bolsa', e.id, u.email);
+      db.prepare('INSERT OR IGNORE INTO trabalhos_eletricista_avisos (trabalho_id, eletricista_id, quando) VALUES (?, ?, ?)').run(t.id, e.id, agoraIso());
+      auditar(u, 'trabalho_proposta_pedida', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, concelho: t.concelho }, ip);
+      correio.enviar({ para: e.email, assunto: `Domus Energia: pedimos-lhe uma proposta em ${t.concelho}`, resumo: `trabalho ${t.id}: proposta pedida só ao eletricista ${e.id}`,
+        texto: [`Olá ${e.nome},`, '', `Pedimos-lhe uma proposta para um pedido com planta em ${t.concelho}.`,
+          'Veja a planta, as fotos e o relatório técnico na área do eletricista, em "Bolsa", e envie a sua proposta (horas, material e quando pode ir).',
+          ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+      return t;
+    }
     const t = novoTrabalho(o, 'direto', e);
     evento(t, 'atribuido', e.id, u.email);
     auditar(u, 'trabalho_atribuido', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, percentagem: t.percentagem }, ip);

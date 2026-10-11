@@ -317,3 +317,7 @@ Migração 47: `trabalhos_extra` (trabalho a mais; ver "Trabalho a mais").
 ## Rondas seguintes
 
 Publicar o módulo (ver "Para publicar"), quando o dono decidir.
+
+## Pedir proposta só a um eletricista
+
+Num pedido com planta ainda sem proposta aceite (com `PROPOSTAS_BOLSA` ligado), "atribuir" a um eletricista já não lhe entrega os dados do cliente nem pede visita (decisão do dono, 2026-10-11): pede-lhe a proposta. O trabalho vai para a bolsa com `so_para` = esse eletricista (migração 48), e só ele o vê; propõe horas e material pela planta, o CEO escolhe e envia a proposta, e só depois de o cliente aceitar é que ele vê o nome e a morada. Para abrir o pedido a todos, retira-se e põe-se na bolsa. Nas avarias e nas obras já aceites a atribuição direta continua como era.

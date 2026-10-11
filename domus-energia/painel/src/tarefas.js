@@ -21,7 +21,7 @@ const dias = (d, util = false) => `${d} ${d === 1 ? 'dia' : 'dias'}${util ? (d =
  */
 const LEMBRETES = {
   novo_24h: { titulo: (n) => `Ligar a ${n} — pedido novo`, neutro: 'ligar ao cliente (pedido novo)',
-    texto: (d) => `Pedido novo há mais de ${dias(d, true)} sem contacto registado. Ligue ao cliente e registe o contacto na ficha (o pedido passa a "Contactado").` },
+    texto: (d) => `Pedido novo há mais de ${dias(d, true)} sem contacto registado. Ligue ao cliente e registe o contacto na ficha (o pedido passa a "Em preparação").` },
   visita_2d: { titulo: (n) => `Enviar proposta — ${n}`, neutro: 'enviar a proposta (visita feita)',
     texto: (d) => `A visita foi há mais de ${dias(d)} e a proposta ainda não foi enviada. Prepare e envie a proposta ao cliente.` },
   proposta_3d: { titulo: (n) => `Seguir proposta — ${n}`, neutro: 'seguir a proposta',

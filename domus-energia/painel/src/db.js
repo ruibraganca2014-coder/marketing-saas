@@ -1090,6 +1090,10 @@ export const MIGRACOES = [
     );
     CREATE INDEX trabalhos_extra_orcamento ON trabalhos_extra(orcamento_id);
   `),
+  // 48: "pedir proposta só a um eletricista" (decisão do dono, 2026-10-11): num pedido com planta ainda sem proposta
+  // aceite, atribuir diretamente deixou de entregar os dados do cliente e de pedir visita. O trabalho vai para a bolsa
+  // visível só para esse eletricista (`so_para`), que propõe pela planta como os outros; NULL = todos os do concelho.
+  (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN so_para INTEGER;'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
