@@ -730,7 +730,21 @@ function escolherFunil(k) {
   if (k === "planta") {
     if (estado.funil !== "planta") { estado.funil = "planta"; estado.caminho = null; }
   } else {
-    if (estado.soCasa) { const e = estadoInicial(); e.contacto = estado.contacto; e.melhorias = estado.melhorias; estado = e; visitado = PASSO_INICIAL; }
+    // "Descrever a minha casa" com uma casa já guardada (teste de 2026-10-11: começava em branco e, com sessão, a casa
+    // vazia ia por cima da guardada na conta): parte-se da casa guardada, para a alterar. Para descrever outra de raiz há
+    // o "Começar de novo" (ou outra casa em "A minha conta").
+    const guardada = k === "primeira" ? casaParaPlanta() : null;
+    if (guardada && (estado.soCasa || guardada !== estado)) {
+      const c = structuredClone(guardada);
+      const e = estadoInicial();
+      e.contacto = estado.contacto;
+      e.melhorias = estado.melhorias;
+      usarCasa(e, c);
+      e.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
+      estado = e;
+      visitado = P.relatorio;   // já foi descrita até ao fim: todos os passos ficam abertos
+      estado.visitado = visitado;
+    } else if (estado.soCasa) { const e = estadoInicial(); e.contacto = estado.contacto; e.melhorias = estado.melhorias; estado = e; visitado = PASSO_INICIAL; }
     estado.funil = k;
     estado.caminho = null;
     estado.soCasa = false;
