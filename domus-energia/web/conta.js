@@ -249,6 +249,26 @@ function blocoExtras(p) {
   }
   return b;
 }
+/**
+ * Obra parada por segurança (decisão do dono, 2026-10-11): o que se encontrou impede uma instalação segura e a obra não
+ * avança. Mostra o motivo e a conta do sinal — sinal pago, material já encomendado, trabalho já feito e o que se devolve
+ * —, como o email que o cliente recebeu. A devolução por transferência (pagou por Multibanco) pede o IBAN logo abaixo.
+ */
+function blocoObraParada(p) {
+  const x = p.obra_parada;
+  const b = el("section", "conta-proposta conta-obra-parada");
+  b.id = `obra-parada-${p.id}`;
+  b.setAttribute("aria-label", "Obra parada por segurança");
+  b.append(el("h4", null, "A obra não pode avançar em segurança"), el("p", null, x.motivo));
+  const dl = el("dl", "dados-simples conta-partes");
+  for (const [k, v] of [["Sinal pago", x.sinal], ["Material já encomendado", x.material], ["Trabalho já feito", x.trabalho], ["A devolver", x.devolver]]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
+  b.append(dl);
+  b.append(el("p", x.devolver > 0 ? "msg ok" : "msg info", !(x.devolver > 0) ? "O material já encomendado e o trabalho já feito ficam pelo valor do sinal: não há valor a devolver."
+    : x.manual ? `Como pagou por referência Multibanco, devolvemos ${euro(x.devolver)} por transferência bancária: indique o IBAN abaixo.`
+      : `Devolvemos ${euro(x.devolver)} para o mesmo meio de pagamento (até 14 dias)${x.simulado ? " (SIMULAÇÃO: não foi cobrado nem devolvido nada)" : ""}.`));
+  b.append(el("p", "ajuda", "Se tiver dúvidas, responda ao email que lhe enviámos ou ligue-nos."));
+  return b;
+}
 function blocoCorrecao(p) {
   const b = el("section", "msg info conta-correcao");
   b.id = `correcao-${p.id}`;
@@ -291,6 +311,7 @@ function cartaoPedido(p) {
   }
   c.append(passos);
   if (p.correcao) c.append(blocoCorrecao(p));
+  if (p.obra_parada) c.append(blocoObraParada(p));
   const extraPorResponder = (p.extras ?? []).some((x) => x.estado === "enviado");
   if (extraPorResponder) c.append(blocoExtras(p));
   if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido. Se fizermos uma proposta nova, aparece aqui.`));
@@ -345,6 +366,8 @@ function fraseDaVisita(p) {
   return marcada ? ` A visita está marcada para ${marcada}.` : " Vamos marcar a visita consigo. Muitas vezes a obra fica feita nesse dia.";
 }
 const precoDefinitivo = (p) => Boolean(p.compras?.visita?.incluida);
+/** A soma (€) de um campo das idas perdidas confirmadas do pedido: `valor` (sem IVA) ou `valor_iva`. */
+const somaIdas = (idas, campo) => Math.round(idas.reduce((s, x) => s + (Number(x[campo]) || 0), 0) * 100) / 100;
 
 function blocoProposta(p) {
   const b = el("section", "conta-proposta");
@@ -356,9 +379,12 @@ function blocoProposta(p) {
   const pp = p.proposta_partes;
   // Trabalho a mais que aceitou (sem IVA): já vai dentro do total com IVA e do restante.
   const tm = p.trabalho_a_mais;
+  const idas = p.idas_perdidas ?? [];
   if (pp) {
     const dl = el("dl", "dados-simples conta-partes");
-    for (const [k, v] of [["Mão de obra", pp.mao_obra], ["Material", pp.material], ["Deslocação", pp.deslocacao], ...(tm && !p.obra_minima ? [["Trabalho a mais", tm.valor]] : [])]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
+    for (const [k, v] of [["Mão de obra", pp.mao_obra], ["Material", pp.material], ["Deslocação", pp.deslocacao], ...(tm && !p.obra_minima ? [["Trabalho a mais", tm.valor]] : []),
+      // Idas perdidas confirmadas (sem IVA): também já vão dentro do total com IVA e do restante.
+      ...(idas.length && !p.obra_minima ? [[idas.length === 1 ? "Ida perdida (deslocação)" : "Idas perdidas (deslocação)", somaIdas(idas, "valor")]] : [])]) dl.append(el("dt", null, k), el("dd", "num", euro(v)));
     if (pi && !p.obra_minima) dl.append(el("dt", null, `IVA ${pctTxt(pi.iva_pct)}`), el("dd", "num", euro(pi.iva)), el("dt", null, "Total com IVA"), el("dd", "num", euro(pi.total)));
     b.append(dl);
   }
@@ -386,6 +412,9 @@ function blocoProposta(p) {
       resto.id = `falta-pagar-${p.id}`;
       b.append(resto);
     }
+    // Idas perdidas (decisão do dono, 2026-10-11): não o encontrámos à hora marcada — a deslocação de cada ida soma ao
+    // que paga no fim (o valor acima já a leva dentro).
+    if (!p.restante?.pago) for (const x of idas) b.append(el("p", "num conta-ida-perdida", `Ida perdida em ${dataTxt(x.visita, true)}: ${euro(x.valor_iva)} (com IVA), soma ao que paga no fim.`));
     if (p.inicio_imediato) b.append(el("p", "ajuda", "Pediu para começarmos já: prescindiu do direito de livre resolução de 14 dias sobre o que for executado."));
     if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {
@@ -453,7 +482,11 @@ function blocoRestante(p) {
   b.append(el("h4", null, "Fim da obra"));
   // Com trabalho a mais aceite: "a proposta mais o trabalho a mais, menos o que já pagou".
   const tm = p.trabalho_a_mais;
-  const contas = !p.proposta_iva ? "" : tm ? `: ${euro(Math.round((p.proposta_iva.total - tm.total) * 100) / 100)} mais ${euro(tm.total)} do trabalho a mais, menos o que já pagou` : `: ${euro(p.proposta_iva.total)} menos o que já pagou`;
+  // Com idas perdidas confirmadas: também à parte ("… mais X de ida perdida").
+  const idas = p.idas_perdidas ?? [];
+  const totalIdas = somaIdas(idas, "valor_iva");
+  const mais = [tm ? `${euro(tm.total)} do trabalho a mais` : null, idas.length ? `${euro(totalIdas)} de ${idas.length === 1 ? "ida perdida" : "idas perdidas"}` : null].filter(Boolean);
+  const contas = !p.proposta_iva ? "" : mais.length ? `: ${euro(Math.round((p.proposta_iva.total - (tm?.total ?? 0) - totalIdas) * 100) / 100)} mais ${mais.join(" e ")}, menos o que já pagou` : `: ${euro(p.proposta_iva.total)} menos o que já pagou`;
   if (p.restante?.pago) b.append(el("p", "msg ok", "A obra está paga. Obrigado!"));
   else b.append(el("p", null, `A obra está concluída. Falta pagar o restante: ${euro(p.restante.valor)} (com IVA${contas}).`),
     el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."), soMultibanco(p, p.restante.valor),

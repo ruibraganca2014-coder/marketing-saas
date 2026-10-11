@@ -563,6 +563,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null,
       visita: t.visita ?? null, concluida: t.concluida ?? null,
     };
+    // Obra parada por segurança (aoPararObra): já não vale a estimativa — recebe só o trabalho já feito, fixado pelo CEO.
+    const fixado = detalheDe(t);
+    if (fixado?.obra_parada) { r.recebe = fixado; r.obra_parada = true; }
     if (!completo) return r;
     r.cliente = estaAberto && !espera ? { nome: o.nome, telefone: o.telefone ?? null, morada: o.morada ?? null, localidade: o.localidade ?? null } : null;
     // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
@@ -595,6 +598,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // cliente — e se pode propor outro (um à espera de cada vez).
     r.extras = t.tipo === 'obra' ? extrasParaEletricista(t) : [];
     r.pode_extra = r.editavel && t.tipo === 'obra' && !extraPendente(t.id);
+    // Ida perdida (decisão do dono, 2026-10-11): as que ele assinalou nesta obra, com o estado, e se pode assinalar
+    // agora "O cliente não estava" (só depois da hora da visita marcada; uma à espera de cada vez).
+    r.idas_perdidas = t.tipo === 'obra' ? idasParaEletricista(t) : [];
+    r.pode_ida_perdida = r.editavel && recusaDaIda(t) === null;
     // Checklists dos procedimentos (docs/PROCEDIMENTOS.md): só numa obra, com a obra do pedido, enquanto está aberta.
     r.checklists = estaAberto && t.tipo === 'obra' && o.obra_id && procedimentos ? procedimentos.daObra(o.obra_id, { eletricista: t.eletricista_id }) : null;
     return r;
@@ -687,6 +694,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (t.tipo === 'avaria' && !diagnosticoDoPedido(o)?.conclusao) falta.push('a conclusão do diagnóstico');
     // Trabalho a mais à espera da Domus Energia ou do cliente: a obra não se dá por concluída sem a resposta.
     if (extraPendente(t.id)) falta.push('a resposta ao trabalho a mais');
+    // Ida perdida à espera da Domus Energia: sem a resposta não se sabe se a visita conta, e a obra não se conclui.
+    if (idaPendente(t.id)) falta.push('a resposta à ida perdida');
     // Só se conclui a partir da hora marcada para a visita (decisão do dono, 2026-10-11).
     if (visitaPorAcontecer(t)) falta.push(`a visita ainda não aconteceu (marcada para ${dataTexto(t.visita)})`);
     return falta;
@@ -731,6 +740,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!r.changes) return false;
     evento(t, nomeEvento, t.eletricista_id, por);
     fecharExtras(t, agora);
+    fecharIdas(t, agora);
     // Propostas na bolsa: a proposta de quem largou (ou deixou caducar) não volta a aparecer ao CEO, e a cópia que ficou
     // no trabalho sai com ele (senão "Preencher pela proposta do eletricista" continuava a mostrá-la). As de reserva ficam.
     if (config.propostasBolsa) {
@@ -1426,6 +1436,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     expirar();
     const { t, o } = meuEditavel(e, params.id);
     if (extraPendente(t.id)) throw new ErroApi(409, 'Há um trabalho a mais à espera de resposta.');
+    if (idaPendente(t.id)) throw new ErroApi(409, 'Há uma ida perdida à espera da Domus Energia.');
     if (visitaPorAcontecer(t)) throw new ErroApi(409, `A visita está marcada para ${dataTexto(t.visita)}. Se já fez o trabalho, mude primeiro a data da visita.`);
     const falta = faltaParaConcluir(t, o);
     if (falta.length) throw new ErroApi(409, `Ainda falta: ${falta.join('; ')}.`);
@@ -1474,11 +1485,14 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** A mão de obra (cêntimos sem IVA) dos extras que o cliente aceitou neste trabalho: é sobre ela que o eletricista recebe a mais. */
   const maoObraExtras = (trabalhoId) => db.prepare("SELECT COALESCE(SUM(COALESCE(mao_obra_cent, 0)), 0) AS s FROM trabalhos_extra WHERE trabalho_id = ? AND estado = 'aceite'").get(trabalhoId).s;
   /** O valor a receber por um trabalho com o trabalho a mais aceite: junta `extras` (mão de obra) e `parte_extras` e soma ao total. */
+  // Com idas perdidas confirmadas (migração 50): a deslocação de cada ida vai inteira para ele (`idas_perdidas`, € sem
+  // IVA), como a deslocação da obra, e soma também ao total.
   function comExtras(valor, t) {
     const mao = valor && t.tipo === 'obra' ? maoObraExtras(t.id) : 0;
-    if (!mao) return valor;
+    const idas = valor && t.tipo === 'obra' ? idasDoTrabalho(t) : 0;
+    if (!mao && !idas) return valor;
     const parte = Math.round((mao * valor.percentagem) / 100);
-    return { ...valor, extras: deCent(mao), parte_extras: deCent(parte), total: deCent(Math.round(valor.total * 100) + parte) };
+    return { ...valor, ...(mao ? { extras: deCent(mao), parte_extras: deCent(parte) } : {}), ...(idas ? { idas_perdidas: deCent(idas) } : {}), total: deCent(Math.round(valor.total * 100) + parte + idas) };
   }
 
   /** Os extras de um trabalho para quem o tem: descrição, horas, material e estado. Nunca o preço ao cliente. */
@@ -1632,6 +1646,195 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** Quantos extras estão à espera do CEO (Início do painel: "trabalho a mais por rever"). */
   const extrasPorRever = () => db.prepare("SELECT COUNT(*) AS n FROM trabalhos_extra WHERE estado = 'proposto'").get().n;
 
+  // ------------------------------------------------------------ ida perdida (decisão do dono, 2026-10-11; migração 50)
+  // O cliente pode mudar a visita sem custo até 24 horas antes. Se o eletricista for à hora marcada e não puder entrar por
+  // motivo do cliente, sem aviso com 24 horas, o cliente paga a deslocação dessa ida — o valor do concelho, uma ida e
+  // volta, como a visita e a proposta o calculam —, que soma ao restante (pagamentos-pedido.js valores); o eletricista
+  // recebe essa deslocação a mais; marca-se nova visita. O ELETRICISTA ASSINALA, O CEO CONFIRMA (ou anula, com o motivo).
+  const idaPendente = (trabalhoId) => Boolean(db.prepare("SELECT 1 FROM idas_perdidas WHERE trabalho_id = ? AND estado = 'proposta' LIMIT 1").get(trabalhoId));
+  /** As deslocações (cêntimos sem IVA) das idas perdidas confirmadas deste trabalho, de quem o tem agora: vão inteiras para ele. */
+  const idasDoTrabalho = (t) => (t?.eletricista_id
+    ? db.prepare("SELECT COALESCE(SUM(COALESCE(deslocacao_cent, 0)), 0) AS s FROM idas_perdidas WHERE trabalho_id = ? AND eletricista_id = ? AND estado = 'confirmada'").get(t.id, t.eletricista_id).s : 0);
+  /**
+   * A deslocação de uma ida a este pedido (cêntimos SEM IVA): a do concelho, uma ida e volta (`deslocacaoServidor`, a
+   * mesma conta da visita e da proposta), com o IVA do pedido tirado. 0 fora da área servida (não há valor para cobrar).
+   */
+  function deslocacaoDaIda(o) {
+    const d = deslocacaoServidor(localidadeDe(o), lerCfg());
+    return d === null ? 0 : partirIva(Math.round(d * 100), pagamentos().ivaDoPedido(o)).base;
+  }
+  /** Porque é que não se pode assinalar agora uma ida perdida neste trabalho (texto para o 409), ou null se pode. */
+  function recusaDaIda(t) {
+    if (t.tipo !== 'obra') return 'A ida perdida só se assinala numa obra.';
+    if (t.estado !== 'visita_marcada' || !t.visita) return 'Só com a visita marcada pode dizer que o cliente não estava.';
+    if (visitaPorAcontecer(t)) return `A visita está marcada para ${dataTexto(t.visita)}: só depois dessa hora pode dizer que o cliente não estava.`;
+    if (idaPendente(t.id)) return 'Já há uma ida perdida à espera da Domus Energia neste trabalho.';
+    if (db.prepare('SELECT 1 FROM idas_perdidas WHERE trabalho_id = ? AND visita = ? LIMIT 1').get(t.id, t.visita)) return 'Esta visita já foi assinalada. Combine nova data com o cliente e marque a visita.';
+    return null;
+  }
+  /** A ida ainda é de quem a assinalou, com o trabalho por concluir e a obra do pedido em curso? (Só assim o CEO a confirma.) */
+  function idaViva(x, t, o) {
+    return Boolean(t) && t.eletricista_id === x.eletricista_id && EDITAVEIS.includes(t.estado) && aberto(t, o);
+  }
+  /** O trabalho saiu do eletricista (largou, caducou ou foi retirado): a ida perdida à espera do CEO fica anulada. */
+  function fecharIdas(t, agora) {
+    db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = 'O trabalho saiu do eletricista.', decidido_em = ?, decidido_por = 'sistema' WHERE trabalho_id = ? AND estado = 'proposta'").run(agora, t.id);
+  }
+  /** As idas perdidas que este eletricista assinalou no trabalho: o estado, o motivo da anulação e o que recebe pelas confirmadas (€ sem IVA). */
+  function idasParaEletricista(t) {
+    return db.prepare('SELECT * FROM idas_perdidas WHERE trabalho_id = ? AND eletricista_id = ? ORDER BY id').all(t.id, t.eletricista_id).map((x) => ({
+      id: x.id, visita: x.visita, nota: x.nota ?? null, estado: x.estado, quando: x.decidido_em ?? x.criado,
+      motivo: x.estado === 'anulada' ? x.motivo ?? null : null,
+      recebe: x.estado === 'confirmada' ? deCent(x.deslocacao_cent ?? 0) : null,
+    }));
+  }
+
+  // POST trabalhos/:id/ida-perdida {nota?}: "O cliente não estava" — numa obra com a visita marcada, só depois da hora
+  // dela (o relógio do servidor), uma à espera de cada vez. Fica à espera do CEO; enquanto espera nada muda no trabalho.
+  h.idaPerdida = async ({ req, res, e, params, ip }) => {
+    const v = await lerJson(req, ['nota']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    expirar();
+    const { t, o } = meuEditavel(e, params.id);
+    const nota = texto(v.nota, 'o que aconteceu', { max: 300, multilinha: true });
+    const recusa = recusaDaIda(t);
+    if (recusa) throw new ErroApi(409, recusa);
+    // Com o restante já pago online não há onde somar a deslocação (o restante paga-se uma vez): trata-se por fora.
+    if (pagamentos().restantePago(o).quando) throw new ErroApi(409, 'O cliente já pagou o restante desta obra: fale com a Domus Energia.');
+    const agora = agoraIso();
+    const id = Number(db.prepare("INSERT INTO idas_perdidas (orcamento_id, trabalho_id, eletricista_id, visita, nota, estado, criado) VALUES (?, ?, ?, ?, ?, 'proposta', ?)")
+      .run(o.id, t.id, e.id, t.visita, nota, agora).lastInsertRowid);
+    auditar(quem(e), 'ida_perdida_assinalada', `orcamento:${o.id}`, { ida: id, trabalho: t.id, eletricista: e.id, data_visita: t.visita }, ip);
+    avisarEmpresa('Domus Energia: um eletricista diz que o cliente não estava', [
+      `O eletricista foi à visita do pedido n.º ${o.id} (${t.concelho}), marcada para ${dataTexto(t.visita)}, e diz que o cliente não estava.`,
+      'Veja na ficha do pedido, em Orçamentos, no cartão "Visita perdida": confirme (a deslocação dessa ida soma ao que o cliente paga no fim) ou anule.']);
+    responder(res, 200, fichaAtual(t));
+  };
+
+  /**
+   * As idas perdidas de um pedido para o painel (cartão "Visita perdida"), todas: a visita que se perdeu, a nota do
+   * eletricista, a deslocação SEM IVA e com IVA — a guardada, nas confirmadas; a de agora, nas que estão por decidir —
+   * e o que o eletricista recebe (a deslocação inteira, sem IVA).
+   */
+  function idasDoPedido(o) {
+    const iva = pagamentos().ivaDoPedido(o);
+    return db.prepare('SELECT * FROM idas_perdidas WHERE orcamento_id = ? ORDER BY id').all(o.id).map((x) => {
+      const e = x.eletricista_id ? linha(x.eletricista_id) : null;
+      const cent = x.estado === 'confirmada' ? x.deslocacao_cent ?? 0 : deslocacaoDaIda(o);
+      return {
+        id: x.id, trabalho: x.trabalho_id, eletricista: e ? { id: e.id, nome: e.nome } : null, visita: x.visita, nota: x.nota ?? null,
+        estado: x.estado, motivo: x.motivo ?? null, criado: x.criado, decidido_em: x.decidido_em ?? null, decidido_por: x.decidido_por ?? null,
+        deslocacao: deCent(cent), deslocacao_iva: deCent(comIva(cent, iva)), recebe: deCent(cent),
+        pode_decidir: x.estado === 'proposta',
+      };
+    });
+  }
+  /** A ida perdida `idTexto` deste pedido (404 se for de outro). */
+  function idaDoPedido(o, idTexto) {
+    const x = db.prepare('SELECT * FROM idas_perdidas WHERE id = ?').get(idNum(idTexto)) ?? null;
+    if (!x || x.orcamento_id !== o.id) throw new ErroApi(404, 'Ida perdida não encontrada.');
+    return x;
+  }
+
+  /**
+   * "Confirmar: cobrar a deslocação" (só o CEO): a deslocação dessa ida fica guardada (SEM IVA) e passa a somar ao
+   * restante do cliente e ao que o eletricista recebe. O trabalho volta a "por marcar visita": fica `aceite`, sem data,
+   * com 48 h novas para marcar (o prazo de sempre conta a partir de agora) — a não ser que o eletricista já tenha
+   * marcado outra data entretanto, que então fica. O cliente e o eletricista são avisados por email.
+   */
+  function confirmarIda(o, idTexto, u, ip) {
+    expirar();
+    const x = idaDoPedido(o, idTexto);
+    if (x.estado !== 'proposta') throw new ErroApi(409, 'Esta ida perdida já foi decidida.');
+    if (pagamentos().restantePago(o).quando) throw new ErroApi(409, 'O cliente já pagou o restante desta obra: já não há onde somar a deslocação. Anule o registo e trate por fora.');
+    const t = trabalho(x.trabalho_id);
+    if (!idaViva(x, t, o)) throw new ErroApi(409, 'A obra já não está em curso com o eletricista que assinalou esta ida: anule o registo.');
+    const cent = deslocacaoDaIda(o);
+    if (!(cent > 0)) throw new ErroApi(409, 'A deslocação deste concelho é 0 €: não há nada a cobrar. Anule o registo.');
+    const agora = relogio();
+    const r = db.prepare("UPDATE idas_perdidas SET estado = 'confirmada', deslocacao_cent = ?, decidido_em = ?, decidido_por = ? WHERE id = ? AND estado = 'proposta'").run(cent, iso(agora), u.email, x.id);
+    if (!r.changes) throw new ErroApi(409, 'Esta ida perdida já foi decidida.');
+    // De volta a "por marcar visita", só se a data ainda é a que se perdeu.
+    const voltou = db.prepare("UPDATE trabalhos_eletricista SET estado = 'aceite', visita = NULL, aceite_em = ?, atualizado = ? WHERE id = ? AND eletricista_id = ? AND estado = 'visita_marcada' AND visita = ?")
+      .run(agora, iso(agora), t.id, x.eletricista_id, x.visita).changes > 0;
+    if (voltou && o.obra_id) db.prepare('UPDATE obras SET por_agendar = 1, atualizado = ? WHERE id = ?').run(iso(agora), o.obra_id);
+    const total = comIva(cent, pagamentos().ivaDoPedido(o));
+    auditar(u, 'ida_perdida_confirmada', `orcamento:${o.id}`, { ida: x.id, trabalho: x.trabalho_id, eletricista: x.eletricista_id, data_visita: x.visita, deslocacao: deCent(cent), deslocacao_iva: deCent(total), nova_visita_por_marcar: voltou }, ip);
+    const euro = (c) => `${(c / 100).toFixed(2).replace('.', ',')} €`;
+    const email = emailCliente(o);
+    if (email) {
+      correio.enviar({ para: email, assunto: 'Domus Energia: não o encontrámos na visita', resumo: `pedido ${o.id}: ida perdida confirmada (${euro(total)} com IVA)`,
+        texto: ['Olá,', '', `Não o encontrámos na visita de ${dataTexto(x.visita)} do seu pedido n.º ${o.id}.`,
+          `Como combinado nos Termos e Condições, a deslocação dessa ida (${euro(total)} com IVA) soma ao que paga no fim da obra.`,
+          'Vamos marcar nova visita consigo. Pode mudar a data sem custo até 24 horas antes.',
+          'Se não concordar, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    const e = x.eletricista_id ? linha(x.eletricista_id) : null;
+    if (e && !e.anonimizado) {
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: ida perdida confirmada', resumo: `trabalho ${t.id}: ida perdida ${x.id} confirmada`,
+        texto: [`Olá ${e.nome},`, '', `Confirmámos a ida perdida de ${dataTexto(x.visita)} (obra em ${t.concelho}): recebe mais ${euro(cent)} (sem IVA) pela deslocação dessa ida.`,
+          voltou ? `Combine nova data com o cliente e marque a visita na área do eletricista: tem ${PRAZO_VISITA_MS / 3600_000} h.` : 'A nova data da visita já está marcada.',
+          ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    }
+  }
+
+  /** "Anular (o cliente tem razão)" (só o CEO), com o motivo: nada muda no dinheiro nem no trabalho; o eletricista vê o motivo. O cliente não é avisado. */
+  function anularIda(o, idTexto, motivo, u, ip) {
+    const x = idaDoPedido(o, idTexto);
+    const porque = texto(motivo, 'o motivo', { max: 500, min: 3, multilinha: true, obrigatorio: true });
+    const r = db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = ?, decidido_em = ?, decidido_por = ? WHERE id = ? AND estado = 'proposta'").run(porque, agoraIso(), u.email, x.id);
+    if (!r.changes) throw new ErroApi(409, 'Esta ida perdida já foi decidida.');
+    auditar(u, 'ida_perdida_anulada', `orcamento:${o.id}`, { ida: x.id, trabalho: x.trabalho_id, eletricista: x.eletricista_id, data_visita: x.visita }, ip);
+  }
+  /** Quantas idas perdidas estão à espera do CEO (Início do painel: "ida perdida por confirmar"). */
+  const idasPorConfirmar = () => db.prepare("SELECT COUNT(*) AS n FROM idas_perdidas WHERE estado = 'proposta'").get().n;
+
+  // ------------------------------------------------------------ parar a obra por segurança (decisão do dono, 2026-10-11; api.js pararObra)
+  const OBRA_PARADA = 'A obra foi parada por segurança.';
+  /**
+   * Antes de se mexer em dinheiro: a obra ainda se pode parar do lado do eletricista? Com o trabalho já dado por
+   * concluído (à espera do cliente ou da aprovação) não; e só se regista um valor a pagar "pelo que fez" com a obra nas
+   * mãos de um eletricista. Devolve o trabalho ativo do pedido (ou null).
+   */
+  function verificarParagem(o, valorCent) {
+    expirar();
+    const t = ativoDoPedido(o.id);
+    if (t && ['concluida_eletricista', 'confirmada'].includes(t.estado)) throw new ErroApi(409, 'O eletricista já deu a obra por concluída: já não se para aqui. Se a obra não ficou feita, devolva-lhe primeiro o trabalho.');
+    if (valorCent > 0 && !(t?.eletricista_id && t.tipo === 'obra' && EDITAVEIS.includes(t.estado))) throw new ErroApi(409, 'A obra deste pedido não está com um eletricista: não há a quem pagar o trabalho já feito.');
+    return t;
+  }
+  /**
+   * A obra foi parada por segurança (api.js, só o CEO): os trabalhos a mais à espera de resposta ficam retirados e as
+   * idas perdidas por decidir anuladas; o trabalho do eletricista fecha de forma que ele receba SÓ o trabalho já feito —
+   * com `valorCent` (€ sem IVA, indicado pelo CEO) acima de zero fica `aprovada` com esse valor fixado (`valor_detalhe`
+   * com `obra_parada`), e segue o caminho de sempre em "Pagamentos a eletricistas" (fatura-recibo e "Pago"), sem esperar
+   * pela confirmação do cliente nem pelo restante, que já não existem; com zero (ou sem eletricista) é retirado, como no
+   * "Retirar". Devolve { trabalho, estado } ou null (o pedido não tinha trabalho ativo).
+   */
+  function aoPararObra(o, valorCent, u, ip) {
+    const agora = agoraIso();
+    db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = ?, atualizado = ? WHERE orcamento_id = ? AND estado IN ('proposto', 'enviado')").run(OBRA_PARADA, agora, o.id);
+    db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = ?, decidido_em = ?, decidido_por = ? WHERE orcamento_id = ? AND estado = 'proposta'").run(OBRA_PARADA, agora, u.email, o.id);
+    const t = ativoDoPedido(o.id);
+    if (!t) return null;
+    const e = t.eletricista_id ? linha(t.eletricista_id) : null;
+    if (!(valorCent > 0) || !e) { retirar(o, u, ip); return { trabalho: t.id, estado: 'retirado' }; }
+    const detalhe = { percentagem: pctDoTrabalho(t), mao_obra: 0, parte_mao_obra: 0, deslocacao: 0, total: deCent(valorCent), obra_parada: true };
+    const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'aprovada', aprovada = ?, aprovada_por = ?, valor_cent = ?, valor_detalhe = ?, atualizado = ?
+      WHERE id = ? AND estado IN ('aceite', 'visita_marcada')`).run(agora, u.email, valorCent, JSON.stringify(detalhe), agora, t.id);
+    if (!r.changes) throw new ErroApi(409, 'O trabalho do eletricista mudou entretanto: veja a ficha do pedido e tente de novo.');
+    evento(t, 'aprovada', e.id, u.email);
+    auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: deCent(valorCent), obra_parada: true }, ip);
+    if (!e.anonimizado) {
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: a obra foi parada por segurança', resumo: `trabalho ${t.id}: obra parada por segurança, ${deCent(valorCent)} € pelo trabalho já feito`,
+        texto: [`Olá ${e.nome},`, '', `A obra em ${t.concelho} foi parada por segurança e não avança.`,
+          `Pelo trabalho que já fez recebe ${deCent(valorCent).toFixed(2).replace('.', ',')} € (sem IVA).`,
+          'Envie a fatura-recibo na área do eletricista, em "Pagamentos": o valor está lá. Confirme também o seu IBAN.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    }
+    return { trabalho: t.id, estado: 'aprovada' };
+  }
+
   // ------------------------------------------------------------ pagamento ao eletricista (ronda 3)
   const pastaFatura = (trabalhoId) => join(config.eletricistasDir, 'faturas', String(trabalhoId));
   const ficheiroFatura = (t) => join(pastaFatura(t.id), `${t.fatura_id}.${EXTENSAO[t.fatura_tipo]}`);
@@ -1644,14 +1847,17 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    */
   function pagamentoDe(t, o, urlFatura) {
     const restante = t.tipo === 'obra' ? pagamentos().restantePago(o) : { pago: true, quando: null };
+    const parada = detalheDe(t)?.obra_parada === true;
     const estado = estadoPagamento({
       largou: !t.eletricista_id || largouOuExpirou(t, { id: t.eletricista_id }), paga: t.estado === 'paga',
-      confirmada: Boolean(t.confirmada), aprovada: Boolean(t.aprovada), restantePago: restante.pago, fatura: Boolean(t.fatura_id),
+      // Obra parada por segurança (aoPararObra): o valor é o do trabalho já feito, fixado pelo CEO; já não há confirmação
+      // do cliente nem restante por que esperar — falta só a fatura-recibo.
+      confirmada: Boolean(t.confirmada) || parada, aprovada: Boolean(t.aprovada), restantePago: restante.pago || parada, fatura: Boolean(t.fatura_id),
     });
     return {
       pagamento: estado, pagamento_texto: TEXTO_PAGAMENTO[estado],
       valor: detalheDe(t) ?? comExtras(recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()), t), valor_fixado: t.valor_cent !== null && t.valor_cent !== undefined,
-      prazo: t.confirmada && t.aprovada && restante.pago ? prazoPagamento([t.confirmada, t.aprovada, restante.quando]) : null,
+      prazo: parada ? prazoPagamento([t.aprovada]) : t.confirmada && t.aprovada && restante.pago ? prazoPagamento([t.confirmada, t.aprovada, restante.quando]) : null,
       pago_em: t.paga ?? null,
       fatura: t.fatura_id ? { tipo: t.fatura_tipo, bytes: t.fatura_bytes, quando: t.fatura_quando, url: urlFatura } : null,
       pode_fatura: t.estado === 'aprovada',
@@ -1878,6 +2084,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (acao === 'aprovar') {
       if (t.estado !== 'confirmada') throw new ErroApi(409, t.estado === 'concluida_eletricista' ? 'O cliente ainda não confirmou o trabalho (fica aceite ao fim de 7 dias sem resposta).' : 'Só se aprova um trabalho dado por concluído e confirmado pelo cliente.');
       // Com trabalho a mais aceite pelo cliente (migração 47): a percentagem dele × essa mão de obra soma ao valor (`extras`, `parte_extras`).
+      // Com idas perdidas confirmadas (migração 50): a deslocação de cada uma soma inteira (`idas_perdidas`).
       const valor = comExtras(recebeDe(o, t.tipo, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)), t);
       if (!valor) throw new ErroApi(409, 'Não foi possível calcular o valor a pagar ao eletricista: preencha a proposta em três partes (mão de obra, material e deslocação).');
       if (t.tipo === 'obra' && !o.obra_concluida) concluirObra(o, u, ip);
@@ -1885,7 +2092,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         .run(agora, u.email, Math.round(valor.total * 100), JSON.stringify({ ...valor, provisoria: undefined }), agora, t.id);
       if (!r.changes) throw new ErroApi(409, 'Este trabalho já foi aprovado.');
       evento(t, 'aprovada', e.id, u.email);
-      auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: valor.total, percentagem: valor.percentagem, ...(valor.parte_extras ? { trabalho_a_mais: valor.parte_extras } : {}) }, ip);
+      auditar(u, 'trabalho_aprovado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, valor: valor.total, percentagem: valor.percentagem, ...(valor.parte_extras ? { trabalho_a_mais: valor.parte_extras } : {}), ...(valor.idas_perdidas ? { idas_perdidas: valor.idas_perdidas } : {}) }, ip);
       correio.enviar({ para: e.email, assunto: 'Domus Energia: trabalho aprovado', resumo: `trabalho ${t.id} aprovado`,
         texto: [`Olá ${e.nome},`, '', `O trabalho (${nomeTrabalho}) foi aprovado.`,
           'Envie a fatura-recibo na área do eletricista, em "Pagamentos": o valor está lá. Confirme também o seu IBAN.',
@@ -2211,6 +2418,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         so_para: t.so_para ? { id: t.so_para, nome: linha(t.so_para)?.nome ?? null } : null,
         // A parte dele no trabalho a mais que o cliente já aceitou (€, sem IVA): soma à estimativa antes de aprovar.
         recebe_extras: e && t.tipo === 'obra' ? Math.round(maoObraExtras(t.id) * (Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) / 100) / 100 : 0,
+        // … e a deslocação das idas perdidas já confirmadas (€, sem IVA): também soma à estimativa antes de aprovar.
+        recebe_idas: e && t.tipo === 'obra' ? deCent(idasDoTrabalho(t)) : 0,
         // Por proposta: escolhido pelo CEO; `espera_cliente` = o cliente ainda não aceitou (sem prazo, sem dados do cliente).
         ...(config.propostasBolsa ? { por_proposta: porProposta(t), espera_cliente: esperaCliente(t) } : {}),
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
@@ -2301,6 +2510,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     db.prepare("UPDATE trabalhos_eletricista SET estado = 'retirado', atualizado = ? WHERE id = ?").run(agoraIso(), t.id);
     evento(t, 'retirado', t.eletricista_id, u.email);
     fecharExtras(t, agoraIso());
+    fecharIdas(t, agoraIso());
     auditar(u, 'trabalho_retirado', `orcamento:${o.id}`, { trabalho: t.id, eletricista: t.eletricista_id ?? null, estava: t.estado }, ip);
     // Propostas na bolsa: retirado pelo CEO (ou pelo "Não aceito" do cliente), o escolhido não largou nada — a proposta
     // dele volta a ficar de reserva, com as dos outros, para quando o pedido voltar à bolsa.
@@ -2370,6 +2580,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/concluir', true, 'concluir'],
     ['POST', 'trabalhos/:id/extra', true, 'proporExtra'],   // {descricao, horas, material: [{sku, qtd}]}: trabalho a mais, numa obra
     ['POST', 'trabalhos/:id/extra/:extra/retirar', true, 'retirarExtra'],   // só enquanto a Domus Energia não o enviou ao cliente
+    ['POST', 'trabalhos/:id/ida-perdida', true, 'idaPerdida'],   // {nota?}: "O cliente não estava", numa obra, depois da hora da visita marcada
     ['GET', 'trabalhos/:id/fotos/:foto', true, 'foto'],
     ['POST', 'trabalhos/:id/fotos/:foto', true, 'receberFoto'],   // :foto = o grupo (quadro_antes…); o corpo são os bytes
     ['POST', 'trabalhos/:id/fotos/:foto/apagar', true, 'apagarFoto'],
@@ -2419,6 +2630,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, obraPorConfirmar, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
     extrasDoPedido, enviarExtra, naoAvancarExtra, extrasParaCliente, responderExtra, extrasPorRever,
+    idasDoPedido, confirmarIda, anularIda, idasPorConfirmar, verificarParagem, aoPararObra,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

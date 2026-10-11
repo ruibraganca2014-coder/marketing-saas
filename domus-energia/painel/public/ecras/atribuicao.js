@@ -117,7 +117,8 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     if (!p) return [];
     const v = p.valor;
     return [dados([
-      [p.valor_fixado ? "A pagar ao eletricista (sem IVA)" : "Recebe (estimativa, sem IVA)", v ? `${euros(v.total)} — ${String(v.percentagem).replace(".", ",")} % de ${euros(v.mao_obra)} + ${euros(v.deslocacao)} de deslocação${v.parte_extras ? ` + ${euros(v.parte_extras)} do trabalho a mais` : ""}` : "—"],
+      [p.valor_fixado ? "A pagar ao eletricista (sem IVA)" : "Recebe (estimativa, sem IVA)", !v ? "—" : v.obra_parada ? `${euros(v.total)} — obra parada por segurança: o trabalho já feito`
+        : `${euros(v.total)} — ${String(v.percentagem).replace(".", ",")} % de ${euros(v.mao_obra)} + ${euros(v.deslocacao)} de deslocação${v.parte_extras ? ` + ${euros(v.parte_extras)} do trabalho a mais` : ""}${v.idas_perdidas ? ` + ${euros(v.idas_perdidas)} de ida perdida` : ""}`],
       ["Pagamento", `${p.pagamento_texto}${p.prazo && p.pagamento === "a_pagar" ? ` até ${data(p.prazo)}` : ""}${p.pago_em ? ` em ${data(p.pago_em)}${t.pago_por ? ` (${t.pago_por})` : ""}` : ""}`],
       ...(p.fatura ? [["Fatura-recibo", h("a", { href: p.fatura.url, target: "_blank", rel: "noopener", text: `Abrir (${data(p.fatura.quando)})` })]] : []),
       ...(t.aprovada ? [["Aprovado", `${data(t.aprovada)}${t.aprovada_por ? ` (${t.aprovada_por})` : ""}`]] : []),
@@ -225,7 +226,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
         dados([
           ["Eletricista", t.eletricista ? h("a", { href: "#/eletricistas", text: t.eletricista.nome }) : "—"],
           ["Como", t.por_proposta ? "Escolhido entre as propostas da bolsa" : t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
-          ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total + (t.recebe_extras || 0))} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${t.recebe_extras ? ` + ${euros(t.recebe_extras)} do trabalho a mais` : ""}${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
+          ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total + (t.recebe_extras || 0) + (t.recebe_idas || 0))} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${t.recebe_extras ? ` + ${euros(t.recebe_extras)} do trabalho a mais` : ""}${t.recebe_idas ? ` + ${euros(t.recebe_idas)} de ida perdida` : ""}${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
           ...(t.concluida ? [["Concluída pelo eletricista", data(t.concluida)]] : []),
           ["Visita", t.espera_cliente ? "Só depois de o cliente aceitar a proposta: aí a obra fica com ele e tem 48 h para marcar"
             : t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],

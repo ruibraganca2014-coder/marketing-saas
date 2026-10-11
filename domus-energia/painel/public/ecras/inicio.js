@@ -57,6 +57,7 @@ export default function inicio(el, ctx) {
       linha(t.pedidos_novos, "pedido novo por tratar", "pedidos novos por tratar", "#/orcamentos"),
       linha(t.propostas_eletricista, "proposta de eletricista por rever", "propostas de eletricistas por rever", "#/orcamentos"),
       linha(t.extras, "trabalho a mais por rever", "trabalhos a mais por rever", t.extras_pedido ? `#/orcamentos/${encodeURIComponent(t.extras_pedido)}` : "#/orcamentos"),
+      linha(t.idas_perdidas, "ida perdida por confirmar", "idas perdidas por confirmar", t.idas_perdidas_pedido ? `#/orcamentos/${encodeURIComponent(t.idas_perdidas_pedido)}` : "#/orcamentos"),
       linha(t.propostas_aceites, "proposta aceite, falta marcar a obra", "propostas aceites, falta marcar a obra", "#/orcamentos"),
       linha(t.mensagens, "mensagem de cliente por responder", "mensagens de clientes por responder", "#/orcamentos"),
       linha(t.ativacoes, "ativação de aparelho por aprovar", "ativações de aparelhos por aprovar", "#/ativacoes"),

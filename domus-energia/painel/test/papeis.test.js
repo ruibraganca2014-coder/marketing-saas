@@ -41,6 +41,7 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/marcar-visita', [C, M], { data_visita: '2026-10-05T10:00' }],
   ['POST', 'orcamentos/999/visita-faltou', [C, M], {}],
   ['POST', 'orcamentos/999/devolver-sinal', [C], {}],
+  ['POST', 'orcamentos/999/parar-obra', [C], { motivo: 'O quadro não tem terra de proteção.', material: 0, trabalho: 0 }],
   ['POST', 'orcamentos/999/ensaios', [C, M], {}],
   ['POST', 'orcamentos/999/esquema-quadro', [C, M], {}],
   ['POST', 'orcamentos/999/diagnostico', [C, M], {}],
@@ -81,6 +82,8 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/eletricista', [C], {}],
   ['POST', 'orcamentos/999/extras/997/enviar', [C], { mao_obra: 10, material: 0 }],
   ['POST', 'orcamentos/999/extras/997/nao-avancar', [C], { motivo: 'Não se justifica' }],
+  ['POST', 'orcamentos/999/idas-perdidas/996/confirmar', [C], {}],
+  ['POST', 'orcamentos/999/idas-perdidas/996/anular', [C], { motivo: 'O cliente avisou a tempo' }],
   ['POST', 'eletricistas/999/apagar', [C], {}],
   ['GET', 'trabalhos-eletricista/999/fotos/0123456789abcdef01234567', [C]],
   ['GET', 'pagamentos-eletricistas', [C]],
@@ -129,7 +132,7 @@ before(async () => {
 after(() => p.fechar());
 
 const padrao = (caminho) => caminho.replace(/^clientes\/joao/, 'clientes/:c').replace(/aparelhos\/sala/, 'aparelhos/:a')
-  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista').replace(/extras\/997/, 'extras/:extra');
+  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista').replace(/extras\/997/, 'extras/:extra').replace(/idas-perdidas\/996/, 'idas-perdidas/:ida');
 
 test('a matriz cobre exatamente as rotas do servidor', () => {
   const doServidor = ROTAS.map((r) => `${r.metodo} ${r.caminho}`).sort();

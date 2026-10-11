@@ -478,6 +478,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   /** Trabalho a mais aceite pelo cliente neste pedido (cêntimos SEM IVA: mão de obra + material; migração 47). Só com o módulo dos eletricistas. */
   const extrasAceites = (orcamentoId) => (config.eletricistas
     ? prep("SELECT COALESCE(SUM(COALESCE(mao_obra_cent, 0) + COALESCE(material_cent, 0)), 0) AS s FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'aceite'").get(orcamentoId).s : 0);
+  /**
+   * Idas perdidas confirmadas pelo CEO neste pedido (decisão do dono, 2026-10-11; migração 50): o eletricista foi à hora
+   * marcada e não pôde entrar por motivo do cliente. Cada linha traz a deslocação dessa ida em cêntimos SEM IVA
+   * (`deslocacao_cent`) e o dia e a hora que se perderam (`visita`). Só com o módulo dos eletricistas.
+   */
+  const idasConfirmadas = (orcamentoId) => (config.eletricistas
+    ? prep("SELECT id, visita, COALESCE(deslocacao_cent, 0) AS deslocacao_cent FROM idas_perdidas WHERE orcamento_id = ? AND estado = 'confirmada' ORDER BY id").all(orcamentoId) : []);
 
   function materialDoSinal(o) {
     const c = stock?.custoMaterial(o) ?? null;
@@ -498,7 +505,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const antes = pagoAntes(o.id);
     const proposta = o.valor_proposta_cent;
     if (proposta === null || proposta === undefined) {
-      return { pago_antes: antes, desconto: antes, sinal: null, restante: null, em_falta: null, proposta: null, base: null, total: null, iva: null, iva_pct: ivaAtual(), minima: null, material: null, sinal_material: false, extras: 0 };
+      return { pago_antes: antes, desconto: antes, sinal: null, restante: null, em_falta: null, proposta: null, base: null, total: null, iva: null, iva_pct: ivaAtual(), minima: null, material: null, sinal_material: false, extras: 0, idas: 0, idas_iva: 0 };
     }
     const sinalPago = pagoDe(o.id, 'sinal');
     const ivaPct = sinalPago ? ivaDe(sinalPago) : ivaAtual();
@@ -518,12 +525,18 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     // Trabalho a mais (decisão do dono, 2026-10-11): o que o cliente aceitou na conta soma por cima — à base e ao total
     // com IVA, logo ao restante e ao que falta. O sinal e a regra da obra mínima são só sobre a proposta: não mudam.
     const extras = extrasAceites(o.id);
-    const totalFinal = total + comIva(extras, ivaPct);
+    // Idas perdidas confirmadas (decisão do dono, 2026-10-11): a deslocação de cada ida soma da mesma maneira — à base e
+    // ao total, logo ao restante e ao que falta; o sinal não muda. O IVA é o do pedido e arredonda-se ida a ida, para o
+    // total bater certo com o valor que o cliente vê em cada uma.
+    const listaIdas = idasConfirmadas(o.id);
+    const idas = listaIdas.reduce((s, x) => s + x.deslocacao_cent, 0);
+    const idasIva = listaIdas.reduce((s, x) => s + comIva(x.deslocacao_cent, ivaPct), 0);
+    const totalFinal = total + comIva(extras, ivaPct) + idasIva;
     return {
       pago_antes: antes, desconto, sinal, restante: Math.max(0, totalFinal - pagoObra - (sinalPago ? 0 : sinal)), em_falta: Math.max(0, totalFinal - pagoObra),
-      proposta, base: base + extras, total: totalFinal, iva: totalFinal - base - extras, iva_pct: ivaPct, minima: minima ? minimoCent : null, material,
+      proposta, base: base + extras + idas, total: totalFinal, iva: totalFinal - base - extras - idas, iva_pct: ivaPct, minima: minima ? minimoCent : null, material,
       sinal_material: Boolean(material) && materialIva > Math.round((total * SINAL_PCT) / 100),
-      extras,
+      extras, idas, idas_iva: idasIva,
     };
   }
   /** A taxa de IVA de um pedido: a do sinal já pago (não muda a meio); senão a de agora. */
@@ -643,6 +656,35 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const r = await devolver(p, cent, 'sinal');
     registo.info(`pagamento ${p.ref}: sinal ${r.manual ? 'a devolver por transferência' : 'devolvido'} (${euro(cent)}${p.modo === 'simulado' ? ', simulado' : ''}) — orçamento ${o.id}`);
     return r;
+  }
+
+  /**
+   * O sinal pago de um pedido que ainda se pode devolver, para o "Parar a obra por segurança" (api.js) fazer a conta
+   * antes de mexer em dinheiro: {ref, cent, modo}. As mesmas recusas (409) de `devolverSinal`: sem sinal pago, sinal já
+   * devolvido, obra já feita ou restante já pago.
+   */
+  function sinalDevolvivel(o) {
+    const p = pagoDe(o.id, 'sinal');
+    if (!p) throw new ErroApi(409, 'Este pedido não tem o sinal pago.');
+    if (p.devolvido || p.a_devolver) throw new ErroApi(409, 'O sinal já foi devolvido.');
+    if (obraConcluida(o) || pagoDe(o.id, 'restante')) throw new ErroApi(409, 'A obra já foi feita: o sinal já não se devolve aqui.');
+    return { ref: p.ref, cent: p.valor_cent, modo: p.modo };
+  }
+
+  /**
+   * A paragem da obra por segurança deste pedido (decisão do dono, 2026-10-11; migração 50; api.js pararObra), a mais
+   * recente, ou null: o motivo (o cliente lê-o) e a conta do sinal em € COM IVA — sinal pago, material já encomendado,
+   * trabalho já feito e o que se devolve —, e por onde vai a devolução (`manual`: transferência, pagou por Multibanco).
+   * `interno` (painel): junta o que se paga ao eletricista pelo que fez (€ sem IVA) e quem parou a obra.
+   */
+  function obraParada(o, interno = false) {
+    const x = prep('SELECT * FROM obras_paradas WHERE orcamento_id = ? ORDER BY id DESC LIMIT 1').get(o.id);
+    if (!x) return null;
+    return {
+      motivo: x.motivo, sinal: deCent(x.sinal_cent), material: deCent(x.material_cent), trabalho: deCent(x.trabalho_cent), devolver: deCent(x.devolver_cent),
+      manual: Boolean(x.manual), simulado: x.modo === 'simulado', quando: x.criado,
+      ...(interno ? { eletricista: deCent(x.eletricista_cent), por: x.por ?? null } : {}),
+    };
   }
 
   /** O pedido ficou aceite (sinal pago, ou sinal 0): o material fica reservado no stock e a obra nasce (uma vez). */
@@ -1417,6 +1459,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       base: deCent(v.base), minima: deCent(v.minima), desconto: deCent(v.desconto), em_falta: deCent(v.em_falta),
       // Trabalho a mais aceite pelo cliente (€ sem IVA; o campo só vai quando há): já está dentro da base, do total, do restante e do que falta.
       ...(v.extras > 0 ? { extras: deCent(v.extras) } : {}),
+      // Idas perdidas confirmadas (€ sem IVA; só vai quando há): também já dentro da base, do total, do restante e do que falta.
+      ...(v.idas > 0 ? { idas_perdidas: deCent(v.idas) } : {}),
       material_origem: v.material?.origem ?? null, sinal_material: v.sinal_material,
     };
   }
@@ -1488,6 +1532,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // Trabalho a mais aceite (migração 47): já vai dentro do total e do restante; aqui o valor à parte, para a conta o
       // mostrar ({valor sem IVA, total com IVA}), ou null sem nenhum.
       trabalho_a_mais: v.extras > 0 ? { valor: deCent(v.extras), total: deCent(comIva(v.extras, v.iva_pct)) } : null,
+      // Idas perdidas confirmadas (migração 50): também já dentro do total e do restante; aqui uma a uma, com o dia e a
+      // hora da visita que se perdeu e a deslocação ({visita, valor sem IVA, valor_iva}). Vazio sem nenhuma.
+      idas_perdidas: v.total === null ? [] : idasConfirmadas(o.id).map((x) => ({ visita: x.visita, valor: deCent(x.deslocacao_cent), valor_iva: deCent(comIva(x.deslocacao_cent, v.iva_pct)) })),
       // Decisões de 2026-10-02: o detalhe da proposta (três partes, sem IVA), a obra mínima aplicada (€ c/ IVA ou null),
       // o limite do cartão, "Quero que comecem já", cancelar a visita e se a obra já está toda paga (a app fica ativa).
       proposta_partes: partes(o),
@@ -1500,6 +1547,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       visita_sem_defeito: visitaExtra(o),
       // Devoluções por transferência (pagou por Multibanco): a conta pede o IBAN; depois só se mostra o fim dele.
       devolucoes: devolucoesDoPedido(o.id),
+      // Obra parada por segurança (migração 50): o motivo e a conta do sinal, enquanto o pedido está fechado por isso.
+      obra_parada: o.estado === 'perdido' ? obraParada(o) : null,
       obra_paga: o.estado === 'aceite' && v.em_falta !== null ? v.em_falta === 0 : null,
       sinal: v.sinal === null ? null : { valor: deCent(v.sinal), pct: SINAL_PCT, desconto: deCent(v.desconto), pago: sinalPago, cobre_material: v.sinal_material },
       aguarda_sinal: aguardaSinal,
@@ -1688,7 +1737,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
-    marcarFalta, devolverSinal, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida, ivaDoPedido,
+    marcarFalta, devolverSinal, sinalDevolvivel, obraParada, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida, ivaDoPedido,
     // Pré-visualização da Área de cliente (conta.js plantaPedido): a planta do cliente só com o desenho.
     plantaParaCliente: plantaParaRelatorio,
     PLANOS: PLANOS_MENSAIS,

@@ -1098,6 +1098,50 @@ export const MIGRACOES = [
   // confirmarTrabalho). `lembrete_confirmar`: quando saiu o lembrete (ISO). Vale para a conclusão em curso: se o trabalho
   // voltar ao eletricista e for concluído de novo, `concluida` fica depois desta data e o lembrete pode sair outra vez.
   (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN lembrete_confirmar TEXT;'),
+  // 50: duas regras do dinheiro (decisões do dono, 2026-10-11; docs/ELETRICISTAS.md "Ida perdida" e "Parar a obra por
+  // segurança").
+  // `idas_perdidas`: o eletricista foi à hora marcada e não pôde entrar por motivo do cliente, sem aviso com 24 horas.
+  // O eletricista assinala (`proposta`), o CEO confirma (`confirmada`: a deslocação dessa ida, em `deslocacao_cent`, SEM
+  // IVA, soma ao restante do cliente e ao que o eletricista recebe) ou anula (`anulada`, com o `motivo`). `visita`: o dia
+  // e a hora que se perderam (hora de Lisboa, "AAAA-MM-DDTHH:MM"). Pode haver mais do que uma confirmada por pedido (cada
+  // uma soma). `eletricista_id` sem chave estrangeira, como em `trabalhos_extra`. A `nota` é do eletricista e o `motivo`
+  // é do CEO: não são texto do cliente.
+  // `obras_paradas`: o CEO parou a obra por segurança (o cliente não aceitou um trabalho a mais e o que se encontrou
+  // impede uma instalação segura). Fica o motivo (o cliente lê-o) e a conta do sinal — sinal pago, material já encomendado,
+  // trabalho já feito e o que se devolve, tudo COM IVA — e o que se paga ao eletricista pelo que fez (SEM IVA).
+  (db) => db.exec(`
+    CREATE TABLE idas_perdidas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      trabalho_id INTEGER NOT NULL REFERENCES trabalhos_eletricista(id) ON DELETE CASCADE,
+      eletricista_id INTEGER,
+      visita TEXT NOT NULL,
+      nota TEXT,
+      estado TEXT NOT NULL CHECK (estado IN ('proposta', 'confirmada', 'anulada')),
+      deslocacao_cent INTEGER,                  -- sem IVA, fixada quando o CEO confirma
+      motivo TEXT,                              -- da anulação
+      criado TEXT NOT NULL,
+      decidido_em TEXT,
+      decidido_por TEXT
+    );
+    CREATE INDEX idas_perdidas_orcamento ON idas_perdidas(orcamento_id);
+    CREATE TABLE obras_paradas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+      motivo TEXT NOT NULL,
+      sinal_cent INTEGER NOT NULL,              -- com IVA: o sinal que o cliente tinha pago
+      material_cent INTEGER NOT NULL,           -- com IVA: material já encomendado (fica retido)
+      trabalho_cent INTEGER NOT NULL,           -- com IVA: trabalho já feito (fica retido)
+      devolver_cent INTEGER NOT NULL,           -- com IVA: sinal − material − trabalho
+      eletricista_cent INTEGER NOT NULL DEFAULT 0,   -- sem IVA: o que se paga ao eletricista pelo que fez
+      trabalho_id INTEGER,                      -- o trabalho do eletricista que fechou com a paragem (ou NULL)
+      manual INTEGER NOT NULL DEFAULT 0,        -- 1 = devolução por transferência (pagou por Multibanco)
+      modo TEXT,                                -- o modo do pagamento do sinal ('stripe' | 'simulado')
+      criado TEXT NOT NULL,
+      por TEXT
+    );
+    CREATE INDEX obras_paradas_orcamento ON obras_paradas(orcamento_id);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

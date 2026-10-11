@@ -134,6 +134,8 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
   ['POST', 'orcamentos/:id/visita-faltou', ['ceo', 'comercial'], 'visitaFaltou'],
   ['POST', 'orcamentos/:id/devolver-sinal', ['ceo'], 'devolverSinal'],
+  // Parar a obra por segurança (decisão do dono, 2026-10-11): devolve o sinal menos o material já encomendado e o trabalho já feito.
+  ['POST', 'orcamentos/:id/parar-obra', ['ceo'], 'pararObra'],   // {motivo, material, trabalho} — € com IVA; {eletricista} — € sem IVA
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
   ['POST', 'orcamentos/:id/esquema-quadro', ['ceo', 'comercial'], 'guardarEsquemaQuadro'],
   ['POST', 'orcamentos/:id/diagnostico', ['ceo', 'comercial'], 'guardarDiagnostico'],
@@ -177,6 +179,9 @@ export const ROTAS = [
   // Trabalho a mais (migração 47): o CEO põe o preço e envia ao cliente, ou não avança (com o motivo).
   ['POST', 'orcamentos/:id/extras/:extra/enviar', ['ceo'], 'enviarExtra'],              // {mao_obra, material} — € sem IVA
   ['POST', 'orcamentos/:id/extras/:extra/nao-avancar', ['ceo'], 'naoAvancarExtra'],     // {motivo}
+  // Ida perdida (migração 50): o eletricista assinala "o cliente não estava"; o CEO confirma (cobra a deslocação) ou anula (com o motivo).
+  ['POST', 'orcamentos/:id/idas-perdidas/:ida/confirmar', ['ceo'], 'confirmarIda'],
+  ['POST', 'orcamentos/:id/idas-perdidas/:ida/anular', ['ceo'], 'anularIda'],           // {motivo}
   ['POST', 'eletricistas/:id/apagar', ['ceo'], 'apagarEletricista'],
   ['GET', 'trabalhos-eletricista/:id/fotos/:foto', ['ceo'], 'fotoTrabalhoEletricista'],
   ['GET', 'pagamentos-eletricistas', ['ceo'], 'pagamentosEletricistas'],
@@ -219,7 +224,7 @@ export const ROTAS = [
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra']);
+  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -420,6 +425,8 @@ export function criarApi(ctx) {
       obra: resumoObra(o.obra_id),
       // Devoluções por transferência (pagamentos por Multibanco): estado e valor; o IBAN só mascarado.
       devolucoes: pagPed.devolucoesDoPedido(o.id),
+      // Obra parada por segurança (migração 50): o motivo, a conta do sinal e o que se paga ao eletricista; null sem paragem.
+      obra_parada: pagPed.obraParada(o, true),
       anonimizado: o.anonimizado ?? null,
       // CRM (migração 32): a ficha do cliente, a fase do negócio, o responsável, a origem do contacto e o tipo do motivo de perda.
       crm_cliente_id: o.crm_cliente_id ?? null, fase: crm.faseDe(o), responsavel_id: o.responsavel_id ?? null,
@@ -432,6 +439,8 @@ export function criarApi(ctx) {
       if (config.eletricistas) r.proposta_eletricista = eletricistas.propostaDoPedido(o);
       // Trabalho a mais proposto pelo eletricista na obra (migração 47): todos, com a sugestão de preço e o que ele recebe.
       if (config.eletricistas) r.extras = eletricistas.extrasDoPedido(o);
+      // Idas perdidas (migração 50): o que o eletricista assinalou, com a deslocação (sem e com IVA) e o que ele recebe.
+      if (config.eletricistas) r.idas_perdidas = eletricistas.idasDoPedido(o);
       r.stock = o.simulacao ? stock.resumoPedido(o) : null;
       r.simulacao = o.simulacao ? JSON.parse(o.simulacao) : null;
       r.catalogo = artigosDaSimulacao(r.simulacao);
@@ -726,6 +735,9 @@ export function criarApi(ctx) {
           extras: eletricistas.extrasPorRever(),
           // O pedido do mais antigo, para o Início abrir logo a ficha certa.
           extras_pedido: db.prepare("SELECT orcamento_id FROM trabalhos_extra WHERE estado = 'proposto' ORDER BY id LIMIT 1").get()?.orcamento_id ?? null,
+          // Idas perdidas assinaladas por um eletricista, à espera de o CEO confirmar ou anular; e o pedido da mais antiga.
+          idas_perdidas: eletricistas.idasPorConfirmar(),
+          idas_perdidas_pedido: db.prepare("SELECT orcamento_id FROM idas_perdidas WHERE estado = 'proposta' ORDER BY id LIMIT 1").get()?.orcamento_id ?? null,
         });
       }
       r.visitas_semana = db.prepare(`SELECT id, nome, localidade, data_visita FROM orcamentos
@@ -1484,6 +1496,64 @@ export function criarApi(ctx) {
           r.manual ? `Como pagou por referência Multibanco, devolvemos ${deCent(r.cent).toFixed(2).replace('.', ',')} € do sinal por transferência bancária: indique o IBAN na sua conta.`
             : `Devolvemos ${deCent(r.cent).toFixed(2).replace('.', ',')} € do sinal para o mesmo meio de pagamento (até 14 dias)${r.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // "Parar a obra por segurança" (só CEO; decisão do dono, 2026-10-11): o cliente não aceitou um trabalho a mais e o que
+  // se encontrou impede uma instalação segura — a obra não avança e devolve-se o sinal MENOS o material já encomendado à
+  // medida e o trabalho já feito (o CEO indica os dois, em € com IVA; a soma nunca passa o sinal pago). Num pedido aceite,
+  // com o sinal pago, a obra por concluir e o restante por pagar. Segue a ordem do "Cancelar obra e devolver sinal", com as
+  // mesmas funções: primeiro a devolução (`devolverSinal`: Stripe, simulada, ou por transferência se pagou por
+  // Multibanco; com 0 a devolver não há devolução), depois — numa só transação — o registo da paragem, o pedido "perdido",
+  // o material reservado libertado, a obra cancelada, os trabalhos a mais e as idas perdidas pendentes fechados e o
+  // trabalho do eletricista (eletricistas.js aoPararObra: `eletricista`, € sem IVA, é o que ele recebe pelo que já fez).
+  h.pararObra = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['motivo', 'material', 'trabalho', 'eletricista']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const motivo = texto(v.motivo, 'o motivo', { max: 600, min: 10, multilinha: true, obrigatorio: true });
+    const materialCent = paraCent(numero(v.material, 'o material já encomendado', { min: 0, max: 1_000_000 }) ?? 0);
+    const trabalhoCent = paraCent(numero(v.trabalho, 'o trabalho já feito', { min: 0, max: 1_000_000 }) ?? 0);
+    const eletricistaCent = paraCent(numero(v.eletricista, 'o valor a pagar ao eletricista', { min: 0, max: 1_000_000 }) ?? 0);
+    if (o.cliente) throw new ErroApi(409, 'Este pedido já foi convertido em cliente e obra.');
+    if (o.estado !== 'aceite') throw new ErroApi(409, 'Só se para a obra de um pedido aceite, com o sinal pago.');
+    const sinal = pagPed.sinalDevolvivel(o);
+    const euro = (c) => `${(c / 100).toFixed(2).replace('.', ',')} €`;
+    if (materialCent + trabalhoCent > sinal.cent) falha(`O material já encomendado e o trabalho já feito não podem passar o sinal pago (${euro(sinal.cent)}).`);
+    if (config.eletricistas) eletricistas.verificarParagem(o, eletricistaCent);
+    else if (eletricistaCent > 0) throw new ErroApi(409, 'A obra deste pedido não está com um eletricista: não há a quem pagar o trabalho já feito.');
+    const devolverCent = sinal.cent - materialCent - trabalhoCent;
+    const r = devolverCent > 0 ? await pagPed.devolverSinal(o, devolverCent) : { ref: sinal.ref, cent: 0, modo: sinal.modo, manual: false };
+    const agora = agoraIso();
+    let fecho = null;
+    try {
+      transacao(db, () => {
+        const paragem = Number(db.prepare(`INSERT INTO obras_paradas (orcamento_id, motivo, sinal_cent, material_cent, trabalho_cent, devolver_cent, eletricista_cent, manual, modo, criado, por)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(o.id, motivo, sinal.cent, materialCent, trabalhoCent, devolverCent, eletricistaCent, r.manual ? 1 : 0, r.modo ?? null, agora, u.email).lastInsertRowid);
+        db.prepare("UPDATE orcamentos SET estado = 'perdido', motivo_perda = ?, atualizado = ? WHERE id = ?").run(`Obra parada por segurança: ${motivo}`, agora, o.id);
+        stock.libertar(o.id, u.email, 'obra parada por segurança');
+        cancelarObraDoPedido(o, u, ip);
+        if (config.eletricistas) {
+          fecho = eletricistas.aoPararObra(o, eletricistaCent, u, ip);
+          if (fecho) db.prepare('UPDATE obras_paradas SET trabalho_id = ? WHERE id = ?').run(fecho.trabalho, paragem);
+        }
+      });
+    } catch (e) {
+      // A devolução já seguiu e o resto não ficou gravado: fica no registo, para se acertar à mão.
+      if (devolverCent > 0) registo.erro(`orçamento ${o.id}: obra parada por segurança — o sinal foi devolvido (${euro(devolverCent)}, ${r.ref}) mas o resto não ficou gravado: ${e?.stack || e}`);
+      throw e;
+    }
+    auditar(u, 'obra_parada_seguranca', `orcamento:${o.id}`, { ref: r.ref, sinal: deCent(sinal.cent), material: deCent(materialCent), trabalho: deCent(trabalhoCent), devolvido: deCent(devolverCent),
+      eletricista: deCent(eletricistaCent), ...(fecho ? { trabalho_eletricista: fecho.trabalho, trabalho_estado: fecho.estado } : {}), modo: r.modo, estado: 'perdido', motivo, ...(r.manual ? { manual: true } : {}) }, ip);
+    const email = emailDaConta(o.conta_id);
+    if (email) {
+      correio.enviar({ para: email, assunto: `Domus Energia: a obra do seu pedido n.º ${o.id} não pode avançar em segurança`, resumo: `obra do pedido ${o.id} parada por segurança (a devolver ${euro(devolverCent)})`,
+        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} não pode avançar em segurança.`, '', motivo, '',
+          'A conta do sinal:', `  Sinal pago: ${euro(sinal.cent)}`, `  Material já encomendado: ${euro(materialCent)}`, `  Trabalho já feito: ${euro(trabalhoCent)}`, `  A devolver: ${euro(devolverCent)}`, '',
+          !(devolverCent > 0) ? 'O material já encomendado e o trabalho já feito ficam pelo valor do sinal: não há valor a devolver.'
+            : r.manual ? `Como pagou por referência Multibanco, devolvemos ${euro(devolverCent)} por transferência bancária: indique o IBAN na sua conta.`
+              : `Devolvemos ${euro(devolverCent)} para o mesmo meio de pagamento (até 14 dias)${r.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
+          'Se tiver dúvidas, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
@@ -2257,6 +2327,23 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
     eletricistas.naoAvancarExtra(o, params.extra, v.motivo, u, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // Ida perdida (decisão do dono, 2026-10-11; eletricistas.js): "Confirmar: cobrar a deslocação" — a deslocação dessa ida
+  // soma ao restante do cliente e ao que o eletricista recebe; os dois são avisados por email e marca-se nova visita.
+  h.confirmarIda = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    const o = naoArquivado(obterOrcamento(params.id));
+    eletricistas.confirmarIda(o, params.ida, u, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // "Anular (o cliente tem razão)", com o motivo: nada muda no dinheiro; o eletricista vê o motivo; o cliente não é avisado.
+  h.anularIda = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['motivo']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    eletricistas.anularIda(o, params.ida, v.motivo, u, ip);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 

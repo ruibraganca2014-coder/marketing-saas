@@ -659,6 +659,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Devolvido pelo CEO para corrigir (migração 44): o cliente vê o que falta e carrega em "Já corrigi".
     const correcao = o.validacao === 'devolvido' && !['aceite', 'perdido'].includes(o.estado) ? { nota: o.validacao_nota ?? '' } : null;
     if (correcao) estadoTexto = 'Falta corrigir um pormenor antes de avançarmos: veja abaixo.';
+    // Obra parada por segurança (decisão do dono, 2026-10-11; `obra_parada` vem com os pagamentos): o motivo e a conta do
+    // sinal vão no bloco próprio do pedido (web/conta.js).
+    if (pag?.obra_parada) estadoTexto = 'A obra não pode avançar em segurança: veja abaixo.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);

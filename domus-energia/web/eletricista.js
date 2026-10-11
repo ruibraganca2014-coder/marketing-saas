@@ -38,7 +38,9 @@ const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency
 const decimal = (v) => String(v).replace(".", ",");
 // O que recebe por um trabalho: o da proposta mais a parte dele em cada trabalho a mais que o cliente aceitou.
 const extrasAceites = (t) => (t.extras ?? []).filter((x) => x.estado === "aceite" && x.recebe).reduce((s, x) => s + (Number(x.recebe.total) || 0), 0);
-const recebeComExtras = (t) => Math.round(((Number(t.recebe?.total) || 0) + extrasAceites(t)) * 100) / 100;
+// … e a deslocação de cada ida perdida que a Domus Energia confirmou (o cliente não estava à hora marcada).
+const idasConfirmadas = (t) => (t.idas_perdidas ?? []).filter((x) => x.estado === "confirmada").reduce((s, x) => s + (Number(x.recebe) || 0), 0);
+const recebeComExtras = (t) => Math.round(((Number(t.recebe?.total) || 0) + extrasAceites(t) + idasConfirmadas(t)) * 100) / 100;
 const p2 = (n) => String(n).padStart(2, "0");
 /** "AAAA-MM-DDTHH:MM" (hora de Lisboa, como o servidor a guarda) → "09/10 às 10:00". */
 const visitaTxt = (v) => (v ? `${v.slice(8, 10)}/${v.slice(5, 7)} às ${v.slice(11, 16)}` : "");
@@ -481,8 +483,10 @@ async function acaoFicha(t, caminho, corpo, { botao = null, msg = null, texto = 
 function desenharFicha(t) {
   const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEstado(t)), el("h2", null, t.titulo),
     t.espera_cliente ? el("p", "pequeno", "Recebe a sua percentagem da mão de obra + a deslocação quando fizer a obra (a visita está incluída).")
+    // Obra parada por segurança: já não vale a estimativa; recebe o trabalho já feito, pelo valor que a Domus Energia indicou.
+    : t.obra_parada ? com(el("p", "pequeno"), "A obra foi parada por segurança. Pelo trabalho já feito recebe ", el("b", "num", euro(t.recebe?.total)), " (sem IVA).")
     : t.recebe?.gratis ? el("p", "pequeno", "Visita de orçamento: não é paga. Recebe se o cliente aceitar a proposta e fizer a obra.")
-      : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação${extrasAceites(t) ? " + trabalho a mais" : ""}` : "")];
+      : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação${extrasAceites(t) ? " + trabalho a mais" : ""}${idasConfirmadas(t) ? " + ida perdida" : ""}` : "")];
   if (!t.aberto) {
     out.push(el("p", "nota calma", "Trabalho fechado: os dados do cliente já não estão disponíveis."));
     if (["aprovada", "paga"].includes(t.estado)) {
@@ -871,7 +875,44 @@ function seccaoVisita(t) {
       corpo.push(com(el("div"), alterar), zona);
     }
   }
+  corpo.push(...parteIdaPerdida(t));
   return seccao("Visita", marcada ? selo(visitaTxt(t.visita).slice(0, 5), "bom") : selo("Por marcar", "aviso"), ...corpo);
+}
+
+/**
+ * Ida perdida (decisão do dono, 2026-10-11): foi à hora marcada e não pôde entrar por motivo do cliente. Assinala-o aqui
+ * ("O cliente não estava", em dois toques, com uma nota opcional), só depois da hora da visita; a Domus Energia confirma
+ * ou anula. Se confirmar, recebe a deslocação dessa ida a mais e marca nova visita. Só numa obra.
+ */
+const ESTADO_IDA = { proposta: ["À espera da Domus Energia", "aviso"], confirmada: ["Ida perdida confirmada", "bom"], anulada: ["Ida perdida anulada", ""] };
+function parteIdaPerdida(t) {
+  if (t.tipo !== "obra") return [];
+  const out = [];
+  for (const x of t.idas_perdidas ?? []) {
+    const [txt, tipo] = ESTADO_IDA[x.estado] ?? [x.estado, ""];
+    const c = com(el("div", "cartao pilha"), com(el("div", "selos"), selo(txt, tipo)),
+      el("p", null, `Visita de ${visitaTxt(x.visita)}: o cliente não estava.`),
+      x.nota ? el("p", "pequeno suave", `«${x.nota}»`) : null,
+      x.estado === "proposta" ? el("p", "pequeno suave", "A Domus Energia vai confirmar. Até lá, a obra não se dá por concluída.") : null,
+      x.estado === "confirmada" ? com(el("p", "pequeno"), "Por esta ida recebe mais ", el("b", "num", euro(x.recebe)), " · a deslocação, sem IVA. Combine nova data com o cliente e marque a visita.") : null,
+      x.estado === "anulada" ? el("p", "pequeno suave", x.motivo ? `Anulada: «${x.motivo}»` : "Anulada.") : null);
+    c.id = `ida-${x.id}`;
+    out.push(c);
+  }
+  if (t.pode_ida_perdida) {
+    const nota = el("textarea");
+    nota.rows = 2; nota.maxLength = 300; nota.id = "ida-nota";
+    const msg = el("p", "msg erro");
+    msg.hidden = true;
+    msg.setAttribute("role", "alert");
+    const b = el("button", "btn sec", "O cliente não estava");
+    b.type = "button";
+    b.id = "ida-perdida";
+    confirmarEmDoisToques(b, "Confirmar: o cliente não estava?", () => acaoFicha(t, "ida-perdida", { nota: nota.value.trim() }, { botao: b, msg, texto: "Registado. A Domus Energia vai confirmar." }));
+    out.push(el("p", "pequeno suave", "Foi à hora marcada e não pôde entrar? Diga-o aqui. Se a Domus Energia confirmar, recebe a deslocação desta ida e marca nova visita."),
+      com(el("label", "campo"), el("span", null, "O que aconteceu (opcional)"), nota), msg, com(el("div"), b));
+  }
+  return out;
 }
 
 function formVisita(t) {
@@ -1382,10 +1423,13 @@ function cartaoPagamento(x) {
   c.id = `pagamento-${sufixo(x)}`;
   // A ida sem defeito (o cliente disse "Não" e não havia defeito): uma linha própria, com a sua fatura-recibo.
   if (x.parte === "regresso") c.append(el("p", "pequeno suave", "Voltou ao cliente e não havia defeito: esta ida paga-se à parte, depois de o cliente pagar a visita."));
-  if (v) {
+  // Obra parada por segurança: não há contas da proposta — recebe o trabalho já feito, pelo valor que a Domus Energia indicou.
+  if (v?.obra_parada) c.append(el("p", "pequeno suave", "A obra foi parada por segurança: recebe o trabalho já feito, pelo valor que a Domus Energia indicou (sem IVA)."));
+  else if (v) {
     const dl = el("dl", "dados");
     for (const [k, val] of [["Mão de obra (sem IVA)", euro(v.mao_obra)], [`${decimal(v.percentagem)} % da mão de obra`, euro(v.parte_mao_obra)], ["Deslocação (sem IVA)", euro(v.deslocacao)],
-      ...(v.parte_extras ? [[`Trabalho a mais: ${decimal(v.percentagem)} % de ${euro(v.extras)}`, euro(v.parte_extras)]] : []), ["Total", euro(v.total)]]) dl.append(el("dt", null, k), el("dd", "num", val));
+      ...(v.parte_extras ? [[`Trabalho a mais: ${decimal(v.percentagem)} % de ${euro(v.extras)}`, euro(v.parte_extras)]] : []),
+      ...(v.idas_perdidas ? [["Ida perdida: a deslocação (sem IVA)", euro(v.idas_perdidas)]] : []), ["Total", euro(v.total)]]) dl.append(el("dt", null, k), el("dd", "num", val));
     c.append(dl);
     if (!x.valor_fixado) c.append(el("p", "pequeno suave", "Estimativa: o valor fica fixado quando a Domus Energia aprovar o trabalho."));
     if (x.tipo === "avaria" && x.parte !== "regresso") c.append(el("p", "pequeno suave", "A taxa de diagnóstico fica na Domus Energia."));

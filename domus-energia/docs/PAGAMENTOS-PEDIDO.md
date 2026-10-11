@@ -244,6 +244,7 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | POST | `/painel/api/orcamentos/:id/obra-concluida` | CEO, comercial | obra concluída: o restante fica disponível e o material sai do stock |
 | POST | `/painel/api/orcamentos/:id/visita-faltou` | CEO, comercial | "Cliente faltou": a visita (ou o diagnóstico) fica paga, sem devolução e sem desconto no sinal; auditoria e email; `409` antes da hora marcada |
 | POST | `/painel/api/orcamentos/:id/devolver-sinal` | CEO | "Cancelar obra e devolver sinal" `{valor?, motivo?}`: antes de a obra ser feita; pedido "perdido", obra cancelada, stock libertado |
+| POST | `/painel/api/orcamentos/:id/parar-obra` | CEO | "Parar a obra por segurança" `{motivo, material, trabalho, eletricista?}`: devolve o sinal menos o material já encomendado e o trabalho já feito (€ com IVA); pedido "perdido", obra cancelada, stock libertado (docs/ELETRICISTAS.md "Parar a obra por segurança") |
 | POST | `/painel/api/devolucoes/:id/devolvida` | CEO | marca como feita uma devolução por transferência (`409` sem IBAN ou já feita) |
 
 `GET /api/conta/pedidos` traz, em cada pedido:

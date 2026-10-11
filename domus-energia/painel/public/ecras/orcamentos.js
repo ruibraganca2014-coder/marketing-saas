@@ -325,6 +325,75 @@ export default function orcamentos(el, ctx) {
         h("p", { class: "ajuda", text: "O preço da proposta aceite é definitivo. O que o eletricista encontrou a mais só se faz se o cliente aceitar; o valor soma ao restante." }),
         h("div", { class: "propostas-lista" }, ...extras.map(cartao))));
     }
+    // Visita perdida (docs/ELETRICISTAS.md "Ida perdida"): o eletricista foi à hora marcada e diz que o cliente não estava.
+    // O CEO confirma (a deslocação dessa ida soma ao restante do cliente e ao que o eletricista recebe) ou anula, com o
+    // motivo; os outros papéis veem sem botões.
+    const idas = ctx.eletricistas && !arquivado ? lista(campo(o, "idas_perdidas") ?? [], "idas_perdidas") : [];
+    if (idas.length) {
+      const ESTADO_IDA = { proposta: ["Por confirmar", "aviso"], confirmada: ["Confirmada: cobra-se a deslocação", "estado-ativo"], anulada: ["Anulada", "info"] };
+      const quandoVisita = (v) => (v ? `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)} ${v.slice(11, 16)}` : "—");
+      const acaoIda = async (b, x, caminho, corpo, aviso) => {
+        b.disabled = true;
+        try {
+          const novo = await pedir(`orcamentos/${encodeURIComponent(id)}/idas-perdidas/${x.id}/${caminho}`, { corpo });
+          substituir(novo);
+          avisar(aviso);
+          if (ficha?.j === j) desenharFicha(j, novo);
+        } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+      };
+      const cartaoIda = (x) => {
+        const [estadoTxt, estadoTipo] = ESTADO_IDA[x.estado] ?? [x.estado, "info"];
+        const c = h("div", { class: "proposta-cartao", id: `ida-${x.id}` },
+          h("div", { class: "proposta-topo" }, h("strong", { text: x.eletricista?.nome ?? "Eletricista" }), selo(estadoTxt, estadoTipo)),
+          dados([
+            ["Visita que se perdeu", quandoVisita(x.visita)],
+            ["O eletricista escreveu", x.nota ? `«${x.nota}»` : "—"],
+            // Anulada: a deslocação e o que o eletricista receberia já não interessam.
+            ...(x.estado === "anulada" ? [] : [["Deslocação dessa ida", `${euros(x.deslocacao)} sem IVA (${euros(x.deslocacao_iva)} com IVA)${x.estado === "proposta" ? " — soma ao restante, se confirmar" : " — soma ao restante"}`],
+              ["O eletricista recebe", `${euros(x.recebe)} (a deslocação, sem IVA)`]]),
+            ["Assinalada em", data(x.criado)],
+            ...(x.decidido_em ? [[x.estado === "confirmada" ? "Confirmada em" : "Anulada em", `${data(x.decidido_em)}${x.decidido_por && x.decidido_por !== "sistema" ? ` (${x.decidido_por})` : ""}`]] : []),
+            ...(x.motivo ? [["Motivo", `«${x.motivo}»`]] : []),
+          ]));
+        if (!ctx.pode("ceo") || !x.pode_decidir) return c;
+        // Neste concelho a deslocação é 0 € (ou o pedido está fora da área): não há nada a cobrar, só a anular.
+        if (!(Number(x.deslocacao_iva) > 0)) c.append(h("p", { class: "msg info", id: `ida-sem-valor-${x.id}`, text: "Neste concelho a deslocação é de 0 €: não há nada a cobrar ao cliente. Anule o registo (o motivo pode ser \"deslocação sem custo\") e combine nova data." }));
+        const bConfirmar = botaoConfirmar("Cobrar a deslocação", `Confirmar: cobrar ${euros(x.deslocacao_iva)} ao cliente?`,
+          (b) => acaoIda(b, x, "confirmar", {}, "Ida perdida confirmada: o cliente e o eletricista foram avisados por email."), { classe: "btn pequeno" });
+        bConfirmar.id = `ida-confirmar-${x.id}`;
+        if (!(Number(x.deslocacao_iva) > 0)) bConfirmar.disabled = true;
+        const motivo = h("textarea", { rows: "2", maxlength: "500", id: `ida-motivo-${x.id}`, "aria-label": "Motivo para anular" });
+        // "Anular" em dois toques: o primeiro vê se o motivo está escrito e só então arma; segue o motivo desse primeiro toque.
+        let motivoAnular = null;
+        const bAnularSim = botaoConfirmar("Anular", () => {
+          if (motivo.value.trim().length < 3) { avisar("Escreva o motivo.", "erro"); motivo.focus(); return null; }
+          motivoAnular = motivo.value.trim();
+          return "Confirmar: anular?";
+        }, (b) => acaoIda(b, x, "anular", { motivo: motivoAnular }, "Ida perdida anulada: nada muda no que o cliente paga."), { classe: "btn pequeno" });
+        bAnularSim.id = `ida-anular-confirmar-${x.id}`;
+        const zona = h("div", { class: "form-grelha", hidden: true }, h("label", { class: "campo" }, h("span", { text: "Porque anula (o eletricista vê este texto)" }), motivo), h("div", { class: "form-botoes" }, bAnularSim));
+        c.append(h("p", { class: "ajuda", text: "O cliente pode mudar a visita sem custo até 24 horas antes. Se confirmar, a deslocação dessa ida soma ao que o cliente paga no fim, o eletricista recebe-a a mais e marca nova visita. O cliente recebe um email." }),
+          h("div", { class: "form-botoes" }, bConfirmar, h("button", { class: "btn sec pequeno", type: "button", id: `ida-anular-${x.id}`, text: "Anular (o cliente tem razão)",
+            onclick: (e) => { zona.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })), zona);
+        return c;
+      };
+      partes.push(h("section", { class: "eletricista-externo", id: "visita-perdida" }, h("h3", { text: "Visita perdida" }),
+        h("div", { class: "propostas-lista" }, ...idas.map(cartaoIda))));
+    }
+    // Obra parada por segurança: o motivo que o cliente leu e a conta do sinal (fica à vista de quem abrir o pedido).
+    const parada = campo(o, "obra_parada");
+    if (parada && typeof parada === "object" && !arquivado) {
+      partes.push(h("section", { class: "eletricista-externo", id: "obra-parada" }, h("h3", { text: "Obra parada por segurança" }),
+        h("p", { class: "mensagem-cliente", text: parada.motivo }),
+        dados([
+          ["Sinal pago", euros(parada.sinal)],
+          ["Material já encomendado (retido)", euros(parada.material)],
+          ["Trabalho já feito (retido)", euros(parada.trabalho)],
+          ["Devolvido ao cliente", `${euros(parada.devolver)}${parada.devolver > 0 ? (parada.manual ? " — por transferência (o cliente indica o IBAN na conta)" : " — para o mesmo meio de pagamento") : ""}`],
+          ["A pagar ao eletricista pelo que fez (sem IVA)", euros(parada.eletricista ?? 0)],
+          ["Parada em", `${data(parada.quando)}${parada.por ? ` (${parada.por})` : ""}`],
+        ])));
+    }
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
     if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
@@ -482,6 +551,9 @@ export default function orcamentos(el, ctx) {
       // Antes de a obra ser feita, o CEO pode cancelá-la e devolver o sinal (todo ou parte).
       const sinalPago = lista(campo(o, "pagamentos") ?? [], "pagamentos").find((x) => campo(x, "fase") === "sinal" && campo(x, "estado") === "pago" && campo(x, "devolvido") == null && campo(x, "a_devolver") == null);
       if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida")) partes.push(formDevolverSinal(j, o, sinalPago));
+      // "Parar a obra por segurança" (CEO): nas mesmas condições, e com o restante ainda por pagar.
+      const restantePago = lista(campo(o, "pagamentos") ?? [], "pagamentos").some((x) => campo(x, "fase") === "restante" && campo(x, "estado") === "pago");
+      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida") && !restantePago) partes.push(formPararObra(j, o, sinalPago));
     }
 
     const hist = lista(campo(o, "historico") ?? [], "historico");
@@ -543,7 +615,7 @@ export default function orcamentos(el, ctx) {
       const desconto = vp.desconto ?? vp.pago_antes ?? vp.relatorio ?? 0;
       const sinalTxt = vp.sinal_material ? `cobre o material${vp.material_origem === "venda" ? ", pelo valor de venda" : ""}` : "30 %";
       const pp = campo(o, "proposta_partes");
-      const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)}${vp.extras > 0 ? ` + trabalho a mais ${euros(vp.extras)}` : ""} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
+      const linhas = [h("p", { class: "ajuda", id: "valores-pagamento", text: `Proposta ${euros(vp.proposta)}${vp.extras > 0 ? ` + trabalho a mais ${euros(vp.extras)}` : ""}${vp.idas_perdidas > 0 ? ` + idas perdidas ${euros(vp.idas_perdidas)}` : ""} + IVA ${String(vp.iva_pct).replace(".", ",")} % (${euros(vp.iva)}) = ${euros(vp.total)} · sinal ${euros(vp.sinal)} (${sinalTxt} menos ${euros(desconto)} já pagos) · restante ${euros(vp.restante)}.` })];
       if (pp) linhas.push(h("p", { class: "ajuda", id: "valores-partes", text: `Mão de obra ${euros(pp.mao_obra)} · material ${euros(pp.material)} · deslocação ${euros(pp.deslocacao)} (sem IVA).` }));
       if (vp.minima != null) linhas.push(h("p", { class: "msg info", id: "obra-minima", text: `Obra mínima: ${euros(vp.minima)} com IVA. A proposta fica abaixo: cobra-se o mínimo${pp && pp.deslocacao > 0 ? " (mais a deslocação)" : ""} e o que o cliente pagou antes não é descontado.` }));
       if (vp.sinal_material) linhas.push(h("p", { class: "ajuda", id: "sinal-material", text: "O sinal cobre o material: é o maior entre 30 % do total e o custo do material." }));
@@ -1109,6 +1181,71 @@ export default function orcamentos(el, ctx) {
     return f;
   }
 
+  /**
+   * "Parar a obra por segurança" (CEO; decisão do dono, 2026-10-11): o cliente não aceitou um trabalho a mais e o que se
+   * encontrou impede uma instalação segura. Devolve-se o sinal menos o material já encomendado e o trabalho já feito (os
+   * dois em € com IVA); a conta mostra-se em direto. Dois toques, com o valor a devolver na pergunta.
+   */
+  function formPararObra(j, o, sinal) {
+    const id = String(campo(o, "id"));
+    const pago = Number(campo(sinal, "valor")) || 0;
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const motivo = h("textarea", { name: "motivo", rows: "3", maxlength: "600", id: "parar-motivo", required: true, placeholder: "Ex.: a instalação não tem terra de proteção e o cliente não aceitou refazer os circuitos" });
+    const iMaterial = h("input", { name: "material", type: "number", min: "0", max: String(pago), step: "0.01", inputmode: "decimal", id: "parar-material", value: "0" });
+    const iTrabalho = h("input", { name: "trabalho", type: "number", min: "0", max: String(pago), step: "0.01", inputmode: "decimal", id: "parar-trabalho", value: "0" });
+    // O que se paga ao eletricista pelo que já fez: só com o módulo dos eletricistas (sem ele a obra é da equipa).
+    const iEletricista = ctx.eletricistas ? h("input", { name: "eletricista", type: "number", min: "0", step: "0.01", inputmode: "decimal", id: "parar-eletricista", value: "0" }) : null;
+    const conta = h("p", { class: "msg info num", id: "parar-conta", role: "status" });
+    // Os valores do formulário, ou null se algum não serve (campo vazio conta como 0).
+    const ler = () => {
+      const n = (i) => (i.value.trim() === "" ? 0 : numero(i.value));
+      const material = n(iMaterial), trabalho = n(iTrabalho), eletricista = iEletricista ? n(iEletricista) : 0;
+      if (material === null || trabalho === null || eletricista === null || material < 0 || trabalho < 0 || eletricista < 0) return null;
+      return { material, trabalho, eletricista, retido: Math.round((material + trabalho) * 100) / 100, devolver: Math.round((pago - material - trabalho) * 100) / 100 };
+    };
+    const atualizar = () => {
+      const v = ler();
+      conta.textContent = !v ? "Escreva valores iguais ou acima de 0." : v.devolver < 0 ? `Sinal pago ${euros(pago)} − retido ${euros(v.retido)}: o retido não pode passar o sinal pago.`
+        : `Sinal pago ${euros(pago)} − retido ${euros(v.retido)} = a devolver ${euros(v.devolver)}`;
+      conta.className = !v || v.devolver < 0 ? "msg erro" : "msg info num";
+    };
+    for (const i of [iMaterial, iTrabalho]) i.addEventListener("input", atualizar);
+    atualizar();
+    // Dois toques: o primeiro valida e mostra o valor a devolver na pergunta; segue o que estava escrito nesse primeiro toque.
+    let corpo = null;
+    const bParar = botaoConfirmar("Parar a obra por segurança", () => {
+      mensagem(msg, null);
+      const texto = motivo.value.trim();
+      if (texto.length < 10) { mensagem(msg, "Escreva o motivo (pelo menos 10 caracteres): o cliente vai lê-lo."); motivo.focus(); return null; }
+      const v = ler();
+      if (!v) { mensagem(msg, "Os valores têm de ser iguais ou acima de 0."); iMaterial.focus(); return null; }
+      if (v.devolver < 0) { mensagem(msg, `O material já encomendado e o trabalho já feito não podem passar o sinal pago (${euros(pago)}).`); iMaterial.focus(); return null; }
+      corpo = { motivo: texto, material: v.material, trabalho: v.trabalho, ...(iEletricista ? { eletricista: v.eletricista } : {}) };
+      return `Confirmar: parar a obra e devolver ${euros(v.devolver)}?`;
+    }, async (b) => {
+      b.disabled = true;
+      try {
+        const r = await pedir(`orcamentos/${encodeURIComponent(id)}/parar-obra`, { corpo });
+        const novo = campo(r, "orcamento") ?? r;
+        substituir(novo);
+        avisar("Obra parada por segurança: o cliente foi avisado por email.");
+        desenharFicha(j, novo);
+      } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
+    }, { classe: "btn sec" });
+    bParar.id = "parar-obra";
+    return h("form", { class: "form-grelha", id: "form-parar-obra", novalidate: true, onsubmit: (e) => e.preventDefault() },
+      h("h3", { text: "Parar a obra por segurança" }),
+      h("p", { class: "ajuda", text: "Quando o cliente não aceita um trabalho a mais e o que se encontrou impede uma instalação segura. A obra não avança: o pedido fica perdido, a obra cancelada e o material reservado é libertado. Devolve-se o sinal menos o material já encomendado à medida e o trabalho já feito. Cartão e MB Way: devolução automática; Multibanco: por transferência (o cliente indica o IBAN na conta)." }),
+      campoForm("Motivo (o cliente lê este texto)", motivo),
+      h("div", { class: "duas" },
+        campoForm("Material já encomendado (€, com IVA)", iMaterial, "Só o que foi encomendado à medida e já não se devolve ao fornecedor."),
+        campoForm("Trabalho já feito (€, com IVA)", iTrabalho, "A visita e o que já se fez na obra. Trabalho a mais já feito e idas perdidas confirmadas entram aqui.")),
+      conta,
+      iEletricista ? campoForm("A pagar ao eletricista pelo que fez (€, sem IVA)", iEletricista, "Se a obra está com um eletricista externo. Com 0, o trabalho é retirado e ele não recebe nada; acima de 0, fica aprovado com este valor e segue para os Pagamentos a eletricistas.") : null,
+      h("div", { class: "form-botoes" }, bParar),
+      msg);
+  }
+
   function formConverter(j, o) {
     const id = String(campo(o, "id"));
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -1261,6 +1398,8 @@ const ACOES = {
   trabalho_extra_proposto: "Trabalho a mais proposto pelo eletricista", trabalho_extra_retirado: "Trabalho a mais retirado pelo eletricista",
   trabalho_extra_enviado: "Trabalho a mais enviado ao cliente (com o preço)", trabalho_extra_nao_avancou: "Trabalho a mais: o CEO não avançou",
   trabalho_extra_aceite_cliente: "Trabalho a mais aceite pelo cliente (online)", trabalho_extra_recusado_cliente: "Trabalho a mais não aceite pelo cliente",
+  ida_perdida_assinalada: "Ida perdida assinalada pelo eletricista (o cliente não estava)", ida_perdida_confirmada: "Ida perdida confirmada: a deslocação soma ao restante",
+  ida_perdida_anulada: "Ida perdida anulada pelo CEO", obra_parada_seguranca: "Obra parada por segurança: sinal devolvido menos o retido",
   proposta_recusada_cliente: "Proposta não aceite pelo cliente", trabalho_na_bolsa: "Posto na bolsa dos eletricistas", trabalho_retirado: "Trabalho retirado ao eletricista ou da bolsa",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",
   orcamento_anonimizado_rgpd: "Anonimizado (RGPD): a conta foi apagada; os pagamentos ficam",
