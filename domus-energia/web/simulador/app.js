@@ -28,7 +28,7 @@ import {
   normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA, potenciaOmissao,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
-  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
+  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, fotoQuadroNoEnviar, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, CHAVE_CASA_ID, CHAVE, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
   TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
@@ -2399,25 +2399,26 @@ montarQuadroMelhorias();
  * a miniatura com "Trocar" e "Apagar". Ronda B (decisão do dono): o passo é SÓ a foto — o esquema do quadro é feito
  * pelo eletricista no painel, a partir dela (docs/PAINEL-EMPRESA.md "Esquema do quadro").
  */
-function desenharFotoQuadro() {
+function desenharFotoQuadro(base = "quadro-foto", redesenhar = desenharQuadro, discreto = false) {
   const foto = fotos.get("quadro");
-  const corpo = $("quadro-foto-corpo");
+  const corpo = $(`${base}-corpo`);
   corpo.replaceChildren();
   const depois = (ok, texto) => {
-    const m = $("quadro-foto-msg");
+    const m = $(`${base}-msg`);
     m.textContent = texto ?? "";
     m.className = `msg ${ok === false ? "erro" : "info"}`;
     m.hidden = !texto;
     if (ok === null) return;
-    desenharQuadro();
-    focar("quadro-foto-botao");
+    redesenhar();
+    focar(`${base}-botao`);
   };
   const tirar = () => pedirFoto("quadro", depois, { galeria: true, rotulo: "Foto do quadro elétrico" });
   if (!foto) {
-    const b = el("button", "btn foto-grande");
+    // `discreto` (passo Enviar, a casa já deu a foto): tirar outra é opcional, o botão é pequeno.
+    const b = el("button", discreto ? "btn sec pequeno" : "btn foto-grande", discreto ? "Tirar outra foto do quadro" : null);
     b.type = "button";
-    b.id = "quadro-foto-botao";
-    b.append(iconeCamara(), el("span", null, "Tirar foto do quadro"));
+    b.id = `${base}-botao`;
+    if (!discreto) b.append(iconeCamara(), el("span", null, "Tirar foto do quadro"));
     b.addEventListener("click", tirar);
     corpo.append(b);
   } else {
@@ -2427,17 +2428,56 @@ function desenharFotoQuadro() {
     const bs = el("div", "form-botoes");
     const trocar = el("button", "btn sec pequeno", "Trocar");
     trocar.type = "button";
-    trocar.id = "quadro-foto-botao";
+    trocar.id = `${base}-botao`;
     trocar.setAttribute("aria-label", "Trocar a foto do quadro");
     trocar.addEventListener("click", tirar);
     const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
     apagar.type = "button";
-    apagar.id = "quadro-foto-apagar";
+    apagar.id = `${base}-apagar`;
     apagar.setAttribute("aria-label", "Apagar a foto do quadro");
     apagar.addEventListener("click", async () => { await tirarFoto("quadro"); depois(true, "Foto apagada."); });
     bs.append(trocar, apagar);
     corpo.append(img, bs);
   }
+}
+
+/*
+ * "Pedir um serviço" (decisão do dono, 2026-10-11: "aproveitar a foto da casa; pedir se não houver"): este funil não
+ * passa pelo passo Quadro elétrico e, sem a foto do quadro, o pedido não se valida no painel. No passo Enviar
+ * (estado.js fotoQuadroNoEnviar): se a casa já a deu num pedido anterior (conta: `foto_quadro`), o servidor copia-a para
+ * o pedido novo e aqui fica só uma linha, com "tirar outra" opcional; senão, o cartão "Foto do quadro elétrico *" com o
+ * botão do passo Quadro (o mesmo desenho e o mesmo pedirFoto) e "Enviar pedido" fica bloqueado até haver foto.
+ */
+const FALTA_FOTO_QUADRO = "Falta a foto do quadro elétrico: é por ela que preparamos a proposta.";
+const fotoQuadroEnviar = () => fotoQuadroNoEnviar(estado, fotos.has("quadro"), contaEu?.foto_quadro);
+function desenharFotoQuadroEnviar() {
+  const caso = fotoQuadroEnviar();
+  const caixa = $("enviar-quadro");
+  caixa.hidden = !caso;
+  if (!caso) return;
+  const aproveita = caso === "aproveitar";
+  if (caso !== "pedir") {
+    desassinalar(caixa);
+    const m = $("enviar-quadro-msg");
+    if (m.textContent === FALTA_FOTO_QUADRO) m.hidden = true;   // já não falta (tirou-a, ou a casa tem-na): o aviso sai
+  }
+  caixa.classList.toggle("cartao", !aproveita);
+  $("enviar-quadro-titulo").textContent = caso === "pedir" ? "Foto do quadro elétrico *" : "Foto do quadro elétrico";
+  $("enviar-quadro-titulo").hidden = aproveita;
+  $("enviar-quadro-ajuda").textContent = aproveita ? "Usamos a foto do quadro que já nos deu. Se o quadro mudou, tire outra."
+    : "Abra a porta do quadro e fotografe-o de frente. É por esta foto que preparamos a proposta. Só a usamos para preparar a proposta e a obra.";
+  desenharFotoQuadro("enviar-quadro", desenharFotoQuadroEnviar, aproveita);
+}
+/** Sem a foto do quadro em "Pedir um serviço" (nem neste navegador, nem na casa): não se envia. Devolve true se bloqueou. */
+function bloquearFotoQuadroEnviar() {
+  if (fotoQuadroEnviar() !== "pedir") return false;
+  desenharFotoQuadroEnviar();
+  const m = $("enviar-quadro-msg");
+  m.textContent = FALTA_FOTO_QUADRO;
+  m.className = "msg erro";
+  m.hidden = false;
+  assinalar($("enviar-quadro"), FALTA_FOTO_QUADRO, $("enviar-quadro-botao"));
+  return true;
 }
 
 /** Falta a foto do quadro (obrigatória no funil que tem o passo Quadro)? */
@@ -2535,6 +2575,7 @@ function redesenharPasso() {
   else if (estado.passo === P.quadro) desenharQuadro();
   else if (estado.passo === P.trocar) desenharTrocar();
   else if (estado.passo === P.avaria) desenharAvaria();
+  else if (estado.passo === P.enviar) desenharFotoQuadroEnviar();
 }
 entradaFoto.addEventListener("change", async () => {
   const alvo = fotoAlvo;
@@ -2577,6 +2618,7 @@ async function carregarFotosDoEstado() {
   if (estado.passo === P.divisoes) desenharDivisoes();
   if (estado.passo === P.quadro) desenharQuadro();
   if (estado.passo === P.trocar) desenharTrocar();
+  if (estado.passo === P.enviar) desenharFotoQuadroEnviar();
 }
 
 /**
@@ -4863,6 +4905,7 @@ const CAMPOS = ["nome", "telefone", "localidade", "morada", "mensagem"];
 function desenharEnviar() {
   preencherDoPerfil();   // com sessão: também depois de "Continuar" (o estado guardado não tinha o perfil)
   for (const k of CAMPOS) $(`contacto-${k}`).value = estado.contacto[k];
+  desenharFotoQuadroEnviar();   // "Pedir um serviço": a foto do quadro da casa aproveita-se; sem ela, pede-se aqui
   desenharVisita();
   desenharDeslocacao();
 }
@@ -5434,6 +5477,8 @@ async function enviar() {
     return;
   }
   estado.contacto.email = contaEu.conta.email;
+  // "Pedir um serviço" sem foto do quadro (nem aqui, nem num pedido anterior da casa): o painel não o conseguia validar.
+  if (bloquearFotoQuadroEnviar()) return;
   const prob = problemaContacto(estado.contacto);
   if (prob) {
     // O campo em falta (pela ordem do ecrã: nome, telefone, localidade, morada) fica assinalado e com o foco; o email
@@ -5515,6 +5560,8 @@ async function enviar() {
     botao.disabled = false;
     botao.textContent = TEXTO_ENVIAR;
     concluido(preco, semFundo, resultadoFotos);
+    // A casa pode ter passado a ter a foto do quadro (foi com este pedido): o pedido seguinte desta página já não a pede.
+    pedirConta("eu").then((eu) => { if (contaEu && eu) contaEu.foto_quadro = eu.foto_quadro === true; }).catch(() => {});
     // Fase 3: a compra (relatório completo / visita) paga-se a seguir, sobre o pedido já enviado; volta-se à conta.
     // Se não abrir, o pedido está feito na mesma: compra-se na conta.
     if (resposta?.pagamento) {

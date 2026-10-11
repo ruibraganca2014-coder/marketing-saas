@@ -182,6 +182,42 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
   const gravarLeitura = (orcamentoId, v) => db.prepare('UPDATE orcamentos SET leitura_quadro = ? WHERE id = ?').run(JSON.stringify(v), orcamentoId);
   const fotoQuadroAtual = (orcamentoId) => db.prepare('SELECT id FROM fotos WHERE orcamento_id = ? AND chave = \'quadro\'').get(orcamentoId)?.id ?? null;
 
+  // ------------------------------------------------------------ aproveitar a foto de outro pedido
+  /**
+   * Copia a foto `chave` do pedido `deOrcamentoId` para o pedido `paraOrcamentoId` (decisão do dono, 2026-10-11: um
+   * pedido novo de uma casa aproveita a foto do quadro que o cliente já deu noutro pedido dessa casa; quem chama
+   * garante que os dois são da mesma conta e da mesma casa — conta.js aproveitarFotoQuadro). Ficheiro novo (id novo) na
+   * pasta do pedido novo e linha nova em `fotos`: fica uma foto normal desse pedido (sai com ele ao apagar/anonimizar).
+   * Se o pedido novo já tem uma foto com essa chave, não se mexe. Devolve a foto nova, ou null se não havia o que copiar.
+   * Um ficheiro em falta lança erro (quem chama regista-o). A leitura automática NÃO se agenda de novo (não se paga duas
+   * vezes pela mesma foto): se o pedido de origem tem a leitura feita dessa foto, vai com ela.
+   */
+  async function copiarFoto(deOrcamentoId, paraOrcamentoId, chave) {
+    const origem = db.prepare('SELECT * FROM fotos WHERE orcamento_id = ? AND chave = ?').get(deOrcamentoId, chave);
+    const jaTem = () => Boolean(db.prepare('SELECT 1 FROM fotos WHERE orcamento_id = ? AND chave = ?').get(paraOrcamentoId, chave));
+    if (!origem || deOrcamentoId === paraOrcamentoId || jaTem()) return null;
+    const corpo = await readFile(ficheiro(origem));
+    const foto = { id: randomBytes(12).toString('hex'), orcamento_id: paraOrcamentoId, chave, tipo_mime: origem.tipo_mime, bytes: origem.bytes, legenda: origem.legenda, criado: iso(relogio()) };
+    await mkdir(pasta(paraOrcamentoId), { recursive: true, mode: 0o700 });
+    await escreverAtomico(ficheiro(foto), corpo);
+    try {
+      // Enquanto se copiava chegou uma foto nova com esta chave: fica a nova.
+      if (jaTem()) { await unlink(ficheiro(foto)).catch(() => {}); return null; }
+      db.prepare('INSERT INTO fotos (id, orcamento_id, chave, tipo_mime, bytes, legenda, criado) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(foto.id, paraOrcamentoId, chave, foto.tipo_mime, foto.bytes, foto.legenda, foto.criado);
+    } catch (e) {
+      await unlink(ficheiro(foto)).catch(() => {});
+      throw e;
+    }
+    if (chave === 'quadro') {
+      let lida = null;
+      try { lida = JSON.parse(db.prepare('SELECT leitura_quadro FROM orcamentos WHERE id = ?').get(deOrcamentoId)?.leitura_quadro ?? 'null'); } catch { /* guardada estragada: fica sem leitura */ }
+      if (lida?.estado === 'feita' && lida.foto_id === origem.id) gravarLeitura(paraOrcamentoId, { ...lida, foto_id: foto.id, copiada_de: deOrcamentoId });
+    }
+    registo.info(`orçamento ${paraOrcamentoId}: foto ${chave} aproveitada do orçamento ${deOrcamentoId} (${foto.bytes} bytes)`);
+    return foto;
+  }
+
   function agendarLeitura(orcamentoId, foto) {
     if (!leitor) return;                         // sem ANTHROPIC_API_KEY: não se chama nada
     const tarefa = (async () => {
@@ -298,7 +334,7 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
   const leiturasEmCurso = () => Promise.allSettled([...emCurso]);
 
   return {
-    emitirToken, tokenFalso, receber, listar, contar, obter, ler, apagar, apagarTodas, apagarRetidas,
+    emitirToken, tokenFalso, receber, copiarFoto, listar, contar, obter, ler, apagar, apagarTodas, apagarRetidas,
     leituraQuadro, iniciar, parar, leiturasEmCurso, ligada: Boolean(leitor),
   };
 }

@@ -2330,6 +2330,10 @@ export function criarApi(ctx) {
     }
     // O resto é grátis: passa logo a orçamento ("novo"), com o relatório básico na conta.
     const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem, espera: v.lista_espera === true });
+    // Pedido com planta de uma casa que já deu a foto do quadro noutro pedido: aproveita-a (decisão do dono, 2026-10-11;
+    // sem ela o CEO não o consegue validar). Antes de a resposta sair, para uma foto nova do navegador a substituir.
+    // A avaria não tem o ponto da foto do quadro (pontosValidacao): não leva. Nunca falha o pedido.
+    if (conta && simObj && simObj.funil !== 'avaria') await contas.aproveitarFotoQuadro(conta.id, id);
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
     const r = { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX };
     if (conta) r.pedido = id;

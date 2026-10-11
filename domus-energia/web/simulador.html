@@ -329,6 +329,15 @@
             <h3 id="enviar-conta-titulo">A sua conta</h3>
             <div id="enviar-conta-bloco"></div>
           </div>
+          <!-- Foto do quadro em "Pedir um serviço" (decisão do dono, 2026-10-11; app.js desenharFotoQuadroEnviar): este funil não
+               passa pelo passo Quadro elétrico. Se a casa já a deu num pedido anterior, fica só uma linha (o servidor
+               aproveita-a); senão é obrigatória aqui. Nos outros funis não aparece. -->
+          <div class="cartao quadro-foto" id="enviar-quadro" role="group" aria-labelledby="enviar-quadro-titulo" hidden>
+            <h3 id="enviar-quadro-titulo">Foto do quadro elétrico *</h3>
+            <p class="ajuda" id="enviar-quadro-ajuda"></p>
+            <div id="enviar-quadro-corpo"></div>
+            <p class="msg" id="enviar-quadro-msg" role="status" hidden></p>
+          </div>
           <div class="cartao sim-enviar" id="enviar-contacto">
             <h3>Contacto</h3>
             <div class="msg" id="enviar-msg" role="status" hidden></div>

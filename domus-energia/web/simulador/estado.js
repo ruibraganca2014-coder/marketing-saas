@@ -169,6 +169,15 @@ export const CAMINHOS = ["automatizar", "reparar", "quadro", "obras", "carregar"
  */
 export const PASSOS_SO_QUADRO = [0, 10, 7, 8];
 export const passosDoEstado = (e) => (e?.funil === "planta" && e?.caminho === "quadro" ? PASSOS_SO_QUADRO : passosDoFunil(e?.funil));
+/**
+ * A foto do quadro no passo Enviar de "Pedir um serviço" (decisão do dono, 2026-10-11: "aproveitar a foto da casa; pedir
+ * se não houver"). Este funil não passa pelo passo Quadro elétrico e um pedido com planta sem a foto não se valida no
+ * painel. `temFoto`: há uma foto do quadro nesta simulação (neste navegador); `casaTemFoto`: a casa aberta já a deu num
+ * pedido anterior (GET /api/conta/eu `foto_quadro`; o servidor copia-a para o pedido novo). Devolve "tem" (vai a deste
+ * navegador), "aproveitar" (vai a da casa; tirar outra é opcional), "pedir" (obrigatória: sem ela não se envia) ou null
+ * (os outros funis: nada a mostrar). Sem sessão ou sem se saber da casa, pede-se.
+ */
+export const fotoQuadroNoEnviar = (e, temFoto, casaTemFoto) => (e?.funil !== "planta" ? null : temFoto ? "tem" : casaTemFoto === true ? "aproveitar" : "pedir");
 /** Ronda A: o passo novo (Relatório; o 12 foi reformado): um estado de antes dele não o viu (`relatoriosPorVer`). */
 export const PASSOS_NOVOS = [11];
 /** Fase 3 da auditoria: o passo 12 ("Relatório completo") já não existe — quem lá estava passa ao Relatório (11). */

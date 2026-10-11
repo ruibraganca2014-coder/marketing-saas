@@ -416,6 +416,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     tem_casa: Boolean(c.casa_codigo), sessao_expira: c.sessaoExpira,
     // A casa aberta (várias casas por conta): null enquanto a conta nunca abriu a lista das casas.
     casa_ativa: c.casa_ativa ?? null,
+    // A casa aberta já tem a foto do quadro num pedido anterior (o pedido seguinte aproveita-a: aproveitarFotoQuadro)?
+    // O simulador só pede a foto em "Pedir um serviço" quando não tem (decisão do dono, 2026-10-11).
+    foto_quadro: Boolean(pedidoComFotoQuadro(c.id, c.casa_ativa)),
     // Pagamentos do pedido: {ativo, modo, demonstracao…} (a conta mostra a faixa "Modo de demonstração").
     pagamentos: pagamentos()?.info() ?? null,
   });
@@ -1054,6 +1057,29 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       .run(k.nome ?? null, k.telefone ?? null, k.morada ?? null, k.localidade ?? null, agoraIso(), contaId);
   }
 
+  // ---- "aproveitar a foto da casa; pedir se não houver" (decisão do dono, 2026-10-11): um pedido com planta sem foto
+  // do quadro não se valida, e "Pedir um serviço" numa casa que já existe não passa pelo passo da foto.
+  /** O pedido mais recente desta conta e desta casa (não anonimizado) com foto do quadro, ou null. `exceto`: o pedido novo. */
+  const pedidoComFotoQuadro = (contaId, casaId, exceto = 0) => db.prepare(`SELECT f.orcamento_id AS id FROM fotos f JOIN orcamentos o ON o.id = f.orcamento_id
+    WHERE o.conta_id = ? AND o.casa_id IS ? AND o.anonimizado IS NULL AND o.id <> ? AND f.chave = 'quadro'
+    ORDER BY f.criado DESC, o.id DESC LIMIT 1`).get(contaId, casaId ?? null, exceto)?.id ?? null;
+  /**
+   * O pedido novo (já com `casa_id`: aposOrcamento) leva a foto do quadro mais recente dos outros pedidos da MESMA conta
+   * e da MESMA casa. Corre antes de a resposta sair (o navegador ainda não tem o token das fotos): se ele enviar depois
+   * uma foto do quadro nova, a mesma chave substitui a copiada. Nunca falha o pedido: sem foto anterior não faz nada; se
+   * a cópia falhar (ficheiro em falta…), o pedido fica sem foto e fica uma linha no registo.
+   */
+  async function aproveitarFotoQuadro(contaId, orcamentoId) {
+    try {
+      const o = db.prepare('SELECT casa_id FROM orcamentos WHERE id = ? AND conta_id = ?').get(orcamentoId, contaId);
+      const de = o?.casa_id ? pedidoComFotoQuadro(contaId, o.casa_id, orcamentoId) : null;
+      return de ? await fotos.copiarFoto(de, orcamentoId, 'quadro') : null;
+    } catch (e) {
+      registo.aviso(`orçamento ${orcamentoId}: a foto do quadro da casa não foi aproveitada: ${e?.message || e}`);
+      return null;
+    }
+  }
+
   /** Conta associada a um orçamento, para o painel: {id, email, confirmado, ativo} ou null. */
   function resumoParaPainel(contaId) {
     if (!contaId) return null;
@@ -1304,7 +1330,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   }
 
   return {
-    tratar, sessao, aposOrcamento, aoResultadoPedido, resumoParaPainel, listar, definirAtivo, apagar, apagarRetidas,
+    tratar, sessao, aposOrcamento, aproveitarFotoQuadro, aoResultadoPedido, resumoParaPainel, listar, definirAtivo, apagar, apagarRetidas,
     iniciar, parar, ROTAS_CONTA,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
