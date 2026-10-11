@@ -175,6 +175,10 @@ services:
       LEITURA_QUADRO: ${LEITURA_QUADRO:-0}
       # Eletricistas externos (bolsa, área do eletricista, "Trabalhe connosco"; docs/ELETRICISTAS.md): 1 liga.
       ELETRICISTAS: ${ELETRICISTAS:-0}
+      # Fluxo do pedido (decisões do dono, 2026-10-10): validação do CEO antes da bolsa e propostas de vários eletricistas.
+      # Ligados por omissão; 0 desliga (volta ao comportamento anterior).
+      VALIDACAO_CEO: ${VALIDACAO_CEO:-1}
+      PROPOSTAS_BOLSA: ${PROPOSTAS_BOLSA:-1}
       # Assistente (IA) dos pedidos: máximo de pedidos ao modelo em 24 h (docs/ASSISTENTE-IA.md).
       LIMITE_IA_DIA: ${LIMITE_IA_DIA:-50}
       # Conta de cliente (docs/CONTA-CLIENTE.md): site público noutra origem (Vercel) com CORS, chave das
