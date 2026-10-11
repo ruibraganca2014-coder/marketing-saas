@@ -474,7 +474,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!p) return recebeDe(o, t.tipo, pct);
     const s = valoresDaProposta(o, p).sugestao;
     const parte = Math.round(s.mao_obra * pct) / 100;
-    return { percentagem: pct, mao_obra: s.mao_obra, parte_mao_obra: parte, deslocacao: s.deslocacao, total: Math.round((parte + s.deslocacao) * 100) / 100, provisoria: true };
+    return { percentagem: pct, mao_obra: s.mao_obra, parte_mao_obra: parte, deslocacao: s.deslocacao, total: Math.round((parte + s.deslocacao) * 100) / 100, provisoria: false };
   }
   function recebeDe(o, tipo, pct) {
     if (tipo !== 'obra' && !pagamentos().temVisita(o)) return { percentagem: pct, mao_obra: 0, parte_mao_obra: 0, deslocacao: 0, total: 0, provisoria: false, gratis: true };
@@ -902,7 +902,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     contar([[L.ficha, String(e.id)]]);
     expirar();
     const { t, o } = meuEditavel(e, params.id);
-    const nomes = new Set(materialDe(o, t.tipo, relatorioDe(o)).map((m) => m.nome));
+    // A lista que o eletricista vê (teste de 2026-10-11: numa obra vinda de uma proposta a validação usava a da simulação e recusava tudo).
+    const nomes = new Set(materialDoTrabalho(t, o).map((m) => m.nome));
     if (!Array.isArray(v.recebido) || v.recebido.length > 500 || v.recebido.some((x) => typeof x !== 'string' || !nomes.has(x))) falha('Material: indique os artigos da lista deste trabalho.');
     db.prepare('UPDATE trabalhos_eletricista SET material_recebido = ?, atualizado = ? WHERE id = ?').run(JSON.stringify([...new Set(v.recebido)]), agoraIso(), t.id);
     responder(res, 200, fichaAtual(t));

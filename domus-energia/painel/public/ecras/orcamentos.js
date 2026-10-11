@@ -242,7 +242,9 @@ export default function orcamentos(el, ctx) {
       }
       partes.push(sec);
     }
-    if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id));
+    if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id, {
+      aoEscolher: () => pedir(`orcamentos/${encodeURIComponent(id)}`).then((r) => { const novo = campo(r, "orcamento") ?? r; substituir(novo); if (ficha?.j === j) desenharFicha(j, novo); }).catch(() => {}),
+    }));
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
     if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
@@ -1152,6 +1154,11 @@ const ACOES = {
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
   proposta_aceite_cliente: "Proposta aceite pelo cliente (online)", foto_cliente: "Foto enviada pelo cliente (conta)",
   proposta_bolsa: "Proposta de um eletricista (bolsa)", trabalho_escolhido: "Eletricista escolhido pelo CEO", trabalho_obra_do_escolhido: "Obra atribuída ao eletricista escolhido",
+  trabalho_concluido_eletricista: "O eletricista deu o trabalho por concluído", trabalho_contestado_cliente: "O cliente disse que não ficou concluído",
+  reclamacao_defeito: "Decidido: é defeito, o eletricista volta sem receber", reclamacao_sem_defeito: "Decidido: sem defeito, cobra-se a visita ao cliente",
+  trabalho_confirmado_cliente: "O cliente confirmou que ficou concluído", trabalho_confirmado_auto: "Confirmado sozinho: 7 dias sem resposta do cliente",
+  trabalho_aprovado: "Trabalho aprovado pelo CEO", fatura_eletricista: "Fatura-recibo enviada pelo eletricista", eletricista_pago: "Pagamento ao eletricista registado",
+  trabalho_atribuido: "Trabalho atribuído a um eletricista", trabalho_aceite: "Trabalho aceite por um eletricista (bolsa)", proposta_eletricista: "Proposta do eletricista depois da visita",
   pedido_validado: "Pedido validado pelo CEO", pedido_devolvido_cliente: "Devolvido ao cliente para corrigir", pedido_corrigido_cliente: "O cliente disse que já corrigiu",
   proposta_recusada_cliente: "Proposta não aceite pelo cliente", trabalho_na_bolsa: "Posto na bolsa dos eletricistas", trabalho_retirado: "Trabalho retirado ao eletricista ou da bolsa",
   proposta_aceite_aguarda_sinal: "Aceite pelo cliente — a aguardar o sinal", pagamento_criado: "Pagamento criado",

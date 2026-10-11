@@ -50,7 +50,7 @@ const eventoTxt = (x) => (x.por === "sistema" && x.evento === "retirado" ? "Visi
   : String(x.por ?? "").startsWith("conta:") && x.evento === "retirado" ? "Retirado: o cliente não aceitou a proposta"
   : x.por === "sistema" && x.evento === "atribuido" ? "Obra atribuída ao eletricista escolhido" : EVENTOS[x.evento] ?? x.evento);
 
-export function blocoEletricista(orcamentoId) {
+export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
   const corpo = h("div", { class: "form-grelha" }, h("p", { class: "ajuda", role: "status", text: "A carregar…" }));
   const sec = h("section", { class: "eletricista-externo", id: "eletricista-externo" }, h("h3", { text: "Eletricista externo" }), corpo);
   const caminho = `orcamentos/${encodeURIComponent(orcamentoId)}/eletricista`;
@@ -60,6 +60,8 @@ export function blocoEletricista(orcamentoId) {
     try {
       desenhar(await pedir(caminho, { corpo: pedido }));
       avisar(texto);
+      // Escolhido o eletricista, a ficha do pedido ganha "Preencher pela proposta do eletricista": quem a mostra volta a lê-la.
+      if (pedido?.acao === "escolher") aoEscolher?.();
     } catch (e) {
       if (b) b.disabled = false;
       avisar(e.message, "erro");

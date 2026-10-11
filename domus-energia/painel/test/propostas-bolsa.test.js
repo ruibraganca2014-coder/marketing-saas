@@ -258,6 +258,12 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     const f = (await area(a, 'GET', `trabalhos/${obraId}`)).json.trabalho;
     assert.deepEqual([f.cliente.nome, f.cliente.telefone, f.editavel], [CLIENTE.nome, CLIENTE.telefone, true]);
     assert.equal(f.recebe.percentagem, 70);
+    // A obra leva o material e as horas da proposta aceite, e é essa a lista que se marca como recebida (teste no browser, 2026-10-11).
+    assert.deepEqual(f.material.map((m) => [m.nome, m.quantidade, m.recebido]), [[artigos[0].nome, 2, false], [artigos[1].nome, 1, false]]);
+    assert.equal(f.horas, 7);
+    const mr = await area(a, 'POST', `trabalhos/${obraId}/material`, { recebido: [artigos[0].nome] });
+    assert.equal(mr.estado, 200, mr.texto);
+    assert.deepEqual(mr.json.trabalho.material.map((m) => m.recebido), [true, false]);
     assert.equal(f.recebe.total, Math.round(21626 * 0.7 + 585) / 100, 'recebe pela obra como sempre: percentagem × mão de obra + deslocação');
     assert.equal((await area(a, 'GET', `trabalhos/${tid}`)).estado, 404, 'a visita fechou');
     const v = await area(a, 'POST', `trabalhos/${obraId}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) });
