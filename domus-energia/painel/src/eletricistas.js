@@ -41,7 +41,7 @@ import { RE_EMAIL } from './pedidos.js';
 import { LimiteTaxa } from './limite.js';
 import { iso, deCent, escreverAtomico } from './util.js';
 import { CODIGO_MS, CODIGO_TENTATIVAS } from './conta.js';
-import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO } from './fotos.js';
+import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO, semMetadados } from './fotos.js';
 import { ESTADO_ARQUIVADO, GRUPOS_FOTO_TRABALHO } from './db.js';
 import { CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
@@ -1003,12 +1003,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (db.prepare('SELECT COUNT(*) AS n FROM trabalhos_eletricista_fotos WHERE trabalho_id = ? AND grupo = ?').get(t.id, params.foto).n >= FOTOS_POR_GRUPO) {
       throw new ErroApi(409, `Este grupo já tem o máximo de ${FOTOS_POR_GRUPO} fotos. Apague uma para pôr outra.`);
     }
-    const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((erro) => {
+    let corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((erro) => {
       if (erro instanceof ErroApi && erro.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
       throw erro;
     });
     if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
     if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+    corpo = semMetadados(corpo, tipo);
     const f = { id: randomBytes(12).toString('hex'), trabalho_id: t.id, grupo: params.foto, tipo_mime: tipo };
     await escreverAtomico(ficheiroFoto(f), corpo);
     try {

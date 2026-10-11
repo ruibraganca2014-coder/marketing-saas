@@ -10,7 +10,7 @@ import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErroApi, lerCorpo, lerJson, responder, verificarOrigemPublica } from './http.js';
 import { escreverAtomico, iso } from './util.js';
-import { FOTOS_MAX, FOTO_MAX_BYTES, RE_CHAVE_FOTO, bytesDeImagem } from './fotos.js';
+import { FOTOS_MAX, FOTO_MAX_BYTES, RE_CHAVE_FOTO, bytesDeImagem, semMetadados } from './fotos.js';
 
 export const TOKEN_REMOTO_MS = 24 * 3600_000;    // validade do token (e da foto no servidor)
 export const LIMPEZA_MS = 15 * 60_000;
@@ -106,12 +106,13 @@ export function criarFotosRemotas({ db, config, registo, relogio, limiteFotos, l
     const t = tokenOuErro(req);
     const pedida = db.prepare('SELECT * FROM fotos_remotas WHERE token_hash = ? AND chave = ?').get(t.hash, chave);
     if (!pedida) throw new ErroApi(404, 'O computador não está à espera desta foto. Volte ao computador e carregue em "Tirar foto".');
-    const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
+    let corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
       if (e instanceof ErroApi && e.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
       throw e;
     });
     if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
     if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+    corpo = semMetadados(corpo, tipo);
     const f = { id: randomBytes(12).toString('hex'), token_hash: t.hash, tipo_mime: tipo };
     await escreverAtomico(ficheiro(f), corpo);
     const seq = t.seq + 1;

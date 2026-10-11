@@ -29,6 +29,73 @@ export function bytesDeImagem(buf, tipo) {
   return false;
 }
 
+/** Orientação (1 a 8) do bloco Exif de um JPEG, ou null. `d` são os dados do segmento APP1. */
+function orientacaoExif(d) {
+  if (d.length < 14 || d.toString('latin1', 0, 6) !== 'Exif\0\0') return null;
+  const t = d.subarray(6);
+  const le = t.toString('latin1', 0, 2) === 'II';
+  if (!le && t.toString('latin1', 0, 2) !== 'MM') return null;
+  const u16 = (i) => (le ? t.readUInt16LE(i) : t.readUInt16BE(i));
+  const ifd = le ? t.readUInt32LE(4) : t.readUInt32BE(4);
+  if (ifd + 2 > t.length) return null;
+  const n = u16(ifd);
+  for (let i = 0, e = ifd + 2; i < n && e + 12 <= t.length; i += 1, e += 12) {
+    if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 1 && v <= 8 ? v : null; }
+  }
+  return null;
+}
+
+/** Um bloco Exif mínimo, só com a orientação (para a foto não ficar deitada depois de limpa). */
+function exifSoOrientacao(v) {
+  return Buffer.from([0xff, 0xe1, 0x00, 0x22, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08,
+    0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, v, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+}
+
+/**
+ * A foto sem os dados escondidos (2026-10-11): o sítio onde foi tirada (GPS), a data, o modelo do telemóvel e os
+ * comentários. As fotos do cliente são mostradas a eletricistas que não podem saber a morada. No JPEG saem os blocos
+ * APP1 (Exif, XMP), APP13 (IPTC), os outros APPn sem uso e os comentários; ficam o JFIF, o perfil de cor (APP2), o
+ * Adobe (APP14) e a orientação. No PNG saem eXIf, tEXt, zTXt, iTXt e tIME. A imagem em si não é tocada. Um ficheiro
+ * que não se consegue percorrer fica como veio.
+ */
+export function semMetadados(buf, tipo) {
+  try {
+    if (tipo === 'image/jpeg') {
+      const partes = [buf.subarray(0, 2)];
+      let i = 2, orientacao = null, tirou = false, ondeExif = 1;
+      while (i + 4 <= buf.length) {
+        if (buf[i] !== 0xff) return buf;
+        const m = buf[i + 1];
+        if (m === 0xff) { i += 1; continue; }                       // enchimento
+        if (m === 0xda || m === 0xd9) break;                        // começa a imagem (ou acaba): o resto vai tal e qual
+        const fim = i + 2 + buf.readUInt16BE(i + 2);
+        if (fim > buf.length || fim < i + 4) return buf;
+        const fica = m === 0xe0 || m === 0xe2 || m === 0xee || !((m >= 0xe1 && m <= 0xef) || m === 0xfe);
+        if (m === 0xe1 && orientacao === null) orientacao = orientacaoExif(buf.subarray(i + 4, fim));
+        if (fica) { partes.push(buf.subarray(i, fim)); if (m === 0xe0) ondeExif = partes.length; } else tirou = true;
+        i = fim;
+      }
+      if (!tirou) return buf;
+      partes.push(buf.subarray(i));
+      if (orientacao && orientacao !== 1) partes.splice(ondeExif, 0, exifSoOrientacao(orientacao));
+      return Buffer.concat(partes);
+    }
+    if (tipo === 'image/png') {
+      const partes = [buf.subarray(0, 8)];
+      let i = 8, tirou = false;
+      while (i + 12 <= buf.length) {
+        const fim = i + 12 + buf.readUInt32BE(i);
+        if (fim > buf.length) return buf;
+        if (['eXIf', 'tEXt', 'zTXt', 'iTXt', 'tIME'].includes(buf.toString('latin1', i + 4, i + 8))) tirou = true; else partes.push(buf.subarray(i, fim));
+        i = fim;
+      }
+      if (i !== buf.length || !tirou) return buf;
+      return Buffer.concat(partes);
+    }
+  } catch { /* ficheiro estranho: fica como veio */ }
+  return buf;
+}
+
 /**
  * @param {{db, config, registo, relogio: () => number, leitor: object|null, auditar: Function}} ctx
  */
@@ -80,12 +147,13 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
       if (legenda.length > 120) throw new ErroApi(400, 'A legenda da foto tem no máximo 120 caracteres.');
       legenda ||= null;
     }
-    const corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
+    let corpo = await lerCorpo(req, FOTO_MAX_BYTES).catch((e) => {
       if (e instanceof ErroApi && e.estado === 413) throw new ErroApi(413, 'A foto é demasiado grande (máx. 1 MB).');
       throw e;
     });
     if (!corpo.length) throw new ErroApi(400, 'A foto está vazia.');
     if (!bytesDeImagem(corpo, tipo)) throw new ErroApi(415, 'O ficheiro não é uma imagem JPEG ou PNG válida.');
+    corpo = semMetadados(corpo, tipo);
 
     const anterior = db.prepare('SELECT * FROM fotos WHERE orcamento_id = ? AND chave = ?').get(orcamentoId, chave);
     if (!anterior) {
