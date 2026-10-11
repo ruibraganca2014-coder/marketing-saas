@@ -41,6 +41,10 @@ SERV=""                           # <repositório>/domus-energia/servidor
 CEO_SENHA=""                      # palavra-passe gerada (mostrada uma única vez)
 HTTPS_OK=0
 SERVICOS_FALTA=""                 # serviços que não arrancaram (vazio = todos a correr)
+SERVICOS_CONSTRUIDOS="motor pagamentos painel"   # os que têm imagem feita a partir do código (build)
+SERVICOS_ANTIGOS=""               # ao atualizar: serviços que ficaram a correr a imagem antiga
+CODIGO_ANTES=""                   # ao atualizar: commit antes e depois do git pull
+CODIGO_DEPOIS=""
 ESPERA_APT_S=600                  # espera máxima pelo cloud-init e pelos cadeados do apt
 APT_CADEADOS="/var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock /var/cache/apt/archives/lock"
 RE_PASTA='^[A-Za-z0-9/._-]+$'
@@ -324,11 +328,13 @@ obter_codigo() {
       aviso "há alterações locais em $DIR: o código não é atualizado (git stash e corra de novo)"
       return 0
     fi
+    CODIGO_ANTES="$(g -C "$DIR" rev-parse --short HEAD 2>/dev/null || true)"
     g_dono -C "$DIR" fetch --quiet origin "$BRANCH"
     if [[ "$(g -C "$DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)" != "$BRANCH" ]]; then
       g_dono -C "$DIR" checkout --quiet "$BRANCH"
     fi
     g_dono -C "$DIR" merge --ff-only --quiet FETCH_HEAD
+    CODIGO_DEPOIS="$(g -C "$DIR" rev-parse --short HEAD 2>/dev/null || true)"
     info "código em $(g -C "$DIR" log -1 --format='%h de %cs' 2>/dev/null || echo '?')"
   elif [[ -e "$DIR" && -n "$(ls -A "$DIR" 2>/dev/null)" ]]; then
     erro "$DIR existe e não é um repositório git. Use --dir <outra pasta>."
@@ -559,6 +565,45 @@ instalar_temporizadores() {
   info "ver: systemctl list-timers 'domus-*'"
 }
 
+# Ao atualizar: confirma que cada serviço construído do código ficou mesmo a correr a imagem acabada de construir
+# (2026-10-11: uma atualização interrompida a meio deixou o painel na versão antiga e o motor parado, sem aviso).
+verificar_versao() {
+  (( SIMULAR )) && return 0
+  local s c nome
+  SERVICOS_ANTIGOS=""
+  for s in $SERVICOS_CONSTRUIDOS; do
+    c="$(compose ps -q "$s" 2>/dev/null | head -n 1)"
+    [[ -n "$c" ]] || { SERVICOS_ANTIGOS+=" $s"; continue; }
+    nome="$(docker inspect -f '{{.Config.Image}}' "$c" 2>/dev/null || true)"
+    if [[ -z "$nome" || "$(docker inspect -f '{{.Image}}' "$c" 2>/dev/null)" != "$(docker image inspect -f '{{.Id}}' "$nome" 2>/dev/null)" ]]; then
+      SERVICOS_ANTIGOS+=" $s"
+    fi
+  done
+  SERVICOS_ANTIGOS="${SERVICOS_ANTIGOS# }"
+  [[ -z "$SERVICOS_ANTIGOS" ]] || aviso "ficaram na versão antiga: $SERVICOS_ANTIGOS"
+}
+
+# Uma linha clara no fim da atualização: o que mudou e se ficou tudo na versão nova.
+veredicto() {
+  local de="${CODIGO_ANTES:-?}" para="${CODIGO_DEPOIS:-?}"
+  if [[ -n "$SERVICOS_FALTA" || -n "$SERVICOS_ANTIGOS" ]]; then
+    printf ' FALHOU: a atualização não ficou completa (código em %s).
+' "$para"
+    [[ -z "$SERVICOS_FALTA" ]] || printf '   Parados: %s
+' "$SERVICOS_FALTA"
+    [[ -z "$SERVICOS_ANTIGOS" ]] || printf '   Ainda na versão antiga: %s
+' "$SERVICOS_ANTIGOS"
+    printf '   Corra de novo o mesmo comando e espere até ao fim.
+'
+  elif [[ "$de" == "$para" ]]; then
+    printf ' NADA MUDOU no código (continua em %s). Serviços a correr na versão certa.
+' "$para"
+  else
+    printf ' ATUALIZADO de %s para %s. Serviços a correr na versão nova.
+' "$de" "$para"
+  fi
+}
+
 arrancar() {
   passo "Serviços (docker compose up -d --build) — a 1.ª vez demora alguns minutos"
   correr docker compose pull --quiet --ignore-buildable || aviso "não foi possível atualizar as imagens (continua com as que há)"
@@ -570,6 +615,7 @@ arrancar() {
   fi
   # shellcheck disable=SC2086
   esperar_servicos 180 $SERVICOS || true
+  if (( ATUALIZAR )); then verificar_versao; fi
   if (( ! SIMULAR )); then
     info "a pedir o certificado HTTPS (até 3 minutos)..."
     local t
@@ -614,7 +660,9 @@ resumo() {
   local linha="=============================================================================" titulo="Domus Energia instalada"
   (( ! ATUALIZAR )) || titulo="Domus Energia atualizada"
   [[ -z "$SERVICOS_FALTA" ]] || titulo="Domus Energia: INSTALAÇÃO INCOMPLETA (serviços parados: $SERVICOS_FALTA)"
+  [[ -z "$SERVICOS_ANTIGOS" ]] || titulo="Domus Energia: ATUALIZAÇÃO INCOMPLETA (na versão antiga: $SERVICOS_ANTIGOS)"
   printf '\n%s\n %s%s\n%s\n' "$linha" "$titulo" "$( (( SIMULAR )) && printf ' (SIMULAÇÃO: nada foi alterado)')" "$linha"
+  if (( ATUALIZAR && ! SIMULAR )); then veredicto; printf '%s\n' "$linha"; fi
   if [[ -n "$SERVICOS_FALTA" ]]; then
     cat <<EOF
  ATENÇÃO: estes serviços não arrancaram: $SERVICOS_FALTA
@@ -696,6 +744,8 @@ main() {
     arrancar
     instalar_temporizadores
     resumo
+    # Atualização incompleta sai com erro (quem corre o comando, ou um script, vê que falhou).
+    [[ -z "$SERVICOS_FALTA" && -z "$SERVICOS_ANTIGOS" ]] || exit 1
     return 0
   fi
   verificar_so
