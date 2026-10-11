@@ -117,6 +117,11 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     const t = det.json.trabalho;
     assert.deepEqual([t.concelho, t.tipo, t.por_proposta, t.minha_proposta], ['Sintra', 'visita', true, null]);
     assert.ok(t.relatorio, 'leva o relatório técnico');
+    // Na bolsa o relatório vai completo (é com ele que se faz a proposta): o material da simulação por divisão, o
+    // "Quadro elétrico e geral" e as melhorias. Na obra com a proposta aceite já não vão (teste mais abaixo).
+    assert.ok(t.relatorio.geral.titulo && Array.isArray(t.relatorio.geral.material) && Array.isArray(t.relatorio.melhorias));
+    assert.ok(t.relatorio.divisoes.length > 0 && t.relatorio.divisoes.every((d) => Array.isArray(d.material)));
+    assert.ok([...t.relatorio.divisoes.flatMap((d) => d.material), ...t.relatorio.geral.material].length > 0, 'há material da simulação para mostrar');
     assert.ok(!('cliente' in t) && !('orcamento_id' in t) && !/preco|valor_iva|total/.test(JSON.stringify(t.relatorio)), 'sem cliente, n.º do pedido nem preços');
     // As fotos do cliente: só o id, de onde é e o endereço (a legenda, texto livre do cliente, não sai).
     assert.deepEqual(t.fotos, [{ id: fid, nome: 'Quadro elétrico', url: `/api/eletricista/bolsa/${tid}/fotos/${fid}` }]);
@@ -261,6 +266,15 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     // A obra leva o material e as horas da proposta aceite, e é essa a lista que se marca como recebida (teste no browser, 2026-10-11).
     assert.deepEqual(f.material.map((m) => [m.nome, m.quantidade, m.recebido]), [[artigos[0].nome, 2, false], [artigos[1].nome, 1, false]]);
     assert.equal(f.horas, 7);
+    // Na obra o eletricista vê só o que o cliente comprou (decisão do dono, 2026-10-11): o relatório vai sem o material
+    // da simulação (o das divisões, o "Quadro elétrico e geral" e as melhorias) e o quadro sem a casa de que se calcula
+    // o "quadro ideal". Ficam a lista de trabalho por divisão, a planta e a proposta (horas e material).
+    assert.equal(f.de_proposta, true);
+    assert.ok(!('geral' in f.relatorio) && !('melhorias' in f.relatorio), 'sem "Quadro elétrico e geral" nem melhorias');
+    assert.ok(f.relatorio.divisoes.length > 0 && f.relatorio.divisoes.every((d) => !('material' in d) && Array.isArray(d.trabalho)), 'as divisões levam o trabalho, sem material');
+    assert.ok('planta' in f.relatorio && 'esquemas' in f.relatorio && 'acoes' in f.relatorio);
+    assert.deepEqual([f.quadro.casa, f.quadro.pode_desenhar], [null, true], 'sem quadro ideal; o quadro existente continua a registar-se');
+    assert.deepEqual([f.proposta.horas, f.proposta.material.map((m) => [m.nome, m.qtd])], [7, [[artigos[0].nome, 2], [artigos[1].nome, 1]]]);
     // A obra do painel e o stock também seguem a proposta aceite, não a simulação (teste dos agentes, 2026-10-11).
     const naObra = JSON.parse(p.app.db.prepare('SELECT material FROM obras WHERE orcamento_id = ?').get(id).material);
     assert.deepEqual(naObra.map((m) => [m.sku, m.quantidade, m.feito]), [[artigos[0].sku, 2, false], [artigos[1].sku, 1, false]]);

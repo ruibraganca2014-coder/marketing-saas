@@ -9,7 +9,7 @@
 // estado; "Libertar relatório ao cliente" (CEO, depois de o cliente o comprar); "Marcar visita" (data e hora, com a
 // disponibilidade do cliente); "Aceite — a aguardar sinal" até o sinal estar pago; "Marcar obra concluída".
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
-import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, MOTIVOS_PERDA, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
+import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, MOTIVOS_PERDA, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse, botaoConfirmar } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
 import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, trocaDeQuadro, blocoDiagnostico } from "./simulacao.js";
 import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from "./diagnostico-conteudo.js";
@@ -216,7 +216,10 @@ export default function orcamentos(el, ctx) {
         }
         if (ctx.pode("ceo")) {
           const pontos = lista(campo(val, "pontos") ?? [], "pontos");
-          const caixas = pontos.map((p) => { const i = h("input", { type: "checkbox", id: `validar-${campo(p, "chave")}`, dataset: { chave: String(campo(p, "chave")) } }); return [i, h("label", { class: "validacao-ponto" }, i, h("span", { text: String(campo(p, "texto")) }))]; });
+          // Ponto `em_falta` (pedido com planta sem foto do quadro; decisão do dono, 2026-10-11): sem caixa para marcar, a
+          // vermelho, e não se valida — só "Devolver ao cliente".
+          const emFalta = pontos.filter((p) => campo(p, "em_falta") === true);
+          const caixas = pontos.filter((p) => campo(p, "em_falta") !== true).map((p) => { const i = h("input", { type: "checkbox", id: `validar-${campo(p, "chave")}`, dataset: { chave: String(campo(p, "chave")) } }); return [i, h("label", { class: "validacao-ponto" }, i, h("span", { text: String(campo(p, "texto")) }))]; });
           const nota = h("textarea", { id: "validacao-nota", rows: "3", maxlength: "1000", placeholder: "O que falta corrigir (o cliente recebe este texto por email)" });
           const enviar = async (b, caminho, corpo, aviso) => {
             b.disabled = true;
@@ -234,9 +237,12 @@ export default function orcamentos(el, ctx) {
             onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: Boolean(ctx.eletricistas) }, ctx.eletricistas ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
           const bSoValidar = ctx.eletricistas ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
             onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
+          if (emFalta.length) { bValidar.disabled = true; if (bSoValidar) bSoValidar.disabled = true; }
           const bDevolver = h("button", { class: "btn sec pequeno", type: "button", id: "devolver-cliente", text: "Devolver ao cliente",
             onclick: (e) => (nota.value.trim() ? enviar(e.currentTarget, "devolver-cliente", { nota: nota.value }, "Pedido devolvido ao cliente: seguiu o email.") : (avisar("Escreva o que falta corrigir.", "erro"), nota.focus())) });
-          sec.append(h("div", { class: "validacao-lista" }, ...caixas.map(([, l]) => l)), h("div", { class: "form-botoes" }, bValidar, bSoValidar),
+          sec.append(h("div", { class: "validacao-lista" }, ...caixas.map(([, l]) => l), ...emFalta.map((p) => h("p", { class: "msg erro validacao-em-falta", id: `validar-${campo(p, "chave")}-em-falta`, text: String(campo(p, "texto")) }))),
+            ...(emFalta.length ? [h("p", { class: "ajuda", id: "validacao-bloqueada", text: "Não dá para validar enquanto faltar a foto do quadro elétrico. Escreva abaixo o que falta e devolva o pedido ao cliente." })] : []),
+            h("div", { class: "form-botoes" }, bValidar, bSoValidar),
             h("label", { class: "validacao-nota" }, h("span", { text: "Falta alguma coisa? Devolva ao cliente para corrigir:" }), nota), h("div", { class: "form-botoes" }, bDevolver));
         }
       }
@@ -284,14 +290,19 @@ export default function orcamentos(el, ctx) {
         if (x.pode_enviar) {
           const iMao = h("input", { type: "number", min: "0", step: "0.01", inputmode: "decimal", id: `extra-mao-${x.id}`, value: x.sugestao.mao_obra ?? "" });
           const iMat = h("input", { type: "number", min: "0", step: "0.01", inputmode: "decimal", id: `extra-material-${x.id}`, value: x.sugestao.material ?? "" });
+          // "Enviar ao cliente" em dois toques (decisão do dono, 2026-10-11): o primeiro valida o preço e mostra na pergunta
+          // o valor que segue; envia-se esse valor (o do primeiro toque), mesmo que os campos mudem entretanto.
+          let preco = null;
+          const bEnviar = botaoConfirmar("Enviar ao cliente", () => {
+            const mao = numero(iMao.value) ?? 0, mat = numero(iMat.value) ?? 0;
+            if (!(mao >= 0) || !(mat >= 0) || mao + mat <= 0) { avisar("Indique o preço do trabalho a mais: a mão de obra, o material, ou os dois.", "erro"); iMao.focus(); return null; }
+            preco = { mao_obra: mao, material: mat };
+            return `Confirmar: enviar por ${euros(mao + mat)} + IVA?`;
+          }, (b) => acaoExtra(b, x, "enviar", preco, "Trabalho a mais enviado ao cliente: seguiu o email."), { classe: "btn pequeno" });
+          bEnviar.id = `extra-enviar-${x.id}`;
           c.append(h("div", { class: "tres" }, campoForm("Mão de obra (€, sem IVA)", iMao), campoForm("Material (€, sem IVA)", iMat)),
             h("p", { class: "ajuda", text: "Reveja o preço antes de enviar. O cliente recebe um email e diz na conta se aceita; se aceitar, o valor soma ao restante que paga no fim da obra." }),
-            h("div", { class: "form-botoes" }, h("button", { class: "btn pequeno", type: "button", id: `extra-enviar-${x.id}`, text: "Enviar ao cliente",
-              onclick: (e) => {
-                const mao = numero(iMao.value) ?? 0, mat = numero(iMat.value) ?? 0;
-                if (!(mao >= 0) || !(mat >= 0) || mao + mat <= 0) { avisar("Indique o preço do trabalho a mais: a mão de obra, o material, ou os dois.", "erro"); iMao.focus(); return; }
-                acaoExtra(e.currentTarget, x, "enviar", { mao_obra: mao, material: mat }, "Trabalho a mais enviado ao cliente: seguiu o email.");
-              } })));
+            h("div", { class: "form-botoes" }, bEnviar));
         } else if (x.estado === "proposto") c.append(h("p", { class: "ajuda", text: "A obra já não está com este eletricista: não se envia ao cliente." }));
         if (x.pode_nao_avancar) {
           const motivo = h("textarea", { rows: "2", maxlength: "500", id: `extra-motivo-${x.id}`, "aria-label": "Motivo para não avançar" });

@@ -189,13 +189,18 @@ export function mostrarPalavraPasse(titulo, senha, { utilizador, texto } = {}) {
   return j;
 }
 
-/** Botão de confirmação em dois passos (sem confirm() nativo). */
+/**
+ * Botão de confirmação em dois passos (sem confirm() nativo). `pergunta` pode ser uma função: corre no primeiro toque
+ * (para validar campos e pôr o valor na pergunta) e, se devolver null, o botão não fica armado.
+ */
 export function botaoConfirmar(texto, pergunta, acao, { classe = "btn sec pequeno", disabled = false } = {}) {
   const b = h("button", { class: classe, type: "button", text: texto, disabled });
   let armado = false, t;
   b.addEventListener("click", async () => {
     if (!armado) {
-      armado = true; b.textContent = pergunta; b.classList.add("armado");
+      const p = typeof pergunta === "function" ? pergunta() : pergunta;
+      if (!p) return;
+      armado = true; b.textContent = p; b.classList.add("armado");
       t = setTimeout(() => { armado = false; b.textContent = texto; b.classList.remove("armado"); }, 5000);
       return;
     }

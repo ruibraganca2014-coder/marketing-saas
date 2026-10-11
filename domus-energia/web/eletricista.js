@@ -16,6 +16,7 @@ import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
 import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
 import { reduzirFoto } from "./simulador/fotos.js";
+import { confirmarEmDoisToques } from "./confirmar.js";
 
 const cfg = window.DOMUS ?? {};
 const base = String(cfg.apiBase ?? "").trim().replace(/\/+$/, "");
@@ -682,7 +683,11 @@ function seccaoQuadro(t) {
   const lado = com(el("div", "quadros-lado"),
     com(el("div"), el("h4", null, "Quadro existente"), cxExistente),
     com(el("div"), el("h4", null, "Quadro ideal"), ideal ? desenho(ideal, "quadro ideal") : el("p", "pequeno suave", "Sem dados da casa."), ideal ? el("p", "pequeno suave", ideal.resumo) : null));
-  const corpo = [el("p", "pequeno suave", "O quadro ideal é calculado pelo que o cliente descreveu da casa. O trabalho é adaptar o quadro que lá está ao ideal."), lado, cxFalta];
+  // Obra com proposta aceite (decisão do dono, 2026-10-11): o eletricista vê só o que o cliente comprou — sem o quadro
+  // ideal da simulação nem "o que falta" (o servidor já não manda a casa). Fica o registo do quadro que lá está.
+  const corpo = t.de_proposta
+    ? [el("p", "pequeno suave", "Registe aqui o quadro que lá está. O trabalho é o da proposta que o cliente aceitou."), com(el("div"), el("h4", null, "Quadro existente"), cxExistente)]
+    : [el("p", "pequeno suave", "O quadro ideal é calculado pelo que o cliente descreveu da casa. O trabalho é adaptar o quadro que lá está ao ideal."), lado, cxFalta];
 
   if (q.pode_desenhar && !cabeNoRegisto) corpo.push(el("p", "pequeno suave", "Este quadro foi desenhado ao pormenor no painel. Para o mudar, fale com a Domus."));
   if (q.pode_desenhar && cabeNoRegisto) {
@@ -889,7 +894,9 @@ function formVisita(t) {
   b.addEventListener("click", () => {
     msg.hidden = true;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dia.value) || !/^\d{2}:\d{2}$/.test(hora.value)) { msg.textContent = "Escolha o dia e a hora."; msg.hidden = false; return; }
-    acaoFicha(t, "visita", { data_visita: `${dia.value}T${hora.value}` }, { botao: b, msg, texto: "Visita marcada. O cliente foi avisado em nome da Domus Energia." });
+    // Uma data já passada (quem foi mais cedo regista a data verdadeira) não manda email ao cliente.
+    const passada = new Date(`${dia.value}T${hora.value}`).getTime() <= Date.now();
+    acaoFicha(t, "visita", { data_visita: `${dia.value}T${hora.value}` }, { botao: b, msg, texto: passada ? "Data da visita guardada." : "Visita marcada. O cliente foi avisado em nome da Domus Energia." });
   });
   const campo = (rotulo, input) => com(el("label", "campo"), el("span", null, rotulo), input);
   return [com(el("div", "grelha-2"), campo("Dia", dia), campo("Hora", hora)), msg, b];
@@ -965,7 +972,7 @@ function seccaoExtras(t) {
     if (x.pode_retirar) {
       const retirar = el("button", "btn sec mini", "Retirar");
       retirar.type = "button";
-      retirar.addEventListener("click", () => acaoFicha(t, `extra/${x.id}/retirar`, {}, { botao: retirar, texto: "Trabalho a mais retirado." }));
+      confirmarEmDoisToques(retirar, "Confirmar: retirar?", () => acaoFicha(t, `extra/${x.id}/retirar`, {}, { botao: retirar, texto: "Trabalho a mais retirado." }));
       c.append(com(el("div", "fila"), retirar));
     }
     corpo.push(c);
@@ -1284,9 +1291,12 @@ function parteFim(t) {
   concluir.type = "button";
   concluir.id = "obra-concluida";
   concluir.disabled = falta.length > 0;
-  concluir.addEventListener("click", () => acaoFicha(t, "concluir", {}, { botao: concluir, texto: `${nomeFim}. Pedimos a confirmação ao cliente.` }));
+  // Em dois toques (decisão do dono, 2026-10-11): a seguir o cliente é avisado e a ficha fica só de leitura.
+  confirmarEmDoisToques(concluir, "Confirmar: está concluída?", () => acaoFicha(t, "concluir", {}, { botao: concluir, texto: `${nomeFim}. Pedimos a confirmação ao cliente.` }));
+  // Só se conclui a partir da hora da visita: quem foi mais cedo muda primeiro a data (em "Visita").
+  const visitaPorVir = falta.some((x) => x.startsWith("a visita ainda não aconteceu"));
   const estado = falta.length
-    ? com(el("div", "nota"), el("b", null, "Falta: "), falta.join("; "), ".")
+    ? com(el("div", "nota"), el("b", null, "Falta: "), falta.join("; "), ".", visitaPorVir ? " Se já fez o trabalho, mude primeiro a data da visita." : "")
     : el("p", "nota calma", "Tudo preenchido. A seguir, o cliente confirma na conta dele.");
   estado.id = "falta-fechar";
   const largar = botaoLargar(t);

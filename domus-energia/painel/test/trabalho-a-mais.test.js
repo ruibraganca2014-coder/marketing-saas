@@ -84,6 +84,7 @@ describe('trabalho a mais: o eletricista propõe, o CEO põe o preço, o cliente
     const tid = a.json.trabalho.id;
     assert.equal(a.json.trabalho.tipo, 'obra');
     assert.equal((await area(x, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    p.relogio.avancar(31 * HORA);   // «Obra concluída» só a partir da hora da visita (decisão do dono, 2026-10-11)
     return { c, id, tid };
   }
   /** As fotos de antes e de depois e os três ensaios: o que falta para concluir, fora o trabalho a mais. */
@@ -101,6 +102,11 @@ describe('trabalho a mais: o eletricista propõe, o CEO põe o preço, o cliente
     const antes = await pedidoConta(c, id);
     assert.deepEqual(antes.extras, []);
     assert.equal(antes.trabalho_a_mais, null);
+    // Com o sinal pago e a obra por confirmar a conta já sabe quanto falta pagar no fim (decisão do dono, 2026-10-11:
+    // a linha "Falta pagar no fim da obra"): o restante vem com o valor, ainda sem se poder pagar.
+    assert.deepEqual([antes.estado, antes.sinal.pago, antes.pode_pagar_restante], ['aceite', true, false]);
+    assert.deepEqual(antes.restante, { valor: Math.round((antes.proposta_iva.total - antes.sinal.valor) * 100) / 100, pago: false, obra_concluida: false });
+    assert.ok(antes.restante.valor > 0);
     assert.equal((await ficha(e, tid)).pode_extra, true);
     assert.deepEqual((await ficha(e, tid)).extras, []);
 
@@ -204,6 +210,8 @@ describe('trabalho a mais: o eletricista propõe, o CEO põe o preço, o cliente
     assert.ok(l.extras[0].quando);
     // O restante sobe exatamente o valor com IVA; o sinal já pago não muda; o total passa a levar o trabalho a mais.
     assert.equal(Math.round((l.restante.valor - antes.restante.valor) * 100), 12300);
+    // … e continua a ser só o aviso do que falta pagar no fim (com o trabalho a mais dentro): ainda não se paga.
+    assert.deepEqual([l.restante.pago, l.restante.obra_concluida, 'confirmada' in l.restante, l.pode_pagar_restante], [false, false, false, false]);
     assert.equal(Math.round((l.proposta_iva.total - antes.proposta_iva.total) * 100), 12300);
     assert.equal(Math.round((l.proposta_iva.base - antes.proposta_iva.base) * 100), 10000);
     assert.equal(l.sinal.valor, antes.sinal.valor);

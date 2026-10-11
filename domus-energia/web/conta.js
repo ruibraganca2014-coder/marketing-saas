@@ -12,6 +12,7 @@ import { reduzirFoto, ErroFoto, legendaCabecalho, MAX_BYTES_FOTO } from "./simul
 import { formatarEuroRedondo, textoDias } from "./simulador/preco.js";
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente } from "./simulador/quadro-desenho.js";
+import { confirmarEmDoisToques } from "./confirmar.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, texto) => {
@@ -239,7 +240,8 @@ function blocoExtras(p) {
         if (e instanceof ErroConta && e.estado === 409) carregar();
       }
     };
-    aceito.addEventListener("click", () => responder(aceito, "aceitar", {}));
+    // "Aceito" em dois toques (decisão do dono, 2026-10-11): é dinheiro a mais, e um toque sem querer não se desfaz.
+    confirmarEmDoisToques(aceito, `Confirmar: aceito pagar ${euro(x.valor_iva)}?`, () => responder(aceito, "aceitar", {}));
     naoAceito.addEventListener("click", () => { form.hidden = false; g.hidden = true; txt.focus(); });
     cancelar.addEventListener("click", () => { form.hidden = true; g.hidden = false; naoAceito.focus(); });
     sim.addEventListener("click", () => responder(sim, "recusar", { texto: txt.value }));
@@ -362,6 +364,13 @@ function blocoProposta(p) {
     }
   } else if (p.proposta.aceite && p.estado === "aceite") {
     b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${obraFeita(p) ? "" : precoDefinitivo(p) ? " Vamos marcar a visita consigo. Muitas vezes a obra fica feita nesse dia." : " Vamos contactá-lo para marcar a instalação."}`));
+    // Quanto falta pagar, logo depois do sinal (decisão do dono, 2026-10-11): com a obra ainda por confirmar é só o
+    // aviso, sem botão de pagar; o valor já leva o trabalho a mais que aceitou. Depois de confirmada fica o "Fim da obra".
+    if (p.sinal?.pago && p.restante && !p.restante.pago && !p.pode_pagar_restante && !obraFeita(p) && p.restante.valor > 0) {
+      const resto = el("p", "num conta-falta-pagar", `Falta pagar no fim da obra: ${euro(p.restante.valor)} (com IVA).${tm ? ` Inclui ${euro(tm.total)} de trabalho a mais.` : ""}`);
+      resto.id = `falta-pagar-${p.id}`;
+      b.append(resto);
+    }
     if (p.inicio_imediato) b.append(el("p", "ajuda", "Pediu para começarmos já: prescindiu do direito de livre resolução de 14 dias sobre o que for executado."));
     if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {

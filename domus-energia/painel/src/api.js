@@ -368,11 +368,15 @@ export function criarApi(ctx) {
     area: 'A morada está dentro da área servida.',
     contacto: 'O contacto do cliente está confirmado (telefone ou email).',
   };
+  const SEM_FOTO_QUADRO = 'Sem foto do quadro elétrico: peça-a ao cliente (Devolver ao cliente).';
   function pontosValidacao(o) {
     let funil = null;
     if (o.simulacao) { try { funil = JSON.parse(o.simulacao)?.funil ?? null; } catch { funil = null; } }
     const chaves = !o.simulacao ? ['area', 'contacto'] : funil === 'avaria' ? ['fotos_avaria', 'area', 'contacto'] : ['planta', 'foto_quadro', 'area', 'contacto'];
-    return chaves.map((k) => ({ chave: k, texto: PONTOS_VALIDACAO[k] }));
+    // Pedido com planta sem foto do quadro não se valida (decisão do dono, 2026-10-11): o ponto vem `em_falta` (o painel
+    // não o deixa marcar) e `validarPedido` recusa; o CEO devolve o pedido ao cliente para ele juntar a foto.
+    const semFotoQuadro = chaves.includes('foto_quadro') && !db.prepare("SELECT 1 FROM fotos WHERE orcamento_id = ? AND chave = 'quadro'").get(o.id);
+    return chaves.map((k) => (k === 'foto_quadro' && semFotoQuadro ? { chave: k, texto: SEM_FOTO_QUADRO, em_falta: true } : { chave: k, texto: PONTOS_VALIDACAO[k] }));
   }
   function formatarOrcamento(o, completo = false) {
     const r = {
@@ -2164,11 +2168,14 @@ export function criarApi(ctx) {
     const o = naoArquivado(obterOrcamento(params.id));
     if (o.validacao === 'validado') throw new ErroApi(409, 'Este pedido já está validado.');
     const marcados = v.pontos && typeof v.pontos === 'object' && !Array.isArray(v.pontos) ? v.pontos : {};
-    const falta = pontosValidacao(o).filter((p) => marcados[p.chave] !== true);
+    const pontos = pontosValidacao(o);
+    // Sem foto do quadro não há o que verificar: recusa mesmo que o pedido da API traga o ponto marcado.
+    if (pontos.some((p) => p.em_falta)) throw new ErroApi(409, 'Este pedido não tem foto do quadro elétrico: devolva-o ao cliente para a juntar.');
+    const falta = pontos.filter((p) => marcados[p.chave] !== true);
     if (falta.length) falha(`Falta verificar: ${falta.map((p) => p.texto).join(' ')}`);
     const agora = agoraIso();
     db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = NULL, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(u.email, agora, agora, o.id);
-    auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontosValidacao(o).map((p) => p.chave), bolsa: v.bolsa === true }, ip);
+    auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontos.map((p) => p.chave), bolsa: v.bolsa === true }, ip);
     // A validação fica feita mesmo que a bolsa não o aceite (ex.: falta pagar a visita): o painel diz porquê (`aviso`).
     let aviso = null;
     if (v.bolsa === true) {

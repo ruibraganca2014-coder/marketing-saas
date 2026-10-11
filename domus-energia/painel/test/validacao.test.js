@@ -5,6 +5,7 @@ import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
 
+const JPEG = (n = 2000) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(n, 1)]);
 const SIM = { versao: 1, casa: { tipo: 'moradia', tipologia: 'T2', localidade: 'Sintra' }, divisoes: [{ nome: 'Sala', interruptores: [2, 1], estores: 1 }] };
 
 describe('validação do CEO antes da bolsa', () => {
@@ -17,6 +18,11 @@ describe('validação do CEO antes da bolsa', () => {
     const r = await painel('POST', 'orcamentos', 'ceo', { nome: 'Carla Cliente', telefone: '912 345 678', email: 'carla@exemplo.pt', localidade: 'Sintra', servico: 'Remodelação elétrica' });
     assert.equal(r.estado, 201, r.texto);
     return r.json.id;
+  }
+  /** O cliente junta a foto do quadro ao pedido, na conta (sem ela um pedido com planta não se valida). */
+  async function fotoDoQuadro(c, id) {
+    const f = await conta('POST', `pedidos/${id}/fotos`, { cookie: c.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'quadro' } });
+    assert.equal(f.estado, 201, f.texto);
   }
 
   test('por validar: sem validar não vai para a bolsa; só o CEO valida e só com a lista toda; validar com bolsa põe-no lá', async () => {
@@ -61,6 +67,42 @@ describe('validação do CEO antes da bolsa', () => {
     assert.equal((await painel('GET', `orcamentos/${id}`)).json.validacao.estado, 'por_validar');
     assert.equal((await conta('POST', `pedidos/${id}/corrigido`, { cookie: c.cookie, corpo: {} })).estado, 409, 'já não está à espera');
   });
+  // Decisão do dono, 2026-10-11: um pedido com planta sem foto do quadro não se valida — o ponto vem "em falta" e o
+  // servidor recusa mesmo com o ponto marcado; com a foto, o ponto volta ao normal e o pedido valida-se.
+  test('pedido com planta sem foto do quadro: o ponto vem em falta e validar dá 409, mesmo com o ponto marcado; com a foto valida-se', async () => {
+    const c = await p.contaConfirmada();
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Conta', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua A, 1', simulacao: SIM } });
+    assert.equal(r.estado, 201, r.texto);
+    const id = p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id;
+    const todos = { planta: true, foto_quadro: true, area: true, contacto: true };
+    const pontos = async () => (await painel('GET', `orcamentos/${id}`)).json.validacao.pontos;
+    assert.deepEqual((await pontos()).find((x) => x.chave === 'foto_quadro'),
+      { chave: 'foto_quadro', texto: 'Sem foto do quadro elétrico: peça-a ao cliente (Devolver ao cliente).', em_falta: true });
+    assert.ok((await pontos()).filter((x) => x.chave !== 'foto_quadro').every((x) => !('em_falta' in x)), 'os outros pontos ficam como eram');
+    for (const corpo of [{ pontos: todos, bolsa: true }, { pontos: todos }]) {
+      const v = await painel('POST', `orcamentos/${id}/validar`, 'ceo', corpo);
+      assert.deepEqual([v.estado, v.json.erro], [409, 'Este pedido não tem foto do quadro elétrico: devolva-o ao cliente para a juntar.']);
+    }
+    assert.equal((await painel('GET', `orcamentos/${id}`)).json.validacao.estado, 'por_validar');
+    assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE orcamento_id = ?').get(id).n, 0, 'não foi para a bolsa');
+    // "Devolver ao cliente" continua a funcionar; o cliente junta a foto e diz "Já corrigi".
+    assert.equal((await painel('POST', `orcamentos/${id}/devolver-cliente`, 'ceo', { nota: 'Falta a foto do quadro elétrico.' })).estado, 200);
+    // Uma foto de uma divisão não conta: tem de ser a do quadro.
+    assert.equal((await conta('POST', `pedidos/${id}/fotos`, { cookie: c.cookie, corpo: JPEG(), tipo: 'image/jpeg', cabecalhos: { 'X-Foto-Chave': 'conta1:outra' } })).estado, 201);
+    assert.equal((await pontos()).find((x) => x.chave === 'foto_quadro').em_falta, true);
+    await fotoDoQuadro(c, id);
+    assert.equal((await conta('POST', `pedidos/${id}/corrigido`, { cookie: c.cookie, corpo: {} })).estado, 200);
+    assert.deepEqual((await pontos()).find((x) => x.chave === 'foto_quadro'), { chave: 'foto_quadro', texto: 'A foto do quadro elétrico lê-se.' });
+    assert.equal((await painel('POST', `orcamentos/${id}/validar`, 'ceo', { pontos: { ...todos, foto_quadro: false } })).estado, 400, 'com a foto, o ponto continua a ter de ser marcado');
+    const v = await painel('POST', `orcamentos/${id}/validar`, 'ceo', { pontos: todos, bolsa: true });
+    assert.equal(v.estado, 200, v.texto);
+    assert.equal(v.json.validacao.estado, 'validado');
+  });
+  test('pedido sem planta: não pede a foto do quadro e valida-se como antes', async () => {
+    const id = await pedidoPainel();
+    assert.ok((await painel('GET', `orcamentos/${id}`)).json.validacao.pontos.every((x) => !('em_falta' in x)));
+    assert.equal((await painel('POST', `orcamentos/${id}/validar`, 'ceo', { pontos: { area: true, contacto: true } })).estado, 200);
+  });
   test('"Não aceito": só com proposta por aceitar e com motivo; o pedido volta a por validar com o motivo, o trabalho da bolsa é retirado e o CEO volta a validar', async () => {
     const c = await p.contaConfirmada();
     const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Conta', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua A, 1', simulacao: SIM } });
@@ -68,6 +110,7 @@ describe('validação do CEO antes da bolsa', () => {
     const id = p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id;
     const todos = { planta: true, foto_quadro: true, area: true, contacto: true };
     assert.equal((await conta('POST', `pedidos/${id}/recusar`, { cookie: c.cookie, corpo: { motivo: 'preco' } })).estado, 409, 'ainda sem proposta');
+    await fotoDoQuadro(c, id);   // sem a foto do quadro o pedido com planta não se valida (decisão do dono, 2026-10-11)
     assert.equal((await painel('POST', `orcamentos/${id}/validar`, 'ceo', { pontos: todos, bolsa: true })).estado, 200);
     assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 800 })).estado, 200);
     const antes = (await conta('GET', 'pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === id);

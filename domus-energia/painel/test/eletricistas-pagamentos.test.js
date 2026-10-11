@@ -159,7 +159,10 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
   }
   /** O eletricista faz o trabalho todo: visita marcada, fotos de antes e de depois, os três ensaios e "concluído". */
   async function fazer(e, tid, { avaria = false } = {}) {
-    if (linha(tid).estado === 'aceite') assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    if (linha(tid).estado === 'aceite') {
+      assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+      p.relogio.avancar(31 * HORA);   // «Obra concluída» só a partir da hora da visita (decisão do dono, 2026-10-11)
+    }
     for (const g of ['quadro_antes', 'quadro_depois']) {
       const f = await p.pedir('POST', `/api/eletricista/trabalhos/${tid}/fotos/${g}`, { cookie: e.cookie, corpo: JPEG, tipo: 'image/jpeg' });
       assert.equal(f.estado, 201, f.texto);

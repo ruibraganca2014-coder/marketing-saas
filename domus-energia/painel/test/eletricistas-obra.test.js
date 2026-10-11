@@ -337,6 +337,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal(r.estado, 409);
     assert.match(r.json.erro, /Ainda falta: marcar a visita; uma foto de antes/);
     assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    p.relogio.avancar(31 * HORA);   // «Obra concluída» só a partir da hora da visita (decisão do dono, 2026-10-11)
     assert.equal((await enviarFoto(e, tid, 'pontos_antes')).estado, 201);
     assert.match((await concluir()).json.erro, /^Ainda falta: uma foto de depois; ensaio/);
     assert.equal((await enviarFoto(e, tid, 'quadro_depois', PNG, 'image/png')).estado, 201);
@@ -391,6 +392,51 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal((await area(e, 'GET', `trabalhos/${tid}`)).estado, 404);
   });
 
+  // Decisão do dono, 2026-10-11: o trabalho só se dá por concluído a partir da hora marcada para a visita. Quem foi mais
+  // cedo muda primeiro a data da visita (para trás, até 7 dias; a primeira marcação continua a ser só no futuro).
+  test('"Obra concluída" só a partir da hora da visita: antes dá 409 e `falta` diz porquê; depois da hora conclui; remarcar para trás (até 7 dias) também', async () => {
+    const e = await aprovado();
+    const dataTexto = (quando) => new Date(`${quando}:00Z`).toLocaleString('pt-PT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    const pronto = async (tid) => {
+      assert.equal((await enviarFoto(e, tid, 'quadro_antes')).estado, 201);
+      assert.equal((await enviarFoto(e, tid, 'quadro_depois')).estado, 201);
+      assert.equal((await area(e, 'POST', `trabalhos/${tid}/ensaios`, { isolamento: 200, terra: 40, diferencial: 28 })).estado, 200);
+    };
+    const concluir = (tid) => area(e, 'POST', `trabalhos/${tid}/concluir`, {});
+    // ---- pelo relógio: 409 até à hora da visita, 200 a partir dela
+    const { id, tid } = await trabalhoDe(e, { visita: false });
+    const quando = lisboa(p.relogio.agora() + 30 * HORA);
+    assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: quando })).estado, 200);
+    await pronto(tid);
+    assert.deepEqual((await ficha(e, tid)).falta, [`a visita ainda não aconteceu (marcada para ${dataTexto(quando)})`]);
+    assert.deepEqual((await atribuicao(id)).json.trabalho.falta, [`a visita ainda não aconteceu (marcada para ${dataTexto(quando)})`], 'o painel vê o mesmo');
+    let r = await concluir(tid);
+    assert.deepEqual([r.estado, r.json.erro], [409, `A visita está marcada para ${dataTexto(quando)}. Se já fez o trabalho, mude primeiro a data da visita.`]);
+    p.relogio.avancar(29 * HORA);
+    assert.equal((await concluir(tid)).estado, 409, 'uma hora antes ainda não');
+    p.relogio.avancar(HORA + 60_000);
+    assert.deepEqual((await ficha(e, tid)).falta, []);
+    r = await concluir(tid);
+    assert.equal(r.estado, 200, r.texto);
+    assert.equal(r.json.trabalho.estado, 'concluida_eletricista');
+    // ---- foi mais cedo: muda a data da visita para a verdadeira (passada) e conclui
+    const outro = await trabalhoDe(e, { visita: false });
+    const visita = (data) => area(e, 'POST', `trabalhos/${outro.tid}/visita`, { data_visita: data });
+    assert.equal((await visita(lisboa(p.relogio.agora() - HORA))).estado, 400, 'a primeira marcação é só no futuro');
+    assert.equal((await visita(lisboa(p.relogio.agora() + 30 * HORA))).estado, 200);
+    await pronto(outro.tid);
+    assert.equal((await concluir(outro.tid)).estado, 409);
+    r = await visita(lisboa(p.relogio.agora() - 8 * 24 * HORA));
+    assert.deepEqual([r.estado, r.json.erro], [400, 'A data da visita não pode ser de há mais de 7 dias.']);
+    p.emails.length = 0;
+    const real = lisboa(p.relogio.agora() - 2 * HORA);
+    r = await visita(real);
+    assert.equal(r.estado, 200, r.texto);
+    assert.deepEqual([r.json.trabalho.visita, r.json.trabalho.estado, r.json.trabalho.falta], [real, 'visita_marcada', []]);
+    assert.deepEqual(p.emails.filter((m) => /visita marcada/.test(m.assunto)), [], 'uma data passada não manda "visita marcada" ao cliente');
+    assert.equal((await concluir(outro.tid)).estado, 200);
+  });
+
   test('avaria e visita técnica: concluir pede o mesmo que a obra (visita marcada, foto de antes, foto de depois e os três ensaios); a avaria também a conclusão do diagnóstico', async () => {
     const e = await aprovado();
     const c = await p.contaConfirmada();
@@ -400,6 +446,8 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     const id = pago.json.pagamento.orcamento_id;
     const tid = (await atribuicao(id, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
     assert.equal((await area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    assert.match((await area(e, 'POST', `trabalhos/${tid}/concluir`, {})).json.erro, /^A visita está marcada para .+\. Se já fez o trabalho, mude primeiro a data da visita\.$/, 'na avaria também: só a partir da hora da visita');
+    p.relogio.avancar(31 * HORA);   // «Obra concluída» só a partir da hora da visita (decisão do dono, 2026-10-11)
     let f = await ficha(e, tid);
     const ENSAIOS = ['ensaio: resistência de isolamento', 'ensaio: disparo do diferencial', 'ensaio: resistência de terra'];
     assert.deepEqual(f.falta, ['uma foto de antes', 'uma foto de depois', ...ENSAIOS, 'a conclusão do diagnóstico']);
@@ -435,6 +483,9 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     const tv = (await atribuicao(vis.json.pedido, { acao: 'atribuir', eletricista_id: e.id })).json.trabalho.id;
     assert.deepEqual((await ficha(e, tv)).falta, ['marcar a visita', 'uma foto de antes', 'uma foto de depois', ...ENSAIOS]);
     assert.equal((await area(e, 'POST', `trabalhos/${tv}/visita`, { data_visita: lisboa(p.relogio.agora() + 30 * HORA) })).estado, 200);
+    assert.ok((await ficha(e, tv)).falta.some((x) => /^a visita ainda não aconteceu \(marcada para .+\)$/.test(x)), 'na visita técnica também');
+    assert.match((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).json.erro, /^A visita está marcada para /);
+    p.relogio.avancar(31 * HORA);   // «Obra concluída» só a partir da hora da visita (decisão do dono, 2026-10-11)
     assert.equal((await enviarFoto(e, tv, 'quadro_antes')).estado, 201);
     assert.equal((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).estado, 409, 'a foto de antes já não chega');
     assert.equal((await enviarFoto(e, tv, 'quadro_depois')).estado, 201);

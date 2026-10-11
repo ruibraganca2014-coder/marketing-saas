@@ -498,12 +498,18 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * O relatório técnico para o eletricista, montado campo a campo a partir do relatório do cliente: lista de trabalho
    * e material por divisão (artigo e quantidade), planta técnica, esquemas e esquema do quadro. SEM preços, totais,
    * mão de obra, deslocação ou número do pedido. `completo` (só depois de atribuído): junta a lista de ensaios e o
-   * diagnóstico registados no painel.
+   * diagnóstico registados no painel. `soComprado` (obra com proposta aceite; decisão do dono, 2026-10-11): sem o material da
+   * simulação (o das divisões, o "Quadro elétrico e geral" e as melhorias) — o cliente comprou o material da proposta,
+   * que vai em `material` ("Material a levantar"). Ficam a lista de trabalho por divisão, a planta e os esquemas.
    */
-  function relatorioTecnico(rel, completo) {
+  function relatorioTecnico(rel, completo, soComprado = false) {
     if (!rel) return null;
     const mat = (linhas) => linhas.map((l) => ({ artigo: l.artigo, quantidade: l.quantidade }));
-    const r = {
+    const r = soComprado ? {
+      acoes: rel.acoes,
+      divisoes: rel.divisoes.map((d) => ({ nome: d.nome, trabalho: d.trabalho })),
+      planta: rel.planta, esquemas: rel.esquemas, terra_nota: rel.terra_nota, esquema_quadro: rel.esquema_quadro,
+    } : {
       acoes: rel.acoes,
       divisoes: rel.divisoes.map((d) => ({ nome: d.nome, trabalho: d.trabalho, material: mat(d.material) })),
       geral: { titulo: rel.geral.titulo, material: mat(rel.geral.material) },
@@ -559,16 +565,19 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     };
     if (!completo) return r;
     r.cliente = estaAberto && !espera ? { nome: o.nome, telefone: o.telefone ?? null, morada: o.morada ?? null, localidade: o.localidade ?? null } : null;
-    r.relatorio = estaAberto ? relatorioTecnico(rel, !espera) : null;
-    r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
     // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
     r.proposta = estaAberto ? propostaDe(t) : null;
     // Obra vinda de proposta (propostas na bolsa): o preço que o cliente aceitou é definitivo — a ficha avisa que trabalho
     // a mais só com o cliente a aceitar primeiro (decisão do dono, 2026-10-11).
     if (config.propostasBolsa && t.tipo === 'obra' && r.proposta) r.de_proposta = true;
+    // Na obra com proposta aceite o eletricista vê só o que o cliente comprou (decisão do dono, 2026-10-11): o relatório
+    // vai sem o material da simulação e o quadro sem a casa (sem ela a área dele não calcula o "quadro ideal").
+    r.relatorio = estaAberto ? relatorioTecnico(rel, !espera, r.de_proposta === true) : null;
+    r.material = estaAberto ? materialDoTrabalho(t, o, rel) : [];
     // Quadro elétrico (decisão do dono, 2026-10-05): o existente, que o eletricista desenha (pela foto ou na visita), e a
     // casa do pedido (planta, potência e fases), para a área dele calcular o quadro ideal e o que falta.
     r.quadro = estaAberto ? quadroDoPedido(o, r) : null;
+    if (r.de_proposta && r.quadro) r.quadro.casa = null;
     if (espera && r.quadro) r.quadro.pode_desenhar = false;
     r.pode_proposta = estaAberto && t.tipo !== 'obra' && t.estado === 'visita_marcada';
     // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
@@ -622,7 +631,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const recebido = new Set(recebidoDe(t));
     // Com proposta do eletricista no trabalho (propostas na bolsa), o material é o que ele propôs e o cliente aceitou.
     const p = config.propostasBolsa && t.tipo === 'obra' ? propostaDe(t) : null;
-    const lista = p?.material?.length ? p.material.map((m) => ({ nome: m.nome, quantidade: m.qtd })) : materialDe(o, t.tipo, rel);
+    const lista = p ? p.material.map((m) => ({ nome: m.nome, quantidade: m.qtd })) : materialDe(o, t.tipo, rel);
     return lista.map((m) => ({ ...m, recebido: recebido.has(m.nome) }));
   }
 
@@ -678,6 +687,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (t.tipo === 'avaria' && !diagnosticoDoPedido(o)?.conclusao) falta.push('a conclusão do diagnóstico');
     // Trabalho a mais à espera da Domus Energia ou do cliente: a obra não se dá por concluída sem a resposta.
     if (extraPendente(t.id)) falta.push('a resposta ao trabalho a mais');
+    // Só se conclui a partir da hora marcada para a visita (decisão do dono, 2026-10-11).
+    if (visitaPorAcontecer(t)) falta.push(`a visita ainda não aconteceu (marcada para ${dataTexto(t.visita)})`);
     return falta;
   }
 
@@ -699,7 +710,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const ligacaoConta = () => (config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []);
   /** "sexta-feira, 9 de outubro, 10:00" a partir de "AAAA-MM-DDTHH:MM" (hora de Lisboa, sem fuso: formata-se tal e qual). */
   const dataTexto = (quando) => new Date(`${quando}:00Z`).toLocaleString('pt-PT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-  const agoraLisboa = () => new Date(relogio()).toLocaleString('sv-SE', { timeZone: 'Europe/Lisbon' }).slice(0, 16).replace(' ', 'T');
+  const agoraLisboa = (desvioMs = 0) => new Date(relogio() + desvioMs).toLocaleString('sv-SE', { timeZone: 'Europe/Lisbon' }).slice(0, 16).replace(' ', 'T');
+  /** A visita marcada ainda não chegou (as duas são hora de Lisboa sem fuso, "AAAA-MM-DDTHH:MM": comparam-se como texto). */
+  const visitaPorAcontecer = (t) => Boolean(t.visita) && t.visita > agoraLisboa();
+  // Remarcar para trás (decisão do dono, 2026-10-11): quem foi mais cedo regista a data verdadeira, até 7 dias antes.
+  const REMARCAR_ATRAS_MS = 7 * 86_400_000;
 
   /**
    * O eletricista deixou o trabalho (largou-o, ou passaram as 48 h): um trabalho da bolsa volta à bolsa; um atribuído
@@ -888,7 +903,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const { t, o } = meuEditavel(e, params.id);
     const quando = diaHora(v.data_visita, 'a data da visita');
     if (!quando || !/T\d{2}:\d{2}$/.test(quando)) falha('Indique o dia e a hora da visita.');
-    if (quando <= agoraLisboa()) falha('Escolha um dia e uma hora no futuro.');
+    // A primeira marcação é sempre no futuro. Com a visita já marcada aceita-se uma data passada (até 7 dias): o
+    // eletricista que foi mais cedo regista a data verdadeira, e só assim pode dar o trabalho por concluído.
+    const passada = quando <= agoraLisboa();
+    if (passada && !t.visita) falha('Escolha um dia e uma hora no futuro.');
+    if (passada && quando < agoraLisboa(-REMARCAR_ATRAS_MS)) falha('A data da visita não pode ser de há mais de 7 dias.');
     const agora = agoraIso();
     const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'visita_marcada', visita = ?, atualizado = ?
       WHERE id = ? AND eletricista_id = ? AND estado IN ('aceite', 'visita_marcada')`).run(quando, agora, t.id, e.id);
@@ -897,7 +916,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     else db.prepare("UPDATE orcamentos SET data_visita = ?, estado = CASE WHEN estado IN ('novo', 'contactado') THEN 'visita_marcada' ELSE estado END, visita_faltou = NULL, atualizado = ? WHERE id = ?").run(quando, agora, o.id);
     evento(t, 'visita_marcada', e.id, `eletricista:${e.id}`);
     auditar(quem(e), 'visita_marcada', `orcamento:${o.id}`, { data_visita: quando, trabalho: t.id, por: 'eletricista externo' }, ip);
-    const email = emailCliente(o);
+    // Uma data passada é só o registo de quando a visita foi: o cliente não recebe "visita marcada" para um dia que já passou.
+    const email = passada ? null : emailCliente(o);
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: visita marcada', resumo: `visita do pedido ${o.id} marcada para ${quando}`,
         texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} está marcada para ${dataTexto(quando)}.`, 'Vai a sua casa um técnico em nome da Domus Energia.', ...(t.tipo === 'obra' && pagamentos().visitaIncluida(o) ? ['Se for possível, a obra fica feita nesse dia.'] : []),
@@ -1403,6 +1423,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     expirar();
     const { t, o } = meuEditavel(e, params.id);
     if (extraPendente(t.id)) throw new ErroApi(409, 'Há um trabalho a mais à espera de resposta.');
+    if (visitaPorAcontecer(t)) throw new ErroApi(409, `A visita está marcada para ${dataTexto(t.visita)}. Se já fez o trabalho, mude primeiro a data da visita.`);
     const falta = faltaParaConcluir(t, o);
     if (falta.length) throw new ErroApi(409, `Ainda falta: ${falta.join('; ')}.`);
     const agora = agoraIso();
