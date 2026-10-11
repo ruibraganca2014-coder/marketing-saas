@@ -1,0 +1,13 @@
+# Domus Energia — corre domus-copia.service todas as noites às 03:30 (hora do
+# servidor, UTC). Persistent: se o servidor estava desligado a essa hora, corre
+# quando voltar a ligar.
+[Unit]
+Description=Domus Energia: cópia de segurança (todas as noites)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=domus-copia.service
+
+[Install]
+WantedBy=timers.target

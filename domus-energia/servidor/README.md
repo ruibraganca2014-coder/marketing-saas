@@ -290,9 +290,7 @@ sudo tar czf ~/domus-backup-$(date +%F).tar.gz dados mosquitto/seguranca .env co
 sudo chown "$USER" ~/domus-backup-*.tar.gz   # para o poder copiar com scp
 ```
 
-Copia o ficheiro para fora do VPS (ex.: `scp ubuntu@51.38.10.20:domus-backup-*.tar.gz .`). Para uma cópia diária automática: `sudo crontab -e` e acrescenta (com a pasta da tua instalação)
-`15 3 * * * cd /opt/domus/domus-energia/servidor && tar czf /root/domus-backup-$(date +\%u).tar.gz dados mosquitto/seguranca .env config-site`
-(instalação manual: `cd /home/ubuntu/marketing-saas/domus-energia/servidor`; guarda os últimos 7 dias, em `/root`). Para repor: parar (`sudo docker compose down`), extrair o `.tar.gz` na pasta `servidor/` com `sudo tar xzpf …` (mantém donos e permissões) e `sudo docker compose up -d`.
+Copia o ficheiro para fora do VPS (ex.: `scp ubuntu@51.38.10.20:domus-backup-*.tar.gz .`). **Cópia automática de todas as noites** (instalada pelo `instalar.sh`): o `domus-copia.timer` corre o `copia.sh` às 03:30 (hora do servidor). Faz a mesma cópia para `/root/domus-copias/domus-copia-AAAAMMDD-HHMMSS.tar.gz`, confirma que o ficheiro se lê e que a base de dados do painel lá dentro está inteira, e guarda as últimas 30. O resultado da última fica em `/root/domus-copias/ultima.txt` (`OK …` ou `FALHOU …`); ver também `systemctl status domus-copia.service`. À mão: `sudo bash copia.sh`. Estas cópias ficam no próprio servidor: não protegem se o servidor se perder. Para repor: parar (`sudo docker compose down`), extrair o `.tar.gz` na pasta `servidor/` com `sudo tar xzpf …` (mantém donos e permissões) e `sudo docker compose up -d`.
 
 ## 13. Atualizar
 

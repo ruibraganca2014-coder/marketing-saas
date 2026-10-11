@@ -1,0 +1,16 @@
+# Domus Energia — cópia de segurança de todas as noites, verificada (copia.sh):
+#   dados/, mosquitto/seguranca, .env e config-site para /root/domus-copias,
+#   guardadas as últimas 30. Resultado da última em /root/domus-copias/ultima.txt.
+# Corrido por domus-copia.timer. O instalar.sh instala isto sozinho.
+# Ver se correu:  systemctl status domus-copia.service ; cat /root/domus-copias/ultima.txt
+[Unit]
+Description=Domus Energia: cópia de segurança verificada
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/domus-energia/servidor
+ExecStart=/usr/bin/env bash /home/ubuntu/domus-energia/servidor/copia.sh
+TimeoutStartSec=900
+Nice=10

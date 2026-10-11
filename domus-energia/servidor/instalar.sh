@@ -545,7 +545,7 @@ criar_utilizadores() {
 }
 
 instalar_temporizadores() {
-  passo "Temporizadores systemd (planos: 1 min; pedidos do painel: 5 s)"
+  passo "Temporizadores systemd (planos: 1 min; pedidos do painel: 5 s; cópia de segurança: todas as noites)"
   local f nome
   for f in "$SERV"/systemd/*.service "$SERV"/systemd/*.timer; do
     nome="${f##*/}"
@@ -557,8 +557,8 @@ instalar_temporizadores() {
     fi
   done
   correr systemctl daemon-reload
-  correr systemctl enable --quiet domus-planos.timer domus-pedidos.timer
-  correr systemctl restart domus-planos.timer domus-pedidos.timer
+  correr systemctl enable --quiet domus-planos.timer domus-pedidos.timer domus-copia.timer
+  correr systemctl restart domus-planos.timer domus-pedidos.timer domus-copia.timer
   if [[ -f /etc/cron.d/domus-planos ]]; then
     aviso "existe /etc/cron.d/domus-planos (alternativa em cron): apague-o para não correr duas vezes"
   fi
