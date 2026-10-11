@@ -5,6 +5,8 @@
 //    outro aos 7 e, a seguir, uma tarefa para os CEO ("Ligar a … — pagamento em falta"); depois não sai mais nada;
 // 4. depois da obra — 2 dias depois de concluída: um guia curto da conta e da área de cliente e o pedido de avaliação
 //    (1 a 5 estrelas, na conta). É o único que leva "Não quero receber" (ligação assinada, sem sessão; RFC 8058).
+// E um quinto (decisão do dono, 2026-10-11): falta confirmar o trabalho — 5 dias depois de o eletricista o dar por
+// concluído sem resposta do cliente; o envio fica em `trabalhos_eletricista.lembrete_confirmar` (migração 49).
 // Cada envio fica em `emails_automaticos` com uma chave única, ANTES de enviar (nunca sai duas vezes, também depois de
 // reiniciar o painel; um envio falhado não se repete) e sem o endereço nem o corpo. Corre na volta dos lembretes do CRM
 // (tarefas.js, de 15 em 15 minutos) e, as boas-vindas, logo ao receber o pedido. Entre as 21:00 e as 08:00 de Lisboa não
@@ -17,6 +19,7 @@ import { falha } from './validar.js';
 import { ESTADO_ARQUIVADO } from './db.js';
 import { iso, diaLisboa, somarDiasCivil } from './util.js';
 import { horaLisboa, agoraLisboa } from './crm.js';
+import { PRAZO_CONFIRMAR_MS } from './eletricistas.js';
 
 const DIA_MS = 24 * 3600_000;
 /** Não se envia entre as 21:00 e as 08:00 (Lisboa): o que for devido fica para a primeira volta depois das 08:00. */
@@ -25,6 +28,8 @@ const SILENCIO_DE = '21:00', SILENCIO_ATE = '08:00';
 const JANELA_BOAS_VINDAS_MS = DIA_MS;
 /** Tolerância dos outros (painel parado, pagamento aberto): 7 dias depois de devido, o email já não sai. */
 const JANELA_MS = 7 * DIA_MS;
+/** Trabalho dado por concluído pelo eletricista e ainda sem resposta do cliente: o lembrete sai ao 5.º dia (ao 7.º fica aceite). */
+const DIAS_LEMBRETE_CONFIRMAR = 5;
 /** Estados de um pedido ainda em curso antes da obra (boas-vindas e lembrete da visita). */
 const ABERTOS = ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'];
 /**
@@ -312,6 +317,38 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     return n;
   }
 
+  // ------------------------------------------------------------ 5. falta confirmar o trabalho (lembrete ao 5.º dia)
+  /** "sábado, 17 de outubro": o dia (em Lisboa) de um instante. */
+  const diaTexto = (ms) => new Date(ms).toLocaleDateString('pt-PT', { timeZone: 'Europe/Lisbon', weekday: 'long', day: 'numeric', month: 'long' });
+  /**
+   * Decisão do dono, 2026-10-11: o eletricista deu o trabalho por concluído há 5 dias e o cliente ainda não respondeu
+   * na conta. Sai um lembrete, uma só vez por conclusão; ao 7.º dia o trabalho fica aceite (eletricistas.js expirar).
+   * Só a clientes com conta (é lá que se confirma). O envio fica em `trabalhos_eletricista.lembrete_confirmar`
+   * (migração 49), marcado ANTES de enviar: não se repete depois de reiniciar. Se o cliente respondeu ou o trabalho
+   * mudou de estado, já não está `concluida_eletricista` e não sai nada; concluído de novo, a data nova é posterior ao
+   * lembrete antigo e ele volta a poder sair. Não usa `emails_automaticos`: a lista de tipos dessa tabela é fechada.
+   */
+  function confirmarTrabalho(agora) {
+    const porConfirmar = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE estado = 'concluida_eletricista' AND concluida <= ? AND concluida > ?
+      AND (lembrete_confirmar IS NULL OR lembrete_confirmar < concluida)`).all(iso(agora - DIAS_LEMBRETE_CONFIRMAR * DIA_MS), iso(agora - PRAZO_CONFIRMAR_MS));
+    let n = 0;
+    for (const t of porConfirmar) {
+      const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(t.orcamento_id);
+      const para = o?.conta_id ? destinatario(o) : null;
+      if (!para) continue;
+      const marcou = db.prepare(`UPDATE trabalhos_eletricista SET lembrete_confirmar = ? WHERE id = ? AND estado = 'concluida_eletricista' AND concluida = ?
+        AND (lembrete_confirmar IS NULL OR lembrete_confirmar < concluida)`).run(iso(agora), t.id, t.concluida).changes;
+      if (!marcou) continue;
+      const feito = Date.parse(t.concluida);
+      correio.enviar({ para, assunto: 'Domus Energia: falta confirmar o trabalho em sua casa', resumo: `email automático (confirmar trabalho) do pedido ${o.id}`,
+        texto: ['Olá,', '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id} em ${diaTexto(feito)}.`,
+          'Na sua conta pode confirmar que ficou tudo bem ou dizer-nos o que falta.',
+          `Se não disser nada até ${diaTexto(feito + PRAZO_CONFIRMAR_MS)}, consideramos o trabalho aceite.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+      n++;
+    }
+    return n;
+  }
+
   // ------------------------------------------------------------ a volta (de 15 em 15 minutos, tarefas.js)
   /** Envia o que for devido agora; nas horas de silêncio não faz nada. Devolve quantos emails saíram. */
   function verificar() {
@@ -321,7 +358,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const pz = prazos();
     let n = 0;
     for (const o of db.prepare("SELECT * FROM orcamentos WHERE origem = 'site' AND anonimizado IS NULL AND criado >= ? ORDER BY id").all(iso(agora - JANELA_BOAS_VINDAS_MS))) if (boasVindas(o)) n++;
-    return n + visitas(agora, pz) + emFalta(agora, pz) + depoisDaObra(agora, pz);
+    return n + visitas(agora, pz) + emFalta(agora, pz) + depoisDaObra(agora, pz) + confirmarTrabalho(agora);
   }
 
   // ------------------------------------------------------------ avaliação na conta (1 a 5 estrelas)

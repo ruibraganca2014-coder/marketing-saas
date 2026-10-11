@@ -141,11 +141,14 @@ describe('obra, casa, faltas e devoluções (modo simulado)', () => {
     assert.ok((await painel('GET', 'obras', 'tecnico')).json.obras.some((o) => o.id === obraId));
     l = await pedidoConta(c, id);
     assert.deepEqual([l.estado_texto, l.obra.data], ['Instalação marcada.', '2026-11-20']);
+    // Com data marcada e ainda por fazer: o passo tem a data mas não está feito (decisão do dono, 2026-10-11).
+    assert.deepEqual([l.passos.find((s) => s.chave === 'obra').feito, l.passos.find((s) => s.chave === 'obra').data], [false, '2026-11-20']);
     // "Ligar casa" continua bloqueado até ao restante.
     assert.equal((await painel('POST', `orcamentos/${id}/converter`, 'ceo', { codigo: 'carla' })).estado, 409);
     assert.equal((await painel('POST', `orcamentos/${id}/obra-concluida`, 'ceo', {})).estado, 200);
     assert.equal(obrasDe(id)[0].estado, 'concluida');
     assert.equal((await painel('POST', `orcamentos/${id}/converter`, 'ceo', { codigo: 'carla' })).estado, 409, 'obra feita mas por pagar');
+    assert.equal((await pedidoConta(c, id)).passos.find((s) => s.chave === 'obra').feito, true, 'obra concluída: o passo fica feito');
     await pagar(c, id, 'restante');
     assert.equal((await painel('GET', 'obras')).json.obras.find((o) => o.id === obraId).casa, 'por_ligar');
     // Restante pago: ligar a casa (só o código) — a MESMA obra, com a data e o técnico que já tinha.

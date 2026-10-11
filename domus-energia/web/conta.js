@@ -285,7 +285,8 @@ function cartaoPedido(p) {
   for (const s of p.passos ?? []) {
     const li = el("li", s.feito ? "feito" : null, s.texto);
     // Uma data só com o dia (obra marcada sem hora) mostra-se sem hora: lida como data, dava "às 01:00".
-    if (s.feito && s.data && s.chave !== "recebido") li.title = /^\d{4}-\d{2}-\d{2}$/.test(s.data) ? dataTxt(`${s.data}T12:00`) : dataTxt(s.data, true);
+    // A obra com data marcada e ainda por fazer (decisão do dono, 2026-10-11): sem o ✓, mas com a data, como nos outros.
+    if ((s.feito || s.chave === "obra") && s.data && s.chave !== "recebido") li.title = /^\d{4}-\d{2}-\d{2}$/.test(s.data) ? dataTxt(`${s.data}T12:00`) : dataTxt(s.data, true);
     passos.append(li);
   }
   c.append(passos);
@@ -297,7 +298,9 @@ function cartaoPedido(p) {
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
   // Com a obra feita já não se fala em marcar a instalação nem se mostra a data dela (pedido do teste, 2026-10-11).
   const feita = obraFeita(p);
-  if (!feita && p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
+  // Com o trabalho dado por concluído (falta a confirmação do cliente) a data marcada também já não se mostra.
+  const dadoPorConcluido = Boolean(p.obra) && p.confirmacao?.estado === "por_confirmar";
+  if (!feita && !dadoPorConcluido && p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
   else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", precoDefinitivo(p) ? "Visita e obra: vamos marcar a data consigo." : "Instalação: vamos marcar a data consigo."));
   // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
   // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)
@@ -329,6 +332,18 @@ const obraFeita = (p) => p.obra?.estado === "concluida" || Boolean(p.restante?.o
 // O preço da proposta é definitivo, salvo surpresa no local (decisão do dono, 2026-10-11): só nos pedidos com planta
 // do fluxo das propostas (`compras.visita.incluida`), em "A nossa proposta" e na janela de confirmar a aceitação.
 const PRECO_DEFINITIVO = "Este é o preço da obra. Só muda se, no local, a obra for diferente do que a planta e as fotos mostravam: nesse caso dizemos-lhe antes e só avançamos se aceitar.";
+/**
+ * A frase a seguir a "Aceitou a proposta…" (decisão do dono, 2026-10-11: não fica para trás): por marcar, "Vamos marcar
+ * a visita consigo…"; com a visita marcada, a data; com o trabalho dado por concluído ou a obra concluída, nada. No
+ * fluxo antigo (a instalação marca-se depois da visita técnica), "Vamos contactá-lo…" só enquanto não há data.
+ */
+function fraseDaVisita(p) {
+  // (Também depois de um "Não" do cliente: o trabalho voltou ao técnico e a data que ficou é a da visita já feita.)
+  if (obraFeita(p) || (p.obra && ["por_confirmar", "contestada"].includes(p.confirmacao?.estado))) return "";
+  const marcada = p.obra?.data ? (p.obra.hora ? dataTxt(`${p.obra.data}T${p.obra.hora}`, true) : dataTxt(`${p.obra.data}T12:00`)) : null;
+  if (!precoDefinitivo(p)) return marcada ? "" : " Vamos contactá-lo para marcar a instalação.";
+  return marcada ? ` A visita está marcada para ${marcada}.` : " Vamos marcar a visita consigo. Muitas vezes a obra fica feita nesse dia.";
+}
 const precoDefinitivo = (p) => Boolean(p.compras?.visita?.incluida);
 
 function blocoProposta(p) {
@@ -363,7 +378,7 @@ function blocoProposta(p) {
       b.append(ja.caixa, soMultibanco(p, p.sinal.valor), botaoPagar(p, "sinal", `Pagar o sinal (${euro(p.sinal.valor)})`, msg, () => ({ inicio_imediato: ja.entrada.checked })), msg);
     }
   } else if (p.proposta.aceite && p.estado === "aceite") {
-    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${obraFeita(p) ? "" : precoDefinitivo(p) ? " Vamos marcar a visita consigo. Muitas vezes a obra fica feita nesse dia." : " Vamos contactá-lo para marcar a instalação."}`));
+    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${fraseDaVisita(p)}`));
     // Quanto falta pagar, logo depois do sinal (decisão do dono, 2026-10-11): com a obra ainda por confirmar é só o
     // aviso, sem botão de pagar; o valor já leva o trabalho a mais que aceitou. Depois de confirmada fica o "Fim da obra".
     if (p.sinal?.pago && p.restante && !p.restante.pago && !p.pode_pagar_restante && !obraFeita(p) && p.restante.valor > 0) {

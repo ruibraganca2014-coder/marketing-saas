@@ -505,6 +505,76 @@ describe('avaliação na conta e convite do Google', () => {
   });
 });
 
+describe('falta confirmar o trabalho: lembrete ao 5.º dia (decisão do dono, 2026-10-11)', () => {
+  const LEMBRETE = /falta confirmar o trabalho/;
+  const lembretes = (email) => p.emails.filter((m) => m.para === email && LEMBRETE.test(m.assunto));
+  /** Um trabalho de um eletricista externo dado por concluído agora (à espera da confirmação do cliente). */
+  function concluido(id) {
+    const agora = new Date(p.relogio.agora()).toISOString();
+    db().prepare(`INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, concluida, criado, atualizado)
+      VALUES (?, 'visita', 'concluida_eletricista', 'direto', 'Sintra', ?, ?, ?)`).run(id, agora, agora, agora);
+    return Date.parse(agora);
+  }
+  const diaTexto = (ms) => new Date(ms).toLocaleDateString('pt-PT', { timeZone: 'Europe/Lisbon', weekday: 'long', day: 'numeric', month: 'long' });
+
+  test('não sai antes do 5.º dia; sai uma vez ao 5.º (reiniciar não repete); não sai a quem já respondeu; ao 7.º fica aceite; concluído de novo, volta a sair', async () => {
+    await ate('10:00');
+    const a = await pedidoConta();   // não responde
+    const b = await pedidoConta();   // confirma logo
+    const n = await pedidoConta();   // diz que falta alguma coisa
+    const t0 = concluido(a.id);
+    concluido(b.id);
+    concluido(n.id);
+    assert.equal((await conta(b.c, 'POST', `pedidos/${b.id}/confirmar-trabalho`, { concluido: true, estrelas: 5 })).estado, 200);
+    assert.equal((await conta(n.c, 'POST', `pedidos/${n.id}/confirmar-trabalho`, { concluido: false, descricao: 'Falta ligar a tomada da sala' })).estado, 200);
+    // Antes do 5.º dia: nada.
+    await avancar(4 * DIA + 23 * HORA);
+    E().verificar();
+    assert.deepEqual([a, b, n].map((x) => lembretes(x.c.email).length), [0, 0, 0]);
+    // Ao 5.º dia: só o que ainda está à espera do cliente.
+    await avancar(HORA + 5 * 60_000);
+    E().verificar();
+    assert.deepEqual([a, b, n].map((x) => lembretes(x.c.email).length), [1, 0, 0]);
+    const m = lembretes(a.c.email)[0];
+    assert.ok(m.texto.includes(`deu por concluído o trabalho do seu pedido n.º ${a.id} em ${diaTexto(t0)}.`), m.texto);
+    assert.ok(m.texto.includes(`Se não disser nada até ${diaTexto(t0 + 7 * DIA)}, consideramos o trabalho aceite.`), m.texto);
+    assert.match(m.texto, /A sua conta: https:\/\/site\.teste\/conta\.html/);
+    // Uma só vez: outra volta e o painel "reiniciado" não repetem.
+    E().verificar();
+    reiniciado().verificar();
+    assert.equal(lembretes(a.c.email).length, 1);
+    // O que voltou ao eletricista é concluído de novo: a contagem recomeça dessa conclusão.
+    const t1 = p.relogio.agora();
+    db().prepare("UPDATE trabalhos_eletricista SET estado = 'concluida_eletricista', concluida = ? WHERE orcamento_id = ?").run(new Date(t1).toISOString(), n.id);
+    // Ao 7.º dia o primeiro fica aceite, como sempre, e não há segundo lembrete.
+    await avancar(2 * DIA);
+    E().verificar();
+    await reentrar(a.c);
+    const pa = (await conta(a.c, 'GET', 'pedidos')).json.pedidos.find((x) => x.id === a.id);
+    assert.deepEqual([pa.confirmacao.estado, pa.confirmacao.automatica], ['confirmada', true]);
+    assert.deepEqual([a, b, n].map((x) => lembretes(x.c.email).length), [1, 0, 0]);
+    // 5 dias depois da segunda conclusão: o lembrete dessa conclusão.
+    await avancar(3 * DIA + 5 * 60_000);
+    E().verificar();
+    E().verificar();
+    assert.deepEqual([a, b, n].map((x) => lembretes(x.c.email).length), [1, 0, 1]);
+    assert.ok(lembretes(n.c.email)[0].texto.includes(`Se não disser nada até ${diaTexto(t1 + 7 * DIA)}, consideramos`));
+  });
+
+  test('pedido sem conta ou anonimizado: não recebe o lembrete', async () => {
+    await ate('10:00');
+    const s = await pedidoSite();
+    const a = await pedidoConta();
+    concluido(s.id);
+    concluido(a.id);
+    db().prepare('UPDATE orcamentos SET anonimizado = ? WHERE id = ?').run(new Date(p.relogio.agora()).toISOString(), a.id);
+    await avancar(5 * DIA + 5 * 60_000);
+    E().verificar();
+    assert.deepEqual([lembretes(s.email).length, lembretes(a.c.email).length], [0, 0]);
+    db().prepare('UPDATE orcamentos SET anonimizado = NULL WHERE id = ?').run(a.id);
+  });
+});
+
 describe('configuração e RGPD', () => {
   test('prazos: só o CEO, inteiros dentro dos limites, o segundo lembrete depois do primeiro; não saem no catálogo público', async () => {
     const cfg = (await api('ceo', 'GET', 'config-orcamento')).json;

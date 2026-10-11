@@ -269,6 +269,10 @@ describe('propostas na bolsa com os pagamentos ligados: o restante paga-se logo 
     l = await x.pedidoConta(c, id);
     assert.deepEqual([l.confirmacao.estado, l.pode_pagar_restante, l.restante.confirmada], ['por_confirmar', false, undefined]);
     assert.equal((await x.pagar(c, id, 'restante')).estado, 409);
+    // Decisão do dono, 2026-10-11: já não diz "Instalação marcada."; o passo "Visita e obra" tem a data mas ainda não está feito.
+    assert.equal(l.estado_texto, 'O trabalho foi dado por concluído. Falta a sua confirmação.');
+    let passoObra = l.passos.find((s) => s.chave === 'obra');
+    assert.deepEqual([passoObra.texto, passoObra.feito, passoObra.data], ['Visita e obra', false, `${l.obra.data}T${l.obra.hora}`]);
 
     // ---- "Não": volta ao eletricista; não há pagamento
     let r = await x.confirmar(c, id, { concluido: false, descricao: 'A tomada da cozinha continua sem corrente.' });
@@ -286,6 +290,8 @@ describe('propostas na bolsa com os pagamentos ligados: o restante paga-se logo 
     assert.deepEqual([r.json.pedido.confirmacao.estado, r.json.pedido.pode_pagar_restante, r.json.pedido.restante.confirmada, r.json.pedido.restante.obra_concluida, r.json.pedido.restante.valor],
       ['confirmada', true, true, false, restante]);
     assert.equal(r.json.pedido.estado_texto, 'Instalação concluída. A app fica ativa depois de pagar o restante.');
+    passoObra = r.json.pedido.passos.find((s) => s.chave === 'obra');
+    assert.equal(passoObra.feito, true, 'com o "Sim" do cliente a obra está feita');
     let ped = (await x.painel('GET', `orcamentos/${id}`)).json;
     assert.deepEqual([ped.obra_concluida, ped.obra.estado], [null, 'agendada'], 'no painel a obra só fica concluída com a aprovação do CEO');
     assert.equal((await x.meuPagamento(e, tid)).pagamento, 'a_aguardar_aprovacao');
@@ -412,7 +418,10 @@ describe('PROPOSTAS_BOLSA=0 com os pagamentos ligados: tudo como antes', () => {
     assert.equal('propostas_bolsa' in (await x.area(e, 'GET', 'trabalhos')).json, false);
     const r = await x.confirmar(c, id, { concluido: true, estrelas: 5 });
     assert.equal(r.estado, 200, r.texto);
-    assert.deepEqual([r.json.pedido.pode_pagar_restante, r.json.pedido.restante.confirmada, r.json.pedido.estado_texto], [false, undefined, 'Instalação marcada.']);
+    // O texto já não fica em "Instalação marcada." depois de o trabalho estar feito e confirmado (decisão do dono, 2026-10-11);
+    // o passo da obra só fica feito quando o CEO aprovar (é aí que a obra fica concluída neste fluxo).
+    assert.deepEqual([r.json.pedido.pode_pagar_restante, r.json.pedido.restante.confirmada, r.json.pedido.estado_texto], [false, undefined, 'Trabalho concluído.']);
+    assert.equal(r.json.pedido.passos.find((s) => s.chave === 'obra').feito, false);
     const n = await x.pagar(c, id, 'restante');
     assert.deepEqual([n.estado, n.json.erro], [409, 'O restante paga-se quando a obra estiver concluída.']);
     assert.equal((await x.atribuicao(id, { acao: 'aprovar' })).estado, 200);

@@ -238,8 +238,15 @@ export default function orcamentos(el, ctx) {
           const bSoValidar = ctx.eletricistas ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
             onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
           if (emFalta.length) { bValidar.disabled = true; if (bSoValidar) bSoValidar.disabled = true; }
-          const bDevolver = h("button", { class: "btn sec pequeno", type: "button", id: "devolver-cliente", text: "Devolver ao cliente",
-            onclick: (e) => (nota.value.trim() ? enviar(e.currentTarget, "devolver-cliente", { nota: nota.value }, "Pedido devolvido ao cliente: seguiu o email.") : (avisar("Escreva o que falta corrigir.", "erro"), nota.focus())) });
+          // "Devolver ao cliente" em dois toques (decisão do dono, 2026-10-11): o primeiro vê se o texto do que falta está
+          // escrito e só então arma; segue o texto desse primeiro toque (o cliente recebe-o por email).
+          let notaDevolver = null;
+          const bDevolver = botaoConfirmar("Devolver ao cliente", () => {
+            if (!nota.value.trim()) { avisar("Escreva o que falta corrigir.", "erro"); nota.focus(); return null; }
+            notaDevolver = nota.value;
+            return "Confirmar: devolver?";
+          }, (b) => enviar(b, "devolver-cliente", { nota: notaDevolver }, "Pedido devolvido ao cliente: seguiu o email."));
+          bDevolver.id = "devolver-cliente";
           sec.append(h("div", { class: "validacao-lista" }, ...caixas.map(([, l]) => l), ...emFalta.map((p) => h("p", { class: "msg erro validacao-em-falta", id: `validar-${campo(p, "chave")}-em-falta`, text: String(campo(p, "texto")) }))),
             ...(emFalta.length ? [h("p", { class: "ajuda", id: "validacao-bloqueada", text: "Não dá para validar enquanto faltar a foto do quadro elétrico. Escreva abaixo o que falta e devolva o pedido ao cliente." })] : []),
             h("div", { class: "form-botoes" }, bValidar, bSoValidar),
@@ -365,7 +372,17 @@ export default function orcamentos(el, ctx) {
       campo(pe, "notas") ? h("p", { class: "mensagem-cliente", text: String(campo(pe, "notas")) }) : null,
       h("p", { class: "ajuda", text: `Calculado sem IVA: mão de obra ${euros(pe.sugestao.mao_obra)}, material ${euros(pe.sugestao.material)}, deslocação ${euros(pe.sugestao.deslocacao)}. Reveja antes de enviar ao cliente.` }),
       h("button", { class: "btn sec pequeno", type: "button", id: "preencher-proposta-eletricista", text: "Preencher pela proposta do eletricista",
-        onclick: () => { pMao.value = pe.sugestao.mao_obra ?? ""; pMat.value = pe.sugestao.material ?? ""; pDes.value = pe.sugestao.deslocacao ?? ""; somar(); pMao.focus(); } })) : null;
+        onclick: (e) => {
+          pMao.value = pe.sugestao.mao_obra ?? ""; pMat.value = pe.sugestao.material ?? ""; pDes.value = pe.sugestao.deslocacao ?? ""; somar();
+          // Decisão do dono, 2026-10-11: com o "Texto da proposta" vazio, escreve-se um resumo simples para o cliente (as
+          // horas e o material pelo nome, sem preços por linha); o CEO revê e muda antes de enviar. Com texto, não se mexe.
+          const t = e.currentTarget.form?.elements.proposta_texto;
+          if (t && !t.value.trim()) {
+            const linhas = [`${String(campo(pe, "horas")).replace(".", ",")} h de trabalho`, ...lista(campo(pe, "material") ?? [], "material").map((m) => `${campo(m, "qtd")} × ${campo(m, "nome")}`)];
+            t.value = `Inclui: ${linhas.join("; ")}.${campo(pe, "visita_incluida") === true ? " Visita ao local incluída." : ""}`;
+          }
+          pMao.focus();
+        } })) : null;
     const blocoPartes = h("fieldset", { class: "grupo", id: "proposta-partes" }, h("legend", { text: "Proposta (€, sem IVA)" }),
       h("div", { class: "tres" }, campoForm("Mão de obra", pMao), campoForm("Material", pMat), campoForm("Deslocação", pDes)),
       faltaParte,

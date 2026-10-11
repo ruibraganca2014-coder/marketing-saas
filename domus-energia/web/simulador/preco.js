@@ -131,6 +131,16 @@ export function horasTroca(a) {
 // uma tomada — o quadro deixou de entrar sozinho no preço; entra se o cliente escolher "Melhorar" ou "Quadro novo"
 // (mexerQuadro). Se a obra precisar de mexer no quadro, isso vai na proposta, pela foto.
 export const quadroNoPedido = (s) => !Array.isArray(s?.servico) || s.mexerQuadro === true || (s.servico.includes("nova") && s.caminho !== "obras");
+/**
+ * Os circuitos como entram no pedido. Em "Obras" com o quadro em "Manter como está" (decisão do dono, 2026-10-11) não
+ * entram disjuntores inteligentes: a obra leva só o que o cliente marcou, e os circuitos novos ficam com disjuntor
+ * normal (sem `inteligente` nem `medir`). Voltam a entrar com "Melhorar" ou "Quadro novo" (mexerQuadro), ou pela
+ * melhoria "Poupar energia" (melhorias.js). Nos outros caminhos, os circuitos tal e qual. Não mexe no estado.
+ */
+export function circuitosDoPedido(s) {
+  const c = s?.quadro?.circuitos ?? [];
+  return s?.caminho === "obras" && !quadroNoPedido(s) ? c.map((x) => ({ ...x, inteligente: false, medir: false })) : c;
+}
 
 /** Artigo do catálogo para um pedido (por SKU; senão por categoria/especificações); null se não houver. */
 export function encontrarArtigo(chave, catalogo) {
@@ -151,7 +161,8 @@ const soma = (l, f) => l.reduce((s, x) => s + (Number(f(x)) || 0), 0);
 export function pedidosDaSelecao(s) {
   const r = [];
   const add = (chave, qtd) => { if (qtd > 0) r.push({ chave, qtd }); };
-  const circ = s.quadro?.circuitos ?? [];
+  // Em "Obras" com o quadro em "Manter como está" não há disjuntores inteligentes (circuitosDoPedido).
+  const circ = circuitosDoPedido(s);
   // Circuitos só com "medir" usam o disjuntor mais barato (também mede).
   const d = disjuntoresInteligentes(circ, s.quadro?.disjuntor);
   add("disjuntor_protecoes", d.sy2);

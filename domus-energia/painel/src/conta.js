@@ -606,15 +606,22 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // "Visita e obra".
     const visitaDepois = Boolean(pag?.compras?.visita?.incluida);
     const verificado = o.validacao === 'validado';
+    // A obra está concluída para o cliente: no painel (com ou sem obra ligada) ou, com as propostas na bolsa, desde que
+    // ele confirmou o trabalho (o mesmo critério do texto "Instalação concluída." mais abaixo).
+    const obraConcluida = obra?.estado === 'concluida' || (o.estado === 'aceite' && Boolean(o.obra_concluida)) || (Boolean(pag?.restante?.confirmada) && Boolean(obra) && obra.estado !== 'cancelada');
+    // A obra entregue a um eletricista externo (eletricistas.js obraPorConfirmar): o estado do trabalho dele, ou null.
+    const trabalhoObra = obra ? eletricistas()?.obraPorConfirmar?.(o)?.estado ?? null : null;
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
       ...(visitaDepois ? [{ chave: 'verificado', texto: 'Pedido verificado', feito: verificado || depoisVisita, data: verificado ? o.validacao_em ?? null : null }]
         : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
       { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
-      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: agendada,
+      // Só fica feito com a obra concluída (decisão do dono, 2026-10-11): a data marcada, ainda por fazer, vai na `data`
+      // sem o passo ficar feito (antes bastava haver data: `feito: agendada`).
+      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: obraConcluida,
         // Concluída: o dia em que o cliente a confirmou (ou em que ficou concluída no painel); senão o dia marcado, com a hora se a há.
-        data: !agendada ? null : obra.estado === 'concluida' && o.obra_concluida ? o.obra_concluida : obra.hora ? `${obra.data}T${obra.hora}` : obra.data },
+        data: obraConcluida && o.obra_concluida ? o.obra_concluida : !agendada ? null : obra.hora ? `${obra.data}T${obra.hora}` : obra.data },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
     // Com a visita incluída no sinal, depois de aceitar marca-se a visita (em que a obra pode ficar feita), não "a instalação".
@@ -626,6 +633,10 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (obra) {
       estadoTexto = obra.estado === 'concluida' ? (pag?.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.')
         : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : agendada ? 'Instalação marcada.' : estadoTexto;
+      // "Instalação marcada." não fica para trás (decisão do dono, 2026-10-11): com o trabalho dado por concluído pelo
+      // eletricista falta a confirmação do cliente; depois de confirmado (e ainda por aprovar no painel) está concluído.
+      if (agendada && !['concluida', 'cancelada'].includes(obra.estado) && trabalhoObra === 'concluida_eletricista') estadoTexto = 'O trabalho foi dado por concluído. Falta a sua confirmação.';
+      if (agendada && !['concluida', 'cancelada'].includes(obra.estado) && trabalhoObra === 'confirmada') estadoTexto = 'Trabalho concluído.';
       // O cliente já confirmou o trabalho e o CEO ainda não aprovou (decisão do dono, 2026-10-11): para o cliente a
       // instalação está feita e o restante já se paga.
       if (pag?.restante?.confirmada && obra.estado !== 'cancelada') estadoTexto = pag.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.';

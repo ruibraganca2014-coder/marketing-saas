@@ -16,7 +16,7 @@ import {
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
-  quadroNoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoIntervaloTrabalhos, textoDias,
+  quadroNoPedido, circuitosDoPedido, encontrarArtigo, horasTroca, PEDIDOS, CONFIG_OMISSAO, VISITA_HORAS, cent, comObraMinima, textoIntervalo, textoIntervaloTrabalhos, textoDias,
 } from "./preco.js";
 import {
   SERVICOS, CHAVES_SERVICO, ACOES, ORDEM_BOTOES, MAX_AVARIA, acaoOmissao, precisaEscolher, temAcao,
@@ -771,12 +771,17 @@ function escolherCaminho(k) {
   casaPreEscolhida = false;   // o cliente escolheu o que precisa: passa a ser uma simulação em curso
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
+  const caminhoAntes = estado.caminho;
   estado.caminho = k;
   estado.servico = [k === "obras" ? "nova" : k === "quadro" ? "reparar" : k];   // duas partes (2026-10-04): as obras também seguem na parte do serviço
   if (k === "quadro") {
     // Trocar o quadro: quadro novo no pedido; a proteção escolhe-se nas Melhorias (o passo seguinte).
     estado.mexerQuadro = true;
     estado.quadro.quadro_novo = "novo";
+    estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
+  } else if (caminhoAntes === "quadro") {
+    // Vinha de "Trocar o quadro" e mudou de ideias: o quadro novo não segue para o outro caminho (ficava no preço sem o cliente o pedir).
+    estado.mexerQuadro = false;
     estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
   }
   visitado = maisAdiantado(visitado, estado.visitado ?? 0, P.planta);
@@ -2340,9 +2345,13 @@ function quadroMudou() {
   guardarNaConta();
 }
 
+/** "Seguinte" no passo Quadro elétrico sem a foto (bloquearQuadro): o aviso à vista, junto ao botão da foto. */
+const FALTA_FOTO_PASSO_QUADRO = "Tire uma foto do quadro para continuar.";
 /** O passo Quadro elétrico: só a foto. */
 function desenharQuadro() {
   desenharFotoQuadro();
+  // A foto já cá está (tirada aqui ou pelo telemóvel): o aviso "Tire uma foto…" do "Seguinte" sai.
+  if (fotos.has("quadro")) { const m = $("quadro-foto-msg"); if (m.textContent === FALTA_FOTO_PASSO_QUADRO) m.hidden = true; desassinalar($("quadro-foto")); }
   for (const i of document.querySelectorAll("input[name=quadro-idade]")) i.checked = i.value === estado.quadroIdade;
 }
 /** Um desenho pequeno por resposta: quadro novo (visto), a meio (relógio), antigo (fusível) e "não sei" (?). */
@@ -2487,7 +2496,12 @@ const faltaFotoQuadro = () => sequencia().includes(P.quadro) && !fotos.has("quad
 function bloquearQuadro() {
   if (!faltaFotoQuadro()) return false;
   if (estado.passo !== P.quadro) irPara(P.quadro, { foco: false });
-  assinalar($("quadro-foto"), "Tire uma foto do quadro para continuar.", $("quadro-foto-botao"));
+  // Decisão do dono, 2026-10-11: a frase também à vista, a vermelho, junto ao botão da foto (antes só os leitores de ecrã a ouviam).
+  const m = $("quadro-foto-msg");
+  m.textContent = FALTA_FOTO_PASSO_QUADRO;
+  m.className = "msg erro";
+  m.hidden = false;
+  assinalar($("quadro-foto"), FALTA_FOTO_PASSO_QUADRO, $("quadro-foto-botao"));
   return true;
 }
 
@@ -4646,7 +4660,8 @@ function dadosRelatorio() {
   const c = estado.casa;
   const n = planta.divisoes.length;
   const pisos = pisosDaCasa(c);
-  const r = resumoDoQuadro(estado);
+  // Os circuitos como vão no pedido: em "Obras" com o quadro em "Manter como está", sem disjuntores inteligentes (preco.js circuitosDoPedido).
+  const r = resumoDoQuadro({ ...estado, quadro: { ...estado.quadro, circuitos: circuitosDoPedido({ ...estado, servico: servicos() }) } });
   const pac = PROTECAO_SIMPLES[pacoteDoQuadro(estado.quadro)]?.[0];
   const nc = estado.quadro.circuitos.length;
   return {

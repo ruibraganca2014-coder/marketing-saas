@@ -10,7 +10,7 @@ import {
   comandoDe, caixasDe,
   colarNaParede,
 } from "./regras.js";
-import { SKU_SY1, SKU_SY2, quadroNoPedido } from "./preco.js";
+import { SKU_SY1, SKU_SY2, quadroNoPedido, circuitosDoPedido } from "./preco.js";
 import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, pedidosDoElemento, perguntaInteligente, perguntaMedicao } from "./acoes.js";
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao, LIMITES_OUTRAS } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
@@ -1322,11 +1322,13 @@ export function deslocacaoParaEnvio(d) {
  */
 export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = null, melhorias = []) {
   if (estado.funil === "avaria") return montarSimulacaoAvaria(estado, preco, fotos);
-  const circuitos = estado.quadro.circuitos.map((c, i) => {
+  const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
+  // Em "Obras" com o quadro em "Manter como está" os circuitos vão sem disjuntor inteligente, como no preço
+  // (preco.js circuitosDoPedido): o painel e o eletricista não veem "Inteligente" no que o cliente não comprou.
+  const circuitos = circuitosDoPedido({ ...estado, servico }).map((c, i) => {
     const n = normalizarCircuito(c, i);
     return { ...n, nome: textoSeguro(n.nome, 60), divisoes: n.divisoes.map((d) => textoSeguro(d, 60)).filter(Boolean) };
   });
-  const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
   const semArtigo = () => ({ sku: null, horas: null });
   const planta = estado.plantaSaltada ? null : estado.planta;
   // Ronda B: "Faz faíscas, Dá choque — a tampa está solta" (os cartões escolhidos e, se houver, a descrição).

@@ -5,7 +5,7 @@
 // guardada leva o que o pedido dela já instala (`instalado`: proteções do quadro e máquinas com disjuntor inteligente),
 // para o "Já tenho a planta" não o cobrar outra vez.
 
-import { calcularPreco, quadroNoPedido, cent } from "./preco.js";
+import { calcularPreco, quadroNoPedido, circuitosDoPedido, cent } from "./preco.js";
 import { pedidosQuadro, pacoteDoQuadro, protecoesEfetivas, protecoesDoPacote, inteligenteDe as disjuntorDe, CHAVES_PROTECOES } from "./quadro.js";
 import { acaoDe, inteligenteDe } from "./acoes.js";
 import { circuitoProprio, trifasica } from "./regras.js";
@@ -59,6 +59,8 @@ function protecoesBase(estado, noPedido) {
 }
 const servicosDe = (estado) => (estado.servico?.length ? estado.servico : ["nova"]);
 const noPedidoDe = (estado) => quadroNoPedido({ ...estado, servico: servicosDe(estado) });
+/** Os circuitos como vão no pedido: em "Obras" com o quadro em "Manter como está", sem disjuntores inteligentes (preco.js circuitosDoPedido). */
+const circuitosDe = (estado) => circuitosDoPedido({ ...estado, servico: servicosDe(estado) });
 /** "Já incluído": o quadro já tem a proteção máxima sem a melhoria (a mesma regra no cartão e ao aceitar). */
 const quadroSeguroIncluido = (estado) => quadroNoMaximo({ ...estado.quadro, protecoes: protecoesBase(estado, noPedidoDe(estado)) });
 
@@ -125,7 +127,7 @@ export function instaladoDe(e) {
   const protecoes = noPedidoDe(e) || seguro ? protecoesEfetivas(e.quadro) : antes?.protecoes ?? null;
   // Circuitos de máquina com disjuntor inteligente, por "divisão|modelo" (regras.js sugerirCircuitos).
   const livres = new Map();
-  for (const c of e.quadro?.circuitos ?? []) {
+  for (const c of circuitosDe(e)) {
     if (c.tipo !== "maquina" || !disjuntorDe(c, e.quadro.disjuntor)) continue;
     for (const x of c.itens?.maquinas ?? []) { const k = `${c.divisoes?.[0] ?? ""}|${x.modelo}`; livres.set(k, (livres.get(k) ?? 0) + 1); }
   }
@@ -209,7 +211,7 @@ function pouparEnergia(estado, medidorNoQuadro) {
   for (const e of estado.planta?.elementos ?? []) {
     if (e.tipo === "maquina" && acaoDe(e, sv) !== "novo" && !ja.has(e.id) && serve({ modelo: e.props?.modelo, potencia_w: e.props?.potencia_w })) maquinas++;
   }
-  for (const c of estado.quadro?.circuitos ?? []) {
+  for (const c of circuitosDe(estado)) {
     if (c.tipo === "maquina" && !c.inteligente && !c.medir && (c.itens?.maquinas ?? []).some(serve)) maquinas++;
   }
   const medidor = medidorNoQuadro ? 0 : 1;
@@ -264,7 +266,7 @@ const NOMES_QUADRO = {
 function quadroSeguro(estado, noPedido) {
   const m = estado.melhorias;
   const aceite = m.aceites.includes(QUADRO_SEGURO) && !!m.quadroAnterior;
-  const q = estado.quadro ?? {};
+  const q = { ...(estado.quadro ?? {}), circuitos: circuitosDe(estado) };
   const base = protecoesBase(estado, noPedido);
   const comQuadro = (protecoes) => (noPedido ? { ...estado, quadro: { ...q, protecoes } }
     : { ...estado, mexerQuadro: true, quadro: { ...q, protecoes, quadro_novo: "atual" } });

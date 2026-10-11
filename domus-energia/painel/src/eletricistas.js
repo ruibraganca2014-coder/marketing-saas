@@ -1226,7 +1226,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!p) return null;
     const e = t.eletricista_id ? linha(t.eletricista_id) : null;
     const { material, sugestao } = valoresDaProposta(o, p);
-    return { trabalho: t.id, eletricista: e ? { id: e.id, nome: e.nome } : null, quando: p.quando, horas: p.horas, notas: p.notas, material, sugestao };
+    // `visita_incluida`: a visita faz-se depois de aceitar a proposta e vai no preço (pagamentos-pedido.js visitaIncluida) —
+    // para o texto que "Preencher pela proposta do eletricista" escreve ao cliente não a prometer no fluxo antigo.
+    return { trabalho: t.id, eletricista: e ? { id: e.id, nome: e.nome } : null, quando: p.quando, horas: p.horas, notas: p.notas, material, sugestao,
+      visita_incluida: Boolean(pagamentos()?.visitaIncluida?.(o)) };
   }
   /**
    * Os valores SEM IVA de uma proposta ({horas, material: [{sku, nome, qtd}]}) neste pedido: o material com o valor de

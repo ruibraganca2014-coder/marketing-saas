@@ -10,6 +10,7 @@ Decisões do dono de 2026-10-03: o cliente recebe **sozinho** quatro emails ao l
 | **Pagamento em falta** — 1.º lembrete | 3 dias (`email_pagamento_1_dias`) depois de pedido o pagamento | o email da conta | `<pedido>:pagamento_1:<fase>:<data do pedido de pagamento>` |
 | **Pagamento em falta** — 2.º lembrete, com a tarefa para os CEO | 7 dias (`email_pagamento_2_dias`) | idem | `<pedido>:pagamento_2:<fase>:<data>` |
 | **Depois da obra** — guia da conta e da área de cliente e pedido de avaliação (1 a 5 estrelas) | 2 dias (`email_obra_dias`) depois de a obra ser dada por concluída no painel | idem | `<pedido>:obra` |
+| **Falta confirmar o trabalho** (decisão do dono, 2026-10-11) — o trabalho foi dado por concluído em <dia>; pode confirmar ou dizer o que falta na conta; "se não disser nada até <dia>, consideramos o trabalho aceite" | 5 dias depois de o eletricista externo dar o trabalho por concluído, sem resposta do cliente (ao 7.º dia fica aceite) | o email da conta (só pedidos com conta) | não usa `emails_automaticos`: `trabalhos_eletricista.lembrete_confirmar` (migração 49), uma vez por conclusão |
 
 Os três primeiros são **emails de serviço**: saem sempre. Só o último leva **"Não quero receber"** (§5).
 

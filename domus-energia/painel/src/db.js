@@ -1094,6 +1094,10 @@ export const MIGRACOES = [
   // aceite, atribuir diretamente deixou de entregar os dados do cliente e de pedir visita. O trabalho vai para a bolsa
   // visível só para esse eletricista (`so_para`), que propõe pela planta como os outros; NULL = todos os do concelho.
   (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN so_para INTEGER;'),
+  // 49: lembrete ao 5.º dia para o cliente confirmar o trabalho (decisão do dono, 2026-10-11; emails-auto.js
+  // confirmarTrabalho). `lembrete_confirmar`: quando saiu o lembrete (ISO). Vale para a conclusão em curso: se o trabalho
+  // voltar ao eletricista e for concluído de novo, `concluida` fica depois desta data e o lembrete pode sair outra vez.
+  (db) => db.exec('ALTER TABLE trabalhos_eletricista ADD COLUMN lembrete_confirmar TEXT;'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */
