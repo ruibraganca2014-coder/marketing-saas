@@ -156,7 +156,7 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
   cartao(s, 0.5, 1.85, 9, 1.05, FLORESTA);
   s.addText([{ text: "Gerente (Rui Bragança)", options: { bold: true, fontSize: 16, color: AREIA, breakLine: true } }, { text: "Direção e aprovação de cada obra · Sistemas e aparelhos (bancada, servidor, aplicação) · Atendimento e marcações", options: { fontSize: 12, color: CREME } }],
     { x: 0.75, y: 1.9, w: 8.5, h: 0.95, fontFace: CORPO, valign: "middle", margin: 0, isTextBox: true });
-  const esp = [["Quadros e ensaios", "Parceiro 1", "Quadros novos; revê as obras dos colegas"], ["Casa inteligente", "Parceiro 2", "Aparelhos, aplicação, explicar ao cliente"], ["Avarias e reparações", "Parceiro 3", "Diagnóstico e resposta rápida"], ["Carregadores e obras novas", "Parceiro 4", "Linhas dedicadas; ajuda nos quadros"]];
+  const esp = [["Quadros e ensaios", "Parceiro 1", "Quadros novos e ampliações"], ["Casa inteligente", "Parceiro 2", "Aparelhos, aplicação, explicar ao cliente"], ["Avarias e reparações", "Parceiro 3", "Diagnóstico e resposta rápida"], ["Carregadores e obras novas", "Parceiro 4", "Linhas dedicadas; ajuda nos quadros"]];
   esp.forEach(([n, q, d], i) => {
     const x = 0.5 + i * 2.3;
     cartao(s, x, 3.1, 2.1, 1.75);
@@ -164,7 +164,7 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
     s.addText(n, { x: x + 0.15, y: 3.45, w: 1.8, h: 0.6, fontFace: TIT, fontSize: 14, bold: true, color: MUSGO, valign: "top", margin: 0, isTextBox: true });
     s.addText(d, { x: x + 0.15, y: 4.05, w: 1.8, h: 0.75, fontFace: CORPO, fontSize: 11, color: FLORESTA, valign: "top", margin: 0, isTextBox: true });
   });
-  s.addText("Parceiros independentes, pagos por obra: 70 % da mão de obra. Quem faz a obra não é quem a revê. Os melhores passam a contrato quando houver volume.", { x: 0.5, y: 4.95, w: 9, h: 0.5, fontFace: CORPO, fontSize: 11, italic: true, color: TEXTO_SUAVE, margin: 0, isTextBox: true });
+  s.addText("Parceiros independentes, pagos por obra: 70 % da mão de obra. Qualidade em três pontos: validação do gerente, fotos e ensaios, confirmação do cliente. Os melhores passam a contrato quando houver volume.", { x: 0.5, y: 4.95, w: 9, h: 0.5, fontFace: CORPO, fontSize: 11, italic: true, color: TEXTO_SUAVE, margin: 0, isTextBox: true });
 }
 
 // 7c. Fluxo de um pedido
@@ -174,10 +174,10 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
   const colunas = [
     ["Cliente", MUSGO, [
       [1, "Descreve a casa no simulador do site (planta, fotos do quadro, equipamentos) e envia o pedido."],
-      [5, "Aceita e paga o sinal, que inclui a visita. Se não aceitar, diz porquê e o pedido volta ao CEO."],
+      [5, "Aceita e paga o sinal, que inclui a visita. Se não aceitar, diz porquê e o pedido volta ao gerente."],
       [7, "Confirma que o trabalho ficou concluído, avalia de 1 a 5 estrelas e paga o restante."],
     ]],
-    ["CEO", ARGILA, [
+    ["Gerente (CEO)", ARGILA, [
       [2, "Valida com uma lista de verificação: planta, foto do quadro, morada, contacto. Se faltar algo, devolve ao cliente."],
       [4, "Compara as propostas, escolhe o eletricista, define o preço e envia a proposta ao cliente."],
       [8, "Aprova o trabalho e paga ao eletricista: 70 % da mão de obra e a deslocação. O material é da empresa."],
@@ -200,7 +200,7 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
     });
   });
   s.addText("O cliente trata sempre com a Domus Energia. O eletricista só propõe horas e material; a empresa calcula o preço. Qualidade em três pontos: validação à entrada, fotos e ensaios para concluir, confirmação do cliente antes de pagar ao eletricista.", { x: 0.5, y: 4.98, w: 9, h: 0.45, fontFace: CORPO, fontSize: 10.5, italic: true, color: TEXTO_SUAVE, margin: 0, isTextBox: true });
-  s.addNotes("Seguir os números de 1 a 8. No passo 5, se o cliente não aceitar, o pedido volta ao CEO, que retifica e volta a pôr na bolsa, ou desiste. O eletricista vai a casa do cliente em nome da empresa.");
+  s.addNotes("Seguir os números de 1 a 8. No passo 5, se o cliente não aceitar, o pedido volta ao gerente, que retifica e volta a pôr na bolsa, ou desiste. O eletricista vai a casa do cliente em nome da empresa.");
 }
 
 // 8. Investimento
@@ -239,7 +239,7 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
   const s = pres.addSlide(); fundoClaro(s);
   titulo(s, "Quais os principais riscos?", "Fase 2 · Projeto");
   perguntaTag(s, 9, "E a medida preventiva de cada um");
-  const r = [["Falta de clientes", "Avaliações no Google, relatório grátis da casa, parcerias"], ["Habilitação atrasada", "Não marcar obras antes do fim do curso"], ["Tudo depende do gerente", "Procedimentos escritos; atendimento a meio tempo acima de 12 obras por mês"], ["Parceiros sem disponibilidade", "Suplente em cada especialidade; bolsa de trabalhos"], ["Aparelho avaria", "Testado na bancada; stock de substituição; garantia da empresa"], ["Obra mal feita", "Ensaios, fotografias, revisão por outro eletricista, seguro"]];
+  const r = [["Falta de clientes", "Avaliações no Google, relatório grátis da casa, parcerias"], ["Habilitação atrasada", "Não marcar obras antes do fim do curso"], ["Tudo depende do gerente", "Procedimentos escritos; atendimento a meio tempo acima de 12 obras por mês"], ["Parceiros sem disponibilidade", "Suplente em cada especialidade; bolsa de trabalhos"], ["Aparelho avaria", "Testado na bancada; stock de substituição; garantia da empresa"], ["Obra mal feita", "Validação à entrada, fotos e ensaios, confirmação do cliente, seguro"]];
   r.forEach(([n, m], i) => {
     const x = 0.5 + (i % 3) * 3.07, y = 1.9 + Math.floor(i / 3) * 1.6;
     cartao(s, x, y, 2.87, 1.42);

@@ -298,10 +298,10 @@ c.push(tabela(["Área", "O que fazemos"], [
 ], [2, 7]));
 c.push(h2("Do contacto ao cliente"));
 [
-  "O cliente faz o orçamento no site ou liga. Resposta em menos de 24 horas.",
-  "Visita de confirmação pelo eletricista da especialidade, se a obra o pedir.",
-  "O cliente aceita e paga 30 % de sinal. Marca-se a obra e encomenda-se o material.",
-  "Obra, ensaios, fotografias e confirmação do cliente. Paga os 70 % restantes.",
+  "O cliente faz o pedido no site ou liga. O gerente valida o pedido e responde em menos de 24 horas.",
+  "Os eletricistas parceiros da zona propõem horas e material pela planta e pelas fotografias. O gerente escolhe e envia a proposta ao cliente.",
+  "O cliente aceita e paga 30 % de sinal, que inclui a visita. Marca-se a visita e encomenda-se o material.",
+  "Visita, em que a obra pode ser feita logo. Ensaios, fotografias e confirmação do cliente. Paga os 70 % restantes.",
   "Contacto aos 7 e aos 30 dias; pedido de avaliação no Google e de recomendação.",
 ].forEach(t => c.push(num(t, "funil")));
 
@@ -309,27 +309,27 @@ c.push(h2("Do contacto ao cliente"));
 c.push(h1("8. Plano operacional"));
 [
   "Atendimento: dias úteis das 9:00 às 18:00, por telefone, WhatsApp e site. Os alertas das casas chegam pela plataforma a qualquer hora.",
-  "Distribuição das obras: cada pedido vai para a bolsa de trabalhos, primeiro para o eletricista da especialidade. Se não puder, passa ao suplente.",
+  "Distribuição das obras: o pedido validado vai para a bolsa de trabalhos. Os parceiros da zona propõem horas e material e o gerente escolhe, a pesar a especialidade, a disponibilidade e a avaliação dos clientes. Quem não é escolhido fica de reserva.",
   "Aparelhos: Wi-Fi, com marcação CE, preparados na bancada do gerente com programa próprio antes de irem para a obra. Material elétrico comum comprado no armazenista local.",
-  "Qualidade: nenhuma obra fecha sem fotografias, valores dos ensaios, confirmação do cliente e aprovação do gerente no painel.",
+  "Qualidade: três pontos de controlo. O gerente valida o pedido à entrada; nenhuma obra se conclui sem fotografias de antes e depois e valores dos ensaios; o eletricista só é pago depois de o cliente confirmar e de o gerente aprovar no painel.",
   "Pagamentos: o cliente paga 30 % + 70 %. O eletricista recebe até 7 dias depois da aprovação, contra fatura-recibo.",
   "Segurança: o botão de cada aparelho funciona sempre, com ou sem internet. Trabalha-se sempre com a energia cortada e a ausência de tensão verificada.",
 ].forEach(t => c.push(bullet(t)));
 c.push(h2("Como funciona um pedido"));
-c.push(p("Cada pedido segue sempre os mesmos oito passos, do site até ao pagamento do eletricista. O CEO é o gerente da empresa."));
+c.push(p("Cada pedido segue sempre os mesmos oito passos, do site até ao pagamento do eletricista."));
 c.push(tabela(["Passo", "Quem", "O que acontece"], [
   ["1", "Cliente", "Descreve a casa no simulador do site (planta, fotografias do quadro, equipamentos) e envia o pedido."],
-  ["2", "CEO", "Valida o pedido com uma lista de verificação: planta completa, fotografia do quadro legível, morada dentro da área, contacto confirmado. Se faltar alguma coisa, devolve ao cliente para corrigir."],
+  ["2", "Gerente (CEO)", "Valida o pedido com uma lista de verificação: planta completa, fotografia do quadro legível, morada dentro da área, contacto confirmado. Se faltar alguma coisa, devolve ao cliente para corrigir."],
   ["3", "Eletricistas parceiros da zona", "Veem o pedido na bolsa de trabalhos (planta, fotografias e relatório técnico, sem nome, morada nem telefone do cliente) e propõem horas e material."],
-  ["4", "CEO", "Compara as propostas, escolhe o eletricista, define o preço e envia a proposta ao cliente."],
-  ["5", "Cliente", "Aceita e paga o sinal de 30 %, que inclui a visita. Se não aceitar, diz porquê: o pedido volta ao CEO, que retifica e volta a pôr na bolsa, ou desiste."],
+  ["4", "Gerente", "Compara as propostas, escolhe o eletricista, define o preço e envia a proposta ao cliente."],
+  ["5", "Cliente", "Aceita e paga o sinal de 30 %, que inclui a visita. Se não aceitar, diz porquê: o pedido volta ao gerente, que retifica e volta a pôr na bolsa, ou desiste."],
   ["6", "Eletricista escolhido", "Só agora recebe o contacto do cliente. Marca a visita em 48 horas e pode fazer a obra nessa visita. Regista as fotografias de antes e depois e os ensaios."],
   ["7", "Cliente", "Confirma que o trabalho ficou concluído, avalia de 1 a 5 estrelas e paga os 70 % restantes."],
-  ["8", "CEO", "Aprova o trabalho e paga ao eletricista: 70 % da mão de obra (sem IVA) e a deslocação. O material é fornecido pela empresa."],
+  ["8", "Gerente", "Aprova o trabalho e paga ao eletricista: 70 % da mão de obra (sem IVA) e a deslocação. O material é fornecido pela empresa."],
 ], [0.8, 2.2, 6]));
 c.push(espaco());
 c.push(p("O cliente trata sempre com a Domus Energia: o eletricista vai a casa dele em nome da empresa. O eletricista nunca escreve preços, só horas e material; é a empresa que calcula o preço."));
-c.push(p("A qualidade é controlada em três pontos: a validação do CEO à entrada, as fotografias e os ensaios obrigatórios para concluir a obra, e a confirmação do cliente antes de se pagar ao eletricista."));
+c.push(p("A qualidade é controlada em três pontos: a validação do gerente à entrada, as fotografias e os ensaios obrigatórios para concluir a obra, e a confirmação do cliente antes de se pagar ao eletricista."));
 c.push(h2("Fase de preparação (outubro de 2026 a agosto de 2027)"));
 c.push(p("Até ao fim do curso a empresa não faz obras em casa de clientes. Este tempo serve para chegar a setembro de 2027 com tudo pronto: plataforma testada, aparelhos escolhidos e experimentados na bancada, documentos legais, seguro, pagamentos pelo site e os quatro parceiros registados e a conhecer o sistema."));
 
@@ -348,18 +348,18 @@ c.push(tabela(["Função", "Quem", "O que faz", "Quem substitui"], [
   ["Direção", "Gerente", "Estratégia, preços, compras, contas com o contabilista, aprovação final de cada obra", "Não tem: é o maior risco (secção 12)"],
   ["Sistemas e aparelhos", "Gerente", "Preparar e ativar os aparelhos na bancada, servidor, aplicação, apoio à distância", "Parceiro de casa inteligente (apoio no local)"],
   ["Atendimento e marcações", "Gerente", "Telefone, WhatsApp, pedidos do site, marcações, cobranças", "Assistente do painel e respostas preparadas"],
-  ["Quadros e ensaios", "Parceiro 1", "Quadros novos e ampliações. Responsável pela revisão técnica: vê as fotografias e os ensaios das obras dos colegas", "Parceiro 4"],
+  ["Quadros e ensaios", "Parceiro 1", "Quadros novos e ampliações", "Parceiro 4"],
   ["Casa inteligente", "Parceiro 2", "Disjuntores inteligentes, interruptores, estores, sensores; liga à aplicação e explica ao cliente", "Parceiro 3"],
   ["Avarias e reparações", "Parceiro 3", "Diagnóstico, avarias, tomadas, pontos de luz; resposta rápida", "Parceiro 2"],
-  ["Carregadores e obras novas", "Parceiro 4", "Linhas dedicadas para carregadores e máquinas; segundo elemento nas obras de quadro. Revê as obras do parceiro 1", "Parceiro 1"],
+  ["Carregadores e obras novas", "Parceiro 4", "Linhas dedicadas para carregadores e máquinas; segundo elemento nas obras de quadro", "Parceiro 1"],
 ], [2, 1.2, 4, 1.8]));
 c.push(h2("Regras de funcionamento"));
 [
   "Cada especialidade tem um responsável e um suplente. Nenhum trabalho fica parado por faltar uma pessoa.",
-  "Quem faz a obra não é quem a revê. O parceiro 1 revê as obras dos colegas; o parceiro 4 revê as do parceiro 1. O gerente dá a aprovação final.",
+  "A qualidade é controlada em três pontos: o gerente valida o pedido à entrada; a obra só se conclui com fotografias de antes e depois e ensaios; o cliente confirma antes de se pagar ao eletricista.",
   "O parceiro é independente: tem atividade aberta, seguro e ferramenta próprios, e é livre de aceitar ou recusar cada trabalho da bolsa.",
   "Pagamento: 70 % da mão de obra (sem IVA) e a deslocação, até 7 dias depois da aprovação. Os 30 % da empresa pagam o atendimento, a plataforma, o seguro e a garantia.",
-  "Cada obra é avaliada (ensaios, fotografias, opinião do cliente). A classificação decide quem recebe primeiro os trabalhos seguintes.",
+  "Cada obra é avaliada (ensaios, fotografias, avaliação do cliente). A classificação pesa na escolha do gerente para os trabalhos seguintes.",
   "Reunião de 30 minutos à segunda-feira, por videochamada: obras da semana, material e problemas.",
 ].forEach(t => c.push(bullet(t)));
 c.push(h2("Carga de trabalho prevista no ano 1"));
@@ -436,7 +436,7 @@ c.push(tabela(["Risco", "Medida preventiva", "Alternativa se acontecer"], [
   ["Parceiros sem disponibilidade", "Quatro parceiros com suplente em cada especialidade; trabalho pela bolsa", "Registar mais eletricistas na bolsa"],
   ["Parceiro tratado como trabalhador (falso recibo verde)", "Contrato de parceiro feito pelo advogado; liberdade de aceitar ou recusar; ferramenta e seguro próprios", "Passar a contrato de trabalho quando o volume o justificar"],
   ["Aparelho avaria ou perde a garantia do fabricante", "Só aparelhos com marcação CE, testados na bancada; stock de substituição; garantia dada pela empresa", "Trocar de modelo sem mudar a aplicação"],
-  ["Obra mal feita", "Ensaios, fotografias, revisão por outro eletricista, aprovação do gerente; seguro de responsabilidade civil", "Correção gratuita; o parceiro desce na classificação"],
+  ["Obra mal feita", "Validação do pedido à entrada, fotografias e ensaios obrigatórios, confirmação do cliente, aprovação do gerente; seguro de responsabilidade civil", "Correção gratuita; o parceiro desce na classificação"],
   ["Falha do servidor ou da internet do cliente", "Os botões funcionam sempre; cópias de segurança diárias", "Central em casa do cliente (plano Premium, fase seguinte)"],
   ["Aumento dos custos do material", "Orçamentos válidos 30 dias; preços do catálogo revistos todos os trimestres", "Ajustar a margem do material"],
   ["Clientes cancelam a mensalidade", "Valor à vista: consumo, alertas, relatório", "Plano Base barato; perguntar porquê"],
@@ -462,7 +462,7 @@ c.push(tabela(["Critério", "Eletricistas com contrato", "Parceiros pagos por ob
   ["Investimento inicial", "Viatura, ferramenta e fardamento para cada um", "Nenhum: usam os seus"],
   ["Custos fixos", "Quatro ordenados e encargos todos os meses, com ou sem obras", "Nenhum: 70 % da mão de obra, só quando há obra"],
   ["Capacidade", "Fixa: sobra ou falta", "Ajusta-se ao número de obras"],
-  ["Controlo da qualidade", "Direto, no dia a dia", "Por registo: fotografias, ensaios, revisão e aprovação"],
+  ["Controlo da qualidade", "Direto, no dia a dia", "Por registo: fotografias, ensaios, confirmação do cliente e aprovação do gerente"],
   ["Risco", "Alto se faltarem obras", "Baixo para a empresa; o parceiro pode não estar disponível"],
   ["Decisão", "A partir do ano 2, para os melhores", "Ano 1"],
 ], [2.4, 3.3, 3.3]));
@@ -576,14 +576,14 @@ c.push(h2("Exemplo do módulo: preparar a reunião semanal"));
 c.push(h2("Sequência de uma obra"));
 c.push(p("Uma sequência mal definida origina retrabalho, perda de tempo e riscos de segurança. A ordem é sempre:"));
 [
-  "Pedido no site ou por telefone; orçamento do simulador; resposta em 24 horas.",
-  "Visita de confirmação, se for precisa; o cliente aceita e paga o sinal.",
-  "O gerente encomenda o material e prepara os aparelhos na bancada.",
-  "No local: cortar a energia, verificar a ausência de tensão, instalar.",
+  "Pedido no site ou por telefone; orçamento do simulador; o gerente valida o pedido e responde em 24 horas.",
+  "Os eletricistas parceiros da zona propõem horas e material pela planta e pelas fotografias; o gerente escolhe e envia a proposta ao cliente.",
+  "O cliente aceita e paga o sinal, que inclui a visita; o gerente encomenda o material e prepara os aparelhos na bancada.",
+  "Visita do eletricista escolhido, em que a obra pode ser feita logo: cortar a energia, verificar a ausência de tensão, instalar.",
   "Religar, fazer os ensaios, testar cada circuito e o que acontece depois de um corte de luz.",
   "Ligar os aparelhos ao Wi-Fi e ao servidor; instalar a aplicação no telemóvel do cliente e explicar.",
-  "Fotografias e valores na área do eletricista; o cliente confirma; revisão por outro eletricista.",
-  "O gerente aprova; o cliente paga o resto; o parceiro recebe em 7 dias.",
+  "Fotografias de antes e depois e valores dos ensaios na área do eletricista; o cliente confirma que o trabalho ficou concluído.",
+  "O cliente paga o resto; o gerente aprova; o parceiro recebe em 7 dias.",
   "Contacto aos 7 e aos 30 dias.",
 ].forEach(t => c.push(num(t)));
 c.push(quebra());
@@ -594,7 +594,7 @@ c.push(tabela(["Objetivo SMART", "S", "M", "A", "R", "T"], [
   [`Concluir ${ano.n} obras até 31 de agosto de 2028, subindo de ${obrasMes[0]} para ${obrasMes[11]} por mês`, "Obras aprovadas no painel", `${ano.n} no ano`, "4 parceiros com suplentes", "É a principal receita", "31 ago. 2028"],
   [`Ter ${subsFinal} casas com mensalidade ativa em agosto de 2028`, "Subscrições ativas", `${subsFinal} casas`, "1.º mês grátis em cada casa ligada", "Receita que se repete", "Ago. 2028"],
   ["Os 5 com habilitação profissional até 31 de agosto de 2027", "Habilitação de cada um", "5 em 5", "Fim do curso", "Sem ela não há obras", "31 ago. 2027"],
-  ["Pelo menos 90 % de clientes satisfeitos no contacto dos 30 dias", "Resposta do cliente", "≥ 90 %", "Ensaios, revisão e acompanhamento", "Avaliações e recomendações", "Todos os trimestres"],
+  ["Pelo menos 90 % de clientes satisfeitos no contacto dos 30 dias", "Resposta do cliente", "≥ 90 %", "Ensaios, confirmação do cliente e acompanhamento", "Avaliações e recomendações", "Todos os trimestres"],
   ["Responder a 95 % dos pedidos em menos de 24 horas", "Tempo de resposta", "< 24 h em 95 %", "Simulador e respostas preparadas", "Não perder clientes", "Desde set. 2027"],
 ], [3.4, 1.4, 1.4, 1.4, 1.4, 1]));
 c.push(h2("Exercício do módulo: de objetivo vago a SMART"));
@@ -615,7 +615,7 @@ c.push(tabela(["Atividade", "Resultado esperado"], [
   ["Contactar 10 mediadoras ou gestores de alojamento local por semana", "2 obras por mês vindas de parcerias"],
   ["Pedir avaliação no Google no contacto dos 7 dias", "20 avaliações até fevereiro de 2028"],
   ["Reunião de 30 minutos à segunda", "Nenhuma obra remarcada por falta de material"],
-  ["Ensaios, fotografias e revisão por outro eletricista", "Menos de 5 % de visitas de correção"],
+  ["Ensaios e fotografias obrigatórios e confirmação do cliente","Menos de 5 % de visitas de correção"],
   ["Preparar os aparelhos na bancada na véspera", "Casa inteligente tipo em 7 horas"],
   ["Contacto aos 30 dias", "90 % de satisfeitos e 1 recomendação em cada 3 clientes"],
   ["Ver todos os dias a saúde dos aparelhos", "80 % dos problemas resolvidos à distância"],
@@ -633,7 +633,7 @@ c.push(tabela(["Situação", "Atitude reativa", "Atitude proativa (Domus Energia
 ], [2.4, 3, 3.6]));
 c.push(p("Os 4 passos da proatividade na empresa: Observar (painel e contactos com clientes), Antecipar (“se nada for feito, o que acontece?”), Agir (contactar, corrigir, melhorar o procedimento) e Avaliar (funcionou? regista-se na revisão semanal)."));
 c.push(tabela(["O que NÃO é proatividade", "O que É proatividade"], [
-  ["Mexer num quadro sem avaliar as consequências", "Antecipar: ver o quadro na visita, antes da obra"],
+  ["Mexer num quadro sem avaliar as consequências", "Antecipar: ver o quadro nas fotografias do pedido, antes da obra"],
   ["Resolver sozinho um problema que devia ser comunicado", "Comunicar: avisar logo o gerente e propor uma solução"],
   ["Trabalhar mais horas só para mostrar empenho", "Tomar iniciativa com método: preparar o material na véspera"],
   ["Interferir no trabalho dos colegas", "Procurar soluções e assumir a responsabilidade da sua parte"],
