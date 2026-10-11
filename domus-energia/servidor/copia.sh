@@ -50,7 +50,8 @@ rc=0
 # 2. Lê-se até ao fim e tem a base de dados do painel?
 gzip -t "$PARCIAL" 2>/dev/null || falhar "o ficheiro ficou estragado (gzip)"
 tar -tzf "$PARCIAL" > /dev/null 2>&1 || falhar "o ficheiro ficou estragado (tar)"
-tar -tzf "$PARCIAL" | grep -qx 'dados/painel/painel.db' || falhar "a base de dados do painel não está na cópia"
+# (Sem "tar | grep -q": com pipefail, o grep sai ao primeiro acerto, o tar morre a meio e o teste falhava numa cópia boa.)
+tar -tzf "$PARCIAL" dados/painel/painel.db > /dev/null 2>&1 || falhar "a base de dados do painel não está na cópia"
 
 # 3. A base de dados que ficou na cópia está inteira? Abre-se uma cópia dela (nunca a verdadeira) com o node da imagem
 #    do painel, sem rede, e pede-se a verificação do SQLite.
