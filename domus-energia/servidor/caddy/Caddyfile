@@ -43,6 +43,9 @@
 	# A conta de cliente (/api/conta/*: criar/entrar, simulação guardada até 1,5 MB, fotos ≤ 1 MB) também é do painel.
 	@orcamento path /api/orcamento /api/orcamento/fotos /api/catalogo /api/conta/* /api/fotos-remotas /api/fotos-remotas/*
 	handle @orcamento {
+		# O catálogo é público e igual para todos: vai comprimido (as respostas das contas não).
+		@catalogo path /api/catalogo
+		encode @catalogo zstd gzip
 		request_body {
 			max_size 2MB
 		}
@@ -61,6 +64,9 @@
 
 	@painel path /painel /painel/*
 	handle @painel {
+		# Os ficheiros do painel (JS, CSS, HTML) vão comprimidos; as respostas da API, com dados da empresa, não.
+		@painelficheiros not path /painel/api/*
+		encode @painelficheiros zstd gzip
 		request_body {
 			max_size 1MB
 		}
@@ -91,6 +97,8 @@
 	}
 	handle @configsite {
 		root * /srv/config-site
+		encode zstd gzip
+		header Cache-Control "no-cache"
 		file_server
 	}
 
@@ -102,7 +110,7 @@
 		encode zstd gzip
 		@revalidar path / *.html *.js *.mjs *.css *.txt *.xml
 		header @revalidar Cache-Control "no-cache"
-		@estavel path *.svg *.ico *.png *.jpg *.jpeg *.webp *.woff2
+		@estavel path *.svg *.ico *.png *.jpg *.jpeg *.webp *.woff2 *.mp3
 		header @estavel Cache-Control "public, max-age=604800, stale-while-revalidate=86400"
 		file_server
 	}
