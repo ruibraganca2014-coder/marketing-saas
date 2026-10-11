@@ -2368,8 +2368,9 @@ function desenharQuadroMelhorias() {
   // escolhidas uma a uma numa versão antiga ("personalizado"): nenhum botão marcado até escolher um.
   const pacote = pacoteDoQuadro(q);
   for (const i of document.querySelectorAll("input[name=quadro-pacote]")) i.checked = i.value === pacote;
-  // Com "Instalação nova" o quadro vai sempre no preço: sem "Manter como está".
-  const comNova = servicos().includes("nova");
+  // Com "Instalação nova" o quadro vai sempre no preço: sem "Manter como está". Em "Obras" (Pedir um serviço) já não:
+  // o quadro só entra se o cliente o pedir (preco.js quadroNoPedido).
+  const comNova = servicos().includes("nova") && estado.caminho !== "obras";
   const opcao = opcaoQuadro();
   for (const i of document.querySelectorAll("input[name=melhorias-quadro]")) { i.checked = i.value === opcao; i.parentElement.hidden = i.value === "manter" && comNova; }
   $("melhorias-quadro-protecao-caixa").hidden = opcao === "manter";
@@ -2377,7 +2378,8 @@ function desenharQuadroMelhorias() {
   // Fase 2: o "Quadro seguro" aceite nas Melhorias (melhorias.js PROTECOES_MAXIMAS).
   const seguro = estado.melhorias.aceites.includes(QUADRO_SEGURO) && !!estado.melhorias.quadroAnterior;
   if (opcao === "manter") {
-    nota.textContent = seguro ? "O quadro fica; a melhoria Quadro seguro junta-lhe as proteções." : "O quadro fica como está.";
+    nota.textContent = seguro ? "O quadro fica; a melhoria Quadro seguro junta-lhe as proteções."
+      : estado.caminho === "obras" ? "O quadro fica como está. Se a obra precisar de mexer nele, dizemos-lhe na proposta, pela foto." : "O quadro fica como está.";
     nota.hidden = false;
     return;
   }
@@ -4092,7 +4094,7 @@ function desenharQuadroTrocar() {
     if (bf) { c.append(bf, el("p", "ajuda acao-foto-dica falta-foto", "Foto do quadro, porta aberta (obrigatória).")); }
     if (fotoAcoes) c.append(fotoAcoes);
   }
-  if (!servicos().includes("nova")) {
+  if (!servicos().includes("nova") || estado.caminho === "obras") {
     c.append(grupo("Melhorar o quadro?", "trocar-quadro-melhorar", [["nao", "Não"], ["sim", "Sim"]], estado.mexerQuadro ? "sim" : "nao", (v) => {
       estado.mexerQuadro = v === "sim";
       estado.quadro.pacote = pacoteDoQuadro(estado.quadro);

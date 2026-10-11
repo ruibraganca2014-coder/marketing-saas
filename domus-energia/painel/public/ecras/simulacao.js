@@ -180,6 +180,10 @@ const n0 = (v) => numero(v) ?? 0;
 const plural = (n, um, varios) => `${num(n)} ${n === 1 ? um : varios}`;
 /** Serviços pedidos (lista; pedidos antigos: "nova"). */
 export const servicosDe = (sim) => { const l = arr(obj(sim).servico).filter((k) => SERVICOS_SIM[k]); return l.length ? l : ["nova"]; };
+/** "Trocar o quadro elétrico" (caminho "quadro" de "Pedir um serviço"): segue com o serviço "reparar" mas não é uma avaria. */
+export const trocaDeQuadro = (sim) => obj(sim).caminho === "quadro";
+/** O serviço em palavras (decisão do dono, 2026-10-11: a troca do quadro tem nome próprio; "Obras" já não se chama "remodelação total"). */
+export const servicoTexto = (sim) => (trocaDeQuadro(sim) ? "Trocar o quadro elétrico" : obj(sim).caminho === "obras" ? "Obras" : servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · "));
 /** Marcas das ações na planta: só nos pedidos com serviço (os antigos não têm ações). */
 const acoesDe = (sim) => (Array.isArray(obj(sim).servico) ? { omissao: servicosDe(sim).includes("nova") ? "novo" : "manter" } : null);
 /** O aparelho tem ação? (porta e quadro não; a janela só com estore) */
@@ -332,7 +336,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ...(avaria ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some(fotoAvaria) ? " (ver foto)" : ""}`]] : []),
       ...linhasVisita(sim),
       ["Casa", avaria ? ["Sem planta", typeof casa.localidade === "string" ? casa.localidade : null].filter(Boolean).join(" · ") : casaTxt || "—"],
-      ...(Array.isArray(sim.servico) ? [["Serviço", servicosDe(sim).map((k) => SERVICOS_SIM[k]).join(" · ")]] : []),
+      ...(Array.isArray(sim.servico) ? [["Serviço", servicoTexto(sim)]] : []),
     ...(deslTxt ? [["Deslocação", deslTxt]] : []),
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...pisosDetalhe(casa),
@@ -1208,7 +1212,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const estimativa = estimativaTxt(s);
   const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
   const avaria = ehAvaria(s);
-  const servicoTxt = avaria ? FUNIS_SIM.avaria : servicosDe(s).map((k) => SERVICOS_SIM[k]).join(" · ");
+  const servicoTxt = avaria ? FUNIS_SIM.avaria : servicoTexto(s);
   // Diagnóstico da avaria feito no painel (ficha do pedido): a seguir ao que o cliente descreveu.
   const blocoDiag = blocoDiagnostico(diagnostico);
 

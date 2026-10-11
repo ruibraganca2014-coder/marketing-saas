@@ -11,7 +11,7 @@
 import { pedir, campo, lista, numero, idPedido, palavraPasse } from "../api.js";
 import { h, ESTADOS_ORC, NOMES_ESTADO_ORC, MOTIVOS_PERDA, KITS, euros, data, selo, campoForm, escolha, dados, janela, mensagem, avisar, carregando, erroEcra, txt, isoDia, mostrarPalavraPasse } from "../ui.js";
 import { RE_CODIGO, sugerirCodigo } from "./clientes.js";
-import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, blocoDiagnostico } from "./simulacao.js";
+import { vistaSimulacao, aparelhosDaSimulacao, relatorioTecnico, galeriaFotos, nomeTipoFoto, urgenciaDe, visitaTxt, URGENCIAS, ehAvaria, servicosDe, trocaDeQuadro, blocoDiagnostico } from "./simulacao.js";
 import { CHECKLIST, NOME_TIPO, PROBLEMAS, sugestoesPara, MAX_CONCLUSAO } from "./diagnostico-conteudo.js";
 // Conteúdo técnico do relatório completo (cópia de web/simulador/simbolos.js): planta técnica, esquemas, ensaios.
 import { seccaoTecnica } from "../vendor/simbolos.js";
@@ -1255,7 +1255,7 @@ const IA_TEXTOS = {
 };
 
 /** O pedido precisa da secção "Diagnóstico": avaria rápida, serviço de reparações, aparelhos a reparar ou quadro com problemas. */
-export const precisaDiagnostico = (sim) => !!sim && (ehAvaria(sim) || servicosDe(sim).includes("reparar")
+export const precisaDiagnostico = (sim) => !!sim && (ehAvaria(sim) || (servicosDe(sim).includes("reparar") && !trocaDeQuadro(sim))
   || Number(sim.totais_acao?.reparar?.aparelhos) > 0 || (sim.quadro && typeof sim.quadro === "object" && typeof sim.quadro.avaria === "string"));
 /** Conta de cliente do pedido ({email, confirmado, ativo} ou null) em texto. */
 function textoConta(c) {

@@ -1328,6 +1328,9 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     versao: VERSAO,
     // Fase 1 (funis): o caso escolhido no Início — "primeira" (obras ou automatizar) ou "planta" (já tinha a planta).
     funil: estado.funil === "planta" ? "planta" : "primeira",
+    // O que o cliente escolheu em "Pedir um serviço" (automatizar, reparar, quadro, obras), ou null. "quadro" = trocar o
+    // quadro elétrico: segue com o serviço "reparar" mas não é uma avaria (o painel dá-lhe o nome certo).
+    caminho: estado.funil === "planta" && typeof estado.caminho === "string" ? estado.caminho : null,
     // Lote 7: o serviço pedido (passo 1) e, por aparelho, a ação (planta.elementos[].acao); a lista de trabalho por
     // divisão e os totais por ação são para o relatório técnico.
     servico,

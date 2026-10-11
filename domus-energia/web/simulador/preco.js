@@ -127,7 +127,10 @@ export function horasTroca(a) {
  * O quadro (proteções, caixa, ampliação) entra no pedido? Sempre com "Instalação nova" (e nos estados sem serviço);
  * sem ela, só se o cliente disser que quer melhorar o quadro (`mexerQuadro`).
  */
-export const quadroNoPedido = (s) => !Array.isArray(s?.servico) || s.servico.includes("nova") || s.mexerQuadro === true;
+// "Obras" em "Pedir um serviço" (caminho "obras"; decisão do dono, 2026-10-11): o serviço é "nova" mas pode ser só trocar
+// uma tomada — o quadro deixou de entrar sozinho no preço; entra se o cliente escolher "Melhorar" ou "Quadro novo"
+// (mexerQuadro). Se a obra precisar de mexer no quadro, isso vai na proposta, pela foto.
+export const quadroNoPedido = (s) => !Array.isArray(s?.servico) || s.mexerQuadro === true || (s.servico.includes("nova") && s.caminho !== "obras");
 
 /** Artigo do catálogo para um pedido (por SKU; senão por categoria/especificações); null se não houver. */
 export function encontrarArtigo(chave, catalogo) {
