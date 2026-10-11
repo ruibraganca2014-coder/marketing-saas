@@ -169,6 +169,13 @@ export async function esperar(fn, ms = 5000, passo = 50) {
   throw new Error(`tempo esgotado à espera (último: ${JSON.stringify(ultimo)})`);
 }
 
+/**
+ * Testes que só correm em Linux (o servidor): os que correm o servidor/domus.sh (bash) e os que precisam de um
+ * Mosquitto verdadeiro. No Windows do dono ficam "saltados" (com este motivo) em vez de falharem, para um teste
+ * vermelho voltar a significar um erro verdadeiro. Em Linux nunca se saltam: sem bash ou sem Mosquitto, falham.
+ */
+export const SO_LINUX = process.platform === 'win32' ? 'só corre em Linux (precisa do bash do servidor ou do Mosquitto)' : false;
+
 /** Corre o servidor/domus.sh com o ambiente dado. */
 export async function domus(env, args, { stdin } = {}) {
   return new Promise((resolve) => {

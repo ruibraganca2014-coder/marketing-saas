@@ -1,11 +1,14 @@
 // Alertas técnicos em direto, com um Mosquitto 2 REAL e as permissões (ACL)
 // geradas pelo servidor/domus.sh: o painel liga-se como "painel" (só leitura).
 
-import { test, before, after } from 'node:test';
+import { test as teste, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import mqtt from 'mqtt';
 import { join } from 'node:path';
-import { iniciarMosquitto, iniciarPainel, esperar, SENHAS_MQTT } from './ajuda.js';
+import { iniciarMosquitto, iniciarPainel, esperar, SENHAS_MQTT, SO_LINUX } from './ajuda.js';
+
+// No Windows estes testes ficam saltados (ver SO_LINUX em ajuda.js).
+const test = (nome, fn) => teste(nome, { skip: SO_LINUX }, fn);
 import { iso } from '../src/util.js';
 
 let mq;
@@ -18,6 +21,7 @@ async function publicar(topico, msg, retain = true) {
 }
 
 before(async () => {
+  if (SO_LINUX) return;
   mq = await iniciarMosquitto();
   await mq.domus('aparelho', 'joao', 'sala', 'openbeken', 'Sala', 'sala-senha-1');
   await mq.domus('aparelho', 'joao', 'porta', 'openbeken', 'Porta da rua', '--bateria', '--canais', '1:porta:Porta:entrada,2:bateria', 'porta-senha-1');
@@ -50,6 +54,7 @@ before(async () => {
 });
 
 after(async () => {
+  if (SO_LINUX) return;
   await p?.fechar();
   await admin?.endAsync();
   await mq?.parar();

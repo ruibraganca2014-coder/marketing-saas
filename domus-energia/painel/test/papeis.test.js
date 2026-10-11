@@ -209,7 +209,8 @@ test('estáticos: /painel redireciona, ficheiros com tipo certo, sem listagem ne
   await writeFile(join(pub, 'ecras', 'a.css'), 'a{}');
   await writeFile(join(pub, '.segredo'), 'x');
   await writeFile(join(p.dir, 'fora.txt'), 'fora');
-  await symlink(join(p.dir, 'fora.txt'), join(pub, 'ligacao.txt'));
+  // No Windows criar ligações simbólicas pede privilégios: sem eles, esse caminho não se testa aqui (em Linux, sempre).
+  await symlink(join(p.dir, 'fora.txt'), join(pub, 'ligacao.txt')).catch((e) => { if (!(process.platform === 'win32' && e.code === 'EPERM')) throw e; });
   r = await p.pedir('GET', '/painel');
   assert.equal(r.estado, 301);
   assert.equal(r.cabecalhos.location, '/painel/');

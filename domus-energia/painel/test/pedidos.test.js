@@ -3,12 +3,15 @@
 // DOMUS_DRY_RUN=1), resultado mostrado uma só vez, e o sentido inverso
 // (./domus.sh painel-utilizador → o painel cria o utilizador).
 
-import { test, before, after } from 'node:test';
+import { test as teste, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, stat, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { iniciarPainel, domus, esperar } from './ajuda.js';
+import { iniciarPainel, domus, esperar, SO_LINUX } from './ajuda.js';
+
+// No Windows estes testes ficam saltados (ver SO_LINUX em ajuda.js).
+const test = (nome, fn) => teste(nome, { skip: SO_LINUX }, fn);
 
 let base;
 let ENV;
@@ -18,6 +21,7 @@ let u;
 const ISO = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z';
 
 before(async () => {
+  if (SO_LINUX) return;
   base = await mkdtemp(join(tmpdir(), 'domus-painel-ped-'));
   ENV = { DOMUS_DRY_RUN: '1', DOMUS_DADOS: join(base, 'dados'), DOMUS_MOSQ_DIR: join(base, 'mosq'), DOMUS_HOST: 'teste.local', DOMUS_ENV: '/dev/null', DOMUS_ESPERA_PAINEL: '10' };
   for (const args of [['admin', 'admin-senha-1'], ['cliente', 'joao', 'joao-senha-1'], ['aparelho', 'joao', 'sala', 'openbeken', 'Sala', 'sala-senha-1']]) {
@@ -33,6 +37,7 @@ before(async () => {
   cookies = { ceo: await p.entrar(u.ceo.email), tecnico: await p.entrar(u.tecnico.email), comercial: await p.entrar(u.comercial.email) };
 });
 after(async () => {
+  if (SO_LINUX) return;
   await p.fechar();
   await rm(base, { recursive: true, force: true });
 });
