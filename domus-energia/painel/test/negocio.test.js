@@ -234,6 +234,22 @@ describe('com dados', () => {
     assert.deepEqual([s.valor, s.material, s.eletricistas, s.obras, s.sem_custo.artigos], [189.06, 10, 15, 1, 0]);
   });
 
+  test('margem: o material do trabalho a mais aceite pelo cliente soma ao custo da obra (o proposto ou recusado não)', async () => {
+    const db = p.app.db;
+    const t = db.prepare("SELECT id, orcamento_id FROM trabalhos_eletricista WHERE tipo = 'obra' AND estado = 'aprovada' LIMIT 1").get();
+    const extra = db.prepare(`INSERT INTO trabalhos_extra (orcamento_id, trabalho_id, descricao, horas, material, estado, criado, atualizado)
+      VALUES (?, ?, 'cabo queimado', 1, ?, ?, '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z')`);
+    const ids = [extra.run(t.orcamento_id, t.id, JSON.stringify([{ sku: 'T-A', qtd: 3 }]), 'aceite').lastInsertRowid,
+      extra.run(t.orcamento_id, t.id, JSON.stringify([{ sku: 'T-A', qtd: 50 }]), 'recusado').lastInsertRowid,
+      extra.run(t.orcamento_id, t.id, JSON.stringify([{ sku: 'T-A', qtd: 50 }]), 'proposto').lastInsertRowid];
+    try {
+      const m = (await de('ceo', 'mes')).margem;
+      // Os 20,00 de antes + 3 × 10,00 do trabalho a mais aceite; a margem desce os mesmos 30,00.
+      assert.deepEqual([m.material, m.valor, m.obras], [50, 13.12, 2]);
+    } finally { for (const id of ids) db.prepare('DELETE FROM trabalhos_extra WHERE id = ?').run(id); }
+    assert.equal((await de('ceo', 'mes')).margem.material, 20);
+  });
+
   test('por receber: sinal das propostas aceites e restante das obras concluídas, os mais antigos primeiro', async () => {
     const r = (await de('ceo', 'mes')).por_receber;
     // P6: 369,00 − (246,00 − 24,60) = 147,60; P2: 492,00 − 123,00 = 369,00; P4: 30 % de 1230,00 = 369,00. A P5 não tem conta.

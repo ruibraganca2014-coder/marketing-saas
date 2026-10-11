@@ -163,12 +163,22 @@ export function criarNegocio({ db, config, relogio, stock, pagamentos, dados }) 
     let semLista = 0;
     const semCusto = new Map();
     const obras = db.prepare('SELECT id, simulacao FROM orcamentos WHERE obra_concluida >= ? AND obra_concluida < ?').all(l.de, l.ate);
-    for (const o of obras) {
-      if (!o.simulacao) { semLista += 1; continue; }
-      for (const { artigo: a, qtd } of stock.materialDoPedido(o)) {
+    // Trabalho a mais aceite pelo cliente (migração 47): o material que o eletricista propôs também é custo da obra.
+    const extras = config.eletricistas ? db.prepare("SELECT material FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'aceite'") : null;
+    const somar = (lista) => {
+      for (const { artigo: a, qtd } of lista) {
         if (a.preco_compra_cent === null || a.preco_compra_cent === undefined) { if (a.preco_venda_iva_cent > 0) semCusto.set(a.sku, a); continue; }
         cent += a.preco_compra_cent * qtd;
       }
+    };
+    for (const o of obras) {
+      for (const x of extras?.all(o.id) ?? []) {
+        let itens = [];
+        try { itens = JSON.parse(x.material ?? '[]'); } catch { itens = []; }
+        somar(stock.materialDoPedido({ simulacao: JSON.stringify({ itens: Array.isArray(itens) ? itens : [] }) }));
+      }
+      if (!o.simulacao) { semLista += 1; continue; }
+      somar(stock.materialDoPedido(o));
     }
     return { cent, obras: obras.length, semLista, semCusto };
   }
