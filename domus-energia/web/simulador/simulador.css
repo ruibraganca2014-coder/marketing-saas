@@ -932,7 +932,8 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .janela-resumo { margin: 0 0 6px; font-weight: 700; }
 .sim-potencia-escolher { display: grid; gap: 6px; margin-top: 10px; font-weight: 700; }
 .sim-potencia-escolher select { max-width: 260px; }
-.editor-terminar { margin-left: 6px; }
+/* A zona da dica deixa passar os toques para a planta (pointer-events: none); o botão tem de os receber. */
+.editor-terminar { margin-left: 6px; pointer-events: auto; }
 /* Amostra do relatório antes do email (decisão do dono, 2026-10-10): duas partes à vista, o resto desfocado. */
 .so-amostra > :not(#relatorio) { display: none; }
 .so-amostra #relatorio { max-height: 1100px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
