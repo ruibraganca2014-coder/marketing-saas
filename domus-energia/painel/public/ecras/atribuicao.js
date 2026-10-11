@@ -215,7 +215,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
           : t.por_proposta
           ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
           : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
-        h("div", { class: "form-botoes" }, botaoConfirmar("Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Retirado da bolsa."))));
+        h("div", { class: "form-botoes" }, botaoConfirmar(t.so_para ? "Retirar o pedido de proposta" : "Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, t.so_para ? "Pedido de proposta retirado." : "Retirado da bolsa."))));
     } else {
       const r = t.recebe;
       // Escolhido entre as propostas, com o cliente ainda por aceitar: sem prazo e sem visita por marcar.
@@ -225,7 +225,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
         dados([
           ["Eletricista", t.eletricista ? h("a", { href: "#/eletricistas", text: t.eletricista.nome }) : "—"],
           ["Como", t.por_proposta ? "Escolhido entre as propostas da bolsa" : t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
-          ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total)} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
+          ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total + (t.recebe_extras || 0))} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${t.recebe_extras ? ` + ${euros(t.recebe_extras)} do trabalho a mais` : ""}${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
           ...(t.concluida ? [["Concluída pelo eletricista", data(t.concluida)]] : []),
           ["Visita", t.espera_cliente ? "Só depois de o cliente aceitar a proposta: aí a obra fica com ele e tem 48 h para marcar"
             : t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],

@@ -2336,6 +2336,7 @@ function quadroMudou() {
   estado.quadro.pacote = pacoteDoQuadro(estado.quadro);
   agendarGravacao();
   desenharMelhorias();
+  desenharEstimativaProvisoria();   // a faixa "Estimativa:" do topo segue logo a escolha do quadro
   guardarNaConta();
 }
 
@@ -2372,7 +2373,7 @@ function desenharQuadroMelhorias() {
   // o quadro só entra se o cliente o pedir (preco.js quadroNoPedido).
   const comNova = servicos().includes("nova") && estado.caminho !== "obras";
   const opcao = opcaoQuadro();
-  for (const i of document.querySelectorAll("input[name=melhorias-quadro]")) { i.checked = i.value === opcao; i.parentElement.hidden = i.value === "manter" && comNova; }
+  for (const i of document.querySelectorAll("input[name=melhorias-quadro]")) { i.checked = i.value === opcao; i.parentElement.hidden = i.value === "manter" && (comNova || estado.caminho === "quadro"); }   // "Trocar o quadro": não faz sentido "Manter como está"
   $("melhorias-quadro-protecao-caixa").hidden = opcao === "manter";
   const nota = $("quadro-nota");
   // Fase 2: o "Quadro seguro" aceite nas Melhorias (melhorias.js PROTECOES_MAXIMAS).

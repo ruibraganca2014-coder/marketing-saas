@@ -859,7 +859,7 @@ function seccaoVisita(t) {
     if (t.prazo) corpo.push(contagem(t.prazo, "para marcar a visita. Depois disso, o trabalho deixa de ser seu."));
     corpo.push(el("p", "pequeno suave", "Combine o dia com o cliente por telefone e registe aqui. O cliente recebe a confirmação por email, em nome da Domus Energia."), ...formVisita(t));
   } else {
-    corpo.push(com(el("p"), el("b", null, visitaTxt(t.visita))), el("p", "pequeno suave", "O cliente recebeu a confirmação em nome da Domus Energia."));
+    corpo.push(com(el("p"), el("b", null, visitaTxt(t.visita))), el("p", "pequeno suave", new Date(t.visita) > new Date() ? "O cliente recebeu a confirmação em nome da Domus Energia." : "Data da visita registada."));
     if (t.editavel) {
       const alterar = el("button", "btn sec mini", "Alterar data");
       alterar.type = "button";

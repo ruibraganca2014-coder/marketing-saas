@@ -991,7 +991,8 @@ export function quadroParaEnvio(estado, circuitos) {
     // Lote 5, "O seu quadro elétrico": Quero um quadro novo → true, Já tenho quadro (o atual serve) → false, Não sei →
     // null (o mesmo valor que dava "O quadro elétrico é antigo?" do lote 4: Sim / Não / Não sei).
     quadro_antigo: r.quadro_novo === "novo" ? true : r.quadro_novo === "atual" ? false : null,
-    quadro_novo_no_preco: levaQuadroNovo(q),
+    // Só com o quadro no pedido (em "Obras" com "Manter como está" não entra: o painel dizia "quadro novo no preço").
+    quadro_novo_no_preco: levaQuadroNovo(q) && quadroNoPedido(estado),
     // Automatizar/reparar com quadro novo: disjuntores dos circuitos que a casa já tem (estimativa; §0 lote 7).
     circuitos_existentes: r.circuitos_existentes,
     diferenciais: r.grupos.map((g) => ({ n: g.n, circuitos: [...g.circuitos], carregador: g.carregador, wifi: !!r.protecoes.idr_wifi, quadro: g.quadro })),

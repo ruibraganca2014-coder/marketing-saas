@@ -1849,7 +1849,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * confirmar (ou os 7 dias sem resposta); para tirar o trabalho ao eletricista, "Retirar" na ficha do pedido.
    */
   const obraPorConfirmar = (o) => db.prepare(`SELECT t.estado, e.nome FROM trabalhos_eletricista t LEFT JOIN eletricistas e ON e.id = t.eletricista_id
-    WHERE t.orcamento_id = ? AND t.tipo = 'obra' AND t.estado IN ('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista') ORDER BY t.id DESC LIMIT 1`).get(o.id) ?? null;
+    WHERE t.orcamento_id = ? AND t.tipo = 'obra' AND t.estado IN ('na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada') ORDER BY t.id DESC LIMIT 1`).get(o.id) ?? null;
   const clienteConfirmou = (o) => (config.propostasBolsa
     ? db.prepare("SELECT confirmada FROM trabalhos_eletricista WHERE orcamento_id = ? AND tipo = 'obra' AND estado = 'confirmada' ORDER BY id DESC LIMIT 1").get(o.id)?.confirmada ?? null : null);
 
@@ -2206,6 +2206,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         pode_aprovar: t.estado === 'confirmada', pode_devolver: ['concluida_eletricista', 'confirmada'].includes(t.estado), pode_decidir: Boolean(doCliente),
         id: t.id, tipo: t.tipo, estado: t.estado, modo: t.modo, aberto: aberto(t, o), eletricista: e ? { id: e.id, nome: e.nome } : null,
         so_para: t.so_para ? { id: t.so_para, nome: linha(t.so_para)?.nome ?? null } : null,
+        // A parte dele no trabalho a mais que o cliente já aceitou (€, sem IVA): soma à estimativa antes de aprovar.
+        recebe_extras: e && t.tipo === 'obra' ? Math.round(maoObraExtras(t.id) * (Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) / 100) / 100 : 0,
         // Por proposta: escolhido pelo CEO; `espera_cliente` = o cliente ainda não aceitou (sem prazo, sem dados do cliente).
         ...(config.propostasBolsa ? { por_proposta: porProposta(t), espera_cliente: esperaCliente(t) } : {}),
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,

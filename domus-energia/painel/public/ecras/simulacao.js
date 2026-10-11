@@ -489,7 +489,8 @@ function blocoQuadro(q, contratada) {
     ["Pacote", PACOTES[q.pacote] ?? (typeof q.pacote === "string" ? q.pacote : "—")],
     ["Proteções", ["Diferenciais 30 mA", ...ligadas].join(", ")],
     ["Para-raios / linha aérea", SIM_NAO[q.para_raios] ?? "Não sabe"],
-    ["Quadro", `${QUADRO_NOVO[q.quadro_novo] ?? "Não sabe"}${q.quadro_novo_no_preco === true ? " (quadro novo no preço)" : ""}`],
+    // `no_preco: false`: o cliente deixou o quadro como está — o que se segue é só o que o simulador calculou para a casa.
+    ["Quadro", q.no_preco === false ? "Fica como está: não entra neste pedido (abaixo, só o que o simulador calculou para a casa)" : `${QUADRO_NOVO[q.quadro_novo] ?? "Não sabe"}${q.quadro_novo_no_preco === true ? " (quadro novo no preço)" : ""}`],
   ];
   if (numero(m.tamanho) !== null) {
     linhas.push(["Tamanho do quadro", `${(numero(m.quadros) ?? 1) > 1 ? `${num(numero(m.quadros))} × ` : ""}${num(numero(m.tamanho))} módulos (${num(numero(m.ocupados) ?? 0)} ocupados, ${num(numero(m.livres) ?? 0)} livres)${m.cabe === false && !((numero(m.quadros) ?? 1) > 1) ? " — não chega com 25 % livres" : ""}${q.quadro_novo === "atual" && numero(m.novos) !== null ? ` · ${num(numero(m.novos))} módulos novos no quadro atual` : ""}`]);

@@ -1631,7 +1631,9 @@ export function criarApi(ctx) {
   function recusarSeComEletricista(o) {
     const t = eletricistas?.obraPorConfirmar(o);
     if (!t) return;
-    throw new ErroApi(409, t.estado === 'concluida_eletricista'
+    throw new ErroApi(409, t.estado === 'confirmada'
+      ? 'O cliente já confirmou o trabalho: aprove o trabalho do eletricista, na ficha do pedido, e a obra fica concluída.'
+      : t.estado === 'concluida_eletricista'
       ? 'O eletricista já deu a obra por concluída: falta o cliente confirmar na conta (fica aceite ao fim de 7 dias sem resposta).'
       : `A obra está ${t.estado === 'na_bolsa' ? 'na bolsa dos eletricistas' : `com o eletricista ${t.nome ?? ''}`.trim()}: fica concluída quando ele a terminar e o cliente confirmar. Para a concluir aqui, retire primeiro o trabalho ao eletricista.`);
   }
