@@ -21,16 +21,19 @@ SERV="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DESTINO="${DOMUS_COPIAS:-/root/domus-copias}"
 MANTER="${DOMUS_COPIAS_MANTER:-30}"
 ESTADO="$DESTINO/ultima.txt"
+ESTADO_PAINEL="$SERV/dados/painel/copia.txt"   # a mesma linha, onde o painel a lê para avisar o CEO no Início
 AGORA="$(date -u +%Y%m%d-%H%M%S)"
 FICHEIRO="$DESTINO/domus-copia-$AGORA.tar.gz"
 PARCIAL="$FICHEIRO.parcial"
 TMP=""
 
 limpar() { rm -f "$PARCIAL"; [[ -z "$TMP" ]] || rm -rf "$TMP"; }
+para_o_painel() { { cp "$ESTADO" "$ESTADO_PAINEL" && chmod 644 "$ESTADO_PAINEL"; } 2>/dev/null || true; }
 trap limpar EXIT
 
 falhar() {
   printf 'FALHOU %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" > "$ESTADO" 2>/dev/null || true
+  para_o_painel
   printf 'cópia de segurança FALHOU: %s\n' "$*" >&2
   exit 1
 }
@@ -75,4 +78,5 @@ ls -1t "$DESTINO"/domus-copia-*.tar.gz 2>/dev/null | tail -n "+$((MANTER + 1))" 
 quantas="$(ls -1 "$DESTINO"/domus-copia-*.tar.gz 2>/dev/null | wc -l | tr -d ' ')"
 tamanho="$(du -h "$FICHEIRO" | cut -f1)"
 printf 'OK %s %s (%s; %s pedidos na base de dados; %s cópias guardadas)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FICHEIRO" "$tamanho" "${resultado#ok }" "$quantas" > "$ESTADO"
+para_o_painel
 printf 'cópia de segurança feita e verificada: %s (%s)\n' "$FICHEIRO" "$tamanho"

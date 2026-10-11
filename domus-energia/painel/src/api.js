@@ -16,6 +16,8 @@ import { ESTADOS_ORCAMENTO, ESTADO_ARQUIVADO, ESTADOS_OBRA, ESTADOS_PAGAMENTO, P
 import { RE_EMAIL, RE_PEDIDO, formatarPedido } from './pedidos.js';
 import { hashSenha, verificarSenha, problemaSenha, gerarSenha } from './senhas.js';
 import { LimiteTaxa } from './limite.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { iso, diaLisboa, semanaLisboa, deCent, paraCent } from './util.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { criarFotos, FOTOS_MAX, RE_ID_FOTO } from './fotos.js';
@@ -626,6 +628,21 @@ export function criarApi(ctx) {
     WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL ORDER BY proposta_aceite DESC LIMIT 50`).all()
     .map((o) => ({ id: o.id, nome: o.nome, quando: o.proposta_aceite, valor_proposta: deCent(o.valor_proposta_cent) }));
 
+  /**
+   * A cópia de segurança da noite (servidor/copia.sh) deixa o resultado em DADOS/painel/copia.txt: "OK <quando> ..." ou
+   * "FALHOU <quando> <motivo>". Devolve o problema a mostrar ao CEO no Início — a última falhou, ou a última boa tem
+   * mais de 50 horas (duas noites sem cópia) — ou null. Sem ficheiro (computador de testes, servidor ainda sem a
+   * primeira cópia) não há aviso.
+   */
+  function problemaDaCopia() {
+    let linha;
+    try { linha = readFileSync(join(dirname(config.db), 'copia.txt'), 'utf8').split('\n')[0].trim(); } catch { return null; }
+    const m = /^(OK|FALHOU) (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)(?: (.*))?$/.exec(linha);
+    if (!m) return null;
+    if (m[1] === 'FALHOU') return { problema: 'falhou', quando: m[2], motivo: String(m[3] ?? '').slice(0, 300) };
+    return relogio() - Date.parse(m[2]) > 50 * 3600_000 ? { problema: 'antiga', quando: m[2] } : null;
+  }
+
   // Emails ao cliente que falharam de vez (só o CEO; decisão do dono, 2026-10-11): a lista por ver e "Marcar como vistos".
   h.emailsFalhados = async ({ res }) => {
     responder(res, 200, { emails: db.prepare('SELECT id, quando, para, assunto, erro, tentativas FROM emails_falhados WHERE visto IS NULL ORDER BY id DESC LIMIT 50').all() });
@@ -684,6 +701,8 @@ export function criarApi(ctx) {
         ativacoes: n("SELECT COUNT(*) AS n FROM aparelhos_ativacoes WHERE estado = 'pendente'"),
         // Emails ao cliente que falharam de vez (3 tentativas) e que o CEO ainda não viu.
         emails_falhados: n('SELECT COUNT(*) AS n FROM emails_falhados WHERE visto IS NULL'),
+        // A cópia de segurança da noite falhou ou não corre há mais de dois dias (null = tudo bem).
+        copia: problemaDaCopia(),
       };
       if (config.eletricistas) {
         Object.assign(r.tratar, {

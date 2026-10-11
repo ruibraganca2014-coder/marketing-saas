@@ -98,7 +98,16 @@ export default function inicio(el, ctx) {
         h("span", { class: "ajuda", text: String(campo(x, "erro")) }))))),
       h("div", { class: "form-botoes" }, visto)) : null;
 
-    return [h("div", { class: "blocos inicio-simples" }, ...[emails, tratar, estaSemana, receber].filter(Boolean)),
+    // A cópia de segurança da noite falhou, ou não corre há mais de dois dias.
+    const cp = campo(t, "copia");
+    const copia = cp ? h("section", { class: "cartao", id: "inicio-copia" },
+      h("h2", { text: campo(cp, "problema") === "falhou" ? "A cópia de segurança falhou" : "Sem cópia de segurança há mais de dois dias" }),
+      h("p", { class: "msg erro", text: campo(cp, "problema") === "falhou"
+        ? `A cópia automática de ${data(campo(cp, "quando"))} não ficou feita: ${campo(cp, "motivo") || "motivo desconhecido"}.`
+        : `A última cópia automática boa é de ${data(campo(cp, "quando"))}.` }),
+      h("p", { class: "ajuda", text: "Os dados do servidor não estão em risco por isto, mas sem cópias recentes não há como voltar atrás se algo correr mal. Fale com quem trata do servidor." })) : null;
+
+    return [h("div", { class: "blocos inicio-simples" }, ...[copia, emails, tratar, estaSemana, receber].filter(Boolean)),
       h("p", { class: "inicio-numeros" }, h("a", { class: "btn sec pequeno", href: "#/numeros", text: "Ver números" }))];
   }
 

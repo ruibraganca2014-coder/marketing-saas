@@ -2,6 +2,8 @@
 // (contagem em resumo.tratar, lista em GET emails-falhados) até "Marcar como vistos"; só o CEO; saem com a conta.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { writeFileSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { painelComEquipa } from './ajuda.js';
 
 let p;
@@ -42,4 +44,21 @@ test('apagar a conta leva as falhas desse email', async () => {
   assert.equal(r.estado, 200, r.texto);
   assert.equal(p.app.db.prepare('SELECT COUNT(*) AS n FROM emails_falhados').get().n, antes - 1);
   assert.equal(p.app.db.prepare("SELECT COUNT(*) AS n FROM emails_falhados WHERE lower(para) = 'maria.falha@exemplo.pt'").get().n, 0);
+});
+
+test('cópia de segurança: sem ficheiro ou cópia boa recente não avisa; falhada ou com mais de 50 horas avisa o CEO', async () => {
+  const f = join(dirname(p.config.db), 'copia.txt');
+  const copia = async () => (await painel('GET', 'resumo')).json.tratar.copia;
+  const ha = (h) => new Date(p.relogio.agora() - h * 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  assert.equal(await copia(), null, 'sem ficheiro');
+  try {
+    writeFileSync(f, `OK ${ha(5)} /root/domus-copias/domus-copia-x.tar.gz (44K; 3 pedidos na base de dados; 9 cópias guardadas)\n`);
+    assert.equal(await copia(), null, 'boa e recente');
+    writeFileSync(f, `OK ${ha(60)} /root/domus-copias/domus-copia-x.tar.gz (44K)\n`);
+    assert.deepEqual(await copia(), { problema: 'antiga', quando: ha(60) });
+    writeFileSync(f, `FALHOU ${ha(1)} a base de dados na cópia não passou a verificação (erro x)\n`);
+    assert.deepEqual(await copia(), { problema: 'falhou', quando: ha(1), motivo: 'a base de dados na cópia não passou a verificação (erro x)' });
+    writeFileSync(f, 'lixo\n');
+    assert.equal(await copia(), null, 'linha que não se percebe');
+  } finally { rmSync(f, { force: true }); }
 });
