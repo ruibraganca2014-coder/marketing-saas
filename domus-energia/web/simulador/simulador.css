@@ -942,3 +942,4 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .casa-miniatura-botao { display: grid; gap: 8px; width: 100%; padding: 10px; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); color: var(--texto-suave); font: inherit; text-align: left; cursor: pointer; }
 .casa-miniatura-svg { display: block; width: 100%; height: auto; max-height: 240px; }
 dialog .casa-miniatura-svg { margin: 8px 0; border: 1px solid var(--borda); border-radius: 10px; max-height: 200px; }
+.sim-seguir-passos { margin: 8px 0 0; padding-left: 1.3em; display: grid; gap: 6px; }

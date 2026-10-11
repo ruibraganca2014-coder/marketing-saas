@@ -360,6 +360,8 @@ export function blocosRelatorio(d) {
     ...(a.rever.length ? a.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
     { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
     ...(a.proximo?.length ? [{ tipo: "seccao", texto: "O que fazíamos primeiro nesta casa" }, ...a.proximo.map((t) => ({ tipo: "item", texto: t }))] : []),
+    // "O que acontece a seguir" (decisão do dono, 2026-10-11): os passos do pedido.
+    ...(d.seguir ? [{ tipo: "seccao", texto: d.seguir.titulo }, { tipo: "texto", texto: d.seguir.intro }, ...d.seguir.passos.map((t, i) => ({ tipo: "item", texto: `${i + 1}. ${t}` }))] : []),
     // 2. O quadro ideal, numa folha nova: o desenho, o que é cada peça e os circuitos em tabela.
     { tipo: "quebra" },
     { tipo: "seccao", texto: "Quadro ideal e circuitos" },

@@ -41,7 +41,7 @@ import { criarEditor } from "./editor.js";
 import { guardarPdfOrcamento, guardarPdfRelatorio } from "./imprimir.js";
 import { desenharIcone, desenharPlanta } from "./planta-svg.js";
 import { resumoQuadro as resumoDoQuadro } from "./quadro.js";
-import { analiseDaCasa } from "./relatorio-casa.js";
+import { analiseDaCasa, passosDoPedido } from "./relatorio-casa.js";
 import { desenharQuadroCliente } from "./quadro-desenho.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
 import { sugerirConcelhos, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
@@ -4601,6 +4601,8 @@ function dadosRelatorio() {
     pisos,
     // Decisão do dono (2026-10-05): os números da casa, se a potência chega, os circuitos que a casa pede e os pontos a rever.
     analise: analiseDaCasa(planta, c, r.potencia.kva, { assumida: !estado.potenciaEditada }),
+    // "O que acontece a seguir" (decisão do dono, 2026-10-11): os passos do pedido, no relatório e no PDF.
+    seguir: passosDoPedido(listaEspera ? ESPERA_QUANDO : null),
     // O quadro é seguro? A frase da idade do quadro (sem resposta, a de "Não sei").
     quadroSeguro: IDADES_QUADRO[estado.quadroIdade]?.veredicto ?? "O eletricista vê pela foto do quadro se tem as proteções obrigatórias e diz-lhe na visita.",
   };
@@ -4743,9 +4745,15 @@ function desenharRelatorio() {
   // que fazíamos primeiro, o quadro ideal e, no fim, o consumo e as divisões.
   const seguro = el("div", `cartao sim-quadro-seguro${estado.quadroIdade === "antigo" ? " alerta" : ""}`);
   seguro.append(el("h3", null, "O seu quadro é seguro?"), el("p", null, d.quadroSeguro));
+  const seguir = el("div", "cartao sim-seguir");
+  {
+    const ol = el("ol", "sim-seguir-passos");
+    for (const t of d.seguir.passos) ol.append(el("li", null, t));
+    seguir.append(el("h3", null, d.seguir.titulo), el("p", "ajuda", d.seguir.intro), ol);
+  }
   numeros.classList.add("sim-amostra-vista");
   seguro.classList.add("sim-amostra-vista");
-  caixa.append(...[seguro, casa, numeros, pot, junto, rever, proximo, circ, consumo, divs].filter(Boolean));
+  caixa.append(...[seguro, casa, numeros, pot, junto, rever, proximo, circ, consumo, divs, seguir].filter(Boolean));
   amostraRelatorio();
 }
 $("relatorio-pdf").addEventListener("click", async () => {

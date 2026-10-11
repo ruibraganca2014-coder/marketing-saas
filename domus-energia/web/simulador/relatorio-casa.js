@@ -36,6 +36,24 @@ const wTxt = (w) => `${String(Math.round(w)).replace(/\B(?=(\d{3})+$)/g, " ")} W
  * @param casa    estado.casa (potencia_contratada_kva, fases…)
  * @param sugeridaKva  a potência sugerida do quadro (quadro.js resumoQuadro → potencia.kva; null = acima de 41,4 kVA)
  */
+/**
+ * "O que acontece a seguir" (decisão do dono, 2026-10-11): o caminho de um pedido, dito ao cliente em cinco passos.
+ * O cliente trata sempre com a Domus Energia (não se fala em parceiros nem em bolsa). `espera`: o texto do arranque das
+ * obras com a lista de espera ligada ("em setembro de 2027"), ou null.
+ */
+export function passosDoPedido(espera = null) {
+  return {
+    titulo: "O que acontece a seguir",
+    intro: espera ? `As obras começam ${espera}. Até lá o pedido fica em lista de espera, sem pagar nada. Quando abrirmos, é assim:` : "Quando pedir um serviço, é assim:",
+    passos: [
+      "Pede um serviço: a casa já está descrita, só escolhe o que precisa.",
+      "Verificamos o pedido: vemos a planta e as fotos. Se faltar alguma coisa, dizemos-lhe o quê.",
+      "Recebe a nossa proposta, com o preço, na sua conta.",
+      "Aceita ou não aceita. Se aceitar, paga o sinal e marcamos a visita consigo.",
+      "Fazemos a obra, muitas vezes logo na visita. No fim confirma que ficou bem e paga o restante.",
+    ],
+  };
+}
 export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = {}) {
   const divisoes = planta?.divisoes ?? [];
   const elementos = planta?.elementos ?? [];
