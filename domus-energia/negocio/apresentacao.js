@@ -167,6 +167,42 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
   s.addText("Parceiros independentes, pagos por obra: 70 % da mão de obra. Quem faz a obra não é quem a revê. Os melhores passam a contrato quando houver volume.", { x: 0.5, y: 4.95, w: 9, h: 0.5, fontFace: CORPO, fontSize: 11, italic: true, color: TEXTO_SUAVE, margin: 0, isTextBox: true });
 }
 
+// 7c. Fluxo de um pedido
+{
+  const s = pres.addSlide(); fundoClaro(s);
+  titulo(s, "Como funciona um pedido", "Fase 2 · Projeto");
+  const colunas = [
+    ["Cliente", MUSGO, [
+      [1, "Descreve a casa no simulador do site (planta, fotos do quadro, equipamentos) e envia o pedido."],
+      [5, "Aceita e paga o sinal, que inclui a visita. Se não aceitar, diz porquê e o pedido volta ao CEO."],
+      [7, "Confirma que o trabalho ficou concluído, avalia de 1 a 5 estrelas e paga o restante."],
+    ]],
+    ["CEO", ARGILA, [
+      [2, "Valida com uma lista de verificação: planta, foto do quadro, morada, contacto. Se faltar algo, devolve ao cliente."],
+      [4, "Compara as propostas, escolhe o eletricista, define o preço e envia a proposta ao cliente."],
+      [8, "Aprova o trabalho e paga ao eletricista: 70 % da mão de obra e a deslocação. O material é da empresa."],
+    ]],
+    ["Eletricista parceiro", FLORESTA, [
+      [3, "Os parceiros da zona veem o pedido na bolsa de trabalhos: planta, fotos e relatório técnico, sem nome, morada nem telefone do cliente. Propõem horas e material."],
+      [6, "O escolhido só agora recebe o contacto do cliente. Marca a visita em 48 horas e pode fazer a obra nessa visita. Regista fotos de antes e depois e os ensaios."],
+    ]],
+  ];
+  colunas.forEach(([nome, cor, passos], i) => {
+    const x = 0.5 + i * 3.07, w = 2.87, topo = 1.85, fim = 4.9, folga = 0.08;
+    s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y: 1.38, w, h: 0.38, rectRadius: 0.1, fill: { color: cor }, line: { color: cor } });
+    s.addText(nome.toUpperCase(), { x, y: 1.38, w, h: 0.38, align: "center", valign: "middle", fontFace: CORPO, fontSize: 12, bold: true, color: CREME, charSpacing: 2, margin: 0, isTextBox: true });
+    const h = (fim - topo - folga * (passos.length - 1)) / passos.length;
+    passos.forEach(([n, t], j) => {
+      const y = topo + j * (h + folga);
+      cartao(s, x, y, w, h);
+      circulo(s, x + 0.12, y + 0.12, 0.34, cor, String(n));
+      s.addText(t, { x: x + 0.56, y: y + 0.08, w: w - 0.68, h: h - 0.16, fontFace: CORPO, fontSize: 10.5, color: FLORESTA, valign: "middle", margin: 0, isTextBox: true });
+    });
+  });
+  s.addText("O cliente trata sempre com a Domus Energia. O eletricista só propõe horas e material; a empresa calcula o preço. Qualidade em três pontos: validação à entrada, fotos e ensaios para concluir, confirmação do cliente antes de pagar ao eletricista.", { x: 0.5, y: 4.98, w: 9, h: 0.45, fontFace: CORPO, fontSize: 10.5, italic: true, color: TEXTO_SUAVE, margin: 0, isTextBox: true });
+  s.addNotes("Seguir os números de 1 a 8. No passo 5, se o cliente não aceitar, o pedido volta ao CEO, que retifica e volta a pôr na bolsa, ou desiste. O eletricista vai a casa do cliente em nome da empresa.");
+}
+
 // 8. Investimento
 {
   const s = pres.addSlide(); fundoClaro(s);
@@ -236,4 +272,4 @@ const perguntaTag = (s, n, texto, x = 0.5, y = 1.3) => {
   s.addText("Obrigado · Perguntas?", { x: 0.8, y: 4.2, w: 8.4, h: 0.5, fontFace: CORPO, fontSize: 16, color: "C9C7A8", margin: 0, isTextBox: true });
 }
 
-pres.writeFile({ fileName: "Domus_Energia_Ideia_de_Negocio.pptx" }).then(f => console.log("ok", f, Math.round(ticket), Math.round(margemMedia), resultados));
+pres.writeFile({ fileName: process.argv[2] || "Domus_Energia_Ideia_de_Negocio.pptx" }).then(f => console.log("ok", f, Math.round(ticket), Math.round(margemMedia), resultados));

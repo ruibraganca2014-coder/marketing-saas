@@ -315,6 +315,21 @@ c.push(h1("8. Plano operacional"));
   "Pagamentos: o cliente paga 30 % + 70 %. O eletricista recebe até 7 dias depois da aprovação, contra fatura-recibo.",
   "Segurança: o botão de cada aparelho funciona sempre, com ou sem internet. Trabalha-se sempre com a energia cortada e a ausência de tensão verificada.",
 ].forEach(t => c.push(bullet(t)));
+c.push(h2("Como funciona um pedido"));
+c.push(p("Cada pedido segue sempre os mesmos oito passos, do site até ao pagamento do eletricista. O CEO é o gerente da empresa."));
+c.push(tabela(["Passo", "Quem", "O que acontece"], [
+  ["1", "Cliente", "Descreve a casa no simulador do site (planta, fotografias do quadro, equipamentos) e envia o pedido."],
+  ["2", "CEO", "Valida o pedido com uma lista de verificação: planta completa, fotografia do quadro legível, morada dentro da área, contacto confirmado. Se faltar alguma coisa, devolve ao cliente para corrigir."],
+  ["3", "Eletricistas parceiros da zona", "Veem o pedido na bolsa de trabalhos (planta, fotografias e relatório técnico, sem nome, morada nem telefone do cliente) e propõem horas e material."],
+  ["4", "CEO", "Compara as propostas, escolhe o eletricista, define o preço e envia a proposta ao cliente."],
+  ["5", "Cliente", "Aceita e paga o sinal de 30 %, que inclui a visita. Se não aceitar, diz porquê: o pedido volta ao CEO, que retifica e volta a pôr na bolsa, ou desiste."],
+  ["6", "Eletricista escolhido", "Só agora recebe o contacto do cliente. Marca a visita em 48 horas e pode fazer a obra nessa visita. Regista as fotografias de antes e depois e os ensaios."],
+  ["7", "Cliente", "Confirma que o trabalho ficou concluído, avalia de 1 a 5 estrelas e paga os 70 % restantes."],
+  ["8", "CEO", "Aprova o trabalho e paga ao eletricista: 70 % da mão de obra (sem IVA) e a deslocação. O material é fornecido pela empresa."],
+], [0.8, 2.2, 6]));
+c.push(espaco());
+c.push(p("O cliente trata sempre com a Domus Energia: o eletricista vai a casa dele em nome da empresa. O eletricista nunca escreve preços, só horas e material; é a empresa que calcula o preço."));
+c.push(p("A qualidade é controlada em três pontos: a validação do CEO à entrada, as fotografias e os ensaios obrigatórios para concluir a obra, e a confirmação do cliente antes de se pagar ao eletricista."));
 c.push(h2("Fase de preparação (outubro de 2026 a agosto de 2027)"));
 c.push(p("Até ao fim do curso a empresa não faz obras em casa de clientes. Este tempo serve para chegar a setembro de 2027 com tudo pronto: plataforma testada, aparelhos escolhidos e experimentados na bancada, documentos legais, seguro, pagamentos pelo site e os quatro parceiros registados e a conhecer o sistema."));
 
@@ -721,6 +736,6 @@ const doc = new Document({
 });
 
 Packer.toBuffer(doc).then(b => {
-  fs.writeFileSync("Plano_de_Negocio_Domus_Energia.docx", b);
+  fs.writeFileSync(process.argv[2] || "Plano_de_Negocio_Domus_Energia.docx", b);
   console.log("ok", { ticket, mensalidadeMedia: mensalidadeMedia.toFixed(2), ano, resultadoAno, mrrFinal, arranqueTotal });
 });
