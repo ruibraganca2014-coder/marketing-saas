@@ -248,7 +248,7 @@ const funilAvaria = () => estado.funil === "avaria";
 function avisosEspera() {
   if (!listaEspera) return;
   const topo = $("sim-espera");
-  topo.textContent = `As obras começam ${ESPERA_QUANDO}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos de serviço e de avaria ficam em lista de espera, sem pagar nada.`;
+  topo.textContent = `As obras começam ${ESPERA_QUANDO}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos ficam em lista de espera, sem pagar nada. Se tem uma avaria urgente, chame já um eletricista.`;
   topo.hidden = false;
   const av = $("avaria-espera");
   av.textContent = `Ainda não fazemos reparações: só ${ESPERA_QUANDO}. Se for urgente ou houver perigo, desligue o disjuntor geral e chame já um eletricista habilitado.`;
@@ -2386,7 +2386,7 @@ function desenharQuadroMelhorias() {
   if (q.para_raios === "sim") partes.push("Com para-raios: descarregador de sobretensões incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
-    : q.quadro_novo === "novo" ? "Quadro novo incluído." : "Só na visita sabemos se o seu quadro serve. Se servir, tiramos este valor.");
+    : q.quadro_novo === "novo" ? "Quadro novo incluído." : comProposta("Só na visita sabemos se o seu quadro serve. Se servir, tiramos este valor.", "Vemos pela foto se o seu quadro serve. Se servir, tiramos este valor na proposta."));
   nota.textContent = partes.join(" ");
   nota.hidden = false;
 }
@@ -4230,7 +4230,7 @@ function desenharAvaria() {
   const { preco, semDesloc } = calcular();
   ultimoPreco = { preco, plano: null };
   pr.hidden = semDesloc.total === null;
-  pr.textContent = listaEspera ? "Fica em lista de espera, sem pagar nada. A reparação orça-se na visita, quando abrirmos."
+  pr.textContent = listaEspera ? "Fica em lista de espera, sem pagar nada. Ainda não fazemos reparações."
     : semDesloc.total === null ? "" : `${textoDiagnostico(semDesloc.total)}, descontado na reparação. A reparação orça-se na visita.`;
 }
 /** As fotos da avaria já tiradas (chaves FOTOS_AVARIA, pela ordem). */
@@ -4370,7 +4370,7 @@ async function carregarCatalogo() {
     // no passo Enviar (vem depois de aceitar a proposta) e a estimativa diz "o valor certo vem na proposta".
     visitaAParte = j.pagamentos?.visita_a_parte !== false;
     const subMelhorias = document.querySelector("#passo-10 .sub-passo");
-    if (subMelhorias && !visitaAParte) subMelhorias.textContent = "Opcional. Preço para esta casa; o valor certo vem na proposta.";
+    if (subMelhorias) subMelhorias.textContent = comProposta("Opcional. Preço para esta casa; valor final após a visita.", "Opcional. Preço para esta casa; o preço certo vem na proposta.");
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
     ajudaAvaria();       // o preço do diagnóstico no cartão "Tenho uma avaria" do Início
   } catch {
@@ -4477,8 +4477,8 @@ function listaInclui(pedidos) {
   const qa = (a) => pedidos.filter((p) => p.acao === a).reduce((s, p) => s + p.qtd, 0);
   const itens = [];
   const add = (n, um, varios) => { if (n > 0) itens.push(n === 1 ? um : `${n} ${varios}`); };
-  add(qa("reparar"), comVisita("1 reparação (ver a avaria; a peça confirma-se na visita)", "1 reparação (ver a avaria; a peça confirma-se depois)"),
-    comVisita("reparações (ver cada avaria; as peças confirmam-se na visita)", "reparações (ver cada avaria; as peças confirmam-se depois)"));
+  add(qa("reparar"), comVisita(comProposta("1 reparação (ver a avaria; a peça confirma-se na visita)", "1 reparação (ver a avaria; a peça confirma-se na proposta)"), "1 reparação (ver a avaria; a peça confirma-se depois)"),
+    comVisita(comProposta("reparações (ver cada avaria; as peças confirmam-se na visita)", "reparações (ver cada avaria; as peças confirmam-se na proposta)"), "reparações (ver cada avaria; as peças confirmam-se depois)"));
   // Trocas pelo que realmente se troca (acoes.js pedidoDoElemento): "3 tomadas trocadas por inteligentes"…
   const qs = (k) => pedidos.filter((p) => p.acao === "substituir" && (p.chave === k || p.chave.startsWith(`${k}_`))).reduce((s, p) => s + p.qtd, 0);
   add(qs("tomada"), "1 tomada trocada por uma inteligente", "tomadas trocadas por inteligentes");
@@ -4509,7 +4509,7 @@ function listaInclui(pedidos) {
   if (quadroNoPedido({ ...estado, servico: servicos() })) {
     // Quadro novo sem "Instalação nova": os circuitos que já existem passam para ele (estimativa pelas divisões).
     const ex = existentesNoQuadroNovo(estado);
-    itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}${ex ? ` (com os ${ex} circuitos que a casa já tem: n.º de circuitos a confirmar${comVisita(" na visita", "")})` : ""}`);
+    itens.push(`${pac ? `Proteção ${pac.toLowerCase()}` : "Proteções escolhidas"} no quadro elétrico${levaQuadroNovo(estado.quadro) ? ", com quadro novo" : ""}${ex ? ` (com os ${ex} circuitos que a casa já tem: n.º de circuitos a confirmar${comVisita(comProposta(" na visita", " pela foto do quadro"), "")})` : ""}`);
   }
   if (q("central")) itens.push("Central em casa, com bateria e sirene (funciona sem internet)");
   itens.push("Instalação por técnico habilitado");
@@ -4623,7 +4623,9 @@ function dadosRelatorio() {
     // "O que acontece a seguir" (decisão do dono, 2026-10-11): os passos do pedido, no relatório e no PDF.
     seguir: passosDoPedido(listaEspera ? ESPERA_QUANDO : null),
     // O quadro é seguro? A frase da idade do quadro (sem resposta, a de "Não sei").
-    quadroSeguro: IDADES_QUADRO[estado.quadroIdade]?.veredicto ?? "O eletricista vê pela foto do quadro se tem as proteções obrigatórias e diz-lhe na visita.",
+    quadroSeguro: quadroSeguroTexto(IDADES_QUADRO[estado.quadroIdade]?.veredicto ?? "O eletricista vê pela foto do quadro se tem as proteções obrigatórias e diz-lhe na visita."),
+    // "Pontos a rever": quem confirma e quando (na visita; com as propostas na bolsa, ao ver a planta e as fotos).
+    notaRever: notaRever(),
   };
 }
 /** Um desenho só de leitura da planta (um piso), como no PDF. */
@@ -4729,7 +4731,7 @@ function desenharRelatorio() {
   const rever = el("div", "cartao");
   const ur = el("ul", "sim-inclui");
   ur.append(...a.rever.map((t) => el("li", null, t)));
-  rever.append(el("h3", null, "Pontos a rever"), a.rever.length ? ur : el("p", "ajuda", "Nada a assinalar pelo que descreveu."), el("p", "ajuda", "Orientativo, pelo que descreveu. Confirmamos na visita."));
+  rever.append(el("h3", null, "Pontos a rever"), a.rever.length ? ur : el("p", "ajuda", "Nada a assinalar pelo que descreveu."), el("p", "ajuda", notaRever()));
   // O que pode ligar ao mesmo tempo, o consumo estimado e o próximo passo (decisão do dono, 2026-10-05).
   let junto = null;
   if (a.simultaneo) {
@@ -5113,9 +5115,9 @@ function desenharDeslocacao() {
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
     caixa.append(el("p", null, `${d.concelho}${km}: ${foraAreaTexto()}, sem deslocação.`),
-      el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Sem visita técnica: contactamos para combinar."));
+      el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Fora da área não fazemos visitas: falamos consigo para combinar."));
   }
-  else if (d.estado === "visita") caixa.append(el("p", null, "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita."));
+  else if (d.estado === "visita") caixa.append(el("p", null, visitaAParte && !listaEspera ? "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita." : "Não reconhecemos o concelho. Escolha-o da lista para calcularmos a deslocação."));
   // Ronda dinheiro: ida e volta por dia de obra ("Deslocação a Sintra (cerca de 29 km): 28,80 € (ida e volta, 4 dias)").
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}${d.valor_iva > 0 ? (d.limitado ? ` (ida e volta; máximo ${d.dias} dias)` : ` (ida e volta, ${d.dias} ${d.dias === 1 ? "dia" : "dias"})`) : ""}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
@@ -5200,7 +5202,7 @@ let pagamentosAtivos = !listaEspera;  // GET /api/catalogo `pagamentos.ativo`: d
 // decisão do dono, 2026-10-11). Até o catálogo chegar, e num servidor sem o campo, fica como sempre.
 let visitaAParte = true;
 // A estimativa continua a ser estimativa; o preço certo é o da proposta (já não "após a visita").
-const TEXTO_ESTIMATIVA_PROPOSTA = "Estimativa; o valor certo vem na proposta.";
+const TEXTO_ESTIMATIVA_PROPOSTA = "Estimativa; o preço certo vem na proposta.";
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
 function foraDaArea() { return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "fora_area"; }
 /** A área servida como se diz ao cliente: "até 100 km de Lisboa" (`deslocacao_max_km` e `deslocacao_base` da configuração). */
@@ -5209,6 +5211,11 @@ const baseDeslocacao = () => String(configOrc?.deslocacao_base ?? "").trim() || 
 const foraAreaTexto = () => `fora da área servida (até ${kmMaximo()} km de ${baseDeslocacao()})`;
 /** Os textos que falam da visita: fora da área servida não há visita, usa-se o texto sem ela (`fora`). */
 function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
+/** Os textos que mudam com as propostas na bolsa (sem visita à parte: a visita vem depois de aceitar a proposta). */
+function comProposta(antigo, novo) { return visitaAParte ? antigo : novo; }
+/** "O seu quadro é seguro?" sem idade certa: com as propostas na bolsa a resposta vem na proposta (pela foto), não na visita. */
+function quadroSeguroTexto(t) { return comProposta(t, t.replace("O eletricista vê", "Vemos").replace("o eletricista vê", "vemos").replace("diz-lhe na visita", "dizemos-lhe na proposta")); }
+function notaRever() { return comProposta("Orientativo, pelo que descreveu. Confirmamos na visita.", "Orientativo, pelo que descreveu. Confirmamos quando virmos a planta e as fotos."); }
 /** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : visitaAParte ? TEXTO_ESTIMATIVA : TEXTO_ESTIMATIVA_PROPOSTA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 44,00 € + deslocação" (25 € + 0,5 h × tarifa de 38 €). */
@@ -5280,15 +5287,15 @@ function textosPagamento() {
     ? `As obras começam ${ESPERA_QUANDO}. O pedido fica em lista de espera e não paga nada. * obrigatório`
     : funilAvaria() && pagamentosAtivos
       ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
-      : `Enviar é grátis: recebe logo o relatório básico na sua conta. * obrigatório`;
+      : `Enviar é grátis: recebe logo o relatório grátis na sua conta. * obrigatório`;
   TEXTO_ENVIAR = textoBotaoEnviar();
   if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
   if (!enviado) {
     $("fim-texto").textContent = listaEspera
-      ? `Recebemos o pedido e ficou em lista de espera. As obras começam ${ESPERA_QUANDO}: contactamos quando abrirmos as marcações.${funilAvaria() ? "" : " O relatório básico já está na sua conta."}`
+      ? `Recebemos o pedido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos: as obras começam ${ESPERA_QUANDO}.${funilAvaria() ? "" : " O relatório grátis já está na sua conta."}`
       : `${funilAvaria()
         ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
-        : "Recebemos o pedido. O relatório básico já está na sua conta."} ${textoPrazo()}`;
+        : "Recebemos o pedido. O relatório grátis já está na sua conta."} ${textoPrazo()}`;
   }
 }
 
@@ -5298,7 +5305,7 @@ function textosPagamento() {
  */
 const textoPrazo = () => (estado.urgencia === "urgente"
   ? "Como é urgente, ligamos-lhe ainda hoje se o pedido chegou até às 18h de um dia útil; depois disso, na manhã do dia útil seguinte."
-  : "Contactamos no dia útil seguinte.");
+  : comProposta("Contactamos no dia útil seguinte.", funilAvaria() ? "Contactamos no dia útil seguinte." : "Verificamos o pedido no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe."));
 
 // Fase 3: "O que quer receber?" (estado.compras): só o relatório básico (grátis), o pormenorizado, os dois com a visita,
 // ou só a visita. Os preços seguem a configuração e a localidade; fora da área, sem as opções com visita.
@@ -5332,7 +5339,7 @@ function desenharCompras() {
   const pv = v === null ? null : formatarEuro(v);
   const semVisita = semConc ? "Escolha o concelho da lista para marcar a visita." : "Escreva a localidade para ver o preço.";
   const TEXTOS = {
-    basico: ["Só o relatório básico (grátis)", "Estimativa e lista do trabalho, logo na conta."],
+    basico: ["Só enviar o pedido (grátis)", "Fica com o relatório grátis na conta: a estimativa e a lista do trabalho."],
     pormenorizado: [`Relatório completo: ${pr}`, "Material e preço por divisão. Revisto por nós até 24 h."],
     pormenorizado_visita: [`Relatório completo e visita: ${pv ? formatarEuro(precoRelatorio() + v) : `${pr} + visita`}`,
       pv ? `Relatório ${pr} + visita ${pv} (${partesVisita()}).` : semVisita],
@@ -5514,7 +5521,7 @@ async function enviar() {
     }
     if (resposta?.pagamento || resposta?.pagamento_erro) {
       const e = typeof resposta.pagamento_erro === "string" ? resposta.pagamento_erro.trim().slice(0, 200) : "";
-      $("fim-texto").textContent = `Recebemos o pedido e o relatório básico já está na sua conta. O pagamento não abriu${e ? ` (${e.replace(/[.!]$/, "")})` : ""}: pode comprar na sua conta.`;
+      $("fim-texto").textContent = `Recebemos o pedido e o relatório grátis já está na sua conta. O pagamento não abriu${e ? ` (${e.replace(/[.!]$/, "")})` : ""}: pode comprar na sua conta.`;
     }
     return;
   }

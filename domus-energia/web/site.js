@@ -75,11 +75,17 @@ if (cfg.listaEspera?.ativa) {
   const aviso = () => {
     const p = document.createElement("p");
     p.className = "msg info lista-espera";
-    p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos de serviço e de avaria ficam em lista de espera, sem pagar nada.`;
+    p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos ficam em lista de espera, sem pagar nada. Se tem uma avaria urgente, chame já um eletricista.`;
     return p;
   };
   document.querySelector(".acoes")?.after(aviso());
   document.getElementById("form-orcamento")?.before(aviso());
+  // Em lista de espera não se paga o diagnóstico (index.html .como-preco): sem preço, como no simulador.
+  const precoAvaria = document.querySelector(".como-preco");
+  if (precoAvaria) precoAvaria.textContent = "Ainda não fazemos reparações. Pode deixar o pedido em lista de espera.";
+  // Candidatos a eletricista (trabalhe-connosco.html): também só há trabalhos quando as obras começarem.
+  const regra = document.getElementById("cand-regra");
+  if (regra) { const p = document.createElement("p"); p.className = "msg info lista-espera"; p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Pode candidatar-se já: avisamos por email quando houver trabalhos.`; regra.after(p); }
 }
 
 // ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------
@@ -274,7 +280,7 @@ form?.addEventListener("submit", async (e) => {   // as páginas de anúncio nã
     form.reset();
     // Em lista de espera (config.js listaEspera) não se promete resposta em dia útil.
     mostrar(cfg.listaEspera?.ativa
-      ? "Pedido recebido e em lista de espera. Contactamos quando abrirmos as marcações."
+      ? "Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos quando abrirmos."
       : `Pedido recebido. Respondemos em dia útil.${temTelefone ? ` Se for urgente, ligue ${cfg.telefoneVisivel}.` : ""}`, true);
   } else if (estado === 429) {
     mostrar("Já recebemos vários pedidos seguidos deste aparelho. Tente de novo daqui a uma hora, ou fale connosco pelo WhatsApp ou telefone.", false, dados);

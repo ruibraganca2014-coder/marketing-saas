@@ -439,7 +439,7 @@ export default function orcamentos(el, ctx) {
       const cp = campo(o, "compras");
       const comprado = !cp || cp.relatorio?.comprado || cp.ativas === false;
       if (campo(o, "relatorio_libertado")) out.push(h("p", { class: "ajuda", id: "relatorio-libertado", text: `Relatório completo libertado ao cliente em ${data(campo(o, "relatorio_libertado"))}.` }));
-      else if (!comprado) out.push(h("p", { class: "ajuda", id: "relatorio-por-comprar", text: cp?.avaria ? "Avaria: sem relatório completo (o cliente tem o básico)." : "O cliente tem o relatório básico; o completo ainda não foi comprado." }));
+      else if (!comprado) out.push(h("p", { class: "ajuda", id: "relatorio-por-comprar", text: cp?.avaria ? "Avaria: sem relatório completo (o cliente tem o grátis)." : "O cliente tem o relatório grátis; o completo ainda não foi comprado." }));
       else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
         onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
       else out.push(h("p", { class: "ajuda", text: "Relatório completo em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
@@ -502,13 +502,13 @@ export default function orcamentos(el, ctx) {
     const v = cp.visita ?? {};
     const quando = campo(o, "data_visita");
     const texto = v.paga ? (cp.avaria ? "Visita pedida com a avaria (paga)." : "Visita técnica paga pelo cliente.")
-      : v.fora_area ? "Sem visita: fora da área servida." : `Visita técnica ainda não paga${v.valor != null ? ` (${euros(v.valor)})` : ""}.`;
+      : v.fora_area ? "Sem visita: fora da área servida." : v.incluida ? "Visita incluída no sinal: marca-se depois de o cliente aceitar a proposta." : `Visita técnica ainda não paga${v.valor != null ? ` (${euros(v.valor)})` : ""}.`;
     const partes = [h("p", { class: "ajuda", id: "visita-estado", text: `${texto}${quando ? ` Marcada para ${data(quando)}.` : ""}` })];
     if (disp || urg) partes.push(h("p", { class: "ajuda", id: "visita-disponibilidade", text: `Disponibilidade do cliente: ${disp ? disp.toLowerCase() : "não indicou"}${urg && urg !== "normal" ? ` · ${URGENCIAS[urg]}` : ""}.` }));
     // Decisão 10: cancelada pelo cliente com mais de 24 h → devolvida (ele fá-lo na conta); com menos, ou se faltar, a
     // visita fica paga: "Cliente faltou" regista a falta (sem devolução) e avisa o cliente.
     const faltou = campo(o, "visita_faltou");
-    if (faltou) partes.push(h("p", { class: "msg info", id: "visita-faltou-texto", text: `Cliente faltou (registado ${data(faltou)}): a visita não é devolvida nem descontada no sinal. Para avançar, o cliente marca e paga uma visita nova.` }));
+    if (faltou) partes.push(h("p", { class: "msg info", id: "visita-faltou-texto", text: `Cliente faltou (registado ${data(faltou)}): a visita não é devolvida nem descontada no sinal.${v.incluida ? "" : " Para avançar, o cliente marca e paga uma visita nova."}` }));
     else if (v.paga && quando && new Date(paraInput(quando)).getTime() <= Date.now()) {
       partes.push(h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "visita-faltou", text: "Cliente faltou",
         onclick: (e) => acao(e.currentTarget, "visita-faltou", "Falta registada: a visita fica paga e o cliente foi avisado.") })));

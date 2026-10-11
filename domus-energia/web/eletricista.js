@@ -206,7 +206,7 @@ function cartaoRecebe(t) {
     el("p", "valor-grande", t.recebe?.gratis ? "Só com a obra" : t.recebe ? euro(t.recebe.total) : "A combinar"),
     el("p", "pequeno suave", recebeTexto(t.recebe, t.tipo)));
   if (t.recebe?.provisoria) c.append(el("p", "pequeno suave", "Estimativa: a proposta final ao cliente pode mudar este valor."));
-  c.append(el("p", "pequeno suave", `Por transferência até ${PRAZO_DIAS} dias depois de a obra estar confirmada, paga pelo cliente e aprovada; contra fatura-recibo.`));
+  c.append(el("p", "pequeno suave", `Por transferência até ${PRAZO_DIAS} dias depois de: o cliente confirmar o trabalho, a Domus Energia o aprovar e, nas obras, o cliente pagar o restante. Contra fatura-recibo.`));
   return c;
 }
 
@@ -215,7 +215,7 @@ async function bolsaLista() {
   const r = await pedir("bolsa");
   contadores(r.trabalhos.length, null);
   const out = [el("h2", null, "Bolsa"), el("p", "suave pequeno", r.propostas_bolsa
-    ? `Trabalhos em ${r.concelhos.join(", ")}. Nas visitas técnicas envia a sua proposta e a Domus Energia escolhe; nos outros, o primeiro a aceitar fica com o trabalho.`
+    ? `Trabalhos em ${r.concelhos.join(", ")}. Nos pedidos com planta envia a sua proposta e a Domus Energia escolhe; nos outros, o primeiro a aceitar fica com o trabalho.`
     : `Trabalhos em ${r.concelhos.join(", ")}. O primeiro a aceitar fica com o trabalho.`)];
   if (!r.trabalhos.length) {
     out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos na bolsa."), el("p", "suave pequeno", "Os trabalhos novos dos seus concelhos aparecem aqui.")));
@@ -224,7 +224,7 @@ async function bolsaLista() {
   for (const t of r.trabalhos) {
     // Por proposta: não há valor nem "aceitar" — diz-se se a proposta já foi enviada.
     const b = t.por_proposta
-      ? com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+      ? com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo("Pedido com planta", "aviso"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
         el("h3", null, t.titulo),
         el("span", null, t.proposta_enviada ? "A Domus Energia escolhe o eletricista e avisa por email." : "Veja o relatório e as fotos e envie a sua proposta."),
         el("span", "pequeno suave", "Nome e morada do cliente só depois de o cliente aceitar a proposta."))
@@ -284,7 +284,7 @@ function detalhePorProposta(t) {
   const pct = t.recebe?.percentagem ?? eu?.percentagem;
   return [
     botaoVoltar("Bolsa", "bolsa"),
-    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+    com(el("div", "selos"), selo(t.concelho), selo("Pedido com planta"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
     el("h2", null, t.titulo),
     com(el("div", "cartao pilha"), el("p", "rotulo", "Como funciona"),
       el("p", null, "Envie a sua proposta: as horas de trabalho, o material e quando pode ir. A Domus Energia compara as propostas e escolhe o eletricista."),

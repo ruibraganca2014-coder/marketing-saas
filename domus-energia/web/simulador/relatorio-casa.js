@@ -49,7 +49,7 @@ export function passosDoPedido(espera = null) {
       "Pede um serviço: a casa já está descrita, só escolhe o que precisa.",
       "Verificamos o pedido: vemos a planta e as fotos. Se faltar alguma coisa, dizemos-lhe o quê.",
       "Recebe a nossa proposta, com o preço, na sua conta.",
-      "Aceita ou não aceita. Se aceitar, paga o sinal e marcamos a visita consigo.",
+      "Aceita ou não aceita. Se aceitar, paga o sinal (a primeira parte do preço, que já inclui a visita) e marcamos a visita consigo.",
       "Fazemos a obra, muitas vezes logo na visita. No fim confirma que ficou bem e paga o restante.",
     ],
   };
@@ -164,7 +164,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
         ...(nAfdd ? [["AFDD", "Deteta faíscas em cabos e fichas estragados antes de haver incêndio. Vai nos quartos e na sala."]] : []),
       ],
       cores: Object.keys(CORES_CIRCUITO).filter((k) => etiquetas.some((e) => e?.cor === k)).map((k) => [k, CORES_CIRCUITO[k]]),
-      resumo: `${grande ? `Quadro grande (${ocupados} módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se na visita)` : `Quadro de ${tamanho} módulos`}${tri ? ", trifásico" : ""}, com proteção completa: disjuntor geral Wi-Fi de ${geral} A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")}${nAfdd ? ` (${nAfdd} com AFDD)` : ""}${grande ? "" : ` e ${plural(livres, "módulo livre", "módulos livres")}`}.`,
+      resumo: `${grande ? `Quadro grande (${ocupados} módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se no local)` : `Quadro de ${tamanho} módulos`}${tri ? ", trifásico" : ""}, com proteção completa: disjuntor geral Wi-Fi de ${geral} A, descarregador de sobretensões, proteção de sobretensão e subtensão, medidor de energia, ${plural(grupos.length, "diferencial", "diferenciais")} de 30 mA, ${plural(disjuntores.length, "disjuntor", "disjuntores")}${nAfdd ? ` (${nAfdd} com AFDD)` : ""}${grande ? "" : ` e ${plural(livres, "módulo livre", "módulos livres")}`}.`,
     };
   }
 

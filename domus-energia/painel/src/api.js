@@ -1331,8 +1331,8 @@ export function criarApi(ctx) {
     auditar(u, 'relatorio_libertado', `orcamento:${o.id}`, null, ip);
     const email = emailDaConta(o.conta_id);
     if (email) {
-      correio.enviar({ para: email, assunto: 'Domus Energia: o seu relatório técnico está pronto', resumo: `relatório do pedido ${o.id} libertado`,
-        texto: ['Olá,', '', `O relatório técnico do seu pedido n.º ${o.id} já foi revisto pela nossa equipa e está na sua conta.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+      correio.enviar({ para: email, assunto: 'Domus Energia: o seu relatório completo está pronto', resumo: `relatório do pedido ${o.id} libertado`,
+        texto: ['Olá,', '', `O relatório completo do seu pedido n.º ${o.id} já foi revisto pela nossa equipa e está na sua conta.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
@@ -1379,7 +1379,7 @@ export function criarApi(ctx) {
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: não o encontrámos na visita', resumo: `visita do pedido ${o.id}: cliente faltou`,
         texto: ['Olá,', '', `O nosso técnico foi à visita do seu pedido n.º ${o.id} e não o encontrou.`,
-          'Como dizem os Termos, uma visita a que falta (ou cancelada com menos de 24 h) não é devolvida nem descontada na obra. Para avançar, marque e pague uma visita nova na sua conta.',
+          'Como dizem os Termos, uma visita a que falta (ou cancelada com menos de 24 h) não é devolvida nem descontada na obra. ' + (pagPed.visitaIncluida(o) ? 'Para avançar, fale connosco.' : 'Para avançar, marque e pague uma visita nova na sua conta.'),
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));

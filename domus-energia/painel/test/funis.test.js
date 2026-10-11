@@ -268,7 +268,7 @@ test('ronda A: relatório básico em PDF — a casa, as divisões, o quadro e a 
     quadro: ['8 circuitos · proteção básica', 'Quadro de 24 módulos'], potencia: 'Potência sugerida: 6,9 kVA.',
   });
   const txt = b.map((x) => x.texto).join('\n');
-  assert.equal(b[1].texto, 'Relatório básico');
+  assert.equal(b[1].texto, 'Relatório grátis');
   assert.match(txt, /Sala: 2 tomadas e 1 interruptor/);
   assert.match(txt, /Quarto: sem aparelhos/);
   assert.match(txt, /Potência sugerida: 6,9 kVA/);

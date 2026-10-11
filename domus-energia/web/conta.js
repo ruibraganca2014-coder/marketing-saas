@@ -224,13 +224,13 @@ function cartaoPedido(p) {
   }
   c.append(passos);
   if (p.correcao) c.append(blocoCorrecao(p));
-  if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido e voltamos a contactá-lo.`));
+  if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido. Se fizermos uma proposta nova, aparece aqui.`));
   if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
   if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
   // Com a obra feita já não se fala em marcar a instalação nem se mostra a data dela (pedido do teste, 2026-10-11).
   const feita = obraFeita(p);
   if (!feita && p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
-  else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", "Instalação: vamos marcar a data consigo."));
+  else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", precoDefinitivo(p) ? "Visita e obra: vamos marcar a data consigo." : "Instalação: vamos marcar a data consigo."));
   // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
   // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)
   if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", `Não o encontrámos na visita: a visita não é devolvida nem descontada na obra.${p.compras?.visita?.incluida ? "" : " Para avançar, marque e pague uma visita nova."}`));
@@ -277,7 +277,7 @@ function blocoProposta(p) {
     b.append(dl);
   }
   // Obra mínima (decisão 9): abaixo dela cobra-se o mínimo e o que pagou antes não é descontado.
-  if (p.obra_minima != null) b.append(el("p", "msg info conta-minima", `Obra mínima: ${formatarEuroRedondo(p.obra_minima)} com IVA${pp?.deslocacao > 0 ? ", mais a deslocação" : ""}. Esta proposta fica abaixo: paga ${pi ? euro(pi.total) : "o mínimo"} e o que já pagou (visita, diagnóstico) não é descontado.`));
+  if (p.obra_minima != null) b.append(el("p", "msg info conta-minima", `Obra mínima: ${formatarEuroRedondo(p.obra_minima)} com IVA${pp?.deslocacao > 0 ? ", mais a deslocação" : ""}. Esta proposta fica abaixo: paga ${pi ? euro(pi.total) : "o mínimo"} e o que já pagou (${precoDefinitivo(p) ? "relatório, diagnóstico" : "visita, diagnóstico"}) não é descontado.`));
   else if (pi && !pp) b.append(el("p", "ajuda num", `${euro(pi.base)} + IVA ${pctTxt(pi.iva_pct)} (${euro(pi.iva)}) = ${euro(pi.total)} com IVA.`));
   if (p.proposta.texto) b.append(el("p", null, p.proposta.texto));
   if (precoDefinitivo(p) && !obraFeita(p)) b.append(el("p", "ajuda conta-preco-definitivo", PRECO_DEFINITIVO));
@@ -285,13 +285,13 @@ function blocoProposta(p) {
   msg.hidden = true;
   msg.setAttribute("role", "status");
   if (p.aguarda_sinal) {
-    b.append(el("p", "msg info", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}. Falta pagar o sinal (${euro(p.sinal.valor)}) para confirmarmos a instalação.`));
+    b.append(el("p", "msg info", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}. Falta pagar o sinal (${euro(p.sinal.valor)}) ${precoDefinitivo(p) ? "para marcarmos a visita" : "para confirmarmos a instalação"}.`));
     if (p.pode_pagar_sinal) {
       const ja = caixaComecarJa(p);
       b.append(ja.caixa, soMultibanco(p, p.sinal.valor), botaoPagar(p, "sinal", `Pagar o sinal (${euro(p.sinal.valor)})`, msg, () => ({ inicio_imediato: ja.entrada.checked })), msg);
     }
   } else if (p.proposta.aceite && p.estado === "aceite") {
-    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${obraFeita(p) ? "" : " Vamos contactá-lo para marcar a instalação."}`));
+    b.append(el("p", "msg ok", `Aceitou a proposta em ${dataTxt(p.proposta.aceite, true)}${p.sinal?.pago ? " e pagou o sinal" : ""}.${obraFeita(p) ? "" : precoDefinitivo(p) ? " Vamos marcar a visita consigo. Muitas vezes a obra fica feita nesse dia." : " Vamos contactá-lo para marcar a instalação."}`));
     if (p.inicio_imediato) b.append(el("p", "ajuda", "Pediu para começarmos já: prescindiu do direito de livre resolução de 14 dias sobre o que for executado."));
     if (p.obra_paga === false) b.append(el("p", "ajuda conta-app-ativa", "A app fica ativa depois de pagar o restante."));
   } else if (p.pode_aceitar) {
@@ -303,12 +303,12 @@ function blocoProposta(p) {
     botao.addEventListener("click", () => confirmarAceitar(p, b, botao, msg, ja?.entrada.checked ?? null));
     // O sinal cobre o material (decisão 6): o maior entre 30 % do total e o custo do material, menos o que já pagou.
     const ajuda = sinal
-      ? `Sinal: ${sinal.cobre_material ? "cobre o material" : `${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}`}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. O sinal cobre o material; o resto paga-se no fim da obra.`
-      : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
+      ? `Sinal: ${sinal.cobre_material ? "cobre o material" : `${sinal.pct} % de ${pi ? `${euro(pi.total)} (a proposta com IVA)` : "a proposta"}`}${sinal.desconto ? ` menos os ${euro(sinal.desconto)} que já pagou` : ""} = ${euro(sinal.valor)}. ${precoDefinitivo(p) ? "O sinal cobre o material e a visita. O restante paga-se quando confirmar que a obra ficou concluída." : "O sinal cobre o material; o restante paga-se no fim da obra."}`
+      : precoDefinitivo(p) ? "Ao aceitar, registamos a data e a hora e marcamos a visita consigo." : "Ao aceitar, registamos a data e a hora e marcamos a instalação consigo.";
     b.append(el("p", "ajuda", ajuda), ja?.caixa ?? "", sinal ? soMultibanco(p, sinal.valor) : "", botao, msg);
     if (p.pode_recusar) b.append(caixaRecusar(p));
   } else if (p.proposta_recusada) {
-    b.append(el("p", "msg info", `Não aceitou esta proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido e voltamos a contactá-lo.`));
+    b.append(el("p", "msg info", `Não aceitou esta proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido. Se fizermos uma proposta nova, aparece aqui.`));
   }
   return b;
 }
@@ -760,7 +760,7 @@ function msgPequena() {
 }
 
 /** Compras desligadas no servidor (sem Stripe): diz como pedir. */
-const SEM_COMPRAS = "Pagamentos online desligados: fale connosco para pedir.";
+const SEM_COMPRAS = "De momento não é possível pagar aqui. Fale connosco.";
 
 function blocoRelatorio(p) {
   const b = el("section", "conta-relatorio");
@@ -769,7 +769,7 @@ function blocoRelatorio(p) {
   if (p.relatorio === "por_comprar") {
     const cp = p.compras;
     b.append(el("p", null, "Material e preço de cada divisão, revisto pela nossa equipa (até 24 h). Descontado na obra."));
-    if (!cp?.pode) b.append(el("p", "ajuda", "Já não se compra neste pedido."));
+    if (!cp?.pode) b.append(el("p", "ajuda", p.lista_espera ? "O pedido está em lista de espera. O relatório completo pode ser pedido quando abrirmos." : "Já não se compra neste pedido."));
     else if (!cp.ativas) b.append(el("p", "ajuda", SEM_COMPRAS));
     else {
       const msg = msgPequena();
@@ -819,11 +819,11 @@ function blocoBasico(p) {
   const b = el("section", "conta-relatorio conta-basico");
   // Avaria: o mesmo bloco mostra o que o cliente descreveu e o diagnóstico (não há estimativa nem lista por divisão).
   const avaria = Boolean(p.compras?.avaria);
-  const titulo = avaria ? "O seu pedido de avaria" : "Relatório básico";
+  const titulo = avaria ? "O seu pedido de avaria" : "Relatório grátis";
   b.setAttribute("aria-label", titulo);
   b.append(el("h4", null, titulo));
   const zona = el("div", "relatorio-cliente");
-  const ver = el("button", "btn sec pequeno", avaria ? "Ver o pedido" : "Ver o relatório básico");
+  const ver = el("button", "btn sec pequeno", avaria ? "Ver o pedido" : "Ver o relatório grátis");
   ver.type = "button";
   ver.id = `basico-${p.id}`;
   ver.addEventListener("click", async () => {
@@ -1014,7 +1014,7 @@ function confirmarAceitar(p, b, botao, msg, comecarJa = null) {
       const r = await pedirConta(`pedidos/${p.id}/aceitar`, { corpo: { valor: p.proposta.valor, ...(comecarJa === null ? {} : { inicio_imediato: comecarJa }) } });
       if (r?.pagamento && irPagar(r.pagamento)) return;
       await carregar();
-      mensagem("Proposta aceite. Obrigado! Vamos contactá-lo para marcar a instalação.", "ok");
+      mensagem(precoDefinitivo(p) ? "Proposta aceite. Obrigado! Vamos marcar a visita consigo." : "Proposta aceite. Obrigado! Vamos contactá-lo para marcar a instalação.", "ok");
     } catch (e) {
       caixa.remove();
       msg.textContent = e.message;
@@ -1132,7 +1132,7 @@ async function enviarFoto(p, chave, legenda, ficheiro, aviso) {
 {
   const D = window.DOMUS ?? {};
   if (D.listaEspera?.ativa) {
-    $("conta-espera").textContent = `Começamos as obras em ${D.listaEspera.arranque}. Até lá, os pedidos de serviço ficam em lista de espera, por ordem de chegada: avisamos por email quando chegar a sua vez. Descrever a casa e o relatório grátis já funcionam.`;
+    $("conta-espera").textContent = `Começamos as obras em ${D.listaEspera.arranque}. Até lá, os pedidos ficam em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos. Descrever a casa e o relatório grátis já funcionam.`;
     $("conta-espera").hidden = false;
   }
   const tel = $("conta-contacto-tel"), mail = $("conta-contacto-email");
@@ -1272,7 +1272,7 @@ async function desenharCasa(eu) {
   const vazio = () => {
     const g = el("div", "form-botoes");
     g.append(botao(comecada ? "Continuar a descrever a casa" : variasCasas ? "Descrever esta casa" : "Descrever a minha casa", "simulador.html", "conta-casa-descrever", true));
-    corpo.replaceChildren(el("p", null, comecada ? "Ainda não desenhou as divisões da casa. Continue de onde ficou: a planta aparece aqui." : (variasCasas ? "Ainda não descreveu esta casa." : "Ainda não descreveu a sua casa.") + " Demora uns 7 minutos e fica com um relatório grátis."), g);
+    corpo.replaceChildren(el("p", null, comecada ? "Ainda não desenhou as divisões da casa. Continue de onde ficou: a planta aparece aqui." : (variasCasas ? "Ainda não descreveu esta casa." : "Ainda não descreveu a sua casa.") + " Demora cerca de 7 minutos e fica com um relatório grátis."), g);
   };
   let planta = null, comecada = false;
   try {

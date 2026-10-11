@@ -128,13 +128,38 @@ describe('propostas na bolsa com os pagamentos ligados: a visita já não se pag
   });
   after(() => p.fechar());
 
+  test('"Pedido verificado": o passo fica feito quando a empresa valida o pedido; até à proposta a conta diz que a estamos a preparar; em lista de espera fica o texto da lista', async () => {
+    const { c, id } = await x.pedido();
+    const validar = (n) => p.app.db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_em = ? WHERE id = ?").run('2026-10-11T10:00:00.000Z', n);
+    validar(id);
+    let l = await x.pedidoConta(c, id);
+    assert.deepEqual(l.passos.map((s) => [s.chave, s.feito]), [['recebido', true], ['verificado', true], ['proposta', false], ['aceite', false], ['obra', false]]);
+    assert.equal(l.passos[1].data, '2026-10-11T10:00:00.000Z');
+    assert.equal(l.estado_texto, 'Pedido verificado. Estamos a preparar a proposta.');
+    // Com a proposta enviada o texto passa a ser o da proposta; o passo continua feito.
+    assert.equal((await x.painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', proposta_mao_obra: 100, proposta_material: 50, proposta_deslocacao: 10 })).estado, 200);
+    l = await x.pedidoConta(c, id);
+    assert.equal(l.estado_texto, 'A sua proposta está pronta.');
+    assert.deepEqual(l.passos.slice(1, 3).map((s) => s.feito), [true, true]);
+    // Lista de espera: validado ou não, enquanto é novo fica o texto da lista de espera.
+    const e2 = await x.pedido({ lista_espera: true });
+    validar(e2.id);
+    l = await x.pedidoConta(e2.c, e2.id);
+    assert.equal(l.estado_texto, 'Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos. O relatório grátis já está aqui.');
+    assert.equal(l.lista_espera, true);
+    assert.equal(l.passos[1].feito, true);
+  });
+
   test('o pedido com planta vai para a bolsa sem visita paga; o servidor recusa a compra da visita; a conta não a oferece e o andamento já não tem "Visita técnica" antes da proposta', async () => {
     const { c, id } = await x.pedido();
     // A conta: a visita vem incluída (`incluida`), nada pago; o relatório completo continua à venda.
     let l = await x.pedidoConta(c, id);
     assert.deepEqual([l.compras.visita.incluida, l.compras.visita.paga, l.compras.visita.pendente, l.visita_cancelar], [true, false, null, null]);
     assert.deepEqual([l.relatorio, l.compras.ativas, l.compras.relatorio.comprado], ['por_comprar', true, false]);
-    assert.deepEqual(l.passos.map((s) => [s.chave, s.texto]), [['recebido', 'Pedido recebido'], ['proposta', 'Proposta'], ['aceite', 'Proposta aceite'], ['obra', 'Visita e instalação']]);
+    assert.deepEqual(l.passos.map((s) => [s.chave, s.texto]), [['recebido', 'Pedido recebido'], ['verificado', 'Pedido verificado'], ['proposta', 'Proposta'], ['aceite', 'Proposta aceite'], ['obra', 'Visita e obra']]);
+    // Por verificar: o passo ainda não está feito e a conta diz que a empresa vai verificar o pedido (não "contactamos").
+    assert.equal(l.passos.find((s) => s.chave === 'verificado').feito, false);
+    assert.equal(l.estado_texto, 'Pedido recebido. O relatório grátis já está aqui. Verificamos o pedido no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.');
     // O simulador fica a saber pelo catálogo que a visita já não se vende.
     assert.equal((await p.pedir('GET', '/api/catalogo')).json.pagamentos.visita_a_parte, false);
     // O servidor recusa a visita (sozinha ou com o relatório); o relatório compra-se como sempre.
@@ -230,7 +255,7 @@ describe('propostas na bolsa com os pagamentos ligados: o restante paga-se logo 
     assert.equal((await x.area(e, 'GET', 'trabalhos')).json.propostas_bolsa, true);
     assert.equal((await x.area(e, 'GET', `trabalhos/${tid}`)).json.trabalho.de_proposta, true);
     let l = await x.pedidoConta(c, id);
-    assert.deepEqual(l.passos.map((s) => s.texto), ['Pedido recebido', 'Proposta', 'Proposta aceite', 'Visita e instalação']);
+    assert.deepEqual(l.passos.map((s) => s.texto), ['Pedido recebido', 'Pedido verificado', 'Proposta', 'Proposta aceite', 'Visita e obra']);
     const restante = l.restante.valor;
     assert.ok(restante > 0);
     assert.equal(l.pode_pagar_restante, false, 'com a obra por fazer não se paga o restante');

@@ -336,7 +336,7 @@ export function blocosRelatorio(d) {
   const dataTxt = new Intl.DateTimeFormat("pt-PT", { day: "numeric", month: "long", year: "numeric" }).format(d.data ?? new Date());
   const a = d.analise;
   const divisoes = (d.divisoes ?? []).length ? d.divisoes.map((x) => ({ tipo: "item", texto: `${x.nome}: ${x.itens || "sem aparelhos"}` })) : [{ tipo: "item", texto: "Ainda sem divisões." }];
-  const cabeca = [{ tipo: "marca", texto: "Domus Energia" }, { tipo: "titulo", texto: "Relatório básico" }, { tipo: "data", texto: dataTxt }];
+  const cabeca = [{ tipo: "marca", texto: "Domus Energia" }, { tipo: "titulo", texto: "Relatório grátis" }, { tipo: "data", texto: dataTxt }];
   const nota = { tipo: "nota", texto: "Sem preços. O relatório completo traz o material e o preço por divisão." };
   // Sem a análise da casa (relatórios de antes): a casa, as divisões e o quadro do pedido, como estava.
   if (!a) {
@@ -358,7 +358,7 @@ export function blocosRelatorio(d) {
       ...a.simultaneo.linhas.map((l) => ({ tipo: "item", texto: `${l.estado === "dispara" ? "A luz vai abaixo" : "Aguenta"}: ${l.nomes} (${l.w})` }))] : []),
     { tipo: "seccao", texto: "Pontos a rever" },
     ...(a.rever.length ? a.rever.map((t) => ({ tipo: "item", texto: t })) : [{ tipo: "item", texto: "Nada a assinalar pelo que descreveu." }]),
-    { tipo: "texto", texto: "Orientativo, pelo que descreveu. Confirmamos na visita." },
+    { tipo: "texto", texto: d.notaRever ?? "Orientativo, pelo que descreveu. Confirmamos na visita." },
     ...(a.proximo?.length ? [{ tipo: "seccao", texto: "O que fazíamos primeiro nesta casa" }, ...a.proximo.map((t) => ({ tipo: "item", texto: t }))] : []),
     // "O que acontece a seguir" (decisão do dono, 2026-10-11): os passos do pedido.
     ...(d.seguir ? [{ tipo: "seccao", texto: d.seguir.titulo }, { tipo: "texto", texto: d.seguir.intro }, ...d.seguir.passos.map((t, i) => ({ tipo: "item", texto: `${i + 1}. ${t}` }))] : []),

@@ -77,6 +77,8 @@ const TEXTO_PAGO = {
   relatorio: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h).',
   relatorio_visita: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.',
 };
+// Sinal pago num pedido com a visita incluída (propostas na bolsa): marca-se a visita, em que a obra pode ficar feita.
+const TEXTO_PAGO_SINAL_VISITA = 'A proposta está aceite. Vamos marcar a visita consigo: muitas vezes a obra fica feita nesse dia.';
 const TEXTO_ESTADO = { pendente: 'Por pagar', pago: 'Pago', falhado: 'Falhou', cancelado: 'Cancelado', expirado: 'Expirou', devolvido: 'Devolvido' };
 const NOME_METODO = { card: 'Cartão', mb_way: 'MB Way', multibanco: 'Multibanco' };
 
@@ -771,7 +773,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (fase === 'sinal') {
       if (!o.proposta_aceite || o.estado !== 'proposta_enviada') throw new ErroApi(409, 'Aceite primeiro a proposta.');
       valorCent = v.sinal;
-      descricao = `${v.sinal_material ? 'Sinal da proposta' : `Sinal de ${SINAL_PCT} % da proposta`} do pedido n.º ${o.id} (${euro(v.total)} com IVA)${v.sinal_material ? ': cobre o material' : ''}${v.desconto ? `, menos os ${euro(v.desconto)} já pagos` : ''}`;
+      descricao = `${v.sinal_material ? 'Sinal da proposta' : `Sinal de ${SINAL_PCT} % da proposta`} do pedido n.º ${o.id} (${euro(v.total)} com IVA${visitaIncluida(o) ? '; inclui a visita' : ''})${v.sinal_material ? ': cobre o material' : ''}${v.desconto ? `, menos os ${euro(v.desconto)} já pagos` : ''}`;
     } else {
       if (o.estado !== 'aceite' || !pagoDe(o.id, 'sinal') && valores(o).sinal > 0) throw new ErroApi(409, 'Ainda não há nada para pagar neste pedido.');
       if (!restanteDisponivel(o)) throw new ErroApi(409, 'O restante paga-se quando a obra estiver concluída.');
@@ -934,6 +936,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return estado;
   }
 
+  /** O sinal deste pagamento é de um pedido com a visita incluída? (só muda o texto do email "pagamento recebido") */
+  const sinalComVisita = (p) => { const o = p.orcamento_id ? db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(p.orcamento_id) : null; return Boolean(o) && visitaIncluida(o); };
   function avisarEmail(p, tipo) {
     const para = p.conta_id ? emailConta(p.conta_id) : null;
     if (!para) return;
@@ -942,7 +946,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const texto = tipo === 'pago' ? [
       'Olá,', '', `Recebemos o seu pagamento${sim}.`, '',
       `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`, `  Referência: ${p.ref}`, '',
-      eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
+      eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : p.fase === 'sinal' && sinalComVisita(p) ? TEXTO_PAGO_SINAL_VISITA : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ] : [
       'Olá,', '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}. Não foi cobrado nada.`,
@@ -1319,7 +1323,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       mao_obra: maoObra === null ? null : { horas, valor: maoObra },
       deslocacao, melhorias, total: Math.round(soma * 100) / 100,
       dias: diasObra, deslocacao_dias: deslocacao === null ? null : Math.min(diasObra, maxDias), deslocacao_limitada: deslocacao !== null && diasObra > maxDias,
-      nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. O que já pagou (relatório, visita) é descontado na obra.',
+      nota: 'Valores com IVA, pelos preços do nosso catálogo. O valor final é o da proposta. O que já pagou (' + (visitaIncluida(o) ? 'relatório' : 'relatório, visita') + ') é descontado na obra.',
       // Conteúdo técnico do pormenorizado (decisões 4, 5, 7, 8 e 12): planta técnica, esquema por luz, terra e ensaios.
       planta, esquemas: planta ? esquemasDaPlanta(planta) : [],
       terra_nota: 'Verificar terra (PE) nas tomadas na visita.',

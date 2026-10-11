@@ -140,7 +140,7 @@ describe('boas-vindas', () => {
     const b = await pedidoConta();
     m = autos(b.c.email);
     assert.equal(m.length, 1);
-    assert.match(m[0].texto, /1\. O relatório básico .* já está na sua conta\./);
+    assert.match(m[0].texto, /1\. O relatório grátis .* já está na sua conta\./);
     assert.match(m[0].texto, /pode pedir na sua conta o relatório completo ou a visita técnica/);
     assert.match(m[0].texto, /A sua conta: https:\/\/site\.teste\/conta\.html/);
     // Só com telefone: não há para onde enviar. Criado no painel pela equipa: não é um pedido recebido do site.
@@ -160,17 +160,17 @@ describe('boas-vindas', () => {
     const m = autos(c.email);
     assert.equal(m.length, 1);
     assert.match(m[0].texto, /1\. O seu pedido ficou em lista de espera/);
-    assert.match(m[0].texto, /Contactamos consigo quando abrirmos as marcações\./);
+    assert.match(m[0].texto, /3\. Os pedidos são tratados por ordem de chegada\. Avisamos por email quando abrirmos\./);
     assert.doesNotMatch(m[0].texto, /dia útil seguinte|visita técnica/);
     const l = (await conta(c, 'GET', 'pedidos')).json.pedidos.find((x) => x.id === r.json.pedido);
-    assert.equal(l.estado_texto, 'Pedido recebido e em lista de espera: contactamos quando abrirmos as marcações. O relatório básico já está aqui.');
+    assert.equal(l.estado_texto, 'Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos. O relatório grátis já está aqui.');
     // O painel mostra-o (selo e filtro "Lista de espera"); um pedido normal não vem marcado.
     assert.equal((await api('ceo', 'GET', `orcamentos/${r.json.pedido}`)).json.lista_espera, true);
     // O formulário "Pedir contacto" marca o pedido no corpo (sem simulação): o mesmo email, sem o relatório.
     const f = await pedidoSite({ lista_espera: true });
     const mf = autos(f.email);
     assert.match(mf[0].texto, /1\. O seu pedido ficou em lista de espera/);
-    assert.doesNotMatch(mf[0].texto, /relatório básico|dia útil seguinte/);
+    assert.doesNotMatch(mf[0].texto, /relatório (básico|grátis)|dia útil seguinte/);
     assert.equal((await api('ceo', 'GET', `orcamentos/${f.id}`)).json.lista_espera, true);
     const n = await pedidoSite();
     assert.equal((await api('ceo', 'GET', `orcamentos/${n.id}`)).json.lista_espera, false);

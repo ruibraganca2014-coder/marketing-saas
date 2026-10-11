@@ -755,13 +755,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         if (!voltou) continue;
         n += 1;
         correio.enviar({ para: e.email, assunto: `Domus Energia: um trabalho voltou à bolsa em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} voltou, ao eletricista ${e.id}`,
-          texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) voltou à bolsa e está outra vez disponível.`,
+          texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) voltou à bolsa e está outra vez disponível.`,
             comoFica, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
         continue;
       }
       n += 1;
       correio.enviar({ para: e.email, assunto: `Domus Energia: novo trabalho em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
-        texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
+        texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
           comoFica, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     }
     return n;
@@ -891,7 +891,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const email = emailCliente(o);
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: visita marcada', resumo: `visita do pedido ${o.id} marcada para ${quando}`,
-        texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} está marcada para ${dataTexto(quando)}.`, 'Vai a sua casa um técnico em nome da Domus Energia.',
+        texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} está marcada para ${dataTexto(quando)}.`, 'Vai a sua casa um técnico em nome da Domus Energia.', ...(t.tipo === 'obra' && pagamentos().visitaIncluida(o) ? ['Se for possível, a obra fica feita nesse dia.'] : []),
           'Se não puder, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, { trabalho: paraEletricista(trabalho(t.id), pedidoDe(o.id), true) });
@@ -1853,7 +1853,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       correio.enviar({ para: e.email, assunto: 'Domus Energia: candidatura aprovada', resumo: `eletricista ${e.id} aprovado`,
         texto: [`Olá ${e.nome},`, '', 'A sua candidatura foi aprovada: já pode entrar na área do eletricista.',
           'Entra com este email e um código de 6 algarismos que enviamos na altura (sem palavra-passe).',
-          'Na bolsa vê os trabalhos dos seus concelhos; o primeiro a aceitar fica com o trabalho e tem 48 h para marcar a visita.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+          config.propostasBolsa ? 'Na bolsa vê os trabalhos dos seus concelhos. Nos pedidos com planta envia a sua proposta (horas, material e quando pode ir) e a Domus Energia escolhe. Nos outros, o primeiro a aceitar fica com o trabalho e tem 48 h para marcar a visita.'
+            : 'Na bolsa vê os trabalhos dos seus concelhos; o primeiro a aceitar fica com o trabalho e tem 48 h para marcar a visita.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     } else if (acao === 'recusar') {
       correio.enviar({ para: e.email, assunto: 'Domus Energia: a sua candidatura', resumo: `eletricista ${e.id}: candidatura não aceite`,
         texto: [`Olá ${e.nome},`, '', 'Obrigado pelo interesse em trabalhar com a Domus Energia. Desta vez não avançamos com a sua candidatura.', '', 'Domus Energia'].join('\n') });
@@ -1955,7 +1956,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       // (as de reserva esperam que o CEO volte a pôr o pedido na bolsa) — e se já se pode escolher.
       ...(config.propostasBolsa ? { propostas_bolsa: true, propostas: propostasDoPedido(o, ativo), pode_escolher: naBolsa && porProposta(ativo) } : {}),
       pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
-      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido por visitar (com a visita ou o diagnóstico pagos, quando os pagamentos online estão ligados) ou um pedido aceite com a obra por fazer.'
+      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.'
         : 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.',
       trabalho: t ? {
         // Ronda 3: confirmação e avaliação do cliente, reclamação, aprovação e pagamento; e o que o CEO pode fazer agora.
@@ -1993,7 +1994,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function novoTrabalho(o, modo, e) {
     expirar();
     const tipo = tipoAtribuivel(o);
-    if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido por visitar (com a visita ou o diagnóstico pagos, quando os pagamentos online estão ligados) ou um pedido aceite com a obra por fazer.');
+    if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.');
     if (ativoDoPedido(o.id)) throw new ErroApi(409, 'Este pedido já está na bolsa ou atribuído a um eletricista: retire-o primeiro.');
     if (feitoDoPedido(o.id, tipo)) throw new ErroApi(409, 'Este trabalho já foi feito e aprovado neste pedido.');
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;

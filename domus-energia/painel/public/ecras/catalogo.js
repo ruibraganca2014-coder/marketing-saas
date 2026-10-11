@@ -109,7 +109,7 @@ export default function catalogo(el) {
         campoForm("IVA dos pagamentos (%)", entrada("iva_pct", campo(config, "iva_pct") ?? 23, "50", "0.1"),
           "A proposta do painel é sem IVA; o sinal e o restante pagos online incluem este IVA (1000 € + 23 % = 1230 €). O relatório, a visita e a avaria já são com IVA."),
         campoForm("Relatório completo (€, c/ IVA)", entrada("preco_relatorio_iva", campo(config, "preco_relatorio_iva") ?? 29, "1000"),
-          "Enviar é grátis (relatório básico). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal."),
+          "Enviar é grátis (relatório grátis). A visita = deslocação + 0,5 h × tarifa. Tudo descontado no sinal."),
         h("div", { class: "tres" },
           campoForm("Obra mínima (€, c/ IVA)", entrada("obra_minima_iva", campo(config, "obra_minima_iva") ?? 100, "10000"), "Abaixo disto cobra-se o mínimo e o que foi pago antes não se desconta."),
           campoForm("Limite do cartão (€, c/ IVA)", entrada("cartao_max_iva", campo(config, "cartao_max_iva") ?? 500, "1000000"), "Acima disto só Multibanco ou MB Way."),

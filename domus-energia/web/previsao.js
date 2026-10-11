@@ -115,7 +115,7 @@ export function botoesDaPrevisao({ temPlanta: comPlanta = false, temRascunho = f
     r.push({ chave: "pedido", texto: pedido.compras?.avaria ? "Ver o pedido" : "Ver o pedido e o relatório", href });
     const cp = pedido.compras;
     const v = cp?.visita;
-    if (cp?.pode && cp.ativas && v && !v.paga && !v.fora_area && !v.sem_concelho && v.valor != null && !pedido.data_visita && !pedido.obra) {
+    if (cp?.pode && cp.ativas && v && !v.incluida && !v.paga && !v.fora_area && !v.sem_concelho && v.valor != null && !pedido.data_visita && !pedido.obra) {
       r.push({ chave: "visita", texto: "Pedir visita", href });
     }
   }

@@ -38,7 +38,7 @@ const RE_CODIGO = /^\d{6}$/;
 
 // Estados reais do painel → texto simples para o cliente.
 const TEXTO_ESTADO = {
-  novo: 'Pedido recebido. O relatório básico já está aqui.',
+  novo: 'Pedido recebido. O relatório grátis já está aqui.',
   contactado: 'Pedido em análise. Já falámos consigo.',
   visita_marcada: 'Visita técnica marcada.',
   proposta_enviada: 'A sua proposta está pronta.',
@@ -598,16 +598,25 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Propostas na bolsa (decisão do dono, 2026-10-11): nos pedidos com planta a visita já não vem antes da proposta nem
     // se paga à parte — vem depois de o cliente aceitar, com a obra. O andamento passa a "Pedido recebido / Proposta /
     // Proposta aceite / Visita e instalação". Nas avarias, e com PROPOSTAS_BOLSA=0, fica como estava.
+    // "Pedido verificado" (decisão do dono, 2026-10-11): nesses pedidos o andamento ganha o passo da validação da
+    // empresa (`validacao === 'validado'`; fica feito também com a proposta enviada ou a obra) e a obra chama-se
+    // "Visita e obra".
     const visitaDepois = Boolean(pag?.compras?.visita?.incluida);
+    const verificado = o.validacao === 'validado';
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
-      ...(visitaDepois ? [] : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
+      ...(visitaDepois ? [{ chave: 'verificado', texto: 'Pedido verificado', feito: verificado || depoisVisita, data: verificado ? o.validacao_em ?? null : null }]
+        : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
       { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
-      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e instalação' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
+      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
-    if (pag?.aguarda_sinal) estadoTexto = 'Proposta aceite — falta pagar o sinal para confirmarmos a instalação.';
+    // Com a visita incluída no sinal, depois de aceitar marca-se a visita (em que a obra pode ficar feita), não "a instalação".
+    if (visitaDepois && o.estado === 'aceite') estadoTexto = 'Proposta aceite. Vamos marcar a visita consigo.';
+    // "Já falámos consigo" só vale no fluxo antigo: no novo não há telefonema, e depois de um "Não aceito" o pedido volta a este estado.
+    if (o.estado === 'contactado' && (visitaDepois || o.proposta_recusada_em)) estadoTexto = 'Pedido em análise.';
+    if (pag?.aguarda_sinal) estadoTexto = visitaDepois ? 'Proposta aceite — falta pagar o sinal para marcarmos a visita.' : 'Proposta aceite — falta pagar o sinal para confirmarmos a instalação.';
     if (o.estado === 'aceite' && o.obra_concluida && !obra) estadoTexto = pag?.obra_paga === false ? 'Obra concluída. A app fica ativa depois de pagar o restante.' : 'Obra concluída.';
     if (obra) {
       estadoTexto = obra.estado === 'concluida' ? (pag?.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.')
@@ -624,10 +633,13 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Prazo de contacto (decisão do dono, 2026-10-10; igual a web/simulador/app.js textoPrazo), enquanto o pedido é novo.
     // Lista de espera (web/config.js listaEspera; coluna `lista_espera` do pedido): sem prazo de contacto.
     if (o.estado === 'novo' && o.lista_espera === 1) {
-      estadoTexto = `Pedido recebido e em lista de espera: contactamos quando abrirmos as marcações.${sim?.funil === 'avaria' ? '' : ' O relatório básico já está aqui.'}`;
+      estadoTexto = `Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos.${sim?.funil === 'avaria' ? '' : ' O relatório grátis já está aqui.'}`;
     } else if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
       ? ' Como é urgente, ligamos-lhe no próprio dia se chegou até às 18h de um dia útil; senão, na manhã do dia útil seguinte.'
-      : ' Contactamos no dia útil seguinte.';
+      // Com as propostas na bolsa o passo seguinte é a empresa verificar o pedido (não um telefonema).
+      : visitaDepois ? ' Verificamos o pedido no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.' : ' Contactamos no dia útil seguinte.';
+    // Verificado pela empresa e ainda sem proposta (fora da lista de espera, que mantém o texto dela).
+    if (visitaDepois && verificado && ['novo', 'contactado'].includes(o.estado) && !(o.estado === 'novo' && o.lista_espera === 1)) estadoTexto = 'Pedido verificado. Estamos a preparar a proposta.';
     // Devolvido pelo CEO para corrigir (migração 44): o cliente vê o que falta e carrega em "Já corrigi".
     const correcao = o.validacao === 'devolvido' && !['aceite', 'perdido'].includes(o.estado) ? { nota: o.validacao_nota ?? '' } : null;
     if (correcao) estadoTexto = 'Falta corrigir um pormenor antes de avançarmos: veja abaixo.';
@@ -636,6 +648,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
     return {
       id: o.id, criado: o.criado, estado: o.estado, estado_texto: estadoTexto, passos, correcao,
+      // Em lista de espera e ainda por tratar: a conta diz que o relatório completo se pede quando abrirmos (web/conta.js).
+      ...(o.estado === 'novo' && o.lista_espera === 1 ? { lista_espera: true } : {}),
       // Cliente que regressa (decisão do dono, 2026-10-04; web/regresso.js): o pedido ainda está em andamento? — enviado e
       // ainda não fechado (perdido), arquivado/anonimizado, nem com a obra dada por concluída (pelo painel ou na obra
       // ligada). É o que o Início do simulador e o botão da página inicial leem ("Já tem o pedido n.º N em andamento").

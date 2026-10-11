@@ -127,7 +127,7 @@ test('achados da revisão: trifásico acima de 13,8 kVA, quadro grande sem taman
   for (let i = 0; i < 12; i++) { for (let k = 0; k < 6; k++) muitas.elementos.push(el(`t${i}-${k}`, 'tomada', `q${i}`)); muitas.elementos.push(el(`l${i}`, 'luz', `q${i}`), el(`m${i}`, 'maquina', `q${i}`, { modelo: 'ar_condicionado' })); }
   const g = analiseDaCasa(muitas, { potencia_contratada_kva: 13.8 }, 13.8).esquema;
   assert.equal(g.grande, true);
-  assert.match(g.resumo, /^Quadro grande \(\d+ módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se na visita\)/);
+  assert.match(g.resumo, /^Quadro grande \(\d+ módulos ocupados: mais do que cabe num de 48 com folga, o tamanho confirma-se no local\)/);
   assert.doesNotMatch(g.resumo, /módulos livres/);
   // Forno 2 500 + lavar 2 000 + micro-ondas 1 200 com 3 450 W: o forno não deixa caber mais nada, mas lavar + micro-ondas cabem.
   const p = { divisoes: [div('d1', 'Cozinha', 0)], elementos: [el('m1', 'maquina', 'd1', { modelo: 'forno' }), el('m2', 'maquina', 'd1', { modelo: 'maquina_lavar' }), el('m3', 'maquina', 'd1', { modelo: 'micro_ondas' })] };

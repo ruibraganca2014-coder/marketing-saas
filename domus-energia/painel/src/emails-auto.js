@@ -172,19 +172,20 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     const visitaDepois = Boolean(pagamentos()?.visitaIncluida?.(o));
     const passos = espera ? [
       'O seu pedido ficou em lista de espera: ainda não começámos as obras.',
-      ...(comConta ? ['O relatório básico (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),
-      'Contactamos consigo quando abrirmos as marcações.',
+      ...(comConta ? ['O relatório grátis (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),
+      'Os pedidos são tratados por ordem de chegada. Avisamos por email quando abrirmos.',
     ] : comConta ? [
-      'O relatório básico (o intervalo de preço e a lista de trabalho) já está na sua conta.',
-      'Vamos contactá-lo em breve, normalmente no dia útil seguinte, para confirmar o que precisa.',
+      'O relatório grátis (o intervalo de preço e a lista de trabalho) já está na sua conta.',
+      visitaDepois ? 'Verificamos o seu pedido (a planta e as fotos), normalmente no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.'
+        : 'Vamos contactá-lo em breve, normalmente no dia útil seguinte, para confirmar o que precisa.',
       // Propostas na bolsa (decisão do dono, 2026-10-11): a visita já não se vende à parte nem vem antes da proposta.
       ...(config.pagamentoPedido ? [visitaDepois ? 'Se quiser saber mais já, pode pedir na sua conta o relatório completo.' : 'Se quiser avançar já, pode pedir na sua conta o relatório completo ou a visita técnica.'] : []),
-      visitaDepois ? 'Enviamos-lhe a proposta, com o preço da obra, que pode aceitar na sua conta. A visita fazemo-la depois de aceitar.'
+      visitaDepois ? 'Enviamos-lhe a proposta, com o preço da obra, que pode aceitar na sua conta. Ao aceitar paga o sinal, que já inclui a visita: fazemo-la a seguir, e muitas vezes a obra fica feita nesse dia.'
         : 'Depois da visita técnica enviamos-lhe a proposta, que pode aceitar na sua conta.',
     ] : [
       'Vamos contactá-lo em breve, normalmente no dia útil seguinte, para perceber o que precisa.',
-      'Se for preciso ver a casa, marcamos consigo uma visita técnica.',
-      'Depois enviamos-lhe a proposta com o valor.',
+      visitaDepois ? 'Para lhe darmos um preço, pedimos-lhe que descreva a casa no simulador do site (a planta e as fotos).' : 'Se for preciso ver a casa, marcamos consigo uma visita técnica.',
+      'Depois enviamos-lhe a proposta com o preço.',
     ];
     return enviar(o, 'boas_vindas', chave, para, {
       assunto: 'Domus Energia: recebemos o seu pedido',
@@ -269,7 +270,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
         assunto: etapa === 1 ? 'Domus Energia: pagamento por fazer' : 'Domus Energia: pagamento por fazer (segundo aviso)',
         texto: ['Olá,', '', etapa === 1 ? `${oque} do seu pedido n.º ${o.id} (${euro(f.cent)}, com IVA) ainda está por pagar. Pode pagar na sua conta quando quiser.`
           : `Voltamos a lembrar: ${oque.toLowerCase()} do seu pedido n.º ${o.id} (${euro(f.cent)}, com IVA) continua por pagar. Pode pagar na sua conta.`,
-        f.fase === 'sinal' ? 'A instalação só fica confirmada depois de pagar o sinal.' : 'A app da casa fica ativa depois de pagar o restante.',
+        f.fase === 'sinal' ? (pagamentos().visitaIncluida?.(o) ? 'A visita só é marcada depois de pagar o sinal.' : 'A instalação só fica confirmada depois de pagar o sinal.') : 'A app da casa fica ativa depois de pagar o restante.',
         'Se já pagou (por exemplo, por referência Multibanco), não precisa de fazer nada: a confirmação pode demorar.',
         etapa === 1 ? 'Se tiver alguma dúvida, responda a este email ou ligue-nos.' : 'Se houver algum problema com o pagamento, responda a este email ou ligue-nos: resolvemos consigo.',
         ...ligacaoConta(), '', 'Domus Energia'].join('\n'),

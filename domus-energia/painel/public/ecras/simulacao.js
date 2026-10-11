@@ -363,7 +363,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const divs = arr(sim.divisoes).filter((d) => d && typeof d === "object" && d.nome !== FORA);
   if (divs.length) partes.push(tabelaDivisoes(divs));
   if (planta && (planta.divisoes.length || planta.elementos.length || planta.fundo)) partes.push(vistaPlanta(planta, acoesDe(sim)));
-  partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é confirmado na visita técnica." }));
+  partes.push(h("p", { class: "ajuda", text: "Estimativa feita pelo cliente no site (preços com IVA). O valor final é o da proposta." }));
   return h("section", { class: "simulacao", id: "simulacao-cliente" }, ...partes);
 }
 
@@ -1274,7 +1274,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
     partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva), minimo: numero(s.obra_minima_iva) }),
       dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));
   }
-  partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado na visita técnica." }));
+  partes.push(h("p", { class: "ajuda rel-rodape", text: "Valores orientativos calculados pelo simulador a partir das respostas do cliente (preços com IVA). Tudo é confirmado antes da proposta." }));
   return h("article", { class: "relatorio-tecnico simulacao", id: "relatorio-tecnico", "aria-labelledby": "rel-titulo" }, ...partes);
 }
 
