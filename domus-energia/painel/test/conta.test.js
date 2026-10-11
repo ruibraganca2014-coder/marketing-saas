@@ -573,6 +573,18 @@ describe('conta de cliente', () => {
     const { id } = await pedidoComConta(a);
     assert.equal((await conta('POST', `pedidos/${id}/aceitar`, { cookie: a.cookie, corpo: {} })).estado, 409, 'ainda sem proposta');
     const u = await painel('POST', `orcamentos/${id}`, 'comercial', { estado: 'proposta_enviada', valor_proposta: 1234.5, proposta_texto: 'Inclui tudo.\nObra em 2 dias.' });
+    // Email "a sua proposta está pronta" com o total com IVA (decisão do dono, 2026-10-11); mudar o valor manda "atualizada";
+    // mudar só o texto não manda nada.
+    assert.equal(p.emails.at(-1).assunto, 'Domus Energia: a sua proposta está pronta');
+    assert.match(p.emails.at(-1).texto, /1518,44 € \(com IVA\)/);
+    const nEmails = p.emails.length;
+    await painel('POST', `orcamentos/${id}`, 'comercial', { proposta_texto: 'Inclui tudo.\nObra em 2 dias.' });
+    await painel('POST', `orcamentos/${id}`, 'comercial', { notas: 'ligar depois' });
+    assert.equal(p.emails.length, nEmails, 'sem mudar o valor não há email');
+    await painel('POST', `orcamentos/${id}`, 'comercial', { valor_proposta: 1300 });
+    assert.equal(p.emails.at(-1).assunto, 'Domus Energia: proposta atualizada');
+    assert.match(p.emails.at(-1).texto, /1599,00 € \(com IVA\)/);
+    await painel('POST', `orcamentos/${id}`, 'comercial', { valor_proposta: 1234.5 });
     assert.equal(u.estado, 200, u.texto);
     const ped = (await conta('GET', 'pedidos', { cookie: a.cookie })).json.pedidos[0];
     assert.deepEqual(ped.proposta, { valor: 1234.5, texto: 'Inclui tudo.\nObra em 2 dias.', aceite: null });

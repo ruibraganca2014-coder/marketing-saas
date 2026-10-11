@@ -1126,8 +1126,30 @@ export function criarApi(ctx) {
       else if (o.estado === 'aceite') { stock.libertar(o.id, u.email, 'o pedido deixou de estar aceite'); cancelarObraDoPedido(o, u, ip); }
     }
     auditar(u, 'orcamento_atualizado', `orcamento:${o.id}`, det, ip);
+    avisarDaProposta(o, obterOrcamento(params.id), 'valor_proposta' in det);
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
+
+  /**
+   * Email ao cliente com conta quando a proposta fica pronta (decisão do dono, 2026-10-11): com o total com IVA e o botão
+   * para a conta, onde aceita ou não. Se o valor mudar com a proposta já enviada, vai "proposta atualizada" com o valor
+   * novo (o email antigo deixava de estar certo).
+   */
+  function avisarDaProposta(antes, o, valorMudou) {
+    if (o.estado !== 'proposta_enviada' || o.valor_proposta_cent === null || o.cliente || o.anonimizado) return;
+    const jaTinha = antes.estado === 'proposta_enviada' && antes.valor_proposta_cent !== null;
+    if (jaTinha && !valorMudou) return;
+    const email = emailDaConta(o.conta_id);
+    if (!email) return;
+    const total = pagPed.valores(o).total;
+    const valor = `${(total / 100).toFixed(2).replace('.', ',')} €`;
+    correio.enviar({ para: email, assunto: jaTinha ? 'Domus Energia: proposta atualizada' : 'Domus Energia: a sua proposta está pronta',
+      resumo: `proposta do pedido ${o.id} ${jaTinha ? 'atualizada' : 'pronta'} (${valor} com IVA)`,
+      texto: ['Olá,', '', jaTinha ? `Atualizámos a proposta do seu pedido n.º ${o.id}. O valor passa a ser ${valor} (com IVA).` : `A proposta do seu pedido n.º ${o.id} está pronta: ${valor} (com IVA).`,
+        ...(jaTinha && antes.proposta_aceite ? ['Como o valor mudou, pedimos-lhe que a aceite de novo na sua conta.'] : []),
+        'Na sua conta vê o que está incluído e diz se aceita ou não.', 'Se tiver dúvidas, responda a este email ou ligue-nos.',
+        ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+  }
 
   const PARTES_PROPOSTA = ['proposta_mao_obra', 'proposta_material', 'proposta_deslocacao'];
 
