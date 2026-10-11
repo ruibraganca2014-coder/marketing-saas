@@ -261,6 +261,12 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     // A obra leva o material e as horas da proposta aceite, e é essa a lista que se marca como recebida (teste no browser, 2026-10-11).
     assert.deepEqual(f.material.map((m) => [m.nome, m.quantidade, m.recebido]), [[artigos[0].nome, 2, false], [artigos[1].nome, 1, false]]);
     assert.equal(f.horas, 7);
+    // A obra do painel e o stock também seguem a proposta aceite, não a simulação (teste dos agentes, 2026-10-11).
+    const naObra = JSON.parse(p.app.db.prepare('SELECT material FROM obras WHERE orcamento_id = ?').get(id).material);
+    assert.deepEqual(naObra.map((m) => [m.sku, m.quantidade, m.feito]), [[artigos[0].sku, 2, false], [artigos[1].sku, 1, false]]);
+    const { criarStock } = await import('../src/stock.js');
+    const doStock = criarStock({ db: p.app.db, relogio: () => p.relogio.agora() }).materialDoPedido(p.app.db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(id));
+    assert.deepEqual(doStock.map((x) => [x.artigo.sku, x.qtd]).sort(), [[artigos[0].sku, 2], [artigos[1].sku, 1]].sort());
     const mr = await area(a, 'POST', `trabalhos/${obraId}/material`, { recebido: [artigos[0].nome] });
     assert.equal(mr.estado, 200, mr.texto);
     assert.deepEqual(mr.json.trabalho.material.map((m) => m.recebido), [true, false]);

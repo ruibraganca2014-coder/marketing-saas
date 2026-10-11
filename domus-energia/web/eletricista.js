@@ -35,6 +35,9 @@ const el = (tag, classe, texto) => {
 const com = (pai, ...filhos) => { pai.append(...filhos.flat().filter((f) => f !== null && f !== undefined && f !== false)); return pai; };
 const euro = (v) => new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", useGrouping: "always" }).format(v ?? 0);
 const decimal = (v) => String(v).replace(".", ",");
+// O que recebe por um trabalho: o da proposta mais a parte dele em cada trabalho a mais que o cliente aceitou.
+const extrasAceites = (t) => (t.extras ?? []).filter((x) => x.estado === "aceite" && x.recebe).reduce((s, x) => s + (Number(x.recebe.total) || 0), 0);
+const recebeComExtras = (t) => Math.round(((Number(t.recebe?.total) || 0) + extrasAceites(t)) * 100) / 100;
 const p2 = (n) => String(n).padStart(2, "0");
 /** "AAAA-MM-DDTHH:MM" (hora de Lisboa, como o servidor a guarda) → "09/10 às 10:00". */
 const visitaTxt = (v) => (v ? `${v.slice(8, 10)}/${v.slice(5, 7)} às ${v.slice(11, 16)}` : "");
@@ -142,6 +145,7 @@ function entrou(e) {
   $("el-fundo").hidden = false;
   $("el-sair").hidden = false;
   $("el-quem").textContent = e.nome;
+  document.title = "Área do eletricista | Domus Energia";
   msgEntrar(null);
   encaminhar();
 }
@@ -230,7 +234,7 @@ async function bolsaLista() {
         el("span", "pequeno suave", "Nome e morada do cliente só depois de o cliente aceitar a proposta."))
       : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso")),
         el("h3", null, t.titulo),
-        com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar")),
+        com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar")),
         duracaoTxt(t) ? el("span", "pequeno suave", `Duração: ${duracaoTxt(t)}`) : null,
         el("span", "pequeno suave", "Nome e morada do cliente só depois de aceitar."));
     b.type = "button";
@@ -477,7 +481,7 @@ function desenharFicha(t) {
   const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEstado(t)), el("h2", null, t.titulo),
     t.espera_cliente ? el("p", "pequeno", "Recebe a sua percentagem da mão de obra + a deslocação quando fizer a obra (a visita está incluída).")
     : t.recebe?.gratis ? el("p", "pequeno", "Visita de orçamento: não é paga. Recebe se o cliente aceitar a proposta e fizer a obra.")
-      : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(t.recebe.total) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação` : "")];
+      : com(el("p", "pequeno"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar"), t.recebe ? ` · ${decimal(t.recebe.percentagem)} % da mão de obra + deslocação${extrasAceites(t) ? " + trabalho a mais" : ""}` : "")];
   if (!t.aberto) {
     out.push(el("p", "nota calma", "Trabalho fechado: os dados do cliente já não estão disponíveis."));
     if (["aprovada", "paga"].includes(t.estado)) {

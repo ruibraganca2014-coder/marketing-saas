@@ -272,8 +272,9 @@ export default function orcamentos(el, ctx) {
             ["Horas", `${numTxt(x.horas)} h`],
             ["Material", material],
             ...(v ? [["Preço para o cliente", `${euros(v.total)} sem IVA (${euros(v.total_iva)} com IVA) — mão de obra ${euros(v.mao_obra)} + material ${euros(v.material)}`]]
-              : [["Sugestão (sem IVA)", `mão de obra ${euros(x.sugestao.mao_obra)} + material ${euros(x.sugestao.material)}`]]),
-            ["O eletricista recebe", x.recebe ? `${euros(x.recebe.total)} (${numTxt(x.recebe.percentagem)} % da mão de obra)${v ? "" : " — pela sugestão"}` : "—"],
+              // Retirado sem nunca ter tido preço: a sugestão e o que o eletricista receberia já não interessam.
+              : x.estado === "retirado" ? [] : [["Sugestão (sem IVA)", `mão de obra ${euros(x.sugestao.mao_obra)} + material ${euros(x.sugestao.material)}`]]),
+            ...(!v && x.estado === "retirado" ? [] : [["O eletricista recebe", x.recebe ? `${euros(x.recebe.total)} (${numTxt(x.recebe.percentagem)} % da mão de obra)${v ? "" : " — pela sugestão"}` : "—"]]),
             ["Proposto em", data(x.criado)],
             ...(x.enviado_em ? [["Enviado ao cliente", data(x.enviado_em)]] : []),
             ...(x.respondido_em ? [["Resposta do cliente", data(x.respondido_em)]] : []),

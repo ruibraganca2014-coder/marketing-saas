@@ -61,7 +61,9 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
       desenhar(await pedir(caminho, { corpo: pedido }));
       avisar(texto);
       // Escolhido o eletricista, a ficha do pedido ganha "Preencher pela proposta do eletricista": quem a mostra volta a lê-la.
-      if (pedido?.acao === "escolher") aoEscolher?.();
+      // Aprovar, retirar, atribuir… também mudam o resto da ficha (os botões da obra, o cartão "Trabalho a mais"):
+      // volta a ler-se depois de qualquer ação (teste dos agentes, 2026-10-11).
+      aoEscolher?.();
     } catch (e) {
       if (b) b.disabled = false;
       avisar(e.message, "erro");
@@ -95,7 +97,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     const botoes = [];
     if (t.pode_aprovar) {
       botoes.push(botaoConfirmar(t.tipo === "obra" ? "Aprovar trabalho (e obra concluída)" : "Aprovar trabalho", "Confirmar: aprovar?",
-        (b) => acao(b, { acao: "aprovar" }, t.tipo === "obra" ? "Trabalho aprovado: a obra ficou concluída e o cliente já pode pagar o restante." : "Trabalho aprovado.")));
+        (b) => acao(b, { acao: "aprovar" }, t.tipo === "obra" ? "Trabalho aprovado: a obra ficou concluída." : "Trabalho aprovado.")));
     }
     if (t.pode_devolver) {
       const motivo = h("textarea", { id: "devolver-motivo", rows: "2", maxlength: "1000", "aria-label": "Motivo da devolução" });
@@ -207,9 +209,9 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
           : `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem 48 h para marcar a visita.` }));
     } else if (t.estado === "na_bolsa") {
       partes.push(
-        h("p", { class: "linha-selos" }, selo("Na bolsa", "aviso"), selo(a.concelho, "info")),
+        h("p", { class: "linha-selos" }, selo(t.so_para ? "Proposta pedida a um eletricista" : "Na bolsa", "aviso"), selo(a.concelho, "info")),
         h("p", { id: "bolsa-estado", text: t.so_para
-          ? `Proposta pedida só a ${t.so_para.nome ?? "um eletricista"}: ${(a.propostas ?? []).some((x) => x.estado === "enviada") ? "já a enviou, pode escolhê-la abaixo" : "ainda não a enviou"}. Os outros eletricistas não veem este pedido. Para o abrir a todos, retire-o e ponha-o na bolsa.`
+          ? `Proposta pedida só a ${t.so_para.nome ?? "um eletricista"}: ${(a.propostas ?? []).some((x) => x.eletricista?.id === t.so_para.id && x.estado !== "retirada") ? "já a enviou, pode escolhê-la abaixo" : "ainda não a enviou"}. Os outros eletricistas não veem este pedido. Para o abrir a todos, retire-o e ponha-o na bolsa.`
           : t.por_proposta
           ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
           : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),

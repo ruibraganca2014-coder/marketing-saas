@@ -609,7 +609,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
         : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
       { chave: 'proposta', texto: 'Proposta', feito: temProposta },
       { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
-      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: agendada, data: agendada ? obra.data : null },
+      { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: agendada,
+        // Concluída: o dia em que o cliente a confirmou (ou em que ficou concluída no painel); senão o dia marcado, com a hora se a há.
+        data: !agendada ? null : obra.estado === 'concluida' && o.obra_concluida ? o.obra_concluida : obra.hora ? `${obra.data}T${obra.hora}` : obra.data },
     ];
     let estadoTexto = TEXTO_ESTADO[o.estado] ?? 'Pedido recebido.';
     // Com a visita incluída no sinal, depois de aceitar marca-se a visita (em que a obra pode ficar feita), não "a instalação".

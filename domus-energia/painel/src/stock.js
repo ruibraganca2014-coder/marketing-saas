@@ -24,11 +24,20 @@ export function criarStock({ db, relogio }) {
   const gerido = (a) => a.stock_minimo > 0 || Boolean(temMovimentos.get(a.id));
 
   /** Material de um pedido: [{artigo (linha do catálogo), qtd}] pelos `itens` da simulação (SKUs repetidos somados). */
-  function materialDoPedido(o) {
+  // Com uma proposta de eletricista escolhida (propostas na bolsa), o material da obra é o dela e não o da simulação
+  // (teste de 2026-10-11: reservava-se e mostrava-se o material que o cliente não comprou).
+  const propostaEscolhida = db.prepare("SELECT material FROM propostas_bolsa WHERE orcamento_id = ? AND estado = 'escolhida' ORDER BY id DESC LIMIT 1");
+  function itensDoPedido(o) {
+    if (Number.isInteger(o?.id)) {
+      try { const m = JSON.parse(propostaEscolhida.get(o.id)?.material ?? 'null'); if (Array.isArray(m) && m.length) return m; } catch { /* segue pela simulação */ }
+    }
     let sim = null;
     try { sim = JSON.parse(o?.simulacao ?? 'null'); } catch { sim = null; }
+    return Array.isArray(sim?.itens) ? sim.itens : [];
+  }
+  function materialDoPedido(o) {
     const qtds = new Map();
-    for (const i of Array.isArray(sim?.itens) ? sim.itens.slice(0, 500) : []) {
+    for (const i of itensDoPedido(o).slice(0, 500)) {
       if (!i || typeof i.sku !== 'string' || !RE_SKU.test(i.sku)) continue;
       const q = Number.isFinite(i.qtd) && i.qtd > 0 ? Math.min(Math.round(i.qtd), 10_000) : 0;
       if (q) qtds.set(i.sku, (qtds.get(i.sku) ?? 0) + q);

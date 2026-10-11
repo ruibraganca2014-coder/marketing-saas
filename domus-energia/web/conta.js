@@ -282,7 +282,8 @@ function cartaoPedido(p) {
   passos.setAttribute("aria-label", "Andamento do pedido");
   for (const s of p.passos ?? []) {
     const li = el("li", s.feito ? "feito" : null, s.texto);
-    if (s.feito && s.data && s.chave !== "recebido") li.title = dataTxt(s.data, true);
+    // Uma data só com o dia (obra marcada sem hora) mostra-se sem hora: lida como data, dava "às 01:00".
+    if (s.feito && s.data && s.chave !== "recebido") li.title = /^\d{4}-\d{2}-\d{2}$/.test(s.data) ? dataTxt(`${s.data}T12:00`) : dataTxt(s.data, true);
     passos.append(li);
   }
   c.append(passos);

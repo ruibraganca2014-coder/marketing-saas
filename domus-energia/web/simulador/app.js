@@ -5214,7 +5214,7 @@ function comVisita(dentro, fora) { return foraDaArea() ? fora : dentro; }
 /** Os textos que mudam com as propostas na bolsa (sem visita à parte: a visita vem depois de aceitar a proposta). */
 function comProposta(antigo, novo) { return visitaAParte ? antigo : novo; }
 /** "O seu quadro é seguro?" sem idade certa: com as propostas na bolsa a resposta vem na proposta (pela foto), não na visita. */
-function quadroSeguroTexto(t) { return comProposta(t, t.replace("O eletricista vê", "Vemos").replace("o eletricista vê", "vemos").replace("diz-lhe na visita", "dizemos-lhe na proposta")); }
+function quadroSeguroTexto(t) { return comProposta(t, t.replace("O eletricista vê", "Vemos").replace("o eletricista vê", "vemos").replace("diz-lhe na visita", "dizemos-lhe na proposta").replace("e diz-lhe se", "e dizemos-lhe se")); }
 function notaRever() { return comProposta("Orientativo, pelo que descreveu. Confirmamos na visita.", "Orientativo, pelo que descreveu. Confirmamos quando virmos a planta e as fotos."); }
 /** A nota da estimativa: fora da área, sem a visita. */
 const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : visitaAParte ? TEXTO_ESTIMATIVA : TEXTO_ESTIMATIVA_PROPOSTA);

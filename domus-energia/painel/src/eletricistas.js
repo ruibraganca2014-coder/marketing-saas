@@ -1378,6 +1378,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       let horas = null;
       try { horas = Number(JSON.parse(t.proposta)?.horas); } catch { horas = null; }
       if (o.obra_id && Number.isFinite(horas) && horas > 0) db.prepare('UPDATE obras SET horas_estimadas = ?, atualizado = ? WHERE id = ?').run(horas, iso(agora), o.obra_id);
+      // … e o material na obra (teste de 2026-10-11: a obra nascia com a lista da simulação, que o cliente não comprou).
+      const mat = propostaDe({ proposta: t.proposta })?.material ?? [];
+      if (o.obra_id && mat.length) {
+        db.prepare("UPDATE obras SET material = ?, atualizado = ? WHERE id = ? AND estado NOT IN ('concluida', 'cancelada')")
+          .run(JSON.stringify(mat.map((m) => ({ sku: m.sku, nome: m.nome, quantidade: m.qtd, feito: false }))), iso(agora), o.obra_id);
+      }
     }
     const obra = trabalho(id);
     evento(obra, 'atribuido', e.id, 'sistema');

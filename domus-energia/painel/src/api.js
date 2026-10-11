@@ -720,6 +720,8 @@ export function criarApi(ctx) {
           pagamentos_eletricistas: n("SELECT COUNT(*) AS n FROM trabalhos_eletricista WHERE estado = 'aprovada'"),
           // Trabalho a mais proposto por um eletricista, à espera de o CEO pôr o preço e enviar ao cliente.
           extras: eletricistas.extrasPorRever(),
+          // O pedido do mais antigo, para o Início abrir logo a ficha certa.
+          extras_pedido: db.prepare("SELECT orcamento_id FROM trabalhos_extra WHERE estado = 'proposto' ORDER BY id LIMIT 1").get()?.orcamento_id ?? null,
         });
       }
       r.visitas_semana = db.prepare(`SELECT id, nome, localidade, data_visita FROM orcamentos
