@@ -33,7 +33,9 @@ describe('ida perdida: o eletricista assinala depois da hora, o CEO confirma, a 
     outro = await aprovado();
     // O valor do concelho, pela configuração do servidor (a mesma conta da visita e da proposta), com o IVA tirado.
     const cfg = Object.fromEntries(p.app.db.prepare('SELECT chave, valor FROM config_orcamento').all().map((r) => [r.chave, r.valor]));
-    DESL = partirIva(Math.round(deslocacaoServidor('Sintra', cfg) * 100), 23).base;
+    // Nunca menos do que o mínimo de uma ida perdida: 25 € com IVA (decisão do dono, 2026-10-12).
+    DESL = partirIva(Math.round(Math.max(deslocacaoServidor('Sintra', cfg), 25) * 100), 23).base;
+    assert.equal(deslocacaoServidor('Lisboa', cfg), 0, 'em Lisboa a deslocação normal é 0 €');
     DESL_IVA = comIva(DESL, 23);
     assert.ok(DESL > 0, 'a deslocação de Sintra tem valor');
   });
@@ -73,9 +75,9 @@ describe('ida perdida: o eletricista assinala depois da hora, o CEO confirma, a 
     return { ...x, cookie: r.cabecalhos['set-cookie'][0].split(';')[0] };
   }
   /** Obra de um cliente (proposta de 1000 + 500 + 30 € aceite, sinal pago) atribuída a `x`, com a visita marcada para daqui a 30 h. Devolve {c, id, tid, visita}. */
-  async function obra(x = e) {
+  async function obra(x = e, localidade = 'Sintra') {
     const c = await p.contaConfirmada();
-    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Remodelação elétrica', localidade: 'Sintra', simulacao: sim() } });
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...CLIENTE, servico: 'Remodelação elétrica', localidade, simulacao: sim() } });
     assert.equal(r.estado, 201, r.texto);
     const id = r.json.pedido;
     assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', proposta_mao_obra: 1000, proposta_material: 500, proposta_deslocacao: 30 })).estado, 200);
@@ -321,6 +323,24 @@ describe('ida perdida: o eletricista assinala depois da hora, o CEO confirma, a 
     assert.equal(linhaIda(iid).estado, 'proposta');
     assert.equal((await anular(id, iid, { motivo: 'Trata-se por fora.' })).estado, 200, 'anular continua a poder-se');
     assert.equal((await pedidoConta(c, id)).idas_perdidas.length, 0);
+  });
+
+  test('em Lisboa, onde a deslocação normal é 0 €, a ida perdida custa o mínimo: 25 € com IVA', async () => {
+    const lx = await aprovado({ concelhos: ['Lisboa'] });
+    const { c, id, tid, visita } = await obra(lx, 'Lisboa');
+    const antes = await pedidoConta(c, id);
+    p.relogio.avancar(31 * HORA);
+    const iid = (await assinalar(lx, tid)).json.trabalho.idas_perdidas[0].id;
+    // 25 € com IVA guardam-se sem IVA, em cêntimos (20,33 €); de volta com IVA dá 25,01 €: um cêntimo do arredondamento.
+    const minimo = partirIva(2500, 23).base;
+    const minimoIva = comIva(minimo, 23);
+    assert.ok(minimoIva >= 2500 && minimoIva <= 2501);
+    assert.deepEqual([(await noPainel(id)).idas_perdidas[0].deslocacao_iva, (await noPainel(id)).idas_perdidas[0].recebe], [minimoIva / 100, minimo / 100]);
+    assert.equal((await confirmar(id, iid)).estado, 200);
+    assert.equal(linhaIda(iid).deslocacao_cent, minimo);
+    const l = await pedidoConta(c, id);
+    assert.deepEqual(l.idas_perdidas, [{ visita, valor: minimo / 100, valor_iva: minimoIva / 100 }]);
+    assert.equal(Math.round((l.restante.valor - antes.restante.valor) * 100), minimoIva);
   });
 });
 

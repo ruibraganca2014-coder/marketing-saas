@@ -356,8 +356,8 @@ export default function orcamentos(el, ctx) {
             ...(x.motivo ? [["Motivo", `«${x.motivo}»`]] : []),
           ]));
         if (!ctx.pode("ceo") || !x.pode_decidir) return c;
-        // Neste concelho a deslocação é 0 € (ou o pedido está fora da área): não há nada a cobrar, só a anular.
-        if (!(Number(x.deslocacao_iva) > 0)) c.append(h("p", { class: "msg info", id: `ida-sem-valor-${x.id}`, text: "Neste concelho a deslocação é de 0 €: não há nada a cobrar ao cliente. Anule o registo (o motivo pode ser \"deslocação sem custo\") e combine nova data." }));
+        // Pedido fora da área servida: não há deslocação a cobrar, só a anular (nos concelhos servidos há sempre o mínimo de 25 €).
+        if (!(Number(x.deslocacao_iva) > 0)) c.append(h("p", { class: "msg info", id: `ida-sem-valor-${x.id}`, text: "Este pedido está fora da área servida: não há deslocação a cobrar ao cliente. Anule o registo e combine nova data." }));
         const bConfirmar = botaoConfirmar("Cobrar a deslocação", `Confirmar: cobrar ${euros(x.deslocacao_iva)} ao cliente?`,
           (b) => acaoIda(b, x, "confirmar", {}, "Ida perdida confirmada: o cliente e o eletricista foram avisados por email."), { classe: "btn pequeno" });
         bConfirmar.id = `ida-confirmar-${x.id}`;
@@ -372,7 +372,7 @@ export default function orcamentos(el, ctx) {
         }, (b) => acaoIda(b, x, "anular", { motivo: motivoAnular }, "Ida perdida anulada: nada muda no que o cliente paga."), { classe: "btn pequeno" });
         bAnularSim.id = `ida-anular-confirmar-${x.id}`;
         const zona = h("div", { class: "form-grelha", hidden: true }, h("label", { class: "campo" }, h("span", { text: "Porque anula (o eletricista vê este texto)" }), motivo), h("div", { class: "form-botoes" }, bAnularSim));
-        c.append(h("p", { class: "ajuda", text: "O cliente pode mudar a visita sem custo até 24 horas antes. Se confirmar, a deslocação dessa ida soma ao que o cliente paga no fim, o eletricista recebe-a a mais e marca nova visita. O cliente recebe um email." }),
+        c.append(h("p", { class: "ajuda", text: "O cliente pode mudar a visita sem custo até 24 horas antes. Se confirmar, a deslocação dessa ida (no mínimo 25 € com IVA) soma ao que o cliente paga no fim, o eletricista recebe-a a mais e marca nova visita. O cliente recebe um email." }),
           h("div", { class: "form-botoes" }, bConfirmar, h("button", { class: "btn sec pequeno", type: "button", id: `ida-anular-${x.id}`, text: "Anular (o cliente tem razão)",
             onclick: (e) => { zona.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })), zona);
         return c;

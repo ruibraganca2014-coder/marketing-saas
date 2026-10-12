@@ -1651,6 +1651,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // motivo do cliente, sem aviso com 24 horas, o cliente paga a deslocação dessa ida — o valor do concelho, uma ida e
   // volta, como a visita e a proposta o calculam —, que soma ao restante (pagamentos-pedido.js valores); o eletricista
   // recebe essa deslocação a mais; marca-se nova visita. O ELETRICISTA ASSINALA, O CEO CONFIRMA (ou anula, com o motivo).
+  const IDA_PERDIDA_MINIMO = 25;   // € com IVA
   const idaPendente = (trabalhoId) => Boolean(db.prepare("SELECT 1 FROM idas_perdidas WHERE trabalho_id = ? AND estado = 'proposta' LIMIT 1").get(trabalhoId));
   /** As deslocações (cêntimos sem IVA) das idas perdidas confirmadas deste trabalho, de quem o tem agora: vão inteiras para ele. */
   const idasDoTrabalho = (t) => (t?.eletricista_id
@@ -1658,10 +1659,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /**
    * A deslocação de uma ida a este pedido (cêntimos SEM IVA): a do concelho, uma ida e volta (`deslocacaoServidor`, a
    * mesma conta da visita e da proposta), com o IVA do pedido tirado. 0 fora da área servida (não há valor para cobrar).
+   * Nunca menos do que o mínimo de uma ida perdida (decisão do dono, 2026-10-12: 25 € com IVA) — em Lisboa a deslocação
+   * é 0 € e a falta do cliente ficava sem custo, com o eletricista a perder a viagem.
    */
   function deslocacaoDaIda(o) {
     const d = deslocacaoServidor(localidadeDe(o), lerCfg());
-    return d === null ? 0 : partirIva(Math.round(d * 100), pagamentos().ivaDoPedido(o)).base;
+    return d === null ? 0 : partirIva(Math.round(Math.max(d, IDA_PERDIDA_MINIMO) * 100), pagamentos().ivaDoPedido(o)).base;
   }
   /** Porque é que não se pode assinalar agora uma ida perdida neste trabalho (texto para o 409), ou null se pode. */
   function recusaDaIda(t) {
@@ -1751,7 +1754,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const t = trabalho(x.trabalho_id);
     if (!idaViva(x, t, o)) throw new ErroApi(409, 'A obra já não está em curso com o eletricista que assinalou esta ida: anule o registo.');
     const cent = deslocacaoDaIda(o);
-    if (!(cent > 0)) throw new ErroApi(409, 'A deslocação deste concelho é 0 €: não há nada a cobrar. Anule o registo.');
+    if (!(cent > 0)) throw new ErroApi(409, 'Este pedido está fora da área servida: não há deslocação a cobrar. Anule o registo.');
     const agora = relogio();
     const r = db.prepare("UPDATE idas_perdidas SET estado = 'confirmada', deslocacao_cent = ?, decidido_em = ?, decidido_por = ? WHERE id = ? AND estado = 'proposta'").run(cent, iso(agora), u.email, x.id);
     if (!r.changes) throw new ErroApi(409, 'Esta ida perdida já foi decidida.');
