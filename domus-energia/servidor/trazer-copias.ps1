@@ -1,6 +1,8 @@
 ﻿# Traz as cópias de segurança automáticas do servidor para este computador (decisão do dono, 2026-10-11).
 # As cópias da noite ficam no próprio servidor (/root/domus-copias): se o servidor se perder, perdem-se com ele.
 # Este comando copia-as para uma pasta deste computador e confirma que a mais recente se consegue abrir.
+# Traz também a cópia manual mais recente (/root/domus-backup-*.tar.gz, a que se faz antes de cada publicação): é a que
+# tem o estado do próprio dia, que a cópia da noite ainda não apanhou.
 #
 #   powershell -ExecutionPolicy Bypass -File domus-energia\servidor\trazer-copias.ps1
 #
@@ -22,16 +24,18 @@ if (-not (Test-Path $Chave)) { Write-Host "FALHOU: não encontro a chave $Chave"
 New-Item -ItemType Directory -Force $Destino | Out-Null
 
 Write-Host "A ver o que há no servidor..."
-$noServidor = & ssh -o BatchMode=yes -o ConnectTimeout=20 -i $Chave $Servidor 'ls -1 /root/domus-copias/domus-copia-*.tar.gz 2>/dev/null; echo ---; cat /root/domus-copias/ultima.txt 2>/dev/null'
+$noServidor = & ssh -o BatchMode=yes -o ConnectTimeout=20 -i $Chave $Servidor 'ls -1 /root/domus-copias/domus-copia-*.tar.gz 2>/dev/null; ls -1 /root/domus-backup-[0-9]*.tar.gz 2>/dev/null | sort | tail -1; echo ---; cat /root/domus-copias/ultima.txt 2>/dev/null'
 if ($LASTEXITCODE -ne 0) { Write-Host "FALHOU: não consegui ligar ao servidor (VPN desligada? internet?)"; exit 1 }
 $corte = [array]::IndexOf($noServidor, '---')
 $ficheiros = @($noServidor | Select-Object -First ([Math]::Max($corte, 0)) | Where-Object { $_ -match '^/root/domus-copias/domus-copia-[0-9]{8}-[0-9]{6}\.tar\.gz$' })
+# A cópia manual mais recente (só uma por corrida: as outras já foram substituídas por ela).
+$manual = @($noServidor | Select-Object -First ([Math]::Max($corte, 0)) | Where-Object { $_ -match '^/root/domus-backup-[0-9]{8}-[0-9]{6}\.tar\.gz$' })
 $ultima = ($noServidor | Select-Object -Skip ($corte + 1) | Select-Object -First 1)
 if (-not $ficheiros.Count) { Write-Host "FALHOU: o servidor não tem cópias automáticas em /root/domus-copias"; exit 1 }
 Write-Host "Última cópia no servidor: $ultima"
 
 $novas = 0
-foreach ($f in $ficheiros) {
+foreach ($f in ($ficheiros + $manual)) {
   $nome = Split-Path $f -Leaf
   $ca = Join-Path $Destino $nome
   if (Test-Path $ca) { continue }
@@ -57,3 +61,6 @@ if ($LASTEXITCODE -ne 0 -or -not ($lista -contains 'dados/painel/painel.db')) {
 $total = (Get-ChildItem $Destino -Filter 'domus-copia-*.tar.gz').Count
 Write-Host "OK: $novas cópias novas trazidas; $total guardadas em $Destino"
 Write-Host "A mais recente: $($recente.Name) ($([Math]::Round($recente.Length / 1KB)) KB), verificada."
+$manualCa = Get-ChildItem $Destino -Filter 'domus-backup-*.tar.gz' | Sort-Object Name | Select-Object -Last 1
+if ($manualCa) { Write-Host "Cópia manual mais recente: $($manualCa.Name) ($([Math]::Round($manualCa.Length / 1KB)) KB)." }
+Write-Host "Feito em $(Get-Date -Format 'yyyy-MM-dd HH:mm')."
