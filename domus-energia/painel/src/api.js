@@ -1176,6 +1176,11 @@ export function criarApi(ctx) {
     if (final.estado === 'perdido' && final.motivo_perda_tipo === 'outro' && !final.motivo_perda) falha('Com o motivo "Outro", escreva qual foi.');
     if (final.estado === 'visita_marcada' && !final.data_visita) falha('Indique a data da visita.');
     if (o.cliente && mud.estado && mud.estado !== 'aceite') falha('Este pedido já foi convertido em cliente e obra.');
+    // Pedido com planta por validar (decisão do dono, 2026-10-12): a proposta não segue para o cliente — antes só se
+    // travava ao atribuir, já com a proposta aceite e o sinal pago. As avarias e os pedidos sem planta ficam como estavam.
+    if (config.validacaoCeo && mud.estado === 'proposta_enviada' && o.estado !== 'proposta_enviada' && o.validacao !== 'validado' && pontosValidacao(o).some((x) => x.chave === 'planta')) {
+      throw new ErroApi(409, 'Valide primeiro o pedido (lista de verificação) antes de enviar a proposta ao cliente.');
+    }
     const cols = Object.keys(mud);
     db.prepare(`UPDATE orcamentos SET ${cols.map((k) => `${k} = ?`).join(', ')}, atualizado = ? WHERE id = ?`)
       .run(...cols.map((k) => mud[k]), agoraIso(), o.id);

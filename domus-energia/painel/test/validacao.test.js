@@ -98,6 +98,24 @@ describe('validação do CEO antes da bolsa', () => {
     assert.equal(v.estado, 200, v.texto);
     assert.equal(v.json.validacao.estado, 'validado');
   });
+  test('pedido com planta por validar: a proposta não se envia ao cliente (409); validado, envia-se; sem planta envia-se como antes', async () => {
+    const c = await p.contaConfirmada();
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Conta', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua A, 1', simulacao: SIM } });
+    assert.equal(r.estado, 201, r.texto);
+    const id = r.json.pedido;
+    const proposta = { estado: 'proposta_enviada', proposta_mao_obra: 1000, proposta_material: 500, proposta_deslocacao: 30 };
+    const e = await painel('POST', `orcamentos/${id}`, 'ceo', proposta);
+    assert.equal(e.estado, 409);
+    assert.equal(e.json.erro, 'Valide primeiro o pedido (lista de verificação) antes de enviar a proposta ao cliente.');
+    assert.equal(p.app.db.prepare('SELECT estado FROM orcamentos WHERE id = ?').get(id).estado, 'novo', 'nada ficou guardado');
+    assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'contactado', notas: 'À espera da foto.' })).estado, 200, 'os outros estados guardam-se');
+    await fotoDoQuadro(c, id);
+    assert.equal((await painel('POST', `orcamentos/${id}/validar`, 'ceo', { pontos: { planta: true, foto_quadro: true, area: true, contacto: true } })).estado, 200);
+    assert.equal((await painel('POST', `orcamentos/${id}`, 'ceo', proposta)).estado, 200);
+    // Sem planta (criado no painel): fica como estava.
+    assert.equal((await painel('POST', `orcamentos/${await pedidoPainel()}`, 'ceo', proposta)).estado, 200);
+  });
+
   test('pedido sem planta: não pede a foto do quadro e valida-se como antes', async () => {
     const id = await pedidoPainel();
     assert.ok((await painel('GET', `orcamentos/${id}`)).json.validacao.pontos.every((x) => !('em_falta' in x)));
