@@ -396,7 +396,7 @@ describe('modo simulado', () => {
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000, plano: 'conforto' } });
     assert.equal(ac.estado, 200, ac.texto);
     assert.deepEqual([ac.json.pagamento.fase, ac.json.pagamento.valor, ac.json.pagamento.iva_pct], ['sinal', sinalEsperado, 23]);
-    assert.match(ac.json.pagamento.descricao, /^Sinal de 30 % da proposta .*1230,00 € com IVA\), menos os 55,20 € já pagos/);
+    assert.match(ac.json.pagamento.descricao, /^Sinal de 30 % da proposta .*1 230,00 € com IVA\), menos os 55,20 € já pagos/);
     assert.equal(ac.json.pedido.aguarda_sinal, true);
     assert.deepEqual(ac.json.pedido.sinal, { valor: sinalEsperado, pct: 30, desconto: centSim(29 + VISITA_SINTRA), pago: false, cobre_material: false });
     assert.deepEqual(ac.json.pedido.proposta_iva, { base: 1000, iva_pct: 23, iva: 230, total: 1230 });

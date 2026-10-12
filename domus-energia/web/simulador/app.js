@@ -94,6 +94,11 @@ function assinalar(alvo, texto, foco = null) {
   alvo.setAttribute("aria-errormessage", "sim-falta-leitor");
   const leitor = $("sim-falta-leitor");
   leitor.textContent = leitor.textContent === texto ? `${texto} ` : texto;   // repetido: muda para voltar a ser lido
+  // A mesma frase à vista, dentro do grupo assinalado (antes só os leitores de ecrã a recebiam; quem vê só tinha o
+  // contorno). Escondida dos leitores, que já a ouviram.
+  let visivel = alvo.querySelector(":scope > .falta-visivel");
+  if (!visivel) { visivel = el("p", "msg erro falta-visivel"); visivel.setAttribute("aria-hidden", "true"); alvo.append(visivel); }
+  visivel.textContent = texto;
   if (foco !== false) {
     const f = (typeof foco === "string" ? document.querySelector(foco) : foco) ?? alvo.querySelector("input:not(:disabled), select, textarea, button");
     f?.focus({ preventScroll: true });
@@ -103,6 +108,7 @@ function assinalar(alvo, texto, foco = null) {
 /** Tira a marca de "em falta" (o cliente respondeu, ou mudou de passo). */
 function desassinalar(alvo) {
   alvo.classList.remove("em-falta");
+  alvo.querySelector(":scope > .falta-visivel")?.remove();
   alvo.removeAttribute("aria-invalid");
   alvo.removeAttribute("aria-errormessage");
   // Sem nada por responder, o texto para o leitor de ecrã também sai (ficava a ser lido nos passos seguintes).

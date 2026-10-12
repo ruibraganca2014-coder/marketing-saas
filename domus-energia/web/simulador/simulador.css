@@ -750,6 +750,7 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .em-falta { outline: 2px solid var(--argila-texto); outline-offset: 4px; border-radius: 12px; animation: em-falta .5s ease-in-out 2; }
 @keyframes em-falta { 0%, 100% { outline-color: var(--argila-texto); } 50% { outline-color: transparent; } }
 @media (prefers-reduced-motion: reduce) { .em-falta { animation: none; } }
+.falta-visivel { margin: 10px 0 0; grid-column: 1 / -1; flex-basis: 100%; }
 .div-tab-icone { width: 26px; height: 26px; flex: none; }
 .div-tab-feita { font-weight: 800; color: var(--musgo-texto); }
 .div-tab[aria-selected="true"] .div-tab-feita { color: inherit; }

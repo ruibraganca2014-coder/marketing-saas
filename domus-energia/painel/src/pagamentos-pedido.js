@@ -83,7 +83,8 @@ const TEXTO_PAGO_SINAL_VISITA = 'A proposta está aceite. Vamos marcar a visita 
 const TEXTO_ESTADO = { pendente: 'Por pagar', pago: 'Pago', falhado: 'Falhou', cancelado: 'Cancelado', expirado: 'Expirou', devolvido: 'Devolvido' };
 const NOME_METODO = { card: 'Cartão', mb_way: 'MB Way', multibanco: 'Multibanco' };
 
-const euro = (c) => `${(c / 100).toFixed(2).replace('.', ',')} €`;
+// "1 845,00 €": milhares com espaço, como a conta do cliente e o painel.
+const euro = (c) => `${(c / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} €`;
 const pct = (v) => `${String(v).replace('.', ',')} %`;
 
 // ------------------------------------------------------------ IVA
