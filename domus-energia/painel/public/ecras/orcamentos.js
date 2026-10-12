@@ -121,7 +121,7 @@ export default function orcamentos(el, ctx) {
         const col = vis.filter((o) => (campo(o, "estado") ?? "novo") === k);
         return h("section", { class: `coluna coluna-${k}`, dataset: { estado: k }, "aria-label": `${nome}: ${col.length}` },
           h("h2", {}, nome, " ", h("span", { class: "contagem num", text: String(col.length) })),
-          col.length ? h("ul", { class: "cartoes-orc" }, ...col.map(cartao)) : h("p", { class: "vazio", text: "Nenhum." }));
+          col.length ? h("ul", { class: "cartoes-orc" }, ...col.map((o) => cartao(o))) : h("p", { class: "vazio", text: "Nenhum." }));   // (o índice do map não é o `comEstado`)
       })));
     } else {
       zona.replaceChildren(vis.length ? h("ul", { class: "linhas", id: "lista-orcamentos" }, ...vis.map((o) => cartao(o, true))) : h("p", { class: "vazio", text: "Nenhum pedido com estes filtros." }));

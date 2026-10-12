@@ -153,7 +153,7 @@ export default function inicio(el, ctx) {
       if (ctx.pode("ceo")) criticos = numero(campo(cont, "critica")) ?? campo(alertas, "criticos");
       else {
         const totalAl = Object.values(cont).reduce((s, v) => s + (numero(v) ?? 0), 0) || contar(campo(alertas, "principais") ?? []);
-        kpi("Alertas", num(totalAl), { href: "#/alertas", destaque: numero(campo(cont, "critica")) > 0 ? "perigo" : totalAl > 0 ? "atencao" : "", ajuda: numero(campo(cont, "critica")) ? `${num(campo(cont, "critica"))} críticos` : undefined });
+        kpi("Alertas", num(totalAl), { href: "#/alertas", destaque: numero(campo(cont, "critica")) > 0 ? "perigo" : totalAl > 0 ? "atencao" : "", ajuda: numero(campo(cont, "critica")) ? `${num(campo(cont, "critica"))} ${numero(campo(cont, "critica")) === 1 ? "crítico" : "críticos"}` : undefined });
       }
       if (campo(alertas, "ligado") === false) kpi("Ligação às casas", "Sem ligação", { href: "#/alertas", destaque: "perigo", ajuda: "Os alertas podem estar desatualizados" });
     } else if (alertas !== undefined && criticos === undefined) kpi("Alertas", num(contar(alertas)), { href: "#/alertas", destaque: contar(alertas) > 0 ? "atencao" : "" });

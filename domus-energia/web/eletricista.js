@@ -774,7 +774,8 @@ function seccaoProposta(t) {
     corpo.push(com(el("p"), el("b", null, `Enviada em ${dataCurta(p.quando)}: ${decimal(p.horas)} h de trabalho`), p.material.length ? ` e ${p.material.length} ${p.material.length === 1 ? "artigo" : "artigos"}.` : "."),
       p.material.length ? com(el("ul", "pequeno"), ...p.material.map((m) => el("li", null, `${m.qtd} × ${m.nome}`))) : null,
       p.notas ? el("p", "pequeno suave", `«${p.notas}»`) : null,
-      el("p", "pequeno suave", "A Domus Energia calcula o preço e envia a proposta ao cliente."));
+      // Só enquanto o trabalho está na bolsa: depois de escolhida e aceite, a frase já não é verdade.
+      t.estado === "na_bolsa" ? el("p", "pequeno suave", "A Domus Energia calcula o preço e envia a proposta ao cliente.") : null);
   }
   if (!t.pode_proposta) return seccao("Proposta para o cliente", p ? selo("Enviada") : null, ...corpo.filter(Boolean));
   const msg = el("p", "erro");

@@ -1211,6 +1211,12 @@ function blocoFotos(p) {
   } else {
     b.append(el("p", "ajuda", "Ainda sem fotos."));
   }
+  // Sem foto do quadro o pedido não se valida (o CEO devolve-o a pedi-la): tem botão próprio, que a envia com a chave
+  // "quadro" — por "Acrescentar foto" ficava como "outra" e o painel continuava a dizer que faltava.
+  if (p.pode_fotos && !p.compras?.avaria && !p.fotos.some((f) => f.chave === "quadro") && p.fotos.length < (p.fotos_max ?? 40)) {
+    b.append(el("p", "ajuda", "Falta a foto do quadro elétrico (com a porta aberta, a ver-se os disjuntores): é por ela que preparamos a proposta."),
+      botaoFoto("Juntar a foto do quadro elétrico", `quadro-${p.id}`, null, (ficheiro) => enviarFoto(p, "quadro", "Quadro elétrico", ficheiro, aviso)));
+  }
   if (p.pode_fotos && p.fotos.length < (p.fotos_max ?? 40)) {
     b.append(el("p", "ajuda", "Pode acrescentar fotos (do quadro elétrico, das divisões, de onde quer os aparelhos) até o pedido ser aceite."),
       botaoFoto("Acrescentar foto", `acrescentar-${p.id}`, null, (ficheiro) => enviarFoto(p, `conta${Date.now().toString(36)}:outra`, "Foto acrescentada na conta", ficheiro, aviso)));
