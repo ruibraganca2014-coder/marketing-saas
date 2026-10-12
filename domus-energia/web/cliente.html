@@ -2,7 +2,7 @@
 <html lang="pt-PT">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Área de cliente | Domus Energia</title>
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
@@ -20,7 +20,7 @@
   <meta name="apple-mobile-web-app-title" content="Domus">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="app-cliente">
   <a class="saltar" href="#painel">Saltar para o conteúdo</a>
   <header class="topo">
     <div class="wrap">
@@ -37,6 +37,18 @@
     <span id="toast-texto"></span>
     <button class="toast-fechar" id="toast-fechar" type="button" aria-label="Fechar aviso">×</button>
   </div>
+
+  <!-- Instalar no iPhone (cliente.js): o Safari não tem pedido automático; a janela explica o caminho. -->
+  <dialog class="janela" id="instalar-janela" aria-labelledby="instalar-titulo">
+    <h2 id="instalar-titulo">Instalar no iPhone</h2>
+    <ol>
+      <li>Abra esta página no <b>Safari</b>.</li>
+      <li>Toque em <b>Partilhar</b> (o quadrado com a seta para cima).</li>
+      <li>Escolha <b>Adicionar ao ecrã principal</b>.</li>
+      <li>Toque em <b>Adicionar</b>. A Domus fica com um ícone no ecrã do telemóvel.</li>
+    </ol>
+    <div class="form-botoes"><button class="btn" id="instalar-fechar" type="button" autofocus>Fechar</button></div>
+  </dialog>
 
   <main class="painel" id="painel">
     <div class="wrap">
@@ -172,6 +184,31 @@
             </div>
           </div>
 
+          <!-- Receber avisos no telemóvel (app ntfy; docs/APP-CLIENTE.md). Fechado ocupa uma linha, para não empurrar o
+               resumo; só nos planos com notificações (nos outros aparece com o cadeado). O endereço é um segredo da casa:
+               a ligação e o código QR são feitos aqui no navegador (cliente.js desenharNtfy). -->
+          <details class="cartao ntfy" id="ntfy" hidden>
+            <summary>Receber avisos no telemóvel</summary>
+            <p id="ntfy-texto"></p>
+            <div id="ntfy-passos">
+              <ol>
+                <li><b>Instale a app gratuita ntfy</b> no telemóvel: <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer">Google Play (Android)</a> ou <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer">App Store (iPhone)</a>.</li>
+                <li><b>Junte a sua casa à app.</b> <span id="ntfy-como"></span>
+                  <a class="btn pequeno" id="ntfy-abrir" hidden>Abrir na app ntfy</a>
+                  <div class="ntfy-qr" id="ntfy-qr" hidden></div>
+                  <div class="ntfy-linha">
+                    <code class="ntfy-url" id="ntfy-url"></code>
+                    <button class="btn sec pequeno" id="ntfy-copiar" type="button">Copiar</button>
+                  </div>
+                  <small class="vazio" id="ntfy-msg" role="status"></small>
+                </li>
+                <li><b>Experimente.</b> No separador Automações, crie uma automação com a ação "Enviar notificação" e faça-a acontecer. O aviso chega ao telemóvel em poucos segundos.</li>
+              </ol>
+              <p class="ajuda">Este endereço é só da sua casa: quem o tiver recebe os seus avisos. Não o partilhe fora de casa.</p>
+            </div>
+            <div id="ntfy-bloqueio" hidden></div>
+          </details>
+
           <div class="resumo">
             <div class="cartao"><div class="valor" id="total-potencia">—</div><div class="rotulo">Potência agora</div></div>
             <div class="cartao"><div class="valor" id="total-ligados">—</div><div class="rotulo">Luzes e circuitos ligados</div></div>
@@ -235,17 +272,7 @@
 
         <!-- Histórico -->
         <section class="seccao" id="sec-historico" role="tabpanel" aria-labelledby="tab-historico" hidden>
-          <div class="cartao ntfy" id="ntfy" hidden>
-            <h2>Notificações no telemóvel</h2>
-            <p id="ntfy-texto">Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.</p>
-            <div class="ntfy-linha">
-              <code class="ntfy-url" id="ntfy-url"></code>
-              <button class="btn sec pequeno" id="ntfy-copiar" type="button">Copiar</button>
-            </div>
-            <small class="vazio" id="ntfy-msg" role="status"></small>
-            <div id="ntfy-bloqueio" hidden></div>
-          </div>
-          <div class="seccao-topo"><h2>Histórico</h2></div>
+          <div class="seccao-topo"><h2>Histórico</h2><button class="link-botao" id="ntfy-ir" type="button" hidden>Receber estes avisos no telemóvel</button></div>
           <ul class="historico" id="lista-historico"></ul>
         </section>
       </div>

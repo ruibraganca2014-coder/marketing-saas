@@ -409,11 +409,18 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .evento-modo::before { background: var(--texto-suave); }
 .vazio { color: var(--texto-suave); }
 
-/* ntfy */
-.ntfy { display: grid; gap: 10px; margin-bottom: 18px; }
-.ntfy h2 { font-size: 1.25rem; margin: 0; }
-.ntfy p { margin: 0; color: var(--texto-suave); }
-.ntfy-linha { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+/* ntfy: cartão "Receber avisos no telemóvel" (separador Casa). Fechado ocupa uma linha, para não empurrar o resumo. */
+.ntfy { margin-bottom: 16px; padding: 4px 18px; }
+.ntfy[open] { padding-bottom: 18px; }
+.ntfy summary { padding: 11px 0; cursor: pointer; font-weight: 700; color: var(--musgo-texto); }
+.ntfy p { margin: 0 0 12px; color: var(--texto-suave); }
+.ntfy ol { margin: 0 0 12px; padding-left: 1.4em; display: grid; gap: 14px; }
+.ntfy li > .btn { display: flex; width: fit-content; margin-top: 10px; }
+.ntfy small { display: block; margin-top: 6px; }
+/* Código QR: sempre escuro sobre branco, também no tema escuro (as câmaras leem mal o invertido). */
+.ntfy-qr { width: 192px; margin-top: 10px; padding: 8px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); }
+.ntfy-qr svg { display: block; width: 100%; height: auto; }
+.ntfy-linha { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; margin-top: 10px; }
 .ntfy-url { flex: 1 1 220px; min-width: 0; padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--borda); background: var(--fundo); font: 600 .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
 
 /* =================== Área de cliente v3 =================== */
@@ -423,6 +430,30 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
   .separador { flex: 1 1 auto; font-size: .86rem; padding: 8px 6px; }
   .separadores { gap: 2px; }
 }
+/* Área de cliente instalada no telemóvel (docs/APP-CLIENTE.md). Com viewport-fit=cover a página vai até às bordas do
+   ecrã: o entalhe e a barra inferior do iPhone não podem tapar o cabeçalho, os avisos nem os separadores. Num ecrã
+   sem entalhe os env() valem 0 e nada muda. */
+.app-cliente .topo { padding-top: env(safe-area-inset-top, 0px); }
+.app-cliente .topo, .app-cliente .painel { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.app-cliente .toast { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+/* Telemóvel: os separadores ficam presos em baixo, ao alcance do polegar. O conteúdo ganha espaço no fim para não
+   ficar tapado, e o aviso (toast) sobe para cima da barra. */
+@media (max-width: 619.98px) {
+  .app-cliente .separadores { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; margin: 0; border-width: 1px 0 0; border-radius: 0; box-shadow: 0 -2px 12px rgba(0, 0, 0, .12); padding: 6px max(8px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px)); }
+  .app-cliente .separador { min-height: 48px; border-radius: 12px; }
+  .app-cliente #vista-painel { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .app-cliente:has(#vista-painel:not([hidden])) .toast { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  /* O que recebe o foco pelo teclado não fica escondido atrás da barra. */
+  html:has(.app-cliente) { scroll-padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+}
+/* Com o botão "Instalar" à vista o cabeçalho não cabia num telemóvel (o "Sair" saía do ecrã): a marca fica só "Domus". */
+@media (max-width: 479px) { .app-cliente .topo:has(#instalar:not([hidden])) .marca b { display: none; } }
+/* Janela simples (instalar no iPhone): <dialog> modal. */
+.janela { width: min(440px, calc(100vw - 32px)); padding: 22px; border: 1px solid var(--borda); border-radius: var(--raio); background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); }
+.janela::backdrop { background: rgb(0 0 0 / .55); }
+.janela h2 { margin: 0 0 12px; font-size: 1.4rem; }
+.janela ol { margin: 0 0 18px; padding-left: 1.4em; display: grid; gap: 10px; }
+.janela .form-botoes { justify-content: flex-end; }
 .ajuda { display: block; color: var(--texto-suave); font-size: .86rem; font-weight: 400; margin: 0; }
 .rotulo-campo { display: block; font-weight: 600; font-size: .95rem; margin-bottom: 6px; }
 .grupo-campo { min-width: 0; }

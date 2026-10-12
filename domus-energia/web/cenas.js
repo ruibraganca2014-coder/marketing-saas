@@ -11,6 +11,36 @@ const TEMPO_MOTOR = 10_000;
 const MAX_CENAS = 30;
 const NOME_ICONE = { filme: "Filme", sol: "Sol", lua: "Lua", porta: "Porta", casa: "Casa", energia: "Energia", luz: "Luz", estrela: "Estrela" };
 
+/**
+ * Espera pela resposta do servidor a uma cena pedida (sem DOM; testado em painel/test/app-cliente.test.js): só o evento
+ * "Cena: <nome>" a dá por executada; "Cena não executada" ou `prazo` ms sem resposta acabam em erro.
+ * `dizer(texto, tipo)` recebe o desfecho.
+ */
+export function criarEsperaCena(dizer, prazo = TEMPO_MOTOR) {
+  let pedida = null;      // { nome, timer }: cena pedida, à espera do evento do servidor
+  const limpar = () => { clearTimeout(pedida?.timer); pedida = null; };
+  return {
+    pedir(nome) {
+      clearTimeout(pedida?.timer);
+      pedida = { nome, timer: setTimeout(() => { pedida = null; dizer(`O servidor não confirmou a cena "${nome}". Veja se os aparelhos mudaram e tente de novo daqui a pouco.`, "erro"); }, prazo) };
+    },
+    /** O servidor regista um evento "Cena: <nome>" quando a executa: só então se diz que foi executada. */
+    evento(ev) {
+      if (!pedida || ev.titulo !== `Cena: ${pedida.nome}`) return;
+      const { nome } = pedida;
+      limpar();
+      dizer(`Cena "${nome}" executada.`, "ok");
+    },
+    erro(ev) {
+      if (!pedida || ev.titulo !== "Cena não executada") return false;
+      limpar();
+      dizer(ev.mensagem || ev.titulo, "erro");
+      return true;
+    },
+    limpar,
+  };
+}
+
 export function criarCenas({ publicar, ligado, aparelhos }) {
   let lista = null;
   let textoAtual = null;
@@ -20,7 +50,6 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   let aberto = false;     // painel "Gerir cenas"
   let msgTimer = null;
   let aExecutar = null;   // id da cena com confirmação de execução aberta (ações arriscadas)
-  let pedida = null;      // { nome, timer }: cena pedida, à espera do evento do servidor
   let textoGuardado = null;   // o que dizer quando o servidor confirmar (por omissão "Guardado.")
 
   function estado(texto, tipo = "info") {
@@ -31,6 +60,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     m.className = `msg ${tipo}`;
     if (tipo === "ok") msgTimer = setTimeout(() => { m.hidden = true; }, 4000);
   }
+  const espera = criarEsperaCena(estado);
 
   // Ao religar ao servidor, o aviso de falta de ligação sai (os outros ficam).
   function religado() {
@@ -52,16 +82,9 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     desenhar();
     const nome = c.nome ?? c.id;
     estado(`A executar a cena "${nome}"…`);
-    clearTimeout(pedida?.timer);
-    pedida = { nome, timer: setTimeout(() => { pedida = null; estado(`O servidor não confirmou a cena "${nome}". Veja se os aparelhos mudaram e tente de novo daqui a pouco.`, "erro"); }, TEMPO_MOTOR) };
+    espera.pedir(nome);
   }
-  /** O servidor regista um evento "Cena: <nome>" quando a executa: só então se diz que foi executada. */
-  function receberEvento(ev) {
-    if (!pedida || ev.titulo !== `Cena: ${pedida.nome}`) return;
-    clearTimeout(pedida.timer);
-    estado(`Cena "${pedida.nome}" executada.`, "ok");
-    pedida = null;
-  }
+  const receberEvento = (ev) => espera.evento(ev);
 
   function guardar(nova, aoTerminar) {
     if (guardando) return;
@@ -92,12 +115,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     desenhar();
   }
   function receberErro(ev) {
-    if (pedida && ev.titulo === "Cena não executada") {
-      clearTimeout(pedida.timer);
-      pedida = null;
-      estado(ev.mensagem || ev.titulo, "erro");
-      return true;
-    }
+    if (espera.erro(ev)) return true;
     if (!guardando) return false;
     clearTimeout(guardando.timer);
     guardando = null;
@@ -107,8 +125,7 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   }
   function limpar() {
     clearTimeout(guardando?.timer);
-    clearTimeout(pedida?.timer);
-    pedida = null;
+    espera.limpar();
     clearTimeout(msgTimer);
     lista = null; textoAtual = null; guardando = null; aEditar = null; aApagar = null; aberto = false; aExecutar = null;
     $("cenas-linha")?.replaceChildren();

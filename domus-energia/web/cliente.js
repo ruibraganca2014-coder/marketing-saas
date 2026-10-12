@@ -10,6 +10,7 @@ import { desenharSaude, desenharRelatorio, copiarRelatorio, criarDefinicoes } fr
 import * as PL from "./planos.js";
 import { criarSubscricao, criarBloqueio, iconeCadeado } from "./subscricao.js";
 import { pedirConta, contaAtual } from "./conta-comum.js";
+import { svgQR } from "./simulador/qr.js";
 
 const cfg = window.DOMUS;
 const $ = (id) => document.getElementById(id);
@@ -461,7 +462,7 @@ function terminar() {
   $("relatorio-conteudo").replaceChildren();
   $("lista").replaceChildren();
   $("lista-historico").replaceChildren();
-  $("ntfy").hidden = true;
+  desenharNtfy();   // sem `_ntfy`: esconde o cartão e apaga o endereço, a ligação e o código QR da casa anterior
   $("painel").style.removeProperty("--luzes");
   $("painel").style.removeProperty("--calor");
   $("painel").style.removeProperty("--alarme-on");
@@ -1344,18 +1345,47 @@ function desenharHistorico() {
 }
 
 // ---------- ntfy (notificações: plano Conforto) ----------
+// Cartão "Receber avisos no telemóvel" do separador Casa (docs/APP-CLIENTE.md): os passos para a app ntfy. A ligação
+// direta ntfy://… só é garantida na app Android (docs.ntfy.sh): no Android há o botão; no iPhone fica o endereço para
+// copiar; no computador, um código QR com a mesma ligação, para apontar o telemóvel. O endereço é um segredo da casa
+// (quem o tiver recebe os avisos): a ligação e o QR são feitos aqui, no navegador, e não vão para nenhum endereço nosso.
 const ntfyBloqueio = bloqueio("notificacoes");
 $("ntfy-bloqueio").append(ntfyBloqueio);
+const SISTEMA = /android/i.test(navigator.userAgent) ? "android" : /iphone|ipad|ipod/i.test(navigator.userAgent) ? "iphone" : "computador";
+const NTFY_A_MAO = "Na app ntfy, toque em + e escolha usar outro servidor. O servidor é a primeira parte deste endereço; o tópico é o que vem depois da última barra.";
+let qrDe = null;       // a ligação que o código QR à vista tem
 function desenharNtfy() {
   const bloq = !permite("notificacoes");
   // Sem o plano: a caixa aparece na mesma, com o cadeado (para se saber que existe).
   $("ntfy").hidden = !bloq && !ntfy;
   $("ntfy").classList.toggle("bloqueado", bloq);
   $("ntfy-bloqueio").hidden = !bloq;
-  $("ntfy-texto").textContent = bloq ? "Receba no telemóvel os alertas da sua casa: alarme, portas abertas, aparelhos sem ligação e pilhas a acabar." : "Instale a app gratuita ntfy e subscreva este endereço para receber os alertas da sua casa.";
-  document.querySelector("#ntfy .ntfy-linha").hidden = bloq;
-  $("ntfy-url").textContent = bloq ? "" : ntfy?.url ?? "";
+  $("ntfy-ir").hidden = bloq || !ntfy;
+  $("ntfy-texto").textContent = bloq ? "Receba no telemóvel os alertas da sua casa: alarme, portas abertas, aparelhos sem ligação e pilhas a acabar." : "Os alertas da sua casa (alarme, aparelhos sem ligação, pilhas a acabar) chegam ao telemóvel pela app gratuita ntfy. Faz-se uma só vez, em três passos.";
+  $("ntfy-passos").hidden = bloq;
+  const url = bloq ? "" : ntfy?.url ?? "";
+  $("ntfy-url").textContent = url;
+  const ligacao = url ? E.ligacaoNtfy(url) : null;
+  const abrir = $("ntfy-abrir");
+  abrir.hidden = !ligacao || SISTEMA !== "android";
+  if (abrir.hidden) abrir.removeAttribute("href"); else abrir.href = ligacao;
+  const qr = $("ntfy-qr");
+  let comQr = !!ligacao && SISTEMA === "computador";
+  if (comQr && qrDe !== ligacao) {
+    // Ligação comprida demais para o código: fica só o endereço.
+    try { qr.replaceChildren(svgQR(ligacao, { rotulo: "Código QR para juntar a sua casa à app ntfy" })); qrDe = ligacao; } catch { comQr = false; }
+  }
+  if (!comQr) { qr.replaceChildren(); qrDe = null; }
+  qr.hidden = !comQr;
+  $("ntfy-como").textContent = !abrir.hidden ? "Toque em \"Abrir na app ntfy\": a app abre já com a sua casa. Se nada acontecer, falta instalar a app (passo 1)."
+    : comQr ? "Com um telemóvel Android, aponte a câmara a este código. Com um iPhone, abra esta página no iPhone e veja este passo lá."
+      : NTFY_A_MAO;
 }
+$("ntfy-ir").addEventListener("click", () => {
+  mostrarSeccao("casa");
+  $("ntfy").open = true;
+  $("ntfy").querySelector("summary").focus();
+});
 
 // ---------- Plano ----------
 $("energia-bloqueio").append(bloqueio("energia"));
@@ -1439,19 +1469,26 @@ const religarJa = () => {
 };
 document.addEventListener("visibilitychange", religarJa);
 window.addEventListener("online", religarJa);
+// iPhone: a página que volta da memória do navegador (bfcache) nem sempre dá `visibilitychange`. O intervalo de 3 s
+// de `religarJa` evita religar duas vezes quando chegam os dois.
+window.addEventListener("pageshow", (e) => { if (e.persisted) religarJa(); });
 
 // Aplicação instalável: no Android (Chrome) o botão "Instalar" aparece quando o navegador o permite; no iPhone não há
-// pedido automático, por isso o botão explica o caminho (Partilhar → Adicionar ao ecrã principal).
+// pedido automático, por isso o botão abre uma janela com o caminho (Partilhar → Adicionar ao ecrã principal).
+// Com a app já a correr instalada o botão não aparece.
 {
   const b = $("instalar");
+  const janela = $("instalar-janela");
   const instalada = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
   const iphone = /iphone|ipad|ipod/i.test(navigator.userAgent);
   let convite = null;
-  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); convite = e; b.hidden = false; });
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); if (instalada) return; convite = e; b.hidden = false; });
   window.addEventListener("appinstalled", () => { convite = null; b.hidden = true; });
   if (iphone && !instalada) b.hidden = false;
   b.addEventListener("click", async () => {
     if (convite) { const c = convite; convite = null; b.hidden = true; c.prompt(); return; }
-    alert("Para instalar no iPhone: toque em Partilhar (o quadrado com a seta) e escolha \"Adicionar ao ecrã principal\".");
+    // <dialog> modal: o foco entra na janela, Esc fecha e o foco volta ao botão "Instalar".
+    janela.showModal();
   });
+  $("instalar-fechar").addEventListener("click", () => janela.close());
 }

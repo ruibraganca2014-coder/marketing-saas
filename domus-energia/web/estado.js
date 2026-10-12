@@ -523,6 +523,16 @@ export function lerNtfy(texto) {
   if (!v || typeof v.url !== "string" || !/^https?:\/\/\S+$/i.test(v.url)) return null;
   return { url: v.url };
 }
+// Ligação direta para a app ntfy subscrever o tópico: ntfy://<servidor>/<tópico> (com ?secure=false se o servidor for
+// http). A documentação do ntfy (docs.ntfy.sh, "ntfy:// links") só a garante na app Android. Um endereço que não seja
+// só servidor + tópico não tem ligação direta (null): fica o endereço para copiar.
+export function ligacaoNtfy(url) {
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  const m = /^\/([-_A-Za-z0-9]{1,64})$/.exec(u.pathname);
+  if (!m || !/^https?:$/.test(u.protocol) || u.username || u.search || u.hash) return null;
+  return `ntfy://${u.host}/${m[1]}${u.protocol === "http:" ? "?secure=false" : ""}`;
+}
 
 const TIPOS_EVENTO = ["alarme", "sensor", "automacao", "aviso", "erro", "modo"];
 export function lerEvento(v) {
@@ -1038,7 +1048,8 @@ export function construirRelatorio({ aparelhos = [], modelos = [], saude = {}, e
   for (const m of modelos) {
     const a = porId[m.id];
     if (!a) continue;
-    if (m.temMedicao && typeof m.potenciaW === "number" && (!haGeral || m.geral)) { potenciaW += m.potenciaW; temPotencia = true; }
+    // Como o resumo "Potência agora": um medidor sem ligação não conta (a última potência que disse já não é a de agora).
+    if (m.temMedicao && m.online && typeof m.potenciaW === "number" && (!haGeral || m.geral)) { potenciaW += m.potenciaW; temPotencia = true; }
     for (const c of m.canais) {
       const g = grupo(c.divisao ?? m.divisao);
       const nome = nomeCanal(aparelhos, m.id, c.n);
