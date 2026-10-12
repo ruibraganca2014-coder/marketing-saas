@@ -187,6 +187,8 @@ describe('parar a obra por segurança: o CEO indica o que fica retido, devolve-s
     assert.ok(!email[0].texto.includes('40,00'), 'o que se paga ao eletricista não vai para o cliente');
     const l = await pedidoConta(c, id);
     assert.deepEqual([l.estado, l.estado_texto], ['perdido', 'A obra não pode avançar em segurança: veja abaixo.']);
+    // O andamento não volta atrás: a verificação, a proposta e o aceite aconteceram; a obra não.
+    assert.deepEqual(l.passos.map((x) => [x.chave, x.feito]), [['recebido', true], ['verificado', true], ['proposta', true], ['aceite', true], ['obra', false]]);
     assert.deepEqual({ ...l.obra_parada, quando: null }, { motivo: MOTIVO, sinal, material: 100, trabalho: 50, devolver, manual: false, simulado: true, quando: null });
     assert.deepEqual([l.restante, l.pode_pagar_restante, l.proposta, l.obra, l.confirmacao, l.em_andamento], [null, false, null, null, null, false], 'sem restante por pagar, sem proposta por aceitar, sem obra');
     assert.ok(!l.extras.some((x) => x.estado === 'enviado'), 'nenhum trabalho a mais por aceitar');
@@ -264,6 +266,21 @@ describe('parar a obra por segurança: o CEO indica o que fica retido, devolve-s
     r = await parar(b.id, corpo);
     assert.equal(r.estado, 200, r.texto);
     assert.deepEqual([r.json.estado, r.json.obra_parada.devolver, r.json.pagamentos.filter((x) => x.fase === 'sinal').map((x) => [x.estado, x.devolvido])], ['perdido', b.sinal, [['devolvido', b.sinal]]]);
+  });
+
+  test('"Cancelar obra e devolver sinal" (o caminho de sempre) também fecha o trabalho a mais e a ida perdida pendentes', async () => {
+    const { c, id, tid } = await obra();
+    const xid = (await area(e, 'POST', `trabalhos/${tid}/extra`, { descricao: 'Trocar também a caixa de derivação da cozinha.', horas: 1, material: [] })).json.trabalho.extras[0].id;
+    const iid = (await area(e, 'POST', `trabalhos/${tid}/ida-perdida`, { nota: 'Não estava ninguém.' })).json.trabalho.idas_perdidas[0].id;
+    const antes = (await painel('GET', 'resumo')).json.tratar;
+    const r = await painel('POST', `orcamentos/${id}/devolver-sinal`, 'ceo', {});
+    assert.equal(r.estado, 200, r.texto);
+    assert.equal(r.json.estado, 'perdido');
+    assert.deepEqual({ ...p.app.db.prepare('SELECT estado, nota FROM trabalhos_extra WHERE id = ?').get(xid) }, { estado: 'retirado', nota: 'A obra foi cancelada.' });
+    assert.deepEqual({ ...p.app.db.prepare('SELECT estado, motivo FROM idas_perdidas WHERE id = ?').get(iid) }, { estado: 'anulada', motivo: 'A obra foi cancelada.' });
+    const depois = (await painel('GET', 'resumo')).json.tratar;
+    assert.deepEqual([depois.extras, depois.idas_perdidas], [antes.extras - 1, antes.idas_perdidas - 1], 'deixam de contar no Início');
+    assert.equal((await pedidoConta(c, id)).obra_parada, null, 'não é uma obra parada por segurança');
   });
 });
 

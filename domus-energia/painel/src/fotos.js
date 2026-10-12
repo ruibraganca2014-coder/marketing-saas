@@ -213,6 +213,8 @@ export function criarFotos({ db, config, registo, relogio, leitor, auditar }) {
       let lida = null;
       try { lida = JSON.parse(db.prepare('SELECT leitura_quadro FROM orcamentos WHERE id = ?').get(deOrcamentoId)?.leitura_quadro ?? 'null'); } catch { /* guardada estragada: fica sem leitura */ }
       if (lida?.estado === 'feita' && lida.foto_id === origem.id) gravarLeitura(paraOrcamentoId, { ...lida, foto_id: foto.id, copiada_de: deOrcamentoId });
+      // A origem não tinha leitura feita (falhou, ou a foto é de antes de haver leitura): lê-se a cópia, senão ficava "pendente" para sempre.
+      else agendarLeitura(paraOrcamentoId, foto);
     }
     registo.info(`orçamento ${paraOrcamentoId}: foto ${chave} aproveitada do orçamento ${deOrcamentoId} (${foto.bytes} bytes)`);
     return foto;

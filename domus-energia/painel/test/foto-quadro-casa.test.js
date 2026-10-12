@@ -204,6 +204,20 @@ describe('a foto aproveitada e a leitura automática (API simulada)', () => {
     assert.deepEqual(l2.leitura, l1.leitura);
     assert.equal((await leitura(um.id)).foto_id, fotos(um.id)[0].id, 'a do pedido de origem fica como estava');
   });
+
+  test('se o pedido de origem não tem leitura feita, a foto copiada é lida (não fica "pendente" para sempre)', async () => {
+    const a = await p.contaConfirmada();
+    const um = await pedir(a);
+    await enviarQuadro(um.token);
+    await p.app.api.fotos.leiturasEmCurso();
+    p.app.db.prepare('UPDATE orcamentos SET leitura_quadro = NULL WHERE id = ?').run(um.id);
+    const antes = chamadas;
+    const dois = await pedir(a);
+    await p.app.api.fotos.leiturasEmCurso();
+    assert.equal(chamadas, antes + 1, 'a cópia é lida');
+    const l2 = await leitura(dois.id);
+    assert.deepEqual([l2.estado, l2.foto_id, l2.copiada_de], ['feita', fotos(dois.id)[0].id, undefined]);
+  });
 });
 
 test('simulador, passo Enviar de "Pedir um serviço": a foto do quadro pede-se só se não houver (nem neste navegador, nem na casa)', () => {

@@ -611,12 +611,14 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const obraConcluida = obra?.estado === 'concluida' || (o.estado === 'aceite' && Boolean(o.obra_concluida)) || (Boolean(pag?.restante?.confirmada) && Boolean(obra) && obra.estado !== 'cancelada');
     // A obra entregue a um eletricista externo (eletricistas.js obraPorConfirmar): o estado do trabalho dele, ou null.
     const trabalhoObra = obra ? eletricistas()?.obraPorConfirmar?.(o)?.estado ?? null : null;
+    // Obra parada por segurança: o pedido fica "perdido", mas a verificação, a proposta e o aceite aconteceram — ficam com o ✓.
+    const parada = Boolean(pag?.obra_parada);
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
-      ...(visitaDepois ? [{ chave: 'verificado', texto: 'Pedido verificado', feito: verificado || depoisVisita, data: verificado ? o.validacao_em ?? null : null }]
-        : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita, data: o.data_visita }]),
-      { chave: 'proposta', texto: 'Proposta', feito: temProposta },
-      { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra), data: o.estado === 'aceite' ? o.proposta_aceite : null },
+      ...(visitaDepois ? [{ chave: 'verificado', texto: 'Pedido verificado', feito: verificado || depoisVisita || parada, data: verificado ? o.validacao_em ?? null : null }]
+        : [{ chave: 'visita', texto: 'Visita técnica', feito: Boolean(o.data_visita) || depoisVisita || parada, data: o.data_visita }]),
+      { chave: 'proposta', texto: 'Proposta', feito: temProposta || parada },
+      { chave: 'aceite', texto: 'Proposta aceite', feito: o.estado === 'aceite' || Boolean(obra) || parada, data: o.estado === 'aceite' || parada ? o.proposta_aceite ?? null : null },
       // Só fica feito com a obra concluída (decisão do dono, 2026-10-11): a data marcada, ainda por fazer, vai na `data`
       // sem o passo ficar feito (antes bastava haver data: `feito: agendada`).
       { chave: 'obra', texto: obra?.estado === 'concluida' ? 'Instalação concluída' : visitaDepois ? 'Visita e obra' : 'Instalação', feito: obraConcluida,

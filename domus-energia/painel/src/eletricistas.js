@@ -1815,10 +1815,17 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * pela confirmação do cliente nem pelo restante, que já não existem; com zero (ou sem eletricista) é retirado, como no
    * "Retirar". Devolve { trabalho, estado } ou null (o pedido não tinha trabalho ativo).
    */
+  /** A obra do pedido acabou sem se fazer: os trabalhos a mais à espera de resposta ficam retirados e as idas perdidas por decidir anuladas. */
+  function fecharPendentesDoPedido(o, motivo, u) {
+    const agora = agoraIso();
+    db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = ?, atualizado = ? WHERE orcamento_id = ? AND estado IN ('proposto', 'enviado')").run(motivo, agora, o.id);
+    db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = ?, decidido_em = ?, decidido_por = ? WHERE orcamento_id = ? AND estado = 'proposta'").run(motivo, agora, u.email, o.id);
+  }
+  /** "Cancelar obra e devolver sinal" (api.js devolverSinal): o que estava à espera do CEO ou do cliente deixa de contar no Início e na conta. */
+  const aoCancelarObra = (o, u) => fecharPendentesDoPedido(o, 'A obra foi cancelada.', u);
   function aoPararObra(o, valorCent, u, ip) {
     const agora = agoraIso();
-    db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = ?, atualizado = ? WHERE orcamento_id = ? AND estado IN ('proposto', 'enviado')").run(OBRA_PARADA, agora, o.id);
-    db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = ?, decidido_em = ?, decidido_por = ? WHERE orcamento_id = ? AND estado = 'proposta'").run(OBRA_PARADA, agora, u.email, o.id);
+    fecharPendentesDoPedido(o, OBRA_PARADA, u);
     const t = ativoDoPedido(o.id);
     if (!t) return null;
     const e = t.eletricista_id ? linha(t.eletricista_id) : null;
@@ -2633,7 +2640,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, obraPorConfirmar, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,
     extrasDoPedido, enviarExtra, naoAvancarExtra, extrasParaCliente, responderExtra, extrasPorRever,
-    idasDoPedido, confirmarIda, anularIda, idasPorConfirmar, verificarParagem, aoPararObra,
+    idasDoPedido, confirmarIda, anularIda, idasPorConfirmar, verificarParagem, aoPararObra, aoCancelarObra,
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }
