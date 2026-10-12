@@ -943,7 +943,8 @@ describe('modo stripe', () => {
     assert.equal(semNada.pagamentosDesligadosSemModo, true);
     assert.ok(semNada.avisos.some((a) => /DESLIGADOS/.test(a)));
     assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' }).pagamentosModo, 'stripe');
-    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' }).pagamentoPedido, true);
+    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' }).pagamentoPedido, false, 'só a chave, sem o segredo do webhook: desligados (pagamentos-limites.test.js)');
+    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x' }).pagamentoPedido, true);
     assert.equal(lerConfig({ PAGAMENTOS_MODO: 'simulado' }).pagamentoPedido, true);
     assert.equal(lerConfig({ PAGAMENTOS_MODO: 'invalido' }).pagamentoPedido, false);
     assert.equal(lerConfig({}).ivaTaxa, 23);

@@ -72,7 +72,7 @@ export function lerConfig(env = process.env) {
   if (modoPedido && !modoValido) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): ${stripeChave ? 'usa-se stripe' : 'os pagamentos do pedido ficam desligados'}`);
   const pagamentosModo = modoValido ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
   const semModo = !modoValido && !stripeChave;
-  const pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0' && !semModo;
+  let pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0' && !semModo;
   if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY): enviar é grátis, mas não se compra nada online (relatório, visita) e a avaria vai sem pagar');
   if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar"); o site e o painel mostram "Modo de demonstração"');
   // IVA dos pagamentos online (decisão do dono: a proposta é sem IVA e os pagamentos incluem-no). O valor no
@@ -82,10 +82,16 @@ export function lerConfig(env = process.env) {
   const ivaTaxa = Number.isFinite(ivaEnv) && ivaEnv >= 0 && ivaEnv <= 50 ? ivaEnv : 23;
   if (ivaTaxa !== ivaEnv) avisos.push(`IVA_TAXA inválida ("${env.IVA_TAXA}"): usa-se 23`);
   if (pagamentoPedido && pagamentosModo === 'stripe' && !stripeChave) avisos.push('PAGAMENTOS_MODO=stripe sem STRIPE_SECRET_KEY: o envio de pedidos com simulação responde 503');
-  if (pagamentoPedido && pagamentosModo === 'stripe' && !env.STRIPE_PEDIDO_WEBHOOK_SECRET) avisos.push('sem STRIPE_PEDIDO_WEBHOOK_SECRET: o webhook dos pagamentos do pedido está desligado (a confirmação fica só no regresso do cliente)');
   // Acesso rápido (testes; acesso-rapido.js, docs/SEGURANCA.md): só com ACESSO_RAPIDO=1 — que só o lançador local
   // põe — e sem nenhum sinal de servidor a sério (https, DOMUS_HOST, NODE_ENV=production…); senão erro e DESLIGADO.
   const erros = [];
+  // Stripe sem o segredo do webhook (decisão de 2026-10-12): os pagamentos do pedido ficam DESLIGADOS. Sem webhook a
+  // confirmação dependia do regresso do cliente ao site — um Multibanco, ou um separador fechado, ficava pago no Stripe
+  // e por pagar aqui.
+  if (pagamentoPedido && pagamentosModo === 'stripe' && stripeChave && !String(env.STRIPE_PEDIDO_WEBHOOK_SECRET || '').trim()) {
+    erros.push('STRIPE_SECRET_KEY sem STRIPE_PEDIDO_WEBHOOK_SECRET: os pagamentos do pedido ficam DESLIGADOS até o webhook estar configurado (docs/PAGAMENTOS-PEDIDO.md "Como ligar o Stripe")');
+    pagamentoPedido = false;
+  }
   let acessoRapido = false;
   if (env.ACESSO_RAPIDO === '1') {
     const recusa = recusaAcessoRapido(env);

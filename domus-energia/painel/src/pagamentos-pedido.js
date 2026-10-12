@@ -37,6 +37,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson } from './http.js';
 import { idNum, opcao, booleano, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
+import { LimiteTaxa } from './limite.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
@@ -204,6 +205,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   // PROPOSTAS_BOLSA ligados. Com um deles desligado, tudo aqui fica como antes.
   const fluxoPropostas = Boolean(config.eletricistas && config.propostasBolsa);
   const agoraIso = () => iso(relogio());
+  const limitePagar = new LimiteTaxa(30, 3600_000, relogio);   // "Pagar", por conta
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
   const linha = (ref) => db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
   // Consultas preparadas uma só vez por texto (as listas chamam-nas pedido a pedido).
@@ -1637,6 +1639,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   // Sinal, restante e (fase 3) as compras do pedido: relatório completo, visita técnica ou os dois.
   h.pagar = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
+    // Por conta: cada pedido pode criar (ou trocar) uma sessão no Stripe — sem limite, uma conta gastava a quota de todos.
+    const s = limitePagar.espera(String(c.id));
+    if (s) throw new ErroApi(429, `Demasiadas tentativas. Tente de novo dentro de ${s > 90 ? `${Math.ceil(s / 60)} min` : `${s} s`}.`, { 'Retry-After': String(s) });
+    limitePagar.registar(String(c.id));
     const v = await lerJson(req, ['fase', 'inicio_imediato']);
     const fase = opcao(v.fase, 'fase', ['sinal', 'restante', ...Object.keys(COMPRAS), ...(config.eletricistas ? ['visita_sem_defeito'] : [])]);
     const o = pedidoDaConta(c, m[1]);

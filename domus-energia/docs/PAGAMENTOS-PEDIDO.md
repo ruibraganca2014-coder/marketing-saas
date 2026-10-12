@@ -273,6 +273,21 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | `SITE_URL` | primeira de `SITE_ORIGENS`, `PUBLIC_URL` ou `https://DOMUS_HOST` | para os `success_url`/`cancel_url` do Stripe (obrigatório no modo stripe) |
 | `PAGAMENTO_PEDIDO` | `1` | `0` = enviar sem pagar (como antes). Os testes antigos do painel usam `0` |
 
+## Lacunas por fechar ANTES de ligar o Stripe (auditoria de 2026-10-12)
+
+O dono decidiu deixar estas para quando o Stripe for ligado. Não ligar pagamentos reais sem as resolver.
+
+1. **Segundo pagamento da mesma fase perde-se.** Referência Multibanco emitida → expira aqui às 24 h → o cliente paga por cartão numa sessão nova → paga também a referência antiga. `confirmar` viola o índice único de `pago`, faz ROLLBACK e relança; o webhook responde 500 e o evento nunca fica marcado. O dinheiro entra no Stripe sem registo, sem devolução e sem aviso.
+2. **Avaria paga tarde não cria pedido.** `falhar` e a limpeza apagam o `pedido` guardado no pagamento; se o dinheiro chegar depois, `confirmar` lança "pago sem o pedido guardado".
+3. **Sinal antigo aceita proposta nova.** A proposta muda e o sinal pendente é cancelado, mas a referência Multibanco já emitida ainda se paga: `confirmar` põe o pedido `aceite` (basta `estado = 'proposta_enviada'`, não exige `proposta_aceite`) com o valor antigo.
+4. **Restante pago pelo valor antigo.** Com a sessão do restante aberta, um trabalho a mais é aceite (ou uma ida perdida confirmada); a sessão antiga é paga e a diferença já não se paga online.
+5. **Pagamentos simulados antigos continuam a contar** como pagos depois de mudar para Stripe (os totais não filtram por `modo`); e `PAGAMENTOS_MODO=simulado` num servidor a sério só gera um aviso (é o "Modo de demonstração", deliberado).
+6. Menores: um evento tardio com outro id volta a pôr `pago` um pagamento `devolvido`; falha entre o reembolso e o UPDATE repetida depois das 24 h da chave de idempotência permite segundo reembolso; valores abaixo de 0,50 € dão 502 genérico.
+
+Decisão em aberto para 1 a 4: registar como "pagamento por tratar" e avisar o CEO (recomendado), ou devolver sozinho.
+
+Feito em 2026-10-12: limite de 30 "Pagar" por hora e por conta; com `STRIPE_SECRET_KEY` e sem `STRIPE_PEDIDO_WEBHOOK_SECRET` os pagamentos do pedido ficam desligados (erro no arranque).
+
 ## Como ligar o Stripe (o que falta para os pagamentos reais)
 
 1. No painel do Stripe (primeiro em **modo de teste**), ativar os métodos: **Cartões**, **MB WAY** e **Multibanco** (Settings → Payment methods). MB WAY e Multibanco só existem para contas em euros.
