@@ -611,8 +611,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const obraConcluida = obra?.estado === 'concluida' || (o.estado === 'aceite' && Boolean(o.obra_concluida)) || (Boolean(pag?.restante?.confirmada) && Boolean(obra) && obra.estado !== 'cancelada');
     // A obra entregue a um eletricista externo (eletricistas.js obraPorConfirmar): o estado do trabalho dele, ou null.
     const trabalhoObra = obra ? eletricistas()?.obraPorConfirmar?.(o)?.estado ?? null : null;
-    // Obra parada por segurança: o pedido fica "perdido", mas a verificação, a proposta e o aceite aconteceram — ficam com o ✓.
-    const parada = Boolean(pag?.obra_parada);
+    // Obra parada por segurança ou cancelada com o sinal devolvido: o pedido fica "perdido", mas a verificação, a proposta
+    // e o aceite aconteceram — ficam com o ✓.
+    const parada = Boolean(pag?.obra_parada) || (o.estado === 'perdido' && Boolean(o.proposta_aceite));
     const passos = [
       { chave: 'recebido', texto: 'Pedido recebido', feito: true, data: o.criado },
       ...(visitaDepois ? [{ chave: 'verificado', texto: 'Pedido verificado', feito: verificado || depoisVisita || parada, data: verificado ? o.validacao_em ?? null : null }]

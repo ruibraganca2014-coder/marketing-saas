@@ -894,7 +894,7 @@ function parteIdaPerdida(t) {
       el("p", null, `Visita de ${visitaTxt(x.visita)}: o cliente não estava.`),
       x.nota ? el("p", "pequeno suave", `«${x.nota}»`) : null,
       x.estado === "proposta" ? el("p", "pequeno suave", "A Domus Energia vai confirmar. Até lá, a obra não se dá por concluída.") : null,
-      x.estado === "confirmada" ? com(el("p", "pequeno"), "Por esta ida recebe mais ", el("b", "num", euro(x.recebe)), " · a deslocação, sem IVA. Combine nova data com o cliente e marque a visita.") : null,
+      x.estado === "confirmada" ? com(el("p", "pequeno"), "Por esta ida recebe mais ", el("b", "num", euro(x.recebe)), t.visita ? " · a deslocação, sem IVA." : " · a deslocação, sem IVA. Combine nova data com o cliente e marque a visita.") : null,
       x.estado === "anulada" ? el("p", "pequeno suave", x.motivo ? `Anulada: «${x.motivo}»` : "Anulada.") : null);
     c.id = `ida-${x.id}`;
     out.push(c);

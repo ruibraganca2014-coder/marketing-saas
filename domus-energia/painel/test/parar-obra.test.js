@@ -280,7 +280,13 @@ describe('parar a obra por segurança: o CEO indica o que fica retido, devolve-s
     assert.deepEqual({ ...p.app.db.prepare('SELECT estado, motivo FROM idas_perdidas WHERE id = ?').get(iid) }, { estado: 'anulada', motivo: 'A obra foi cancelada.' });
     const depois = (await painel('GET', 'resumo')).json.tratar;
     assert.deepEqual([depois.extras, depois.idas_perdidas], [antes.extras - 1, antes.idas_perdidas - 1], 'deixam de contar no Início');
-    assert.equal((await pedidoConta(c, id)).obra_parada, null, 'não é uma obra parada por segurança');
+    const l = await pedidoConta(c, id);
+    assert.equal(l.obra_parada, null, 'não é uma obra parada por segurança');
+    assert.deepEqual(l.passos.map((x) => [x.chave, x.feito]), [['recebido', true], ['verificado', true], ['proposta', true], ['aceite', true], ['obra', false]]);
+    // O trabalho sai do eletricista, que é avisado: já não fica "Fechado" com o valor a receber.
+    assert.equal(p.app.db.prepare('SELECT estado FROM trabalhos_eletricista WHERE id = ?').get(tid).estado, 'retirado');
+    assert.ok(p.emails.some((m) => m.para === e.email && m.assunto === 'Domus Energia: trabalho retirado'));
+    assert.ok(!(await area(e, 'GET', 'trabalhos')).json.trabalhos.some((x) => x.id === tid), 'já não está nos trabalhos dele');
   });
 });
 

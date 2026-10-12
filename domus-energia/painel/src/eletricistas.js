@@ -1821,8 +1821,16 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     db.prepare("UPDATE trabalhos_extra SET estado = 'retirado', nota = ?, atualizado = ? WHERE orcamento_id = ? AND estado IN ('proposto', 'enviado')").run(motivo, agora, o.id);
     db.prepare("UPDATE idas_perdidas SET estado = 'anulada', motivo = ?, decidido_em = ?, decidido_por = ? WHERE orcamento_id = ? AND estado = 'proposta'").run(motivo, agora, u.email, o.id);
   }
-  /** "Cancelar obra e devolver sinal" (api.js devolverSinal): o que estava à espera do CEO ou do cliente deixa de contar no Início e na conta. */
-  const aoCancelarObra = (o, u) => fecharPendentesDoPedido(o, 'A obra foi cancelada.', u);
+  /**
+   * "Cancelar obra e devolver sinal" (api.js devolverSinal): o que estava à espera do CEO ou do cliente deixa de contar no
+   * Início e na conta, e o trabalho ainda por concluir é retirado ao eletricista, que é avisado por email (senão ficava
+   * "Fechado" com o valor a receber à vista). Já dado por concluído, fica como está: trata-se em "Pagamentos a eletricistas".
+   */
+  function aoCancelarObra(o, u, ip) {
+    fecharPendentesDoPedido(o, 'A obra foi cancelada.', u);
+    const t = ativoDoPedido(o.id);
+    if (t && ['na_bolsa', ...EDITAVEIS].includes(t.estado)) retirar(o, u, ip);
+  }
   function aoPararObra(o, valorCent, u, ip) {
     const agora = agoraIso();
     fecharPendentesDoPedido(o, OBRA_PARADA, u);

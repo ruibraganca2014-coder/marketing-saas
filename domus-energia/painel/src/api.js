@@ -1488,7 +1488,7 @@ export function criarApi(ctx) {
     db.prepare("UPDATE orcamentos SET estado = 'perdido', motivo_perda = ?, atualizado = ? WHERE id = ?").run(motivo, agora, o.id);
     stock.libertar(o.id, u.email, 'sinal devolvido');
     cancelarObraDoPedido(o, u, ip);
-    if (config.eletricistas) eletricistas.aoCancelarObra(o, u);
+    if (config.eletricistas) eletricistas.aoCancelarObra(o, u, ip);
     auditar(u, 'sinal_devolvido', `orcamento:${o.id}`, { ref: r.ref, devolvido: deCent(r.cent), modo: r.modo, estado: 'perdido', ...(r.manual ? { manual: true } : {}) }, ip);
     const email = emailDaConta(o.conta_id);
     if (email) {
