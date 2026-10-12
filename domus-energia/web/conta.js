@@ -321,7 +321,9 @@ function cartaoPedido(p) {
   const feita = obraFeita(p);
   // Com o trabalho dado por concluído (falta a confirmação do cliente) a data marcada também já não se mostra.
   const dadoPorConcluido = Boolean(p.obra) && p.confirmacao?.estado === "por_confirmar";
-  if (!feita && !dadoPorConcluido && p.obra?.data) c.append(el("p", null, `Instalação: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
+  // Com a data já passada (e a obra por dar como concluída) deixa de se anunciar como "Instalação: <data>".
+  const passou = p.obra?.data && new Date(`${p.obra.data}T${p.obra.hora || "23:59"}`) < new Date();
+  if (!feita && !dadoPorConcluido && p.obra?.data) c.append(el("p", null, `${passou ? "Data marcada" : "Instalação"}: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
   else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", precoDefinitivo(p) ? "Visita e obra: vamos marcar a data consigo." : "Instalação: vamos marcar a data consigo."));
   // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
   // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)

@@ -51,7 +51,7 @@ export const gravidadeDe = (g) => ({ critico: "critica", "crítica": "critica", 
 export const nomeDe = (mapa, v) => (v == null || v === "" ? "—" : mapa[v]?.nome ?? mapa[v] ?? String(v));
 
 // ---------- Formatação ----------
-const fmtEuro = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" });
+const fmtEuro = new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", useGrouping: "always" });   // "1 845,00 €", como na conta do cliente
 // Até 2 casas: potências (10,35 kVA) e horas (39,25 h) não se arredondam; inteiros ficam sem casas.
 const fmtNum = new Intl.NumberFormat("pt-PT", { maximumFractionDigits: 2 });
 export const euros = (v) => { const n = numero(v); return n === null ? "—" : fmtEuro.format(n); };

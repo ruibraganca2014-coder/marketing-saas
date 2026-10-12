@@ -594,6 +594,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const daObra = o.obra_id ? obraDe.get(o.obra_id) : null;
     const obra = daObra && !(daObra.estado === 'cancelada' && o.estado !== 'aceite') ? daObra : null;
     const agendada = Boolean(obra) && !obra.por_agendar;
+    // A data marcada já passou (hora de Lisboa) e a obra não foi dada por concluída: já não é "Instalação marcada.".
+    const agoraLisboa = new Date(relogio()).toLocaleString('sv-SE', { timeZone: 'Europe/Lisbon' }).replace(' ', 'T').slice(0, 16);
+    const dataPassou = agendada && Boolean(obra.data) && `${obra.data}T${obra.hora ?? '23:59'}` < agoraLisboa;
     const valor = deCent(o.valor_proposta_cent);
     const pag = pagamentos()?.paraCliente(o) ?? null;
     const temProposta = valor !== null && ['proposta_enviada', 'aceite'].includes(o.estado);
@@ -635,7 +638,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     if (o.estado === 'aceite' && o.obra_concluida && !obra) estadoTexto = pag?.obra_paga === false ? 'Obra concluída. A app fica ativa depois de pagar o restante.' : 'Obra concluída.';
     if (obra) {
       estadoTexto = obra.estado === 'concluida' ? (pag?.obra_paga === false ? 'Instalação concluída. A app fica ativa depois de pagar o restante.' : 'Instalação concluída.')
-        : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : agendada ? 'Instalação marcada.' : estadoTexto;
+        : obra.estado === 'cancelada' ? 'Instalação cancelada. Vamos contactá-lo.' : dataPassou ? 'A data marcada já passou. Se a obra não ficou feita nesse dia, marcamos nova data consigo.' : agendada ? 'Instalação marcada.' : estadoTexto;
       // "Instalação marcada." não fica para trás (decisão do dono, 2026-10-11): com o trabalho dado por concluído pelo
       // eletricista falta a confirmação do cliente; depois de confirmado (e ainda por aprovar no painel) está concluído.
       if (agendada && !['concluida', 'cancelada'].includes(obra.estado) && trabalhoObra === 'concluida_eletricista') estadoTexto = 'O trabalho foi dado por concluído. Falta a sua confirmação.';
@@ -665,6 +668,8 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Obra parada por segurança (decisão do dono, 2026-10-11; `obra_parada` vem com os pagamentos): o motivo e a conta do
     // sinal vão no bloco próprio do pedido (web/conta.js).
     if (pag?.obra_parada) estadoTexto = 'A obra não pode avançar em segurança: veja abaixo.';
+    // Obra cancelada com o sinal devolvido ("Cancelar obra e devolver sinal"): diz porque fechou, em vez de só "Pedido fechado.".
+    else if (o.estado === 'perdido' && (pag?.pagamentos ?? []).some((x) => x.fase === 'sinal' && (x.devolvido != null || x.a_devolver != null))) estadoTexto = 'A obra foi cancelada e o sinal é devolvido: veja os pagamentos abaixo.';
     const confirmacao = eletricistas()?.paraCliente(o) ?? null;
     // A conversa do pedido (migração 38): os emails da equipa e as respostas do cliente; nunca quem da equipa escreveu.
     const mensagens = db.prepare('SELECT de, assunto, texto, criado AS quando FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
