@@ -24,7 +24,8 @@ if (-not (Test-Path $Chave)) { Write-Host "FALHOU: não encontro a chave $Chave"
 New-Item -ItemType Directory -Force $Destino | Out-Null
 
 Write-Host "A ver o que há no servidor..."
-$noServidor = & ssh -o BatchMode=yes -o ConnectTimeout=20 -i $Chave $Servidor 'ls -1 /root/domus-copias/domus-copia-*.tar.gz 2>/dev/null; ls -1 /root/domus-backup-[0-9]*.tar.gz 2>/dev/null | sort | tail -1; echo ---; cat /root/domus-copias/ultima.txt 2>/dev/null'
+# `-n`: sem teclado. Numa tarefa agendada (janela escondida) o ssh do Windows ficava à espera de entrada e nunca acabava.
+$noServidor = & ssh -n -o BatchMode=yes -o ConnectTimeout=20 -i $Chave $Servidor 'ls -1 /root/domus-copias/domus-copia-*.tar.gz 2>/dev/null; ls -1 /root/domus-backup-[0-9]*.tar.gz 2>/dev/null | sort | tail -1; echo ---; cat /root/domus-copias/ultima.txt 2>/dev/null'
 if ($LASTEXITCODE -ne 0) { Write-Host "FALHOU: não consegui ligar ao servidor (VPN desligada? internet?)"; exit 1 }
 $corte = [array]::IndexOf($noServidor, '---')
 $ficheiros = @($noServidor | Select-Object -First ([Math]::Max($corte, 0)) | Where-Object { $_ -match '^/root/domus-copias/domus-copia-[0-9]{8}-[0-9]{6}\.tar\.gz$' })
