@@ -4,7 +4,7 @@
 // handlers verificam ainda o que depende do registo (ex.: obras do técnico).
 
 import {
-  ErroApi, responder, lerJson, verificarOrigem, verificarOrigemPublica, cors, tipoJson, ipDe,
+  ErroApi, responder, lerJson, verificarOrigem, verificarOrigemPublica, cors, tipoJson, ipDe, CABECALHOS_SEGURANCA
 } from './http.js';
 import {
   texto, numero, booleano, opcao, dia, diaHora, hora, idNum, simulacao as validarSimulacao,
@@ -134,6 +134,9 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/marcar-visita', ['ceo', 'comercial'], 'marcarVisita'],
   ['POST', 'orcamentos/:id/visita-faltou', ['ceo', 'comercial'], 'visitaFaltou'],
   ['POST', 'orcamentos/:id/devolver-sinal', ['ceo'], 'devolverSinal'],
+  // Lista de espera (migração 51): toda a equipa vê como está; só o CEO a liga, desliga ou muda a data de arranque.
+  ['GET', 'lista-espera', ['ceo', 'comercial', 'tecnico'], 'verListaEspera'],
+  ['POST', 'lista-espera', ['ceo'], 'mudarListaEspera'],   // {ativa, arranque}
   // Parar a obra por segurança (decisão do dono, 2026-10-11): devolve o sinal menos o material já encomendado e o trabalho já feito.
   ['POST', 'orcamentos/:id/parar-obra', ['ceo'], 'pararObra'],   // {motivo, material, trabalho} — € com IVA; {eletricista} — € sem IVA
   ['POST', 'orcamentos/:id/ensaios', ['ceo', 'comercial'], 'registarEnsaios'],
@@ -2417,14 +2420,14 @@ export function criarApi(ctx) {
     // Avaria rápida = pagar o diagnóstico e a deslocação ao enviar: fica "a aguardar pagamento" (não aparece no painel)
     // e só passa a orçamento quando o pagamento for confirmado. Fora da área servida: 409 (fale connosco).
     // Em lista de espera (decisão do dono, 2026-10-10: não se paga nada) a avaria entra logo, grátis, como os outros pedidos.
-    if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria' && simObj?.lista_espera !== true) {
+    if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria' && !listaEspera().ativa) {
       const local = c.localidade ?? simObj?.casa?.localidade ?? null;
       const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip, origem }, localidade: local });
       registo.info(`avaria a aguardar pagamento (${pagamento.ref})`);
       return responder(res, 202, { ok: true, pagamento });
     }
     // O resto é grátis: passa logo a orçamento ("novo"), com o relatório básico na conta.
-    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem, espera: v.lista_espera === true });
+    const id = inserirOrcamentoSite({ c, codigoCli, sim, contaId: conta?.id ?? null, ip, origem, espera: listaEspera().ativa });
     // Pedido com planta de uma casa que já deu a foto do quadro noutro pedido: aproveita-a (decisão do dono, 2026-10-11;
     // sem ela o CEO não o consegue validar). Antes de a resposta sair, para uma foto nova do navegador a substituir.
     // A avaria não tem o ponto da foto do quadro (pontosValidacao): não leva. Nunca falha o pedido.
@@ -2447,8 +2450,8 @@ export function criarApi(ctx) {
   /** Grava um pedido do site (formulário ou simulador); também quando o pagamento da avaria é confirmado. */
   function inserirOrcamentoSite({ c, codigoCli = null, sim = null, contaId = null, ip = null, pagamento = null, com_visita: comVisita = null, origem = null, espera = false }) {
     const agora = agoraIso();
-    // Lista de espera: o formulário diz-o no pedido (`lista_espera`), o simulador na simulação.
-    const emEspera = espera === true || (typeof sim === 'string' && /"lista_espera":true/.test(sim));
+    // Lista de espera: decide o servidor (migração 51; `listaEspera()`), não o que o navegador diz no pedido.
+    const emEspera = espera === true;
     const id = Number(db.prepare(`INSERT INTO orcamentos (criado, atualizado, origem, nome, telefone, email, localidade, morada, servico, mensagem, codigo_cliente, simulacao, conta_id,
       origem_contacto, origem_entrada, lista_espera)
       VALUES (?, ?, 'site', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null, c.localidade ?? null,
@@ -2475,6 +2478,37 @@ export function criarApi(ctx) {
     porIpFotos.registar(ip);
     const f = await fotos.receber(req);
     responder(res, 201, { ok: true, id: f.id });
+  }
+
+  // ------------------------------------------------------------ lista de espera (migração 51)
+  /** A lista de espera de agora: {ativa, arranque} — o que o CEO guardou no painel ou, sem isso, o valor por omissão. */
+  function listaEspera() {
+    const d = Object.fromEntries(db.prepare("SELECT chave, valor FROM definicoes WHERE chave IN ('lista_espera_ativa', 'lista_espera_arranque')").all().map((x) => [x.chave, x.valor]));
+    return { ativa: d.lista_espera_ativa === undefined ? config.listaEspera.ativa : d.lista_espera_ativa === '1', arranque: d.lista_espera_arranque ?? config.listaEspera.arranque };
+  }
+  h.verListaEspera = ({ res }) => responder(res, 200, listaEspera());
+  h.mudarListaEspera = async ({ req, res, u, ip }) => {
+    const v = await lerJson(req, ['ativa', 'arranque']);
+    const antes = listaEspera();
+    const ativa = v.ativa === undefined ? antes.ativa : booleano(v.ativa, 'ativa');
+    const arranque = v.arranque === undefined ? antes.arranque : texto(v.arranque, 'quando começam as obras (ex.: "setembro de 2027")', { max: 60, obrigatorio: true });
+    const agora = agoraIso();
+    const guardar = db.prepare('INSERT INTO definicoes (chave, valor, atualizado, por) VALUES (?, ?, ?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor, atualizado = excluded.atualizado, por = excluded.por');
+    transacao(db, () => { guardar.run('lista_espera_ativa', ativa ? '1' : '0', agora, u.email); guardar.run('lista_espera_arranque', arranque, agora, u.email); });
+    if (ativa !== antes.ativa || arranque !== antes.arranque) auditar(u, 'lista_espera_mudada', null, { ativa, arranque, antes }, ip);
+    responder(res, 200, listaEspera());
+  };
+  /**
+   * GET /api/conta/lista-espera.js (público; vem logo a seguir ao config.js nas páginas do site): põe em
+   * `window.DOMUS.listaEspera` o que o servidor decide, por cima do que o config.js trazia. Se este pedido falhar, o
+   * site fica com o valor do config.js — e o servidor marca o pedido na mesma, pelo que ele próprio decide.
+   */
+  function listaEsperaJs(req, res) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return responder(res, 405, { erro: 'Método não permitido.' }, { Allow: 'GET' });
+    const corpo = `if(window.DOMUS)window.DOMUS.listaEspera=${JSON.stringify(listaEspera()).replace(/</g, '\\x3c')};\n`;
+    res.writeHead(200, { ...CABECALHOS_SEGURANCA, 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'public, max-age=60', 'Content-Length': Buffer.byteLength(corpo) });
+    res.end(req.method === 'HEAD' ? undefined : corpo);
+    return undefined;
   }
 
   function catalogoPublico(req, res) {
@@ -2504,6 +2538,7 @@ export function criarApi(ctx) {
       if (rapido && (caminho === ROTA_EQUIPA || caminho === ROTA_CLIENTE || caminho === ROTA_CONTAS || caminho === ROTA_CODIGO || (caminho === ROTA_ELETRICISTA && config.eletricistas))) return await rapido.tratar(req, res, caminho, ip);
       // Sem ELETRICISTAS=1 o módulo não existe: /api/eletricista/* segue em frente e dá 404 como qualquer outro desconhecido.
       if (config.eletricistas && caminho.startsWith(API_ELETRICISTA)) return await eletricistas.tratar(req, res, url, ip);
+      if (caminho === '/api/conta/lista-espera.js') return listaEsperaJs(req, res);
       if (caminho.startsWith('/api/conta/')) {
         // "Não quero receber" dos emails automáticos: sem sessão e sem origem (o token assinado autoriza; RFC 8058).
         if (await emailsAuto.tratar(req, res, url)) return undefined;

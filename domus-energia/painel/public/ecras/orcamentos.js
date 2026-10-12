@@ -47,13 +47,38 @@ export default function orcamentos(el, ctx) {
   const bLista = h("button", { class: "segmento", type: "button", text: "Lista", "aria-pressed": "false", onclick: () => mudarVista("lista") });
   const fEstado = escolha("estado", { "": "Todos os estados", ...ESTADOS_ORC, ...(ctx.pode("ceo") ? { arquivado: "Arquivados (RGPD)" } : {}) }, "", { "aria-label": "Filtrar por estado" });
   const fTexto = h("input", { type: "search", name: "procurar", placeholder: "Procurar nome ou localidade", "aria-label": "Procurar pedido", maxlength: "80" });
-  // Lista de espera (web/config.js listaEspera): só os pedidos recebidos antes de as obras começarem.
+  // Lista de espera: só os pedidos recebidos antes de as obras começarem.
   const fEspera = h("input", { type: "checkbox", id: "filtro-espera", name: "espera" });
   const fEsperaRotulo = h("label", { class: "filtro-espera", for: "filtro-espera" }, fEspera, " Só lista de espera");
   const contagem = h("p", { class: "ajuda", role: "status" });
   const zona = h("div", { class: "zona-orcamentos" }, carregando());
+  // Lista de espera (decisão do dono, 2026-10-12): o servidor decide se os pedidos novos entram em lista de espera e o
+  // site pergunta-lhe. Toda a equipa vê como está; só o CEO a liga, desliga (em dois toques) ou muda a data.
+  const espera = h("section", { class: "cartao", id: "lista-espera", hidden: true });
+  const desenharEspera = (e) => {
+    const estado = h("p", { id: "lista-espera-estado" }, selo(e.ativa ? "Lista de espera ligada" : "Lista de espera desligada", e.ativa ? "aviso" : "estado-ativo"),
+      e.ativa ? ` Os pedidos novos ficam em lista de espera e o site diz "Começamos as obras em ${e.arranque}".` : " Os pedidos novos seguem o caminho normal.");
+    if (!ctx.pode("ceo")) { espera.replaceChildren(estado); espera.hidden = false; return; }
+    const quando = h("input", { type: "text", id: "lista-espera-arranque", maxlength: "60", value: e.arranque, "aria-label": "Começamos as obras em" });
+    const mudar = async (b, corpo, aviso) => {
+      b.disabled = true;
+      try { desenharEspera(await pedir("lista-espera", { corpo })); avisar(aviso); } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+    };
+    const bGuardar = h("button", { class: "btn sec pequeno", type: "button", id: "lista-espera-guardar", text: "Guardar a data",
+      onclick: (ev) => { if (!quando.value.trim()) { avisar("Escreva quando começam as obras.", "erro"); quando.focus(); return; } mudar(ev.currentTarget, { arranque: quando.value.trim() }, "Data guardada: o site já a mostra."); } });
+    const bMudar = e.ativa
+      ? botaoConfirmar("Abrir as obras (desligar)", "Confirmar: desligar a lista de espera?", (b) => mudar(b, { ativa: false }, "Lista de espera desligada: os pedidos novos seguem o caminho normal."), { classe: "btn pequeno" })
+      : botaoConfirmar("Ligar a lista de espera", "Confirmar: ligar a lista de espera?", (b) => mudar(b, { ativa: true }, "Lista de espera ligada."), { classe: "btn pequeno" });
+    bMudar.id = "lista-espera-mudar";
+    espera.replaceChildren(estado,
+      h("div", { class: "form-botoes" }, h("label", { class: "campo" }, h("span", { text: "Começamos as obras em" }), quando), bGuardar, bMudar),
+      h("p", { class: "ajuda", text: "Desligar não mexe nos pedidos que já estão em lista de espera: continuam marcados, para os contactar. O site pode levar um minuto a mostrar a mudança." }));
+    espera.hidden = false;
+  };
+  pedir("lista-espera").then(desenharEspera).catch(() => {});
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Orçamentos" }), h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar como" }, bQuadro, bLista)),
+    espera,
     h("div", { class: "filtros" }, fTexto, fEstado, fEsperaRotulo), contagem, zona);
   fEstado.addEventListener("change", () => { if (fEstado.value === "arquivado" && !arquivados) carregarArquivados(); else desenhar(); });
   fTexto.addEventListener("input", desenhar);

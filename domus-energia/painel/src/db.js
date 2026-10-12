@@ -1142,6 +1142,11 @@ export const MIGRACOES = [
     );
     CREATE INDEX obras_paradas_orcamento ON obras_paradas(orcamento_id);
   `),
+  // 51: definições em texto que o CEO muda no painel (decisão do dono, 2026-10-12). Para já a lista de espera
+  // (`lista_espera_ativa` "1"/"0" e `lista_espera_arranque`): passou a ser o servidor a decidir se um pedido entra em
+  // lista de espera (antes era o navegador que o dizia, por web/config.js). Sem linha vale o valor por omissão
+  // (config.js: LISTA_ESPERA e LISTA_ESPERA_ARRANQUE).
+  (db) => db.exec('CREATE TABLE definicoes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL, atualizado TEXT NOT NULL, por TEXT);'),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

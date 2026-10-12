@@ -52,6 +52,8 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     // As propostas na bolsa (vários eletricistas propõem e o CEO escolhe): desligadas nos testes antigos (o primeiro a
     // aceitar fica com a visita); propostas-bolsa.test.js liga-as.
     PROPOSTAS_BOLSA: '0',
+    // Lista de espera (migração 51): ligada por omissão no servidor; os testes antigos correm com as obras abertas.
+    LISTA_ESPERA: '0',
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };

@@ -145,7 +145,9 @@ describe('propostas na bolsa com os pagamentos ligados: a visita já não se pag
     assert.equal(l.estado_texto, 'A sua proposta está pronta.');
     assert.deepEqual(l.passos.slice(1, 3).map((s) => s.feito), [true, true]);
     // Lista de espera: validado ou não, enquanto é novo fica o texto da lista de espera.
+    assert.equal((await x.painel('POST', 'lista-espera', 'ceo', { ativa: true })).estado, 200);
     const e2 = await x.pedido({ lista_espera: true });
+    assert.equal((await x.painel('POST', 'lista-espera', 'ceo', { ativa: false })).estado, 200);
     validar(e2.id);
     l = await x.pedidoConta(e2.c, e2.id);
     assert.equal(l.estado_texto, 'Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos. O relatório grátis já está aqui.');

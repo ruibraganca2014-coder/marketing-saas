@@ -152,8 +152,9 @@ describe('boas-vindas', () => {
     assert.deepEqual(registo(s.id), []);
   });
 
-  test('lista de espera (o simulador marca o pedido com lista_espera): email e conta sem prazo de contacto nem visita', async () => {
+  test('lista de espera (ligada no painel; o servidor marca o pedido): email e conta sem prazo de contacto nem visita', async () => {
     await ate('10:00');
+    assert.equal((await api('ceo', 'POST', 'lista-espera', { ativa: true })).estado, 200);
     const c = await p.contaConfirmada();
     const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente Espera', telefone: '912 000 111', servico: 'Casa inteligente', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: { ...SIM, lista_espera: true } } });
     assert.equal(r.estado, 201, r.texto);
@@ -172,7 +173,9 @@ describe('boas-vindas', () => {
     assert.match(mf[0].texto, /1\. O seu pedido ficou em lista de espera/);
     assert.doesNotMatch(mf[0].texto, /relatório (básico|grátis)|dia útil seguinte/);
     assert.equal((await api('ceo', 'GET', `orcamentos/${f.id}`)).json.lista_espera, true);
-    const n = await pedidoSite();
+    // Desligada no painel, o pedido já não vem marcado — mesmo que o navegador diga que sim.
+    assert.equal((await api('ceo', 'POST', 'lista-espera', { ativa: false })).estado, 200);
+    const n = await pedidoSite({ lista_espera: true });
     assert.equal((await api('ceo', 'GET', `orcamentos/${n.id}`)).json.lista_espera, false);
   });
 

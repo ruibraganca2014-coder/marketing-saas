@@ -30,6 +30,8 @@ window.DOMUS = {
   // Lista de espera (decisão do dono, 2026-10-10): as obras só começam depois do curso. Enquanto `ativa` for true, o site
   // avisa que os pedidos de serviço e de avaria ficam em lista de espera, não se compra nada (relatório completo, visita)
   // e cada pedido vai marcado (`simulacao.lista_espera`). `arranque` é o texto que o cliente lê. Para abrir: ativa: false.
+  // DESDE 2026-10-12 QUEM MANDA É O PAINEL (Orçamentos → "Lista de espera", só o CEO): este valor só serve se o
+  // servidor não responder (/api/conta/lista-espera.js).
   listaEspera: { ativa: true, arranque: "setembro de 2027" },
 
   // Parceria com um agente de seguros (decisão do dono, 2026-10-10): secção "Seguro Multirriscos" na página inicial e a
