@@ -611,6 +611,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .editor-area > .editor-estado { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; pointer-events: none; text-align: left; }
 .editor-area > .editor-estado > * { max-width: 100%; min-height: 0; margin: 0; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--superficie) 88%, transparent); box-shadow: 0 1px 3px rgb(0 0 0 / .15); font-size: .8rem; line-height: 1.35; white-space: normal; }
 .editor-area > .editor-estado > :empty { display: none; }
+/* No telemóvel (toque), fora do ecrã inteiro: a frase e o "Terminar" ficam no cimo da planta. Em baixo ficavam tapados
+   pela barra "Anterior / Seguinte" até o cliente deslizar a página (visto num telemóvel real, 2026-10-12). */
+@media (pointer: coarse) { .editor-principal:not(.ecra-inteiro):not(:fullscreen) .editor-area > .editor-estado { bottom: auto; top: 8px; } }
 .sim-planta .editor-ajuda { display: none; }
 .editor-principal:fullscreen #editor-outras, .editor-principal.ecra-inteiro #editor-outras { display: none; }
 .sim-ver-planta { display: none; }
