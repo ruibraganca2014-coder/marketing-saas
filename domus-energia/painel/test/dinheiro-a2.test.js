@@ -187,7 +187,7 @@ describe('obra, casa, faltas e devoluções (modo simulado)', () => {
     assert.equal(reservado(), antes, 'reserva libertada');
     assert.match(p.emails.at(-1).texto, /Devolvemos 300,00 € do sinal para o mesmo meio de pagamento/);
     assert.equal((await painel('POST', `orcamentos/${id}/devolver-sinal`, 'ceo', {})).estado, 409, 'já devolvido');
-    assert.equal((await pedidoConta(c, id)).estado_texto, 'Pedido fechado.');
+    assert.equal((await pedidoConta(c, id)).estado_texto, 'A obra foi cancelada e o sinal é devolvido: veja os pagamentos abaixo.');
     // Devolução total: o pagamento passa a "devolvido".
     const id2 = await enviar(c);
     await comSinal(c, id2);
