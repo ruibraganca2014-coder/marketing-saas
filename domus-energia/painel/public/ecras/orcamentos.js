@@ -24,6 +24,18 @@ import { urlFoto } from "./simulacao.js";
 import { blocoEletricista } from "./atribuicao.js";
 
 const CHAVE_VISTA = "domus.painel.orcamentos.vista";
+// Especialidade do pedido (decisão do dono, 2026-10-13): o programa sugere, o CEO confirma ao validar. O nome inteiro
+// na escolha; o curto no selo da lista e da ficha.
+const ESPECIALIDADES = { geral: "Instalação geral e quadros", domotica: "Domótica e automação", solar: "Solar e carregadores de carro", redes: "Redes, telecomunicações e segurança" };
+const ESPECIALIDADES_CURTAS = { geral: "Geral e quadros", domotica: "Domótica", solar: "Solar e carregadores", redes: "Redes e segurança" };
+/** O selo discreto da especialidade: a confirmada; por confirmar, a sugerida (com "?"). Um servidor antigo não a envia: sem selo. */
+const seloEspecialidade = (o) => {
+  const confirmada = campo(o, "especialidade"), k = confirmada ?? campo(o, "especialidade_sugerida");
+  if (!ESPECIALIDADES[k]) return null;
+  const s = selo(`${ESPECIALIDADES_CURTAS[k]}${confirmada ? "" : "?"}`, "info");
+  s.title = confirmada ? `Especialidade: ${ESPECIALIDADES[k]}` : `Especialidade sugerida (por confirmar): ${ESPECIALIDADES[k]}`;
+  return s;
+};
 const ler = () => { try { return localStorage.getItem(CHAVE_VISTA); } catch { return null; } };
 const gravar = (v) => { try { localStorage.setItem(CHAVE_VISTA, v); } catch {} };
 /** "AAAA-MM-DDTHH:MM" para <input type=datetime-local>. */
@@ -138,6 +150,7 @@ export default function orcamentos(el, ctx) {
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
+        seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
         campo(o, "data_visita") && estado === "visita_marcada" ? selo(`Visita ${data(campo(o, "data_visita"))}`, "info") : null,
         valor != null && valor !== "" ? selo(euros(valor), "valor") : null,
@@ -192,6 +205,7 @@ export default function orcamentos(el, ctx) {
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
+        seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
@@ -229,6 +243,30 @@ export default function orcamentos(el, ctx) {
     if (val && !arquivado && o && typeof o === "object" && "historico" in o) {
       const estadoV = campo(val, "estado");
       const sec = h("section", { class: "validacao-ceo bloco", id: "validacao-ceo" }, h("h3", { text: "Validação do pedido" }));
+      // Especialidade (decisão do dono, 2026-10-13): a sugerida já vem escolhida e o CEO pode mudá-la; vai com o "Validar".
+      // Depois de validado muda-se aqui até haver proposta aceite. Um servidor antigo não envia `especialidade_sugerida`:
+      // a escolha não aparece e o "Validar" não a manda.
+      const sugerida = campo(o, "especialidade_sugerida");
+      const comEspecialidade = Boolean(ESPECIALIDADES[sugerida]);
+      const selEsp = h("select", { name: "especialidade", id: "validar-especialidade", "aria-label": "Especialidade" },
+        ...Object.entries(ESPECIALIDADES).map(([k, nome]) => h("option", { value: k, text: k === sugerida ? `${nome} (sugerida)` : nome, selected: k === (campo(o, "especialidade") ?? sugerida) })));
+      const campoEsp = (ajuda) => h("label", { class: "campo validacao-especialidade" }, h("span", { text: "Especialidade" }), selEsp, h("span", { class: "ajuda", text: ajuda }));
+      if (estadoV === "validado" && comEspecialidade) {
+        const nomeEsp = ESPECIALIDADES[campo(o, "especialidade")] ?? `${ESPECIALIDADES[sugerida]} (sugerida, por confirmar)`;
+        if (ctx.pode("ceo") && campo(o, "pode_mudar_especialidade") === true) {
+          sec.append(campoEsp("Os parceiros desta especialidade veem o pedido na bolsa 24 horas antes dos outros eletricistas. Mudar com o pedido na bolsa conta as 24 horas de novo."),
+            h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "mudar-especialidade", text: "Mudar especialidade", onclick: async (e) => {
+              const b = e.currentTarget;
+              b.disabled = true;
+              try {
+                const novo = await pedir(`orcamentos/${encodeURIComponent(id)}/especialidade`, { corpo: { especialidade: selEsp.value } });
+                substituir(novo);
+                avisar(`Especialidade: ${ESPECIALIDADES[selEsp.value]}.`);
+                if (ficha?.j === j) desenharFicha(j, novo);
+              } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+            } })));
+        } else sec.append(h("p", { id: "pedido-especialidade" }, h("strong", { text: "Especialidade: " }), nomeEsp));
+      }
       if (estadoV === "validado") sec.append(h("p", { class: "msg ok", text: `Validado${campo(val, "por") ? ` por ${campo(val, "por")}` : ""}${campo(val, "em") ? `, ${data(campo(val, "em"))}` : ""}.` }));
       else {
         if (estadoV === "devolvido") sec.append(h("p", { class: "msg info", id: "validacao-devolvido", text: `Devolvido ao cliente para corrigir${campo(val, "em") ? ` (${data(campo(val, "em"))})` : ""}: ${campo(val, "nota") ?? ""}` }));
@@ -258,10 +296,11 @@ export default function orcamentos(el, ctx) {
           };
           const marcados = () => Object.fromEntries(caixas.map(([i]) => [i.dataset.chave, i.checked]));
           const todos = () => caixas.every(([i]) => i.checked);
+          const escolhida = () => (comEspecialidade ? { especialidade: selEsp.value } : {});
           const bValidar = h("button", { class: "btn pequeno", type: "button", id: "validar-pedido", text: ctx.eletricistas ? "Validar e pôr na bolsa" : "Validar",
-            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: Boolean(ctx.eletricistas) }, ctx.eletricistas ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
+            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: Boolean(ctx.eletricistas), ...escolhida() }, ctx.eletricistas ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
           const bSoValidar = ctx.eletricistas ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
-            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
+            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false, ...escolhida() }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
           if (emFalta.length) { bValidar.disabled = true; if (bSoValidar) bSoValidar.disabled = true; }
           // "Devolver ao cliente" em dois toques (decisão do dono, 2026-10-11): o primeiro vê se o texto do que falta está
           // escrito e só então arma; segue o texto desse primeiro toque (o cliente recebe-o por email).
@@ -274,6 +313,7 @@ export default function orcamentos(el, ctx) {
           bDevolver.id = "devolver-cliente";
           sec.append(h("div", { class: "validacao-lista" }, ...caixas.map(([, l]) => l), ...emFalta.map((p) => h("p", { class: "msg erro validacao-em-falta", id: `validar-${campo(p, "chave")}-em-falta`, text: String(campo(p, "texto")) }))),
             ...(emFalta.length ? [h("p", { class: "ajuda", id: "validacao-bloqueada", text: "Não dá para validar enquanto faltar a foto do quadro elétrico. Escreva abaixo o que falta e devolva o pedido ao cliente." })] : []),
+            ...(comEspecialidade ? [campoEsp("Confirme a especialidade. Os parceiros dela veem o pedido na bolsa 24 horas antes dos outros eletricistas.")] : []),
             h("div", { class: "form-botoes" }, bValidar, bSoValidar),
             h("label", { class: "validacao-nota" }, h("span", { text: "Falta alguma coisa? Devolva ao cliente para corrigir:" }), nota), h("div", { class: "form-botoes" }, bDevolver));
         }

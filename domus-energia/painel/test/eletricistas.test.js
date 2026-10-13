@@ -103,7 +103,9 @@ describe('candidatura pública', () => {
   test('validação no servidor: campos, NIF, concelhos da lista, consentimento e campos desconhecidos', async () => {
     const maus = {
       'sem nome': { nome: '' }, 'email errado': { email: 'nao-e-email' }, 'telemóvel curto': { telefone: '12345' }, 'NIF errado': { nif: '123456780' },
-      'sem DGEG': { dgeg: '' }, 'sem concelhos': { concelhos: [] }, 'concelho fora da lista': { concelhos: ['Sintra', 'Atlântida'] },
+      // O n.º da DGEG passou a ser opcional (decisão do dono, 2026-10-13; especialidades.test.js cobre a candidatura sem
+      // ele): vazio já não é erro; quando vem preenchido mantém a validação de sempre.
+      'DGEG curto de mais': { dgeg: 'X' }, 'DGEG que não é texto': { dgeg: 12345 }, 'sem concelhos': { concelhos: [] }, 'concelho fora da lista': { concelhos: ['Sintra', 'Atlântida'] },
       'concelhos não é lista': { concelhos: 'Sintra' }, 'demasiados concelhos': { concelhos: Array.from({ length: 41 }, () => 'Sintra') },
       'experiência desconhecida': { experiencia: 'muita' }, 'sem consentimento': { consentimento: false }, 'consentimento em texto': { consentimento: 'sim' },
       'sem documento': { seguro: undefined }, 'documento vazio': { seguro: { tipo: 'application/pdf', dados: '' } },
@@ -320,7 +322,8 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.match(r.cabecalhos['set-cookie'][0], /^domus_eletricista=[A-Za-z0-9_-]{43}; Path=\/api\/eletricista; HttpOnly; SameSite=Lax; Max-Age=\d+$/);
     const fora = await p.pedir('POST', '/api/eletricista/sair', { corpo: {}, cabecalhos: { Host: 'painel.teste' } });
     assert.match(fora.cabecalhos['set-cookie'][0], /; HttpOnly; Secure; SameSite=Lax; Max-Age=0$/);
-    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'iban', 'nome', 'percentagem']);
+    // `obras_assino` (2026-10-13): só diz à página que este servidor tem "Obras que assino"; não é um dado do eletricista.
+    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'iban', 'nome', 'obras_assino', 'percentagem']);
     const cookie = cookieDe(r);
     assert.equal((await p.pedir('POST', '/api/eletricista/entrar', { corpo: { email: e.email, codigo } })).estado, 400, 'o código só serve uma vez');
     assert.equal((await p.pedir('GET', '/api/eletricista/eu', { cookie })).json.eletricista.email, e.email);
@@ -429,14 +432,16 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     assert.deepEqual(lista.json.concelhos, ['Cascais', 'Sintra']);
     assert.equal(lista.json.trabalhos.length, 1);
     const item = lista.json.trabalhos[0];
-    assert.deepEqual(Object.keys(item).sort(), ['concelho', 'dias', 'horas', 'id', 'recebe', 'tipo', 'titulo']);
+    // Desde 2026-10-13 leva também a especialidade do pedido e, para o parceiro, até quando é só dele (nada do cliente).
+    assert.deepEqual(Object.keys(item).sort(), ['concelho', 'dias', 'especialidade', 'especialidade_nome', 'horas', 'id', 'prioridade_ate', 'recebe', 'tipo', 'titulo']);
+    assert.deepEqual([item.especialidade, item.especialidade_nome, item.prioridade_ate], ['geral', 'Instalação geral e quadros', null]);
     assert.deepEqual([item.id, item.concelho, item.tipo, item.titulo, item.dias], [tid, 'Sintra', 'obra', 'Obra — Apartamento T2', 1]);
     assert.ok(item.horas > 0);
     assert.deepEqual(item.recebe, { percentagem: 70, mao_obra: 1240, parte_mao_obra: 868, deslocacao: 35, total: 903, provisoria: false });
     const det = await area(sintra, 'GET', `bolsa/${tid}`);
     assert.equal(det.estado, 200);
     const t = det.json.trabalho;
-    assert.deepEqual(Object.keys(t).sort(), ['concelho', 'dias', 'horas', 'id', 'recebe', 'relatorio', 'tipo', 'titulo']);
+    assert.deepEqual(Object.keys(t).sort(), ['concelho', 'dias', 'especialidade', 'especialidade_nome', 'horas', 'id', 'prioridade_ate', 'recebe', 'relatorio', 'tipo', 'titulo']);
     assert.deepEqual(Object.keys(t.relatorio).sort(), ['acoes', 'divisoes', 'esquema_quadro', 'esquemas', 'geral', 'melhorias', 'planta', 'terra_nota']);
     assert.deepEqual(t.relatorio.geral.material, [{ artigo: t.relatorio.geral.material[0].artigo, quantidade: 10 }], 'material: só artigo e quantidade');
     // Nada do cliente, em lado nenhum das duas respostas…

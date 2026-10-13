@@ -171,6 +171,58 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     return partes;
   }
 
+  /** "terça-feira, 14 de outubro, 10:30" (hora de Lisboa) a partir de uma data ISO. */
+  const diaHora = (isoTxt) => new Date(isoTxt).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+  /**
+   * Prioridade de 24 horas (decisão do dono, 2026-10-13): enquanto dura, só os parceiros da especialidade veem o pedido
+   * na bolsa. Diz quem e até quando, e deixa o CEO abrir já a todos (dois toques). Um servidor antigo não envia
+   * `prioridade`: não aparece nada.
+   */
+  function prioridade(a) {
+    const pr = a.prioridade;
+    if (!pr) return [];
+    const nomes = (pr.parceiros ?? []).map((x) => x.nome).join("; ") || "ninguém";
+    return [h("p", { class: "msg info", id: "bolsa-prioridade", text: `Só os parceiros de ${pr.especialidade_nome ?? pr.especialidade} veem este pedido até ${diaHora(pr.ate)}: ${nomes}.` }),
+      h("div", { class: "form-botoes" }, botaoConfirmar("Abrir já a todos", "Confirmar: abrir a todos?", (b) => acao(b, { acao: "abrir_todos" }, "Aberto a todos os eletricistas do concelho, que foram avisados por email."), { classe: "btn sec pequeno" }))];
+  }
+
+  /**
+   * Técnico responsável da obra (decisão do dono, 2026-10-13): quem a assina. Se o eletricista da obra tem n.º da DGEG é
+   * ele; senão o CEO indica um dos eletricistas aprovados com habilitação. Sem técnico, a obra não se dá por concluída.
+   */
+  function tecnico(a, t) {
+    if (!t?.precisa_tecnico) return [];
+    const tec = t.tecnico;
+    const partes = [];
+    if (tec?.valido) partes.push(h("p", { id: "tecnico-responsavel" }, h("strong", { text: "Técnico responsável: " }), `${tec.nome}${tec.automatico ? " (é o eletricista da obra: tem n.º da DGEG)" : ` (indicado${tec.em ? ` em ${data(tec.em)}` : ""})`}`));
+    else if (tec) partes.push(h("p", { class: "msg erro", id: "tecnico-responsavel", text: `O técnico responsável (${tec.nome}) já não pode assinar obras: indique outro.` }));
+    else partes.push(h("p", { class: "msg erro", id: "tecnico-responsavel", text: t.eletricista ? "Esta obra ainda não tem técnico responsável: o eletricista não tem n.º da DGEG e não a pode dar por concluída enquanto não indicar quem a assina."
+      : "Esta obra ainda não tem técnico responsável: fica com quem a aceitar, se tiver n.º da DGEG, ou com quem indicar aqui." }));
+    const lista = a.tecnicos ?? [];
+    if (a.pode_tecnico) {
+      if (!lista.length) partes.push(h("p", { class: "ajuda", text: "Ainda não há eletricistas aprovados com n.º da DGEG para indicar." }));
+      else {
+        const sel = h("select", { name: "tecnico", id: "tecnico-escolha", "aria-label": "Técnico responsável" },
+          ...lista.map((x) => h("option", { value: String(x.id), text: x.nome, selected: tec?.id === x.id })));
+        partes.push(h("div", { class: "form-botoes" }, sel, h("button", { class: "btn sec pequeno", type: "button", id: "tecnico-indicar", text: tec ? "Mudar técnico responsável" : "Indicar técnico responsável",
+          onclick: (e) => indicar(e.currentTarget, Number(sel.value), sel.selectedOptions[0]?.textContent ?? "") })));
+      }
+    }
+    return partes;
+  }
+  async function indicar(b, id, nome) {
+    b.disabled = true;
+    try {
+      desenhar(await pedir(`orcamentos/${encodeURIComponent(orcamentoId)}/tecnico`, { corpo: { eletricista_id: id } }));
+      avisar(`Técnico responsável: ${nome}.`);
+      aoEscolher?.();
+    } catch (e) {
+      b.disabled = false;
+      avisar(e.message, "erro");
+    }
+  }
+
   const SELO_ESTADO = {
     concluida_eletricista: ["Concluída pelo eletricista — a aguardar confirmação do cliente", "estado-ativo"], confirmada: ["Confirmado — falta aprovar", "aviso"],
     visita_marcada: ["Visita marcada", "estado-ativo"], aceite: ["Atribuído — marcar visita", "aviso"], aprovada: ["Aprovado", "estado-ativo"], paga: ["Pago ao eletricista", "estado-ativo"],
@@ -185,7 +237,8 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     const partes = [];
     if (feito) {
       partes.push(h("p", { class: "linha-selos" }, selo(SELO_ESTADO[feito.estado]?.[0] ?? feito.estado, SELO_ESTADO[feito.estado]?.[1] ?? "info"), selo(feito.tipo === "obra" ? "Obra" : feito.tipo === "visita" ? "Visita técnica" : "Diagnóstico de avaria", "info")),
-        dados([["Eletricista", feito.eletricista ? h("a", { href: "#/eletricistas", text: feito.eletricista.nome }) : "—"]]), ...confirmacao(feito), ...pagamento(feito));
+        dados([["Eletricista", feito.eletricista ? h("a", { href: "#/eletricistas", text: feito.eletricista.nome }) : "—"],
+          ...(feito.tecnico ? [["Técnico responsável", feito.tecnico.nome]] : [])]), ...confirmacao(feito), ...pagamento(feito));
       if (a.pode) partes.push(h("h4", { text: `Novo trabalho: ${a.tipo_nome}` }));
     }
     if (!t && !a.pode) { if (!feito) partes.push(h("p", { class: "ajuda", id: "eletricista-motivo", text: a.motivo ?? "Este pedido não se pode atribuir agora." })); }
@@ -210,12 +263,14 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
           : `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem 48 h para marcar a visita.` }));
     } else if (t.estado === "na_bolsa") {
       partes.push(
-        h("p", { class: "linha-selos" }, selo(t.so_para ? "Proposta pedida a um eletricista" : "Na bolsa", "aviso"), selo(a.concelho, "info")),
+        h("p", { class: "linha-selos" }, selo(t.so_para ? "Proposta pedida a um eletricista" : "Na bolsa", "aviso"), selo(a.concelho, "info"), t.especialidade_nome ? selo(t.especialidade_nome, "info") : null),
+        ...prioridade(a),
         h("p", { id: "bolsa-estado", text: t.so_para
           ? `Proposta pedida só a ${t.so_para.nome ?? "um eletricista"}: ${(a.propostas ?? []).some((x) => x.eletricista?.id === t.so_para.id && x.estado !== "retirada") ? "já a enviou, pode escolhê-la abaixo" : "ainda não a enviou"}. Os outros eletricistas não veem este pedido. Para o abrir a todos, retire-o e ponha-o na bolsa.`
           : t.por_proposta
           ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
           : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
+        ...tecnico(a, t),
         h("div", { class: "form-botoes" }, botaoConfirmar(t.so_para ? "Retirar o pedido de proposta" : "Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, t.so_para ? "Pedido de proposta retirado." : "Retirado da bolsa."))));
     } else {
       const r = t.recebe;
@@ -231,6 +286,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
           ["Visita", t.espera_cliente ? "Só depois de o cliente aceitar a proposta: aí a obra fica com ele e tem 48 h para marcar"
             : t.visita ? visitaTxt(t.visita) : `Por marcar${t.prazo ? ` — até ${data(t.prazo)}; depois ${t.modo === "bolsa" ? "volta à bolsa" : "volta a ficar por atribuir"}` : ""}`],
         ]),
+        ...tecnico(a, t),
         ...confirmacao(t),
         ...fichaDeObra(t),
         h("div", { class: "form-botoes" }, botaoConfirmar("Retirar atribuição", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, "Atribuição retirada: o eletricista deixa de ver o cliente."))));

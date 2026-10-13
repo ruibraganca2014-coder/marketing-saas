@@ -29,7 +29,7 @@ import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
 import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO, ROTA_ELETRICISTA } from './acesso-rapido.js';
-import { criarEletricistas, CAMINHO_API as API_ELETRICISTA } from './eletricistas.js';
+import { criarEletricistas, CAMINHO_API as API_ELETRICISTA, ESPECIALIDADES, especialidadeSugerida } from './eletricistas.js';
 import { criarCrm, ENTRADAS } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
@@ -179,6 +179,10 @@ export const ROTAS = [
   ['GET', 'eletricistas/:id/seguro', ['ceo'], 'seguroEletricista'],
   ['GET', 'orcamentos/:id/eletricista', ['ceo'], 'atribuicaoEletricista'],
   ['POST', 'orcamentos/:id/eletricista', ['ceo'], 'atribuirEletricista'],
+  // Decisões de 2026-10-13 (migração 52): a especialidade do pedido (muda-se até haver proposta aceite; na bolsa, recalcula
+  // a prioridade dos parceiros) e o técnico responsável da obra (um eletricista aprovado com n.º da DGEG).
+  ['POST', 'orcamentos/:id/especialidade', ['ceo'], 'mudarEspecialidade'],              // {especialidade}
+  ['POST', 'orcamentos/:id/tecnico', ['ceo'], 'indicarTecnico'],                        // {eletricista_id}
   // Trabalho a mais (migração 47): o CEO põe o preço e envia ao cliente, ou não avança (com o motivo).
   ['POST', 'orcamentos/:id/extras/:extra/enviar', ['ceo'], 'enviarExtra'],              // {mao_obra, material} — € sem IVA
   ['POST', 'orcamentos/:id/extras/:extra/nao-avancar', ['ceo'], 'naoAvancarExtra'],     // {motivo}
@@ -227,7 +231,7 @@ export const ROTAS = [
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda']);
+  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda', 'indicarTecnico']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -386,6 +390,14 @@ export function criarApi(ctx) {
     const semFotoQuadro = chaves.includes('foto_quadro') && !db.prepare("SELECT 1 FROM fotos WHERE orcamento_id = ? AND chave = 'quadro'").get(o.id);
     return chaves.map((k) => (k === 'foto_quadro' && semFotoQuadro ? { chave: k, texto: SEM_FOTO_QUADRO, em_falta: true } : { chave: k, texto: PONTOS_VALIDACAO[k] }));
   }
+  /** A especialidade sugerida pelo programa para este pedido (eletricistas.js especialidadeSugerida): pela simulação; sem ela, "geral". */
+  function especialidadeSugeridaDe(o) {
+    let s = null;
+    if (o.simulacao) { try { s = JSON.parse(o.simulacao); } catch { s = null; } }
+    return especialidadeSugerida(s);
+  }
+  /** A especialidade muda-se enquanto o pedido não tiver proposta aceite (nem estiver perdido ou arquivado). */
+  const podeMudarEspecialidade = (o) => ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.anonimizado;
   function formatarOrcamento(o, completo = false) {
     const r = {
       id: o.id, criado: o.criado, atualizado: o.atualizado, origem: o.origem, nome: o.nome, telefone: o.telefone,
@@ -398,6 +410,9 @@ export function criarApi(ctx) {
       lista_espera: o.lista_espera === 1,   // recebido enquanto as obras não começam (web/config.js listaEspera)
       // Validação do CEO (migração 44): por_validar | validado | devolvido, a nota da devolução e os pontos a verificar.
       validacao: { estado: o.validacao ?? 'por_validar', nota: o.validacao_nota ?? null, por: o.validacao_por ?? null, em: o.validacao_em ?? null, pontos: pontosValidacao(o) },
+      // Especialidade (migração 52): a que o CEO confirmou ao validar (null = por confirmar) e a que o programa sugere
+      // pelo que o cliente pediu; `pode_mudar_especialidade`: até haver proposta aceite.
+      especialidade: o.especialidade ?? null, especialidade_sugerida: especialidadeSugeridaDe(o), pode_mudar_especialidade: podeMudarEspecialidade(o),
       n_fotos: fotos.contar(o.id),
       // Conta de cliente do pedido (null nos pedidos sem conta, ex. os antigos e o formulário do site).
       conta: contas.resumoParaPainel(o.conta_id),
@@ -742,6 +757,10 @@ export function criarApi(ctx) {
           idas_perdidas: eletricistas.idasPorConfirmar(),
           idas_perdidas_pedido: db.prepare("SELECT orcamento_id FROM idas_perdidas WHERE estado = 'proposta' ORDER BY id LIMIT 1").get()?.orcamento_id ?? null,
         });
+        // Obras nas mãos de um eletricista sem técnico responsável (decisão do dono, 2026-10-13): não se dão por
+        // concluídas enquanto o CEO não o indicar; e o pedido da mais antiga.
+        const semTecnico = eletricistas.obrasSemTecnico();
+        Object.assign(r.tratar, { sem_tecnico: semTecnico.n, sem_tecnico_pedido: semTecnico.pedido });
       }
       r.visitas_semana = db.prepare(`SELECT id, nome, localidade, data_visita FROM orcamentos
         WHERE estado = 'visita_marcada' AND substr(data_visita, 1, 10) BETWEEN ? AND ? ORDER BY data_visita LIMIT 50`).all(inicio, fim);
@@ -2183,7 +2202,7 @@ export function criarApi(ctx) {
   h.eletricista = ({ res, params }) => responder(res, 200, { eletricista: eletricistas.paraPainel(eletricistas.obter(params.id)) });
 
   h.atualizarEletricista = async ({ req, res, u, params, ip }) => {
-    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem', 'ativa_sem_aprovacao']);
+    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem', 'ativa_sem_aprovacao', 'especialidades']);
     const e = eletricistas.atualizar(params.id, v, u, ip);
     responder(res, 200, { eletricista: eletricistas.paraPainel(e), ...eletricistas.listar() });
   };
@@ -2245,9 +2264,11 @@ export function criarApi(ctx) {
 
   // "Validar" (só o CEO): todos os pontos da lista marcados; com `bolsa`, o pedido vai logo para a bolsa dos eletricistas.
   h.validarPedido = async ({ req, res, u, params, ip }) => {
-    const v = await lerJson(req, ['pontos', 'bolsa']);
+    const v = await lerJson(req, ['pontos', 'bolsa', 'especialidade']);
     const o = naoArquivado(obterOrcamento(params.id));
     if (o.validacao === 'validado') throw new ErroApi(409, 'Este pedido já está validado.');
+    // A especialidade confirma-se ao validar (decisão do dono, 2026-10-13): a que o CEO escolheu; se não vier, a sugerida.
+    const especialidade = opcao(v.especialidade, 'especialidade', Object.keys(ESPECIALIDADES), { obrigatorio: false }) ?? especialidadeSugeridaDe(o);
     const marcados = v.pontos && typeof v.pontos === 'object' && !Array.isArray(v.pontos) ? v.pontos : {};
     const pontos = pontosValidacao(o);
     // Sem foto do quadro não há o que verificar: recusa mesmo que o pedido da API traga o ponto marcado.
@@ -2255,8 +2276,8 @@ export function criarApi(ctx) {
     const falta = pontos.filter((p) => marcados[p.chave] !== true);
     if (falta.length) falha(`Falta verificar: ${falta.map((p) => p.texto).join(' ')}`);
     const agora = agoraIso();
-    db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = NULL, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(u.email, agora, agora, o.id);
-    auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontos.map((p) => p.chave), bolsa: v.bolsa === true }, ip);
+    db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = NULL, validacao_por = ?, validacao_em = ?, especialidade = ?, atualizado = ? WHERE id = ?").run(u.email, agora, especialidade, agora, o.id);
+    auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontos.map((p) => p.chave), bolsa: v.bolsa === true, especialidade }, ip);
     // A validação fica feita mesmo que a bolsa não o aceite (ex.: falta pagar a visita): o painel diz porquê (`aviso`).
     let aviso = null;
     if (v.bolsa === true) {
@@ -2291,6 +2312,27 @@ export function criarApi(ctx) {
     responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
   };
 
+  // Mudar a especialidade do pedido (só o CEO; decisão do dono, 2026-10-13): enquanto não houver proposta aceite. Com o
+  // pedido na bolsa a prioridade dos parceiros é calculada de novo (eletricistas.js aoMudarEspecialidade).
+  h.mudarEspecialidade = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['especialidade']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    const especialidade = opcao(v.especialidade, 'especialidade', Object.keys(ESPECIALIDADES));
+    if (!podeMudarEspecialidade(o)) throw new ErroApi(409, 'A especialidade só se muda enquanto o pedido não tem proposta aceite.');
+    db.prepare('UPDATE orcamentos SET especialidade = ?, atualizado = ? WHERE id = ?').run(especialidade, agoraIso(), o.id);
+    auditar(u, 'pedido_especialidade', `orcamento:${o.id}`, { especialidade, antes: o.especialidade ?? null }, ip);
+    if (config.eletricistas) eletricistas.aoMudarEspecialidade(obterOrcamento(params.id));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+  };
+
+  // Indicar o técnico responsável da obra (só o CEO; decisão do dono, 2026-10-13): um eletricista aprovado com n.º da DGEG.
+  h.indicarTecnico = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['eletricista_id']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    eletricistas.indicarTecnico(o, v.eletricista_id, u, ip);
+    responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
+  };
+
   h.atribuicaoEletricista = ({ res, params }) => responder(res, 200, eletricistas.atribuicao(obterOrcamento(params.id)));
 
   // "Atribuir a…" (eletricista aprovado, com o concelho do pedido), "Pôr na bolsa" ou "Retirar" (em qualquer altura).
@@ -2298,12 +2340,14 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['acao', 'eletricista_id', 'motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
     // 'escolher' (propostas na bolsa, decisão do dono, 2026-10-10): só existe com PROPOSTAS_BOLSA ligado.
-    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito', ...(config.propostasBolsa ? ['escolher'] : [])]);
+    const acao = opcao(v.acao, 'ação', ['atribuir', 'bolsa', 'retirar', 'aprovar', 'devolver', 'defeito', 'sem_defeito', 'abrir_todos', ...(config.propostasBolsa ? ['escolher'] : [])]);
     // Só um pedido validado pelo CEO vai para um eletricista ou para a bolsa (decisão do dono, 2026-10-10).
     if (config.validacaoCeo && (acao === 'atribuir' || acao === 'bolsa') && o.validacao !== 'validado') throw new ErroApi(409, 'Valide primeiro o pedido (lista de verificação) antes de o pôr na bolsa ou de o atribuir.');
     if (acao === 'atribuir') eletricistas.atribuir(o, v.eletricista_id, u, ip);
     else if (acao === 'bolsa') eletricistas.porNaBolsa(o, u, ip);
     else if (acao === 'retirar') eletricistas.retirar(o, u, ip);
+    // "Abrir já a todos" (decisão do dono, 2026-10-13): acaba a prioridade de 24 horas dos parceiros da especialidade.
+    else if (acao === 'abrir_todos') eletricistas.abrirATodos(o, u, ip);
     // "Escolher" uma das propostas da bolsa: o trabalho passa para esse eletricista e os outros ficam de reserva.
     else if (acao === 'escolher') eletricistas.escolher(o, v.eletricista_id, u, ip);
     // Ronda 3: aprovar o trabalho confirmado pelo cliente, devolvê-lo ao eletricista (com o motivo) ou decidir o "Não"

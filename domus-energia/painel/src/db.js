@@ -1147,6 +1147,31 @@ export const MIGRACOES = [
   // lista de espera (antes era o navegador que o dizia, por web/config.js). Sem linha vale o valor por omissão
   // (config.js: LISTA_ESPERA e LISTA_ESPERA_ARRANQUE).
   (db) => db.exec('CREATE TABLE definicoes (chave TEXT PRIMARY KEY, valor TEXT NOT NULL, atualizado TEXT NOT NULL, por TEXT);'),
+  // 52: três regras da bolsa (decisões do dono, 2026-10-13; docs/ELETRICISTAS.md "Especialidades e prioridade" e "Técnico
+  // responsável").
+  // ESPECIALIDADES (geral, domotica, solar, redes): `eletricistas.especialidades` = JSON com as chaves de que o
+  // eletricista é PARCEIRO (só o CEO as define; NULL ou "[]" = eletricista de fora, tudo como antes);
+  // `orcamentos.especialidade` = a que o CEO confirmou ao validar (NULL = por confirmar: vale a sugerida pelo programa);
+  // no trabalho, `especialidade` é a cópia de quando foi para a bolsa e `prioridade_ate` (ms, como `aceite_em`) é até
+  // quando só os parceiros dessa especialidade o veem (NULL = aberto a todos os do concelho).
+  // TÉCNICO RESPONSÁVEL: `tecnico_id` = o eletricista aprovado com n.º da DGEG que assina a obra (o próprio executante,
+  // se o tiver; senão o que o CEO indicar), `tecnico_por` quem o indicou ("sistema" = automático) e `tecnico_em` quando.
+  // Sem chave estrangeira, como `so_para`. As obras que já existiam com um eletricista habilitado ficam com ele.
+  // N.º DA DGEG OPCIONAL: a coluna `eletricistas.dgeg` é NOT NULL desde a migração 27; em vez de recriar a tabela (com
+  // as chaves estrangeiras de sete tabelas a apontar para ela), quem não tem habilitação fica com o texto vazio — é o
+  // que a linha anonimizada (RGPD) já guardava. Nenhum dado existente muda.
+  (db) => db.exec(`
+    ALTER TABLE eletricistas ADD COLUMN especialidades TEXT;
+    ALTER TABLE orcamentos ADD COLUMN especialidade TEXT CHECK (especialidade IS NULL OR especialidade IN ('geral', 'domotica', 'solar', 'redes'));
+    ALTER TABLE trabalhos_eletricista ADD COLUMN especialidade TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN prioridade_ate INTEGER;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN tecnico_id INTEGER;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN tecnico_por TEXT;
+    ALTER TABLE trabalhos_eletricista ADD COLUMN tecnico_em TEXT;
+    UPDATE trabalhos_eletricista SET tecnico_id = eletricista_id, tecnico_por = 'sistema', tecnico_em = atualizado
+      WHERE tipo = 'obra' AND estado != 'retirado' AND eletricista_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM eletricistas e WHERE e.id = trabalhos_eletricista.eletricista_id AND trim(e.dgeg) != '');
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

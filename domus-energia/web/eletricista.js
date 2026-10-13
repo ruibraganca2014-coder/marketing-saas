@@ -15,7 +15,11 @@
 // que as rotas já devolvem (trabalhos, a ficha dos que estão em curso, bolsa e pagamentos) — e a ficha segue a ordem
 // do trabalho em seis passos (cliente e visita, fotos de antes, trabalho, ensaios, fotos de depois, concluir), com um
 // visto nos que já estão feitos e o passo seguinte em destaque. Só muda o aspeto: as regras continuam no servidor.
-// Rotas no endereço: #/inicio, #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
+// Decisões do dono de 2026-10-13: na bolsa, o nome da especialidade do pedido e, para o parceiro que o vê primeiro, o
+// selo "Da sua especialidade · só para si até <dia, hora>"; na ficha da obra, quem é o técnico responsável (sem ele não
+// se dá por concluída); e "Obras que assino" — as obras de que é o técnico responsável sem ser quem as faz, só para
+// leitura. Um servidor mais antigo não envia estes campos nem tem a rota: nada disto aparece e o resto fica igual.
+// Rotas no endereço: #/inicio, #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/assino/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
 import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
@@ -160,7 +164,7 @@ function entrou(e) {
 // ---------------------------------------------------------------- rotas
 function rota() {
   const [aba, id] = location.hash.replace(/^#\/?/, "").split("/");
-  return { aba: ["bolsa", "trabalhos", "pagamentos", "ajuda"].includes(aba) ? aba : "inicio", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
+  return { aba: ["bolsa", "trabalhos", "assino", "pagamentos", "ajuda"].includes(aba) ? aba : "inicio", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
 }
 const ir = (c) => { if (location.hash === `#/${c}`) encaminhar(); else location.hash = `#/${c}`; };
 window.addEventListener("hashchange", () => { if (eu) encaminhar(); });
@@ -171,11 +175,12 @@ async function encaminhar() {
   const { aba, id } = rota();
   const minha = ++geracao;
   pararContagem();
-  for (const b of document.querySelectorAll(".app-abas [data-aba]")) b.setAttribute("aria-selected", String(b.dataset.aba === aba));
+  // "Obras que assino" vive dentro de "Os meus trabalhos" (não tem separador próprio).
+  for (const b of document.querySelectorAll(".app-abas [data-aba]")) b.setAttribute("aria-selected", String(b.dataset.aba === (aba === "assino" ? "trabalhos" : aba)));
   const vista = $("el-vista");
   vista.replaceChildren(el("p", "vazio", "A carregar…"));
   try {
-    const partes = aba === "inicio" ? await inicio() : aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
+    const partes = aba === "inicio" ? await inicio() : aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : aba === "assino" && id ? await obraAssino(id) : (id ? await ficha(id) : await trabalhosLista());
     if (minha !== geracao) return;
     vista.replaceChildren(...partes);
     $("conteudo").scrollTo?.(0, 0);
@@ -199,6 +204,13 @@ function botaoVoltar(texto, destino) {
   return b;
 }
 const selo = (t, tipo = "") => el("span", `selo ${tipo}`.trim(), t);
+/** "terça-feira, 14/10, 10:30" (hora de Lisboa) a partir de uma data ISO; "" se não for uma data. */
+const diaHoraTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+// Especialidade do pedido e prioridade do parceiro (decisão do dono, 2026-10-13). Um servidor antigo não envia
+// `especialidade_nome` nem `prioridade_ate`: não aparece selo nenhum.
+const seloEspecialidade = (t) => (t.especialidade_nome ? selo(t.especialidade_nome) : null);
+const textoPrioridade = (ate) => (ate && diaHoraTxt(ate) ? `Da sua especialidade · só para si até ${diaHoraTxt(ate)}` : null);
+const seloPrioridade = (t) => (textoPrioridade(t.prioridade_ate) ? selo(textoPrioridade(t.prioridade_ate), "bom") : null);
 const duracaoTxt = (t) => [t.horas ? `cerca de ${decimal(Math.round(t.horas * 10) / 10)} h` : null, t.dias ? `${t.dias} ${t.dias === 1 ? "dia" : "dias"}` : null].filter(Boolean).join(" · ");
 function contadores(nBolsa, nTrab) {
   const mostrar = (id, n) => { const c = $(id); c.hidden = !n; c.textContent = n ? String(n) : ""; };
@@ -217,6 +229,7 @@ const FALTA = [
   ["uma foto de antes", "antes", "fotos de antes"], ["uma foto de depois", "depois", "fotos de depois"], ["ensaio:", "ensaios", "ensaios"],
   ["a conclusão do diagnóstico", "trabalho", "diagnóstico"], ["a resposta ao trabalho a mais", "trabalho", "resposta ao trabalho a mais"],
   ["a resposta à ida perdida", "trabalho", "resposta à visita perdida"],
+  ["o técnico responsável", null, "técnico responsável (a Domus Energia indica)"],
 ];
 const faltaDe = (frase) => FALTA.find(([comeco]) => frase.startsWith(comeco)) ?? null;
 const faltaCurta = (falta) => [...new Set(falta.map((f) => { const x = faltaDe(f); return x ? x[2] : f; }).filter(Boolean))].join(", ");
@@ -240,7 +253,7 @@ function tarefa({ id, tipo = "", rotulo, grande, linhas = [], botao, ir: destino
 const forte = (t) => el("strong", "num", t);
 
 async function inicio() {
-  const [rt, rb, rp] = await Promise.all([pedir("trabalhos"), pedir("bolsa"), pedir("pagamentos")]);
+  const [rt, rb, rp, assino] = await Promise.all([pedir("trabalhos"), pedir("bolsa"), pedir("pagamentos"), obrasQueAssino()]);
   contadores(rb.trabalhos.length, rt.trabalhos.filter((t) => t.estado === "aceite" && t.aberto && !t.espera_cliente).length);
   // A lista dos trabalhos não traz a morada, o que falta nem o que está à espera de resposta: vêm da ficha de cada
   // trabalho em curso (são poucos). Se uma ficha falhar, o cartão aparece na mesma, só com o que a lista diz.
@@ -298,8 +311,15 @@ async function inicio() {
     grande: forte(x.valor ? euro(x.valor.total) : "—"), linhas: [`${x.titulo} · ${x.concelho}`], botao: "Enviar a fatura-recibo", ir: () => { focoPagamento = sufixo(x); ir("pagamentos"); } }));
   // Na bolsa conta o que ainda pede uma resposta dele: os pedidos em que já enviou proposta ficam de fora.
   const novos = rb.trabalhos.filter((t) => !t.proposta_enviada).length;
+  // Parceiro: os pedidos da sua especialidade que só ele vê, para já (o prazo que acaba primeiro).
+  const primeiro = rb.trabalhos.filter((t) => !t.proposta_enviada && t.prioridade_ate).map((t) => t.prioridade_ate).sort()[0];
+  const soParaSi = textoPrioridade(primeiro);
   const bolsa = novos ? [tarefa({ id: "inicio-bolsa", rotulo: "Bolsa", grande: [forte(String(novos)), novos === 1 ? " pedido novo na bolsa" : " pedidos novos na bolsa"],
-    linhas: [`Em ${rb.concelhos.join(", ")}.`], botao: "Ver a bolsa", ir: "bolsa" })] : [];
+    linhas: [`Em ${rb.concelhos.join(", ")}.`, soParaSi ? com(el("span"), selo(soParaSi, "bom")) : null], botao: "Ver a bolsa", ir: "bolsa" })] : [];
+  // As obras de que é o técnico responsável sem ser quem as faz (só para leitura): um cartão discreto por cada uma em curso.
+  for (const o of assino.filter((x) => x.aberto)) {
+    grupos.espera.push(tarefa({ id: `inicio-assino-${o.id}`, tipo: "discreta", grande: "É o técnico responsável desta obra", linhas: [`${o.titulo} · ${o.concelho}`], ir: `assino/${o.id}` }));
+  }
   const cartoes = [...porOrdem(grupos.hoje), ...porOrdem(grupos.amanha), ...grupos.concluir, ...porOrdem(grupos.marcar), ...grupos.devolvido, ...grupos.espera, ...faturas, ...bolsa];
   const data = new Date().toLocaleDateString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "numeric", month: "long" });
   const out = [el("h2", null, "O que tenho para fazer hoje"), el("p", "suave", `${data[0].toUpperCase()}${data.slice(1)}`)];
@@ -343,11 +363,11 @@ async function bolsaLista() {
   for (const t of r.trabalhos) {
     // Por proposta: não há valor nem "aceitar" — diz-se se a proposta já foi enviada.
     const b = t.por_proposta
-      ? com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo("Pedido com planta", "aviso"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+      ? com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo("Pedido com planta", "aviso"), seloEspecialidade(t), seloPrioridade(t), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
         el("h3", null, t.titulo),
         el("span", null, t.proposta_enviada ? "A Domus Energia escolhe o eletricista e avisa por email." : "Veja o relatório e as fotos e envie a sua proposta."),
         el("span", "pequeno suave", "Nome e morada do cliente só depois de o cliente aceitar a proposta."))
-      : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso")),
+      : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso"), seloEspecialidade(t), seloPrioridade(t)),
         el("h3", null, t.titulo),
         com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar")),
         duracaoTxt(t) ? el("span", "pequeno suave", `Duração: ${duracaoTxt(t)}`) : null,
@@ -385,7 +405,7 @@ async function bolsaDetalhe(id) {
   });
   return [
     botaoVoltar("Bolsa", "bolsa"),
-    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo)),
+    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEspecialidade(t), seloPrioridade(t)),
     el("h2", null, t.titulo),
     duracaoTxt(t) ? el("p", "pequeno", `Duração estimada: ${duracaoTxt(t)}.`) : null,
     cartaoRecebe(t),
@@ -403,7 +423,7 @@ function detalhePorProposta(t) {
   const pct = t.recebe?.percentagem ?? eu?.percentagem;
   return [
     botaoVoltar("Bolsa", "bolsa"),
-    com(el("div", "selos"), selo(t.concelho), selo("Pedido com planta"), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
+    com(el("div", "selos"), selo(t.concelho), selo("Pedido com planta"), seloEspecialidade(t), seloPrioridade(t), t.proposta_enviada ? selo("Proposta enviada", "bom") : null),
     el("h2", null, t.titulo),
     com(el("div", "cartao pilha"), el("p", "rotulo", "Como funciona"),
       el("p", null, "Envie a sua proposta: as horas de trabalho, o material e quando pode ir. A Domus Energia compara as propostas e escolhe o eletricista."),
@@ -537,12 +557,12 @@ function blocoRelatorio(rel, titulo, extra = []) {
 
 // ---------------------------------------------------------------- Os meus trabalhos
 async function trabalhosLista() {
-  const r = await pedir("trabalhos");
+  const [r, assino] = await Promise.all([pedir("trabalhos"), obrasQueAssino()]);
   contadores(null, r.trabalhos.filter((t) => t.estado === "aceite" && t.aberto && !t.espera_cliente).length);
   const out = [el("h2", null, "Os meus trabalhos")];
   if (!r.trabalhos.length) {
     out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos em curso."), el("p", "suave pequeno", r.propostas_bolsa ? "Os trabalhos em que for escolhido (ou que aceitar) aparecem aqui." : "Os trabalhos que aceitar na Bolsa aparecem aqui.")));
-    return out;
+    return [...out, ...cartoesAssino(assino)];
   }
   for (const t of r.trabalhos) {
     const b = com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), seloEstado(t)), el("h3", null, t.titulo));
@@ -554,6 +574,80 @@ async function trabalhosLista() {
     b.addEventListener("click", () => ir(`trabalhos/${t.id}`));
     out.push(b);
   }
+  return [...out, ...cartoesAssino(assino)];
+}
+
+// ---------------------------------------------------------------- Obras que assino (técnico responsável; decisão do dono, 2026-10-13)
+// As obras de que este eletricista é o técnico responsável sem ser quem as faz: só para leitura (planta, relatório
+// técnico, fotos e ensaios). Não tem valores nem pagamentos: quem recebe pela obra é quem a faz.
+/** A lista do servidor; vazia se o servidor ainda não a tiver (não diz `obras_assino` ao entrar) ou se falhar — nunca estraga o resto do ecrã. */
+async function obrasQueAssino() {
+  if (eu?.obras_assino !== true) return [];
+  try { const r = await pedir("obras-assino"); return Array.isArray(r?.obras) ? r.obras : []; } catch (e) { if (e?.estado === 401) throw e; return []; }
+}
+const ESTADO_ASSINO = { aceite: "Visita por marcar", visita_marcada: "Em curso", concluida_eletricista: "Concluída: a aguardar o cliente", confirmada: "Confirmada pelo cliente", aprovada: "Aprovada", paga: "Aprovada" };
+const seloAssino = (o) => (!o.aberto ? selo("Fechada") : selo(ESTADO_ASSINO[o.estado] ?? o.estado, o.estado === "visita_marcada" || o.estado === "aceite" ? "aviso" : "bom"));
+function cartoesAssino(obras) {
+  if (!obras.length) return [];
+  const out = [el("h2", null, "Obras que assino"), el("p", "suave pequeno", "É o técnico responsável destas obras: quem as faz é outro eletricista. Aqui só se vê; não se altera nada.")];
+  for (const o of obras) {
+    const b = com(el("button", "cartao trab"), com(el("span", "selos"), selo(o.concelho), seloAssino(o)), el("h3", null, o.titulo),
+      o.executante?.nome ? el("span", "pequeno", `Quem faz a obra: ${o.executante.nome}`) : null,
+      o.visita ? el("span", "pequeno", `Visita: ${visitaTxt(o.visita)}`) : null);
+    b.type = "button";
+    b.id = `obra-assino-${o.id}`;
+    b.addEventListener("click", () => ir(`assino/${o.id}`));
+    out.push(b);
+  }
+  return out;
+}
+const NOME_ENSAIO_ASSINO = [["continuidade_pe", "Continuidade do PE", "Ω"], ["isolamento", "Resistência de isolamento", "MΩ"], ["terra", "Resistência de terra", "Ω"], ["diferencial", "Disparo do diferencial", "ms"]];
+async function obraAssino(id) {
+  const o = (await pedir(`obras-assino/${id}`)).obra;
+  const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(o.concelho), selo("Obra"), seloEspecialidade(o), seloAssino(o)), el("h2", null, o.titulo),
+    el("p", "nota calma", "É o técnico responsável desta obra: é quem a assina. Aqui só se vê; quem a faz e a dá por concluída é o eletricista da obra.")];
+  const quem = com(el("div", "cartao pilha"), el("h3", null, "A obra"));
+  quem.id = "assino-obra";
+  if (o.executante?.nome) quem.append(com(el("p"), "Quem faz a obra: ", el("b", null, o.executante.nome)));
+  if (o.cliente) quem.append(com(el("p"), "Cliente: ", el("b", null, o.cliente.nome ?? "—")), el("p", "pequeno", [o.cliente.morada, o.cliente.localidade].filter(Boolean).join(", ") || o.concelho));
+  quem.append(el("p", "pequeno", o.visita ? `Visita: ${visitaTxt(o.visita)}` : "Visita ainda por marcar."));
+  if (o.concluida) quem.append(el("p", "pequeno", `Dada por concluída em ${dataLonga(o.concluida)}.`));
+  out.push(quem);
+  if (!o.aberto) { out.push(el("p", "nota", "Esta obra já está fechada: o relatório, as fotos e os dados do cliente deixaram de estar disponíveis.")); return out; }
+  // Ensaios medidos por quem fez a obra (os que estão fora do limite vêm assinalados, com a nota).
+  const e = o.ensaios ?? {};
+  const medidos = NOME_ENSAIO_ASSINO.filter(([k]) => e[k] !== null && e[k] !== undefined);
+  const ens = com(el("div", "cartao pilha"), el("h3", null, "Ensaios"));
+  ens.id = "assino-ensaios";
+  if (!medidos.length) ens.append(el("p", "suave", "Ainda sem ensaios registados."));
+  else ens.append(com(el("ul", "lista-mat"), medidos.map(([k, nome, un]) => com(el("li"), el("span", null, nome), com(el("span", "qt"), `${decimal(e[k])} ${un} `, (e.fora ?? []).includes(k) ? selo("Fora do limite", "mau") : null)))));
+  if (e.notas) ens.append(el("p", "pequeno", `Nota: ${e.notas}`));
+  out.push(ens);
+  // Fotos de antes e de depois.
+  const fotos = o.fotos ?? [];
+  const cf = com(el("div", "cartao pilha"), el("h3", null, "Fotos da obra"));
+  cf.id = "assino-fotos";
+  if (!fotos.length) cf.append(el("p", "suave", "Ainda sem fotos."));
+  else {
+    const grelha = el("div", "fotos-grelha");
+    for (const f of fotos) {
+      const img = el("img");
+      img.src = urlServidor(f.url);
+      img.alt = f.grupo_nome ?? "Foto da obra";
+      img.loading = "lazy";
+      if (base) img.crossOrigin = "use-credentials";
+      const a = com(el("a"), img);
+      a.href = urlServidor(f.url);
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.title = "Abrir a foto inteira";
+      grelha.append(com(el("figure", "mini-foto"), a, el("figcaption", "pequeno suave", f.grupo_nome ?? "")));
+    }
+    cf.append(grelha);
+  }
+  out.push(cf);
+  const mat = o.material ?? [];
+  out.push(blocoRelatorio(o.relatorio, "Relatório técnico (sem preços)", mat.length ? [el("h4", null, "Material da obra"), listaMaterial(mat, "nome")] : []));
   return out;
 }
 const seloEstado = (t) => (t.estado === "paga" ? selo("Pago", "bom") : t.estado === "aprovada" ? selo("Aprovado", "bom") : !t.aberto ? selo("Fechado")
@@ -1520,11 +1614,19 @@ function parteFim(t, irPasso) {
     ? com(el("div", "nota pilha"), el("b", null, "Falta:"), com(el("ul", "lista-falta"), falta.map(linhaFalta)), visitaPorVir ? el("p", "pequeno", "Se já fez o trabalho, mude primeiro a data da visita.") : null)
     : el("p", "nota calma", "Tudo preenchido. A seguir, o cliente confirma na conta dele.");
   estado.id = "falta-fechar";
+  // Técnico responsável (decisão do dono, 2026-10-13; só nas obras, e só se o servidor o disser): quem assina a obra.
+  // Sem ele não se conclui, e não é coisa que o eletricista resolva: é a Domus Energia que o indica.
+  const tec = t.tecnico ?? null;
+  const tecnico = !tec ? null : tec.indicado
+    ? el("p", "pequeno", tec.proprio ? "Técnico responsável: é você (tem n.º de habilitação na DGEG)." : `Técnico responsável: ${tec.nome ?? "indicado pela Domus Energia"}.`)
+    : el("p", "nota", "Esta obra ainda não tem técnico responsável: a Domus Energia tem de o indicar antes de a dar por concluída.");
+  if (tecnico) tecnico.id = "tecnico-responsavel";
   const largar = botaoLargar(t);
   // Visita de orçamento sem custo (pagamentos online desligados): não se "conclui" — fecha quando a Domus envia a proposta.
   const gratis = t.recebe?.gratis === true;
   return com(el("div", "pilha fecho"),
     gratis ? el("p", "nota calma", "Visita de orçamento: fecha sozinha quando a Domus Energia enviar a proposta ao cliente. Não precisa de fotos nem de ensaios.") : estado,
+    gratis ? null : tecnico,
     gratis ? null : concluir,
     el("p", "pequeno suave", "Largar o trabalho devolve-o à Domus Energia (ou à bolsa) e fica registado: quem larga um trabalho não é pago por ele."),
     largar);

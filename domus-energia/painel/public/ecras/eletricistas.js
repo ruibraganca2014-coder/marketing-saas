@@ -13,11 +13,15 @@ const semAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "
 const pctTxt = (v) => String(v).replace(".", ",");
 const mb = (b) => (b < 104858 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace(".", ",")} MB`);   // abaixo de 0,1 MB dizia "0,0 MB"
 const ESTADOS_TRABALHO = { aceite: "por marcar a visita", visita_marcada: "com visita marcada", concluida_eletricista: "concluído, a aguardar o cliente" };
+// Especialidades (decisão do dono, 2026-10-13): os nomes vêm do servidor; estes valem enquanto ele não os enviar.
+const ESPECIALIDADES = { geral: "Instalação geral e quadros", domotica: "Domótica e automação", solar: "Solar e carregadores de carro", redes: "Redes, telecomunicações e segurança" };
+const SEM_DGEG = "Sem habilitação: não pode assinar obras";
 
 export default function eletricistas(el) {
   const ctrl = new AbortController();
   let todos = [];
   let omissao = 70;
+  let especialidades = ESPECIALIDADES;
   const zona = h("div", {}, carregando());
   const entradaOmissao = h("input", { name: "eletricista_pct", type: "text", inputmode: "decimal", maxlength: "5", id: "pct-omissao", "aria-label": "Percentagem da mão de obra por omissão" });
   el.append(h("div", { class: "ecra-topo" }, h("h1", { text: "Eletricistas" })),
@@ -30,6 +34,8 @@ export default function eletricistas(el) {
   function receber(r) {
     todos = lista(r, "eletricistas");
     omissao = numero(campo(r, "percentagem_omissao")) ?? omissao;
+    const nomes = campo(r, "especialidades");
+    if (nomes && typeof nomes === "object" && !Array.isArray(nomes)) especialidades = nomes;
     entradaOmissao.value = pctTxt(omissao);
     desenhar();
   }
@@ -78,12 +84,15 @@ export default function eletricistas(el) {
       ? `${e.nome}: ativa aparelhos sem esperar pela sua aprovação.` : `${e.nome}: as ativações passam a esperar pela sua aprovação.`));
     return h("label", { class: "caixa" }, i, "Ativa aparelhos sem aprovação");
   }
+  /** As especialidades de que o eletricista é parceiro (lista vazia = eletricista de fora; um servidor antigo não as envia). */
+  const parceiroDe = (e) => (Array.isArray(e.especialidades) ? e.especialidades : []);
   const documento = (e) => (e.seguro
     ? h("a", { class: "btn sec pequeno", href: e.seguro.url, target: "_blank", rel: "noopener", id: `seguro-${e.id}`,
       text: `${e.seguro.tipo === "application/pdf" ? "Descarregar o seguro (PDF" : "Ver o seguro (imagem"}, ${mb(e.seguro.bytes)})` })
     : h("span", { class: "ajuda", text: "Sem documento do seguro." }));
   const fichaDados = (e) => dados([
-    ["Telefone", e.telefone], ["Email", e.email], ["NIF", e.nif], ["Habilitação DGEG", e.dgeg], ["Concelhos", e.concelhos.join(", ") || "—"],
+    ["Telefone", e.telefone], ["Email", e.email], ["NIF", e.nif], ["Habilitação na DGEG", e.dgeg || SEM_DGEG], ["Concelhos", e.concelhos.join(", ") || "—"],
+    ...(parceiroDe(e).length ? [["Parceiro de", parceiroDe(e).map((k) => especialidades[k] ?? k).join("; ")]] : []),
     ["Experiência", [e.experiencia, e.notas].filter(Boolean).join(" · ") || "—"], ["Candidatura", data(e.criado)],
     ...(e.estado === "pendente" ? [] : [["IBAN", e.iban ?? "Por indicar"]]),
     e.decidido ? ["Decisão", data(e.decidido)] : null, e.ultimo_acesso ? ["Último acesso", data(e.ultimo_acesso)] : null,
@@ -93,7 +102,7 @@ export default function eletricistas(el) {
     const pend = todos.filter((e) => e.estado === "pendente"), resto = todos.filter((e) => e.estado !== "pendente");
     const partes = [h("div", { class: "seccao-topo" }, h("h2", { text: `Candidaturas por decidir${pend.length ? ` · ${pend.length}` : ""}` }))];
     partes.push(pend.length ? h("div", { class: "candidaturas", id: "candidaturas" }, ...pend.map((e) => h("details", { class: "cartao candidatura", id: `cand-${e.id}`, dataset: { id: String(e.id) } },
-      h("summary", {}, h("span", { class: "linha-principal" }, h("strong", { text: e.nome }), h("span", { class: "ajuda", text: `${e.concelhos.join(", ")} · DGEG ${e.dgeg}` })), selo("Pendente", "aviso")),
+      h("summary", {}, h("span", { class: "linha-principal" }, h("strong", { text: e.nome }), h("span", { class: "ajuda", text: `${e.concelhos.join(", ")} · ${e.dgeg ? `DGEG ${e.dgeg}` : "sem habilitação na DGEG"}` })), selo("Pendente", "aviso")),
       fichaDados(e),
       h("div", { class: "form-botoes" }, documento(e)),
       h("div", { class: "form-botoes" }, h("span", { class: "ajuda", text: "% da mão de obra" }), campoPct(e)),
@@ -115,6 +124,8 @@ export default function eletricistas(el) {
         h("span", { class: "linha-principal" }, h("strong", { text: e.nome }), h("span", { class: "ajuda", text: e.concelhos.join(", ") || "Sem concelhos" }),
           h("span", { class: "ajuda", text: `${e.email} · ${e.telefone}` })),
         h("span", { class: "linha-selos" }, selo(nomeEstado, tipo),
+          parceiroDe(e).length ? selo(`Parceiro: ${parceiroDe(e).map((k) => especialidades[k] ?? k).join("; ")}`, "estado-ativo") : null,
+          e.dgeg ? null : selo("Sem habilitação na DGEG", "aviso"),
           selo(e.avaliacao?.n ? `Média ${String(e.avaliacao.media).replace(".", ",")} ★ (${e.avaliacao.n})` : "Sem avaliações", "valor"),
           selo(`${e.trabalhos_em_curso} ${e.trabalhos_em_curso === 1 ? "trabalho em curso" : "trabalhos em curso"}`, "info"),
           e.trabalhos_largados ? selo(`${e.trabalhos_largados} ${e.trabalhos_largados === 1 ? "largado" : "largados"}`, "aviso") : null),
@@ -217,6 +228,19 @@ export default function eletricistas(el) {
       mensagem(msg, null);
       if (await alterar(e, { concelhos: [...escolhidos] }, `Concelhos de ${e.nome} guardados.`, guardar)) j.fechar();
     } });
+    // Parceiro (decisão do dono, 2026-10-13): as especialidades em que este eletricista vê os pedidos 24 horas antes dos
+    // outros. Só o CEO as marca; sem nenhuma é um eletricista de fora.
+    const marcadas = new Set(parceiroDe(e));
+    const guardarParceiro = h("button", { class: "btn sec pequeno", type: "button", id: "guardar-especialidades", text: "Guardar especialidades", onclick: async () => {
+      mensagem(msg, null);
+      const escolha = Object.keys(especialidades).filter((k) => marcadas.has(k));
+      if (await alterar(e, { especialidades: escolha }, escolha.length ? `${e.nome}: parceiro de ${escolha.map((k) => especialidades[k]).join("; ")}.` : `${e.nome}: já não é parceiro de nenhuma especialidade.`, guardarParceiro)) j.fechar();
+    } });
+    const parceiro = h("fieldset", { class: "grupo", id: "eletricista-especialidades" }, h("legend", { text: "Parceiro" }),
+      h("p", { class: "ajuda", text: "Parceiro: recebe primeiro os pedidos desta especialidade, durante 24 horas. Sem nenhuma marcada, vê os pedidos ao mesmo tempo que os outros eletricistas." }),
+      h("div", { class: "caixas" }, ...Object.entries(especialidades).map(([k, nome]) => h("label", { class: "caixa" },
+        h("input", { type: "checkbox", name: "especialidade", value: k, checked: marcadas.has(k), onchange: (ev) => { if (ev.target.checked) marcadas.add(k); else marcadas.delete(k); } }), nome))),
+      h("div", { class: "form-botoes" }, guardarParceiro));
     const [nomeEstado, tipo] = ESTADOS[e.estado] ?? [e.estado, "info"];
     // Avaliações dos clientes (ronda 3): as estrelas e os comentários; os que o cliente deixou usar ficam marcados
     // "Pode ir para o site" (publicar é à mão, fora do painel).
@@ -228,7 +252,7 @@ export default function eletricistas(el) {
         c.comentario ? h("span", { class: "bloco-ajuda", text: `«${c.comentario}»` }) : null, c.pode_site ? selo("Pode ir para o site", "estado-ativo") : null))))
       : h("p", { class: "ajuda", text: "Ainda sem avaliações de clientes." });
     j.corpo.append(h("p", { class: "linha-selos" }, selo(nomeEstado, tipo), selo(`${pctTxt(e.percentagem_efetiva)} % da mão de obra`, "valor")),
-      fichaDados(e), avaliacoes, h("div", { class: "form-botoes" }, documento(e)),
+      fichaDados(e), avaliacoes, h("div", { class: "form-botoes" }, documento(e)), parceiro,
       h("fieldset", { class: "grupo" }, h("legend", { text: "Concelhos onde trabalha" }), campoForm("Procurar", procurar), caixas),
       h("div", { class: "form-botoes" }, guardar,
         h("button", { class: "btn perigo pequeno", type: "button", id: "apagar-eletricista", text: "Apagar (RGPD)", "aria-haspopup": "dialog", onclick: () => confirmarApagar(e, j) })),

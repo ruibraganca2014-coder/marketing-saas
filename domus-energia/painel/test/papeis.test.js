@@ -82,6 +82,9 @@ const MATRIZ = [
   ['GET', 'eletricistas/999/seguro', [C]],
   ['GET', 'orcamentos/999/eletricista', [C]],
   ['POST', 'orcamentos/999/eletricista', [C], {}],
+  // Decisões de 2026-10-13: a especialidade do pedido e o técnico responsável da obra — só o CEO.
+  ['POST', 'orcamentos/999/especialidade', [C], { especialidade: 'geral' }],
+  ['POST', 'orcamentos/999/tecnico', [C], { eletricista_id: 1 }],
   ['POST', 'orcamentos/999/extras/997/enviar', [C], { mao_obra: 10, material: 0 }],
   ['POST', 'orcamentos/999/extras/997/nao-avancar', [C], { motivo: 'Não se justifica' }],
   ['POST', 'orcamentos/999/idas-perdidas/996/confirmar', [C], {}],

@@ -134,7 +134,8 @@ form.addEventListener("submit", async (e) => {
   if (telefone.replace(/\D/g, "").length < 9) return invalido(el.telefone, "Escreva o telemóvel (9 algarismos).");
   if (!RE_EMAIL.test(email)) return invalido(el.email, "O email não parece certo (ex.: nome@exemplo.pt).");
   if (!nifValido(nif)) return invalido(el.nif, "O NIF não parece certo (9 algarismos).");
-  if (dgeg.length < 2) return invalido(el.dgeg, "Escreva o n.º de habilitação na DGEG.");
+  // Opcional (decisão do dono, 2026-10-13): vazio é "não tenho"; preenchido, a regra de sempre (2 a 40 caracteres).
+  if (dgeg && dgeg.length < 2) return invalido(el.dgeg, "O n.º de habilitação na DGEG parece curto de mais. Se não tem, deixe em branco.");
   if (!escolhidos.size) return invalido(procurar, "Escolha pelo menos um concelho onde trabalha.");
   const f = campoSeguro.files[0];
   const p = problemaSeguro(f);
