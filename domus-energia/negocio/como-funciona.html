@@ -50,6 +50,7 @@
   figure { margin: 0; text-align: center; }
   figure img { display: block; border: 1px solid var(--borda); border-radius: 3mm; box-shadow: 0 1px 4px rgba(40, 54, 24, .15); }
   figure.tel img { width: 42mm; }
+  .ecras4 figure.tel img { width: 40mm; } .ecras4 figcaption { max-width: 40mm; }
   figure.largo img { width: 100%; }
   figcaption { font-size: 7.8pt; color: var(--suave); margin-top: 1mm; max-width: 42mm; line-height: 1.25; }
   figure.largo figcaption { max-width: none; }
@@ -84,7 +85,7 @@
 <div class="grelha g4 quem">
   <div class="cartao creme"><b>O cliente</b>Descreve a casa, recebe a proposta, paga e acompanha tudo na conta dele. No telemóvel.</div>
   <div class="cartao creme"><b>A empresa</b>Verifica os pedidos, fixa os preços, envia as propostas e paga aos parceiros. No painel.</div>
-  <div class="cartao creme"><b>O eletricista parceiro</b>Vê os pedidos do seu concelho, propõe, faz a obra e regista-a. No telemóvel.</div>
+  <div class="cartao creme"><b>O eletricista</b>Parceiro de uma especialidade, ou de fora. Vê os pedidos do seu concelho, propõe, faz a obra e regista-a. No telemóvel.</div>
   <div class="cartao creme"><b>A casa</b>Os aparelhos instalados falam com a app do cliente: luzes, estores, consumos, alarme.</div>
 </div>
 
@@ -92,7 +93,7 @@
 <div class="fluxo">
   <div class="c"><i>CLIENTE</i><b>1. Descreve a casa</b>Desenha a planta e junta a foto do quadro.</div>
   <div class="e"><i>EMPRESA</i><b>2. Verifica o pedido</b>Planta, foto, zona e contacto. Devolve se faltar algo.</div>
-  <div class="t"><i>ELETRICISTA</i><b>3. Propõe</b>Vê o pedido sem saber quem é o cliente. Diz horas e material.</div>
+  <div class="t"><i>ELETRICISTA</i><b>3. Propõe</b>O parceiro da especialidade vê primeiro. Sem saber quem é o cliente, diz horas e material.</div>
   <div class="e"><i>EMPRESA</i><b>4. Envia a proposta</b>Escolhe um eletricista, fixa o preço e envia ao cliente.</div>
   <div class="c"><i>CLIENTE</i><b>5. Aceita e paga o sinal</b>Só agora o eletricista vê o nome e a morada.</div>
   <div class="t"><i>ELETRICISTA</i><b>6. Visita e obra</b>Marca a visita, faz a obra, tira fotos e mede.</div>
@@ -139,11 +140,12 @@
   <ul>
     <li>Cada pedido novo fica <b>"Por validar"</b>. Abre-se a ficha e confere-se uma lista: a planta faz sentido, a foto do quadro lê-se, a casa fica num concelho servido, o contacto está certo.</li>
     <li>Se faltar alguma coisa, carrega-se em <b>"Devolver ao cliente"</b> e escreve-se o que falta. O cliente recebe um email, corrige na conta e diz "Já corrigi".</li>
+    <li>Ao validar confirma-se a <b>especialidade</b> do pedido. O programa sugere-a pelo que o cliente escolheu (um carregador de carro, por exemplo, sugere "Solar e carregadores"); quem valida pode mudá-la.</li>
     <li>Sem estar validado, o pedido <b>não vai para os eletricistas</b> e a proposta <b>não se envia</b>.</li>
   </ul>
   <figure class="largo"><img src="ecras/03-painel-validar.png" alt=""><figcaption>A ficha do pedido no painel, com a lista de verificação</figcaption></figure>
   <div class="vantagem"><b>Porque é assim:</b> o eletricista só recebe pedidos completos. Ninguém perde tempo a propor para uma casa fora da zona ou com uma foto onde não se vê nada.</div>
-  <div class="ideias" style="--h:52mm">
+  <div class="ideias" style="--h:44mm">
     <h3>As suas ideias</h3>
     <ul>
       <li>Que mais se devia conferir antes de um pedido chegar a um eletricista?</li>
@@ -160,25 +162,26 @@
   <div class="passo">
     <div>
       <ul>
-        <li>O pedido validado aparece na <b>bolsa</b> dos parceiros que trabalham nesse concelho. A empresa também pode pedir a proposta só a um.</li>
+        <li>O pedido validado vai para a <b>bolsa</b>. Durante <b>24 horas</b> só o vê o <b>parceiro dessa especialidade</b> que trabalha no concelho. Depois abre a todos os eletricistas do concelho. Sem parceiro, abre logo.</li>
+        <li>Há quatro especialidades: instalação geral e quadros; domótica e automação; solar e carregadores de carro; redes, telecomunicações e segurança.</li>
         <li>O eletricista vê a <b>planta</b>, as <b>fotos</b> e um <b>relatório técnico sem preços</b>. <b>Não vê</b> o nome, a morada nem o telefone do cliente.</li>
         <li>Propõe as <b>horas de trabalho</b>, o <b>material</b> (escolhido do catálogo) e <b>quando pode ir</b>. Pode juntar uma nota.</li>
         <li>Vários podem propor para o mesmo pedido. A empresa escolhe um; as outras propostas ficam de reserva.</li>
       </ul>
       <div class="vantagem"><b>Porque é assim:</b> quem conhece a obra diz quanto tempo leva; o preço não sai de uma tabela cega. E o cliente fica protegido: os dados dele só chegam a quem vai mesmo fazer o trabalho.</div>
-      <div class="aviso"><b>A saber:</b> para entrar na bolsa, cada parceiro candidata-se em "Trabalhe connosco" com o NIF, o n.º de habilitação na DGEG, o seguro de responsabilidade civil e os concelhos onde trabalha. A empresa aprova. Hoje o programa pede sempre o n.º da DGEG.</div>
+      <div class="aviso"><b>Para entrar:</b> cada eletricista candidata-se em "Trabalhe connosco" com o NIF, o seguro de responsabilidade civil e os concelhos onde trabalha. O n.º de habilitação na DGEG é <b>opcional</b>: quem não o tem pode fazer obras, mas cada obra é assinada por um técnico responsável (passo 6). A empresa aprova a candidatura e marca quem é parceiro de cada especialidade.</div>
     </div>
     <div class="ecras">
       <figure class="tel"><img src="ecras/04-eletricista-bolsa.png" alt=""><figcaption>Um pedido na bolsa: sem nome nem morada</figcaption></figure>
       <figure class="tel"><img src="ecras/05-eletricista-proposta.png" alt=""><figcaption>A proposta do eletricista: horas e material</figcaption></figure>
     </div>
   </div>
-  <div class="ideias" style="--h:60mm">
+  <div class="ideias" style="--h:52mm">
     <h3>As suas ideias</h3>
     <ul>
       <li>Com a planta, as fotos e o relatório, consegue dar horas com confiança? O que lhe faltava ver?</li>
       <li>Que material falta no catálogo da sua especialidade?</li>
-      <li>Como devia a empresa escolher entre duas propostas: a mais barata, a mais rápida, a de quem tem melhor avaliação?</li>
+      <li>Vinte e quatro horas de prioridade para o parceiro: é pouco, é muito? E se ele estiver de férias?</li>
     </ul>
     <div class="linhas"></div>
   </div>
@@ -231,8 +234,10 @@
   <div>
     <div>
       <ul>
+        <li>Ao abrir a área dele vê <b>"O que tenho para fazer hoje"</b>: a visita de hoje, a obra por concluir, a visita por marcar e o prazo que falta, a fatura em falta, os pedidos novos.</li>
         <li>Tem <b>48 horas</b> para combinar a data com o cliente e registá-la. Se não marcar, o trabalho volta à bolsa.</li>
-        <li>Na ficha da obra regista: <b>foto do quadro antes e depois</b>, os <b>ensaios</b> medidos (continuidade, isolamento, terra, disparo do diferencial) e, se mexeu no quadro, o <b>esquema</b>.</li>
+        <li>A ficha da obra segue a ordem do trabalho, em <b>seis passos</b>: cliente e visita, fotos de antes, trabalho, ensaios (continuidade, isolamento, terra, disparo do diferencial), fotos de depois, concluir. Cada passo feito fica com ✓.</li>
+        <li>Cada obra tem um <b>técnico responsável</b>, que a assina. Se quem a faz tem habilitação na DGEG, é ele; se não tem, a empresa indica outro, que vê a planta, as fotos e os ensaios. <b>Sem técnico, a obra não se conclui.</b></li>
         <li>Só com tudo preenchido, e depois da hora da visita, pode carregar em <b>"Obra concluída"</b>.</li>
       </ul>
       <h3>Quando a obra não corre como combinado</h3>
@@ -243,18 +248,18 @@
       </ul>
       <div class="vantagem"><b>Porque é assim:</b> fica escrito o que foi combinado e o que foi feito, com fotos e medições. Se houver uma reclamação daqui a um ano, a prova existe. E nenhum trabalho a mais se faz sem o cliente ter dito que sim por escrito.</div>
     </div>
-    <div class="ecras" style="justify-content: center; gap: 8mm; margin-top: 3mm">
-      <figure class="tel"><img src="ecras/07-eletricista-obra.png" alt=""><figcaption>A ficha da obra, já com o cliente e a visita</figcaption></figure>
+    <div class="ecras ecras4" style="justify-content: center; gap: 4mm; margin-top: 3mm">
+      <figure class="tel"><img src="ecras/12-eletricista-inicio.png" alt=""><figcaption>A entrada: o que há para fazer hoje</figcaption></figure>
+      <figure class="tel"><img src="ecras/07-eletricista-obra.png" alt=""><figcaption>A ficha da obra, em seis passos</figcaption></figure>
       <figure class="tel"><img src="ecras/08b-eletricista-fotos.png" alt=""><figcaption>As fotos de antes e de depois</figcaption></figure>
-      <figure class="tel"><img src="ecras/08-eletricista-concluir.png" alt=""><figcaption>Os ensaios e "Obra concluída"</figcaption></figure>
+      <figure class="tel"><img src="ecras/08-eletricista-concluir.png" alt=""><figcaption>O último passo: "Obra concluída"</figcaption></figure>
     </div>
   </div>
-  <div class="ideias" style="--h:24mm">
+  <div class="ideias" style="--h:15mm">
     <h3>As suas ideias</h3>
     <ul>
       <li>Com luvas e pó, o que consegue mesmo registar no telemóvel? O que tirava, o que juntava?</li>
-      <li>Que ensaios e fotos são obrigatórios na sua especialidade (solar, carregadores, redes)?</li>
-      <li>Qual devia ser o procedimento passo a passo da sua obra mais comum?</li>
+      <li>Quem assina a obra tem de lá ir? O que precisa de ver para assinar com confiança?</li>
     </ul>
     <div class="linhas"></div>
   </div>
@@ -355,7 +360,7 @@
     <div class="cartao">
       <h3 style="margin-top:0">Para a parceria</h3>
       <ul>
-        <li>Cada um trabalha na sua especialidade; as obras grandes juntam vários.</li>
+        <li>Cada um recebe primeiro os pedidos da sua especialidade.</li>
         <li>As mesmas regras e os mesmos procedimentos para todos.</li>
         <li>Uma marca e um sítio, em vez de cinco.</li>
         <li>Contas à vista: cada um vê o que fez e o que tem a receber.</li>
@@ -369,7 +374,7 @@
   <ul>
     <li><b>Clientes e obras.</b> As obras começam em setembro de 2027. Até lá os pedidos ficam em lista de espera, sem pagamentos.</li>
     <li><b>Pagamentos reais.</b> O programa está pronto para cartão, MB Way e Multibanco, mas ainda só foi testado com pagamentos simulados.</li>
-    <li><b>Um técnico responsável.</b> As obras têm de ser assinadas por quem o possa fazer. O Rui ainda não pode.</li>
+    <li><b>Um técnico responsável.</b> O programa já exige que cada obra tenha quem a assine, mas ainda falta a pessoa: o Rui não pode. Quem de nós pode, ou vai poder?</li>
     <li><b>Os textos legais novos.</b> Os Termos do sítio estão a ser revistos por um advogado, para dizerem o que o programa já faz.</li>
     <li><b>Tabelas de preços por especialidade.</b> Há uma tabela geral; a de solar, carregadores e redes está por fazer. É uma das coisas em que mais precisamos de si.</li>
   </ul>
