@@ -53,36 +53,48 @@
   <main class="painel" id="painel">
     <div class="wrap">
       <!-- Login -->
-      <div class="cartao caixa-login" id="vista-login" hidden>
-        <h1>Área de cliente</h1>
-        <p class="sub" id="login-texto" style="margin-bottom:20px">Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento).</p>
-        <!-- Entrar com email (conta de cliente, docs/CONTA-CLIENTE.md): a conta dá as credenciais da casa. -->
-        <form id="form-login-email">
-          <label>Email<input name="email" type="email" required autocomplete="username" maxlength="254"></label>
-          <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password" maxlength="200"></label>
-          <button class="btn" type="submit">Entrar</button>
-          <p class="ajuda"><a href="conta.html">A minha conta</a> (criar conta, confirmar o email, esqueci a palavra-passe).</p>
-        </form>
-        <!-- Entrar com código (decisão do dono, 2026-10-03): sem palavra-passe — o email recebe um código de 6 algarismos (15 minutos), pelas mesmas rotas de "A minha conta" (POST /api/conta/codigo e confirmar); a sessão é a mesma da palavra-passe. -->
-        <form id="form-login-codigo" hidden novalidate>
-          <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" maxlength="254"></label>
-          <div id="login-codigo-passo" hidden>
-            <p class="msg info" id="login-codigo-msg" role="status"></p>
-            <label>Código de 6 algarismos<input name="codigo" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*"></label>
-          </div>
-          <button class="btn" type="submit" id="login-codigo-botao">Enviar código</button>
-          <button class="link-botao" id="login-codigo-outro" type="button" hidden>Outro email ou outro código</button>
-        </form>
-        <form id="form-login" hidden>
-          <label>Código de cliente<input name="codigo" type="text" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
-          <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password"></label>
-          <label class="lembrar"><input name="lembrar" type="checkbox"> Lembrar-me neste dispositivo</label>
-          <button class="btn" type="submit">Entrar</button>
-        </form>
-        <div class="msg erro" id="login-erro" hidden></div>
-        <div class="msg info" id="login-aviso" role="status" hidden></div>
-        <button class="link-botao" id="login-sem-senha" type="button">Entrar com código (sem palavra-passe)</button>
-        <button class="link-botao" id="login-modo" type="button" hidden>Entrar com o código de cliente</button>
+      <div class="entrar-dupla">
+        <div class="cartao caixa-login" id="vista-login" hidden>
+          <h1>Área de cliente</h1>
+          <p class="sub" id="login-texto" style="margin-bottom:20px">Entre com o email e a palavra-passe da sua conta Domus Energia (a mesma do pedido de orçamento).</p>
+          <!-- Entrar com email (conta de cliente, docs/CONTA-CLIENTE.md): a conta dá as credenciais da casa. -->
+          <form id="form-login-email">
+            <label>Email<input name="email" type="email" required autocomplete="username" maxlength="254"></label>
+            <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password" maxlength="200"></label>
+            <button class="btn" type="submit">Entrar</button>
+            <p class="ajuda"><a href="conta.html">A minha conta</a> (criar conta, confirmar o email, esqueci a palavra-passe).</p>
+          </form>
+          <!-- Entrar com código (decisão do dono, 2026-10-03): sem palavra-passe — o email recebe um código de 6 algarismos (15 minutos), pelas mesmas rotas de "A minha conta" (POST /api/conta/codigo e confirmar); a sessão é a mesma da palavra-passe. -->
+          <form id="form-login-codigo" hidden novalidate>
+            <label>Email<input name="email" type="email" required autocomplete="email" inputmode="email" maxlength="254"></label>
+            <div id="login-codigo-passo" hidden>
+              <p class="msg info" id="login-codigo-msg" role="status"></p>
+              <label>Código de 6 algarismos<input name="codigo" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*"></label>
+            </div>
+            <button class="btn" type="submit" id="login-codigo-botao">Enviar código</button>
+            <button class="link-botao" id="login-codigo-outro" type="button" hidden>Outro email ou outro código</button>
+          </form>
+          <form id="form-login" hidden>
+            <label>Código de cliente<input name="codigo" type="text" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+            <label>Palavra-passe<input name="password" type="password" required autocomplete="current-password"></label>
+            <label class="lembrar"><input name="lembrar" type="checkbox"> Lembrar-me neste dispositivo</label>
+            <button class="btn" type="submit">Entrar</button>
+          </form>
+          <div class="msg erro" id="login-erro" hidden></div>
+          <div class="msg info" id="login-aviso" role="status" hidden></div>
+          <button class="link-botao" id="login-sem-senha" type="button">Entrar com código (sem palavra-passe)</button>
+          <button class="link-botao" id="login-modo" type="button" hidden>Entrar com o código de cliente</button>
+        </div>
+        <!-- O que se faz aqui (decisão do dono, 2026-10-13: os ecrãs de entrada estavam vazios). -->
+        <aside class="entrar-info" id="entrar-info" aria-labelledby="entrar-info-titulo">
+          <h2 id="entrar-info-titulo">A sua casa no telemóvel</h2>
+          <ul>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6"/></svg><span><b>Veja a casa em direto:</b> as luzes, os estores e os consumos.</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg><span><b>Ligue e desligue à distância,</b> e crie cenas e horários.</span></li>
+            <li><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20h4"/></svg><span><b>Receba avisos:</b> alarme, porta aberta, aparelho sem ligação.</span></li>
+          </ul>
+          <p class="entrar-nota">A app fica ativa depois da instalação. Ainda não é cliente? <a href="simulador.html">Simule o seu orçamento</a>.</p>
+        </aside>
       </div>
 
       <!-- Pré-visualização (decisão do dono, 2026-10-03): conta com sessão e ainda sem casa ligada — a planta que desenhou,

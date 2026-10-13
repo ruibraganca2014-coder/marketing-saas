@@ -285,3 +285,13 @@ details.sec > .corpo { padding: 2px 14px 16px; display: grid; gap: 14px; min-wid
 .lista-aparelhos li { padding: 10px 12px; border: 1.5px solid var(--borda-forte); border-radius: 12px; }
 .lista-aparelhos .fila { margin-top: 12px; }
 .lista-aparelhos input { min-height: 54px; padding: 10px 14px; border: 2px solid var(--borda-forte); border-radius: 12px; background: var(--fundo); min-width: 0; flex: 1 1 12em; }
+
+/* Ecrãs de entrada: o que se faz aqui, ao lado do formulário (decisão do dono, 2026-10-13). No telemóvel fica por baixo. */
+.entrar-info { display: grid; gap: 10px; align-content: start; padding: 4px 4px 0; min-width: 0; }
+.entrar-info h2 { margin: 0; font-size: 1.25rem; }
+.entrar-info ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.entrar-info li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: center; }
+.entrar-info li svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--musgo-claro); color: var(--musgo-texto, var(--musgo)); }
+.entrar-info li b { display: block; }
+.entrar-nota { margin: 0; font-size: .92rem; color: var(--texto-suave); }
+.caixa-login[hidden] + .entrar-info { display: none; }

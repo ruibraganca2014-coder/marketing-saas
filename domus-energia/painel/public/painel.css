@@ -709,3 +709,16 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .propostas-lista { display: grid; gap: 10px; }
 .proposta-cartao { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 12px; }
 .proposta-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+
+/* Ecrãs de entrada: o que se faz aqui, ao lado do formulário (decisão do dono, 2026-10-13). No telemóvel fica por baixo. */
+.entrar-info { display: grid; gap: 10px; align-content: start; padding: 4px 4px 0; min-width: 0; }
+.entrar-info h2 { margin: 0; font-size: 1.25rem; }
+.entrar-info ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.entrar-info li { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: center; }
+.entrar-info li svg { width: 40px; height: 40px; padding: 9px; border-radius: 12px; background: var(--musgo-claro); color: var(--musgo-texto, var(--musgo)); }
+.entrar-info li b { display: block; }
+.entrar-nota { margin: 0; font-size: .92rem; color: var(--texto-suave); }
+.caixa-login[hidden] + .entrar-info { display: none; }
+.entrar-dupla { display: grid; gap: 24px; width: 100%; max-width: 420px; margin: 0 auto; }
+.entrar-dupla > .caixa-login { margin: 0; max-width: none; }
+@media (min-width: 900px) { .entrar-dupla:has(> .caixa-login:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(0, 420px); max-width: 900px; gap: 48px; align-items: center; } .entrar-dupla > .entrar-info { order: -1; } }
