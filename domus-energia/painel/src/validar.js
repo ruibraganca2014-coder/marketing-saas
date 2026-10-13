@@ -126,6 +126,7 @@ export function simulacao(v) {
   fotosSimulacao(v.fotos);
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
+  horarioSimulacao(v.horario, v.funil);
   melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
   inventarioSimulacao(v.inventario);
   return json;
@@ -283,6 +284,19 @@ function funilSimulacao(funil, a) {
   chaves(a.onde, AVARIA_ONDE, 'onde');
   chaves(a.problema, AVARIA_PROBLEMA, 'problema');
   if (a.descricao !== undefined && a.descricao !== null && (typeof a.descricao !== 'string' || a.descricao.length > 200)) falha('Avaria: descrição até 200 caracteres.');
+}
+
+/**
+ * Avarias fora de horas (decisão do dono, 2026-10-13; docs/PAGAMENTOS-PEDIDO.md): `horario` = "normal" (dias úteis, das
+ * 8h às 20h) ou "fora_horas" (o mais depressa possível, mesmo de noite ou ao fim de semana). Opcional (os pedidos
+ * antigos não o têm: valem como horário normal). Só as avarias têm os dois preços: "fora_horas" noutro pedido é recusado.
+ * O navegador só diz a escolha; o preço é sempre calculado no servidor.
+ */
+export const HORARIOS = ['normal', 'fora_horas'];
+function horarioSimulacao(horario, funil) {
+  if (horario === undefined || horario === null) return;
+  if (!HORARIOS.includes(horario)) falha(`Horário inválido (use: ${HORARIOS.join(', ')}).`);
+  if (horario === 'fora_horas' && funil !== 'avaria') falha('Só as avarias se pedem fora de horas.');
 }
 
 /**

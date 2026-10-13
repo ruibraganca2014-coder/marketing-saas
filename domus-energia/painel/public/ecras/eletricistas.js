@@ -84,6 +84,13 @@ export default function eletricistas(el) {
       ? `${e.nome}: ativa aparelhos sem esperar pela sua aprovação.` : `${e.nome}: as ativações passam a esperar pela sua aprovação.`));
     return h("label", { class: "caixa" }, i, "Ativa aparelhos sem aprovação");
   }
+  /** "Faz fora de horas" (decisão do dono, 2026-10-13): o eletricista liga-o na área dele; o CEO vê-o e pode mudá-lo. Só assim recebe as avarias de noite e ao fim de semana. */
+  function campoForaHoras(e) {
+    const i = h("input", { type: "checkbox", checked: e.fora_horas === true, dataset: { foraHoras: String(e.id) } });
+    i.addEventListener("change", () => alterar(e, { fora_horas: i.checked }, i.checked
+      ? `${e.nome}: passa a receber as avarias fora de horas.` : `${e.nome}: deixa de receber as avarias fora de horas.`));
+    return h("label", { class: "caixa" }, i, "Faz serviço de noite e ao fim de semana");
+  }
   /** As especialidades de que o eletricista é parceiro (lista vazia = eletricista de fora; um servidor antigo não as envia). */
   const parceiroDe = (e) => (Array.isArray(e.especialidades) ? e.especialidades : []);
   const documento = (e) => (e.seguro
@@ -106,7 +113,7 @@ export default function eletricistas(el) {
       fichaDados(e),
       h("div", { class: "form-botoes" }, documento(e)),
       h("div", { class: "form-botoes" }, h("span", { class: "ajuda", text: "% da mão de obra" }), campoPct(e)),
-      h("div", { class: "form-botoes" }, campoAtiva(e)),
+      h("div", { class: "form-botoes" }, campoAtiva(e), campoForaHoras(e)),
       h("div", { class: "form-botoes" },
         h("button", { class: "btn", type: "button", id: `aprovar-${e.id}`, text: "Aprovar", onclick: (ev) => alterar(e, { acao: "aprovar" }, `${e.nome} aprovado: recebeu o email com a ligação para a área do eletricista.`, ev.currentTarget) }),
         botaoConfirmar("Recusar", "Confirmar: recusar?", (b) => alterar(e, { acao: "recusar" }, `Candidatura de ${e.nome} recusada.`, b), { classe: "btn perigo pequeno" })))))
@@ -126,6 +133,7 @@ export default function eletricistas(el) {
         h("span", { class: "linha-selos" }, selo(nomeEstado, tipo),
           parceiroDe(e).length ? selo(`Parceiro: ${parceiroDe(e).map((k) => especialidades[k] ?? k).join("; ")}`, "estado-ativo") : null,
           e.dgeg ? null : selo("Sem habilitação na DGEG", "aviso"),
+          e.fora_horas === true ? selo("Faz fora de horas", "info") : null,
           selo(e.avaliacao?.n ? `Média ${String(e.avaliacao.media).replace(".", ",")} ★ (${e.avaliacao.n})` : "Sem avaliações", "valor"),
           selo(`${e.trabalhos_em_curso} ${e.trabalhos_em_curso === 1 ? "trabalho em curso" : "trabalhos em curso"}`, "info"),
           e.trabalhos_largados ? selo(`${e.trabalhos_largados} ${e.trabalhos_largados === 1 ? "largado" : "largados"}`, "aviso") : null),

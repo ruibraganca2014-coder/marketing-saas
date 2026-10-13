@@ -356,6 +356,15 @@
             <div class="armadilha" aria-hidden="true"><label>Website<input id="contacto-website" name="website" type="text" tabindex="-1" autocomplete="off"></label></div>
             <p class="consentimento" id="enviar-consentimento">Ao enviar, aceita os <a href="termos.html" target="_blank" rel="noopener">Termos</a> e a <a href="privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a>.</p>
           </div>
+          <!-- Avarias fora de horas (decisão do dono, 2026-10-13): o horário escolhe-se antes de pagar, com os dois preços (estado.horario; app.js desenharHorario). Só na avaria. -->
+          <div class="cartao sim-compras" id="enviar-horario" hidden>
+            <h3>Quando quer a visita?</h3>
+            <fieldset class="escolhas">
+              <legend class="so-leitor">Quando quer a visita?</legend>
+              <div class="escolhas-grelha compras-grelha" id="enviar-horario-opcoes"></div>
+            </fieldset>
+            <p class="ajuda" id="enviar-horario-nota"></p>
+          </div>
           <!-- Fase 3: o que recebe (estado.compras; app.js desenharCompras). Sem pagamentos e na avaria não aparece. -->
           <div class="cartao sim-compras" id="enviar-compras" hidden>
             <h3 id="enviar-compras-titulo">O que quer receber?</h3>

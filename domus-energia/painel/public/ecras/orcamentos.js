@@ -149,6 +149,7 @@ export default function orcamentos(el, ctx) {
       h("span", { class: "linha-selos" },
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
+        seloForaHoras(o),
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
@@ -204,6 +205,7 @@ export default function orcamentos(el, ctx) {
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
+        seloForaHoras(o),
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
@@ -739,6 +741,13 @@ export default function orcamentos(el, ctx) {
     const texto = v.paga ? (cp.avaria ? "Visita pedida com a avaria (paga)." : "Visita técnica paga pelo cliente.")
       : v.fora_area ? "Sem visita: fora da área servida." : v.incluida ? "Visita incluída no sinal: marca-se depois de o cliente aceitar a proposta." : `Visita técnica ainda não paga${v.valor != null ? ` (${euros(v.valor)})` : ""}.`;
     const partes = [h("p", { class: "ajuda", id: "visita-estado", text: `${texto}${quando ? ` Marcada para ${data(quando)}.` : ""}` })];
+    // Avaria pedida fora de horas (decisão do dono, 2026-10-13): o que o cliente pagou a mais e a devolução, se a visita ficou em horário normal.
+    const fh = campo(o, "fora_horas");
+    if (fh) {
+      partes.push(h("p", { class: "ajuda", id: "visita-fora-horas", text: `Fora de horas (mais ${String(fh.pct).replace(".", ",")} %)${fh.pago != null ? `: o cliente pagou ${euros(fh.pago)} a mais` : ""}.${fh.devolvido != null
+        ? ` A visita ficou em horário normal: ${fh.por_transferencia ? "a devolver" : "devolvidos"} ${euros(fh.devolvido)}${fh.por_transferencia ? " por transferência" : ""}. Já só se marca num dia útil, das 8h às 20h.`
+        : " Se a visita for marcada num dia útil, das 8h às 20h, a diferença é devolvida ao cliente."}` }));
+    } else if (campo(o, "horario") === "normal") partes.push(h("p", { class: "ajuda", id: "visita-horario-normal", text: "O cliente pediu horário normal: a visita marca-se num dia útil, das 8h às 20h." }));
     if (disp || urg) partes.push(h("p", { class: "ajuda", id: "visita-disponibilidade", text: `Disponibilidade do cliente: ${disp ? disp.toLowerCase() : "não indicou"}${urg && urg !== "normal" ? ` · ${URGENCIAS[urg]}` : ""}.` }));
     // Decisão 10: cancelada pelo cliente com mais de 24 h → devolvida (ele fá-lo na conta); com menos, ou se faltar, a
     // visita fica paga: "Cliente faltou" regista a falta (sem devolução) e avisa o cliente.
@@ -1529,6 +1538,8 @@ function textoHistorico(x, sim) {
 }
 
 /** Simulação do cliente (objeto; o servidor pode guardá-la como texto JSON). */
+/** Avaria pedida fora de horas (decisão do dono, 2026-10-13): o selo; depois de devolvida a diferença já não é (fica só nos valores da ficha). */
+const seloForaHoras = (o) => (campo(campo(o, "fora_horas"), "em_vigor") === true ? selo("Fora de horas", "aviso") : null);
 /** Lote 8: a urgência do pedido — da lista (`urgencia`, calculada no servidor) ou da simulação completa. */
 export const urgenciaPedido = (o) => campo(o, "urgencia") ?? urgenciaDe(simulacaoDe(o));
 

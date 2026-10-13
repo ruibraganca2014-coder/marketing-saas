@@ -813,6 +813,7 @@ function blocoDevolucao(d) {
   const b = el("section", "conta-relatorio conta-devolucao");
   b.setAttribute("aria-label", "Devolução por transferência");
   b.append(el("h4", null, `Devolução de ${euro(d.valor)}`));
+  if (d.motivo === "horario") b.append(el("p", "ajuda", "A visita ficou marcada em horário normal: devolvemos a diferença do preço de fora de horas."));
   if (d.estado === "devolvido") { b.append(el("p", "msg ok", `Transferência feita em ${dataTxt(d.devolvido)} para ${d.iban ?? "a sua conta"}.`)); return b; }
   const msg = msgPequena();
   const campo = (rotulo, attrs) => {
@@ -870,6 +871,11 @@ function blocoPagamentos(p) {
     li.append(el("span", null, `${x.fase_texto}: ${euro(x.valor)} com IVA`), el("span", x.estado === "pago" ? "estado-pago" : "estado-outro", x.estado_texto));
     if (x.nao_realizada) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita não realizada: não desconta"));
     if (x.sem_defeito) li.append(el("span", "conta-recibo conta-nao-realizada", "Visita sem defeito: não desconta"));
+    // Avaria pedida fora de horas (decisão do dono, 2026-10-13): o que pagou a mais por isso e, se a visita ficou em horário normal, que lhe foi devolvido.
+    if (x.fora_horas) {
+      li.append(el("span", "conta-recibo", `Pediu a visita fora de horas (noite, fim de semana ou feriado)${x.fora_horas_valor > 0 ? `: ${euro(x.fora_horas_valor)} a mais, já incluídos` : ""}.`));
+      if (x.fora_horas_devolvida) li.append(el("span", "conta-recibo", "A visita ficou marcada em horário normal: devolvemos a diferença."));
+    }
     if (x.a_devolver != null) li.append(el("span", "conta-recibo", `A devolver por transferência: ${euro(x.a_devolver)}`));
     if (x.devolvido != null) li.append(el("span", "conta-recibo", `Devolvidos ${euro(x.devolvido)}${x.devolvido_em ? ` em ${dataTxt(x.devolvido_em, true)}` : ""}${x.modo === "simulado" ? " · SIMULAÇÃO" : ""}`));
     if (x.recibo) {

@@ -25,7 +25,7 @@ import { criarFotosRemotas } from './fotos-remotas.js';
 import { dadosParaIa, ErroAssistente, MAX_DADOS_IA } from './assistente.js';
 import { criarContas } from './conta.js';
 import { criarCorreio } from './email.js';
-import { criarPagamentosPedido, PLANOS_MENSAIS } from './pagamentos-pedido.js';
+import { criarPagamentosPedido, PLANOS_MENSAIS, concelho as concelhoDaLista } from './pagamentos-pedido.js';
 import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO, ROTA_ELETRICISTA } from './acesso-rapido.js';
@@ -44,6 +44,9 @@ const RE_SKU = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
 const MAX_APARELHOS_CONVERTER = 60;
 const CONFIG_ORCAMENTO = {
   tarifa_hora_iva: { min: 0, max: 1000, rotulo: 'a tarifa por hora' },
+  // Avarias fora de horas (decisão do dono, 2026-10-13; migração 54): quanto custam a mais o diagnóstico e a mão de obra
+  // de noite, ao fim de semana e nos feriados. Pública: o simulador mostra os dois preços.
+  fora_horas_pct: { min: 0, max: 200, rotulo: 'o preço a mais das avarias fora de horas (%)' },
   // Fase 3: intervalo da estimativa assimétrico (−10 % / +20 %; migração 14). O antigo `margem_intervalo_pct` fica na
   // base mas já não se usa nem se edita.
   intervalo_menos_pct: { min: 0, max: 100, rotulo: 'o intervalo para baixo (%)' },
@@ -340,6 +343,8 @@ export function criarApi(ctx) {
   let aparelhosCtx = null;
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, aparelhos: () => aparelhosCtx, pagamentos: () => pagPed,
     concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos, fotos });
+  /** Os concelhos onde há pelo menos um eletricista aprovado que faz avarias fora de horas (só os nomes); vazio sem o módulo. */
+  const concelhosForaHoras = () => (config.eletricistas ? eletricistas.concelhosForaHoras() : []);
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
   crm = criarCrm({ db, config, relogio, auditar, pagamentos: () => pagPed, emails: () => emailsAuto });
   const tarefas = criarTarefas({ db, config, relogio, auditar, crm, registo, correio, procedimentos });
@@ -407,6 +412,9 @@ export function criarApi(ctx) {
       tem_simulacao: o.simulacao !== null, simulacao_bytes: o.simulacao ? Buffer.byteLength(o.simulacao) : 0,
       // Lote 8: a urgência do pedido (selo "Urgente" no quadro de pedidos) sem ler a simulação toda.
       urgencia: urgenciaDaSimulacao(o.simulacao),
+      // Avaria pedida fora de horas (decisão do dono, 2026-10-13): selo "Fora de horas" e os valores ({em_vigor, pct, pago,
+      // devolvido, devolvido_em, por_transferencia}); null nos outros pedidos. `horario`: o que o cliente escolheu, ou null.
+      fora_horas: pagPed.foraHoras(o), horario: pagPed.horarioPedido(o),
       lista_espera: o.lista_espera === 1,   // recebido enquanto as obras não começam (web/config.js listaEspera)
       // Validação do CEO (migração 44): por_validar | validado | devolvido, a nota da devolução e os pontos a verificar.
       validacao: { estado: o.validacao ?? 'por_validar', nota: o.validacao_nota ?? null, por: o.validacao_por ?? null, em: o.validacao_em ?? null, pontos: pontosValidacao(o) },
@@ -1203,6 +1211,8 @@ export function criarApi(ctx) {
     if (config.validacaoCeo && mud.estado === 'proposta_enviada' && o.estado !== 'proposta_enviada' && o.validacao !== 'validado' && pontosValidacao(o).some((x) => x.chave === 'planta')) {
       throw new ErroApi(409, 'Valide primeiro o pedido (lista de verificação) antes de enviar a proposta ao cliente.');
     }
+    // Avaria (decisão do dono, 2026-10-13): a data da visita segue a regra do horário, também quando se muda por aqui.
+    if (mud.data_visita && mud.data_visita !== o.data_visita) await pagPed.aoMarcarVisita(o, mud.data_visita, u, ip);
     const cols = Object.keys(mud);
     db.prepare(`UPDATE orcamentos SET ${cols.map((k) => `${k} = ?`).join(', ')}, atualizado = ? WHERE id = ?`)
       .run(...cols.map((k) => mud[k]), agoraIso(), o.id);
@@ -1461,6 +1471,9 @@ export function criarApi(ctx) {
     const quando = diaHora(v.data_visita, 'a data da visita');
     if (!quando || !/T\d{2}:\d{2}/.test(quando)) falha('Indique o dia e a hora da visita.');
     if (o.cliente || ['aceite', 'perdido'].includes(o.estado)) throw new ErroApi(409, 'Este pedido já não tem visita técnica.');
+    // Avaria (decisão do dono, 2026-10-13): quem pediu horário normal não se marca fora dele (409); quem pagou o preço de
+    // fora de horas e fica em horário normal recebe a diferença de volta, uma só vez (pagamentos-pedido.js aoMarcarVisita).
+    await pagPed.aoMarcarVisita(o, quando, u, ip);
     const agora = agoraIso();
     const estado = ['novo', 'contactado'].includes(o.estado) ? 'visita_marcada' : o.estado;
     db.prepare('UPDATE orcamentos SET data_visita = ?, estado = ?, visita_faltou = NULL, atualizado = ? WHERE id = ?').run(quando, estado, agora, o.id);
@@ -2202,7 +2215,7 @@ export function criarApi(ctx) {
   h.eletricista = ({ res, params }) => responder(res, 200, { eletricista: eletricistas.paraPainel(eletricistas.obter(params.id)) });
 
   h.atualizarEletricista = async ({ req, res, u, params, ip }) => {
-    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem', 'ativa_sem_aprovacao', 'especialidades']);
+    const v = await lerJson(req, ['acao', 'concelhos', 'percentagem', 'ativa_sem_aprovacao', 'especialidades', 'fora_horas']);
     const e = eletricistas.atualizar(params.id, v, u, ip);
     responder(res, 200, { eletricista: eletricistas.paraPainel(e), ...eletricistas.listar() });
   };
@@ -2464,9 +2477,15 @@ export function criarApi(ctx) {
     // Avaria rápida = pagar o diagnóstico e a deslocação ao enviar: fica "a aguardar pagamento" (não aparece no painel)
     // e só passa a orçamento quando o pagamento for confirmado. Fora da área servida: 409 (fale connosco).
     // Em lista de espera (decisão do dono, 2026-10-10: não se paga nada) a avaria entra logo, grátis, como os outros pedidos.
+    // Avaria fora de horas (decisão do dono, 2026-10-13): o navegador só diz a escolha (`simulacao.horario`); o preço é o
+    // do servidor. Num concelho sem nenhum eletricista que faça fora de horas não se aceita (o simulador nem a oferece).
+    const foraHoras = simObj?.funil === 'avaria' && simObj.horario === 'fora_horas';
+    if (foraHoras && !concelhosForaHoras().includes(concelhoDaLista(c.localidade ?? simObj?.casa?.localidade)?.nome)) {
+      throw new ErroApi(409, 'Neste concelho ainda não fazemos serviço de noite nem ao fim de semana. Escolha o horário normal.');
+    }
     if (conta && sim && pagPed.ativo && simObj?.funil === 'avaria' && !listaEspera().ativa) {
       const local = c.localidade ?? simObj?.casa?.localidade ?? null;
-      const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip, origem }, localidade: local });
+      const pagamento = await pagPed.iniciarAvaria({ conta, pedido: { c, codigoCli, sim, ip, origem }, localidade: local, foraHoras });
       registo.info(`avaria a aguardar pagamento (${pagamento.ref})`);
       return responder(res, 202, { ok: true, pagamento });
     }
@@ -2567,7 +2586,9 @@ export function criarApi(ctx) {
     // Pagamentos do pedido: o simulador mostra a faixa "Modo de demonstração" e as compras do passo Enviar (desligados: não há).
     // `visita_a_parte: false` (só com as propostas na bolsa): a visita já não se vende no passo Enviar (decisão do dono, 2026-10-11).
     const { ativo, modo, demonstracao, visita_a_parte: visitaAParte } = pagPed.info();
-    responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao, ...(visitaAParte === false ? { visita_a_parte: false } : {}) } }, { 'Cache-Control': 'public, max-age=60' });
+    // `fora_horas_concelhos` (decisão do dono, 2026-10-13): os concelhos onde há quem faça avarias de noite e ao fim de
+    // semana — só os nomes, nunca quantos nem quem. Nos outros o simulador só oferece o horário normal.
+    responder(res, 200, { itens, config, pagamentos: { ativo, modo, demonstracao, ...(visitaAParte === false ? { visita_a_parte: false } : {}) }, fora_horas_concelhos: concelhosForaHoras() }, { 'Cache-Control': 'public, max-age=60' });
   }
 
   // ------------------------------------------------------------ despacho

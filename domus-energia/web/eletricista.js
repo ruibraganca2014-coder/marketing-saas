@@ -210,6 +210,8 @@ const diaHoraTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN
 // `especialidade_nome` nem `prioridade_ate`: não aparece selo nenhum.
 const seloEspecialidade = (t) => (t.especialidade_nome ? selo(t.especialidade_nome) : null);
 const textoPrioridade = (ate) => (ate && diaHoraTxt(ate) ? `Da sua especialidade · só para si até ${diaHoraTxt(ate)}` : null);
+// Avaria fora de horas (decisão do dono, 2026-10-13): `fora_horas` é a percentagem a mais da mão de obra. Sem o campo (trabalho normal, ou servidor antigo) não há selo.
+const seloForaHoras = (t) => (Number(t.fora_horas) > 0 ? selo(`Fora de horas: recebe mais ${decimal(t.fora_horas)} %`, "bom") : null);
 const seloPrioridade = (t) => (textoPrioridade(t.prioridade_ate) ? selo(textoPrioridade(t.prioridade_ate), "bom") : null);
 const duracaoTxt = (t) => [t.horas ? `cerca de ${decimal(Math.round(t.horas * 10) / 10)} h` : null, t.dias ? `${t.dias} ${t.dias === 1 ? "dia" : "dias"}` : null].filter(Boolean).join(" · ");
 function contadores(nBolsa, nTrab) {
@@ -350,12 +352,43 @@ function cartaoRecebe(t) {
 }
 
 // ---------------------------------------------------------------- Bolsa
+/**
+ * "Faço serviço de noite e ao fim de semana" (decisão do dono, 2026-10-13): o próprio eletricista liga e desliga; só
+ * assim vê e é avisado das avarias pedidas fora de horas. Num servidor sem o campo (`eu.fora_horas`) o cartão não aparece.
+ */
+function cartaoForaHoras() {
+  if (typeof eu?.fora_horas !== "boolean") return null;
+  const c = el("input");
+  c.type = "checkbox";
+  c.id = "fora-horas";
+  c.checked = eu.fora_horas;
+  const msg = el("p", "erro");
+  msg.hidden = true;
+  c.addEventListener("change", async () => {
+    c.disabled = true;
+    msg.hidden = true;
+    try {
+      eu.fora_horas = (await pedir("fora-horas", { ligado: c.checked })).fora_horas === true;
+      encaminhar();   // a bolsa passa a mostrar (ou deixa de mostrar) as avarias fora de horas
+    } catch (e) {
+      c.checked = eu.fora_horas;
+      c.disabled = false;
+      if (e.estado === 401) return;
+      msg.textContent = e.message;
+      msg.hidden = false;
+    }
+  });
+  const l = com(el("label"), c, el("span", null, "Faço serviço de noite e ao fim de semana"));
+  l.htmlFor = c.id;
+  return com(el("div", "cartao pilha"), com(el("ul", "lista-mat marcar"), com(el("li"), l)),
+    el("p", "pequeno suave", "Só assim recebe avarias fora do horário normal, pagas a mais 50 %."), msg);
+}
 async function bolsaLista() {
   const r = await pedir("bolsa");
   contadores(r.trabalhos.length, null);
   const out = [el("h2", null, "Bolsa"), el("p", "suave pequeno", r.propostas_bolsa
     ? `Trabalhos em ${r.concelhos.join(", ")}. Nos pedidos com planta envia a sua proposta e a Domus Energia escolhe; nos outros, o primeiro a aceitar fica com o trabalho.`
-    : `Trabalhos em ${r.concelhos.join(", ")}. O primeiro a aceitar fica com o trabalho.`)];
+    : `Trabalhos em ${r.concelhos.join(", ")}. O primeiro a aceitar fica com o trabalho.`), cartaoForaHoras()];
   if (!r.trabalhos.length) {
     out.push(com(el("div", "cartao"), el("p", null, "Sem trabalhos na bolsa."), el("p", "suave pequeno", "Os trabalhos novos dos seus concelhos aparecem aqui.")));
     return out;
@@ -367,7 +400,7 @@ async function bolsaLista() {
         el("h3", null, t.titulo),
         el("span", null, t.proposta_enviada ? "A Domus Energia escolhe o eletricista e avisa por email." : "Veja o relatório e as fotos e envie a sua proposta."),
         el("span", "pequeno suave", "Nome e morada do cliente só depois de o cliente aceitar a proposta."))
-      : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso"), seloEspecialidade(t), seloPrioridade(t)),
+      : com(el("button", "cartao trab"), com(el("span", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo, "aviso"), seloForaHoras(t), seloEspecialidade(t), seloPrioridade(t)),
         el("h3", null, t.titulo),
         com(el("span"), "Recebe ", el("b", "num", t.recebe ? euro(recebeComExtras(t)) : "a combinar")),
         duracaoTxt(t) ? el("span", "pequeno suave", `Duração: ${duracaoTxt(t)}`) : null,
@@ -405,7 +438,7 @@ async function bolsaDetalhe(id) {
   });
   return [
     botaoVoltar("Bolsa", "bolsa"),
-    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEspecialidade(t), seloPrioridade(t)),
+    com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloForaHoras(t), seloEspecialidade(t), seloPrioridade(t)),
     el("h2", null, t.titulo),
     duracaoTxt(t) ? el("p", "pequeno", `Duração estimada: ${duracaoTxt(t)}.`) : null,
     cartaoRecebe(t),
@@ -688,7 +721,7 @@ async function acaoFicha(t, caminho, corpo, { botao = null, msg = null, texto = 
 }
 
 function desenharFicha(t) {
-  const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloEstado(t)), el("h2", null, t.titulo),
+  const out = [botaoVoltar("Os meus trabalhos", "trabalhos"), com(el("div", "selos"), selo(t.concelho), selo(NOME_TIPO[t.tipo] ?? t.tipo), seloForaHoras(t), seloEstado(t)), el("h2", null, t.titulo),
     t.espera_cliente ? el("p", "pequeno", "Recebe a sua percentagem da mão de obra + a deslocação quando fizer a obra (a visita está incluída).")
     // Obra parada por segurança: já não vale a estimativa; recebe o trabalho já feito, pelo valor que a Domus Energia indicou.
     : t.obra_parada ? com(el("p", "pequeno"), "A obra foi parada por segurança. Pelo trabalho já feito recebe ", el("b", "num", euro(t.recebe?.total)), " (sem IVA).")
@@ -1115,6 +1148,9 @@ function camposProposta(p, msg) {
 function seccaoVisita(t) {
   const marcada = Boolean(t.visita);
   const corpo = [];
+  // Avaria (decisão do dono, 2026-10-13): o servidor recusa uma data fora do horário normal quando o cliente o pediu (ou já recebeu a diferença de volta).
+  if (t.so_horario_normal && t.editavel) corpo.push(el("p", "nota calma", "Horário normal: marque num dia útil entre as 8h e as 20h."));
+  if (Number(t.fora_horas) > 0 && t.editavel) corpo.push(el("p", "nota calma", "O cliente pagou o preço de fora de horas. Se marcar num dia útil entre as 8h e as 20h, devolvemos-lhe a diferença e o trabalho passa ao valor normal."));
   if (!marcada) {
     if (t.prazo) corpo.push(contagem(t.prazo, "para marcar a visita. Depois disso, o trabalho deixa de ser seu."));
     corpo.push(el("p", "pequeno suave", "Combine o dia com o cliente por telefone e registe aqui. O cliente recebe a confirmação por email, em nome da Domus Energia."), ...formVisita(t));

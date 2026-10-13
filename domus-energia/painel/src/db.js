@@ -1179,6 +1179,22 @@ export const MIGRACOES = [
       WHERE tipo = 'avaria' AND estado != 'retirado' AND eletricista_id IS NOT NULL AND tecnico_id IS NULL
         AND EXISTS (SELECT 1 FROM eletricistas e WHERE e.id = trabalhos_eletricista.eletricista_id AND trim(e.dgeg) != '');
   `),
+  // 54: avarias fora de horas (decisão do dono, 2026-10-13; docs/PAGAMENTOS-PEDIDO.md "Avarias fora de horas"). Só
+  // acrescenta colunas e uma chave da configuração; nada do que existe muda.
+  // `eletricistas.fora_horas`: 1 = o eletricista disse que faz serviço de noite e ao fim de semana (por omissão NÃO); só
+  // esses veem e são avisados das avarias pedidas fora de horas.
+  // `pagamentos_pedido.fora_horas_cent`: o que o cliente pagou A MAIS por ter pedido a avaria fora de horas (cêntimos com
+  // IVA; NULL = horário normal, como todos os pagamentos antigos); `fora_horas_devolvida`: quando essa diferença lhe foi
+  // devolvida por a visita ter ficado marcada em horário normal (uma só vez). `devolucoes_pedido.fora_horas`: 1 quando a
+  // devolução por transferência (pagou por Multibanco) é essa diferença — o CHECK de `motivo` só conhece os três de sempre.
+  // `fora_horas_pct` (50): quanto custa a mais o diagnóstico e a mão de obra de uma avaria fora de horas; editável.
+  (db) => db.exec(`
+    ALTER TABLE eletricistas ADD COLUMN fora_horas INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE pagamentos_pedido ADD COLUMN fora_horas_cent INTEGER;
+    ALTER TABLE pagamentos_pedido ADD COLUMN fora_horas_devolvida TEXT;
+    ALTER TABLE devolucoes_pedido ADD COLUMN fora_horas INTEGER;
+    INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('fora_horas_pct', 50);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

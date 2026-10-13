@@ -105,6 +105,16 @@ Lista fixa de quatro (`eletricistas.js ESPECIALIDADES`): `geral` "Instalação g
 
 Compatibilidade: sem parceiros registados nada muda; um pedido antigo, ou validado sem especialidade, usa a sugerida. Testes: `painel/test/especialidades.test.js`.
 
+## Avarias fora de horas (decisão do dono, 2026-10-13)
+
+Regras do cliente e do dinheiro: docs/PAGAMENTOS-PEDIDO.md "Avarias fora de horas". Do lado dos eletricistas (migração 54, `eletricistas.fora_horas`, por omissão NÃO; testes em `painel/test/fora-de-horas.test.js`):
+
+- **Só recebe avarias fora de horas quem disser que as faz.** Na área do eletricista, em "Bolsa", o interruptor "Faço serviço de noite e ao fim de semana" (`POST /api/eletricista/fora-horas {ligado}`; `GET eu` traz `fora_horas`). O CEO vê-o na lista e na ficha do eletricista (selo "Faz fora de horas") e pode mudá-lo (`POST eletricistas/:id {fora_horas}`; só CEO).
+- **Uma avaria que continua fora de horas** (pedida assim e sem a diferença devolvida ao cliente) só é visível na bolsa, avisada por email e atribuível a quem tem isso ligado — além das regras de sempre (concelho, prioridade da especialidade, `so_para`). Na prioridade de 24 horas só contam os parceiros que fazem fora de horas.
+- **Recebe a mesma percentagem sobre a mão de obra mais alta** (`estimativa`: mão de obra × (1 + `fora_horas_pct`); o cartão e a ficha dizem "Fora de horas: recebe mais 50 %"; `recebe.fora_horas` e `fora_horas` no trabalho). A deslocação não muda. É este o valor fixado quando o CEO aprova.
+- **Se marcar a visita em horário normal** (dia útil, das 8h às 20h), o cliente recebe a diferença de volta e o trabalho passa ao valor normal; a partir daí (como numa avaria pedida em horário normal) a visita já não se marca fora do horário normal: o servidor responde 409 e a ficha avisa (`so_horario_normal`).
+- Exemplo em Sintra, a 70 %: horário normal 10,82 € + 5,85 € de deslocação = 16,67 €; fora de horas 16,23 € + 5,85 € = 22,08 € (sem IVA).
+
 ## Técnico responsável (decisão do dono, 2026-10-13)
 
 Cada trabalho do tipo `obra` tem um técnico responsável, que a assina. **Sem técnico indicado, a obra não pode ser dada por concluída.** Não se aplica às visitas técnicas nem aos diagnósticos de avaria.

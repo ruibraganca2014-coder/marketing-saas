@@ -4434,6 +4434,8 @@ async function carregarCatalogo() {
     // Propostas na bolsa (decisão do dono, 2026-10-11): o servidor diz `visita_a_parte: false` — a visita já não se vende
     // no passo Enviar (vem depois de aceitar a proposta) e a estimativa diz "o valor certo vem na proposta".
     visitaAParte = j.pagamentos?.visita_a_parte !== false;
+    // Avarias fora de horas (decisão do dono, 2026-10-13): os concelhos onde há quem as faça. Sem o campo (servidor antigo) não se pergunta.
+    concelhosForaHoras = Array.isArray(j.fora_horas_concelhos) ? j.fora_horas_concelhos.filter((c) => typeof c === "string") : null;
     const subMelhorias = document.querySelector("#passo-10 .sub-passo");
     if (subMelhorias) subMelhorias.textContent = comProposta("Opcional. Preço para esta casa; valor final após a visita.", "Opcional. Preço para esta casa; o preço certo vem na proposta.");
     textosPagamento();   // o botão e as compras do passo Enviar (com os preços da configuração)
@@ -4952,6 +4954,7 @@ function montarVisita() {
     if (sim) { estado.urgencia = k; agendarGravacao(false); }
   })));
   montarCompras();   // fase 3: "O que quer receber?", no mesmo passo
+  montarHorario();   // avaria: horário normal ou fora de horas (2026-10-13)
   montarCompleto();   // ronda A: "Quero o relatório completo" (o mesmo estado.compras.relatorio)
 }
 function desenharVisita() {
@@ -5189,9 +5192,11 @@ function desenharDeslocacao() {
   else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}${d.valor_iva > 0 ? (d.limitado ? ` (ida e volta; máximo ${d.dias} dias)` : ` (ida e volta, ${d.dias} ${d.dias === 1 ? "dia" : "dias"})`) : ""}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
   if (funilAvaria()) {
-    if (semDesloc.total !== null) caixa.append(el("p", "num", textoDiagnostico(semDesloc.total)));
+    // Fora de horas (decisão do dono, 2026-10-13): o diagnóstico custa mais; a deslocação é a mesma.
+    const extra = semDesloc.total !== null && horarioEscolhido() === "fora_horas" ? extraForaHoras(semDesloc.total) : 0;
+    if (semDesloc.total !== null) caixa.append(el("p", "num", `${textoDiagnostico(cent(semDesloc.total + extra))}${extra ? " (fora de horas)" : ""}`));
     // A avaria paga-se ao enviar: o diagnóstico e a deslocação (o servidor confirma o valor).
-    if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(preco.total)} (descontado na reparação)`));
+    if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(cent(preco.total + extra))} (descontado na reparação)`));
   }
   else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total"}: ${textoComDeslocacao(preco)}`));
   caixa.hidden = false;
@@ -5331,7 +5336,10 @@ const chaveCompra = (c) => (c.relatorio ? (c.visita ? "pormenorizado_visita" : "
 function textoBotaoEnviar() {
   if (funilAvaria()) {
     if (!pagamentosAtivos || foraDaArea()) return "Enviar pedido";
-    const { total: t, deslocacao: d } = calcular().preco;
+    const { preco: pa, semDesloc } = calcular();
+    const d = pa.deslocacao;
+    // Fora de horas: o botão diz o que se paga de facto (o diagnóstico mais caro; o servidor confirma o valor).
+    const t = pa.total === null ? null : cent(pa.total + (horarioEscolhido() === "fora_horas" && semDesloc.total !== null ? extraForaHoras(semDesloc.total) : 0));
     if (t !== null && d?.estado === "sem_localidade") return `Pagar ${formatarEuro(t)} + deslocação e enviar`;
     return t !== null ? `Pagar ${formatarEuro(t)} e enviar` : "Pagar e enviar";
   }
@@ -5350,6 +5358,7 @@ function textosPagamento() {
   // Sem visita à parte (propostas na bolsa) os dias também não se perguntam aqui: a visita marca-se depois de aceitar a proposta.
   $("enviar-visita").hidden = Boolean(listaEspera) || fora || (!funilAvaria() && pagamentosAtivos && !(visitaAParte && estado.compras.visita));
   desenharCompras();
+  desenharHorario();
   $("enviar-texto").textContent = listaEspera
     ? `As obras começam ${ESPERA_QUANDO}. O pedido fica em lista de espera e não paga nada. * obrigatório`
     : funilAvaria() && pagamentosAtivos
@@ -5382,6 +5391,61 @@ const OPCOES_COMPRA = {
   pormenorizado_visita: { relatorio: true, visita: true },
   visita: { relatorio: false, visita: true },
 };
+// ---- Avarias fora de horas (decisão do dono, 2026-10-13; docs/PAGAMENTOS-PEDIDO.md "Avarias fora de horas"): só as
+// avarias têm dois preços. O cliente escolhe no passo Enviar, antes de pagar: horário normal (dias úteis, das 8h às 20h)
+// ou o mais depressa possível (noite, fim de semana e feriados), com o diagnóstico a mais `fora_horas_pct` (50 %). No
+// pedido vai só a escolha (`simulacao.horario`): o preço é sempre o do servidor. Num concelho sem ninguém que faça fora
+// de horas (`fora_horas_concelhos` do /api/catalogo) só há o horário normal.
+let concelhosForaHoras = null;   // null = o servidor não o disse (antigo, ou o catálogo ainda não chegou): não se pergunta
+const pctForaHoras = () => { const v = configOrc?.fora_horas_pct; return v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null; };
+/** A pergunta do horário faz-se? Só na avaria, com o concelho reconhecido e dentro da área; em lista de espera não (não se marca nada). */
+function horarioAtivo() {
+  if (!funilAvaria() || listaEspera || !concelhosForaHoras || pctForaHoras() === null) return false;
+  return calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "estimada";
+}
+/** Há quem faça fora de horas no concelho do pedido? (Di-lo o servidor, que também recusa o pedido se não houver.) */
+const temForaHoras = () => horarioAtivo() && concelhosForaHoras.includes(calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).concelho);
+/** O que vai no pedido: "normal", "fora_horas", ou null quando a pergunta não se faz (o servidor trata como horário normal). */
+const horarioEscolhido = () => (!horarioAtivo() ? null : temForaHoras() && estado.horario === "fora_horas" ? "fora_horas" : "normal");
+/** O que o diagnóstico (€ c/ IVA, sem a deslocação) custa a mais fora de horas. */
+const extraForaHoras = (diagnostico) => cent((diagnostico * (pctForaHoras() ?? 0)) / 100);
+const OPCOES_HORARIO = ["normal", "fora_horas"];
+function montarHorario() {
+  $("enviar-horario-opcoes").append(...OPCOES_HORARIO.map((k) => {
+    const l = escolha("radio", "enviar-horario", k, "…", "…", (sim) => {   // os textos vêm de desenharHorario
+      if (!sim) return;
+      estado.horario = k;
+      agendarGravacao(false);
+      desenharDeslocacao();   // o valor a pagar e o botão seguem a escolha
+    });
+    l.dataset.horario = k;
+    return l;
+  }));
+}
+function desenharHorario() {
+  const caixa = $("enviar-horario");
+  caixa.hidden = !horarioAtivo();
+  if (caixa.hidden) return;
+  const tem = temForaHoras();
+  const { total } = calcular().semDesloc;   // o diagnóstico, sem a deslocação (igual nos dois horários)
+  const comPreco = pagamentosAtivos && total !== null;
+  const TEXTOS = {
+    normal: ["Em horário normal (dias úteis, das 8h às 20h)", comPreco ? `Diagnóstico: ${formatarEuro(total)} + deslocação.` : "Marcamos a visita num dia útil."],
+    fora_horas: ["O mais depressa possível, mesmo de noite ou ao fim de semana",
+      comPreco ? `Diagnóstico: ${formatarEuro(cent(total + extraForaHoras(total)))} + deslocação (mais ${String(pctForaHoras()).replace(".", ",")} %).` : "Também de noite, ao sábado, ao domingo e nos feriados."],
+  };
+  const atual = horarioEscolhido();
+  for (const l of $("enviar-horario-opcoes").children) {
+    const k = l.dataset.horario;
+    const s = l.querySelector("span");
+    s.firstChild.textContent = TEXTOS[k][0];
+    s.querySelector("small").textContent = TEXTOS[k][1].replace(/ €/g, " €");   // o "€" nunca fica sozinho na linha
+    l.hidden = k === "fora_horas" && !tem;
+    l.querySelector("input").checked = k === atual;
+  }
+  $("enviar-horario-nota").textContent = !tem ? "Neste concelho ainda não fazemos serviço de noite nem ao fim de semana."
+    : comPreco ? "Valores com IVA. Se pedir fora de horas e a visita ficar marcada em horário normal, devolvemos a diferença." : "";
+}
 function montarCompras() {
   $("enviar-compras-opcoes").append(...Object.entries(OPCOES_COMPRA).map(([k, c]) => {
     const l = escolha("radio", "enviar-compra", k, "…", "…", (sim) => {   // os textos vêm de desenharCompras
@@ -5528,6 +5592,8 @@ async function enviar() {
   const listaFotos = fotosParaEnvio();
   let sim = montarSimulacao(estado, preco, plano, listaFotos, linhaArtigo, melhoriasParaEnvio(aceites ?? []));
   if (listaEspera) sim = { ...sim, lista_espera: true };   // a conta e o email de boas-vindas dizem-no (painel/src/conta.js, emails-auto.js)
+  // Avaria: só a escolha do horário vai no pedido; o preço (normal ou fora de horas) é o servidor que o calcula.
+  if (horarioEscolhido()) sim = { ...sim, horario: horarioEscolhido() };
   let semFundo = false;
   if (tamanhoSimulacao(sim) > MAX_SIMULACAO && sim.planta?.fundo) {
     sim = { ...sim, planta: { ...sim.planta, fundo: null } };

@@ -29,6 +29,11 @@
 // três partes (mão de obra, material, deslocação); visita cancelada com mais de 24 h é devolvida; "Quero que comecem
 // já" (`inicio_imediato`); a casa só se liga com a obra toda paga (`ligacaoCasa`).
 //
+// Avarias fora de horas (decisão do dono, 2026-10-13; docs/PAGAMENTOS-PEDIDO.md "Avarias fora de horas"): só as avarias
+// têm dois preços. O cliente escolhe ao pedir (`simulacao.horario`: "normal" ou "fora_horas") e o diagnóstico e a mão
+// de obra custam mais `fora_horas_pct` (50 %) fora de horas; a deslocação não muda. Se a visita ficar marcada em horário
+// normal, a diferença é devolvida sozinha, uma só vez (`aoMarcarVisita`).
+//
 // Regras: os valores são SEMPRE calculados aqui (nunca vêm do browser); cada pagamento tem uma referência
 // aleatória (ref) e só a conta dona o vê e paga; um evento só é tratado uma vez (pagamentos_eventos) e uma fase
 // paga não se paga outra vez (índice único); a avaria só passa a orçamento ("novo" no painel) depois de paga.
@@ -39,6 +44,7 @@ import { idNum, opcao, booleano, MELHORIAS } from './validar.js';
 import { iso, deCent } from './util.js';
 import { LimiteTaxa } from './limite.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
+import { foraDeHoras } from '../public/vendor/horario.js';
 import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
 
@@ -51,6 +57,7 @@ export const HORAS_DIA_OBRA = 8;                  // deslocação da obra: uma i
 export const DESLOCACAO_MAX_DIAS = 5;             // … no máximo 5 dias de deslocação por obra (config `deslocacao_max_dias`)
 export const PRECO_RELATORIO_OMISSAO = 29;        // € c/ IVA do relatório completo (config `preco_relatorio_iva`)
 export const VISITA_HORAS = 0.5;                  // visita técnica = deslocação + 0,5 h × tarifa
+export const FORA_HORAS_PCT_OMISSAO = 50;         // % a mais do diagnóstico e da mão de obra de uma avaria fora de horas (config `fora_horas_pct`)
 export const VALIDADE_MS = 24 * 3600_000;         // um pagamento por pagar expira (e o pedido guardado sai) ao fim de 24 h
 const FOTOS_DEPOIS_MS = 2 * 3600_000;             // token das fotos só nas 2 h a seguir ao pagamento da avaria
 const TOLERANCIA_WEBHOOK_S = 300;
@@ -195,6 +202,9 @@ export function valorVisitaCent(localidade, cfg) {
   return Math.round((d + VISITA_HORAS * numCfg(cfg, 'tarifa_hora_iva', 38)) * 100);
 }
 
+/** Quanto custa a mais uma avaria fora de horas (%): `fora_horas_pct` (50), entre 0 e 200. */
+export const foraHorasPct = (cfg) => Math.min(200, numCfg(cfg, 'fora_horas_pct', FORA_HORAS_PCT_OMISSAO));
+
 /**
  * @param {{db, config, registo, relogio: () => number, auditar: Function, correio: object, fotos: object,
  *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
@@ -244,6 +254,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     }
     if (p.devolvido_cent) { r.devolvido = deCent(p.devolvido_cent); r.devolvido_em = p.devolvido; }
     if (p.a_devolver) r.a_devolver = deCent(p.a_devolver);
+    // Avaria pedida fora de horas: o que pagou a mais por isso (já dentro do valor) e, se a visita ficou marcada em
+    // horário normal, quando essa diferença lhe foi devolvida (o valor devolvido vai em `devolvido` ou `a_devolver`).
+    if (p.fora_horas_cent !== null && p.fora_horas_cent !== undefined) { r.fora_horas = true; r.fora_horas_valor = deCent(p.fora_horas_cent); r.fora_horas_devolvida = p.fora_horas_devolvida ?? null; }
     // "Visita não realizada — não desconta": o cliente faltou (o pagamento fica, mas não é descontado no sinal).
     // "Visita sem defeito — não desconta": a visita cobrada depois de um "Não" do cliente sem defeito (visitaExtra).
     if (p.faltou && eVisitaExtra(p)) r.sem_defeito = true;
@@ -337,22 +350,31 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * no pagamento, "a aguardar pagamento" (não aparece no painel), e passa a orçamento quando o pagamento for
    * confirmado. Fora da área servida não se envia (409: fale connosco). Um pagamento por pagar da mesma conta é
    * reaproveitado (clicar duas vezes não cria dois), com o pedido novo.
+   * `foraHoras` (decisão do dono, 2026-10-13): o cliente pediu a visita fora de horas — paga logo o diagnóstico e a mão
+   * de obra a mais `fora_horas_pct` (a deslocação é a mesma); o que pagou a mais fica guardado no pagamento
+   * (`fora_horas_cent`), para se devolver se a visita ficar marcada em horário normal. Quem o diz é o servidor (api.js,
+   * pela escolha que vem na simulação): o navegador nunca manda o preço.
    */
-  async function iniciarAvaria({ conta, pedido, localidade }) {
+  async function iniciarAvaria({ conta, pedido, localidade, foraHoras = false }) {
     expirar();
-    const valorCent = valorAvariaCent(localidade, lerConfigOrc());
-    if (valorCent === 'fora') throw new ErroApi(409, 'A sua localidade fica fora da área servida: não enviamos técnico. Fale connosco por telefone ou WhatsApp.');
-    if (!valorCent) throw new ErroApi(409, 'O preço do diagnóstico não está disponível agora. Fale connosco por telefone ou WhatsApp.');
-    const descricao = `Diagnóstico da avaria e deslocação (${euro(valorCent)}, descontados na reparação)`;
+    const cfg = lerConfigOrc();
+    const normalCent = valorAvariaCent(localidade, cfg);
+    if (normalCent === 'fora') throw new ErroApi(409, 'A sua localidade fica fora da área servida: não enviamos técnico. Fale connosco por telefone ou WhatsApp.');
+    if (!normalCent) throw new ErroApi(409, 'O preço do diagnóstico não está disponível agora. Fale connosco por telefone ou WhatsApp.');
+    const extraCent = foraHoras ? extraForaHorasCent(localidade, cfg) : null;
+    const valorCent = normalCent + (extraCent ?? 0);
+    const descricao = `Diagnóstico da avaria e deslocação${foraHoras ? ', fora de horas' : ''} (${euro(valorCent)}, descontados na reparação)`;
     const json = JSON.stringify(pedido);
     const pend = db.prepare(`SELECT * FROM pagamentos_pedido WHERE conta_id = ? AND fase = 'avaria' AND estado = 'pendente' AND modo = ?
       AND expira > ? ORDER BY id DESC LIMIT 1`).get(conta.id, modo, relogio());
-    if (pend && pend.valor_cent === valorCent) {
+    if (pend && pend.valor_cent === valorCent && (pend.fora_horas_cent ?? null) === extraCent) {
       db.prepare('UPDATE pagamentos_pedido SET pedido = ?, descricao = ?, atualizado = ? WHERE id = ?').run(json, descricao, agoraIso(), pend.id);
       return publico(linha(pend.ref));
     }
     if (pend) cancelar(pend, 'substituido');
-    return publico(await novo({ contaId: conta.id, fase: 'avaria', valorCent, descricao, retorno: 'simulador', comVisita: true, pedido: json }));
+    const p = await novo({ contaId: conta.id, fase: 'avaria', valorCent, descricao, retorno: 'simulador', comVisita: true, pedido: json });
+    if (foraHoras) db.prepare('UPDATE pagamentos_pedido SET fora_horas_cent = ? WHERE id = ?').run(extraCent, p.id);
+    return publico(linha(p.ref));
   }
 
   /** Diagnóstico + deslocação (cêntimos c/ IVA); 'fora' fora da área servida; null sem o artigo no catálogo. */
@@ -363,6 +385,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!a || !Number.isFinite(a.preco_venda_iva_cent)) return null;
     const tarifa = numCfg(cfg, 'tarifa_hora_iva', 38);
     return a.preco_venda_iva_cent + Math.round((Number(a.horas_instalacao) || 0) * tarifa * 100) + Math.round(d * 100);
+  }
+  /**
+   * O que a avaria custa A MAIS fora de horas (cêntimos c/ IVA): `fora_horas_pct` sobre o diagnóstico e a mão de obra —
+   * nunca sobre a deslocação. 0 fora da área ou sem o artigo no catálogo (não há o que cobrar).
+   */
+  function extraForaHorasCent(localidade, cfg) {
+    const total = valorAvariaCent(localidade, cfg);
+    if (!Number.isFinite(total)) return 0;
+    return Math.round(((total - Math.round(deslocacaoServidor(localidade ?? '', cfg) * 100)) * foraHorasPct(cfg)) / 100);
   }
   const diagnosticoPorFuncao = () => db.prepare(`SELECT nome, preco_venda_iva_cent, horas_instalacao, horas_troca FROM catalogo
     WHERE ativo = 1 AND json_extract(especificacoes, '$.funcao') = 'diagnostico' ORDER BY id LIMIT 1`).get() ?? null;
@@ -611,7 +642,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const pagamentoVisita = (o) => db.prepare(`SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND estado = 'pago' AND com_visita = 1 AND faltou IS NULL
     AND fase IN ('visita', 'pormenorizado_visita', 'avaria') ORDER BY id LIMIT 1`).get(o.id);
   /** A parte de um pagamento que é a visita (cêntimos): tudo, menos o relatório quando foram comprados juntos. */
-  const parteVisita = (p) => (p.fase === 'pormenorizado_visita' ? p.valor_cent - precoRelatorioCent(lerConfigOrc()) : p.valor_cent);
+  // Menos a diferença do fora de horas que já lhe foi devolvida (ou está por devolver) por a visita ter ficado em horário normal.
+  const parteVisita = (p) => (p.fase === 'pormenorizado_visita' ? p.valor_cent - precoRelatorioCent(lerConfigOrc()) : p.valor_cent)
+    - (p.fora_horas_devolvida ? (p.devolvido_cent ?? 0) + (p.a_devolver ?? 0) : 0);
 
   /**
    * O que a conta mostra sobre cancelar a visita paga: {pode, devolucao (€), motivo, faltou}. Com mais de 24 h de
@@ -704,8 +737,12 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * devolução MANUAL por transferência — fica uma linha em `devolucoes_pedido` à espera do IBAN do cliente e o
    * pagamento com `a_devolver`; só conta como devolvido quando o CEO a marca como feita (`marcarDevolvida`).
    * `tiraVisita`: o pagamento deixa de valer como visita paga. Devolve {ref, cent, modo, manual}.
+   * `horario` (decisão do dono, 2026-10-13): é a diferença de uma avaria paga fora de horas cuja visita ficou em horário
+   * normal — o pagamento continua a valer, fica marcado (`fora_horas_devolvida`: só se devolve uma vez) e tem a sua
+   * própria chave de idempotência no Stripe. É a única devolução que deixa outra vir por cima: se o cliente cancelar
+   * depois o diagnóstico, devolve-se o resto (as somas juntam-se; o UPDATE só muda a linha se ninguém lhe mexeu entretanto).
    */
-  async function devolver(p, cent, motivo, { tiraVisita = false } = {}) {
+  async function devolver(p, cent, motivo, { tiraVisita = false, horario = false } = {}) {
     let metodo = p.metodo ?? null;
     let pi = null;
     if (p.modo === 'stripe') {
@@ -717,18 +754,28 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     }
     const manual = metodo === 'multibanco';
     if (!manual && p.modo === 'stripe') {
-      await stripe('POST', 'refunds', { payment_intent: pi, amount: String(cent), reason: 'requested_by_customer', 'metadata[ref]': p.ref }, `domus-reembolso-${p.ref}`);
+      await stripe('POST', 'refunds', { payment_intent: pi, amount: String(cent), reason: 'requested_by_customer', 'metadata[ref]': p.ref }, `domus-reembolso-${p.ref}${horario ? '-horario' : ''}`);
     }
     const agora = agoraIso();
     const visita = tiraVisita ? ', com_visita = 0' : '';
+    const marca = horario ? ', fora_horas_devolvida = ?' : '';
+    const argsMarca = horario ? [agora] : [];
+    // O que já saiu deste pagamento: nada, a não ser a diferença do fora de horas (já devolvida, ou por transferir).
+    const jaCent = p.fora_horas_devolvida ? p.devolvido_cent ?? 0 : 0;
+    const jaManual = p.fora_horas_devolvida ? p.a_devolver ?? 0 : 0;
+    const porCima = !horario && Boolean(p.fora_horas_devolvida);
+    const livre = horario ? 'devolvido IS NULL AND a_devolver IS NULL AND fora_horas_devolvida IS NULL'
+      : porCima ? 'COALESCE(devolvido_cent, 0) = ? AND COALESCE(a_devolver, 0) = ?' : 'devolvido IS NULL AND a_devolver IS NULL';
+    const argsLivre = porCima ? [jaCent, jaManual] : [];
     const u = manual
-      ? db.prepare(`UPDATE pagamentos_pedido SET a_devolver = ?, metodo = ?${visita}, atualizado = ? WHERE id = ? AND estado = 'pago' AND devolvido IS NULL AND a_devolver IS NULL`).run(cent, metodo, agora, p.id)
-      : db.prepare(`UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, metodo = COALESCE(?, metodo)${visita}, atualizado = ?
-        WHERE id = ? AND estado = 'pago' AND devolvido IS NULL AND a_devolver IS NULL`).run(cent === p.valor_cent ? 'devolvido' : 'pago', agora, cent, metodo, agora, p.id);
+      ? db.prepare(`UPDATE pagamentos_pedido SET a_devolver = ?, metodo = ?${visita}${marca}, atualizado = ? WHERE id = ? AND estado = 'pago' AND ${livre}`).run(jaManual + cent, metodo, ...argsMarca, agora, p.id, ...argsLivre)
+      : db.prepare(`UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, metodo = COALESCE(?, metodo)${visita}${marca}, atualizado = ?
+        WHERE id = ? AND estado = 'pago' AND ${livre}`).run(jaCent + jaManual + cent === p.valor_cent ? 'devolvido' : 'pago', agora, jaCent + cent, metodo, ...argsMarca, agora, p.id, ...argsLivre);
     if (!u.changes) throw new ErroApi(409, 'Este pagamento já foi devolvido.');
     if (manual) {
-      db.prepare(`INSERT INTO devolucoes_pedido (pagamento_id, conta_id, orcamento_id, valor_cent, motivo, estado, criado) VALUES (?, ?, ?, ?, ?, 'pede_iban', ?)`)
-        .run(p.id, p.conta_id, p.orcamento_id, cent, motivo, agora);
+      // `fora_horas` (migração 54): a linha é a diferença do horário (o `motivo` da tabela só conhece os três de sempre).
+      db.prepare(`INSERT INTO devolucoes_pedido (pagamento_id, conta_id, orcamento_id, valor_cent, motivo, estado, criado, fora_horas) VALUES (?, ?, ?, ?, ?, 'pede_iban', ?, ?)`)
+        .run(p.id, p.conta_id, p.orcamento_id, cent, horario ? 'diagnostico' : motivo, agora, horario ? 1 : null);
     }
     return { ref: p.ref, cent, modo: p.modo, manual };
   }
@@ -747,11 +794,11 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   /** "PT50 •••• 0154": só o país e os 4 últimos algarismos (listas, conta, depois de devolvido). */
   const ibanMascarado = (iban) => (iban ? `${iban.slice(0, 4)} •••• ${iban.slice(-4)}` : null);
   const TEXTO_DEVOLUCAO = { pede_iban: 'À espera do IBAN do cliente', por_fazer: 'Devolução por fazer', devolvido: 'Devolvido' };
-  const NOME_MOTIVO = { visita: 'Visita técnica cancelada', diagnostico: 'Diagnóstico cancelado', sinal: 'Sinal devolvido' };
+  const NOME_MOTIVO = { visita: 'Visita técnica cancelada', diagnostico: 'Diagnóstico cancelado', sinal: 'Sinal devolvido', horario: 'Visita marcada em horário normal' };
   /** Uma devolução manual para a conta e para as listas: o IBAN sempre mascarado. `completo` (só CEO, por fazer): o IBAN inteiro. */
   function devolucaoPublica(d, completo = false) {
     return {
-      id: d.id, orcamento_id: d.orcamento_id, valor: deCent(d.valor_cent), motivo: d.motivo, motivo_texto: NOME_MOTIVO[d.motivo], estado: d.estado, estado_texto: TEXTO_DEVOLUCAO[d.estado],
+      id: d.id, orcamento_id: d.orcamento_id, valor: deCent(d.valor_cent), motivo: d.fora_horas ? 'horario' : d.motivo, motivo_texto: NOME_MOTIVO[d.fora_horas ? 'horario' : d.motivo], estado: d.estado, estado_texto: TEXTO_DEVOLUCAO[d.estado],
       iban: completo && d.estado === 'por_fazer' ? d.iban : ibanMascarado(d.iban), titular: d.titular ?? null,
       criado: d.criado, devolvido: d.devolvido ?? null, ...(completo ? { devolvido_por: d.devolvido_por ?? null } : {}),
     };
@@ -785,8 +832,11 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const agora = agoraIso();
     const p = db.prepare('SELECT * FROM pagamentos_pedido WHERE id = ?').get(d.pagamento_id);
     db.prepare("UPDATE devolucoes_pedido SET estado = 'devolvido', devolvido = ?, devolvido_por = ?, iban = ? WHERE id = ?").run(agora, por, ibanMascarado(d.iban), d.id);
-    db.prepare('UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, a_devolver = NULL, atualizado = ? WHERE id = ?')
-      .run(d.valor_cent === p.valor_cent ? 'devolvido' : 'pago', agora, d.valor_cent, agora, p.id);
+    // Junta-se ao que já saiu deste pagamento (só acontece com a diferença do fora de horas: `devolver`); nos outros casos é a única.
+    const feito = (p.devolvido_cent ?? 0) + d.valor_cent;
+    const porFazer = (p.a_devolver ?? 0) - d.valor_cent;
+    db.prepare('UPDATE pagamentos_pedido SET estado = ?, devolvido = ?, devolvido_cent = ?, a_devolver = ?, atualizado = ? WHERE id = ?')
+      .run(feito === p.valor_cent ? 'devolvido' : 'pago', agora, feito, porFazer > 0 ? porFazer : null, agora, p.id);
     return { ...devolucaoPublica(db.prepare('SELECT * FROM devolucoes_pedido WHERE id = ?').get(d.id), true), ref: p.ref, conta_id: d.conta_id };
   }
 
@@ -815,6 +865,84 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
           r.manual ? `Como pagou por referência Multibanco, devolvemos ${euro(cent)} por transferência bancária: indique o IBAN na sua conta.`
             : `Devolvemos ${euro(cent)} para o mesmo meio de pagamento (até 14 dias)${p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           info.avaria ? 'Se voltar a precisar, envie um novo pedido.' : 'Pode marcar outra visita na sua conta quando quiser.', ...(config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []), '', 'Domus Energia'].join('\n') });
+    }
+    return { devolvido: deCent(cent), manual: r.manual };
+  }
+
+  // ------------------------------------------------------------ avarias fora de horas (decisão do dono, 2026-10-13)
+  /**
+   * O horário que o cliente escolheu ao pedir a avaria: 'fora_horas' ou 'normal'; null quando não é uma avaria ou é um
+   * pedido de antes desta escolha (vale como horário normal, sem regra nenhuma nova: fica tudo como estava).
+   */
+  const horarioPedido = (o) => { const s = simDe(o); return s?.funil === 'avaria' && (s.horario === 'normal' || s.horario === 'fora_horas') ? s.horario : null; };
+  /**
+   * A avaria CONTINUA fora de horas? Pediu-a assim e o que pagou a mais não lhe foi devolvido. Enquanto for verdade só a
+   * veem os eletricistas que fazem fora de horas, e quem a fizer recebe sobre a mão de obra mais alta (eletricistas.js).
+   * Numa avaria que entrou sem pagar (pagamentos desligados, lista de espera) vale só a escolha.
+   */
+  function foraHorasEmVigor(o) {
+    if (horarioPedido(o) !== 'fora_horas') return false;
+    if (!prep("SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = 'avaria' LIMIT 1").get(o.id)) return true;
+    const p = pagamentoVisita(o);
+    return Boolean(p) && p.fase === 'avaria' && p.fora_horas_cent !== null && !p.fora_horas_devolvida;
+  }
+  /** A percentagem a mais da mão de obra desta avaria para o eletricista: `fora_horas_pct` enquanto está fora de horas; senão 0. */
+  const acrescimoForaHoras = (o) => (foraHorasEmVigor(o) ? foraHorasPct(lerConfigOrc()) : 0);
+  /**
+   * O que a conta e o painel mostram de uma avaria pedida fora de horas: {em_vigor, pct, pago (€ a mais, com IVA),
+   * devolvido (€), devolvido_em, por_transferencia}; null se o cliente não a pediu fora de horas.
+   */
+  function foraHoras(o) {
+    if (horarioPedido(o) !== 'fora_horas') return null;
+    const p = prep("SELECT * FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = 'avaria' AND fora_horas_cent IS NOT NULL ORDER BY id DESC LIMIT 1").get(o.id) ?? null;
+    const devolvida = Boolean(p?.fora_horas_devolvida);
+    return {
+      em_vigor: foraHorasEmVigor(o), pct: foraHorasPct(lerConfigOrc()), pago: p ? deCent(p.fora_horas_cent) : null,
+      devolvido: devolvida ? deCent(p.fora_horas_cent) : null, devolvido_em: p?.fora_horas_devolvida ?? null,
+      // Pagou por referência Multibanco: a diferença vai por transferência, depois de o cliente dar o IBAN na conta.
+      por_transferencia: devolvida && Boolean(prep("SELECT 1 FROM devolucoes_pedido WHERE pagamento_id = ? AND fora_horas = 1 AND estado != 'devolvido' LIMIT 1").get(p.id)),
+    };
+  }
+
+  /**
+   * Chama-se ANTES de marcar (ou alterar) a visita do diagnóstico de uma avaria para `quando` ("AAAA-MM-DDTHH:MM", hora
+   * de Lisboa), venha a marcação do eletricista ou do painel:
+   * - o cliente pediu horário normal e a data fica fora dele (noite, sábado, domingo, feriado) → 409: não se marca;
+   * - pagou o preço de fora de horas e a data fica em horário normal → devolve-se-lhe a diferença, pelo mesmo meio (ou
+   *   por transferência, se pagou por Multibanco), UMA SÓ VEZ, e é avisado por email;
+   * - a diferença já lhe foi devolvida e a data nova fica fora do horário normal → 409 (decisão do dono, 2026-10-13: como
+   *   quem pagou o preço normal; nunca se cobra outra vez).
+   * A devolução vem antes da marcação: se o serviço de pagamentos falhar, a visita não fica marcada e tenta-se de novo
+   * (nunca fica uma visita em horário normal com a diferença por devolver). Devolve {devolvido (€), manual} ou null.
+   */
+  async function aoMarcarVisita(o, quando, por = null, ip = undefined) {
+    const escolha = horarioPedido(o);
+    const fora = escolha ? foraDeHoras(quando) : null;
+    if (fora === null) return null;
+    if (fora) {
+      if (escolha === 'normal') throw new ErroApi(409, 'Este cliente pediu horário normal: marque num dia útil entre as 8h e as 20h.');
+      if (pagamentoVisita(o)?.fora_horas_devolvida) throw new ErroApi(409, 'A diferença já foi devolvida ao cliente: marque num dia útil entre as 8h e as 20h.');
+      return null;
+    }
+    const p = pagamentoVisita(o);
+    if (!p || p.fase !== 'avaria' || !(p.fora_horas_cent > 0) || p.fora_horas_devolvida || p.devolvido || p.a_devolver) return null;
+    const cent = Math.min(p.fora_horas_cent, p.valor_cent);
+    let r;
+    try { r = await devolver(p, cent, 'horario', { horario: true }); } catch (e) {
+      // Duas marcações ao mesmo tempo: a outra já devolveu (a chave de idempotência e o UPDATE condicional garantem uma só).
+      if (e instanceof ErroApi && e.estado === 409 && linha(p.ref)?.fora_horas_devolvida) return null;
+      throw e;
+    }
+    auditar(por, 'fora_horas_devolvido', `orcamento:${o.id}`, { ref: p.ref, devolvido: deCent(cent), modo: p.modo, data_visita: quando, ...(r.manual ? { manual: true } : {}) }, ip);
+    registo.info(`pagamento ${p.ref}: visita em horário normal, ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}${p.modo === 'simulado' ? ' (simulado)' : ''} — orçamento ${o.id}`);
+    const para = p.conta_id ? emailConta(p.conta_id) : null;
+    if (para) {
+      correio.enviar({ para, assunto: 'Domus Energia: devolvemos a diferença do fora de horas', resumo: `visita do pedido ${o.id} em horário normal; ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}`,
+        texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} ficou marcada em horário normal: ${r.manual ? 'vamos devolver' : 'devolvemos'} ${euro(cent)}.`,
+          'Tinha pago o preço de fora de horas (noite, fim de semana ou feriado), que já não se aplica.',
+          r.manual ? 'Como pagou por referência Multibanco, a devolução é por transferência bancária: indique o IBAN na sua conta.'
+            : `A devolução vai para o mesmo meio de pagamento (até 14 dias)${p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
+          ...(config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []), '', 'Domus Energia'].join('\n') });
     }
     return { devolvido: deCent(cent), manual: r.manual };
   }
@@ -1446,6 +1574,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       estado: p.estado, estado_texto: TEXTO_ESTADO[p.estado], modo: p.modo, criado: p.criado, pago: p.pago, plano: p.plano,
       devolvido: p.devolvido_cent ? deCent(p.devolvido_cent) : null, devolvido_em: p.devolvido ?? null, nao_realizada: Boolean(p.faltou) && !eVisitaExtra(p), sem_defeito: eVisitaExtra(p),
       a_devolver: p.a_devolver ? deCent(p.a_devolver) : null, metodo: p.metodo ?? null,
+      // Avaria paga a preço de fora de horas: o que foi a mais (€ c/ IVA, dentro do valor) e quando se devolveu (só vai quando há).
+      ...(p.fora_horas_cent !== null && p.fora_horas_cent !== undefined ? { fora_horas: true, fora_horas_valor: deCent(p.fora_horas_cent), fora_horas_devolvida: p.fora_horas_devolvida ?? null } : {}),
       com_visita: p.com_visita === null ? null : Boolean(p.com_visita), descricao: p.descricao, orcamento_id: p.orcamento_id,
     };
   }
@@ -1545,6 +1675,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       cartao_max: numCfg(lerConfigOrc(), 'cartao_max_iva', CARTAO_MAX_OMISSAO),
       inicio_imediato: o.inicio_imediato ?? null,
       visita_cancelar: visitaCancelar(o),
+      // Avaria pedida fora de horas (decisão do dono, 2026-10-13): o que pagou a mais e a devolução, se a houve; null nas outras.
+      fora_horas: foraHoras(o),
       visita_faltou: o.visita_faltou ?? null,
       // "Visita sem defeito" por pagar ou paga (depois de um "Não" do cliente sem defeito): {valor, paga, pendente} ou null.
       visita_sem_defeito: visitaExtra(o),
@@ -1744,6 +1876,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
     resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
+    horarioPedido, foraHorasEmVigor, acrescimoForaHoras, foraHoras, aoMarcarVisita,
     marcarFalta, devolverSinal, sinalDevolvivel, obraParada, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida, ivaDoPedido,
     // Pré-visualização da Área de cliente (conta.js plantaPedido): a planta do cliente só com o desenho.
     plantaParaCliente: plantaParaRelatorio,

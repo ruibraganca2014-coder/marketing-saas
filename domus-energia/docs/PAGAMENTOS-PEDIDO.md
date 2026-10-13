@@ -28,6 +28,31 @@ Exemplo com uma proposta de 1000 € (+ IVA 23 % = 1230 €), relatório complet
 
 Sem compras antes, o sinal é 369 € (e o restante 861 € na mesma). O cálculo está em `valores()` (`painel/src/pagamentos-pedido.js`): total = `comIva(valor_proposta, iva_pct)` (ou a obra mínima); `pago_antes` = soma dos pagos nas fases `relatorio`, `relatorio_pormenorizado`, `visita`, `pormenorizado_visita` e `avaria` (menos o que foi devolvido); sinal = `calcularSinal(total, desconto, custo do material)`; restante = total − tudo o que já foi pago para a obra − o sinal por pagar.
 
+## Avarias fora de horas (decisões de 2026-10-13)
+
+Só as avarias têm dois preços. Obras e visitas técnicas ficam sempre ao preço normal. Migração 54 (só acrescenta colunas); testes em `painel/test/fora-de-horas.test.js`.
+
+- **Horário normal:** dias úteis, das 08:00 às 20:00, hora de Lisboa. **Fora de horas:** noite (20:00–08:00), sábado, domingo e feriados nacionais (os dez fixos e Sexta-feira Santa, Páscoa e Corpo de Deus). A regra é a função pura `foraDeHoras("AAAA-MM-DDTHH:MM")` de `painel/public/vendor/horario.js`.
+- **Custa mais `fora_horas_pct` (50 %; 0–200; Catálogo → Configuração; pública no `/api/catalogo`)** sobre o diagnóstico e a mão de obra. A deslocação e o material não sobem.
+- **O cliente escolhe no passo Enviar** ("Em horário normal (dias úteis, das 8h às 20h)" ou "O mais depressa possível, mesmo de noite ou ao fim de semana"), com os dois preços à vista. No pedido vai só a escolha, `simulacao.horario` = `normal` | `fora_horas` (validada; `fora_horas` fora de uma avaria dá 400). O valor é o do servidor (`iniciarAvaria`); o que foi pago a mais fica em `pagamentos_pedido.fora_horas_cent`. Pedidos sem `horario` (os antigos) são horário normal e não ganham regra nenhuma.
+- **Concelho sem ninguém que faça fora de horas:** o `/api/catalogo` traz `fora_horas_concelhos` (só os nomes dos concelhos com pelo menos um eletricista aprovado com isso ligado); nos outros o simulador mostra só o horário normal e o servidor recusa o pedido fora de horas (409).
+- **Visita marcada em horário normal → a diferença é devolvida sozinha, uma só vez** (`aoMarcarVisita`, chamada antes de gravar a data, venha ela do eletricista, de "Marcar visita" ou da ficha do painel): pelo mesmo meio (Stripe: `POST /v1/refunds` com `Idempotency-Key: domus-reembolso-<ref>-horario`; simulado: só fica marcado) ou, se pagou por Multibanco, por transferência (linha em `devolucoes_pedido` com `fora_horas = 1`, motivo "Visita marcada em horário normal"). O pagamento continua `pago`, com `devolvido_cent` e `fora_horas_devolvida`; o cliente recebe o email "a visita ficou marcada em horário normal: devolvemos X €". Se a devolução falhar, a visita não fica marcada (tenta-se de novo).
+- **Depois da devolução já não se marca fora de horas:** 409 "A diferença já foi devolvida ao cliente: marque num dia útil entre as 8h e as 20h." Nunca se cobra outra vez.
+- **Quem pediu horário normal não se marca fora dele:** 409 "Este cliente pediu horário normal: marque num dia útil entre as 8h e as 20h."
+- **Cancelar o diagnóstico depois da devolução** devolve só o que ainda está pago (as duas devoluções somam-se no mesmo pagamento; nunca em dobro).
+- **Conta e painel:** cada pagamento traz `fora_horas`, `fora_horas_valor` e `fora_horas_devolvida`; o pedido traz `fora_horas` (`{em_vigor, pct, pago, devolvido, devolvido_em, por_transferencia}` ou `null`) e, no painel, `horario`. O painel mostra o selo "Fora de horas" enquanto está em vigor.
+- **Pagamentos desligados ou lista de espera:** a avaria entra grátis como sempre; a escolha fica guardada, sem preço nem devolução.
+- Eletricistas (quem as recebe e quanto ganham): docs/ELETRICISTAS.md "Avarias fora de horas".
+
+Exemplo em Sintra (diagnóstico 25 € + 0,5 h × 38 € = 44 €; deslocação 7,20 €):
+
+| | Horário normal | Fora de horas |
+|---|---|---|
+| Diagnóstico e mão de obra | 44,00 € | 66,00 € |
+| Deslocação | 7,20 € | 7,20 € |
+| O cliente paga ao enviar | 51,20 € | 73,20 € |
+| Visita marcada em horário normal | — | devolvem-se 22,00 € |
+
 ## Decisões de 2026-10-11 (propostas na bolsa)
 
 Só com o módulo dos eletricistas e `PROPOSTAS_BOLSA` ligados (docs/ELETRICISTAS.md "Propostas na bolsa"); com um deles desligado, tudo o que está abaixo neste documento vale como está escrito.

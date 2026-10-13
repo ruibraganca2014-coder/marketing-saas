@@ -393,7 +393,14 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   // O IBAN sai sempre mascarado ("PT50 •••• 0154"), mesmo para o próprio; inteiro só para o CEO, nos pagamentos.
   // `obras_assino`: este servidor tem "Obras que assino" (técnico responsável, 2026-10-13) — a página só pede a lista se o vir aqui.
-  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e), iban: pagamentos().ibanMascarado(e.iban ?? null), obras_assino: true });
+  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e), iban: pagamentos().ibanMascarado(e.iban ?? null), obras_assino: true, fora_horas: fazForaHoras(e) });
+  // Avarias fora de horas (decisão do dono, 2026-10-13; migração 54): só as recebe quem disse que faz serviço de noite e
+  // ao fim de semana (`eletricistas.fora_horas`; o próprio liga e desliga na área dele, o CEO na ficha do painel).
+  const fazForaHoras = (e) => Boolean(e?.fora_horas);
+  /** O pedido é uma avaria que CONTINUA fora de horas (pedida assim e sem a diferença devolvida)? */
+  const exigeForaHoras = (o) => Boolean(o) && pagamentos().foraHorasEmVigor(o);
+  /** Os concelhos onde há pelo menos um eletricista aprovado que faz fora de horas: só os nomes (nunca quantos nem quem). */
+  const concelhosForaHoras = () => [...new Set(db.prepare("SELECT concelhos FROM eletricistas WHERE estado = 'aprovado' AND fora_horas = 1").all().flatMap(concelhosDe))].sort((a, b) => a.localeCompare(b, 'pt'));
 
   // ------------------------------------------------------------ entrar com código
   function novoCodigo(id) {
@@ -532,8 +539,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       desl = d === null ? 0 : semIva(d);
     }
     if (mao === null) return null;
+    // Avaria fora de horas (decisão do dono, 2026-10-13): a mesma percentagem, sobre a mão de obra mais alta que o cliente
+    // pagou. Se a visita ficou em horário normal (a diferença foi devolvida ao cliente), vale a mão de obra normal.
+    const foraHoras = tipo === 'avaria' ? pag.acrescimoForaHoras(o) : 0;
+    if (foraHoras) mao = Math.round((mao * (100 + foraHoras)) / 100);
     const parte = Math.round((mao * pct) / 100);
-    return { percentagem: pct, mao_obra: deCent(mao), parte_mao_obra: deCent(parte), deslocacao: deCent(desl), total: deCent(parte + desl), provisoria };
+    return { percentagem: pct, mao_obra: deCent(mao), parte_mao_obra: deCent(parte), deslocacao: deCent(desl), total: deCent(parte + desl), provisoria, ...(foraHoras ? { fora_horas: foraHoras } : {}) };
   }
 
   /**
@@ -592,6 +603,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const rel = relatorioDe(o);
     const r = { id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), ...duracao(o, t.tipo, rel), recebe: recebeDe(o, t.tipo, percentagemDe(e)) };
     if (comRelatorio) r.relatorio = relatorioTecnico(rel, false);
+    // Avaria fora de horas: a percentagem a mais da mão de obra ("Fora de horas: recebe mais 50 %"); o campo só vai quando é.
+    if (t.tipo === 'avaria' && exigeForaHoras(o)) r.fora_horas = pagamentos().acrescimoForaHoras(o);
     // Especialidade do pedido e, para o parceiro que o vê primeiro, até quando é só dele (decisão do dono, 2026-10-13).
     r.especialidade = t.especialidade ?? especialidadeDoPedido(o);
     r.especialidade_nome = ESPECIALIDADES[r.especialidade];
@@ -636,6 +649,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Obra parada por segurança (aoPararObra): já não vale a estimativa — recebe só o trabalho já feito, fixado pelo CEO.
     const fixado = detalheDe(t);
     if (fixado?.obra_parada) { r.recebe = fixado; r.obra_parada = true; }
+    // Avaria (decisão do dono, 2026-10-13): `fora_horas` = a percentagem a mais enquanto vale o preço de fora de horas;
+    // `so_horario_normal` = a visita só se marca num dia útil entre as 8h e as 20h (o cliente pediu horário normal, ou a
+    // diferença já lhe foi devolvida). Os campos só vão quando são verdade.
+    if (t.tipo === 'avaria' && estaAberto) {
+      if (exigeForaHoras(o)) r.fora_horas = pagamentos().acrescimoForaHoras(o);
+      else if (pagamentos().horarioPedido(o)) r.so_horario_normal = true;
+    }
     if (!completo) return r;
     r.cliente = estaAberto && !espera ? { nome: o.nome, telefone: o.telefone ?? null, morada: o.morada ?? null, localidade: o.localidade ?? null } : null;
     // Proposta depois da visita (horas + material do catálogo, sem valores): só numa visita ou diagnóstico já marcados.
@@ -784,7 +804,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** O trabalho está na bolsa só para os parceiros da especialidade? (Pelo relógio do servidor: passadas as 24 h já não.) */
   const emPrioridade = (t) => Boolean(t) && t.estado === 'na_bolsa' && Number.isFinite(t.prioridade_ate) && t.prioridade_ate > relogio();
   /** Os parceiros APROVADOS desta especialidade que trabalham no concelho (e que não largaram nem deixaram caducar o trabalho `t`). */
-  const parceirosEm = (nomeConcelho, esp, t = null) => aprovadosEm(nomeConcelho).filter((x) => parceiroDe(x, esp) && !(t && largouOuExpirou(t, x)));
+  // Numa avaria fora de horas só conta o parceiro que faz fora de horas (senão o trabalho ficava 24 horas sem ninguém o ver).
+  const parceirosEm = (nomeConcelho, esp, t = null) => aprovadosEm(nomeConcelho).filter((x) => parceiroDe(x, esp) && !(t && largouOuExpirou(t, x))
+    && !(t && !fazForaHoras(x) && exigeForaHoras(pedidoDe(t.orcamento_id))));
   /**
    * O trabalho entrou (ou voltou a entrar) na bolsa: fica com a especialidade do pedido e, havendo pelo menos um parceiro
    * dela no concelho, só eles o veem durante 24 horas (`prioridade_ate`). Sem parceiro, ou com a proposta pedida só a um
@@ -1022,9 +1044,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Por proposta (decisão do dono, 2026-10-10) já não é "o primeiro a aceitar": o email diz para enviar a proposta.
     const comoFica = porProposta(t) ? 'Veja o relatório técnico na área do eletricista e envie a sua proposta (horas, material e quando pode ir): a Domus Energia escolhe o eletricista.'
       : 'Veja o relatório técnico e o valor que recebe na área do eletricista. O primeiro a aceitar fica com o trabalho.';
+    // Avaria fora de horas (decisão do dono, 2026-10-13): só é avisado quem faz fora de horas, com mais uma linha.
+    const foraHoras = exigeForaHoras(pedidoDe(t.orcamento_id));
+    if (foraHoras) soParceiros.push(`É uma avaria fora de horas (noite, fim de semana ou feriado): recebe mais ${pagamentos().acrescimoForaHoras(pedidoDe(t.orcamento_id))} % na mão de obra.`);
     let n = 0;
     for (const e of aprovadosEm(t.concelho).slice(0, 500)) {
-      if (largouOuExpirou(t, e) || (t.so_para && t.so_para !== e.id)) continue;
+      if (largouOuExpirou(t, e) || (t.so_para && t.so_para !== e.id) || (foraHoras && !fazForaHoras(e))) continue;
       const parceiro = parceiroDe(e, t.especialidade);
       if (prioridade && !parceiro) continue;
       if (!ins.run(t.id, e.id, agoraIso()).changes) {
@@ -1077,7 +1102,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const visivelNaBolsa = (t, e, o) => t.estado === 'na_bolsa' && concelhosDe(e).includes(t.concelho) && Boolean(o) && aberto(t, o) && !largouOuExpirou(t, e)
     && (t.so_para === null || t.so_para === undefined || t.so_para === e.id)
     // Prioridade de 24 horas (migração 52): enquanto dura, só os parceiros da especialidade do trabalho o veem.
-    && (!emPrioridade(t) || parceiroDe(e, t.especialidade));
+    && (!emPrioridade(t) || parceiroDe(e, t.especialidade))
+    // Avaria fora de horas (migração 54): só quem ligou "Faço serviço de noite e ao fim de semana".
+    && (fazForaHoras(e) || !exigeForaHoras(o));
 
   h.bolsa = ({ res, e }) => {
     expirar();
@@ -1171,6 +1198,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const passada = quando <= agoraLisboa();
     if (passada && !t.visita) falha('Escolha um dia e uma hora no futuro.');
     if (passada && quando < agoraLisboa(-REMARCAR_ATRAS_MS)) falha('A data da visita não pode ser de há mais de 7 dias.');
+    // Avaria (decisão do dono, 2026-10-13): quem pediu horário normal (ou já recebeu a diferença de volta) não se marca
+    // fora dele (409); quem pagou o preço de fora de horas e fica em horário normal recebe a diferença, uma só vez. Vem
+    // antes de gravar: se a devolução falhar, a visita não fica marcada.
+    if (t.tipo === 'avaria') await pagamentos().aoMarcarVisita(o, quando, quem(e), ip);
     const agora = agoraIso();
     const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'visita_marcada', visita = ?, atualizado = ?
       WHERE id = ? AND eletricista_id = ? AND estado IN ('aceite', 'visita_marcada')`).run(quando, agora, t.id, e.id);
@@ -2186,6 +2217,18 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     responder(res, 200, { iban: pagamentos().ibanMascarado(limpo) });
   };
 
+  // "Faço serviço de noite e ao fim de semana" (decisão do dono, 2026-10-13): o próprio eletricista liga e desliga. Só
+  // com isto ligado vê e é avisado das avarias pedidas fora de horas. Não mexe nos trabalhos que já tem.
+  h.foraHoras = async ({ req, res, e, ip }) => {
+    const v = await lerJson(req, ['ligado']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    if (typeof v.ligado !== 'boolean') falha('"ligado" tem de ser true ou false.');
+    db.prepare('UPDATE eletricistas SET fora_horas = ?, atualizado = ? WHERE id = ?').run(v.ligado ? 1 : 0, agoraIso(), e.id);
+    if (fazForaHoras(e) !== v.ligado) auditar(quem(e), 'eletricista_fora_horas', `eletricista:${e.id}`, { fora_horas: v.ligado }, ip);
+    responder(res, 200, { fora_horas: v.ligado });
+  };
+
   // A fatura-recibo do trabalho (PDF, JPG ou PNG até 5 MB, as regras do documento do seguro): depois de aprovado (o
   // valor fica fixado nessa altura) e até estar pago; enviar outra substitui a anterior.
   h.fatura = async ({ req, res, e, params, ip }) => {
@@ -2506,6 +2549,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       // Decisões de 2026-10-13: as especialidades de que é PARCEIRO (lista vazia = eletricista de fora) e se tem n.º da
       // DGEG (`habilitado`: só assim pode ser o técnico responsável de uma obra).
       especialidades: especialidadesDe(e), habilitado: temDgeg(e),
+      // Faz serviço de noite e ao fim de semana (migração 54): só assim recebe as avarias fora de horas.
+      fora_horas: fazForaHoras(e),
       percentagem: Number.isFinite(e.percentagem) ? e.percentagem : null, percentagem_efetiva: percentagemDe(e),
       // Ativação de aparelhos: de confiança = o chip que regista num trabalho vale logo, sem esperar pelo CEO.
       ativa_sem_aprovacao: Boolean(e.ativa_sem_aprovacao),
@@ -2574,6 +2619,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       const lista = Object.keys(ESPECIALIDADES).filter((k) => v.especialidades.includes(k));
       mud.especialidades = lista.length ? JSON.stringify(lista) : null;
     }
+    // "Faz fora de horas" (decisão do dono, 2026-10-13): o eletricista liga-o na área dele; o CEO também o pode mudar aqui.
+    if (v.fora_horas !== undefined) {
+      if (typeof v.fora_horas !== 'boolean') falha('"fora_horas" tem de ser true ou false.');
+      mud.fora_horas = v.fora_horas ? 1 : 0;
+    }
     if (!Object.keys(mud).length) falha('Nada para alterar.');
     const cols = Object.keys(mud);
     db.prepare(`UPDATE eletricistas SET ${cols.map((k) => `${k} = ?, `).join('')}atualizado = ? WHERE id = ?`).run(...cols.map((k) => mud[k]), agoraIso(), e.id);
@@ -2584,7 +2634,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
     auditar(u, acao ? `eletricista_${{ aprovar: 'aprovado', recusar: 'recusado', suspender: 'suspenso', reativar: 'reativado' }[acao]}` : 'eletricista_atualizado', `eletricista:${e.id}`,
       { ...(mud.concelhos ? { concelhos: JSON.parse(mud.concelhos).length } : {}), ...('percentagem' in mud ? { percentagem: mud.percentagem } : {}), ...('ativa_sem_aprovacao' in mud ? { ativa_sem_aprovacao: !!mud.ativa_sem_aprovacao } : {}),
-        ...('especialidades' in mud ? { especialidades: JSON.parse(mud.especialidades ?? '[]') } : {}) }, ip);
+        ...('especialidades' in mud ? { especialidades: JSON.parse(mud.especialidades ?? '[]') } : {}), ...('fora_horas' in mud ? { fora_horas: !!mud.fora_horas } : {}) }, ip);
     if (acao === 'aprovar') {
       correio.enviar({ para: e.email, assunto: 'Domus Energia: candidatura aprovada', resumo: `eletricista ${e.id} aprovado`,
         texto: [`Olá ${e.nome},`, '', 'A sua candidatura foi aprovada: já pode entrar na área do eletricista.',
@@ -2687,7 +2737,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const pode = Boolean(tipo) && !ativo && !repetido && Boolean(c);
     // Na bolsa, os candidatos são quem a vê agora (o mesmo filtro da área do eletricista: quem largou ou deixou caducar já não a vê).
     const naBolsa = ativo?.estado === 'na_bolsa';
-    const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c).filter((x) => !naBolsa || visivelNaBolsa(ativo, x, o)) : [];
+    // Numa avaria fora de horas só quem faz fora de horas (decisão do dono, 2026-10-13).
+    const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c).filter((x) => (!naBolsa || visivelNaBolsa(ativo, x, o)) && (fazForaHoras(x) || !exigeForaHoras(o))) : [];
     const doCliente = t && ['visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.reclamacao_de === 'cliente' && !t.reclamacao_decisao;
     // Técnico responsável (decisão do dono, 2026-10-13): só nas obras; o CEO indica-o (ou muda-o) até a obra ser aprovada.
     const tec = precisaTecnico(t) && t.tecnico_id ? linha(t.tecnico_id) : null;
@@ -2757,6 +2808,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     if (!c) throw new ErroApi(409, 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.');
     for (const x of [e, soPara]) if (x && (x.estado !== 'aprovado' || !concelhosDe(x).includes(c))) throw new ErroApi(409, `Só se atribui a um eletricista aprovado que trabalhe em ${c}.`);
+    // Avaria fora de horas (decisão do dono, 2026-10-13): só a quem disse que faz serviço de noite e ao fim de semana.
+    if (e && !fazForaHoras(e) && exigeForaHoras(o)) throw new ErroApi(409, 'Esta avaria é fora de horas e este eletricista não faz serviço de noite nem ao fim de semana: escolha outro, ou ligue-o na ficha dele.');
     const agora = relogio();
     const id = Number(db.prepare(`INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, eletricista_id, percentagem, aceite_em, criado, atualizado, so_para)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(o.id, tipo, e ? 'aceite' : 'na_bolsa', modo, c, e?.id ?? null, e ? percentagemDe(e) : null, e ? agora : null, iso(agora), iso(agora), soPara?.id ?? null).lastInsertRowid);
@@ -2897,6 +2950,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['POST', 'trabalhos/:id/fotos/:foto/apagar', true, 'apagarFoto'],
     ['GET', 'pagamentos', true, 'pagamentos'],
     ['POST', 'iban', true, 'iban'],
+    ['POST', 'fora-horas', true, 'foraHoras'],   // {ligado}: "Faço serviço de noite e ao fim de semana" (só assim recebe avarias fora de horas)
     ['GET', 'trabalhos/:id/fatura', true, 'verFatura'],
     ['POST', 'trabalhos/:id/fatura', true, 'fatura'],   // {tipo, dados} em base64, como o documento do seguro
     ['GET', 'procedimentos', true, 'procedimentos'],   // os procedimentos publicados (só leitura)
@@ -2946,6 +3000,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     extrasDoPedido, enviarExtra, naoAvancarExtra, extrasParaCliente, responderExtra, extrasPorRever,
     idasDoPedido, confirmarIda, anularIda, idasPorConfirmar, verificarParagem, aoPararObra, aoCancelarObra,
     abrirATodos, aoMudarEspecialidade, indicarTecnico, obrasSemTecnico,   // especialidades, prioridade e técnico responsável (2026-10-13)
+    concelhosForaHoras,   // avarias fora de horas (2026-10-13): onde há quem as faça (só os nomes dos concelhos)
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

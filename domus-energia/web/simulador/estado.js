@@ -402,6 +402,7 @@ export function estadoNovo() {
     contacto: { nome: "", telefone: "", email: "", localidade: "", morada: "", mensagem: "" },
     visita: { dias: [], periodo: "qualquer" },   // lote 8 (passo Enviar): dias da semana e período; sem dias = qualquer dia
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
+    horario: "normal",                            // avaria (2026-10-13): normal (dias úteis, 8h–20h) | fora_horas (noite e fim de semana, mais caro)
     avaria: { onde: [], problema: [], descricao: "" },       // funil "avaria": listas de chaves (AVARIA_ONDE, AVARIA_PROBLEMA)
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
     melhoriasPorVer: false,                                  // fase 2: estado de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir
@@ -828,6 +829,7 @@ export function normalizarEstado(v) {
   if (!e.contacto.localidade.trim()) e.contacto.localidade = txt(c.localidade, 80);   // a antiga localidade do passo 1
   e.visita = normalizarVisita(v.visita);
   e.urgencia = URGENCIAS[v.urgencia] ? v.urgencia : "normal";
+  e.horario = v.horario === "fora_horas" ? "fora_horas" : "normal";
   const cp = v.compras && typeof v.compras === "object" ? v.compras : {};
   e.compras = { relatorio: bool(cp.relatorio), visita: bool(cp.visita) };
   const sv = v.sitiosPorVer && typeof v.sitiosPorVer === "object" && !Array.isArray(v.sitiosPorVer) ? v.sitiosPorVer : {};
