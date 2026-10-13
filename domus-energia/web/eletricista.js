@@ -205,7 +205,7 @@ function botaoVoltar(texto, destino) {
 }
 const selo = (t, tipo = "") => el("span", `selo ${tipo}`.trim(), t);
 /** "terça-feira, 14/10, 10:30" (hora de Lisboa) a partir de uma data ISO; "" se não for uma data. */
-const diaHoraTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };
+const diaHoraTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : d.toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); };   // dia curto ("qua."): com "quarta-feira" o selo partia a meio da palavra
 // Especialidade do pedido e prioridade do parceiro (decisão do dono, 2026-10-13). Um servidor antigo não envia
 // `especialidade_nome` nem `prioridade_ate`: não aparece selo nenhum.
 const seloEspecialidade = (t) => (t.especialidade_nome ? selo(t.especialidade_nome) : null);
@@ -1074,7 +1074,12 @@ function camposProposta(p, msg) {
     const x = el("button", "btn sec mini", "Tirar");
     x.type = "button";
     x.addEventListener("click", () => f.remove());
-    f.append(s, q, x);
+    // O nome inteiro do artigo por baixo: na lista do telemóvel fica cortado ("Tomada inteligente Wi-Fi com me…").
+    const nome = el("span", "proposta-nome pequeno suave");
+    const dizer = () => { nome.textContent = s.value ? s.selectedOptions[0]?.textContent ?? "" : ""; nome.hidden = !s.value; };
+    s.addEventListener("change", dizer);
+    dizer();
+    f.append(s, q, x, nome);
     linhas.append(f);
     return s;
   };

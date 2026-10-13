@@ -272,6 +272,7 @@ details.sec > .corpo { padding: 2px 14px 16px; display: grid; gap: 14px; min-wid
 .proposta-linha { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; gap: 12px; align-items: center; }
 .proposta-linha select, .proposta-linha input { width: 100%; min-height: 54px; padding: 10px 14px; border: 2px solid var(--borda-forte); border-radius: 12px; background: var(--fundo); min-width: 0; }
 @media (max-width: 479px) { .proposta-linha { grid-template-columns: minmax(0, 1fr) auto; } .proposta-linha select { grid-column: 1 / -1; } }
+.proposta-nome { grid-column: 1 / -1; margin-top: -6px; }
 
 /* Quadro elétrico: existente e ideal lado a lado, e o registo do existente por contagens (eletricista.js seccaoQuadro). */
 .quadros-lado { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); align-items: start; }
