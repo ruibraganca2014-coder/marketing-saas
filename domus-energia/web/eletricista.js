@@ -517,7 +517,7 @@ function desenharFicha(t) {
     const n = el("p", "nota calma");
     n.id = "obra-estado";
     com(n, el("b", null, `Deu o trabalho por concluído em ${dataCurta(t.concluida)}.`),
-      t.estado === "confirmada" ? " O cliente confirmou: falta a aprovação da Domus Energia." : " A aguardar confirmação do cliente.");
+      t.estado !== "confirmada" ? " A aguardar confirmação do cliente." : t.sem_defeito ? " A Domus Energia viu que não havia defeito: o trabalho fica concluído e falta só a aprovação." : " O cliente confirmou: falta a aprovação da Domus Energia.");
     out.push(n);
   }
   // O trabalho voltou: o que o cliente disse que falta, ou o motivo da Domus Energia.
@@ -1086,17 +1086,17 @@ function seccaoChecklists(t) {
     corpo.push(com(el("div", "pilha"), el("h4", null, `${l.titulo} (versão ${l.versao})`),
       com(el("div", "selos"), selo(`${l.feitos}/${l.total}`, l.feitos === l.total ? "bom" : ""), l.obrigatorios_falta ? selo(faltaTxt(l.obrigatorios_falta), "mau") : null), ul));
   }
-  if (!c.checklists.length) corpo.push(el("p", "suave", "Esta obra ainda não tem checklists."));
+  if (!c.checklists.length) corpo.push(el("p", "suave", "Esta obra ainda não tem listas de verificação."));
   if (t.editavel && c.disponiveis.length) {
     const escolha = el("select");
     escolha.id = "checklist-procedimento";
     escolha.setAttribute("aria-label", "Procedimento");
     for (const p of c.disponiveis) { const o = el("option", null, `${p.titulo} (${p.n_passos} passos)`); o.value = String(p.id); escolha.append(o); }
-    const b = el("button", "btn sec mini", "Começar checklist");
+    const b = el("button", "btn sec mini", "Começar lista");
     b.type = "button";
     b.id = "comecar-checklist";
-    b.addEventListener("click", () => acaoFicha(t, "checklists", { procedimento_id: Number(escolha.value) }, { botao: b, texto: "Checklist começada." }));
-    corpo.push(com(el("label", "campo"), el("span", null, "Começar a checklist de um procedimento"), escolha), com(el("div", "fila"), b));
+    b.addEventListener("click", () => acaoFicha(t, "checklists", { procedimento_id: Number(escolha.value) }, { botao: b, texto: "Lista de verificação começada." }));
+    corpo.push(com(el("label", "campo"), el("span", null, "Começar a lista de verificação de um procedimento"), escolha), com(el("div", "fila"), b));
   }
   return seccao("Procedimentos da obra", total ? selo(`${feitos}/${total}`, feitos === total ? "bom" : "") : null,
     el("p", "nota calma", "Siga os passos pela ordem e marque cada um quando o fizer. Os de segurança fazem-se sempre antes de tocar na instalação."), ...corpo);
@@ -1501,7 +1501,7 @@ async function procedimento(id) {
   return [botaoVoltar("Ajuda técnica", "ajuda"), com(el("div", "selos"), selo(p.tipo_nome), selo(`Versão ${p.versao}`)), el("h2", null, p.titulo),
     p.descricao ? el("p", null, p.descricao) : null,
     com(el("div", "cartao pilha"), el("h3", null, "Passos"), ol),
-    el("p", "pequeno suave", "Numa obra, a checklist deste procedimento começa-se na ficha do trabalho, em \"Trabalho\".")].filter(Boolean);
+    el("p", "pequeno suave", "Numa obra, a lista de verificação deste procedimento começa-se na ficha do trabalho, em \"Trabalho\".")].filter(Boolean);
 }
 /** A lista dos procedimentos publicados, para o cimo da Ajuda técnica (sem ela, a ajuda aparece na mesma). */
 async function listaProcedimentos() {

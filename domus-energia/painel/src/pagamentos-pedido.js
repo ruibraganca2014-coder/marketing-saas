@@ -1005,7 +1005,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : p.fase === 'sinal' && sinalComVisita(p) ? TEXTO_PAGO_SINAL_VISITA : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ] : [
-      'Olá,', '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}. Não foi cobrado nada.`,
+      'Olá,', '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}.${sim ? '' : ' Não foi cobrado nada.'}`,
       'Pode tentar de novo quando quiser.', ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ];
     correio.enviar({ para, assunto: tipo === 'pago' ? 'Domus Energia: pagamento recebido' : 'Domus Energia: pagamento não concluído',

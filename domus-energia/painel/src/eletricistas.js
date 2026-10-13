@@ -365,7 +365,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       const codigo = novoCodigo(e.id);
       correio.enviar({ para: e.email, assunto: 'Domus Energia: o seu código para entrar', resumo: `código ${codigo} (entrar na área do eletricista)`,
         texto: ['Olá,', '', 'Para entrar na área do eletricista da Domus Energia, escreva este código:', '', `    ${codigo}`, '',
-          'O código vale 15 minutos.', 'Se não foi você, ignore este email.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+          'O código vale 15 minutos.', 'Se não pediu este código, ignore este email.', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, { ok: true, email, mensagem: 'Se este email for de um eletricista aprovado, enviámos um código para entrar. Veja também o correio não desejado (spam).' });
   };
@@ -586,6 +586,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Ficha de obra (ronda 2): fotos antes e depois, ensaios medidos, diagnóstico (avaria) e o que falta para concluir.
     r.editavel = estaAberto && !espera && EDITAVEIS.includes(t.estado);
     // O trabalho voltou: o que o cliente disse que falta, ou o motivo da devolução da Domus (ronda 3).
+    // A Domus Energia decidiu que não havia defeito: a ficha diz isso, em vez de "o cliente confirmou".
+    if (t.reclamacao_decisao === 'sem_defeito') r.sem_defeito = true;
     r.reclamacao = estaAberto && EDITAVEIS.includes(t.estado) && t.reclamacao
       ? { texto: t.reclamacao, de: t.reclamacao_de, quando: t.reclamacao_quando, decisao: t.reclamacao_decisao ?? null } : null;
     r.fotos = estaAberto ? fotosDe(t.id).map((f) => fotoPublica(f, `/api/eletricista/trabalhos/${t.id}/fotos/`)) : [];
@@ -2157,6 +2159,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         texto: ['Olá,', '', `Voltámos a ver o trabalho do seu pedido n.º ${o.id} e não encontrámos defeito: o trabalho fica dado como concluído.`,
           'Como combinado nos Termos e Condições, a visita em que não se encontra defeito é paga. Pode pagá-la na sua conta.',
           'Se não concordar, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
+    }
+    // O eletricista tinha recebido "um trabalho voltou para si": fica a saber que já não tem de lá voltar.
+    if (!e.anonimizado) {
+      correio.enviar({ para: e.email, assunto: 'Domus Energia: não era defeito, o trabalho fica concluído', resumo: `trabalho ${t.id}: sem defeito, fica concluído`,
+        texto: [`Olá ${e.nome},`, '', `Vimos o que o cliente indicou no trabalho (${nomeTrabalho}) e não é defeito: o trabalho fica dado como concluído e não precisa de o corrigir.`,
+          ...(ida ? [`Pela ida recebe ${ida.total.toFixed(2).replace('.', ',')} € (sem IVA), depois de o cliente pagar essa visita.`] : []),
+          ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     }
   }
 

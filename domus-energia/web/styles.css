@@ -972,6 +972,13 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 }
 @media print {
   body.imprimir-relatorio > *:not(main), body.imprimir-relatorio #conta-cartao, body.imprimir-relatorio .conta-atalhos, body.imprimir-relatorio .conta-pedido:not(.a-imprimir), body.imprimir-relatorio .nao-imprimir { display: none !important; }
+  /* Só o relatório: as outras secções da conta (casas, "Os meus dados", apagar a conta, contactos) e o resto do cartão
+     do pedido (andamento, proposta, pagamentos, fotos, mensagens) ficam de fora — saíam seis páginas para um relatório. */
+  body.imprimir-relatorio main > *:not(:has(.a-imprimir)) { display: none !important; }
+  body.imprimir-relatorio main *:has(.a-imprimir) > *:not(:has(.a-imprimir)):not(.a-imprimir) { display: none !important; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir > *:not(:has(.relatorio-cliente)):not(h3) { display: none !important; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir *:has(> .relatorio-cliente) > *:not(.relatorio-cliente):not(h3):not(h4) { display: none !important; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir { border: 0; box-shadow: none; padding: 0; }
 }
 .sim-aviso-area { font-weight: 700; color: var(--argila-texto); }
 .conta-pagamentos, .conta-relatorio, .conta-proposta { padding-top: 0; padding-bottom: 0; }

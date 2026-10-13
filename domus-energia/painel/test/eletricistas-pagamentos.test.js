@@ -587,6 +587,12 @@ describe('ronda 3: confirmação do cliente, aprovação do CEO e pagamento ao e
     let t = linha(tid);
     assert.deepEqual([t.estado, t.confirmada_auto, t.reclamacao_decisao, t.estrelas], ['confirmada', 1, 'sem_defeito', null]);
     assert.ok(p.emails.some((m) => m.para === c.email && /não encontrámos defeito/.test(m.texto) && /é paga/.test(m.texto)));
+    // O eletricista tinha recebido "um trabalho voltou para si": é avisado de que já não tem de o corrigir, e a ficha dele di-lo.
+    const aviso = p.emails.find((m) => m.para === e.email);
+    assert.equal(aviso.assunto, 'Domus Energia: não era defeito, o trabalho fica concluído');
+    assert.match(aviso.texto, /não é defeito: o trabalho fica dado como concluído e não precisa de o corrigir/);
+    assert.ok(!aviso.texto.includes(c.email), 'o email do cliente nunca vai para o eletricista');
+    assert.equal((await p.pedir('GET', `/api/eletricista/trabalhos/${tid}`, { cookie: e.cookie })).json.trabalho.sem_defeito, true);
     assert.equal((await atribuicao(id, { acao: 'defeito' })).estado, 409);
     l = await pedidoConta(c, id);
     // Sintra: 0,5 h × 38 € + 7,20 € de deslocação = 26,20 € (com IVA), o valor da visita técnica.

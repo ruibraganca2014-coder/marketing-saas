@@ -11,7 +11,7 @@ const ESTADOS = { pendente: ["Pendente", "aviso"], aprovado: ["Aprovado", "estad
 const NOMES = CONCELHOS.map((c) => c[0]);
 const semAcentos = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const pctTxt = (v) => String(v).replace(".", ",");
-const mb = (b) => `${(b / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
+const mb = (b) => (b < 104858 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace(".", ",")} MB`);   // abaixo de 0,1 MB dizia "0,0 MB"
 const ESTADOS_TRABALHO = { aceite: "por marcar a visita", visita_marcada: "com visita marcada", concluida_eletricista: "concluído, a aguardar o cliente" };
 
 export default function eletricistas(el) {

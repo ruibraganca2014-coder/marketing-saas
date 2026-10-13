@@ -286,7 +286,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       `    ${codigo}`,
       '',
       'O código vale 15 minutos.',
-      tipo === 'repor' ? 'Se não foi você, ignore este email: a sua palavra-passe continua a mesma.' : 'Se não foi você, ignore este email: a sua conta continua igual.',
+      tipo === 'repor' ? 'Se não fez este pedido, ignore este email: a sua palavra-passe continua a mesma.' : 'Se não fez este pedido, ignore este email: a sua conta continua igual.',
       ...(site ? ['', `A sua conta: ${site}`] : []),
       '',
       'Domus Energia',
