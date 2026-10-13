@@ -14,8 +14,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <!-- O aspeto novo da conta (decisão do dono, 2026-10-13) fica só nesta página: o styles.css serve também o site e a app. -->
+  <link rel="stylesheet" href="conta.css">
 </head>
-<body class="pagina-conta">
+<body class="pagina-conta conta-cliente">
   <a class="saltar" href="#conteudo">Saltar para a conta</a>
   <header class="topo">
     <div class="wrap">
@@ -36,6 +38,9 @@
         </div>
 
         <div id="conta-dentro" hidden>
+          <!-- "O que tenho de fazer agora" (decisão do dono, 2026-10-13): o passo que depende do cliente, olhando para todos os
+               pedidos da casa aberta; sem nada por fazer, o que está a acontecer. Preenchido por conta.js (desenharAgora). -->
+          <section class="conta-agora" id="conta-agora" aria-labelledby="conta-agora-titulo" hidden></section>
           <div class="form-botoes conta-atalhos">
             <a class="btn sec" id="conta-simular" href="simulador.html">Simular orçamento</a>
             <a class="btn sec" id="conta-casa" href="cliente.html" hidden>Área da minha casa</a>

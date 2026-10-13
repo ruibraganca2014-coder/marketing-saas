@@ -1,0 +1,167 @@
+/* A conta do cliente (conta.html; docs/CONTA-CLIENTE.md): o aspeto novo, só desta página (decisão do dono, 2026-10-13).
+   O styles.css serve também o site público, o simulador e a app — nada aqui lhes toca: este ficheiro só é carregado
+   pela conta e todas as regras levam .conta-cliente (a classe do <body> da conta).
+   Como na área do eletricista (eletricista.css), para as duas parecerem da mesma casa: as cores e as letras da marca
+   ficam; o texto suave e os textos de cor (--texto-suave, --musgo-texto, --argila-texto, --alarme-texto) são mais
+   escuros (mais claros no tema escuro), os contornos dos campos e dos cartões usam --borda-forte, a letra base é de
+   17 px e os alvos de toque têm 56 px (os principais) ou 48 px (os secundários), com 12 px entre vizinhos. */
+:root {
+  --texto-suave: #3f4a26; --borda-forte: #8a8f66;
+  --musgo-texto: #465224; --argila-texto: #7a4110; --foco: #7a4110; --alarme-texto: #8c2a1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --texto-suave: #e4e2c4; --borda-forte: #8a9468;
+    --musgo-texto: #c6d48e; --argila-texto: #f5b477; --foco: #dda15e; --alarme-texto: #f6ab9f;
+  }
+}
+:root[data-theme="dark"] {
+  --texto-suave: #e4e2c4; --borda-forte: #8a9468;
+  --musgo-texto: #c6d48e; --argila-texto: #f5b477; --foco: #dda15e; --alarme-texto: #f6ab9f;
+}
+html:has(.conta-cliente) { font-size: 106.25%; }   /* 17 px */
+@media (prefers-reduced-motion: no-preference) { html:has(.conta-cliente) { scroll-behavior: smooth; } }
+
+/* ---------- Letras e contraste ---------- */
+.conta-cliente .cartao { border: 1.5px solid var(--borda-forte); padding: 18px; }
+/* No site os parágrafos dos cartões são suaves; na conta o texto principal é o escuro e só as ajudas ficam suaves. */
+.conta-cliente .cartao :where(p) { color: var(--texto); }
+.conta-cliente .ajuda, .conta-cliente .vazio, .conta-cliente .conta-recibo, .conta-cliente .conta-fotos figcaption { color: var(--texto-suave); }
+.conta-cliente .ajuda { font-size: .92rem; }
+.conta-cliente .msg.erro { color: var(--alarme-texto); }
+.conta-cliente .num, .conta-cliente .valor { font-weight: 800; }
+.conta-cliente h2 { font-size: 1.6rem; }
+.conta-cliente footer { font-size: .92rem; }
+.conta-cliente .selo-estado { font-weight: 800; }
+
+/* ---------- Botões e campos ---------- */
+.conta-cliente main .btn { min-height: 56px; padding: 10px 22px; font-weight: 800; font-size: 1.02rem; white-space: normal; text-align: center; }
+.conta-cliente main .btn.sec { min-height: 48px; }
+.conta-cliente main .btn.perigo.sec, .conta-cliente main .btn.perigo { min-height: 56px; }
+.conta-cliente .form-botoes { gap: 12px; align-items: center; }
+.conta-cliente .link-botao { min-height: 48px; }
+.conta-cliente .topo .btn, .conta-cliente .botao-tema { min-height: 48px; min-width: 48px; }
+.conta-cliente label { font-size: 1rem; font-weight: 700; }
+.conta-cliente main :is(input:not([type=checkbox], [type=radio], [type=file]), select, textarea) { min-height: 52px; padding: 12px 14px; border: 2px solid var(--borda-forte); background: var(--fundo); font-weight: 600; }
+.conta-cliente main :is(input, select, textarea):hover { border-color: var(--musgo); }
+.conta-cliente .caixa { min-height: 48px; gap: 12px; }
+.conta-cliente .caixa input { width: 28px; height: 28px; }
+.conta-cliente .conta-estrelas-linha { gap: 12px; }
+.conta-cliente .conta-estrelas-linha label { min-height: 48px; font-size: 2rem; color: var(--borda-forte); }
+.conta-cliente .conta-estrelas-linha label.ativa { color: #c98f00; }
+/* As estrelas dadas: a argila do texto (o dourado de antes não chegava a 3:1 sobre o creme). */
+.conta-cliente .conta-estrelas-dadas { color: var(--argila-texto); }
+/* No telemóvel os botões principais ocupam a largura toda; os secundários partilham a linha e crescem até a encher. */
+@media (max-width: 599px) {
+  .conta-cliente main .btn:not(.sec) { width: 100%; }
+  .conta-cliente main .form-botoes > .btn.sec, .conta-cliente main .form-botoes > span:has(> .btn) { flex: 1 1 auto; }
+  .conta-cliente main span:has(> .btn) { display: flex; }
+  .conta-cliente main span:has(> .btn) > .btn { flex: 1 1 auto; }
+  .conta-cliente main .conta-relatorio .btn, .conta-cliente main .conta-recusar-form .btn { justify-self: stretch; }
+}
+
+/* ---------- "O que tenho de fazer agora" (conta.js desenharAgora): a caixa do topo, como os cartões do Início da
+   área do eletricista (eletricista.css .tarefa) — rótulo, frase grande com o número em destaque, um botão. ---------- */
+.conta-agora { display: grid; gap: 8px; margin: 18px 0; padding: 18px; background: var(--superficie); border: 1.5px solid var(--borda-forte); border-left: 8px solid var(--musgo); border-radius: var(--raio); box-shadow: var(--sombra); min-width: 0; overflow-wrap: anywhere; scroll-margin-top: 84px; }
+.conta-agora > * { margin: 0; min-width: 0; }
+.conta-agora h2.rotulo { font: 800 .8rem/1.2 var(--letra); letter-spacing: .06em; text-transform: uppercase; color: var(--argila-texto); }
+.conta-agora .grande { font: 800 1.4rem/1.2 var(--letra-titulos); }
+.conta-agora .grande strong { font-size: 1.5em; }
+.conta-agora .grande .antes { display: block; }
+.conta-agora .linha { font-size: 1rem; }
+.conta-agora .linha.destaque { font-weight: 700; font-size: 1.1rem; }
+.conta-agora .linha.citacao { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+.conta-agora .linha.onde { color: var(--texto-suave); font-size: .92rem; }
+.conta-agora .form-botoes { margin-top: 8px; }
+.conta-agora .btn { flex: 1 1 100%; }
+.conta-agora.aviso { border-left-color: var(--argila); }
+.conta-agora.calma { border-left-color: var(--borda-forte); box-shadow: none; }
+.conta-agora.calma .grande { font-size: 1.25rem; }
+/* "E mais N": os outros pedidos à espera do cliente, cada um com a sua ligação. */
+.conta-agora-mais { display: grid; gap: 0; margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--borda); }
+.conta-agora-mais ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.conta-agora-mais .link-botao { width: 100%; text-align: left; padding: 10px 0; }
+
+/* ---------- O pedido: título e andamento sempre à vista; o resto em secções que abrem e fecham ---------- */
+.conta-cliente .conta-pedido { scroll-margin-top: 84px; }
+.conta-cliente .conta-pedido h3 { font-size: 1.3rem; }
+.conta-cliente .conta-pedido .conta-estado { margin: 0; font-weight: 700; }
+/* Lista de espera: sempre à vista, em destaque (o texto é o do servidor). */
+.conta-cliente .conta-pedido .conta-estado.espera { padding: 12px 14px; border-radius: 14px; background: var(--areia-suave); }
+/* Andamento: um passo por linha; o número passa a visto quando está feito e o passo seguinte fica a argila
+   (como os passos da ficha do eletricista). A data, quando a há, vai à direita. */
+.conta-cliente .conta-passos { display: grid; gap: 4px; counter-reset: passo; }
+.conta-cliente .conta-passos li { display: flex; align-items: center; gap: 10px; min-height: 30px; color: var(--texto-suave); counter-increment: passo; line-height: 1.2; }
+.conta-cliente .conta-passos li::before { content: counter(passo); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--musgo-claro); color: var(--texto); font: 800 .9rem/1 var(--letra-titulos); }
+.conta-cliente .conta-passos li.feito { color: var(--texto); }
+.conta-cliente .conta-passos li.feito::before { content: "✓"; background: var(--musgo); color: var(--sobre-musgo); }
+.conta-cliente .conta-passos li.seguinte { color: var(--texto); font-weight: 800; }
+.conta-cliente .conta-passos li.seguinte::before { background: var(--argila-texto); color: var(--fundo); }
+.conta-cliente .conta-passos .quando { margin-left: auto; padding-left: 8px; font-size: .88rem; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--texto-suave); }
+.conta-cliente .conta-correcao, .conta-cliente .conta-obra-parada { scroll-margin-top: 84px; }
+.conta-cliente .conta-obra-parada { border-left: 8px solid var(--alarme); padding: 12px 14px; border-radius: 14px; background: var(--alarme-suave); }
+
+.conta-cliente details.sec { background: var(--superficie); border: 1.5px solid var(--borda-forte); border-radius: 16px; min-width: 0; scroll-margin-top: 84px; }
+.conta-cliente details.sec > summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 14px; cursor: pointer; border-radius: 16px; line-height: 1.25; }
+.conta-cliente details.sec > summary::-webkit-details-marker { display: none; }
+.conta-cliente details.sec > summary::after { content: ""; width: 10px; height: 10px; border-right: 3px solid currentColor; border-bottom: 3px solid currentColor; transform: rotate(45deg); margin: 0 4px; flex: none; }
+.conta-cliente details.sec[open] > summary::after { transform: rotate(-135deg); }
+.conta-cliente details.sec > summary:hover { background: var(--musgo-claro); }
+.conta-cliente details.sec .sec-texto { margin-right: auto; min-width: 0; overflow-wrap: anywhere; }
+.conta-cliente details.sec .sec-texto b { font-weight: 800; font-size: 1.05rem; }
+.conta-cliente details.sec .sec-resumo { color: var(--texto-suave); font-weight: 600; }
+.conta-cliente details.sec .sec-resumo strong { color: var(--texto); }
+/* A secção com o passo que depende do cliente: o contorno de argila do "passo seguinte". */
+.conta-cliente details.sec.agora { border-color: var(--argila); box-shadow: 0 0 0 2px var(--argila); }
+.conta-cliente details.sec.agora .sec-resumo { color: var(--argila-texto); font-weight: 800; }
+.conta-cliente details.sec > .corpo { padding: 4px 14px 16px; display: grid; gap: 14px; min-width: 0; }
+.conta-cliente details.sec > .corpo > * { min-width: 0; }
+.conta-cliente details.sec > .corpo > * + * { padding-top: 14px; border-top: 1px solid var(--borda); }
+.conta-cliente details.sec > .corpo > p { margin: 0; }
+/* Dentro de uma secção a moldura é a da secção: os blocos perdem a risca da esquerda, e o título que só repetia o da
+   secção ("Pagamentos", "Fotos (3)", "Mensagens", "Trabalho a mais") deixa de se mostrar. */
+.conta-cliente details.sec .conta-proposta { border-left: 0; padding-left: 0; }
+.conta-cliente details.sec > .corpo > :is(.conta-pagamentos, .conta-fotos-bloco, .conta-mensagens, .conta-extras) > h4 { display: none; }
+.conta-cliente .conta-pedido h4 { margin: 0; font-family: var(--letra-titulos); font-size: 1.15rem; }
+.conta-cliente .conta-fotos-bloco { display: grid; gap: 12px; }
+.conta-cliente .conta-fotos { gap: 12px; }
+.conta-cliente .conta-proposta .valor { font: 800 1.7rem/1.1 var(--letra-titulos); }
+.conta-cliente .conta-partes { max-width: 380px; gap: 4px 16px; }
+.conta-cliente .conta-partes dt { color: var(--texto-suave); }
+.conta-cliente .conta-partes dd { font-weight: 800; }
+.conta-cliente .conta-falta-pagar, .conta-cliente .conta-ida-perdida { font-size: 1.05rem; }
+.conta-cliente .conta-pagamentos li { border: 1.5px solid var(--borda-forte); padding: 12px 14px; }
+.conta-cliente .conta-pagamentos li > span:first-child { font-weight: 800; }
+.conta-cliente .conta-resumo summary { min-height: 48px; }
+.conta-cliente .conta-resumo dt { color: var(--texto-suave); }
+.conta-cliente .conta-resumo dd { font-weight: 700; }
+.conta-cliente .conta-conversa li { padding: 10px 12px; border-radius: 12px; background: var(--musgo-claro); }
+.conta-cliente .conta-conversa li.minha { background: transparent; border: 1.5px solid var(--borda-forte); border-left: 5px solid var(--musgo); }
+.conta-cliente .conta-recusar { margin-top: 0; }
+
+/* ---------- As casas, os dados e a segurança: só letras, contraste e alvos (sem reorganizar) ---------- */
+.conta-cliente .conta-casa-linha { border: 1.5px solid var(--borda-forte); padding: 14px; gap: 10px; }
+.conta-cliente .conta-casa-linha.aberta { border: 2px solid var(--musgo); }
+.conta-cliente .conta-casa-topo strong { font-size: 1.15rem; font-weight: 800; }
+/* Os campos e os botões por baixo deles estavam encostados: 12 px entre alvos vizinhos. */
+.conta-cliente .conta-casas-nova { gap: 12px; }
+.conta-cliente #conta-senha-form, .conta-cliente #conta-apagar-confirmar { display: grid; gap: 12px; }
+.conta-cliente #conta-apagar-confirmar p { margin: 0; }
+
+@media (max-width: 599px) {
+  .conta-cliente .conta-pedido { padding: 14px; }
+  .conta-cliente details.sec > .corpo { padding: 4px 12px 14px; }
+  .conta-cliente .conta-estrelas-linha { flex-wrap: nowrap; justify-content: space-between; }
+  .conta-cliente .conta-estrelas-linha label { min-width: 44px; }
+}
+
+/* ---------- Imprimir o relatório (styles.css, body.imprimir-relatorio): o relatório passou a estar dentro de uma
+   secção — sai só ele, sem o cabeçalho da secção nem os outros blocos dela (relatório grátis, simulação enviada).
+   A secção é aberta pelo botão "Descarregar" antes de imprimir (conta.js blocoRelatorio). ---------- */
+@media print {
+  body.imprimir-relatorio .conta-pedido.a-imprimir details.sec { border: 0; background: none; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir details.sec > summary { display: none !important; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir details.sec > .corpo { padding: 0; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir details.sec > .corpo > *:not(.conta-relatorio), body.imprimir-relatorio .conta-pedido.a-imprimir details.sec > .corpo > .conta-basico { display: none !important; }
+  body.imprimir-relatorio .conta-pedido.a-imprimir details.sec > .corpo > * { padding-top: 0; border-top: 0; }
+}

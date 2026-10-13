@@ -32,6 +32,7 @@ const dataTxt = (v, hora = false) => {
 
 let ctrl = null;
 let emailDaConta = "";
+let casaGuardada = false;   // a casa já está descrita e guardada na conta (o convite da caixa do topo muda)
 const resumosAbertos = new Set(); // pedidos com "A simulação que enviou" aberto (sobrevive ao carregar())
 // Regresso de um pagamento (Stripe ou página simulada): conta.html?pagamento=<ref>[&cancelado=1].
 const params = new URLSearchParams(location.search);
@@ -45,7 +46,8 @@ const bloco = criarBlocoConta($("conta-bloco"), {
     faixaDemonstracao(Boolean(eu?.pagamentos?.demonstracao));
     const dentro = Boolean(eu?.conta?.confirmado);
     $("conta-dentro").hidden = !dentro;
-    if (!dentro) { $("conta-pedidos").replaceChildren(); mensagem(null); return; }
+    if (!dentro) { $("conta-pedidos").replaceChildren(); $("conta-agora").hidden = true; mensagem(null); return; }
+    casaGuardada = Boolean(eu.simulacao_atualizada) && eu.simulacao_tipo === "casa";
     $("conta-casa").hidden = !eu.tem_casa;
     emailDaConta = eu.conta.email;
     desenharSenha(Boolean(eu.conta.tem_password));
@@ -107,15 +109,19 @@ async function carregar() {
   ctrl?.abort();
   ctrl = new AbortController();
   const zona = $("conta-pedidos");
-  zona.replaceChildren(el("p", "ajuda", "A carregar…"));
+  // Ao redesenhar depois de uma ação (pagar, aceitar, enviar uma foto) os cartões ficam no ecrã até chegarem os novos:
+  // com "A carregar…" no lugar deles a página encolhia e o cliente perdia o sítio onde estava.
+  if (!zona.querySelector(".conta-pedido")) zona.replaceChildren(el("p", "ajuda", "A carregar…"));
   let r;
   try { r = await pedirConta("pedidos", { sinal: ctrl.signal }); } catch (e) {
     if (e?.name === "AbortError") return;
     if (e instanceof ErroConta && e.estado === 401) { bloco.atualizar(); return; }
     zona.replaceChildren();
+    $("conta-agora").hidden = true;
     mensagem(e.message);
     return;
   }
+  const voltou = Boolean(regresso);
   if (regresso) await mostrarRegresso(); else if ($("conta-pedidos-msg").classList.contains("erro")) mensagem(null);
   const pedidos = Array.isArray(r?.pedidos) ? r.pedidos : [];
   if (!pedidos.length) {
@@ -124,10 +130,19 @@ async function carregar() {
     a.href = "simulador.html";
     p.append(a);
     zona.replaceChildren(p);
+    desenharAgora(pedidos);
     avisoOutraCasa(r?.noutras);
     return;
   }
+  // O foco e o sítio do ecrã sobrevivem ao redesenho: o que estava focado (por exemplo o botão em que carregou) volta
+  // a ficar focado se ainda existir, sem a página saltar.
+  const focado = document.activeElement?.id && zona.contains(document.activeElement) ? document.activeElement.id : null;
   zona.replaceChildren(...pedidos.map(cartaoPedido));
+  desenharAgora(pedidos);
+  if (focado) document.getElementById(focado)?.focus({ preventScroll: true });
+  // Ao voltar de um pagamento, a mensagem ("Pagamento recebido…") fica por cima dos pedidos, abaixo da caixa do topo e
+  // das casas: no telemóvel não se via sem a ir buscar.
+  if (voltou) $("conta-pedidos-msg").scrollIntoView({ block: "center" });
   // Veio da pré-visualização da Área de cliente (conta.html#pedido-<id>): mostra esse pedido (uma vez).
   const alvo = /^#pedido-\d+$/.test(location.hash) ? document.getElementById(location.hash.slice(1)) : null;
   if (alvo && !alvoMostrado) { alvoMostrado = true; alvo.scrollIntoView({ block: "start" }); }
@@ -295,57 +310,299 @@ function blocoCorrecao(p) {
   return b;
 }
 
+// ---- "O que tenho de fazer agora" e o pedido em secções (decisão do dono, 2026-10-13). Só arrumam o que o servidor já
+// devolve em GET /api/conta/pedidos: quem paga, aceita ou responde continuam a ser os botões de cada bloco.
+const forte = (t) => el("strong", "num", t);
+/** "quinta-feira, 15 de outubro" ou, com `hora`, "quinta-feira, 15 de outubro, às 10:00": as datas marcadas, por extenso. */
+const diaTxt = (v, hora = false) => {
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const dia = d.toLocaleDateString("pt-PT", { weekday: "long", day: "numeric", month: "long" });
+  return hora ? `${dia}, às ${d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" })}` : dia;
+};
+/** A data marcada da obra já passou (e a obra está por dar como concluída). */
+const obraPassou = (p) => Boolean(p.obra?.data) && new Date(`${p.obra.data}T${p.obra.hora || "23:59"}`) < new Date();
+/** Uma devolução por transferência ainda à espera do IBAN do cliente (blocoDevolucao). */
+const pedeIban = (d) => !["devolvido", "por_fazer"].includes(d.estado);
+
+/**
+ * O passo que depende do cliente neste pedido, ou null. A ordem é a prioridade que o dono escolheu: corrigir o pedido
+ * devolvido, aceitar a proposta, pagar o sinal, responder ao trabalho a mais, confirmar o trabalho, pagar o restante e,
+ * por fim, a visita sem defeito por pagar e a devolução à espera do IBAN. `sec` é a secção do cartão que tem o botão
+ * verdadeiro e `alvo` o id dele: a caixa do topo só leva lá (irPara), não paga nem aceita.
+ */
+function acaoDoPedido(p) {
+  const onde = `Pedido n.º ${p.id}`;
+  if (p.correcao) {
+    const quadro = faltaFotoQuadro(p);
+    return { prio: 1, chave: "corrigir", tipo: "aviso", curto: "falta corrigir um pormenor", rotulo: "Falta corrigir um pormenor", grande: "Falta corrigir o pedido antes de avançarmos",
+      linhas: [p.correcao.nota ? { cls: "citacao", t: `«${p.correcao.nota}»` } : null, quadro ? "Falta a foto do quadro elétrico, com a porta aberta." : "Quando estiver, carregue em \"Já corrigi\"."], onde,
+      botao: quadro ? "Juntar a foto do quadro elétrico" : "Ver o que falta", sec: quadro ? "fotos" : null, alvo: quadro ? `quadro-${p.id}` : `correcao-${p.id}` };
+  }
+  if (p.pode_aceitar && p.proposta) {
+    return { prio: 2, chave: "aceitar", curto: "proposta por aceitar", rotulo: "Proposta por aceitar", grande: p.proposta_iva ? [forte(euro(p.proposta_iva.total)), " com IVA"] : [forte(euro(p.proposta.valor)), " + IVA"],
+      linhas: ["A sua proposta está pronta. Veja-a e diga se aceita."], onde, botao: "Ver e aceitar a proposta", sec: "proposta", alvo: `aceitar-${p.id}` };
+  }
+  if (p.aguarda_sinal && p.pode_pagar_sinal) {
+    return { prio: 3, chave: "sinal", curto: "falta pagar o sinal", rotulo: "Falta pagar o sinal", grande: [forte(euro(p.sinal.valor)), " com IVA"],
+      linhas: [precoDefinitivo(p) ? "Aceitou a proposta. Com o sinal pago, marcamos a visita consigo." : "Aceitou a proposta. Com o sinal pago, confirmamos a instalação."], onde,
+      botao: "Ver e pagar o sinal", sec: "proposta", alvo: `pagar-sinal-${p.id}` };
+  }
+  const extra = (p.extras ?? []).find((x) => x.estado === "enviado");
+  if (extra) {
+    return { prio: 4, chave: `extra-${extra.id}`, curto: "trabalho a mais por responder", rotulo: "Trabalho a mais por responder", grande: [forte(euro(extra.valor_iva)), " com IVA"],
+      linhas: [{ cls: "citacao", t: extra.descricao }, "Diga se aceita. Sem a sua resposta, este trabalho não é feito."], onde, botao: "Ver e responder", sec: "extras", alvo: `extra-aceitar-${extra.id}` };
+  }
+  if (p.confirmacao?.estado === "por_confirmar") {
+    return { prio: 5, chave: "confirmar", curto: "falta confirmar o trabalho", rotulo: "Falta a sua confirmação", grande: "O trabalho ficou concluído?",
+      linhas: [["Pode responder até ", forte(dataTxt(p.confirmacao.prazo)), ". Sem resposta, fica dado como concluído."]], onde, botao: "Responder", sec: "obra", alvo: `confirmar-sim-${p.id}` };
+  }
+  if (p.pode_pagar_restante) {
+    return { prio: 6, chave: "restante", curto: "falta pagar o restante", rotulo: "Falta pagar o restante", grande: [forte(euro(p.restante.valor)), " com IVA"],
+      linhas: ["A obra está concluída."], onde, botao: "Ver e pagar o restante", sec: "obra", alvo: `pagar-restante-${p.id}` };
+  }
+  if (p.visita_sem_defeito && !p.visita_sem_defeito.paga) {
+    return { prio: 7, chave: "visita-sem-defeito", curto: "visita por pagar", rotulo: "Visita por pagar", grande: [forte(euro(p.visita_sem_defeito.valor)), " com IVA"],
+      linhas: ["Voltámos ao trabalho e não encontrámos defeito: esta visita é paga."], onde, botao: "Ver e pagar a visita", sec: "obra", alvo: `pagar-visita_sem_defeito-${p.id}` };
+  }
+  const dev = (p.devolucoes ?? []).find(pedeIban);
+  if (dev) {
+    return { prio: 7, chave: `iban-${dev.id}`, curto: "devolução à espera do IBAN", rotulo: "Devolução à espera do IBAN", grande: [forte(euro(dev.valor)), " a devolver"],
+      linhas: ["Pagou por referência Multibanco: indique o IBAN para fazermos a transferência."], onde, botao: "Indicar o IBAN", sec: "pagamentos", alvo: `dev-iban-${dev.id}` };
+  }
+  return null;
+}
+
+/** Sem nada por fazer: o que está a acontecer no pedido — a data marcada, por extenso, ou o texto de estado do servidor. */
+function andamentoDoPedido(p) {
+  if (p.data_visita && !p.obra && new Date(p.data_visita) > new Date()) return ["A visita está marcada para ", forte(diaTxt(p.data_visita, true)), "."];
+  if (p.obra?.data && !obraFeita(p) && !obraPassou(p) && !["por_confirmar", "contestada"].includes(p.confirmacao?.estado)) {
+    return [precoDefinitivo(p) ? "A visita está marcada para " : "A instalação está marcada para ", forte(p.obra.hora ? diaTxt(`${p.obra.data}T${p.obra.hora}`, true) : diaTxt(`${p.obra.data}T12:00`)), "."];
+  }
+  return [p.estado_texto];
+}
+
+/**
+ * Leva ao sítio certo de um pedido: abre a secção, mostra o alvo (o botão verdadeiro) e põe-lhe o foco. Um input de
+ * ficheiro escondido (as fotos) vale pelo botão que o abre, logo antes dele.
+ */
+function irPara(id, sec = null, alvoId = null) {
+  const cartao = $(`pedido-${id}`);
+  if (!cartao) return;
+  const d = sec ? cartao.querySelector(`details.sec[data-sec="${sec}"]`) : null;
+  if (d) d.open = true;
+  let alvo = alvoId ? $(alvoId) : null;
+  if (alvo?.type === "file") alvo = alvo.previousElementSibling;
+  if (!alvo || !cartao.contains(alvo) || !alvo.getClientRects().length) alvo = d ?? cartao;
+  if (!alvo.matches("button, a, input, select, textarea, details")) alvo.tabIndex = -1;
+  alvo.scrollIntoView({ block: alvo === d || alvo === cartao ? "start" : "center" });
+  (alvo === d ? d.querySelector("summary") : alvo).focus({ preventScroll: true });
+}
+
+/**
+ * A caixa do topo da conta: o passo mais urgente que depende do cliente, olhando para todos os pedidos da casa aberta
+ * (e "e mais N" com ligação aos outros). Sem nada por fazer diz o que está a acontecer; sem pedidos, o convite.
+ */
+function desenharAgora(pedidos) {
+  const caixa = $("conta-agora");
+  const titulo = el("h2", "rotulo", "O que tenho de fazer agora");
+  titulo.id = "conta-agora-titulo";
+  const linha = (cls, t) => { const e = el("p", cls); e.append(...[t].flat()); return e; };
+  const botoes = el("div", "form-botoes");
+  caixa.hidden = false;
+  if (!pedidos.length) {
+    const ligar = (texto, href, id, cls) => { const a = el("a", cls, texto); a.href = href; a.id = id; return a; };
+    if (casaGuardada) botoes.append(ligar("Pedir um serviço", "simulador.html?caso=servico", "conta-agora-ir", "btn"));
+    else botoes.append(ligar(variasCasas ? "Descrever esta casa" : "Descrever a minha casa", "simulador.html", "conta-agora-ir", "btn"), ligar("Pedir um serviço", "simulador.html?caso=servico", "conta-agora-servico", "btn sec"));
+    caixa.className = "conta-agora calma";
+    caixa.replaceChildren(titulo, linha("grande", variasCasas ? "Ainda não há pedidos nesta casa." : "Ainda não tem pedidos."),
+      linha("linha", casaGuardada ? "A sua casa já está guardada na conta: não precisa de a descrever outra vez. Peça um serviço quando quiser."
+        : "Descreva a casa (cerca de 7 minutos) e fica com um relatório grátis. Ou peça só um serviço."), botoes);
+    return;
+  }
+  const acoes = pedidos.map((p) => ({ p, a: acaoDoPedido(p) })).filter((x) => x.a).sort((x, y) => x.a.prio - y.a.prio);
+  if (!acoes.length) {
+    // Nada depende do cliente: dos pedidos em andamento, primeiro o que tem data marcada, depois o que já tem a proposta
+    // aceite, depois o mais recente fora da lista de espera, depois o mais recente; com todos fechados, o primeiro da lista.
+    const emCurso = pedidos.filter((x) => x.em_andamento);
+    const p = emCurso.find((x) => andamentoDoPedido(x).length > 1) ?? emCurso.find((x) => x.estado === "aceite") ?? emCurso.find((x) => !x.lista_espera) ?? emCurso[0] ?? pedidos[0];
+    const ver = el("button", "btn sec", "Ver o pedido");
+    ver.type = "button";
+    ver.id = "conta-agora-ir";
+    ver.addEventListener("click", () => irPara(p.id));
+    botoes.append(ver);
+    const outros = emCurso.filter((x) => x !== p).length;
+    caixa.className = "conta-agora calma";
+    caixa.replaceChildren(titulo, linha("grande", "Nada, por agora."), linha("linha destaque", andamentoDoPedido(p)),
+      linha("linha onde", `Pedido n.º ${p.id}${outros ? ` · tem mais ${outros === 1 ? "1 pedido" : `${outros} pedidos`} em andamento, mais abaixo` : ""}`), botoes);
+    return;
+  }
+  const [{ p, a }, ...outras] = acoes;
+  const ir = el("button", "btn", a.botao);
+  ir.type = "button";
+  ir.id = "conta-agora-ir";
+  ir.addEventListener("click", () => irPara(p.id, a.sec, a.alvo));
+  botoes.append(ir);
+  caixa.className = `conta-agora ${a.tipo ?? ""}`.trim();
+  // Um valor (euros) leva antes o que é: "Proposta por aceitar: 840,10 € com IVA".
+  caixa.replaceChildren(titulo, linha("grande", Array.isArray(a.grande) ? [el("span", "antes", `${a.rotulo}: `), ...a.grande] : a.grande), ...a.linhas.filter(Boolean).map((l) => (l.cls ? linha(`linha ${l.cls}`, l.t) : linha("linha", l))), linha("linha onde", a.onde), botoes);
+  if (outras.length) {
+    const mais = el("div", "conta-agora-mais");
+    const ul = el("ul");
+    for (const o of outras) {
+      const b = el("button", "link-botao", `Pedido n.º ${o.p.id}: ${o.a.curto}`);
+      b.type = "button";
+      b.id = `conta-agora-ir-${o.p.id}`;
+      b.addEventListener("click", () => irPara(o.p.id, o.a.sec, o.a.alvo));
+      const li = el("li");
+      li.append(b);
+      ul.append(li);
+    }
+    mais.append(el("p", "linha", outras.length === 1 ? "E mais 1 pedido à sua espera:" : `E mais ${outras.length} pedidos à sua espera:`), ul);
+    caixa.append(mais);
+  }
+}
+
+// As secções abertas de cada pedido ("<pedido>:<secção>") e a fase em que cada pedido estava no último desenho: a
+// página redesenha os cartões depois de cada ação e a secção onde o cliente está não se pode fechar.
+const seccoesAbertas = new Map();
+const ultimaFase = new Map();
+/**
+ * Uma secção do pedido que abre e fecha (<details>): o título e um resumo de uma linha no cabeçalho, os blocos por
+ * baixo. Sem blocos não há secção. Abre sozinha a da fase em que o pedido está (`fase.sec`), uma vez por fase; daí em
+ * diante fica como o cliente a deixou. `fase.destaque`: é a secção com o passo que depende do cliente.
+ */
+function seccaoPedido(p, fase, chave, titulo, resumo, blocos) {
+  const corpo = blocos.flat().filter(Boolean);
+  if (!corpo.length) return null;
+  const d = el("details", fase?.destaque && fase.sec === chave ? "sec agora" : "sec");
+  d.dataset.sec = chave;
+  d.id = `sec-${chave}-${p.id}`;
+  const k = `${p.id}:${chave}`;
+  d.open = (fase?.sec === chave && ultimaFase.get(p.id) !== fase.chave) || (seccoesAbertas.get(k) ?? false);
+  seccoesAbertas.set(k, d.open);
+  d.addEventListener("toggle", () => seccoesAbertas.set(k, d.open));
+  const texto = el("span", "sec-texto");
+  texto.append(el("b", null, titulo));
+  if (resumo) { const r = el("span", "sec-resumo"); r.append(" · ", ...resumo); texto.append(r); }
+  const s = el("summary");
+  s.append(texto);
+  const cx = el("div", "corpo");
+  cx.append(...corpo);
+  d.append(s, cx);
+  return d;
+}
+
+// Os resumos de uma linha dos cabeçalhos das secções (os números em destaque); null: só o título.
+function resumoProposta(p) {
+  if (!p.proposta) return null;
+  const valor = p.proposta_iva ? [forte(euro(p.proposta_iva.total)), " com IVA"] : [forte(euro(p.proposta.valor)), " + IVA"];
+  const estado = p.pode_aceitar ? "por aceitar" : p.aguarda_sinal ? "aceite, falta o sinal" : p.proposta.aceite ? "aceite" : null;
+  return estado ? [...valor, " · ", estado] : valor;
+}
+function resumoExtras(p) {
+  const quantos = (estado) => (p.extras ?? []).filter((x) => x.estado === estado).length;
+  const por = quantos("enviado"), sim = quantos("aceite"), nao = quantos("recusado");
+  if (por) return [forte(String(por)), " por responder"];
+  return [[sim ? (sim === 1 ? "1 aceite" : `${sim} aceites`) : null, nao ? (nao === 1 ? "1 não aceite" : `${nao} não aceites`) : null].filter(Boolean).join(", ")];
+}
+function resumoObra(p) {
+  const x = p.confirmacao;
+  if (x?.estado === "por_confirmar") return ["falta a sua confirmação"];
+  if (p.pode_pagar_restante) return ["concluída · falta pagar ", forte(euro(p.restante.valor))];
+  if (p.visita_sem_defeito && !p.visita_sem_defeito.paga) return ["visita por pagar: ", forte(euro(p.visita_sem_defeito.valor))];
+  if (x?.estado === "contestada") return ["o técnico vai voltar"];
+  if (p.avaliacao?.pode) return ["concluída · diga-nos como correu"];
+  if (p.restante?.pago) return ["concluída e paga"];
+  if (obraFeita(p) || x?.estado === "confirmada") return ["concluída"];
+  if (p.data_visita && !p.obra) return ["visita a ", forte(dataTxt(p.data_visita, true))];
+  if (p.obra?.data) return [obraPassou(p) ? "data marcada: " : "marcada para ", forte(`${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}`)];
+  if (p.obra?.por_agendar && p.obra.estado === "agendada") return ["data por marcar"];
+  return null;
+}
+function resumoPagamentos(p) {
+  if ((p.devolucoes ?? []).some(pedeIban)) return ["devolução à espera do IBAN"];
+  if (p.restante?.pago) return ["tudo pago"];
+  if (p.sinal?.pago && p.restante?.valor > 0) return ["sinal pago, falta ", forte(euro(p.restante.valor))];
+  const pagos = (p.pagamentos ?? []).filter((x) => x.estado === "pago").length;
+  return pagos ? [pagos === 1 ? "1 pagamento feito" : `${pagos} pagamentos feitos`] : null;
+}
+function resumoRelatorio(p) {
+  if (p.relatorio === "disponivel") return ["completo disponível"];
+  if (p.relatorio === "em_revisao") return ["completo em revisão"];
+  return p.relatorio_basico && !p.compras?.avaria ? ["grátis"] : null;
+}
+
 function cartaoPedido(p) {
   const c = el("article", "cartao conta-pedido");
   c.dataset.id = String(p.id);
   c.id = `pedido-${p.id}`;   // "Ver o pedido e o relatório" da pré-visualização da Área de cliente (conta.html#pedido-<id>)
-  c.append(el("h3", null, `Pedido n.º ${p.id} · ${dataTxt(p.criado)}`), el("p", "conta-estado", p.estado_texto));
+  // O título, o estado e o andamento ficam sempre à vista; em lista de espera o estado vai em destaque.
+  c.append(el("h3", null, `Pedido n.º ${p.id} · ${dataTxt(p.criado)}`), el("p", p.lista_espera ? "conta-estado espera" : "conta-estado", p.estado_texto));
   const passos = el("ol", "conta-passos");
   passos.setAttribute("aria-label", "Andamento do pedido");
+  // O passo seguinte (o primeiro por fazer de um pedido em andamento) fica em destaque.
+  const seguinte = p.em_andamento ? (p.passos ?? []).find((s) => !s.feito) : null;
   for (const s of p.passos ?? []) {
-    const li = el("li", s.feito ? "feito" : null, s.texto);
+    const li = el("li", s.feito ? "feito" : s === seguinte ? "seguinte" : null, s.texto);
+    if (s === seguinte) li.setAttribute("aria-current", "step");
     // Uma data só com o dia (obra marcada sem hora) mostra-se sem hora: lida como data, dava "às 01:00".
     // A obra com data marcada e ainda por fazer (decisão do dono, 2026-10-11): sem o ✓, mas com a data, como nos outros.
-    if ((s.feito || s.chave === "obra") && s.data && s.chave !== "recebido") li.title = /^\d{4}-\d{2}-\d{2}$/.test(s.data) ? dataTxt(`${s.data}T12:00`) : dataTxt(s.data, true);
+    if ((s.feito || s.chave === "obra") && s.data && s.chave !== "recebido") {
+      const soDia = /^\d{4}-\d{2}-\d{2}$/.test(s.data);
+      li.title = soDia ? dataTxt(`${s.data}T12:00`) : dataTxt(s.data, true);
+      // No telemóvel não há "title": a data vê-se, curta, à direita do passo.
+      const d = new Date(soDia ? `${s.data}T12:00` : s.data);
+      if (!Number.isNaN(d.getTime())) li.append(" ", el("span", "quando", d.toLocaleDateString("pt-PT", { day: "numeric", month: "short" })));
+    }
     passos.append(li);
   }
   c.append(passos);
+  // Os avisos importantes ficam sempre à vista, fora das secções: pedido devolvido para corrigir, obra parada por
+  // segurança, proposta que não aceitou e a visita a que faltou.
   if (p.correcao) c.append(blocoCorrecao(p));
   if (p.obra_parada) c.append(blocoObraParada(p));
-  const extraPorResponder = (p.extras ?? []).some((x) => x.estado === "enviado");
-  if (extraPorResponder) c.append(blocoExtras(p));
   if (p.proposta_recusada && !p.proposta) c.append(el("p", "msg info conta-recusada", `Não aceitou a nossa proposta em ${dataTxt(p.proposta_recusada, true)}. Vamos rever o pedido. Se fizermos uma proposta nova, aparece aqui.`));
-  if (p.data_visita && !p.obra) c.append(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
-  if (p.visita_cancelar && !p.obra) { const v = blocoCancelarVisita(p); if (v) c.append(v); }
+  // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
+  // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)
+  if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", `Não o encontrámos na visita: a visita não é devolvida nem descontada na obra.${p.compras?.visita?.incluida ? "" : " Para avançar, marque e pague uma visita nova."}`));
+
+  // "Visita e obra": a data da visita técnica (e cancelá-la), a data da obra, a confirmação do trabalho, o fim da obra
+  // (pagar o restante), a avaliação, a visita sem defeito e a compra da visita técnica.
+  const visita = [];
+  if (p.data_visita && !p.obra) visita.push(el("p", "conta-visita-data", `Visita técnica: ${dataTxt(p.data_visita, true)}.`));
+  if (p.visita_cancelar && !p.obra) visita.push(blocoCancelarVisita(p));
   // Com a obra feita já não se fala em marcar a instalação nem se mostra a data dela (pedido do teste, 2026-10-11).
   const feita = obraFeita(p);
   // Com o trabalho dado por concluído (falta a confirmação do cliente) a data marcada também já não se mostra.
   const dadoPorConcluido = Boolean(p.obra) && p.confirmacao?.estado === "por_confirmar";
   // Com a data já passada (e a obra por dar como concluída) deixa de se anunciar como "Instalação: <data>".
-  const passou = p.obra?.data && new Date(`${p.obra.data}T${p.obra.hora || "23:59"}`) < new Date();
-  if (!feita && !dadoPorConcluido && p.obra?.data) c.append(el("p", null, `${passou ? "Data marcada" : "Instalação"}: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
-  else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") c.append(el("p", "conta-obra-por-agendar", precoDefinitivo(p) ? "Visita e obra: vamos marcar a data consigo." : "Instalação: vamos marcar a data consigo."));
-  // Faltou à visita (ou ao diagnóstico): não é devolvida nem descontada; para avançar marca e paga uma visita nova.
-  // (Com a visita incluída na obra — `incluida`, decisão do dono, 2026-10-11 — já não se vende uma visita nova.)
-  if (p.visita_faltou && !p.compras?.visita?.paga && !p.obra) c.append(el("p", "msg info conta-faltou", `Não o encontrámos na visita: a visita não é devolvida nem descontada na obra.${p.compras?.visita?.incluida ? "" : " Para avançar, marque e pague uma visita nova."}`));
-  for (const d of p.devolucoes ?? []) c.append(blocoDevolucao(d));
-  if (p.confirmacao) c.append(blocoConfirmacao(p));
-  // O cliente confirmou o trabalho e o CEO ainda não aprovou (decisão do dono, 2026-10-11): o pagamento do restante
-  // vem logo a seguir ao "Sim" (e não lá em baixo, depois da proposta).
-  const restanteJa = Boolean(p.restante?.confirmada) && (p.pode_pagar_restante || p.restante?.pago);
-  if (restanteJa) c.append(blocoRestante(p));
-  if (p.avaliacao) c.append(blocoAvaliacao(p));
-  if (p.mensagens?.length) c.append(blocoMensagens(p));
-  if (p.visita_sem_defeito) c.append(blocoVisitaSemDefeito(p));
-  if (p.proposta) c.append(blocoProposta(p));
-  if (p.extras?.length && !extraPorResponder) c.append(blocoExtras(p));
-  if (!restanteJa && (p.pode_pagar_restante || p.restante?.pago)) c.append(blocoRestante(p));
-  if (p.relatorio_basico) c.append(blocoBasico(p));
-  if (p.relatorio) c.append(blocoRelatorio(p));
-  if (p.compras && !p.obra) { const v = blocoVisita(p); if (v) c.append(v); }
-  if (p.pagamentos?.length) c.append(blocoPagamentos(p));
-  if (p.resumo) c.append(blocoResumo(p.resumo, p.id));
-  c.append(blocoFotos(p));
+  if (!feita && !dadoPorConcluido && p.obra?.data) visita.push(el("p", null, `${obraPassou(p) ? "Data marcada" : "Instalação"}: ${dataTxt(p.obra.data)}${p.obra.hora ? `, ${p.obra.hora}` : ""}.`));
+  else if (!feita && p.obra?.por_agendar && p.obra.estado === "agendada") visita.push(el("p", "conta-obra-por-agendar", precoDefinitivo(p) ? "Visita e obra: vamos marcar a data consigo." : "Instalação: vamos marcar a data consigo."));
+  if (p.confirmacao) visita.push(blocoConfirmacao(p));
+  // O pagamento do restante vem logo a seguir à confirmação do trabalho (decisão do dono, 2026-10-11).
+  if (p.pode_pagar_restante || p.restante?.pago) visita.push(blocoRestante(p));
+  if (p.avaliacao) visita.push(blocoAvaliacao(p));
+  if (p.visita_sem_defeito) visita.push(blocoVisitaSemDefeito(p));
+  if (p.compras && !p.obra) visita.push(blocoVisita(p));
+
+  // A fase do pedido: o passo que depende do cliente (a secção dele abre sozinha e fica em destaque) ou, sem nenhum, a
+  // avaliação por dar ("Como correu?"), que também abre a secção dela.
+  const acao = acaoDoPedido(p);
+  const fase = acao ? { sec: acao.sec, chave: acao.chave, destaque: true } : p.avaliacao?.pode ? { sec: "obra", chave: "avaliar" } : null;
+  const avaria = Boolean(p.compras?.avaria);
+  const nf = p.fotos.length;
+  const sec = (chave, titulo, resumo, ...blocos) => seccaoPedido(p, fase, chave, titulo, resumo, blocos);
+  c.append(...[
+    sec("proposta", "Proposta", resumoProposta(p), p.proposta ? blocoProposta(p) : null),
+    sec("extras", "Trabalho a mais", p.extras?.length ? resumoExtras(p) : null, p.extras?.length ? blocoExtras(p) : null),
+    sec("obra", "Visita e obra", resumoObra(p), visita),
+    sec("pagamentos", "Pagamentos", resumoPagamentos(p), (p.devolucoes ?? []).map(blocoDevolucao), p.pagamentos?.length ? blocoPagamentos(p) : null),
+    sec("fotos", "Fotos", [nf ? forte(String(nf)) : "ainda sem fotos", faltaFotoQuadro(p) ? " · falta a do quadro elétrico" : ""], nf || p.pode_fotos ? blocoFotos(p) : null),
+    sec("mensagens", "Mensagens", p.mensagens?.length ? [forte(String(p.mensagens.length))] : null, p.mensagens?.length ? blocoMensagens(p) : null),
+    sec("relatorio", avaria ? "O seu pedido" : "Relatório", resumoRelatorio(p), p.relatorio_basico ? blocoBasico(p) : null, p.relatorio ? blocoRelatorio(p) : null, p.resumo ? blocoResumo(p.resumo, p.id) : null),
+  ].filter(Boolean));
+  ultimaFase.set(p.id, fase?.chave ?? null);
   return c;
 }
 
@@ -928,6 +1185,9 @@ function blocoRelatorio(p) {
   imprimir.hidden = true;
   imprimir.addEventListener("click", () => {
     const cartao = b.closest(".conta-pedido");
+    // O relatório está dentro de uma secção que abre e fecha: fechada não se imprimia nada.
+    const sec = b.closest("details");
+    if (sec) sec.open = true;
     cartao?.classList.add("a-imprimir");
     document.body.classList.add("imprimir-relatorio");
     const antes = document.title;
@@ -1219,7 +1479,7 @@ function blocoFotos(p) {
   }
   // Sem foto do quadro o pedido não se valida (o CEO devolve-o a pedi-la): tem botão próprio, que a envia com a chave
   // "quadro" — por "Acrescentar foto" ficava como "outra" e o painel continuava a dizer que faltava.
-  if (p.pode_fotos && !p.compras?.avaria && !p.fotos.some((f) => f.chave === "quadro") && p.fotos.length < (p.fotos_max ?? 40)) {
+  if (faltaFotoQuadro(p)) {
     b.append(el("p", "ajuda", "Falta a foto do quadro elétrico (com a porta aberta, a ver-se os disjuntores): é por ela que preparamos a proposta."),
       botaoFoto("Juntar a foto do quadro elétrico", `quadro-${p.id}`, null, (ficheiro) => enviarFoto(p, "quadro", "Quadro elétrico", ficheiro, aviso)));
   }
@@ -1230,6 +1490,9 @@ function blocoFotos(p) {
   b.append(msg);
   return b;
 }
+
+/** Falta a foto do quadro elétrico e ainda se pode juntar (o botão próprio das Fotos e o da caixa do topo). */
+const faltaFotoQuadro = (p) => Boolean(p.pode_fotos) && !p.compras?.avaria && !p.fotos.some((f) => f.chave === "quadro") && p.fotos.length < (p.fotos_max ?? 40);
 
 /** Botão (com teclado) que abre a câmara/galeria por um input file escondido. `rotulo`: nome acessível mais claro. */
 function botaoFoto(texto, id, rotulo, aoEscolher) {
