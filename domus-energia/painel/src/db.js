@@ -1172,6 +1172,13 @@ export const MIGRACOES = [
       WHERE tipo = 'obra' AND estado != 'retirado' AND eletricista_id IS NOT NULL
         AND EXISTS (SELECT 1 FROM eletricistas e WHERE e.id = trabalhos_eletricista.eletricista_id AND trim(e.dgeg) != '');
   `),
+  // 53: o técnico responsável passa a valer também para as avarias (decisão do dono, 2026-10-13: "sim, como as obras"):
+  // as que já existiam com um eletricista habilitado ficam com ele, como a 52 fez às obras.
+  (db) => db.exec(`
+    UPDATE trabalhos_eletricista SET tecnico_id = eletricista_id, tecnico_por = 'sistema', tecnico_em = atualizado
+      WHERE tipo = 'avaria' AND estado != 'retirado' AND eletricista_id IS NOT NULL AND tecnico_id IS NULL
+        AND EXISTS (SELECT 1 FROM eletricistas e WHERE e.id = trabalhos_eletricista.eletricista_id AND trim(e.dgeg) != '');
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

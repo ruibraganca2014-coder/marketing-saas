@@ -59,7 +59,7 @@ export default function inicio(el, ctx) {
       linha(t.extras, "trabalho a mais por rever", "trabalhos a mais por rever", t.extras_pedido ? `#/orcamentos/${encodeURIComponent(t.extras_pedido)}` : "#/orcamentos"),
       linha(t.idas_perdidas, "ida perdida por confirmar", "idas perdidas por confirmar", t.idas_perdidas_pedido ? `#/orcamentos/${encodeURIComponent(t.idas_perdidas_pedido)}` : "#/orcamentos"),
       // Obra com um eletricista sem n.º da DGEG e ainda sem técnico responsável (decisão do dono, 2026-10-13): não se conclui sem ele.
-      linha(t.sem_tecnico, "obra sem técnico responsável", "obras sem técnico responsável", t.sem_tecnico_pedido ? `#/orcamentos/${encodeURIComponent(t.sem_tecnico_pedido)}` : "#/orcamentos"),
+      linha(t.sem_tecnico, "trabalho sem técnico responsável", "trabalhos sem técnico responsável", t.sem_tecnico_pedido ? `#/orcamentos/${encodeURIComponent(t.sem_tecnico_pedido)}` : "#/orcamentos"),
       linha(t.propostas_aceites, "proposta aceite, falta marcar a obra", "propostas aceites, falta marcar a obra", "#/orcamentos"),
       linha(t.mensagens, "mensagem de cliente por responder", "mensagens de clientes por responder", "#/orcamentos"),
       linha(t.ativacoes, "ativação de aparelho por aprovar", "ativações de aparelhos por aprovar", "#/ativacoes"),

@@ -361,7 +361,7 @@ describe('sem parceiros registados nada muda (os fluxos de antes): a bolsa abre 
     assert.equal(a.emailsPara(parceiro, n).filter((m) => /bolsa/.test(m.assunto)).length, 0, 'quem largou nunca mais é avisado');
   });
 
-  test('uma visita técnica não tem técnico responsável (só as obras): quem não tem n.º da DGEG não fica bloqueado por isso', async () => {
+  test('uma visita técnica não tem técnico responsável (só as obras e as avarias): quem não tem n.º da DGEG não fica bloqueado por isso', async () => {
     const s = await a.eletricista({ dgeg: undefined, concelhos: ['Oeiras'] });
     const id = (await a.painel('POST', 'orcamentos', 'ceo', { nome: 'Carla Neves Cliente', telefone: '912 345 678', localidade: 'Oeiras', servico: 'Reparação' })).json.id;
     const at = await a.atribuicao(id, { acao: 'atribuir', eletricista_id: s.id });
@@ -370,8 +370,38 @@ describe('sem parceiros registados nada muda (os fluxos de antes): a bolsa abre 
     const f = (await a.area(s, 'GET', `trabalhos/${at.json.trabalho.id}`)).json.trabalho;
     assert.equal(f.tecnico, null);
     assert.ok(!f.falta.includes('o técnico responsável'));
-    assert.equal((await a.painel('POST', `orcamentos/${id}/tecnico`, 'ceo', { eletricista_id: s.id })).estado, 409, 'só numa obra');
+    assert.equal((await a.painel('POST', `orcamentos/${id}/tecnico`, 'ceo', { eletricista_id: s.id })).estado, 409, 'só numa obra ou numa avaria');
     assert.deepEqual((await a.painel('GET', 'resumo')).json.tratar.sem_tecnico, 0);
+  });
+
+  test('uma avaria tem técnico responsável, como as obras: sem n.º da DGEG fica por indicar; o CEO indica e deixa de faltar', async () => {
+    const s = await a.eletricista({ dgeg: undefined, concelhos: ['Cascais'] });
+    const hab = await a.eletricista({ concelhos: ['Cascais'] });
+    const c = await p.contaConfirmada();   // a simulação só se envia com conta
+    const avaria = { versao: 1, funil: 'avaria', avaria: { onde: ['cozinha'], problema: ['sem_corrente'], descricao: 'A tomada não dá nada' }, casa: { tipo: 'apartamento', tipologia: 'T2', localidade: 'Cascais' } };
+    const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Neves Cliente', telefone: '912 345 678', email: 'carla@exemplo.pt', localidade: 'Cascais', morada: 'Rua do Exemplo, 1', servico: 'Reparação', simulacao: avaria } });
+    assert.equal(r.estado, 201, r.texto);
+    const id = p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id;
+    const at = await a.atribuicao(id, { acao: 'atribuir', eletricista_id: s.id });
+    assert.equal(at.estado, 200, at.texto);
+    const tid = at.json.trabalho.id;
+    assert.deepEqual([at.json.trabalho.tipo, at.json.trabalho.precisa_tecnico, at.json.pode_tecnico], ['avaria', true, true]);
+    let f = (await a.area(s, 'GET', `trabalhos/${tid}`)).json.trabalho;
+    assert.deepEqual([f.tecnico.indicado, f.falta.includes('o técnico responsável')], [false, true]);
+    const t = (await a.painel('GET', 'resumo')).json.tratar;
+    assert.deepEqual([t.sem_tecnico, t.sem_tecnico_pedido], [1, id]);
+    assert.equal((await a.painel('POST', `orcamentos/${id}/tecnico`, 'ceo', { eletricista_id: s.id })).estado, 409, 'quem não tem n.º da DGEG não assina');
+    assert.equal((await a.painel('POST', `orcamentos/${id}/tecnico`, 'ceo', { eletricista_id: hab.id })).estado, 200);
+    f = (await a.area(s, 'GET', `trabalhos/${tid}`)).json.trabalho;
+    assert.deepEqual([f.tecnico.indicado, f.tecnico.nome, f.falta.includes('o técnico responsável')], [true, hab.nome, false]);
+    assert.equal((await a.painel('GET', 'resumo')).json.tratar.sem_tecnico, 0);
+    // Quem tem n.º da DGEG e fica com uma avaria é o técnico dela, sem ninguém fazer nada.
+    const r2 = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Carla Neves Cliente', telefone: '912 345 678', email: 'carla@exemplo.pt', localidade: 'Cascais', morada: 'Rua do Exemplo, 1', servico: 'Reparação', simulacao: avaria } });
+    assert.equal(r2.estado, 201, r2.texto);
+    const id2 = p.app.db.prepare('SELECT MAX(id) AS id FROM orcamentos').get().id;
+    const at2 = await a.atribuicao(id2, { acao: 'atribuir', eletricista_id: hab.id });
+    assert.equal(at2.estado, 200, at2.texto);
+    assert.deepEqual([at2.json.trabalho.tipo, (await a.area(hab, 'GET', `trabalhos/${at2.json.trabalho.id}`)).json.trabalho.tecnico.proprio], ['avaria', true]);
   });
 });
 

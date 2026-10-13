@@ -668,7 +668,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.falta = r.editavel ? faltaParaConcluir(t, o) : [];
     // Técnico responsável (decisão do dono, 2026-10-13): só nas obras. `indicado` falso = a Domus Energia ainda tem de o
     // indicar (a obra não se dá por concluída); `proprio` = é ele mesmo, porque tem n.º da DGEG.
-    r.tecnico = t.tipo === 'obra' ? tecnicoParaExecutante(t) : null;
+    r.tecnico = precisaTecnico(t) ? tecnicoParaExecutante(t) : null;
     // Trabalho a mais (decisão do dono, 2026-10-11): os que ele propôs nesta obra, com o estado — nunca o preço ao
     // cliente — e se pode propor outro (um à espera de cada vez).
     r.extras = t.tipo === 'obra' ? extrasParaEletricista(t) : [];
@@ -774,7 +774,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Só se conclui a partir da hora marcada para a visita (decisão do dono, 2026-10-11).
     if (visitaPorAcontecer(t)) falta.push(`a visita ainda não aconteceu (marcada para ${dataTexto(t.visita)})`);
     // Sem técnico responsável a obra não se dá por concluída (decisão do dono, 2026-10-13). Só nas obras.
-    if (t.tipo === 'obra' && !tecnicoValido(t)) falta.push(FALTA_TECNICO);
+    if (precisaTecnico(t) && !tecnicoValido(t)) falta.push(FALTA_TECNICO);
     return falta;
   }
 
@@ -837,13 +837,18 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // concluída. Não se aplica às visitas técnicas nem aos diagnósticos de avaria.
   const FALTA_TECNICO = 'o técnico responsável';
   const SEM_TECNICO = 'Esta obra ainda não tem técnico responsável: a Domus Energia tem de o indicar antes de a dar por concluída.';
+  const SEM_TECNICO_AVARIA = 'Esta reparação ainda não tem técnico responsável: a Domus Energia tem de o indicar antes de a dar por concluída.';
+  // Também as avarias (decisão do dono, 2026-10-13: "sim, como as obras" — uma reparação também mexe na instalação).
+  // As visitas técnicas, que são só de orçamento, ficam de fora.
+  const COM_TECNICO = ['obra', 'avaria'];
+  const precisaTecnico = (t) => COM_TECNICO.includes(t?.tipo);
   const podeAssinar = (x) => Boolean(x) && x.estado === 'aprovado' && !x.anonimizado && temDgeg(x);
   /** O técnico responsável do trabalho que ainda pode assinar (aprovado e com n.º da DGEG), ou null. */
   const tecnicoValido = (t) => { const x = t?.tecnico_id ? linha(t.tecnico_id) : null; return podeAssinar(x) ? x : null; };
   /** Quem fica com a obra tem n.º da DGEG: é ele o técnico responsável — a não ser que o CEO já tenha indicado outro. */
   function tecnicoAutomatico(trabalhoId, e) {
     if (!temDgeg(e)) return;
-    db.prepare("UPDATE trabalhos_eletricista SET tecnico_id = ?, tecnico_por = 'sistema', tecnico_em = ? WHERE id = ? AND tipo = 'obra' AND (tecnico_id IS NULL OR tecnico_por = 'sistema')").run(e.id, agoraIso(), trabalhoId);
+    db.prepare("UPDATE trabalhos_eletricista SET tecnico_id = ?, tecnico_por = 'sistema', tecnico_em = ? WHERE id = ? AND tipo IN ('obra', 'avaria') AND (tecnico_id IS NULL OR tecnico_por = 'sistema')").run(e.id, agoraIso(), trabalhoId);
   }
   /** O que o executante vê do técnico responsável da sua obra: se já há, se é ele próprio e, sendo outro, o nome. */
   function tecnicoParaExecutante(t) {
@@ -859,7 +864,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     expirar();
     if (!Number.isInteger(idEletricista)) falha('Escolha o técnico responsável.');
     const t = ativoDoPedido(o.id);
-    if (!t || t.tipo !== 'obra') throw new ErroApi(409, 'Só uma obra na bolsa ou com um eletricista tem técnico responsável, e só até ser aprovada.');
+    if (!t || !precisaTecnico(t)) throw new ErroApi(409, 'Só uma obra ou uma avaria, na bolsa ou com um eletricista, tem técnico responsável, e só até ser aprovada.');
     const x = linha(idEletricista);
     if (!x || x.anonimizado) throw new ErroApi(404, 'Eletricista não encontrado.');
     if (!podeAssinar(x)) throw new ErroApi(409, 'O técnico responsável tem de ser um eletricista aprovado com n.º de habilitação na DGEG.');
@@ -876,7 +881,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
   /** As obras nas mãos de um eletricista, ainda por aprovar, sem técnico responsável que possa assinar (Início do CEO): quantas e o pedido da mais antiga. */
   function obrasSemTecnico() {
-    const l = db.prepare("SELECT * FROM trabalhos_eletricista WHERE tipo = 'obra' AND estado IN ('aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada') ORDER BY id").all().filter((t) => !tecnicoValido(t));
+    const l = db.prepare("SELECT * FROM trabalhos_eletricista WHERE tipo IN ('obra', 'avaria') AND estado IN ('aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada') ORDER BY id").all().filter((t) => !tecnicoValido(t));
     return { n: l.length, pedido: l[0]?.orcamento_id ?? null };
   }
 
@@ -909,12 +914,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function queAssino(e, idTexto) {
     const t = trabalho(idNum(idTexto));
     const o = t ? pedidoDe(t.orcamento_id) : null;
-    if (!t || !o || t.tipo !== 'obra' || t.tecnico_id !== e.id || t.eletricista_id === e.id || !LISTA_DO_ELETRICISTA.includes(t.estado)) throw new ErroApi(404, 'Obra não encontrada.');
+    if (!t || !o || !precisaTecnico(t) || t.tecnico_id !== e.id || t.eletricista_id === e.id || !LISTA_DO_ELETRICISTA.includes(t.estado)) throw new ErroApi(404, 'Obra não encontrada.');
     return { t, o };
   }
   h.obrasAssino = ({ res, e }) => {
     expirar();
-    const lista = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE tecnico_id = ? AND tipo = 'obra' AND eletricista_id IS NOT NULL AND eletricista_id != ? AND estado IN ${DO_ELETRICISTA} ORDER BY id DESC LIMIT 200`).all(e.id, e.id)
+    const lista = db.prepare(`SELECT * FROM trabalhos_eletricista WHERE tecnico_id = ? AND tipo IN ('obra', 'avaria') AND eletricista_id IS NOT NULL AND eletricista_id != ? AND estado IN ${DO_ELETRICISTA} ORDER BY id DESC LIMIT 200`).all(e.id, e.id)
       .map((t) => [t, pedidoDe(t.orcamento_id)]).filter(([, o]) => o).map(([t, o]) => paraTecnico(t, o));
     responder(res, 200, { obras: lista });
   };
@@ -1689,7 +1694,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (visitaPorAcontecer(t)) throw new ErroApi(409, `A visita está marcada para ${dataTexto(t.visita)}. Se já fez o trabalho, mude primeiro a data da visita.`);
     const falta = faltaParaConcluir(t, o);
     // Só falta o técnico responsável: não depende dele, diz-se por inteiro (decisão do dono, 2026-10-13).
-    if (falta.length === 1 && falta[0] === FALTA_TECNICO) throw new ErroApi(409, SEM_TECNICO);
+    if (falta.length === 1 && falta[0] === FALTA_TECNICO) throw new ErroApi(409, t.tipo === 'avaria' ? SEM_TECNICO_AVARIA : SEM_TECNICO);
     if (falta.length) throw new ErroApi(409, `Ainda falta: ${falta.join('; ')}.`);
     const agora = agoraIso();
     const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'concluida_eletricista', concluida = ?, atualizado = ?
@@ -2685,8 +2690,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const candidatos = alvo && (ativo?.concelho ?? c) ? aprovadosEm(ativo?.concelho ?? c).filter((x) => !naBolsa || visivelNaBolsa(ativo, x, o)) : [];
     const doCliente = t && ['visita_marcada', 'concluida_eletricista'].includes(t.estado) && t.reclamacao_de === 'cliente' && !t.reclamacao_decisao;
     // Técnico responsável (decisão do dono, 2026-10-13): só nas obras; o CEO indica-o (ou muda-o) até a obra ser aprovada.
-    const tec = t?.tipo === 'obra' && t.tecnico_id ? linha(t.tecnico_id) : null;
-    const podeTecnico = Boolean(ativo) && ativo.tipo === 'obra';
+    const tec = precisaTecnico(t) && t.tecnico_id ? linha(t.tecnico_id) : null;
+    const podeTecnico = Boolean(ativo) && precisaTecnico(ativo);
     return {
       // Prioridade de 24 horas (decisão do dono, 2026-10-13): enquanto dura, quem vê o pedido e até quando.
       prioridade: emPrioridade(ativo) ? { ate: iso(ativo.prioridade_ate), especialidade: ativo.especialidade, especialidade_nome: ESPECIALIDADES[ativo.especialidade] ?? null,
@@ -2716,7 +2721,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         especialidade: t.especialidade ?? null, especialidade_nome: ESPECIALIDADES[t.especialidade] ?? null,
         // `precisa_tecnico`: é uma obra. `tecnico`: quem a assina (`valido` falso = já não pode assinar: suspenso ou sem
         // n.º da DGEG; `automatico` = é o próprio executante, por ter n.º da DGEG), ou null = por indicar.
-        precisa_tecnico: t.tipo === 'obra',
+        precisa_tecnico: precisaTecnico(t),
         tecnico: tec ? { id: tec.id, nome: tec.nome, valido: podeAssinar(tec), automatico: t.tecnico_por === 'sistema', por: t.tecnico_por ?? null, em: t.tecnico_em ?? null } : null,
         // A parte dele no trabalho a mais que o cliente já aceitou (€, sem IVA): soma à estimativa antes de aprovar.
         recebe_extras: e && t.tipo === 'obra' ? Math.round(maoObraExtras(t.id) * (Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) / 100) / 100 : 0,
