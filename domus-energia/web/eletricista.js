@@ -6,12 +6,16 @@
 // Pagamentos: o valor de cada trabalho (fixado quando a Domus aprova), o estado (a aguardar o cliente / a aprovação / o
 // restante, fatura em falta, a pagar até, pago em), o envio da fatura-recibo e o IBAN (só se vê mascarado).
 // Procedimentos (docs/PROCEDIMENTOS.md): os publicados leem-se na Ajuda técnica; numa obra, as checklists estão no
-// separador "Trabalho" da ficha (começar a checklist de um procedimento e marcar os passos).
+// passo "Trabalho" da ficha (começar a checklist de um procedimento e marcar os passos).
 // Propostas na bolsa (decisão do dono, 2026-10-10; só quando o servidor diz `por_proposta` no trabalho): numa visita
 // técnica da bolsa não há "Aceitar" — o eletricista vê o relatório e as fotos do cliente e envia a proposta (horas,
 // material, notas e quando pode ir), que pode corrigir; a Domus escolhe. O escolhido fica "à espera de o cliente aceitar"
 // (sem dados do cliente nem "Marcar visita"); quando o cliente aceita, a obra aparece nos trabalhos dele.
-// Rotas no endereço: #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
+// Aspeto para a obra (decisão do dono, 2026-10-13): abre no Início — "o que tenho para fazer hoje", montado aqui com o
+// que as rotas já devolvem (trabalhos, a ficha dos que estão em curso, bolsa e pagamentos) — e a ficha segue a ordem
+// do trabalho em seis passos (cliente e visita, fotos de antes, trabalho, ensaios, fotos de depois, concluir), com um
+// visto nos que já estão feitos e o passo seguinte em destaque. Só muda o aspeto: as regras continuam no servidor.
+// Rotas no endereço: #/inicio, #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
 import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
@@ -137,7 +141,7 @@ for (const [campo, botao] of [["el-email", "el-pedir-codigo"], ["el-codigo", "el
 }
 $("el-sair").addEventListener("click", async () => {
   try { await pedir("sair", {}); } catch { /* a sessão expira na mesma */ }
-  history.replaceState(null, "", "#/bolsa");
+  history.replaceState(null, "", "#/inicio");
   mostrarEntrar("Saiu da área do eletricista.", "ok");
 });
 
@@ -156,7 +160,7 @@ function entrou(e) {
 // ---------------------------------------------------------------- rotas
 function rota() {
   const [aba, id] = location.hash.replace(/^#\/?/, "").split("/");
-  return { aba: ["trabalhos", "pagamentos", "ajuda"].includes(aba) ? aba : "bolsa", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
+  return { aba: ["bolsa", "trabalhos", "pagamentos", "ajuda"].includes(aba) ? aba : "inicio", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
 }
 const ir = (c) => { if (location.hash === `#/${c}`) encaminhar(); else location.hash = `#/${c}`; };
 window.addEventListener("hashchange", () => { if (eu) encaminhar(); });
@@ -171,11 +175,14 @@ async function encaminhar() {
   const vista = $("el-vista");
   vista.replaceChildren(el("p", "vazio", "A carregar…"));
   try {
-    const partes = aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
+    const partes = aba === "inicio" ? await inicio() : aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : (id ? await ficha(id) : await trabalhosLista());
     if (minha !== geracao) return;
     vista.replaceChildren(...partes);
     $("conteudo").scrollTo?.(0, 0);
     window.scrollTo(0, 0);
+    // Vindo do Início ("Fatura-recibo em falta"): a página dos pagamentos abre no cartão desse trabalho.
+    if (aba === "pagamentos" && focoPagamento) $(`pagamento-${focoPagamento}`)?.scrollIntoView();
+    focoPagamento = null;
     iniciarContagem();
   } catch (e) {
     if (minha !== geracao || e?.estado === 401) return;
@@ -197,6 +204,111 @@ function contadores(nBolsa, nTrab) {
   const mostrar = (id, n) => { const c = $(id); c.hidden = !n; c.textContent = n ? String(n) : ""; };
   if (nBolsa !== null) mostrar("el-conta-bolsa", nBolsa);
   if (nTrab !== null) mostrar("el-conta-trabalhos", nTrab);
+}
+
+// ---------------------------------------------------------------- Início: o que tenho para fazer hoje
+// A visita vem do servidor na hora de Lisboa, sem fuso ("AAAA-MM-DDTHH:MM"): "hoje" e "agora" contam-se também em Lisboa.
+const diaLisboa = (dias = 0) => new Date(Date.now() + dias * 86400000).toLocaleDateString("sv-SE", { timeZone: "Europe/Lisbon" });
+const agoraLisboa = () => new Date().toLocaleString("sv-SE", { timeZone: "Europe/Lisbon" }).slice(0, 16).replace(" ", "T");
+// O que o servidor diz que falta para concluir (`falta`, as frases dele) → o passo da ficha onde se resolve e o nome
+// curto que aparece no Início ("Falta: fotos de depois, ensaios").
+const FALTA = [
+  ["marcar a visita", "cliente", "marcar a visita"], ["a visita ainda não aconteceu", "cliente", null],
+  ["uma foto de antes", "antes", "fotos de antes"], ["uma foto de depois", "depois", "fotos de depois"], ["ensaio:", "ensaios", "ensaios"],
+  ["a conclusão do diagnóstico", "trabalho", "diagnóstico"], ["a resposta ao trabalho a mais", "trabalho", "resposta ao trabalho a mais"],
+  ["a resposta à ida perdida", "trabalho", "resposta à visita perdida"],
+];
+const faltaDe = (frase) => FALTA.find(([comeco]) => frase.startsWith(comeco)) ?? null;
+const faltaCurta = (falta) => [...new Set(falta.map((f) => { const x = faltaDe(f); return x ? x[2] : f; }).filter(Boolean))].join(", ");
+const pendenteExtra = (t) => (t.extras ?? []).some((x) => x.estado === "proposto" || x.estado === "enviado");
+const pendenteIda = (t) => (t.idas_perdidas ?? []).some((x) => x.estado === "proposta");
+const PRAZO_A_ACABAR_MS = 12 * 3600_000;   // menos do que isto para marcar a visita: o cartão fica em destaque
+let focoPagamento = null;
+
+/**
+ * Um cartão do Início: um só alvo de toque, grande, que leva ao sítio certo. `tipo`: "hoje" (botão cheio), "aviso",
+ * "alarme" ou "discreta" (só informativo, sem botão). `grande` e `linhas` aceitam texto ou nós (os números vão em <strong>).
+ */
+function tarefa({ id, tipo = "", rotulo, grande, linhas = [], botao, ir: destino }) {
+  const b = com(el("button", `cartao tarefa ${tipo}`.trim()), rotulo ? el("span", "rotulo", rotulo) : null, com(el("span", "grande"), grande),
+    linhas.filter(Boolean).map((l) => com(el("span", "linha"), l)), botao ? el("span", "ir", botao) : null);
+  b.type = "button";
+  b.id = id;
+  b.addEventListener("click", typeof destino === "function" ? destino : () => ir(destino));
+  return b;
+}
+const forte = (t) => el("strong", "num", t);
+
+async function inicio() {
+  const [rt, rb, rp] = await Promise.all([pedir("trabalhos"), pedir("bolsa"), pedir("pagamentos")]);
+  contadores(rb.trabalhos.length, rt.trabalhos.filter((t) => t.estado === "aceite" && t.aberto && !t.espera_cliente).length);
+  // A lista dos trabalhos não traz a morada, o que falta nem o que está à espera de resposta: vêm da ficha de cada
+  // trabalho em curso (são poucos). Se uma ficha falhar, o cartão aparece na mesma, só com o que a lista diz.
+  const emCurso = rt.trabalhos.filter((t) => t.aberto && !t.espera_cliente && (t.estado === "aceite" || t.estado === "visita_marcada")).slice(0, 12);
+  const fichas = new Map(await Promise.all(emCurso.map(async (t) => {
+    try { return [t.id, (await pedir(`trabalhos/${t.id}`)).trabalho]; } catch (e) { if (e?.estado === 401) throw e; return [t.id, null]; }
+  })));
+  const hoje = diaLisboa(), amanha = diaLisboa(1), agora = agoraLisboa();
+  const grupos = { hoje: [], amanha: [], concluir: [], marcar: [], devolvido: [], espera: [] };
+  const abrir = (t) => `trabalhos/${t.id}`;
+  const espera = (t, texto, sufixo = "") => grupos.espera.push(tarefa({ id: `inicio-espera-${t.id}${sufixo}`, tipo: "discreta", grande: texto, linhas: [`${t.titulo} · ${t.concelho}`], ir: abrir(t) }));
+  for (const lista of rt.trabalhos) {
+    if (!lista.aberto) continue;
+    const t = fichas.get(lista.id) ?? lista;
+    const c = t.cliente ?? {};
+    const onde = [c.morada, c.localidade].filter(Boolean).join(", ") || t.concelho;
+    const quem = [c.nome, t.titulo].filter(Boolean).join(" · ");
+    const nomeTrabalho = t.tipo === "obra" ? "Obra" : "Trabalho";
+    if (t.espera_cliente) espera(t, "À espera de o cliente aceitar a proposta");
+    else if (t.estado === "concluida_eletricista") espera(t, "A aguardar confirmação do cliente");
+    else if (t.estado === "confirmada") espera(t, "A aguardar aprovação da Domus Energia");
+    else if (t.estado === "aceite" || (t.estado === "visita_marcada" && !t.visita)) {
+      const prazo = t.prazo ? el("strong", "num") : null;
+      if (prazo) { prazo.dataset.prazo = t.prazo; prazo.dataset.curto = "1"; }
+      grupos.marcar.push([t.prazo ?? "9", tarefa({ id: `inicio-marcar-${t.id}`, tipo: "aviso", rotulo: "Visita por marcar", grande: prazo ? ["Faltam ", prazo] : "Marque a visita",
+        linhas: [prazo ? "para marcar a visita. Depois disso, o trabalho deixa de ser seu." : null, `${quem} · ${onde}`], botao: "Marcar visita", ir: abrir(t) })]);
+    } else if (t.estado === "visita_marcada") {
+      if (pendenteExtra(t)) espera(t, "Trabalho a mais por responder", "-extra");
+      const dia = t.visita.slice(0, 10), hora = t.visita.slice(11, 16);
+      // Visita de orçamento sem custo: não se "conclui" (fecha quando a Domus envia a proposta) — o que falta é a proposta.
+      const gratis = t.recebe?.gratis === true;
+      const falta = gratis ? "" : faltaCurta(t.falta ?? []);
+      if (pendenteIda(t)) espera(t, "Visita perdida por confirmar", "-ida");
+      else if (t.reclamacao) {
+        grupos.devolvido.push(tarefa({ id: `inicio-devolvido-${t.id}`, tipo: "alarme", rotulo: "Devolvido para corrigir",
+          grande: t.reclamacao.de === "cliente" ? "O cliente diz que falta alguma coisa" : "A Domus Energia devolveu o trabalho",
+          linhas: [el("span", "citacao", `«${t.reclamacao.texto}»`), `${quem} · ${onde}`], botao: "Abrir a ficha", ir: abrir(t) }));
+      } else if (dia === hoje) {
+        grupos.hoje.push([hora, tarefa({ id: `inicio-hoje-${t.id}`, tipo: "hoje", rotulo: "Visita de hoje", grande: [forte(hora), ` · ${onde}`],
+          linhas: [quem, t.visita <= agora && falta ? `Falta: ${falta}` : null], botao: "Abrir a ficha", ir: abrir(t) })]);
+      } else if (dia === amanha) {
+        grupos.amanha.push([hora, tarefa({ id: `inicio-amanha-${t.id}`, tipo: "calma", rotulo: "Visita de amanhã", grande: [forte(hora), ` · ${onde}`], linhas: [quem], botao: "Abrir a ficha", ir: abrir(t) })]);
+      } else if (dia < hoje && gratis) {
+        if (t.proposta) espera(t, "Proposta enviada: à espera da Domus Energia");
+        else grupos.concluir.push(tarefa({ id: `inicio-concluir-${t.id}`, tipo: "aviso", rotulo: "Proposta por enviar", grande: "Diga o que a obra precisa",
+          linhas: [com(el("span"), "Visita de ", forte(visitaTxt(t.visita)), ` · ${onde}`), quem], botao: "Fazer a proposta", ir: abrir(t) }));
+      } else if (dia < hoje) {
+        grupos.concluir.push(tarefa({ id: `inicio-concluir-${t.id}`, tipo: "aviso", rotulo: `${nomeTrabalho} por concluir`, grande: falta ? `Falta: ${falta}` : "Falta dar por concluído",
+          linhas: [com(el("span"), "Visita de ", forte(visitaTxt(t.visita)), ` · ${onde}`), quem], botao: `Continuar ${t.tipo === "obra" ? "a obra" : "o trabalho"}`, ir: abrir(t) }));
+      } else espera(t, com(el("span"), "Visita marcada: ", forte(visitaTxt(t.visita))));
+    }
+  }
+  const porOrdem = (lista) => lista.sort((a, b) => a[0].localeCompare(b[0])).map((x) => x[1]);
+  const faturas = rp.trabalhos.filter((x) => x.pode_fatura && !x.fatura).map((x) => tarefa({ id: `inicio-fatura-${sufixo(x)}`, tipo: "aviso", rotulo: "Fatura-recibo em falta",
+    grande: forte(x.valor ? euro(x.valor.total) : "—"), linhas: [`${x.titulo} · ${x.concelho}`], botao: "Enviar a fatura-recibo", ir: () => { focoPagamento = sufixo(x); ir("pagamentos"); } }));
+  // Na bolsa conta o que ainda pede uma resposta dele: os pedidos em que já enviou proposta ficam de fora.
+  const novos = rb.trabalhos.filter((t) => !t.proposta_enviada).length;
+  const bolsa = novos ? [tarefa({ id: "inicio-bolsa", rotulo: "Bolsa", grande: [forte(String(novos)), novos === 1 ? " pedido novo na bolsa" : " pedidos novos na bolsa"],
+    linhas: [`Em ${rb.concelhos.join(", ")}.`], botao: "Ver a bolsa", ir: "bolsa" })] : [];
+  const cartoes = [...porOrdem(grupos.hoje), ...porOrdem(grupos.amanha), ...grupos.concluir, ...porOrdem(grupos.marcar), ...grupos.devolvido, ...grupos.espera, ...faturas, ...bolsa];
+  const data = new Date().toLocaleDateString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "numeric", month: "long" });
+  const out = [el("h2", null, "O que tenho para fazer hoje"), el("p", "suave", `${data[0].toUpperCase()}${data.slice(1)}`)];
+  if (!cartoes.length) {
+    const vazio = com(el("div", "cartao pilha"), el("p", null, "Nada à sua espera."), el("p", "suave", "Quando houver um pedido novo no seu concelho, aparece aqui."));
+    vazio.id = "inicio-vazio";
+    out.push(vazio);
+  }
+  return [...out, ...cartoes];
 }
 
 // ---------------------------------------------------------------- o que recebe
@@ -450,9 +562,10 @@ const seloEstado = (t) => (t.estado === "paga" ? selo("Pago", "bom") : t.estado 
   : t.estado === "aceite" ? selo("Marcar visita", "aviso") : selo(`Visita ${visitaTxt(t.visita)}`, "bom"));
 
 let abaFicha = "cliente";
-const ABAS_FICHA = [["cliente", "Cliente"], ["trabalho", "Trabalho"], ["ensaios", "Ensaios"], ["fotos", "Fotos"]];
+let fichaAberta = null;   // o trabalho cuja ficha está desenhada: ao abrir uma ficha, começa no primeiro passo por fazer
 async function ficha(id) {
   const r = await pedir(`trabalhos/${id}`);
+  fichaAberta = null;
   return desenharFicha(r.trabalho);
 }
 /** Depois de uma ação na ficha: redesenha-a com o trabalho que o servidor devolveu, sem mexer na posição da página. */
@@ -530,46 +643,89 @@ function desenharFicha(t) {
       el("p", "pequeno", "Combine a ida com o cliente e volte a dar o trabalho por concluído."));
     out.push(n);
   }
-  const abas = el("div", "ficha-abas");
+  const passos = passosDaFicha(t);
+  // O passo seguinte por fazer (em destaque, e onde a ficha abre). Na visita de orçamento sem custo não há fotos nem
+  // ensaios a pedir: marca-se a visita e, depois dela, o que falta é a proposta (no último passo).
+  const porFazer = t.recebe?.gratis ? (t.visita ? "concluir" : "cliente") : (passos.find((p) => !p.feito)?.k ?? "concluir");
+  const seguinte = t.editavel ? porFazer : null;
+  if (fichaAberta !== t.id || !passos.some((p) => p.k === abaFicha)) { fichaAberta = t.id; abaFicha = porFazer; }
+  const abas = el("div", "ficha-passos");
   abas.setAttribute("role", "tablist");
-  abas.setAttribute("aria-label", "Partes da ficha do trabalho");
+  abas.setAttribute("aria-label", "Passos da ficha, pela ordem do trabalho");
   const painel = el("div", "pilha");
   painel.id = "ficha-painel";
   painel.setAttribute("role", "tabpanel");
-  if (!ABAS_FICHA.some(([k]) => k === abaFicha)) abaFicha = "cliente";
-  const PARTES = { cliente: parteCliente, trabalho: parteTrabalho, ensaios: parteEnsaios, fotos: parteFotos };
-  const feito = partesFeitas(t);
+  /** Muda de passo; vindo de "Seguinte", "Anterior" ou do resumo do que falta, sobe até aos passos e põe lá o foco. */
+  const mudar = (k, subir = true) => {
+    abaFicha = k;
+    desenhar();
+    if (!subir) return;
+    abas.scrollIntoView({ block: "start" });
+    $(`ficha-aba-${k}`)?.focus({ preventScroll: true });
+  };
   const desenhar = () => {
+    const i = passos.findIndex((p) => p.k === abaFicha), p = passos[i];
     for (const b of abas.children) b.setAttribute("aria-selected", String(b.dataset.aba === abaFicha));
     painel.setAttribute("aria-labelledby", `ficha-aba-${abaFicha}`);
-    painel.replaceChildren(...PARTES[abaFicha](t));
+    // Em baixo, a toda a largura: o passo seguinte (cheio quando este já está feito) e, mais discreto, o anterior.
+    const nav = el("div", "ficha-nav");
+    if (i > 0) {
+      const antes = el("button", "btn sec", "Anterior");
+      antes.type = "button";
+      antes.id = "ficha-anterior";
+      antes.setAttribute("aria-label", `Passo anterior: ${passos[i - 1].nome}`);
+      antes.addEventListener("click", () => mudar(passos[i - 1].k));
+      nav.append(antes);
+    }
+    if (i < passos.length - 1) {
+      const depois = el("button", p.feito ? "btn" : "btn sec", `Seguinte: ${passos[i + 1].nome}`);
+      depois.type = "button";
+      depois.id = "ficha-seguinte";
+      depois.addEventListener("click", () => mudar(passos[i + 1].k));
+      nav.append(depois);
+    }
+    painel.replaceChildren(el("p", "rotulo passo-onde", `Passo ${i + 1} de ${passos.length} · ${p.nome}`), ...p.partes(t, mudar), nav);
   };
-  for (const [k, nome] of ABAS_FICHA) {
-    const b = com(el("button"), el("span", null, feito[k] ? `${nome} ✓` : nome), feito[k] ? el("span", "so-leitor", " (completo)") : null);
+  passos.forEach((p, i) => {
+    const n = el("span", "n", p.feito ? "✓" : String(i + 1));
+    n.setAttribute("aria-hidden", "true");
+    const b = com(el("button", `${p.feito ? "feito" : ""} ${p.k === seguinte ? "seguinte" : ""}`.trim()), n, el("span", null, p.nome),
+      el("span", "so-leitor", ` (passo ${i + 1} de ${passos.length}${p.feito ? ", feito" : p.k === seguinte ? ", a seguir" : ""})`));
     b.type = "button";
-    b.id = `ficha-aba-${k}`;
-    b.dataset.aba = k;
+    b.id = `ficha-aba-${p.k}`;
+    b.dataset.aba = p.k;
     b.setAttribute("role", "tab");
     b.setAttribute("aria-controls", "ficha-painel");
-    b.addEventListener("click", () => { abaFicha = k; desenhar(); });
+    b.addEventListener("click", () => mudar(p.k, false));
     abas.append(b);
-  }
+  });
   desenhar();
-  out.push(abas, painel, parteFim(t));
+  out.push(abas, painel);
   return out;
 }
-/** O que já está feito em cada separador (o visto ao lado do nome). */
-function partesFeitas(t) {
-  const fotos = t.fotos ?? [];
-  const tem = (...grupos) => fotos.some((f) => grupos.includes(f.grupo));
+/**
+ * Os passos da ficha, pela ordem real do trabalho (decisão do dono, 2026-10-13), cada um com o que já está feito (o
+ * visto) e o que mostra. As fotos de antes e de depois são os mesmos grupos do servidor, em passos separados. No
+ * diagnóstico de avaria o passo 3 é o próprio diagnóstico; a proposta depois da visita fica no último passo.
+ * "Trabalho" não tem um "feito" no servidor: conta o que lá se marca (material e listas de verificação, sem nada à
+ * espera de resposta) e, sem nada para marcar, só fica feito quando já há ensaios ou fotos de depois.
+ */
+function passosDaFicha(t) {
+  const tem = (fim) => (t.fotos ?? []).some((f) => f.grupo.endsWith(fim));
   const e = t.ensaios ?? {};
-  return {
-    cliente: Boolean(t.visita),
-    trabalho: (t.material ?? []).length > 0 && t.material.every((m) => m.recebido),
-    // O mesmo para a obra, a visita técnica e a avaria: os três ensaios (e, na avaria, a conclusão do diagnóstico).
-    ensaios: ["isolamento", "diferencial", "terra"].every((k) => e[k] !== null && e[k] !== undefined) && (t.tipo !== "avaria" || Boolean(t.diagnostico?.atual?.conclusao)),
-    fotos: tem("quadro_antes", "pontos_antes") && tem("quadro_depois", "pontos_depois"),
-  };
+  const ensaios = ["isolamento", "diferencial", "terra"].every((k) => e[k] !== null && e[k] !== undefined);
+  const avaria = t.tipo === "avaria";
+  const mat = t.material ?? [], listas = t.checklists?.checklists ?? [];
+  const marcado = mat.every((m) => m.recebido) && listas.every((l) => l.feitos > 0 && !l.obrigatorios_falta) && !pendenteExtra(t) && !pendenteIda(t);
+  const trabalho = marcado && (avaria ? Boolean(t.diagnostico?.atual?.conclusao) : mat.length > 0 || listas.length > 0 || ensaios || tem("_depois"));
+  return [
+    { k: "cliente", nome: "Cliente e visita", feito: Boolean(t.visita), partes: parteCliente },
+    { k: "antes", nome: "Fotos de antes", feito: tem("_antes"), partes: (x) => parteFotos(x, "_antes") },
+    { k: "trabalho", nome: avaria ? "Diagnóstico" : "Trabalho", feito: trabalho, partes: parteTrabalho },
+    { k: "ensaios", nome: "Ensaios", feito: ensaios, partes: parteEnsaios },
+    { k: "depois", nome: "Fotos de depois", feito: tem("_depois"), partes: (x) => parteFotos(x, "_depois") },
+    { k: "concluir", nome: "Concluir", feito: ["concluida_eletricista", "confirmada"].includes(t.estado), partes: (x, mudar) => [...(x.pode_proposta || x.proposta ? [seccaoProposta(x)] : []), parteFim(x, mudar)] },
+  ];
 }
 const dataCurta = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN(d.getTime()) ? "" : `${p2(d.getDate())}/${p2(d.getMonth() + 1)}`; };
 
@@ -588,7 +744,7 @@ function parteCliente(t) {
   const ligar = c.telefone ? (() => { const a = el("a", "btn sec mini", "Ligar"); a.href = `tel:${String(c.telefone).replace(/[^\d+]/g, "")}`; return a; })() : null;
   const cliente = seccao("Cliente", null, dl, el("p", "nota calma", "Ligue ou escreva sempre em nome da Domus Energia. Estes dados ficam visíveis até o trabalho fechar."),
     ligar ? com(el("div", "fila"), ligar) : el("p", "pequeno suave", "Sem telefone: peça o contacto à Domus Energia."));
-  return [cliente, seccaoVisita(t), seccaoQuadro(t), seccaoAparelhos(t), ...(t.pode_proposta || t.proposta ? [seccaoProposta(t)] : [])].filter(Boolean);
+  return [cliente, seccaoVisita(t)];
 }
 
 /**
@@ -731,7 +887,7 @@ function seccaoQuadro(t) {
     const msg = el("p", "erro");
     msg.hidden = true;
     msg.setAttribute("role", "alert");
-    const guardar = el("button", "btn", "Guardar quadro existente");
+    const guardar = el("button", "btn cheio", "Guardar quadro existente");
     guardar.type = "button";
     guardar.id = "quadro-guardar";
     const form = com(el("div", "quadro-registo"),
@@ -782,7 +938,7 @@ function seccaoProposta(t) {
   msg.hidden = true;
   msg.setAttribute("role", "alert");
   const f = camposProposta(p, msg);
-  const enviar = el("button", "btn", p ? "Enviar outra vez" : "Enviar proposta à Domus");
+  const enviar = el("button", "btn cheio", p ? "Enviar outra vez" : "Enviar proposta à Domus");
   enviar.type = "button";
   enviar.id = "proposta-enviar";
   enviar.addEventListener("click", () => {
@@ -876,7 +1032,6 @@ function seccaoVisita(t) {
       corpo.push(com(el("div"), alterar), zona);
     }
   }
-  corpo.push(...parteIdaPerdida(t));
   return seccao("Visita", marcada ? selo(visitaTxt(t.visita).slice(0, 5), "bom") : selo("Por marcar", "aviso"), ...corpo);
 }
 
@@ -914,6 +1069,14 @@ function parteIdaPerdida(t) {
       com(el("label", "campo"), el("span", null, "O que aconteceu (opcional)"), nota), msg, com(el("div"), b));
   }
   return out;
+}
+/** A ida perdida no passo "Trabalho" (decisão do dono, 2026-10-13): fechada enquanto não houver nenhuma assinalada. */
+function seccaoIdaPerdida(t) {
+  const corpo = parteIdaPerdida(t);
+  if (!corpo.length) return null;
+  const s = seccao("O cliente não estava?", pendenteIda(t) ? selo("À espera", "aviso") : null, ...corpo);
+  s.open = (t.idas_perdidas ?? []).length > 0;
+  return s;
 }
 
 function formVisita(t) {
@@ -979,13 +1142,19 @@ function parteTrabalho(t) {
     nada.addEventListener("click", () => guardar([], nada));
     acoes.append(tudo, nada);
   }
+  // Pela ordem em que se usa na obra: (na avaria, o diagnóstico) o que há a fazer, o material, as listas de verificação,
+  // o quadro e os aparelhos; no fim, fechados até serem precisos, o trabalho a mais e "o cliente não estava".
   return [
+    t.diagnostico ? seccaoDiagnostico(t) : null,
     blocoRelatorio(t.relatorio, "Lista de trabalho e planta"),
     seccao("Material a levantar", selo(`${nRec}/${mat.length}`, mat.length && nRec === mat.length ? "bom" : ""),
       el("p", "nota calma", "Material fornecido pela Domus Energia: combinamos consigo onde o levanta ou se segue para a obra. Marque o que já levantou ou recebeu."),
       mat.length ? acoes : null, mat.length ? lista : el("p", "suave", "Sem lista de material.")),
-    seccaoExtras(t),
     seccaoChecklists(t),
+    seccaoQuadro(t),
+    seccaoAparelhos(t),
+    seccaoExtras(t),
+    seccaoIdaPerdida(t),
   ].filter(Boolean);
 }
 
@@ -1036,7 +1205,7 @@ function seccaoExtras(t) {
       const f = camposProposta(null, msg);
       const descricao = el("textarea");
       descricao.rows = 4; descricao.maxLength = 600; descricao.id = "extra-descricao";
-      const enviar = el("button", "btn", "Enviar à Domus Energia");
+      const enviar = el("button", "btn cheio", "Enviar à Domus Energia");
       enviar.type = "button";
       enviar.id = "extra-enviar";
       enviar.addEventListener("click", () => {
@@ -1052,7 +1221,9 @@ function seccaoExtras(t) {
     });
     corpo.push(com(el("div"), abrir), zona);
   } else if (pendente) corpo.push(el("p", "pequeno suave", "Só pode propor outro depois de este ter resposta. Até lá, a obra não se dá por concluída."));
-  return seccao("Encontrou trabalho a mais?", pendente ? selo("À espera", "aviso") : null, ...corpo.filter(Boolean));
+  const s = seccao("Encontrou trabalho a mais?", pendente ? selo("À espera", "aviso") : null, ...corpo.filter(Boolean));
+  s.open = extras.length > 0;   // fechada até haver algum: o passo "Trabalho" fica mais curto
+  return s;
 }
 
 // ---- Procedimentos da obra: as checklists (cada passo é uma caixa; fica quem marcou e quando) e "Começar checklist"
@@ -1092,7 +1263,7 @@ function seccaoChecklists(t) {
     escolha.id = "checklist-procedimento";
     escolha.setAttribute("aria-label", "Procedimento");
     for (const p of c.disponiveis) { const o = el("option", null, `${p.titulo} (${p.n_passos} passos)`); o.value = String(p.id); escolha.append(o); }
-    const b = el("button", "btn sec mini", "Começar lista");
+    const b = el("button", "btn sec cheio", "Começar lista");
     b.type = "button";
     b.id = "comecar-checklist";
     b.addEventListener("click", () => acaoFicha(t, "checklists", { procedimento_id: Number(escolha.value) }, { botao: b, texto: "Lista de verificação começada." }));
@@ -1162,11 +1333,9 @@ function parteEnsaios(t) {
     acaoFicha(t, "ensaios", corpo, { botao: guardar, msg, texto: "Ensaios guardados." });
   });
   const nFeitos = ["isolamento", "diferencial", "terra"].filter((k) => e[k] !== null && e[k] !== undefined).length;
-  const out = [seccao("Ensaios", (e.fora ?? []).length ? selo("Fora do limite", "mau") : selo(`${nFeitos}/3`, nFeitos === 3 ? "bom" : "aviso"),
+  return [seccao("Ensaios", (e.fora ?? []).length ? selo("Fora do limite", "mau") : selo(`${nFeitos}/3`, nFeitos === 3 ? "bom" : "aviso"),
     ...linhas, com(el("label", "campo"), el("span", null, (e.fora ?? []).length ? "Nota (obrigatória: há valores fora do limite)" : "Nota (opcional)"), notas),
     msg, t.editavel ? guardar : null, e.data ? el("p", "pequeno suave", `Guardados em ${dataCurta(e.data)}.`) : null)];
-  if (t.diagnostico) out.push(seccaoDiagnostico(t));
-  return out;
 }
 
 function seccaoDiagnostico(t) {
@@ -1231,20 +1400,21 @@ function seccaoDiagnostico(t) {
     msg, t.editavel ? guardar : null);
 }
 
-// ---- Fotos antes e depois (quadro e pontos): reduzidas no telemóvel (até 1 MB) antes de enviar
-function parteFotos(t) {
+// ---- Fotos antes e depois (quadro e pontos): reduzidas no telemóvel (até 1 MB) antes de enviar. Cada passo da ficha
+// mostra só os seus grupos: `fim` é "_antes" (passo 2) ou "_depois" (passo 5); os grupos são os do servidor.
+function parteFotos(t, fim) {
   const fotos = t.fotos ?? [];
   const max = t.fotos_max ?? 4;
   const grelha = el("div", "fotos-grelha");
   grelha.id = "fotos-obra";
-  const obrigatoria = (grupo) => !fotos.some((f) => f.grupo.endsWith(grupo.endsWith("_antes") ? "_antes" : "_depois"));
-  for (const g of t.grupos_fotos ?? []) {
+  const obrigatoria = !fotos.some((f) => f.grupo.endsWith(fim));
+  for (const g of (t.grupos_fotos ?? []).filter((x) => x.grupo.endsWith(fim))) {
     const doGrupo = fotos.filter((f) => f.grupo === g.grupo);
     const [onde, quando] = g.nome.split(" — ");
     const peca = el("div", "foto-peca");
     peca.id = `peca-${g.grupo}`;
     peca.append(com(el("p"), el("b", null, onde), " ", el("span", "suave", quando)));
-    if (!doGrupo.length) peca.append(com(el("div", "mini-foto vazia"), obrigatoria(g.grupo) ? selo("Falta uma foto", "aviso") : el("span", "pequeno suave", "Sem fotos")));
+    if (!doGrupo.length) peca.append(com(el("div", "mini-foto vazia"), obrigatoria ? selo("Falta uma foto", "aviso") : el("span", "pequeno suave", "Sem fotos")));
     for (const f of doGrupo) {
       const img = el("img");
       img.src = urlServidor(f.url);
@@ -1268,7 +1438,7 @@ function parteFotos(t) {
       ficheiro.setAttribute("capture", "environment");
       ficheiro.hidden = true;
       ficheiro.id = `ficheiro-${g.grupo}`;
-      const b = el("button", "btn sec mini cheio", "Adicionar foto");
+      const b = el("button", "btn sec cheio", "Adicionar foto");
       b.type = "button";
       b.id = `foto-${g.grupo}`;
       b.disabled = doGrupo.length >= max;
@@ -1291,7 +1461,7 @@ function parteFotos(t) {
     }
     grelha.append(peca);
   }
-  return [grelha, el("p", "pequeno suave", `Para fechar ${t.tipo === "obra" ? "a obra" : "o trabalho"}: pelo menos uma foto de antes e uma de depois; até ${max} por grupo.`)];
+  return [grelha, el("p", "pequeno suave", `Para fechar ${t.tipo === "obra" ? "a obra" : "o trabalho"}: pelo menos uma foto de ${fim === "_antes" ? "antes" : "depois"}; até ${max} por grupo.`)];
 }
 
 /** "Largar trabalho", com confirmação em dois toques. */
@@ -1319,8 +1489,9 @@ function botaoLargar(t) {
   return largar;
 }
 
-// ---- Fecho: o que falta, "Obra concluída" e "Largar trabalho"
-function parteFim(t) {
+// ---- Fecho (o último passo): o que falta, "Obra concluída" e "Largar trabalho". `irPasso(k)` abre o passo onde se
+// resolve cada coisa que falta.
+function parteFim(t, irPasso) {
   if (t.estado === "concluida_eletricista") {
     return com(el("div", "pilha"), el("p", "pequeno suave", "Quando o cliente confirmar (ou ao fim de 7 dias sem resposta), a Domus Energia aprova o trabalho e o pagamento. Se for preciso corrigir alguma coisa, avisamos."));
   }
@@ -1337,8 +1508,16 @@ function parteFim(t) {
   confirmarEmDoisToques(concluir, "Confirmar: está concluída?", () => acaoFicha(t, "concluir", {}, { botao: concluir, texto: `${nomeFim}. Pedimos a confirmação ao cliente.` }));
   // Só se conclui a partir da hora da visita: quem foi mais cedo muda primeiro a data (em "Visita").
   const visitaPorVir = falta.some((x) => x.startsWith("a visita ainda não aconteceu"));
+  const linhaFalta = (frase) => {
+    const passo = faltaDe(frase)?.[1];
+    if (!passo) return el("li", null, frase);
+    const b = el("button", "link-falta", frase);
+    b.type = "button";
+    b.addEventListener("click", () => irPasso(passo));
+    return com(el("li"), b);
+  };
   const estado = falta.length
-    ? com(el("div", "nota"), el("b", null, "Falta: "), falta.join("; "), ".", visitaPorVir ? " Se já fez o trabalho, mude primeiro a data da visita." : "")
+    ? com(el("div", "nota pilha"), el("b", null, "Falta:"), com(el("ul", "lista-falta"), falta.map(linhaFalta)), visitaPorVir ? el("p", "pequeno", "Se já fez o trabalho, mude primeiro a data da visita.") : null)
     : el("p", "nota calma", "Tudo preenchido. A seguir, o cliente confirma na conta dele.");
   estado.id = "falta-fechar";
   const largar = botaoLargar(t);
@@ -1558,7 +1737,11 @@ function contagem(prazo, texto) {
 function atualizarUma(s) {
   const ms = Date.parse(s.dataset.prazo) - Date.now();
   const t = Math.max(0, Math.floor(ms / 1000));
-  s.textContent = `${Math.floor(t / 3600)} h ${p2(Math.floor(t / 60) % 60)} min ${p2(t % 60)} s`;
+  // No Início (data-curto) sem segundos — "6 h 12 min" —, e o cartão fica em destaque quando o prazo está a acabar.
+  if (s.dataset.curto) {
+    s.textContent = t >= 3600 ? `${Math.floor(t / 3600)} h ${p2(Math.floor(t / 60) % 60)} min` : `${Math.floor(t / 60)} min`;
+    s.closest(".tarefa")?.classList.toggle("alarme", ms < PRAZO_A_ACABAR_MS);
+  } else s.textContent = `${Math.floor(t / 3600)} h ${p2(Math.floor(t / 60) % 60)} min ${p2(t % 60)} s`;
   return ms;
 }
 function iniciarContagem() {
