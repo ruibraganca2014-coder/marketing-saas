@@ -948,3 +948,152 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .casa-miniatura-svg { display: block; width: 100%; height: auto; max-height: 240px; }
 dialog .casa-miniatura-svg { margin: 8px 0; border: 1px solid var(--borda); border-radius: 10px; max-height: 200px; }
 .sim-seguir-passos { margin: 8px 0 0; padding-left: 1.3em; display: grid; gap: 6px; }
+
+/* ====================================================================================================================
+   Aspeto novo do simulador (decisão do dono, 2026-10-13), como na área do eletricista (eletricista.css) e na conta do
+   cliente (conta.css), para as três parecerem da mesma casa. Só aspeto e arrumação do ecrã: as contas, o estado
+   guardado e o pedido não mudam. O styles.css serve também o site público: nada aqui lhe toca — este ficheiro só é
+   carregado pelo simulador e os tokens novos ficam na classe do <body> dele (.pagina-simulador).
+   1. Letras maiores, mais contraste e alvos de toque de 56 px (principais) e 48 px (secundários), 12 px entre vizinhos.
+   2. A barra dos passos no telemóvel: "Passo 4 de 8 · Interruptores e tomadas" e as bolas mais pequenas por baixo.
+   3. Menos texto em cada passo: uma frase à vista e o resto em "Como fazer".
+   4. A planta com mais espaço no telemóvel: à largura do ecrã, uma fila de ações de todos os dias e o botão "Mais".
+   ==================================================================================================================== */
+
+/* ---------- 1. Letras, contraste e alvos de toque ---------- */
+/* Os mesmos nomes e valores da conta (conta.css): o texto suave e os textos de cor mais escuros (mais claros no tema
+   escuro) e --borda-forte para os contornos dos campos. */
+.pagina-simulador {
+  --texto-suave: #3f4a26; --borda-forte: #8a8f66;
+  --musgo-texto: #465224; --argila-texto: #7a4110; --foco: #7a4110; --alarme-texto: #8c2a1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pagina-simulador {
+    --texto-suave: #e4e2c4; --borda-forte: #8a9468;
+    --musgo-texto: #c6d48e; --argila-texto: #f5b477; --foco: #dda15e; --alarme-texto: #f6ab9f;
+  }
+}
+:root[data-theme="dark"] .pagina-simulador {
+  --texto-suave: #e4e2c4; --borda-forte: #8a9468;
+  --musgo-texto: #c6d48e; --argila-texto: #f5b477; --foco: #dda15e; --alarme-texto: #f6ab9f;
+}
+html:has(.pagina-simulador) { font-size: 106.25%; }   /* 17 px */
+.pagina-simulador .cartao :where(p) { color: var(--texto); }
+.pagina-simulador .ajuda, .pagina-simulador .cartao p.ajuda { color: var(--texto-suave); font-size: .92rem; }
+.pagina-simulador .msg.erro { color: var(--alarme-texto); }
+.pagina-simulador footer { font-size: .92rem; }
+/* As letras mais pequenas sobem (nada abaixo de ~14 px no que se lê). */
+.pagina-simulador :is(.sim-falta, .sim-guardado, .aparelho-texto small, .editor-selecao-nome, .editor-dica, .sim-planta-origem, .sim-passo-tempo, .escolha.com-icone > span > small) { font-size: .85rem; }
+.pagina-simulador .editor-area > .editor-estado > * { font-size: .88rem; }
+.pagina-simulador .ferramenta { font-size: .85rem; }
+.pagina-simulador .divisao-feita { font-size: .85rem; }
+/* Botões: os principais ("Seguinte", "Enviar…", "Pagar…", "Tirar foto…", "Sim, continuar") com 56 px; os outros com 48 px. */
+.pagina-simulador main .btn { min-height: 48px; font-weight: 800; }
+.pagina-simulador main .btn:not(.sec) { min-height: 56px; font-size: 1.02rem; }
+.pagina-simulador .topo .btn, .pagina-simulador .botao-tema { min-height: 48px; min-width: 48px; }
+/* No ecrã largo (rato) as barras da planta ficam como estavam. */
+@media (min-width: 720px) {
+  .pagina-simulador .editor-acoes .btn { min-height: 44px; }
+  .pagina-simulador .editor-acoes-lado .btn { min-height: 40px; }
+  .pagina-simulador .sim-planta-tamanho .btn { min-height: 36px; }
+}
+.pagina-simulador :is(.form-botoes, .confirmar .botoes, .editor-dialogo .form-botoes, .divisao-botoes) { gap: 12px; align-items: center; }
+.pagina-simulador .sim-navegacao { gap: 12px; }
+/* No telemóvel "Anterior", "Planta" e "Seguinte" cabem numa só linha a 360 px (com a letra maior passavam para duas). */
+@media (max-width: 479px) { .pagina-simulador .sim-navegacao .btn { padding-inline: 10px; } .pagina-simulador .sim-navegacao .btn.sec { font-size: .94rem; gap: 6px; } }
+.pagina-simulador :is(.btn-link, .link-botao, .inventario-nome, .aparelho-nome, .caixa-linha, .div-tab, .inventario-nao-tem, .sugestoes li, .editor-lado details > summary) { min-height: 48px; }
+.pagina-simulador .sim-anular-fechar { width: 48px; height: 48px; }
+/* Os botões juntos numa só peça (Manter · Reparar…, 1 · 2 · 3 · 4, Simples · Dupla): 48 px de altura. */
+.pagina-simulador .acao-botao, .pagina-simulador .inventario-opcoes .acao-botao, .pagina-simulador .inventario-inteligente .acao-botao { min-height: 48px; }
+/* − n +: 48 px, com o número entre os dois. */
+.pagina-simulador .contador-caixa .btn { width: 48px; min-width: 48px; min-height: 48px; }
+/* Escolhas, separadores e listas: 12 px entre alvos vizinhos. */
+.pagina-simulador :is(.escolhas-grelha, .div-tabs, .div-pisos, .casa-outra, .inventario-escolhas, .aparelho-foto-acoes, .aparelho-quais, .acao-inteligente, .quer-pisos) { gap: 12px; }
+.pagina-simulador .inventario-itens { gap: 12px; }
+.pagina-simulador .escolha { border-color: var(--borda-forte); }
+.pagina-simulador .escolha:has(input:checked) { border-color: var(--musgo); }
+/* Campos: 52 px, contorno forte, letra mais cheia. */
+.pagina-simulador label { font-size: 1rem; font-weight: 700; }
+.pagina-simulador main :is(input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=color]), select, textarea) { min-height: 52px; padding: 12px 14px; border: 2px solid var(--borda-forte); background: var(--fundo); font-weight: 600; }
+.pagina-simulador main :is(input, select, textarea):hover { border-color: var(--musgo); }
+.pagina-simulador .caixa-linha input { width: 28px; height: 28px; }
+/* Com a letra maior, "Apartamento" já não cabe em 3 colunas no telemóvel: o tipo de imóvel em 2. */
+@media (max-width: 479.98px) { .pagina-simulador #casa-tipos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ---------- 2. A barra dos passos no telemóvel ---------- */
+.sim-passo-atual { display: none; }
+@media not all and (min-width: 720px) {
+  /* Linha 1: o passo por extenso; linha 2: a barra e "Começar de novo" (como antes); linha 3: as bolas, de um lado ao
+     outro do ecrã (com 8 passos e 360 px cada alvo fica com 45 × 44 px, embora a bola desenhada seja de 26 px). */
+  .sim-passo-atual { display: block; grid-column: 1 / -1; grid-row: 1; min-width: 0; margin: 0 0 8px; font-weight: 800; font-size: 1.05rem; line-height: 1.25; color: var(--texto); overflow-wrap: anywhere; }
+  .sim-progresso .sim-barra { grid-row: 2; }
+  .sim-progresso .sim-recomecar { grid-row: 2; }
+  .sim-progresso ol { grid-row: 3; gap: 0; margin: 6px -16px 0; }
+  .sim-progresso .sim-passo-botao { justify-content: center; min-height: 44px; padding: 0; border-radius: 10px; }
+  .sim-progresso .sim-num { width: 26px; height: 26px; font-size: .82rem; }
+  .sim-progresso .atual .sim-num { box-shadow: 0 0 0 3px var(--musgo-claro); }
+}
+
+/* ---------- 3. "Como fazer": o resto da explicação do passo, recolhido ---------- */
+.como-fazer { max-width: 760px; margin-top: -10px; }
+.como-fazer > summary { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 4px 0 0; cursor: pointer; list-style: none; font-weight: 800; color: var(--musgo-texto); text-decoration: underline; text-underline-offset: 4px; border-radius: 8px; }
+.como-fazer > summary::-webkit-details-marker { display: none; }
+.como-fazer > summary::after { content: ""; width: 9px; height: 9px; margin: -4px 4px 0; border-right: 3px solid currentColor; border-bottom: 3px solid currentColor; transform: rotate(45deg); flex: none; }
+.como-fazer[open] > summary::after { margin-top: 5px; transform: rotate(-135deg); }
+.como-fazer > p { margin: 2px 0 6px; padding: 12px 14px; border-radius: 12px; background: var(--musgo-claro); color: var(--texto); }
+
+/* ---------- 4. A planta no telemóvel (até 720 px) ---------- */
+.editor-acoes-grupo[hidden] { display: none; }
+.editor-acoes .g-mais { order: 7; }
+@media not all and (min-width: 720px) {
+  /* À largura toda do ecrã, sem margens dos lados nem a coluna de botões à direita (os dela estão no "Mais"). */
+  .sim-planta.aberta { padding-inline: 0; }
+  /* Nos passos da planta ela ocupa o ecrã todo entre o topo fixo (64 px) e a barra "Anterior / Seguinte" (a altura
+     real dela, app.js medirBarra): é a maior altura que cabe sem a barra a tapar. */
+  #sim-form.passo-planta > .sim-planta { margin-inline: -16px; height: calc(100dvh - 64px - var(--sim-barra-h, 81px) - 12px); min-height: 420px; }
+  .sim-planta :is(.editor-ferramentas-caixa, .editor-pisos, .sim-planta-cabeca, .sim-planta-presa, .sim-planta-acao, .sim-planta-sitio, .editor-legenda-acoes) { margin-inline: 8px; }
+  .sim-planta .editor-area { padding-right: 0; border-inline: 0; border-radius: 0; }
+  .sim-planta .editor-acoes-lado { display: none; }
+  /* Nos passos da planta o título "A sua planta" não faz falta (o do passo está logo por cima): mais altura para ela. */
+  #sim-form.passo-planta .sim-planta-cabeca h2 { display: none; }
+  /* A fila de todos os dias: anular, refazer, afastar, aproximar, ver tudo e "Mais" — seis alvos de 48 px, repartidos
+     pela largura (12 px entre eles a 360 px, mais nos ecrãs maiores; a 320 px ainda cabem, com 4 px). */
+  .sim-planta .editor-acoes { flex-wrap: nowrap; justify-content: space-between; gap: 4px; padding: 0 6px 2px; overflow: visible; }
+  .sim-planta .editor-acoes .editor-acoes-grupo:not([hidden]) { display: contents; }
+  .sim-planta .editor-acoes .btn, .sim-planta .editor-acoes .btn.icone { flex: none; width: 48px; min-width: 48px; min-height: 48px; padding: 0; }
+  .sim-planta .editor-acoes .btn.icone svg { width: 22px; height: 22px; }
+  .sim-planta #editor-mais-acoes { flex-direction: column; gap: 0; font-size: .8rem; line-height: 1.05; }
+  .sim-planta #editor-mais-acoes svg { height: 16px; }
+  /* O caixote: só quando há o que apagar, no canto de cima da planta (logo por baixo da fila). */
+  .editor-area > .g-apagar { position: absolute; top: 8px; right: 8px; z-index: 1; }
+  .editor-area > .g-apagar .btn { width: 48px; min-width: 48px; min-height: 48px; padding: 0; background: var(--superficie); box-shadow: var(--sombra); }
+  .editor-area > .g-apagar .btn svg { width: 22px; height: 22px; }
+  .editor-area > .g-apagar .btn:disabled { display: none; }
+  .editor-area > .editor-estado { right: 64px; }
+  /* As ferramentas (porta, janela, tomada…) e os pisos: 48 px, 12 px entre elas. */
+  .sim-planta .editor-ferramentas, .sim-planta .editor-barra { gap: 12px; }
+  .sim-planta .ferramenta, .sim-planta .editor-piso { min-height: 48px; }
+  .sim-planta .editor-ferramentas-caixa > .ferramentas-seta { min-width: 48px; min-height: 48px; }
+  .sim-planta .editor-ferramentas-caixa { gap: 12px; }
+  .sim-planta .editor-pisos { gap: 12px; }
+  #sim-form.barra-so-icones .editor-elementos .ferramenta { width: 48px; }
+}
+/* A janela do "Mais" (editor.js painelMais): sobe do fundo do ecrã, com os botões menos usados por extenso. */
+.editor-dialogo.editor-mais-painel { position: fixed; inset: auto 0 0 0; width: 100%; max-width: none; max-height: min(86dvh, 680px); margin: 0; padding: 0 0 env(safe-area-inset-bottom); border-width: 1px 0 0; border-radius: var(--raio) var(--raio) 0 0; }
+.editor-mais-painel > .editor-lado-cabeca { position: sticky; top: 0; z-index: 1; padding: 10px 16px; background: var(--superficie); border-bottom: 1px solid var(--borda); }
+.editor-mais-painel-corpo { display: grid; gap: 12px; padding: 14px 16px 16px; min-width: 0; }
+.editor-mais-painel-corpo :is(.editor-acoes-grupo, .editor-menu.na-barra) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.editor-mais-painel-corpo .editor-menu.na-barra { grid-template-columns: minmax(0, 1fr); }
+.editor-mais-painel-corpo .btn, .editor-mais-painel-corpo .editor-menu.na-barra > .btn { justify-content: flex-start; gap: 12px; width: 100%; min-width: 0; min-height: 48px; padding: 8px 14px; border-color: var(--borda-forte); font-size: .95rem; line-height: 1.2; text-align: left; white-space: normal; }
+.editor-mais-painel-corpo .btn.icone svg { width: 22px; height: 22px; flex: none; }
+/* O nome de cada botão por extenso (o mesmo do aria-label; no ecrã largo são só o desenho). */
+.editor-mais-painel-corpo .btn.icone::after { content: attr(aria-label); min-width: 0; overflow-wrap: anywhere; }
+.editor-mais-painel-corpo .btn:disabled { opacity: .45; cursor: not-allowed; }
+.editor-mais-painel-corpo .sim-planta-tamanho { gap: 12px; font-size: .95rem; font-weight: 700; color: var(--texto); }
+.editor-mais-painel-corpo .sim-planta-tamanho::before { content: "Tamanho da folha"; flex: 1 1 auto; }
+.editor-mais-painel-corpo .sim-planta-tamanho .btn { width: auto; min-width: 72px; justify-content: center; }
+.editor-mais-painel-corpo .confirmar { grid-column: 1 / -1; max-width: none; margin: 0; }
+.editor-mais-painel-corpo .confirmar .btn { width: auto; }
+/* Aviso duplicado (2026-10-13): com o "Seguinte" a assinalar o que falta num cartão de divisão (app.js assinalar), a
+   frase "Falta responder: …" que o cartão já mostrava dá o lugar à do aviso, que diz o mesmo — uma só de cada vez. */
+.divisao-cartao:is(.em-falta, :has(.em-falta)) .divisao-falta { display: none; }

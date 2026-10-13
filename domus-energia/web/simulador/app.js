@@ -96,9 +96,15 @@ function assinalar(alvo, texto, foco = null) {
   leitor.textContent = leitor.textContent === texto ? `${texto} ` : texto;   // repetido: muda para voltar a ser lido
   // A mesma frase à vista, dentro do grupo assinalado (antes só os leitores de ecrã a recebiam; quem vê só tinha o
   // contorno). Escondida dos leitores, que já a ouviram.
+  // Aviso duplicado (visto pelo dono, 2026-10-13: "Tire uma foto do quadro para continuar." duas vezes): se o grupo (ou
+  // o cartão dele) já mostra uma mensagem com esta mesma frase, fica só essa, que cada passo põe e tira no sítio dela.
+  const jaDiz = [...(alvo.closest(".cartao") ?? alvo).querySelectorAll(".msg:not(.falta-visivel)")].some((m) => m.getClientRects().length > 0 && m.textContent.trim() === texto.trim());
   let visivel = alvo.querySelector(":scope > .falta-visivel");
-  if (!visivel) { visivel = el("p", "msg erro falta-visivel"); visivel.setAttribute("aria-hidden", "true"); alvo.append(visivel); }
-  visivel.textContent = texto;
+  if (jaDiz) visivel?.remove();
+  else {
+    if (!visivel) { visivel = el("p", "msg erro falta-visivel"); visivel.setAttribute("aria-hidden", "true"); alvo.append(visivel); }
+    visivel.textContent = texto;
+  }
   if (foco !== false) {
     const f = (typeof foco === "string" ? document.querySelector(foco) : foco) ?? alvo.querySelector("input:not(:disabled), select, textarea, button");
     f?.focus({ preventScroll: true });
@@ -193,6 +199,8 @@ const editor = criarEditor($("editor"), {
 editor.montarTamanho($("planta-tamanho"));
 // "Refazer planta" (com confirmação) fica no "⋯" da planta, com Imprimir, Guardar PDF e Planta de fundo.
 document.querySelector("#editor-menu")?.append($("planta-refazer"));   // no menu do "⋯"
+// Telemóvel (decisão do dono, 2026-10-13): o tamanho e o "Refazer planta" vão com os botões menos usados para o "Mais".
+editor.arrumarAcoes();
 
 // ------------------------------------------------------------ gravação
 let temporizador = null;
@@ -356,6 +364,9 @@ function desenharProgresso() {
     ol.append(li);
   });
   ol.style.setProperty("--sim-n-passos", String(seq.length));
+  // Telemóvel (decisão do dono, 2026-10-13): o passo atual por extenso, por cima das bolas ("Passo 4 de 8 · Interruptores
+  // e tomadas"), com a contagem do funil escolhido. Só para quem vê: os leitores de ecrã já o ouvem na lista (acima).
+  $("sim-passo-atual").textContent = atualPos < 0 ? "" : `Passo ${atualPos + 1} de ${seq.length} · ${PASSOS[estado.passo]}`;
   $("sim-barra-cheia").style.width = `${((Math.max(0, atualPos) + 1) / seq.length) * 100}%`;
   // "Faltam cerca de N min" (à direita do título): o passo atual e os seguintes (sem os que não precisa).
   const falta = $("sim-falta");

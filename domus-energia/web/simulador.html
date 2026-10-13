@@ -68,6 +68,9 @@
       <p class="so-leitor" id="sim-falta-leitor" role="status"></p>
 
       <nav class="sim-progresso" aria-label="Passos do simulador">
+        <!-- Telemóvel (decisão do dono, 2026-10-13): o passo atual por extenso ("Passo 4 de 8 · Interruptores e tomadas",
+             app.js desenharProgresso), com as bolas mais pequenas por baixo. Os leitores de ecrã ouvem-no na lista. -->
+        <p class="sim-passo-atual" id="sim-passo-atual" aria-hidden="true"></p>
         <div class="sim-barra" aria-hidden="true"><span id="sim-barra-cheia"></span></div>
         <ol id="sim-passos"></ol>
         <!-- Fase 3 da auditoria: estimativa provisória a partir do passo a seguir aos Equipamentos (app.js desenharEstimativaProvisoria) -->
@@ -143,7 +146,10 @@
         <!-- 3. Equipamentos (saltado com só "Reparações / avarias") -->
         <section class="sim-passo" id="passo-2" aria-labelledby="titulo-2" data-passo="2" hidden>
           <h2 id="titulo-2" tabindex="-1">3. Equipamentos</h2>
-          <p class="sub-passo">Marque o que tem hoje em casa. O que quiser instalar de novo pede-se depois, em "Pedir um serviço".</p>
+          <!-- Menos texto em cada passo (decisão do dono, 2026-10-13): uma frase curta à vista e o resto em "Como fazer",
+               que abre e fecha (o texto é o mesmo de antes, só recolhido). -->
+          <p class="sub-passo">Marque o que tem hoje em casa.</p>
+          <details class="como-fazer"><summary>Como fazer</summary><p>O que quiser instalar de novo pede-se depois, em "Pedir um serviço".</p></details>
           <!-- Casas com mais de um piso: um separador por piso; em cada um, as máquinas desse piso. -->
           <div class="quer-pisos" id="quer-pisos" role="tablist" aria-label="Máquinas por piso" hidden></div>
           <div class="quer-painel" id="quer-painel">
@@ -163,14 +169,16 @@
         <section class="sim-passo" id="passo-3" aria-labelledby="titulo-3" data-passo="3" hidden>
           <h2 id="titulo-3" tabindex="-1">3. Portas e janelas</h2>
           <!-- Decisão do dono (2026-10-10): a seguir a "A casa", a planta à largura toda só com porta, janela e quadro. -->
-          <p class="sub-passo">Ponha as portas, as janelas e o quadro elétrico da sua casa: toque no botão e depois na parede onde ficam. Para mudar uma de sítio, arraste-a; para apagar, toque na peça e no caixote.</p>
+          <p class="sub-passo">Ponha as portas, as janelas e o quadro elétrico da sua casa.</p>
+          <details class="como-fazer"><summary>Como fazer</summary><p>Toque no botão e depois na parede onde ficam. Para mudar uma de sítio, arraste-a; para apagar, toque na peça e no caixote.</p></details>
         </section>
 
         <!-- "Interruptores e tomadas" (índice 13; decisão do dono, 2026-10-10): a seguir a "Portas e janelas", a planta à
              largura toda com as ferramentas interruptor, tomada e ponto de luz. -->
         <section class="sim-passo" id="passo-13" aria-labelledby="titulo-13" data-passo="13" hidden>
           <h2 id="titulo-13" tabindex="-1">4. Interruptores e tomadas</h2>
-          <p class="sub-passo">Já pusemos um ponto de luz ao centro de cada divisão. Ponha os interruptores, as tomadas e os outros pontos de luz que a casa tem hoje: toque no botão e depois na planta, no sítio onde ficam. Os interruptores e as tomadas colam à parede. Para mudar um de sítio, arraste-o; para apagar, toque na peça e no caixote.</p>
+          <p class="sub-passo">Ponha os interruptores, as tomadas e os pontos de luz que a casa tem hoje.</p>
+          <details class="como-fazer"><summary>Como fazer</summary><p>Já pusemos um ponto de luz ao centro de cada divisão. Toque no botão e depois na planta, no sítio onde ficam. Os interruptores e as tomadas colam à parede. Para mudar um de sítio, arraste-o; para apagar, toque na peça e no caixote.</p></details>
         </section>
 
         <!-- Relatório (fase 3 da auditoria: um só passo, índice 11, depois do Quadro): o básico grátis — a planta, as divisões com os
@@ -250,7 +258,8 @@
         <!-- 6. Divisões: o que a casa JÁ TEM, antes da obra (decisão do dono, 2026-10-03): separadores, um cartão por divisão só com os interruptores (quantos e os botões de cada um) e as tomadas (quantas e o tipo de cada uma), ou "Não tem"; o "Seguinte" só passa com todas as divisões respondidas (o que fazer a cada um e o trabalho novo: "Trocar e reparar") -->
         <section class="sim-passo" id="passo-5" aria-labelledby="titulo-5" data-passo="5" hidden>
           <h2 id="titulo-5" tabindex="-1">6. Divisões</h2>
-          <p class="ajuda">Diga como é cada interruptor e cada tomada que pôs na planta: quantos botões, simples ou dupla, e se já é inteligente. O que quiser de novo pede-se depois, em "Pedir um serviço".</p>
+          <p class="ajuda">Diga como é cada interruptor e cada tomada que pôs na planta.</p>
+          <details class="como-fazer"><summary>Como fazer</summary><p>Diga quantos botões tem, se é simples ou dupla, e se já é inteligente. O que quiser de novo pede-se depois, em "Pedir um serviço".</p></details>
           <p class="msg info" id="divisoes-origem" hidden></p>
           <div class="divisoes-progresso" id="divisoes-progresso-caixa">
             <p id="divisoes-progresso" aria-live="polite"></p>

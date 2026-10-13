@@ -437,7 +437,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bOutras.setAttribute("aria-haspopup", "menu");
   bOutras.setAttribute("aria-expanded", "false");
   bOutras.setAttribute("aria-controls", "editor-menu");
-  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupo("g-vista", bMenos, bMais, bTudo, bAjustar, bEcra));
+  const grupoVista = grupo("g-vista", bMenos, bMais, bTudo, bAjustar, bEcra);
+  linhaGeral.append(grupo("g-historico", bDesfazer, bRefazer), grupoVista);
   // Decisão do dono (2026-10-05): o que estava no menu "⋯" (Imprimir, Guardar PDF, Planta de fundo e, pelo app.js,
   // "Refazer planta") fica à vista na barra, no grupo g-fundo; o "⋯" deixa de se mostrar (MENU_NA_BARRA).
   bOutras.hidden = true;
@@ -448,7 +449,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   acoesLado.setAttribute("role", "toolbar");
   acoesLado.setAttribute("aria-orientation", "vertical");
   acoesLado.setAttribute("aria-label", "Ações do que está selecionado e da planta");
-  acoesLado.append(grupo("g-selecao", sDuplicar, sOpcoes, sCantoMais, sCantoMenos, sApagar), grupoFundo);
+  const grupoSelecao = grupo("g-selecao", sDuplicar, sOpcoes, sCantoMais, sCantoMenos, sApagar);
+  acoesLado.append(grupoSelecao, grupoFundo);
   acoes.append(linhaGeral);
   // Dentro da planta, discreto (em baixo, à esquerda): o que está selecionado e o texto de estado (vazio sem nada a dizer).
   const estadoLinha = el("div", "editor-estado");
@@ -470,9 +472,11 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
    * Põe `caixa` (position: fixed) junto ao "⋯": por baixo dele (por cima, se não couber; se não couber inteira em
    * nenhum dos lados, por baixo a rolar dentro de si), alinhada à direita dele e sempre dentro do ecrã (8 px de margem).
    */
+  // (No telemóvel a "Planta de fundo" está dentro do "Mais", fechado: aí a janela fica junto ao botão "Mais".)
+  const ancoraFundo = () => (!bOutras.hidden ? bOutras : bFundo.getClientRects().length ? bFundo : bMaisAcoes);
   function juntoAoBotao(caixa) {
     const m = 8;
-    const r = (bOutras.hidden ? bFundo : bOutras).getBoundingClientRect();
+    const r = ancoraFundo().getBoundingClientRect();
     // A altura inteira do conteúdo (sem mexer no max-height antes de medir: não perde o que se rolou lá dentro).
     const w = caixa.offsetWidth;
     const h = Math.min(caixa.scrollHeight + caixa.offsetHeight - caixa.clientHeight, innerHeight - 2 * m);
@@ -550,6 +554,91 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (menuAberto() && !menu.contains(ev.target) && !bOutras.contains(ev.target)) fecharMenu(false);
   }, true);
 
+  // Telemóvel (decisão do dono, 2026-10-13): a planta com mais espaço. Até 720 px a barra das ações fica só com as de
+  // todos os dias — anular, refazer, afastar, aproximar e ver tudo — e o botão "Mais"; o caixote aparece só quando há
+  // o que apagar, no canto de cima da planta, logo por baixo da barra (sete botões de 48 px não cabem numa fila de
+  // 360 px com 12 px entre eles, e assim nenhum botão muda de sítio quando se seleciona). O "Mais" abre uma janela
+  // (<dialog> modal: Esc fecha, o foco fica preso nela e volta ao "Mais") com as ações menos usadas: duplicar, opções,
+  // cantos, ajustar a folha, 2× e ½×, imprimir, PDF, planta de fundo e "Refazer planta". São os MESMOS botões, mudados
+  // de sítio (arrumarAcoes); no ecrã largo voltam ao lugar de sempre.
+  const bMaisAcoes = iconeAcao(botao(""), "outras", "Mais ações da planta");
+  bMaisAcoes.id = "editor-mais-acoes";
+  bMaisAcoes.append(el("span", "editor-mais-acoes-nome", "Mais"));
+  bMaisAcoes.setAttribute("aria-haspopup", "dialog");
+  bMaisAcoes.setAttribute("aria-expanded", "false");
+  bMaisAcoes.setAttribute("aria-controls", "editor-mais-painel");
+  const grupoApagar = grupo("g-apagar");
+  const grupoMais = grupo("g-mais", bMaisAcoes);
+  grupoApagar.hidden = true;
+  grupoMais.hidden = true;
+  linhaGeral.append(grupoMais);
+  area.append(grupoApagar);
+  const painelMais = el("dialog", "editor-dialogo editor-mais-painel");
+  painelMais.id = "editor-mais-painel";
+  painelMais.setAttribute("aria-labelledby", "editor-mais-painel-titulo");
+  const maisCabeca = el("div", "editor-lado-cabeca");
+  const maisTitulo = el("h2", null, "Mais ações da planta");
+  maisTitulo.id = "editor-mais-painel-titulo";
+  const maisFechar = botao("Fechar");
+  maisFechar.id = "editor-mais-painel-fechar";
+  maisCabeca.append(maisTitulo, maisFechar);
+  const corpoMais = el("div", "editor-mais-painel-corpo");
+  painelMais.append(maisCabeca, corpoMais);
+  let caixaTamanho = null;   // a caixa do "2×" e "½×" (montarTamanho), e o sítio dela na página
+  let lugarTamanho = null;
+  const ecraEstreito = matchMedia("(max-width: 719.98px)");
+  function abrirMais() {
+    if (painelMais.open) return;
+    painelMais.showModal();
+    bMaisAcoes.setAttribute("aria-expanded", "true");
+    (corpoMais.querySelector("button:not(:disabled):not([hidden])") ?? maisFechar).focus({ preventScroll: true });
+  }
+  const fecharMais = () => { if (painelMais.open) painelMais.close(); };
+  bMaisAcoes.addEventListener("click", abrirMais);
+  maisFechar.addEventListener("click", fecharMais);
+  painelMais.addEventListener("click", (ev) => { if (ev.target === painelMais) fecharMais(); });   // tocar fora fecha
+  // Fechada (botão, Esc, tocar fora ou depois de uma ação): a pergunta do "Refazer planta" sai e o foco volta ao "Mais",
+  // a não ser que a ação o tenha levado para outro lado (a janela das opções, a do fundo).
+  painelMais.addEventListener("close", () => {
+    bMaisAcoes.setAttribute("aria-expanded", "false");
+    for (const c of corpoMais.querySelectorAll(".confirmar")) c.remove();
+    if (!document.activeElement?.closest?.("dialog[open]")) bMaisAcoes.focus({ preventScroll: true });
+  });
+  // Escolher uma ação fecha a janela ANTES de a ação correr (como na barra: a planta fica à vista e o foco livre). Ficam
+  // de fora o "2×" e o "½×" (carrega-se várias vezes) e o que era do menu "⋯", que fecha DEPOIS da ação — a não ser que
+  // ela pergunte primeiro ("Refazer planta": a pergunta aparece ali mesmo e a janela fecha com a resposta).
+  corpoMais.addEventListener("click", (ev) => {
+    const b = ev.target.closest?.("button");
+    if (b && !menu.contains(b) && !caixaTamanho?.contains(b)) fecharMais();
+  }, true);
+  corpoMais.addEventListener("click", (ev) => {
+    const b = ev.target.closest?.("button");
+    if (b && !caixaTamanho?.contains(b) && !corpoMais.querySelector(".confirmar")) fecharMais();
+  });
+  /** Põe cada botão no sítio dele conforme a largura do ecrã: até 720 px os menos usados vão para o "Mais". */
+  function arrumarAcoes() {
+    const estreito = ecraEstreito.matches;
+    if (!estreito) fecharMais();
+    grupoApagar.hidden = !estreito;
+    grupoMais.hidden = !estreito;
+    if (estreito) {
+      grupoApagar.append(sApagar);
+      sApagar.tabIndex = 0;   // sozinho no canto da planta: sempre na ordem do Tab
+      corpoMais.append(grupoSelecao, bAjustar, ...(caixaTamanho ? [caixaTamanho] : []), menu);
+      // Na janela todos os botões entram na ordem do Tab (nas barras só um de cada vez, com as setas).
+      for (const b of corpoMais.querySelectorAll("button")) b.tabIndex = 0;
+    } else {
+      grupoVista.insertBefore(bAjustar, bEcra);
+      grupoSelecao.append(sApagar);
+      acoesLado.prepend(grupoSelecao);
+      grupoFundo.append(menu);
+      if (caixaTamanho && lugarTamanho) lugarTamanho.pai.insertBefore(caixaTamanho, lugarTamanho.antes);
+    }
+    rovingAcoes();
+    rovingLado();
+  }
+  ecraEstreito.addEventListener("change", arrumarAcoes);
+
   // A janela do fundo (e do tamanho): <dialog> não modal (a planta continua a responder, para calibrar), junto ao
   // "⋯", por cima da página; Esc ou "Fechar" fecham-na. O que se muda numa divisão ou num elemento está todo na
   // janela de edição (duplo clique, toque longo, Enter ou "Opções").
@@ -575,7 +664,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     const naJanela = lado.contains(document.activeElement);
     if (lado.open) lado.close();
     fundoSec.hidden = true;   // lote 8: o cartão do fundo só aparece com "Planta de fundo"
-    if (voltar && naJanela) (bOutras.hidden ? bFundo : bOutras).focus({ preventScroll: true });
+    if (voltar && naJanela) ancoraFundo().focus({ preventScroll: true });
   }
   // O menu e a janela acompanham o "⋯" quando a página rola ou muda de tamanho.
   const seguirBotao = () => { if (menuAberto()) juntoAoBotao(menu); if (lado.open) juntoAoBotao(lado); };
@@ -646,7 +735,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   dlgBotoes.append(dGuardar, dApagar, dCancelar);
   dlgForm.append(dlgTitulo, dlgCorpo, dlgErro, dlgBotoes);
   dialogo.append(dlgForm);
-  raiz.append(principal, ...(MENU_NA_BARRA ? [] : [menu]), lado, dialogo, janelaDiv);   // na barra, o "menu" já está dentro dela
+  raiz.append(principal, ...(MENU_NA_BARRA ? [] : [menu]), lado, dialogo, janelaDiv, painelMais);   // na barra, o "menu" já está dentro dela
 
   // ---------------------------------------------------------------- barras (role=toolbar): setas
   /**
@@ -2554,8 +2643,12 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
      * Lote 8: o tamanho da planta na `caixa` (a linha do título "A sua planta"): os botões "2×" e "½×" (decisão do dono;
      * o "Ajustar" está na barra das ações) e o aviso curto.
      */
+    /** Telemóvel (2026-10-13): arruma os botões menos usados no "Mais" (chamar depois de juntar botões ao menu). */
+    arrumarAcoes,
     montarTamanho(caixa) {
       caixa.replaceChildren(tamDobro, tamMetade, tamMsg);
+      caixaTamanho = caixa;
+      lugarTamanho = { pai: caixa.parentElement, antes: caixa.nextSibling };
       bOutras.setAttribute("aria-label", "Mais ações da planta: imprimir, PDF e planta de fundo");
       bOutras.title = bOutras.getAttribute("aria-label");
     },
