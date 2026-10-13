@@ -1100,7 +1100,14 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 }
 /* Acesso da empresa no topo da página inicial (decisão do dono, 2026-10-10): só em ecrãs largos. */
 .acesso-equipa { display: none; }
-@media (min-width: 1180px) { .acesso-equipa { display: inline-flex; } }
+@media (min-width: 1180px) { .acesso-equipa { display: inline-flex; } a.botao-tema.acesso-equipa { display: grid; } }
+/* O cadeado do painel (2026-10-13): no cabeçalho usa o desenho redondo do botão de tema; no menu do telemóvel, só o ícone. */
+a.botao-tema { text-decoration: none; }
+/* "Equipa" é uma ligação do menu (nav .link aparece aos 1000 px), mas só cabe a partir dos 1180 px, como o cadeado. */
+nav .link.acesso-equipa { display: none; }
+@media (min-width: 1180px) { nav .link.acesso-equipa { display: inline-flex; } }
+.menu-cadeado { display: inline-grid; place-items: center; width: 44px; height: 44px; }
+.menu-cadeado svg { width: 20px; height: 20px; }
 .conta-correcao { display: grid; gap: 8px; }
 .conta-correcao p { margin: 0; }
 .conta-recusar { margin-top: 10px; }
