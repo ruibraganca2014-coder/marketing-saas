@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Como funciona a Domus Energia — para ler e riscar</title>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Tema "Terra" da Domus Energia (web/styles.css, docs/TEMA.md), em versão para papel. */
+  @page { size: A4; margin: 13mm 15mm 14mm; }
+  :root { --texto: #283618; --suave: #5c6446; --borda: #d9d2a8; --musgo: #606c38; --musgo-claro: #eef0d9; --argila: #8f4f15; --areia: #f7e5c6; --creme: #fefae0; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+  body { font: 10pt/1.42 "Nunito Sans", "Segoe UI", Arial, sans-serif; color: var(--texto); max-width: 180mm; margin: 0 auto; padding: 0; }
+  h1, h2, h3 { font-family: "Alegreya Sans", "Gill Sans", "Segoe UI", sans-serif; font-weight: 800; margin: 0; }
+  h1 { font-size: 24pt; line-height: 1.1; margin-bottom: 1.5mm; }
+  h2 { font-size: 15pt; color: var(--musgo); margin: 0 0 2mm; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 3.5mm 0 1mm; break-after: avoid; }
+  p { margin: 0 0 2mm; }
+  ul, ol { margin: 0 0 2mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1mm; }
+  li::marker { color: var(--musgo); font-weight: 800; }
+  .topo { display: flex; align-items: center; gap: 3mm; padding: 2.4mm 3.5mm; background: var(--creme); border: 1px solid var(--borda); border-radius: 3.5mm; margin-bottom: 5mm; }
+  .logo { width: 9mm; height: 9mm; border-radius: 3mm; background: var(--musgo); color: var(--creme); display: grid; place-items: center; flex: none; }
+  .logo svg { width: 6mm; height: 6mm; }
+  .marca { font: 800 13pt "Alegreya Sans", "Gill Sans", "Segoe UI", sans-serif; white-space: nowrap; }
+  .marca b { color: var(--musgo); }
+  .topo .onde { margin-left: auto; text-align: right; font-size: 7.8pt; color: var(--suave); line-height: 1.25; }
+  .sub { font-size: 11pt; color: var(--suave); margin-bottom: 4mm; }
+  .pagina { break-before: page; }
+  .cartao { border: 1px solid var(--borda); border-radius: 3mm; padding: 3mm 3.5mm; background: #fff; break-inside: avoid; }
+  .creme { background: var(--creme); }
+  .grelha { display: grid; gap: 3mm; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .quem b { display: block; font: 800 11pt "Alegreya Sans", sans-serif; color: var(--musgo); }
+  /* O fluxo em caixas */
+  .fluxo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm 5mm; margin: 2mm 0 3mm; }
+  .fluxo div { position: relative; border: 1px solid var(--borda); border-radius: 2.5mm; padding: 2mm 2.5mm; background: var(--creme); font-size: 8.8pt; line-height: 1.3; min-height: 19mm; }
+  .fluxo div b { display: block; font: 800 10pt "Alegreya Sans", sans-serif; }
+  .fluxo div i { font-style: normal; display: inline-block; font-size: 7.6pt; font-weight: 800; padding: 0 1.6mm; border-radius: 2mm; margin-bottom: 0.6mm; }
+  .fluxo .c i { background: var(--areia); color: var(--argila); }
+  .fluxo .e i { background: var(--musgo); color: var(--creme); }
+  .fluxo .t i { background: var(--musgo-claro); color: var(--texto); }
+  .fluxo div:not(:nth-child(4n)):not(:last-child)::after { content: "→"; position: absolute; right: -4.4mm; top: 50%; transform: translateY(-50%); color: var(--musgo); font-weight: 800; font-size: 11pt; }
+  /* Um passo: texto à esquerda, ecrã(s) à direita */
+  .passo { display: grid; grid-template-columns: 1fr auto; gap: 5mm; align-items: start; }
+  .num { display: inline-grid; place-items: center; width: 8mm; height: 8mm; border-radius: 50%; background: var(--musgo); color: var(--creme); font: 800 12pt "Alegreya Sans", sans-serif; margin-right: 2mm; vertical-align: -1.2mm; }
+  .quemfaz { font-size: 8.6pt; font-weight: 800; color: var(--argila); text-transform: uppercase; letter-spacing: .04em; margin: -1mm 0 2mm 10mm; }
+  .ecras { display: flex; gap: 3mm; }
+  figure { margin: 0; text-align: center; }
+  figure img { display: block; border: 1px solid var(--borda); border-radius: 3mm; box-shadow: 0 1px 4px rgba(40, 54, 24, .15); }
+  figure.tel img { width: 42mm; }
+  figure.largo img { width: 100%; }
+  figcaption { font-size: 7.8pt; color: var(--suave); margin-top: 1mm; max-width: 42mm; line-height: 1.25; }
+  figure.largo figcaption { max-width: none; }
+  .vantagem { border-left: 1.2mm solid var(--musgo); background: var(--musgo-claro); border-radius: 2mm; padding: 1.6mm 3mm; margin: 2.5mm 0; break-inside: avoid; }
+  .vantagem b { color: var(--musgo); }
+  /* O espaço para as ideias */
+  .ideias { border: 1.5px dashed var(--argila); border-radius: 3mm; padding: 2.4mm 3.5mm 1mm; margin-top: 3mm; break-inside: avoid; }
+  .ideias h3 { margin: 0 0 1mm; color: var(--argila); font-size: 11pt; }
+  .ideias ul { margin-bottom: 1mm; font-size: 9.2pt; }
+  .linhas { height: var(--h, 24mm); background: repeating-linear-gradient(to bottom, transparent 0, transparent 7.2mm, var(--borda) 7.2mm, var(--borda) 7.5mm); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; border: 1px solid var(--borda); border-radius: 2.5mm; overflow: hidden; margin: 1mm 0 2.5mm; }
+  th, td { border-bottom: 1px solid var(--borda); border-right: 1px solid var(--borda); padding: 1.3mm 2.2mm; vertical-align: top; text-align: left; }
+  tr > :last-child { border-right: 0; } tr:last-child > * { border-bottom: 0; }
+  th { background: var(--musgo-claro); font-weight: 800; font-size: 9pt; }
+  td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .nota { font-size: 8.6pt; color: var(--suave); }
+  .aviso { border: 1px solid var(--borda); border-left: 1.2mm solid var(--argila); border-radius: 2.5mm; background: var(--creme); padding: 1.8mm 3mm; font-size: 9.2pt; break-inside: avoid; }
+  @media screen { body { padding: 8mm; } .pagina { margin-top: 14mm; padding-top: 8mm; border-top: 2px dashed var(--borda); } }
+</style>
+</head>
+<body>
+
+<div class="topo"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span class="marca">Domus <b>Energia</b></span><span class="onde">Estação Nómada, Unipessoal Lda.<br>opancas.pt · outubro de 2026</span></div>
+
+<h1>Como funciona a Domus Energia</h1>
+<p class="sub">O percurso de um pedido, do primeiro clique à obra paga. Para ler, riscar e melhorar.</p>
+
+<p>A Domus Energia faz instalações elétricas e casa inteligente na Grande Lisboa. O cliente pede tudo pelo sítio <b>opancas.pt</b>; a obra é feita por <b>eletricistas parceiros</b>, cada um na sua especialidade. Um programa trata do que costuma dar trabalho e discussões: o orçamento, a marcação, as fotos, os ensaios, a cobrança e o pagamento a quem fez a obra.</p>
+<p>Este documento mostra esse programa <b>como ele está hoje</b>, com imagens dos ecrãs verdadeiros. Está a funcionar, mas ainda sem clientes: as obras começam em <b>setembro de 2027</b>. É a altura certa para o melhorar. Em cada passo há um espaço tracejado, <b>"As suas ideias"</b>: escreva lá o que mudava, o que falta e o que não funciona numa obra a sério.</p>
+
+<h2 style="margin-top:4mm">Quem usa o programa</h2>
+<div class="grelha g4 quem">
+  <div class="cartao creme"><b>O cliente</b>Descreve a casa, recebe a proposta, paga e acompanha tudo na conta dele. No telemóvel.</div>
+  <div class="cartao creme"><b>A empresa</b>Verifica os pedidos, fixa os preços, envia as propostas e paga aos parceiros. No painel.</div>
+  <div class="cartao creme"><b>O eletricista parceiro</b>Vê os pedidos do seu concelho, propõe, faz a obra e regista-a. No telemóvel.</div>
+  <div class="cartao creme"><b>A casa</b>Os aparelhos instalados falam com a app do cliente: luzes, estores, consumos, alarme.</div>
+</div>
+
+<h2 style="margin-top:5mm">O percurso em oito passos</h2>
+<div class="fluxo">
+  <div class="c"><i>CLIENTE</i><b>1. Descreve a casa</b>Desenha a planta e junta a foto do quadro.</div>
+  <div class="e"><i>EMPRESA</i><b>2. Verifica o pedido</b>Planta, foto, zona e contacto. Devolve se faltar algo.</div>
+  <div class="t"><i>ELETRICISTA</i><b>3. Propõe</b>Vê o pedido sem saber quem é o cliente. Diz horas e material.</div>
+  <div class="e"><i>EMPRESA</i><b>4. Envia a proposta</b>Escolhe um eletricista, fixa o preço e envia ao cliente.</div>
+  <div class="c"><i>CLIENTE</i><b>5. Aceita e paga o sinal</b>Só agora o eletricista vê o nome e a morada.</div>
+  <div class="t"><i>ELETRICISTA</i><b>6. Visita e obra</b>Marca a visita, faz a obra, tira fotos e mede.</div>
+  <div class="c"><i>CLIENTE</i><b>7. Confirma e paga o resto</b>Diz que ficou bem, avalia e paga.</div>
+  <div class="e"><i>EMPRESA</i><b>8. Aprova e paga</b>Aprova o trabalho e paga ao eletricista.</div>
+</div>
+<p class="nota">A grande diferença em relação ao habitual: <b>o cliente recebe o preço antes de qualquer visita.</b> A visita vem depois de ele aceitar e pagar o sinal, e muitas vezes a obra fica feita nesse dia.</p>
+
+<!-- ===================================================== PASSO 1 -->
+<section class="pagina">
+  <h2><span class="num">1</span>O cliente descreve a casa</h2>
+  <p class="quemfaz">Cliente · no telemóvel ou no computador</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>No sítio, escolhe <b>"Descrever a minha casa"</b> (primeira vez) ou <b>"Pedir um serviço"</b>: automatizar, reparar, trocar o quadro, obras.</li>
+        <li>Diz o tipo de casa e a tipologia. O programa desenha uma <b>planta</b> de partida; o cliente arruma as divisões e põe portas, janelas, interruptores, tomadas e pontos de luz onde eles estão.</li>
+        <li>Tira uma <b>foto do quadro elétrico</b> com a porta aberta. Sem ela o pedido não avança: é por ela que se prepara a proposta.</li>
+        <li>Escolhe o que quer: quadro seguro, poupar energia, estores, carregador do carro, etc. Vê logo uma <b>estimativa</b> (um intervalo de preço).</li>
+        <li>Envia. Fica com uma conta, onde acompanha o pedido e guarda até cinco casas.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> o cliente faz em dez minutos o levantamento que custava uma deslocação. Quem vai fazer a obra chega a saber quantas divisões, pontos e circuitos há, e como está o quadro.</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/01-site.png" alt=""><figcaption>A entrada do sítio</figcaption></figure>
+      <figure class="tel"><img src="ecras/02-simulador-planta.png" alt=""><figcaption>A planta, com as tomadas postas pelo cliente</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:66mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>O que precisa mesmo de saber de uma casa antes de dar um preço, e que aqui não se pergunta?</li>
+      <li>Que fotos pedia, além da do quadro? (contador, caixas de derivação, casa de banho…)</li>
+      <li>Um cliente consegue pôr as tomadas na planta sem se enganar? O que simplificava?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== PASSO 2 -->
+<section class="pagina">
+  <h2><span class="num">2</span>A empresa verifica o pedido</h2>
+  <p class="quemfaz">Empresa · no painel</p>
+  <ul>
+    <li>Cada pedido novo fica <b>"Por validar"</b>. Abre-se a ficha e confere-se uma lista: a planta faz sentido, a foto do quadro lê-se, a casa fica num concelho servido, o contacto está certo.</li>
+    <li>Se faltar alguma coisa, carrega-se em <b>"Devolver ao cliente"</b> e escreve-se o que falta. O cliente recebe um email, corrige na conta e diz "Já corrigi".</li>
+    <li>Sem estar validado, o pedido <b>não vai para os eletricistas</b> e a proposta <b>não se envia</b>.</li>
+  </ul>
+  <figure class="largo"><img src="ecras/03-painel-validar.png" alt=""><figcaption>A ficha do pedido no painel, com a lista de verificação</figcaption></figure>
+  <div class="vantagem"><b>Porque é assim:</b> o eletricista só recebe pedidos completos. Ninguém perde tempo a propor para uma casa fora da zona ou com uma foto onde não se vê nada.</div>
+  <div class="ideias" style="--h:52mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>Que mais se devia conferir antes de um pedido chegar a um eletricista?</li>
+      <li>Na sua especialidade, o que faz um pedido ser "impossível de orçamentar à distância"?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== PASSO 3 -->
+<section class="pagina">
+  <h2><span class="num">3</span>O pedido vai para a bolsa e os eletricistas propõem</h2>
+  <p class="quemfaz">Eletricista parceiro · no telemóvel</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>O pedido validado aparece na <b>bolsa</b> dos parceiros que trabalham nesse concelho. A empresa também pode pedir a proposta só a um.</li>
+        <li>O eletricista vê a <b>planta</b>, as <b>fotos</b> e um <b>relatório técnico sem preços</b>. <b>Não vê</b> o nome, a morada nem o telefone do cliente.</li>
+        <li>Propõe as <b>horas de trabalho</b>, o <b>material</b> (escolhido do catálogo) e <b>quando pode ir</b>. Pode juntar uma nota.</li>
+        <li>Vários podem propor para o mesmo pedido. A empresa escolhe um; as outras propostas ficam de reserva.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> quem conhece a obra diz quanto tempo leva; o preço não sai de uma tabela cega. E o cliente fica protegido: os dados dele só chegam a quem vai mesmo fazer o trabalho.</div>
+      <div class="aviso"><b>A saber:</b> para entrar na bolsa, cada parceiro candidata-se em "Trabalhe connosco" com o NIF, o n.º de habilitação na DGEG, o seguro de responsabilidade civil e os concelhos onde trabalha. A empresa aprova. Hoje o programa pede sempre o n.º da DGEG.</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/04-eletricista-bolsa.png" alt=""><figcaption>Um pedido na bolsa: sem nome nem morada</figcaption></figure>
+      <figure class="tel"><img src="ecras/05-eletricista-proposta.png" alt=""><figcaption>A proposta do eletricista: horas e material</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:60mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>Com a planta, as fotos e o relatório, consegue dar horas com confiança? O que lhe faltava ver?</li>
+      <li>Que material falta no catálogo da sua especialidade?</li>
+      <li>Como devia a empresa escolher entre duas propostas: a mais barata, a mais rápida, a de quem tem melhor avaliação?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== PASSOS 4 e 5 -->
+<section class="pagina">
+  <h2><span class="num">4</span><span class="num" style="margin-left:-1mm">5</span>A proposta, o "Aceito" e o sinal</h2>
+  <p class="quemfaz">Empresa · depois Cliente</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>A empresa parte da proposta do eletricista e fixa o preço em <b>três partes</b>: mão de obra, material e deslocação. O texto que o cliente lê é preenchido sozinho ("Inclui: 6,5 h de trabalho; 2 × tomada…").</li>
+        <li>O cliente vê na conta o <b>preço com IVA</b> e dois botões: <b>"Aceito"</b> e <b>"Não aceito"</b>. Não aceitar não custa nada, só pede o motivo.</li>
+        <li>Ao aceitar paga o <b>sinal</b>: o maior entre 30 % do total e o custo do material. O material fica reservado no stock.</li>
+        <li>O preço é <b>definitivo</b>, salvo o que só se descobre no local (ver "Trabalho a mais", no passo 6).</li>
+        <li><b>Só agora</b> o eletricista escolhido passa a ver o nome, a morada e o telefone do cliente.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> ninguém se desloca para dar um orçamento que não é aceite. Quando o eletricista sai de casa, o cliente já disse que sim e o material já está pago.</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/06-cliente-proposta.png" alt=""><figcaption>A proposta na conta do cliente</figcaption></figure>
+    </div>
+  </div>
+  <h3>Quanto recebe o eletricista</h3>
+  <p>Vê-o no telemóvel antes de aceitar o trabalho. A regra de hoje, igual para todos (a percentagem muda-se no painel):</p>
+  <table>
+    <tr><th>Parte</th><th>Regra</th><th>No pedido de exemplo</th></tr>
+    <tr><td>Mão de obra</td><td>70 % da mão de obra da proposta, sem IVA</td><td class="n">70 % × 480,00 € = 336,00 €</td></tr>
+    <tr><td>Deslocação</td><td>Toda a deslocação que o cliente paga, sem IVA</td><td class="n">13,01 €</td></tr>
+    <tr><td>Trabalho a mais</td><td>70 % da mão de obra do que o cliente aceitar a mais</td><td class="n">—</td></tr>
+    <tr><td>Visita perdida</td><td>A deslocação dessa ida (no mínimo 20,33 €, que são 25 € com IVA)</td><td class="n">—</td></tr>
+    <tr><td><b>Total</b></td><td>Pago até 7 dias depois de o cliente pagar e a empresa aprovar, contra fatura-recibo</td><td class="n"><b>349,01 €</b></td></tr>
+  </table>
+  <p class="nota">No exemplo, o cliente paga 840,10 € com IVA (mão de obra 480,00 €, material 190,00 €, deslocação 13,01 €, mais IVA): 252,03 € de sinal e 588,07 € no fim. O material é da Domus Energia: o eletricista não o compra nem o fatura.</p>
+  <div class="ideias" style="--h:31mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>A divisão 70 % + deslocação é justa para a sua especialidade? O que devia contar e não conta?</li>
+      <li>O sinal chega para o material que costuma usar? Há obras em que tinha de ser mais?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== PASSO 6 -->
+<section class="pagina">
+  <h2><span class="num">6</span>Visita e obra</h2>
+  <p class="quemfaz">Eletricista parceiro · no telemóvel, em obra</p>
+  <div>
+    <div>
+      <ul>
+        <li>Tem <b>48 horas</b> para combinar a data com o cliente e registá-la. Se não marcar, o trabalho volta à bolsa.</li>
+        <li>Na ficha da obra regista: <b>foto do quadro antes e depois</b>, os <b>ensaios</b> medidos (continuidade, isolamento, terra, disparo do diferencial) e, se mexeu no quadro, o <b>esquema</b>.</li>
+        <li>Só com tudo preenchido, e depois da hora da visita, pode carregar em <b>"Obra concluída"</b>.</li>
+      </ul>
+      <h3>Quando a obra não corre como combinado</h3>
+      <ul>
+        <li><b>Trabalho a mais:</b> o eletricista descreve o que encontrou, com horas e material. A empresa põe o preço e envia ao cliente, que aceita ou recusa na conta. Se recusar, faz-se o resto ao preço combinado.</li>
+        <li><b>O cliente não estava:</b> o eletricista assinala-o depois da hora marcada. Se a empresa confirmar, o cliente paga a deslocação dessa ida (mínimo 25 € com IVA) e o eletricista recebe-a.</li>
+        <li><b>Não é seguro continuar:</b> a empresa pára a obra, devolve ao cliente o sinal menos o material já encomendado e o trabalho feito, e paga ao eletricista o que ele já fez.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> fica escrito o que foi combinado e o que foi feito, com fotos e medições. Se houver uma reclamação daqui a um ano, a prova existe. E nenhum trabalho a mais se faz sem o cliente ter dito que sim por escrito.</div>
+    </div>
+    <div class="ecras" style="justify-content: center; gap: 8mm; margin-top: 3mm">
+      <figure class="tel"><img src="ecras/07-eletricista-obra.png" alt=""><figcaption>A ficha da obra, já com o cliente e a visita</figcaption></figure>
+      <figure class="tel"><img src="ecras/08b-eletricista-fotos.png" alt=""><figcaption>As fotos de antes e de depois</figcaption></figure>
+      <figure class="tel"><img src="ecras/08-eletricista-concluir.png" alt=""><figcaption>Os ensaios e "Obra concluída"</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:24mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>Com luvas e pó, o que consegue mesmo registar no telemóvel? O que tirava, o que juntava?</li>
+      <li>Que ensaios e fotos são obrigatórios na sua especialidade (solar, carregadores, redes)?</li>
+      <li>Qual devia ser o procedimento passo a passo da sua obra mais comum?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== PASSOS 7 e 8 -->
+<section class="pagina">
+  <h2><span class="num">7</span><span class="num" style="margin-left:-1mm">8</span>O cliente confirma, paga, e a empresa paga ao eletricista</h2>
+  <p class="quemfaz">Cliente · depois Empresa</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>O cliente recebe um email e vê na conta: <b>"O trabalho ficou concluído?"</b> Responde sim e dá de 1 a 5 estrelas, ou diz o que falta.</li>
+        <li>Se disser que falta alguma coisa, a empresa decide: o trabalho volta ao eletricista, ou vê-se que não há defeito.</li>
+        <li>Se não responder, recebe um <b>lembrete ao 5.º dia</b>; ao <b>7.º dia</b> o trabalho fica aceite.</li>
+        <li>Paga o <b>restante</b> na conta. Só então a app da casa fica ativa.</li>
+        <li>A empresa <b>aprova</b> o trabalho. O eletricista envia a <b>fatura-recibo</b> pelo telemóvel e recebe por transferência <b>até 7 dias</b> depois.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> o eletricista não anda atrás do cliente para receber. Cobra a empresa, e ele vê no telemóvel o que fez, o que está aprovado e quando é pago.</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/09-cliente-confirmar.png" alt=""><figcaption>O cliente confirma e avalia</figcaption></figure>
+      <figure class="tel"><img src="ecras/09b-cliente-fim-da-obra.png" alt=""><figcaption>Depois, paga o restante</figcaption></figure>
+    </div>
+  </div>
+  <figure class="largo" style="margin: 3mm auto 0; width: 118mm"><img src="ecras/10-painel-orcamentos.png" alt=""><figcaption>O painel da empresa: todos os pedidos, por fase</figcaption></figure>
+  <div class="ideias" style="--h:31mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>Sete dias para o cliente responder e sete para o eletricista receber: é razoável? O que mudava?</li>
+      <li>Como se devia tratar uma reclamação três meses depois da obra? Quem volta lá, e quem paga?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== A CASA -->
+<section class="pagina">
+  <h2>Depois da obra: a casa e a app</h2>
+  <p class="quemfaz" style="margin-left:0">Cliente · todos os dias</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>Os aparelhos instalados (interruptores, tomadas e disjuntores com Wi-Fi, sensores, estores) ligam-se ao servidor da Domus Energia. O cliente vê-os e comanda-os numa <b>app</b> que se instala no telemóvel a partir do sítio.</li>
+        <li>A app mostra a casa em quatro separadores: <b>Casa</b> (modo e alarme, cenas, consumo), <b>Automações</b>, <b>Aparelhos</b> (o estado de cada um) e <b>Histórico</b>.</li>
+        <li>Avisa no telemóvel: alarme, porta aberta, aparelho sem ligação, pilha a acabar.</li>
+        <li>O serviço mensal tem planos; a empresa vê alertas das casas e pode ajudar à distância.</li>
+      </ul>
+      <h3>Duas regras de segurança que não se discutem</h3>
+      <ul>
+        <li><b>O botão manual funciona sempre</b>, com ou sem internet, com ou sem servidor.</li>
+        <li><b>O servidor nunca corta um circuito à distância.</b> Mede e avisa; quem desliga é uma pessoa.</li>
+      </ul>
+      <div class="vantagem"><b>Porque é assim:</b> é a parte que o cliente usa todos os dias e a que o faz ficar com a Domus Energia depois da obra. Para o parceiro de domótica, é trabalho que se repete: ampliações, sensores novos, manutenção.</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/11-app-casa.png" alt=""><figcaption>A app do cliente, no separador Casa</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:80mm">
+    <h3>As suas ideias</h3>
+    <ul>
+      <li>Que aparelhos instalava numa casa normal? De que marcas confia, e de quais foge?</li>
+      <li>O que é que um cliente quer mesmo fazer no telemóvel, e o que nunca usa?</li>
+      <li>Solar e carregadores: o que devia a app mostrar (produção, carga do carro, horas mais baratas)?</li>
+      <li>Como se entrega a casa ao cliente no fim? Quem lhe explica a app?</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== VANTAGENS -->
+<section class="pagina">
+  <h2>As vantagens, para cada um</h2>
+  <div class="grelha g3">
+    <div class="cartao">
+      <h3 style="margin-top:0">Para o eletricista</h3>
+      <ul>
+        <li>Trabalho que chega sem publicidade nem orçamentos perdidos.</li>
+        <li>Só se desloca com a obra aceite e o material pago.</li>
+        <li>Sabe quanto recebe antes de aceitar.</li>
+        <li>Não cobra ao cliente nem compra material.</li>
+        <li>Fica com o registo de cada obra: fotos, ensaios, esquema.</li>
+        <li>Paga-lhe uma empresa, com prazo, e ele vê as contas.</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h3 style="margin-top:0">Para o cliente</h3>
+      <ul>
+        <li>Sabe o preço antes de alguém lhe entrar em casa.</li>
+        <li>Os dados dele só chegam a quem faz a obra.</li>
+        <li>Nada a mais sem ele aceitar por escrito.</li>
+        <li>Um só contrato e uma só fatura, da Domus Energia.</li>
+        <li>Vê as fotos e as medições da obra dele.</li>
+        <li>Fica com a casa na app.</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h3 style="margin-top:0">Para a parceria</h3>
+      <ul>
+        <li>Cada um trabalha na sua especialidade; as obras grandes juntam vários.</li>
+        <li>As mesmas regras e os mesmos procedimentos para todos.</li>
+        <li>Uma marca e um sítio, em vez de cinco.</li>
+        <li>Contas à vista: cada um vê o que fez e o que tem a receber.</li>
+        <li>Clientes que ficam, pelo serviço mensal da casa.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 style="margin-top:6mm">O que ainda não existe</h2>
+  <p>Para ninguém contar com o que não há:</p>
+  <ul>
+    <li><b>Clientes e obras.</b> As obras começam em setembro de 2027. Até lá os pedidos ficam em lista de espera, sem pagamentos.</li>
+    <li><b>Pagamentos reais.</b> O programa está pronto para cartão, MB Way e Multibanco, mas ainda só foi testado com pagamentos simulados.</li>
+    <li><b>Um técnico responsável.</b> As obras têm de ser assinadas por quem o possa fazer. O Rui ainda não pode.</li>
+    <li><b>Os textos legais novos.</b> Os Termos do sítio estão a ser revistos por um advogado, para dizerem o que o programa já faz.</li>
+    <li><b>Tabelas de preços por especialidade.</b> Há uma tabela geral; a de solar, carregadores e redes está por fazer. É uma das coisas em que mais precisamos de si.</li>
+  </ul>
+
+  <div class="ideias" style="--h:38mm">
+    <h3>O que mudava primeiro?</h3>
+    <ul>
+      <li>Se só pudesse mudar três coisas neste programa, quais eram?</li>
+      <li>O que o faria dizer "com isto não trabalho"?</li>
+      <li>Que preços e tempos da sua especialidade temos de pôr na tabela? (por exemplo: horas para instalar um carregador, um inversor, um ponto de rede)</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+  <p class="nota" style="margin-top:3mm">As imagens são do sítio de testes, com um pedido de exemplo e dados inventados. Os valores e as regras são os que o programa aplica em outubro de 2026 e podem mudar com as ideias de quem ler isto.</p>
+</section>
+
+</body>
+</html>
