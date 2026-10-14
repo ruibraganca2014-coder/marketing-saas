@@ -116,7 +116,9 @@ export default function catalogo(el) {
     const antes = campo(x, "antes"), prop = campo(x, "proposta") ?? {};
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
     const entrada = (nome, valor, attrs = {}) => h("input", { name: nome, id: `pp-${nome}-${id}`, value: valor ?? "", ...attrs });
-    const horasI = entrada("horas", campo(prop, "horas"), { type: "number", min: "0.05", max: "100", step: "0.05", inputmode: "decimal", required: true });
+    // Horas com vírgula (teste de 2026-10-14: aparecia "1.5"): campo de texto decimal; numero() aceita "1,5" e "1.5".
+    const horasP = numero(campo(prop, "horas"));
+    const horasI = entrada("horas", horasP === null ? "" : fmtHoras.format(horasP), { type: "text", inputmode: "decimal", autocomplete: "off", required: true });
     const materialI = entrada("material", campo(prop, "material"), { maxlength: "300" });
     const custoI = entrada("custo", campo(prop, "custo"), { type: "number", min: "0", step: "0.01", inputmode: "decimal" });
     const skuI = novo ? entrada("sku", "", { maxlength: "40", autocapitalize: "characters", spellcheck: "false", required: true }) : null;
@@ -131,7 +133,9 @@ export default function catalogo(el) {
       h("tbody", {},
         linhaT("Horas", antes ? horas(campo(antes, "horas")) : "—", horas(campo(prop, "horas"))),
         linhaT("Material", antes ? txtOu(campo(antes, "material")) : "—", txtOu(campo(prop, "material"))),
-        linhaT("Custo do material", antes ? euros(campo(antes, "custo")) : "—", euros(campo(prop, "custo"))),
+        // Teste de 2026-10-14: a estimativa do parceiro do material de instalação; não é o custo de compra do aparelho (que
+        // não aparece aqui e a aprovação não muda). "Agora" = a da última proposta aprovada para este artigo.
+        linhaT("Material de instalação (estimativa do parceiro)", antes && campo(antes, "custo") != null ? euros(campo(antes, "custo")) : "—", campo(prop, "custo") != null ? euros(campo(prop, "custo")) : "—"),
         linhaT(`Recebe o eletricista (${num(campo(x, "percentagem"))} %)`, antes ? euros(campo(antes, "recebe")) : "—", euros(campo(prop, "recebe")))));
     const motivo = h("textarea", { rows: "2", maxlength: "300", id: `pp-motivo-${id}`, "aria-label": "Motivo da recusa" });
     const zonaRecusa = h("div", { class: "form-grelha", hidden: true },
@@ -149,7 +153,7 @@ export default function catalogo(el) {
       const hv = numero(horasI.value);
       if (hv === null || hv <= 0 || hv > 100) { mensagem(msg, "Horas: número maior que 0 e até 100."); horasI.focus(); return; }
       const ct = custoI.value.trim(), cv = ct === "" ? null : numero(ct);
-      if (ct !== "" && (cv === null || cv < 0)) { mensagem(msg, "O custo do material tem de ser um número (ou vazio)."); custoI.focus(); return; }
+      if (ct !== "" && (cv === null || cv < 0)) { mensagem(msg, "A estimativa do material tem de ser um número (ou vazio)."); custoI.focus(); return; }
       const corpo = { horas: hv, material: materialI.value.trim() || null, custo: cv };
       if (novo) {
         const sku = skuI.value.trim().toUpperCase();
@@ -162,6 +166,8 @@ export default function catalogo(el) {
       decidir(e.currentTarget, "aprovar", corpo);
     }
     const titulo = novo ? `Artigo novo: ${txtOu(campo(prop, "nome"))}` : `${txtOu(campo(x, "artigo")?.nome)} (${txtOu(campo(x, "artigo")?.sku)})`;
+    // Nomes acessíveis com quem propôs e o artigo (teste de 2026-10-14: havia vários "Aprovar" iguais no leitor de ecrã).
+    const quemE = `${txtOu(campo(x, "eletricista")?.nome)} para ${novo ? txtOu(campo(prop, "nome")) : txtOu(campo(x, "artigo")?.nome)}`;
     return h("article", { class: "cartao", id: `proposta-precos-${id}`, dataset: { id } },
       h("h3", { text: titulo }),
       h("p", { class: "ajuda", text: `Proposta de ${txtOu(campo(x, "eletricista")?.nome)} · ${txtOu(campo(x, "especialidade_nome"))} · ${data(campo(x, "criado"))}` }),
@@ -172,13 +178,13 @@ export default function catalogo(el) {
           novo ? h("div", { class: "duas" }, campoForm("SKU", skuI, "Maiúsculas, números, \".\", \"_\" e \"-\""), campoForm("Categoria", catI)) : null,
           novo ? campoForm("Nome", nomeI) : null,
           novo ? campoForm("Preço de venda (€, c/ IVA)", vendaI, "O eletricista nunca propõe o preço ao cliente. O artigo fica escondido do cliente até o mostrar.") : null,
-          h("div", { class: "tres" }, campoForm("Horas", horasI), campoForm("Material", materialI), campoForm("Custo do material (€)", custoI, "Vazio = fica o custo que já tem")))),
+          h("div", { class: "tres" }, campoForm("Horas", horasI), campoForm("Material", materialI), campoForm("Material de instalação: estimativa (€)", custoI, "Fica só na proposta; não muda o custo de compra do aparelho")))),
       h("div", { class: "form-botoes" },
-        h("button", { class: "btn pequeno", type: "button", id: `pp-aprovar-${id}`, text: "Aprovar", onclick: (e) => {
+        h("button", { class: "btn pequeno", type: "button", id: `pp-aprovar-${id}`, text: "Aprovar", "aria-label": `Aprovar a proposta de ${quemE}`, onclick: (e) => {
           if (novo && !e.currentTarget.closest("article").querySelector("details").open) { e.currentTarget.closest("article").querySelector("details").open = true; mensagem(msg, "Indique o SKU, a categoria e o preço de venda do artigo novo.", "info"); skuI.focus(); return; }
           aprovar(e);
         } }),
-        h("button", { class: "btn sec pequeno", type: "button", id: `pp-recusar-${id}`, text: "Recusar", onclick: (e) => { zonaRecusa.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })),
+        h("button", { class: "btn sec pequeno", type: "button", id: `pp-recusar-${id}`, text: "Recusar", "aria-label": `Recusar a proposta de ${quemE}`, onclick: (e) => { zonaRecusa.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })),
       zonaRecusa, msg);
   }
 

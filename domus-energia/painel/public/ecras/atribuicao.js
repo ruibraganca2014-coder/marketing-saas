@@ -138,7 +138,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     const linha = (x) => {
       const av = x.avaliacao?.n ? `★ ${numTxt(x.avaliacao.media)} (${x.avaliacao.n} ${x.avaliacao.n === 1 ? "avaliação" : "avaliações"})` : "Sem avaliações";
       const material = x.artigos
-        ? h("details", {}, h("summary", { text: `${x.artigos} ${x.artigos === 1 ? "artigo" : "artigos"}` }),
+        ? h("details", { class: "material-artigos" }, h("summary", { text: `${x.artigos} ${x.artigos === 1 ? "artigo" : "artigos"}` }),
           h("ul", {}, ...x.material.map((m) => h("li", { text: `${m.qtd} × ${m.nome}${m.valor == null ? "" : ` — ${euros(m.valor)}`}` }))))
         : "Sem material";
       const fim = x.pode_escolher

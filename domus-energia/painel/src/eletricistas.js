@@ -3007,6 +3007,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   // ---- no painel (só o CEO; api.js propostasPrecos, aprovarPropostaPreco e recusarPropostaPreco)
   /** Uma proposta de preços (painel): quem propôs, o artigo como está agora (`antes`) e o que propõe, com o que recebe em cada caso. */
+  const custoAprovado = db.prepare("SELECT custo_cent FROM propostas_precos WHERE artigo_id = ? AND estado = 'aprovada' ORDER BY decidido DESC, id DESC LIMIT 1");
   function propostaPrecoPainel(p) {
     const x = linha(p.eletricista_id);
     const pct = x ? percentagemDe(x) : percentagemOmissao();
@@ -3015,7 +3016,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       id: p.id, novo: p.nome !== null, estado: p.estado, motivo: p.motivo, criado: p.criado, decidido: p.decidido, decidido_por: p.decidido_por,
       eletricista: { id: p.eletricista_id, nome: x?.nome ?? '—' }, especialidade: p.especialidade, especialidade_nome: ESPECIALIDADES[p.especialidade], percentagem: pct,
       artigo: a ? { id: a.id, sku: a.sku, nome: a.nome } : null,
-      antes: a && p.nome === null ? { horas: a.horas_instalacao, material: materialDoArtigo(a), custo: deCent(a.preco_compra_cent), recebe: recebeDeHoras(a.horas_instalacao, pct) } : null,
+      // Teste de 2026-10-14: o custo de compra do aparelho não sai aqui (é outra coisa); "agora" do material de instalação
+      // é a estimativa da última proposta aprovada para este artigo, se houver.
+      antes: a && p.nome === null ? { horas: a.horas_instalacao, material: materialDoArtigo(a), custo: deCent(custoAprovado.get(a.id)?.custo_cent ?? null), recebe: recebeDeHoras(a.horas_instalacao, pct) } : null,
       proposta: { nome: p.nome, horas: p.horas, material: p.material, custo: deCent(p.custo_cent), nota: p.nota, recebe: recebeDeHoras(p.horas, pct) },
     };
   }

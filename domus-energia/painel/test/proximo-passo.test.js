@@ -4,7 +4,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
-import { pendentesDoPedido, andamentoDoPedido, proximoPasso } from '../src/proximo-passo.js';
+import { pendentesDoPedido, andamentoDoPedido, proximoPasso, linhasDoHoje } from '../src/proximo-passo.js';
 
 const base = (x = {}) => ({
   estado: 'novo', criado: '2026-10-01T10:00:00.000Z', telefone: '912 345 678', mensagem_para: 'ana@exemplo.pt',
@@ -125,6 +125,49 @@ describe('próximo passo (funções puras)', () => {
     assert.equal(proximoPasso(base({ estado: 'perdido' }), 'ceo').espera, 'Pedido perdido: não há mais nada a fazer.');
     assert.deepEqual(pendentesDoPedido(base({ estado: 'arquivado', mensagem_cliente: 'x' })), []);
   });
+
+  test('teste de 2026-10-14: a linha do Hoje sai da mesma regra que a caixa da ficha', () => {
+    const f = { nome: 'Ana', validacao: 'validado', estado: 'aceite', valor_proposta: 10, proposta_aceite: 'x' };
+    const linha = (x, papel = 'ceo') => linhasDoHoje(base(x), papel, '#/orcamentos/1').map((y) => [y.tipo, y.texto, y.ligacao]);
+    assert.deepEqual(linha({ ...f, obra: { id: 3, estado: 'concluida' }, ligar_pode: true }), [['proposta_aceite', 'Ligar a casa de Ana', '#/orcamentos/1']]);
+    assert.deepEqual(linha({ ...f, obra: { id: 3, estado: 'agendada' }, ligar_pode: false }),
+      [['proposta_aceite', 'Obra marcada em casa de Ana: falta o cliente pagar o restante para ligar a casa', '#/obras/3']]);
+    assert.deepEqual(linha({ ...f, obra: { id: 3, estado: 'agendada', por_agendar: true } }), [['proposta_aceite', 'Marcar a data da obra de Ana', '#/obras/3']]);
+    assert.deepEqual(linha({ nome: 'Rui', validacao_em_falta: true }), [['validar', 'Devolver ao cliente o pedido de Rui (falta a foto do quadro)', '#/orcamentos/1']]);
+    assert.deepEqual(linha({ nome: 'Rui', validacao: 'validado' }, 'comercial'), [['pedido_novo', 'Contactar Rui', '#/orcamentos/1']]);
+    // A caixa da ficha traz a mesma linha (o teste de baixo compara-a com o Hoje).
+    const px = proximoPasso(base({ ...f, obra: { id: 3, estado: 'concluida' }, ligar_pode: true }), 'comercial');
+    assert.deepEqual([px.texto, px.linha], ['Ligar a casa do cliente (app e mensalidade).', 'Ligar a casa de Ana']);
+  });
+
+  test('teste de 2026-10-14: pedido devolvido ao cliente ou já com os eletricistas: nada para a equipa', () => {
+    const dev = base({ validacao: 'devolvido' });
+    assert.deepEqual(pendentesDoPedido(dev), []);
+    assert.equal(proximoPasso(dev, 'comercial').espera, 'À espera do cliente: corrigir o pedido (foi-lhe devolvido).');
+    for (const tipo of ['visita', 'avaria']) {
+      const bolsa = base({ validacao: 'validado', trabalhos: [{ tipo, estado: 'na_bolsa' }] });
+      assert.deepEqual(pendentesDoPedido(bolsa), [], tipo);
+      assert.match(proximoPasso(bolsa, 'ceo').espera, /^À espera dos eletricistas/, tipo);
+    }
+    assert.match(proximoPasso(base({ validacao: 'validado' }), 'comercial').texto, /"Em preparação"/, 'o nome do estado no painel');
+  });
+
+  test('teste de 2026-10-14: a obra com um eletricista — ele marca e faz, o cliente confirma, o CEO aprova, e só então ligar', () => {
+    const f = { nome: 'Ana', validacao: 'validado', estado: 'aceite', valor_proposta: 1000, proposta_aceite: '2026-10-10T10:00:00Z', obra: { id: 4, estado: 'agendada', por_agendar: true }, ligar_pode: false };
+    const passo = (trabalho_obra, extra = {}) => proximoPasso(base({ ...f, trabalho_obra, trabalhos: [{ tipo: 'obra', estado: trabalho_obra }], ...extra }), 'ceo');
+    assert.deepEqual([passo('aceite').tipo, passo('aceite').espera], [null, 'À espera do eletricista: marcar a visita (tem 48 h).']);
+    assert.deepEqual([passo('visita_marcada').tipo, passo('visita_marcada').espera], [null, 'À espera do eletricista: fazer a obra.']);
+    const conc = passo('concluida_eletricista', { obra: { id: 4, estado: 'agendada' } });
+    assert.equal(conc.tipo, null);
+    assert.match(conc.espera, /^À espera do cliente: confirmar/);
+    assert.deepEqual([passo('confirmada').tipo, ...passo('confirmada').outros.map((x) => x.tipo)], ['aprovar_trabalho']);
+    // Aprovado: a obra fica concluída; falta pagar ao eletricista e, com o restante pago, ligar a casa.
+    const aprovado = proximoPasso(base({ ...f, obra: { id: 4, estado: 'concluida' }, ligar_pode: true, trabalhos: [{ tipo: 'obra', estado: 'aprovada', eletricista: 'Elias' }] }), 'ceo');
+    assert.deepEqual([aprovado.tipo, ...aprovado.outros.map((x) => x.tipo)], ['proposta_aceite', 'pagar_eletricista']);
+    assert.equal(aprovado.linha, 'Ligar a casa de Ana');
+    // Sem eletricista (obra com os técnicos do painel): como antes.
+    assert.equal(proximoPasso(base({ ...f, eletricistas: false }), 'ceo').tipo, 'proposta_aceite');
+  });
 });
 
 describe('ficha do pedido e ecrã Hoje dizem o mesmo', () => {
@@ -140,7 +183,7 @@ describe('ficha do pedido e ecrã Hoje dizem o mesmo', () => {
     };
     const agora = new Date(p.relogio.agora()).toISOString();
     const upd = (sql, ...v) => db.prepare(sql).run(...v);
-    for (const n of ['Novo', 'Validado', 'Visita', 'Aceite', 'Confirmado', 'Aprovado', 'Enviada']) ids[n] = await criar(n);
+    for (const n of ['Novo', 'Validado', 'Visita', 'Aceite', 'Confirmado', 'Aprovado', 'Enviada', 'Perdido', 'Devolvido', 'Ligar', 'Semfoto', 'Bolsa', 'Obrael']) ids[n] = await criar(n);
     upd("UPDATE orcamentos SET validacao = 'validado' WHERE id != ?", ids.Novo);
     upd("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', 'Olá', ?)", ids.Validado, agora);
     upd("UPDATE orcamentos SET estado = 'visita_marcada', data_visita = '2020-01-01T10:00' WHERE id = ?", ids.Visita);
@@ -151,26 +194,40 @@ describe('ficha do pedido e ecrã Hoje dizem o mesmo', () => {
     trab.run(ids.Confirmado, 'confirmada', agora, agora);
     trab.run(ids.Aprovado, 'aprovada', agora, agora);
     upd("UPDATE orcamentos SET estado = 'aceite', cliente = 'cli' WHERE id IN (?, ?)", ids.Confirmado, ids.Aprovado);
+    // Teste de 2026-10-14: perdido com uma mensagem do cliente por responder; devolvido ao cliente; obra concluída e paga
+    // (ligar a casa); sem a foto do quadro; na bolsa depois de validado; e a obra com um eletricista.
+    upd("UPDATE orcamentos SET estado = 'perdido' WHERE id = ?", ids.Perdido);
+    upd("INSERT INTO mensagens_pedido (orcamento_id, de, texto, criado) VALUES (?, 'cliente', 'Afinal?', ?)", ids.Perdido, agora);
+    upd("UPDATE orcamentos SET validacao = 'devolvido', validacao_nota = 'Falta a planta' WHERE id = ?", ids.Devolvido);
+    const obra = (estado, porAgendar) => Number(db.prepare("INSERT INTO obras (cliente, data, estado, por_agendar, criado, atualizado) VALUES ('', '2026-10-20', ?, ?, ?, ?)").run(estado, porAgendar, agora, agora).lastInsertRowid);
+    upd("UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, obra_id = ?, obra_concluida = ? WHERE id = ?", agora, obra('concluida', 0), agora, ids.Ligar);
+    upd(`UPDATE orcamentos SET validacao = NULL, simulacao = '{"itens":[]}' WHERE id = ?`, ids.Semfoto);
+    upd("INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, percentagem, criado, atualizado) VALUES (?, 'visita', 'na_bolsa', 'bolsa', 'Sintra', 70, ?, ?)", ids.Bolsa, agora, agora);
+    upd("UPDATE orcamentos SET estado = 'aceite', proposta_aceite = ?, obra_id = ? WHERE id = ?", agora, obra('agendada', 1), ids.Obrael);
+    upd("INSERT INTO trabalhos_eletricista (orcamento_id, tipo, estado, modo, concelho, eletricista_id, tecnico_id, percentagem, criado, atualizado) VALUES (?, 'obra', 'aceite', 'bolsa', 'Sintra', 1, 1, 70, ?, ?)", ids.Obrael, agora, agora);
   });
   after(() => p?.fechar());
 
-  test('para cada pedido e papel, os tipos por fazer da ficha são os do Hoje', async () => {
+  test('para cada pedido e papel, o que a ficha diz por fazer (tipo e texto) é o que o Hoje lista', async () => {
     for (const papel of ['ceo', 'comercial']) {
       const hoje = (await p.pedir('GET', '/painel/api/hoje', { cookie: p.cookies[papel] })).json.itens;
       for (const [nome, id] of Object.entries(ids)) {
         const r = await p.pedir('GET', `/painel/api/orcamentos/${id}`, { cookie: p.cookies[papel] });
         assert.equal(r.estado, 200, r.texto);
-        const px = r.json.proximo[papel];
+        const px = r.json.proximo;
         const ficha = [px.tipo, ...px.outros.map((x) => x.tipo)].filter(Boolean).sort();
         const doHoje = [...new Set(hoje.filter((x) => x.pedido === id).map((x) => x.tipo))].sort();
         assert.deepEqual(ficha, doHoje, `${nome} (${papel})`);
+        // Teste de 2026-10-14: o texto também (o Hoje dizia "Marcar a obra…" quando a ficha já dizia "Ligar a casa").
+        const linhasFicha = [px.linha, ...px.outros.map((x) => x.linha)].filter(Boolean).sort();
+        assert.deepEqual(linhasFicha, hoje.filter((x) => x.pedido === id).map((x) => x.texto).sort(), `${nome} (${papel}): texto`);
         assert.ok(Array.isArray(r.json.andamento) && r.json.andamento[0].chave === 'recebido');
       }
     }
   });
 
   test('o que cada pedido mostra ao CEO', async () => {
-    const px = async (n) => (await p.pedir('GET', `/painel/api/orcamentos/${ids[n]}`, { cookie: p.cookies.ceo })).json.proximo.ceo;
+    const px = async (n) => (await p.pedir('GET', `/painel/api/orcamentos/${ids[n]}`, { cookie: p.cookies.ceo })).json.proximo;
     assert.equal((await px('Novo')).tipo, 'validar');
     assert.equal((await px('Validado')).tipo, 'pedido_novo');
     assert.equal((await px('Aceite')).tipo, 'proposta_aceite');
@@ -179,5 +236,24 @@ describe('ficha do pedido e ecrã Hoje dizem o mesmo', () => {
     assert.deepEqual([conf.tipo, ...conf.outros.map((x) => x.tipo)], ['sem_tecnico', 'aprovar_trabalho']);
     assert.equal((await px('Aprovado')).tipo, 'pagar_eletricista');
     assert.equal((await px('Enviada')).espera, 'À espera do cliente: aceitar a proposta.');
+    // Teste de 2026-10-14.
+    assert.deepEqual([(await px('Perdido')).tipo, (await px('Perdido')).espera], [null, 'Pedido perdido: não há mais nada a fazer.']);
+    assert.deepEqual([(await px('Devolvido')).tipo, (await px('Devolvido')).espera], [null, 'À espera do cliente: corrigir o pedido (foi-lhe devolvido).']);
+    assert.deepEqual([(await px('Ligar')).tipo, (await px('Ligar')).linha], ['proposta_aceite', 'Ligar a casa de Ligar']);
+    assert.equal((await px('Semfoto')).linha, 'Devolver ao cliente o pedido de Semfoto (falta a foto do quadro)');
+    assert.match((await px('Bolsa')).espera, /^À espera dos eletricistas/);
+    assert.deepEqual([(await px('Obrael')).tipo, (await px('Obrael')).espera], [null, 'À espera do eletricista: marcar a visita (tem 48 h).']);
+    const hoje = (await p.pedir('GET', '/painel/api/hoje', { cookie: p.cookies.ceo })).json.itens;
+    for (const n of ['Perdido', 'Devolvido', 'Bolsa', 'Obrael']) assert.deepEqual(hoje.filter((x) => x.pedido === ids[n]), [], n);
+    assert.equal(hoje.find((x) => x.pedido === ids.Ligar).texto, 'Ligar a casa de Ligar');
+  });
+
+  test('teste de 2026-10-14: a ficha só traz o "Próximo passo" de quem a abre', async () => {
+    const r = async (papel) => (await p.pedir('GET', `/painel/api/orcamentos/${ids.Novo}`, { cookie: p.cookies[papel] })).json.proximo;
+    assert.equal((await r('ceo')).tipo, 'validar');
+    const com = await r('comercial');
+    assert.equal(com.tipo, 'pedido_novo');
+    assert.equal('ceo' in com || 'comercial' in com, false, 'sem os passos dos outros papéis');
+    assert.equal((await r('tecnico')) ?? null, null);
   });
 });

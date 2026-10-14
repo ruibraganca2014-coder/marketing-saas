@@ -643,7 +643,8 @@ export default function orcamentos(el, ctx) {
   function montarFicha(j, o, topo, S) {
     const id = String(campo(o, "id"));
     const antes = j.corpo.dataset.ficha === id ? [...j.corpo.querySelectorAll("details.sec-ficha[open]")].map((d) => d.dataset.sec) : [];
-    const px = campo(campo(o, "proximo") ?? {}, ctx.eu.papel) ?? null;
+    // O servidor só manda o do papel de quem entrou (teste de 2026-10-14).
+    const px = campo(o, "proximo") ?? null;
     const abrir = new Set(antes);
     if (px?.sec && S[px.sec]?.length) abrir.add(px.sec);
     if (!abrir.size) abrir.add("cliente");
@@ -700,8 +701,11 @@ export default function orcamentos(el, ctx) {
       : alvo.matches("button, a[href], input, select, textarea") ? alvo
         : [...alvo.querySelectorAll("input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea, button:not([disabled]), a[href]")].find((x) => x.getClientRects().length) ?? alvo;
     if (foco === alvo && !foco.matches("button, a[href], input, select, textarea, summary")) foco.tabIndex = -1;
-    // A secção fica no topo; um botão ou um campo, ao meio (no topo ficava por baixo da barra do título da janela).
-    alvo.scrollIntoView({ block: alvo === d ? "start" : "center" });
+    // Leva ao controlo que recebe o foco (com o rótulo dele), não ao contentor: o formulário de converter tem milhares de
+    // píxeis e o "center" deixava-o a meio da lista de aparelhos (teste de 2026-10-14). Fica no topo, com a margem de
+    // painel.css (.sec-ficha scroll-margin-top) para não ficar por baixo da barra do título da janela.
+    const ver = alvo === d ? d : foco.closest("label, .campo") ?? foco;
+    ver.scrollIntoView({ block: "start" });
     foco.focus({ preventScroll: true });
   }
 

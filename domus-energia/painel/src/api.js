@@ -35,7 +35,7 @@ import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
 import { criarNegocio, PERIODOS } from './negocio.js';
 import { criarProcedimentos } from './procedimentos.js';
-import { andamentoDoPedido, proximoPasso } from './proximo-passo.js';
+import { andamentoDoPedido, proximoPasso, linhasDoHoje } from './proximo-passo.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -412,7 +412,7 @@ export function criarApi(ctx) {
   }
   /** A especialidade muda-se enquanto o pedido não tiver proposta aceite (nem estiver perdido ou arquivado). */
   const podeMudarEspecialidade = (o) => ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.anonimizado;
-  function formatarOrcamento(o, completo = false) {
+  function formatarOrcamento(o, completo = false, papel = null) {
     const r = {
       id: o.id, criado: o.criado, atualizado: o.atualizado, origem: o.origem, nome: o.nome, telefone: o.telefone,
       email: o.email, localidade: o.localidade, morada: o.morada, servico: o.servico, mensagem: o.mensagem, codigo_cliente: o.codigo_cliente,
@@ -490,10 +490,11 @@ export function criarApi(ctx) {
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
       // Ficha do pedido (decisão do dono, 2026-10-14): o andamento e o "Próximo passo" de cada papel que abre a ficha
-      // (proximo-passo.js; as mesmas regras do ecrã Hoje). O painel mostra o do papel de quem entrou.
+      // (proximo-passo.js; as mesmas regras do ecrã Hoje). Só o do papel de quem pediu (teste de 2026-10-14: o comercial
+      // recebia também o do CEO); o técnico não tem "Próximo passo" nos pedidos.
       const f = factosDoPedido(o, r);
       r.andamento = andamentoDoPedido(f);
-      r.proximo = { ceo: proximoPasso(f, 'ceo'), comercial: proximoPasso(f, 'comercial') };
+      r.proximo = papel === 'ceo' || papel === 'comercial' ? proximoPasso(f, papel) : null;
       r.resumo_ficha = { n_propostas: f.n_propostas, trabalho: f.trabalhos.filter((t) => t.estado !== 'retirado').map((t) => ({ tipo: t.tipo, estado: t.estado })).at(-1) ?? null };
     }
     return r;
@@ -502,8 +503,9 @@ export function criarApi(ctx) {
   /**
    * Os factos de um pedido para proximo-passo.js: as mesmas consultas do h.hoje, só para este pedido (as condições ficam
    * em proximo-passo.js, iguais às do Hoje). `r`: o pedido já formatado (obra, pagamentos, casa por ligar…).
+   * `semTecnico`: a lista de eletricistas.obrasSemTecnico() já lida (o Hoje lê-a uma vez para todos os pedidos).
    */
-  function factosDoPedido(o, r) {
+  function factosDoPedido(o, r, semTecnico = null) {
     const agora = relogio();
     const ultima = db.prepare('SELECT de, criado FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id DESC LIMIT 1').get(o.id);
     const comEletricistas = Boolean(config.eletricistas && eletricistas);
@@ -513,7 +515,7 @@ export function criarApi(ctx) {
       ? db.prepare("SELECT COUNT(*) AS n, MIN(criado) AS desde FROM propostas_bolsa WHERE orcamento_id = ? AND estado = 'enviada'").get(o.id) : { n: 0, desde: null };
     const um = (sql) => (comEletricistas ? db.prepare(sql).get(o.id)?.criado ?? null : null);
     return {
-      estado: o.estado, criado: o.criado, telefone: o.telefone ?? null, mensagem_para: r.mensagem_para ?? null,
+      nome: o.nome, estado: o.estado, criado: o.criado, telefone: o.telefone ?? null, mensagem_para: r.mensagem_para ?? null,
       validacao_ligada: Boolean(config.validacaoCeo), validacao: o.validacao ?? 'por_validar', validacao_nota: o.validacao_nota ?? null, validacao_em: o.validacao_em ?? null,
       validacao_em_falta: (r.validacao?.pontos ?? []).some((p) => p.em_falta === true),
       proposta_aceite: o.proposta_aceite ?? null, cliente: o.cliente ?? null, valor_proposta: deCent(o.valor_proposta_cent),
@@ -524,7 +526,7 @@ export function criarApi(ctx) {
       extra_proposto: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'proposto'"),
       extra_enviado: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'enviado'"),
       ida_proposta: um("SELECT MIN(criado) AS criado FROM idas_perdidas WHERE orcamento_id = ? AND estado = 'proposta'"),
-      sem_tecnico: comEletricistas ? eletricistas.obrasSemTecnico().lista.find((x) => x.orcamento_id === o.id)?.criado ?? null : null,
+      sem_tecnico: comEletricistas ? (semTecnico ?? eletricistas.obrasSemTecnico()).lista.find((x) => x.orcamento_id === o.id)?.criado ?? null : null,
       obra: r.obra, obra_concluida: o.obra_concluida ?? null, obra_parada: r.obra_parada ?? null, pagamentos: r.pagamentos ?? [],
       aguarda_sinal: r.aguarda_sinal, ligar_pode: r.ligar_casa ? r.ligar_casa.pode !== false : null,
     };
@@ -787,7 +789,7 @@ export function criarApi(ctx) {
         pedidos_novos: r.pedidos_novos,
         propostas_aceites: r.propostas_aceites_online.length,
         // Pedidos em que a última mensagem é do cliente (ainda sem resposta da equipa).
-        mensagens: n(`SELECT COUNT(*) AS n FROM orcamentos o WHERE o.estado != ?
+        mensagens: n(`SELECT COUNT(*) AS n FROM orcamentos o WHERE o.estado NOT IN ('perdido', ?)
           AND (SELECT m.de FROM mensagens_pedido m WHERE m.orcamento_id = o.id ORDER BY m.id DESC LIMIT 1) = 'cliente'`, ESTADO_ARQUIVADO),
         alertas_criticos: al.contagem?.critica ?? 0,
         // Chips registados por eletricistas, à espera de aprovação (ativação de aparelhos).
@@ -849,37 +851,27 @@ export function criarApi(ctx) {
     const agoraLx = `${hoje}T${horaLisboa(agora)}`;
     const mapa = fichas();
     const itens = [];
-    const ped = (o) => `#/orcamentos/${encodeURIComponent(o.id)}`;
-    const pedido = (tipo, texto, o, desde, ligacao = ped(o)) => itens.push({ tipo, texto: `${texto} ${o.nome}`, nome: o.nome, localidade: o.localidade ?? null, desde: desde ?? o.criado, pedido: o.id, ligacao });
-    const umPedido = db.prepare('SELECT id, nome, localidade, criado, estado FROM orcamentos WHERE id = ?');
-    // Pedido perdido ou arquivado (decisão do dono, 2026-10-14): do eletricista só fica o pagamento do trabalho já feito.
-    const acabado = (o) => o.estado === 'perdido' || o.estado === ESTADO_ARQUIVADO;
+    // Os pedidos com alguma coisa por fazer (teste de 2026-10-14): as consultas abaixo só os encontram; o que falta e o
+    // texto de cada linha vêm de proximo-passo.js (linhasDoHoje), com os mesmos factos da ficha, para o Hoje e a caixa
+    // "Próximo passo" nunca dizerem coisas diferentes. Pedido perdido ou arquivado (decisão do dono, 2026-10-14): só fica
+    // o pagamento do trabalho que o eletricista já fez (as consultas já os deixam de fora, menos essa).
+    const candidatos = new Set();
+    const procurar = (sql, ...v) => { for (const x of db.prepare(sql).all(...v)) candidatos.add(x.id); };
+    const ACABADOS = `('perdido', '${ESTADO_ARQUIVADO}')`;
     const casa = (c) => mapa.get(c)?.nome ?? c;
     const alerta = (a) => itens.push({ tipo: 'alerta', texto: `${String(a.mensagem).replace(/\.$/, '')}: ver em casa de ${casa(a.cliente)}`, nome: casa(a.cliente), localidade: mapa.get(a.cliente)?.localidade ?? null, desde: a.desde ?? null, ligacao: '#/alertas' });
-    const novos = () => {
-      for (const o of db.prepare("SELECT id, nome, localidade, criado FROM orcamentos WHERE estado = 'novo' LIMIT 200").all()) {
-        if (!itens.some((x) => x.pedido === o.id && x.tipo === 'validar')) pedido('pedido_novo', 'Contactar', o, o.criado);
-      }
-    };
+    // Pedidos novos (o devolvido ao cliente espera por ele: teste de 2026-10-14).
+    const novos = () => procurar("SELECT id FROM orcamentos WHERE estado = 'novo' AND (validacao IS NULL OR validacao != 'devolvido') LIMIT 200");
     const comuns = () => {
-      // Propostas aceites pelo cliente na conta: falta marcar a obra (converter).
-      for (const o of db.prepare("SELECT id, nome, localidade, proposta_aceite FROM orcamentos WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL LIMIT 50").all()) {
-        pedido('proposta_aceite', 'Marcar a obra da proposta aceite por', o, o.proposta_aceite);
-      }
+      // Propostas aceites pelo cliente na conta: falta marcar a obra (converter) ou ligar a casa.
+      procurar("SELECT id FROM orcamentos WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL LIMIT 50");
       // Pedidos em que a última mensagem é do cliente (ainda sem resposta da equipa).
-      for (const o of db.prepare(`SELECT o.id, o.nome, o.localidade, m.criado AS quando FROM orcamentos o
-        JOIN mensagens_pedido m ON m.id = (SELECT MAX(id) FROM mensagens_pedido WHERE orcamento_id = o.id)
-        WHERE o.estado != ? AND m.de = 'cliente' LIMIT 100`).all(ESTADO_ARQUIVADO)) pedido('mensagem', 'Responder à mensagem de', o, o.quando);
+      procurar(`SELECT o.id FROM orcamentos o JOIN mensagens_pedido m ON m.id = (SELECT MAX(id) FROM mensagens_pedido WHERE orcamento_id = o.id)
+        WHERE o.estado NOT IN ${ACABADOS} AND m.de = 'cliente' LIMIT 100`);
     };
     if (u.papel === 'ceo') {
-      // Pedidos por validar (com a validação ligada; os que o cliente já corrigiu dizem-no); depois, os novos já validados.
-      if (config.validacaoCeo) {
-        for (const o of db.prepare(`SELECT id, nome, localidade, criado, validacao_nota, validacao_em FROM orcamentos
-          WHERE validacao IS NULL AND estado NOT IN ('aceite', 'perdido', '${ESTADO_ARQUIVADO}') LIMIT 200`).all()) {
-          const nota = String(o.validacao_nota ?? '');
-          pedido('validar', /^O cliente diz que já corrigiu/.test(nota) ? 'Rever o pedido corrigido por' : /^Proposta não aceite/.test(nota) ? 'Rever a proposta não aceite por' : 'Validar o pedido de', o, o.validacao_em ?? o.criado);
-        }
-      }
+      // Pedidos por validar (com a validação ligada); depois, os novos já validados.
+      if (config.validacaoCeo) procurar(`SELECT id FROM orcamentos WHERE validacao IS NULL AND estado NOT IN ('aceite', 'perdido', '${ESTADO_ARQUIVADO}') LIMIT 200`);
       novos();
       comuns();
       alertas.lista().alertas.filter((x) => x.gravidade === 'critica').slice(0, 20).forEach(alerta);
@@ -896,37 +888,24 @@ export function criarApi(ctx) {
           : 'Sem cópia de segurança há mais de dois dias: fale com quem trata do servidor', nome: null, localidade: null, desde: cp.quando, ligacao: null });
       }
       if (config.eletricistas) {
-        // Propostas dos eletricistas: na bolsa, à espera de o CEO escolher uma; depois da visita, por enviar ao cliente.
+        // Propostas dos eletricistas na bolsa, à espera de o CEO escolher uma.
         if (config.propostasBolsa) {
-          for (const x of db.prepare(`SELECT p.orcamento_id, MIN(p.criado) AS desde FROM propostas_bolsa p
-            WHERE p.estado = 'enviada' AND EXISTS (SELECT 1 FROM trabalhos_eletricista t WHERE t.orcamento_id = p.orcamento_id AND t.estado = 'na_bolsa')
-            GROUP BY p.orcamento_id LIMIT 50`).all()) {
-            const o = umPedido.get(x.orcamento_id);
-            if (o && !acabado(o)) pedido('escolher_proposta', 'Escolher a proposta de eletricista para', o, x.desde);
-          }
+          procurar(`SELECT DISTINCT p.orcamento_id AS id FROM propostas_bolsa p JOIN orcamentos o ON o.id = p.orcamento_id
+            WHERE p.estado = 'enviada' AND o.estado NOT IN ${ACABADOS}
+            AND EXISTS (SELECT 1 FROM trabalhos_eletricista t WHERE t.orcamento_id = p.orcamento_id AND t.estado = 'na_bolsa') LIMIT 50`);
         }
-        const doTrabalho = (sql, tipo, texto, desde, ligacao) => {
-          for (const x of db.prepare(sql).all()) {
-            const o = umPedido.get(x.orcamento_id);
-            if (o && (tipo === 'pagar_eletricista' || !acabado(o))) pedido(tipo, typeof texto === 'function' ? texto(x) : texto, o, desde(x), ligacao);
-          }
-        };
-        doTrabalho(`SELECT t.orcamento_id, t.atualizado FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
-          WHERE t.proposta IS NOT NULL AND t.estado != 'retirado' AND o.estado IN ('novo', 'contactado', 'visita_marcada') LIMIT 50`,
-        'enviar_proposta', 'Enviar ao cliente a proposta do eletricista para', (x) => x.atualizado);
-        doTrabalho("SELECT orcamento_id, confirmada, atualizado FROM trabalhos_eletricista WHERE estado = 'confirmada' LIMIT 50",
-          'aprovar_trabalho', 'Aprovar o trabalho do eletricista em casa de', (x) => x.confirmada ?? x.atualizado);
-        doTrabalho(`SELECT t.orcamento_id, t.aprovada, t.atualizado, e.nome AS eletricista FROM trabalhos_eletricista t
-          LEFT JOIN eletricistas e ON e.id = t.eletricista_id WHERE t.estado = 'aprovada' LIMIT 50`,
-        'pagar_eletricista', (x) => `Pagar a ${x.eletricista ?? 'o eletricista'} o trabalho em casa de`, (x) => x.aprovada ?? x.atualizado, '#/pagamentos');
-        doTrabalho("SELECT orcamento_id, criado FROM trabalhos_extra WHERE estado = 'proposto' LIMIT 50",
-          'extra', 'Pôr o preço no trabalho a mais em casa de', (x) => x.criado);
-        doTrabalho("SELECT orcamento_id, criado FROM idas_perdidas WHERE estado = 'proposta' LIMIT 50",
-          'ida_perdida', 'Confirmar ou anular a ida perdida a casa de', (x) => x.criado);
-        for (const x of eletricistas.obrasSemTecnico().lista.slice(0, 50)) {
-          const o = umPedido.get(x.orcamento_id);
-          if (o && !acabado(o)) pedido('sem_tecnico', 'Indicar o técnico responsável da obra de', o, x.criado);
-        }
+        // A proposta do eletricista por enviar, o trabalho por aprovar, o trabalho a mais e a ida perdida; o pagamento ao
+        // eletricista é o único que fica com o pedido perdido ou arquivado.
+        procurar(`SELECT DISTINCT t.orcamento_id AS id FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
+          WHERE t.proposta IS NOT NULL AND t.estado != 'retirado' AND o.estado IN ('novo', 'contactado', 'visita_marcada') LIMIT 50`);
+        procurar(`SELECT DISTINCT t.orcamento_id AS id FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
+          WHERE t.estado = 'confirmada' AND o.estado NOT IN ${ACABADOS} LIMIT 50`);
+        procurar("SELECT DISTINCT orcamento_id AS id FROM trabalhos_eletricista WHERE estado = 'aprovada' LIMIT 50");
+        procurar(`SELECT DISTINCT x.orcamento_id AS id FROM trabalhos_extra x JOIN orcamentos o ON o.id = x.orcamento_id
+          WHERE x.estado = 'proposto' AND o.estado NOT IN ${ACABADOS} LIMIT 50`);
+        procurar(`SELECT DISTINCT x.orcamento_id AS id FROM idas_perdidas x JOIN orcamentos o ON o.id = x.orcamento_id
+          WHERE x.estado = 'proposta' AND o.estado NOT IN ${ACABADOS} LIMIT 50`);
+        for (const x of eletricistas.obrasSemTecnico().lista.slice(0, 50)) if (x.orcamento_id) candidatos.add(x.orcamento_id);
         for (const e of db.prepare("SELECT nome, criado FROM eletricistas WHERE estado = 'pendente' LIMIT 50").all()) {
           itens.push({ tipo: 'candidatura', texto: `Decidir a candidatura de ${e.nome}`, nome: e.nome, localidade: null, desde: e.criado, ligacao: '#/eletricistas' });
         }
@@ -937,14 +916,10 @@ export function criarApi(ctx) {
       }
     } else if (u.papel === 'comercial') {
       novos();
-      // A visita já foi (hora de Lisboa) e a proposta ainda não seguiu.
-      for (const o of db.prepare("SELECT id, nome, localidade, criado, data_visita FROM orcamentos WHERE estado = 'visita_marcada' AND data_visita IS NOT NULL AND data_visita < ? LIMIT 200").all(agoraLx)) {
-        pedido('enviar_proposta', 'Enviar a proposta a', o, o.data_visita);
-      }
+      // A visita já foi (hora de Lisboa) e a proposta ainda não seguiu; ou é hoje, mais logo.
+      procurar("SELECT id FROM orcamentos WHERE estado = 'visita_marcada' AND data_visita IS NOT NULL AND data_visita < ? LIMIT 200", agoraLx);
       comuns();
-      for (const o of db.prepare("SELECT id, nome, localidade, data_visita FROM orcamentos WHERE estado = 'visita_marcada' AND substr(data_visita, 1, 10) = ? AND data_visita >= ? LIMIT 50").all(hoje, agoraLx)) {
-        itens.push({ tipo: 'visita', texto: `Visita a ${o.nome}`, nome: o.nome, localidade: o.localidade ?? null, desde: o.data_visita, hora: String(o.data_visita).slice(11, 16) || null, pedido: o.id, ligacao: ped(o) });
-      }
+      procurar("SELECT id FROM orcamentos WHERE estado = 'visita_marcada' AND substr(data_visita, 1, 10) = ? AND data_visita >= ? LIMIT 50", hoje, agoraLx);
     } else {
       // Técnico: as suas obras de hoje (obra_tecnicos) e os alertas mais graves das casas.
       for (const o of db.prepare(`SELECT o.* FROM obras o JOIN obra_tecnicos t ON t.obra_id = o.id AND t.utilizador_id = ?
@@ -954,6 +929,17 @@ export function criarApi(ctx) {
           desde: `${o.data}T${o.hora || '00:00'}`, hora: o.hora || null, ligacao: `#/obras/${encodeURIComponent(o.id)}` });
       }
       alertas.lista().alertas.filter((x) => x.gravidade === 'critica' || x.gravidade === 'alta').slice(0, 30).forEach(alerta);
+    }
+    if (candidatos.size) {
+      const semTecnico = config.eletricistas && eletricistas ? eletricistas.obrasSemTecnico() : null;
+      const umPedido = db.prepare('SELECT * FROM orcamentos WHERE id = ?');
+      for (const id of candidatos) {
+        const o = umPedido.get(id);
+        if (!o) continue;
+        for (const x of linhasDoHoje(factosDoPedido(o, formatarOrcamento(o), semTecnico), u.papel, `#/orcamentos/${encodeURIComponent(o.id)}`)) {
+          itens.push({ ...x, nome: o.nome, localidade: o.localidade ?? null, desde: x.desde ?? o.criado, pedido: o.id });
+        }
+      }
     }
     // A mais antiga primeiro; sem data (um alerta sem "desde") vai para o topo. As horas de Lisboa sem fuso comparam-se
     // como UTC: uma hora de diferença não muda a ordem do que interessa (o que está à espera há dias).
@@ -1278,7 +1264,7 @@ export function criarApi(ctx) {
     crm.ligarPedidos();
     const o = obterOrcamento(params.id);
     if (o.estado === ESTADO_ARQUIVADO && u.papel !== 'ceo') throw new ErroApi(404, 'Pedido de orçamento não encontrado.');
-    responder(res, 200, formatarOrcamento(o, true));
+    responder(res, 200, formatarOrcamento(o, true, u.papel));
   };
 
   // Foto de um pedido: só para quem vê o orçamento (rota), com o tipo certo e sem que o browser a
@@ -1317,7 +1303,7 @@ export function criarApi(ctx) {
     naoArquivado(o);
     await fotos.apagar(f);
     auditar(u, 'foto_apagada', `orcamento:${o.id}`, { chave: f.chave }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   function camposContacto(v, obrigatorio) {
@@ -1342,7 +1328,7 @@ export function criarApi(ctx) {
       VALUES (?, ?, 'painel', ?, ?, ?, ?, ?, ?, ?)`).run(agora, agora, c.nome, c.telefone ?? null, c.email ?? null,
       c.localidade ?? null, c.servico, c.mensagem ?? null, notas).lastInsertRowid);
     auditar(u, 'orcamento_criado', `orcamento:${id}`, { origem: 'painel' }, ip);
-    responder(res, 201, formatarOrcamento(obterOrcamento(String(id)), true));
+    responder(res, 201, formatarOrcamento(obterOrcamento(String(id)), true, u.papel));
   };
 
   h.atualizarOrcamento = async ({ req, res, u, params, ip }) => {
@@ -1403,7 +1389,7 @@ export function criarApi(ctx) {
     }
     auditar(u, 'orcamento_atualizado', `orcamento:${o.id}`, det, ip);
     avisarDaProposta(o, obterOrcamento(params.id), 'valor_proposta' in det);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   /**
@@ -1632,7 +1618,7 @@ export function criarApi(ctx) {
       correio.enviar({ para: email, assunto: 'Domus Energia: o seu relatório completo está pronto', resumo: `relatório do pedido ${o.id} libertado`,
         texto: ['Olá,', '', `O relatório completo do seu pedido n.º ${o.id} já foi revisto pela nossa equipa e está na sua conta.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Fase 3: "Marcar visita" — a data e a hora da visita técnica (paga, ou a da avaria). Passa a "Visita marcada" (se ainda
@@ -1658,7 +1644,7 @@ export function criarApi(ctx) {
         texto: ['Olá,', '', `A visita técnica do seu pedido n.º ${o.id} está marcada para ${txt}.`, 'Se não puder, responda a este email ou ligue-nos.',
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Cliente faltou" (decisão 10 do dono): o técnico foi e o cliente não estava (ou cancelou em cima da hora). A visita
@@ -1683,7 +1669,7 @@ export function criarApi(ctx) {
           'Como dizem os Termos, uma visita a que falta (ou cancelada com menos de 24 h) não é devolvida nem descontada na obra. ' + (pagPed.visitaIncluida(o) ? 'Para avançar, fale connosco.' : 'Para avançar, marque e pague uma visita nova na sua conta.'),
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Cancelar obra e devolver sinal" (só CEO): antes de a obra ser feita. Devolve o sinal (todo, ou `valor`: o sinal
@@ -1710,7 +1696,7 @@ export function criarApi(ctx) {
             : `Devolvemos ${deCent(r.cent).toFixed(2).replace('.', ',')} € do sinal para o mesmo meio de pagamento (até 14 dias)${r.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Parar a obra por segurança" (só CEO; decisão do dono, 2026-10-11): o cliente não aceitou um trabalho a mais e o que
@@ -1768,7 +1754,7 @@ export function criarApi(ctx) {
               : `Devolvemos ${euro(devolverCent)} para o mesmo meio de pagamento (até 14 dias)${r.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           'Se tiver dúvidas, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Ensaios medidos na visita/obra (relatório completo, lista de ensaios): continuidade do PE (Ω), isolamento (MΩ),
@@ -1786,7 +1772,7 @@ export function criarApi(ctx) {
     ens.data = agora;
     db.prepare('UPDATE orcamentos SET ensaios = ?, atualizado = ? WHERE id = ?').run(JSON.stringify(ens), agora, o.id);
     auditar(u, 'ensaios_registados', `orcamento:${o.id}`, Object.fromEntries(CHAVES_ENSAIOS.map((k) => [k, ens[k]])), ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Esquema do quadro elétrico feito pelo eletricista a partir da foto do cliente (ronda B; docs/PAINEL-EMPRESA.md
@@ -1806,7 +1792,7 @@ export function criarApi(ctx) {
       geral: guardado.disjuntor_geral?.amperes ?? null, diferenciais: guardado.diferenciais.length, disjuntores: guardado.disjuntores.length,
       modulos_livres: guardado.modulos_livres, estado: guardado.estado,
     } : { apagado: true }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Diagnóstico de avarias (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): a lista de verificação, as medições, o tipo
@@ -1820,7 +1806,7 @@ export function criarApi(ctx) {
     db.prepare('UPDATE orcamentos SET diagnostico = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
     auditar(u, 'diagnostico_atualizado', `orcamento:${o.id}`, guardado
       ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao) } : { apagado: true }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Assistente (IA) do pedido (assistente.js; docs/ASSISTENTE-IA.md): ao modelo vão só os dados técnicos (sem nome,
@@ -1863,7 +1849,7 @@ export function criarApi(ctx) {
     const ia = { ...iaDe(obterOrcamento(params.id)), [tipo]: { ...r.resultado, data: agora, por: u.email, modelo: r.modelo, custo_usd: r.custo_usd } };
     db.prepare('UPDATE orcamentos SET ia = ? WHERE id = ?').run(JSON.stringify(ia), o.id);
     auditar(u, `ia_${tipo}`, `orcamento:${o.id}`, custo, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   }
   h.iaResumo = (c) => pedirIa('resumo', c);
   h.iaDiagnostico = (c) => pedirIa('diagnostico', c);
@@ -1891,7 +1877,7 @@ export function criarApi(ctx) {
     db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, assunto, texto, por_email, criado) VALUES (?, 'equipa', ?, ?, ?, ?)").run(o.id, assunto, corpo, u.email, agoraIso());
     crm.registarEmailEnviado(o.id, `${assunto}\n\n${corpo}`, u, ip);
     auditar(u, 'mensagem_enviada', `orcamento:${o.id}`, { caracteres: corpo.length }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Pré-visualizar versão do cliente" (CEO, antes de "Libertar"): o mesmo relatório que a conta vai ver.
@@ -1907,7 +1893,7 @@ export function criarApi(ctx) {
     const o = naoArquivado(obterOrcamento(params.id));
     recusarSeComEletricista(o);
     concluirObra(o, u, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   /** Obra com um eletricista externo e ainda por confirmar pelo cliente: não se conclui à mão (eletricistas.js obraPorConfirmar). */
@@ -2318,9 +2304,11 @@ export function criarApi(ctx) {
   };
 
   // ---- tabela de preços da especialidade (decisão do dono, 2026-10-14; eletricistas.js h.proporPreco): o CEO aprova —
-  // podendo mudar os valores antes — ou recusa. Aprovar põe as horas, o material (`especificacoes.material`) e o custo do
-  // material no artigo (o que a proposta não traz fica como estava); num artigo NOVO cria-o com o SKU, a categoria e o
-  // preço de venda que o CEO indicar, escondido do cliente até o CEO o mostrar. O preço ao cliente nunca vem do eletricista.
+  // podendo mudar os valores antes — ou recusa. Aprovar põe as horas e o material (`especificacoes.material`) no artigo (o
+  // que a proposta não traz fica como estava); num artigo NOVO cria-o com o SKU, a categoria e o preço de venda que o CEO
+  // indicar, escondido do cliente até o CEO o mostrar. O preço ao cliente nunca vem do eletricista. O custo do material de
+  // instalação é uma estimativa do parceiro e fica só na proposta (e na auditoria): nunca vai para o `preco_compra_cent`,
+  // que é o custo de compra do APARELHO (teste de 2026-10-14: aprovar apagava-o com a estimativa do parceiro).
   h.propostasPrecos = ({ res }) => responder(res, 200, eletricistas.propostasPrecos());
 
   h.aprovarPropostaPreco = async ({ req, res, u, params, ip }) => {
@@ -2334,7 +2322,7 @@ export function criarApi(ctx) {
     transacao(db, () => {
       if (p.nome !== null) {
         const r = camposArtigo({ sku: v.sku, nome: v.nome ?? p.nome, categoria: v.categoria ?? 'outro', preco_venda_iva: v.preco_venda_iva, horas_instalacao: horas,
-          preco_compra: custo === null ? null : deCent(custo), especificacoes: material ? { material } : {}, especialidade: v.especialidade ?? p.especialidade, visivel_cliente: false }, false);
+          especificacoes: material ? { material } : {}, especialidade: v.especialidade ?? p.especialidade, visivel_cliente: false }, false);
         if (db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(r.sku)) throw new ErroApi(409, 'Já existe um artigo com este SKU.');
         const cols = Object.keys(r);
         artigoId = Number(db.prepare(`INSERT INTO catalogo (${cols.join(', ')}, atualizado) VALUES (${cols.map(() => '?').join(', ')}, ?)`)
@@ -2346,10 +2334,10 @@ export function criarApi(ctx) {
         let esp = {};
         try { esp = JSON.parse(a.especificacoes || '{}') ?? {}; } catch { esp = {}; }
         if (material) esp.material = material;
-        db.prepare('UPDATE catalogo SET horas_instalacao = ?, especificacoes = ?, preco_compra_cent = COALESCE(?, preco_compra_cent), atualizado = ? WHERE id = ?')
-          .run(horas, JSON.stringify(esp), custo, agoraIso(), a.id);
-        auditar(u, 'catalogo_atualizado', `catalogo:${a.id}`, { sku: a.sku, campos: ['horas_instalacao', 'especificacoes', ...(custo === null ? [] : ['preco_compra_cent'])], proposta_precos: p.id,
-          antes: { horas: a.horas_instalacao, custo: deCent(a.preco_compra_cent) } }, ip);
+        db.prepare('UPDATE catalogo SET horas_instalacao = ?, especificacoes = ?, atualizado = ? WHERE id = ?')
+          .run(horas, JSON.stringify(esp), agoraIso(), a.id);
+        auditar(u, 'catalogo_atualizado', `catalogo:${a.id}`, { sku: a.sku, campos: ['horas_instalacao', 'especificacoes'], proposta_precos: p.id,
+          antes: { horas: a.horas_instalacao } }, ip);
       }
       eletricistas.decidirPropostaPreco(p, 'aprovada', { artigoId, valores: { horas, material, custo: deCent(custo) } }, u, ip);
     });
@@ -2519,7 +2507,7 @@ export function criarApi(ctx) {
         aviso = `Pedido validado, mas não foi para a bolsa: ${e.message}`;
       }
     }
-    responder(res, 200, { ...formatarOrcamento(obterOrcamento(params.id), true), aviso });
+    responder(res, 200, { ...formatarOrcamento(obterOrcamento(params.id), true, u.papel), aviso });
   };
   // "Devolver ao cliente" (só o CEO): o que falta corrigir vai por email e fica na conversa do pedido; o cliente corrige
   // na conta e carrega em "Já corrigi" (conta.js), e o pedido volta a ficar por validar.
@@ -2541,7 +2529,7 @@ export function criarApi(ctx) {
     db.prepare("UPDATE orcamentos SET validacao = 'devolvido', validacao_nota = ?, validacao_por = ?, validacao_em = ?, atualizado = ? WHERE id = ?").run(nota, u.email, agora, agora, o.id);
     db.prepare("INSERT INTO mensagens_pedido (orcamento_id, de, assunto, texto, por_email, criado) VALUES (?, 'equipa', ?, ?, ?, ?)").run(o.id, assunto, nota, u.email, agora);
     auditar(u, 'pedido_devolvido_cliente', `orcamento:${o.id}`, { caracteres: nota.length }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Mudar a especialidade do pedido (só o CEO; decisão do dono, 2026-10-13): enquanto não houver proposta aceite. Com o
@@ -2554,7 +2542,7 @@ export function criarApi(ctx) {
     db.prepare('UPDATE orcamentos SET especialidade = ?, atualizado = ? WHERE id = ?').run(especialidade, agoraIso(), o.id);
     auditar(u, 'pedido_especialidade', `orcamento:${o.id}`, { especialidade, antes: o.especialidade ?? null }, ip);
     if (config.eletricistas) eletricistas.aoMudarEspecialidade(obterOrcamento(params.id));
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Indicar o técnico responsável da obra (só o CEO; decisão do dono, 2026-10-13): um eletricista aprovado com n.º da DGEG.
@@ -2604,7 +2592,7 @@ export function criarApi(ctx) {
           `Este trabalho a mais custa ${valor} (com IVA). Se aceitar, o valor soma ao que paga no fim da obra.`,
           'Na sua conta diz se aceita ou não. Sem a sua resposta, este trabalho não é feito.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Não avançar" (com o motivo): o trabalho a mais por rever, ou enviado e ainda sem resposta do cliente, cai.
@@ -2612,7 +2600,7 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
     eletricistas.naoAvancarExtra(o, params.extra, v.motivo, u, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // Ida perdida (decisão do dono, 2026-10-11; eletricistas.js): "Confirmar: cobrar a deslocação" — a deslocação dessa ida
@@ -2621,7 +2609,7 @@ export function criarApi(ctx) {
     await lerJson(req, []);
     const o = naoArquivado(obterOrcamento(params.id));
     eletricistas.confirmarIda(o, params.ida, u, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // "Anular (o cliente tem razão)", com o motivo: nada muda no dinheiro; o eletricista vê o motivo; o cliente não é avisado.
@@ -2629,7 +2617,7 @@ export function criarApi(ctx) {
     const v = await lerJson(req, ['motivo']);
     const o = naoArquivado(obterOrcamento(params.id));
     eletricistas.anularIda(o, params.ida, v.motivo, u, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true));
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
 
   // ------------------------------------------------------------ públicos

@@ -250,6 +250,10 @@ details.sec-ficha.agora .sec-resumo { color: var(--argila-texto); font-weight: 8
 .sec-corpo fieldset, .sec-corpo section, .sec-corpo .form-grelha > *, .sec-corpo .form-botoes > * { min-width: 0; }
 .sec-corpo select { max-width: 100%; }
 .sec-corpo .selo-p { white-space: normal; max-width: 100%; }
+/* Teste de 2026-10-14: o botão do "Próximo passo" leva ao campo (não ao formulário todo) e deixa-o por baixo da barra do título. */
+.sec-corpo :is(label, .campo, input, select, textarea, button, a) { scroll-margin-top: 96px; }
+/* Teste de 2026-10-14: a 375 px o selo longo ("A aguardar o pagamento da visita pelo cliente") passava a largura do ecrã. */
+.linhas-simples .selo-p { white-space: normal; max-width: 100%; }
 .sec-corpo .btn { white-space: normal; text-align: center; }
 @media (max-width: 599px) { .proximo-passo > .form-botoes .btn { flex: 1 1 100%; white-space: normal; } .sec-corpo { padding: 2px 10px 14px; } }
 .lista-curta-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 12px; padding: 8px 10px; border-radius: 12px; color: var(--texto); text-decoration: none; min-height: 48px; }
@@ -301,7 +305,7 @@ a.linha:hover { border-color: var(--musgo); }
 
 /* Orçamentos */
 .segmentos { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 4px; padding: 4px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 999px; }
-.segmento { min-height: 44px; min-width: 88px; border: 0; border-radius: 999px; background: transparent; color: var(--texto-suave); font: 700 .95rem var(--letra); cursor: pointer; padding: 8px 14px; }
+.segmento { min-height: 48px; min-width: 88px; border: 0; border-radius: 999px; background: transparent; color: var(--texto-suave); font: 700 .95rem var(--letra); cursor: pointer; padding: 8px 14px; }
 .segmento[aria-pressed="true"] { background: var(--musgo); color: var(--sobre-musgo); }
 .quadro { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 10px; align-items: start; }
 .coluna { background: color-mix(in srgb, var(--musgo-claro) 55%, var(--fundo)); border-radius: var(--raio); padding: 12px; min-height: 120px; }
@@ -614,9 +618,11 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .qd-sel-titulo { margin: 0; font-weight: 800; }
 .qd-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .qd-chips-rotulo { flex: 0 0 100%; font-size: .9rem; font-weight: 700; }
-.qd-chip { min-width: 52px; min-height: 40px; padding: 6px 12px; border: 1px solid var(--borda); }
+.qd-chip { min-width: 52px; min-height: 48px; padding: 6px 12px; border: 1px solid var(--borda); }
 .qd-livres-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; font-weight: 700; }
-.qd-livres-linha .segmento { min-width: 44px; }
+.qd-livres-linha .segmento { min-width: 48px; }
+/* Teste de 2026-10-14: alvos de toque de 48 px (Quadro/Lista, ± módulos, estado do quadro e o "n artigos" da atribuição). */
+details.material-artigos > summary { min-height: 48px; padding: 12px 0; box-sizing: border-box; cursor: pointer; }
 .qd-livres-valor { min-width: 2.5ch; text-align: center; font-weight: 800; }
 .qd-fusiveis { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 700; }
 .esquema-quadro textarea { width: 100%; }

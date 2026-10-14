@@ -347,7 +347,16 @@ const eParceiro = () => Array.isArray(eu?.parceiro_de) && eu.parceiro_de.length 
 const horasTxt = (v) => `${decimal(Math.round(Number(v) * 100) / 100)} h`;
 
 function campoTexto(rotulo, input, dica) {
-  return com(el("label", "campo"), el("span", null, rotulo), input, dica ? el("span", "dica", dica) : null);
+  const l = com(el("label", "campo"), el("span", null, rotulo), input, dica ? el("span", "dica", dica) : null);
+  // Teste de 2026-10-14: o nome acessível vem do rótulo (for + aria-labelledby), nunca do placeholder; a dica é a descrição.
+  if (input.id) {
+    l.htmlFor = input.id;
+    const [r, d] = [l.children[0], dica ? l.lastElementChild : null];
+    r.id = `${input.id}-rotulo`;
+    input.setAttribute("aria-labelledby", r.id);
+    if (d) { d.id = `${input.id}-dica`; input.setAttribute("aria-describedby", d.id); }
+  }
+  return l;
 }
 /** O formulário da proposta: `artigo` (um que já existe) ou null (artigo novo). Envia e volta a desenhar a tabela. */
 function formPreco(r, artigo) {
@@ -414,7 +423,8 @@ function linhaProposta(x) {
 async function precos() {
   const r = await pedir("precos");
   const ultima = new Map();
-  for (const x of r.propostas) if (x.artigo_id && !x.novo && !ultima.has(x.artigo_id)) ultima.set(x.artigo_id, x);   // vêm da mais recente para a mais antiga
+  // Vêm da mais recente para a mais antiga. Um artigo novo aprovado já tem `artigo_id` e fica com o selo como os outros (teste de 2026-10-14).
+  for (const x of r.propostas) if (x.artigo_id && !ultima.has(x.artigo_id)) ultima.set(x.artigo_id, x);
   const nomes = r.especialidades.map((x) => x.nome).join(" · ");
   const out = [botaoVoltar("Início", "inicio"), el("h2", null, "Tabela de preços da minha especialidade"),
     el("p", "suave pequeno", `${nomes}. As horas de mão de obra que a Domus Energia usa hoje em cada artigo e o que recebe por elas: ${decimal(r.percentagem)} % da mão de obra, sem IVA. Se acha que um artigo leva mais (ou menos) tempo ou outro material, proponha: nada muda até a Domus Energia aprovar.`)];

@@ -26,8 +26,11 @@ const antigo = (x, agora = Date.now()) => !x.hora && Boolean(x.desde) && agora -
 export default function hoje(el, ctx) {
   const zona = h("div", { class: "hoje" }, carregando());
   const primeiro = ctx.eu.nome.split(" ")[0] || "";
-  el.append(h("div", { class: "ecra-topo" }, h("h1", { text: "Hoje" })),
-    h("p", { class: "hoje-ola", text: `${saudacao()}${primeiro ? `, ${primeiro}` : ""}. Isto é o que está à sua espera, o mais antigo primeiro.` }), zona);
+  const ola = `${saudacao()}${primeiro ? `, ${primeiro}` : ""}.`;
+  // A frase de baixo só depois de saber se há alguma coisa (teste de 2026-10-14: "Isto é o que está à sua espera" ficava
+  // por cima de "Nada à sua espera").
+  const intro = h("p", { class: "hoje-ola", text: ola });
+  el.append(h("div", { class: "ecra-topo" }, h("h1", { text: "Hoje" })), intro, zona);
   const ctrl = new AbortController();
 
   async function carregar() {
@@ -43,6 +46,7 @@ export default function hoje(el, ctx) {
         h("p", { class: "hoje-texto" }, h("span", { text: x.texto }), meta ? h("span", { class: "hoje-meta", text: ` · ${meta}` }) : null),
         x.ligacao ? h("a", { class: "btn sec", href: x.ligacao, text: "Abrir", "aria-label": `Abrir: ${x.texto}` }) : null);
     });
+    intro.textContent = linhas.length ? `${ola} Isto é o que está à sua espera, o mais antigo primeiro.` : ola;
     const out = [linhas.length
       ? h("ul", { class: "hoje-lista", id: "hoje-lista", "aria-label": `${num(linhas.length)} ${linhas.length === 1 ? "coisa" : "coisas"} à sua espera` }, ...linhas)
       : h("p", { class: "hoje-vazio", id: "hoje-vazio", text: "Nada à sua espera. Bom trabalho." })];

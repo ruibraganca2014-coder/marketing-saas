@@ -10,6 +10,9 @@
 const ORDEM = ['validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabalho', 'escolher_proposta', 'enviar_proposta',
   'proposta_aceite', 'pagar_eletricista', 'pedido_novo', 'mensagem', 'visita'];
 
+/** Um trabalho de eletricista ainda por acabar: na bolsa, com ele (visita por marcar ou marcada), feito à espera do cliente ou por aprovar. */
+const TRABALHO_ABERTO = ['na_bolsa', 'aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada'];
+
 /** As fases que o painel mostra: as da conta do cliente (painel/src/conta.js `passos`), mais o pagamento no fim. */
 export const FASES = {
   recebido: 'Pedido recebido', verificado: 'Pedido verificado', proposta: 'Proposta', aceite: 'Proposta aceite',
@@ -40,9 +43,15 @@ export function pendentesDoPedido(f) {
     const nota = String(f.validacao_nota ?? '');
     juntar('validar', ['ceo'], f.validacao_em ?? f.criado, { motivo: /^O cliente diz que já corrigiu/.test(nota) ? 'corrigido' : /^Proposta não aceite/.test(nota) ? 'recusada' : null, em_falta: Boolean(f.validacao_em_falta) });
   }
-  if (f.estado === 'novo') juntar('pedido_novo', porValidar ? ['comercial'] : ['ceo', 'comercial'], f.criado);
+  // Teste de 2026-10-14: o pedido devolvido ao cliente espera que ele o corrija, e o que está com os eletricistas (na bolsa
+  // ou com um deles, que contacta o cliente e marca a visita) espera por eles — em nenhum dos dois a equipa o contacta.
+  const comEletricista = f.eletricistas && (f.trabalhos ?? []).some((x) => TRABALHO_ABERTO.includes(x.estado));
+  if (f.estado === 'novo' && f.validacao !== 'devolvido' && !comEletricista) juntar('pedido_novo', porValidar ? ['comercial'] : ['ceo', 'comercial'], f.criado);
   // Com a obra feita ou marcada e o restante por pagar, a casa ainda não se liga: fica no fim (o que se pode fazer já vem antes).
-  if (f.estado === 'aceite' && f.proposta_aceite && !f.cliente) juntar('proposta_aceite', ['ceo', 'comercial'], f.proposta_aceite, { depois: Boolean(f.obra) && !f.obra.por_agendar && f.ligar_pode === false });
+  // A obra com um eletricista e ainda não aprovada (teste de 2026-10-14): quem a marca e faz é ele, e o cliente confirma;
+  // até lá não há nada da equipa (esperaDoPedido diz de quem se espera; o "Aprovar o trabalho" vem dos trabalhos).
+  const obraComEletricista = f.eletricistas && TRABALHO_ABERTO.includes(f.trabalho_obra);
+  if (f.estado === 'aceite' && f.proposta_aceite && !f.cliente && !obraComEletricista) juntar('proposta_aceite', ['ceo', 'comercial'], f.proposta_aceite, { depois: Boolean(f.obra) && !f.obra.por_agendar && f.ligar_pode === false });
   if (f.mensagem_cliente) juntar('mensagem', ['ceo', 'comercial'], f.mensagem_cliente);
   if (f.eletricistas) {
     const t = f.trabalhos ?? [];
@@ -100,7 +109,8 @@ export function esperaDoPedido(f) {
   if (f.extra_enviado) return 'À espera do cliente: responder ao trabalho a mais.';
   if (obraT === 'concluida_eletricista') return 'À espera do cliente: confirmar que a obra ficou concluída (fica aceite ao fim de 7 dias).';
   if (obraT === 'na_bolsa') return 'À espera dos eletricistas: a obra está na bolsa.';
-  if (obraT === 'aceite' || obraT === 'visita_marcada') return 'À espera do eletricista: fazer a obra.';
+  if (obraT === 'aceite') return 'À espera do eletricista: marcar a visita (tem 48 h).';
+  if (obraT === 'visita_marcada') return 'À espera do eletricista: fazer a obra.';
   if (t.some((x) => x.estado === 'na_bolsa')) return 'À espera dos eletricistas: o pedido está na bolsa, ainda sem propostas.';
   if (t.some((x) => ['aceite', 'visita_marcada'].includes(x.estado))) return 'À espera do eletricista: ir ao local e fazer a proposta.';
   const concluida = obraConcluidaDe(f);
@@ -110,29 +120,44 @@ export function esperaDoPedido(f) {
   return null;
 }
 
-/** O texto da caixa para cada coisa por fazer (sem o nome do cliente: a ficha já é dele). */
-function textoDe(p, f) {
+/**
+ * As duas frases de cada coisa por fazer, lado a lado para não divergirem (teste de 2026-10-14: o Hoje e a ficha diziam
+ * coisas diferentes do mesmo pedido): `texto`, o da caixa da ficha (sem o nome do cliente: a ficha já é dele), e
+ * `linha`, a do ecrã Hoje, com o nome (`f.nome`). O Hoje (api.js h.hoje) tira a linha daqui, dos mesmos factos da ficha.
+ */
+function frasesDe(p, f) {
+  const nome = f.nome ?? 'o cliente';
+  const fr = (texto, linha) => ({ texto, linha });
   switch (p.tipo) {
     // Falta a foto do quadro (ponto em_falta): não se valida, devolve-se ao cliente (decisão do dono, 2026-10-11).
-    case 'validar': return p.em_falta ? 'Falta a foto do quadro elétrico: devolver o pedido ao cliente.' : p.motivo === 'corrigido' ? 'O cliente diz que já corrigiu: rever o pedido e validar.'
-      : p.motivo === 'recusada' ? 'O cliente não aceitou a proposta: rever e validar de novo, ou dar o pedido como perdido.' : 'Validar o pedido.';
-    case 'pedido_novo': return 'Contactar o cliente e, a seguir, mudar o estado para "Contactado".';
+    case 'validar':
+      if (p.em_falta) return fr('Falta a foto do quadro elétrico: devolver o pedido ao cliente.', `Devolver ao cliente o pedido de ${nome} (falta a foto do quadro)`);
+      if (p.motivo === 'corrigido') return fr('O cliente diz que já corrigiu: rever o pedido e validar.', `Rever o pedido corrigido por ${nome}`);
+      if (p.motivo === 'recusada') return fr('O cliente não aceitou a proposta: rever e validar de novo, ou dar o pedido como perdido.', `Rever a proposta não aceite por ${nome}`);
+      return fr('Validar o pedido.', `Validar o pedido de ${nome}`);
+    case 'pedido_novo': return fr('Contactar o cliente e, a seguir, mudar o estado para "Em preparação".', `Contactar ${nome}`);
     case 'proposta_aceite':
-      if (!f.obra) return 'O cliente aceitou a proposta: converter em cliente e marcar a obra.';
-      if (f.obra.por_agendar) return 'O cliente aceitou a proposta: marcar a data da obra.';
-      return f.ligar_pode === false ? `${obraConcluidaDe(f) ? 'Obra concluída' : 'Obra marcada'}. Falta o cliente pagar o restante para ligar a casa.` : 'Ligar a casa do cliente (app e mensalidade).';
-    case 'mensagem': return 'O cliente escreveu: responder à mensagem.';
-    case 'escolher_proposta': return `Escolher a proposta de um eletricista (${f.n_propostas} ${f.n_propostas === 1 ? 'recebida' : 'recebidas'}).`;
-    case 'enviar_proposta': return p.papeis.includes('ceo') ? 'Rever a proposta do eletricista e enviá-la ao cliente.' : 'A visita já foi: enviar a proposta ao cliente.';
-    case 'aprovar_trabalho': return 'O cliente confirmou o trabalho: aprovar o trabalho do eletricista.';
-    case 'pagar_eletricista': return `Pagar a ${p.eletricista ?? 'o eletricista'} o trabalho deste pedido.`;
-    case 'extra': return 'Pôr o preço no trabalho a mais e enviá-lo ao cliente.';
-    case 'ida_perdida': return 'O eletricista diz que o cliente não estava: confirmar ou anular a ida perdida.';
-    case 'sem_tecnico': return 'Indicar o técnico responsável da obra.';
-    case 'visita': return `Visita hoje${p.hora ? ` às ${p.hora}` : ''}.`;
-    default: return p.tipo;
+      if (!f.obra) return fr('O cliente aceitou a proposta: converter em cliente e marcar a obra.', `Marcar a obra da proposta aceite por ${nome}`);
+      if (f.obra.por_agendar) return fr('O cliente aceitou a proposta: marcar a data da obra.', `Marcar a data da obra de ${nome}`);
+      if (f.ligar_pode === false) {
+        const obra = obraConcluidaDe(f) ? 'Obra concluída' : 'Obra marcada';
+        return fr(`${obra}. Falta o cliente pagar o restante para ligar a casa.`, `${obra} em casa de ${nome}: falta o cliente pagar o restante para ligar a casa`);
+      }
+      return fr('Ligar a casa do cliente (app e mensalidade).', `Ligar a casa de ${nome}`);
+    case 'mensagem': return fr('O cliente escreveu: responder à mensagem.', `Responder à mensagem de ${nome}`);
+    case 'escolher_proposta': return fr(`Escolher a proposta de um eletricista (${f.n_propostas} ${f.n_propostas === 1 ? 'recebida' : 'recebidas'}).`, `Escolher a proposta de eletricista para ${nome}`);
+    case 'enviar_proposta': return p.papeis.includes('ceo') ? fr('Rever a proposta do eletricista e enviá-la ao cliente.', `Enviar ao cliente a proposta do eletricista para ${nome}`)
+      : fr('A visita já foi: enviar a proposta ao cliente.', `Enviar a proposta a ${nome}`);
+    case 'aprovar_trabalho': return fr('O cliente confirmou o trabalho: aprovar o trabalho do eletricista.', `Aprovar o trabalho do eletricista em casa de ${nome}`);
+    case 'pagar_eletricista': return fr(`Pagar a ${p.eletricista ?? 'o eletricista'} o trabalho deste pedido.`, `Pagar a ${p.eletricista ?? 'o eletricista'} o trabalho em casa de ${nome}`);
+    case 'extra': return fr('Pôr o preço no trabalho a mais e enviá-lo ao cliente.', `Pôr o preço no trabalho a mais em casa de ${nome}`);
+    case 'ida_perdida': return fr('O eletricista diz que o cliente não estava: confirmar ou anular a ida perdida.', `Confirmar ou anular a ida perdida a casa de ${nome}`);
+    case 'sem_tecnico': return fr('Indicar o técnico responsável da obra.', `Indicar o técnico responsável da obra de ${nome}`);
+    case 'visita': return fr(`Visita hoje${p.hora ? ` às ${p.hora}` : ''}.`, `Visita a ${nome}`);
+    default: return fr(p.tipo, `${p.tipo}: ${nome}`);
   }
 }
+const textoDe = (p, f) => frasesDe(p, f).texto;
 
 /**
  * O botão da caixa: {rotulo, sec, alvo} (abre a secção e mostra o alvo) ou {rotulo, ligacao} (vai para outro ecrã ou
@@ -164,6 +189,19 @@ const SEC_DO_TIPO = { pedido_novo: 'proposta', proposta_aceite: 'obra', pagar_el
 const SEC_DA_FASE = { recebido: 'cliente', verificado: 'validacao', proposta: 'proposta', aceite: 'obra', obra: 'obra', pago: 'pagamentos' };
 
 /**
+ * As linhas do ecrã Hoje de um pedido, para um papel (teste de 2026-10-14: o Hoje tira o que falta e o texto daqui, dos
+ * mesmos factos da ficha, para nunca dizer outra coisa): [{tipo, texto, desde, hora?, ligacao}]. A ligação é a do botão
+ * da ficha quando ele vai para outro ecrã (a obra, os Pagamentos); senão, a ficha do pedido (`fichaDoPedido`).
+ */
+export function linhasDoHoje(f, papel, fichaDoPedido) {
+  return pendentesDoPedido(f).filter((p) => p.papeis.includes(papel)).map((p) => {
+    const ligacao = acaoDe(p, f)?.ligacao;
+    return { tipo: p.tipo, texto: frasesDe(p, f).linha, desde: p.desde, ...(p.tipo === 'visita' ? { hora: p.hora ?? null } : {}),
+      ligacao: ligacao && ligacao.startsWith('#/') ? ligacao : fichaDoPedido };
+  });
+}
+
+/**
  * A caixa "Próximo passo" para um papel: {tipo, texto, acao, sec, outros: [{tipo, texto}]} ou, sem nada desse papel,
  * {tipo: null, texto: 'Nada a fazer agora.', espera, sec}. `espera` diz de quem se espera (o cliente, o eletricista ou
  * o CEO, quando o que falta é dele e não de quem vê).
@@ -175,8 +213,8 @@ export function proximoPasso(f, papel) {
   if (meus.length) {
     const [p, ...resto] = meus;
     const acao = acaoDe(p, f);
-    return { tipo: p.tipo, texto: textoDe(p, f), acao, sec: acao?.sec ?? SEC_DO_TIPO[p.tipo] ?? null,
-      outros: resto.map((x) => ({ tipo: x.tipo, texto: textoDe(x, f), acao: acaoDe(x, f) })) };
+    return { tipo: p.tipo, texto: textoDe(p, f), linha: frasesDe(p, f).linha, acao, sec: acao?.sec ?? SEC_DO_TIPO[p.tipo] ?? null,
+      outros: resto.map((x) => ({ tipo: x.tipo, texto: textoDe(x, f), linha: frasesDe(x, f).linha, acao: acaoDe(x, f) })) };
   }
   const doCeo = papel !== 'ceo' ? todos.find((p) => p.papeis.includes('ceo')) : null;
   const espera = doCeo ? `À espera do CEO: ${textoDe(doCeo, f).replace(/^./, (c) => c.toLowerCase())}` : esperaDoPedido(f);

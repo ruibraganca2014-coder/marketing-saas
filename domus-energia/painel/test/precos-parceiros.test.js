@@ -155,14 +155,14 @@ describe('tabela de preços da especialidade', () => {
     assert.equal(x.proposta.material, 'Caixa funda');
   });
 
-  test('o CEO aprova: as horas, o material e o custo passam para o artigo; fica quem e quando; o parceiro recebe um email', async () => {
+  test('o CEO aprova: as horas e o material passam para o artigo; fica quem e quando; o parceiro recebe um email', async () => {
     const desde = p.emails.length;
     const r = await painel('POST', `propostas-precos/${pInt}/aprovar`, 'ceo', {});
     assert.equal(r.estado, 200, r.texto);
     const a = artigo('INT-VIDRO-1');
     assert.equal(a.horas_instalacao, 0.7);
     assert.equal(JSON.parse(a.especificacoes).material, 'Caixa funda');
-    assert.equal(a.preco_compra_cent, null, 'sem custo proposto, o custo fica como estava');
+    assert.equal(a.preco_compra_cent, null, 'o custo de compra do aparelho nunca vem da proposta');
     const linha = p.app.db.prepare('SELECT * FROM propostas_precos WHERE id = ?').get(pInt);
     assert.equal(linha.estado, 'aprovada');
     assert.equal(linha.decidido_por, p.u.ceo.email);
@@ -198,6 +198,28 @@ describe('tabela de preços da especialidade', () => {
     const minha = (await area(D, 'GET', 'precos')).json.propostas.find((x) => x.id === r.json.proposta.id);
     assert.equal(minha.estado, 'recusada');
     assert.equal(minha.motivo, 'Uma hora chega para este modelo.');
+  });
+
+  test('teste de 2026-10-14: aprovar não mexe no custo de compra do aparelho (a estimativa do material fica só na proposta)', async () => {
+    p.app.db.prepare("UPDATE catalogo SET preco_compra_cent = 1234 WHERE sku = 'BAB-HC-T010'").run();
+    const t = artigo('BAB-HC-T010');
+    const r = await area(D, 'POST', 'precos', { artigo_id: t.id, horas: 1.5, material: 'Tubo e caixa', custo: 20 });
+    assert.equal(r.estado, 201, r.texto);
+    const x = (await painel('GET', 'propostas-precos')).json.pendentes.find((y) => y.id === r.json.proposta.id);
+    assert.equal(x.antes.custo, null, 'o "agora" do material de instalação não é o custo de compra do aparelho');
+    const ap = await painel('POST', `propostas-precos/${r.json.proposta.id}/aprovar`, 'ceo', { custo: 25 });
+    assert.equal(ap.estado, 200, ap.texto);
+    const a = artigo('BAB-HC-T010');
+    assert.equal(a.preco_compra_cent, 1234, 'o custo de compra do aparelho fica como estava');
+    assert.equal(a.horas_instalacao, 1.5);
+    assert.equal(JSON.parse(a.especificacoes).material, 'Tubo e caixa');
+    assert.equal(p.app.db.prepare('SELECT custo_cent FROM propostas_precos WHERE id = ?').get(r.json.proposta.id).custo_cent, 2000, 'a estimativa do parceiro fica na proposta');
+    const aud = p.app.db.prepare("SELECT detalhes FROM auditoria WHERE acao = 'proposta_precos_aprovada' ORDER BY id DESC LIMIT 1").get();
+    assert.equal(JSON.parse(aud.detalhes).custo, 25, 'o valor aprovado fica na auditoria');
+    // A proposta seguinte mostra, em "agora", a estimativa da última aprovada.
+    const s = await area(D, 'POST', 'precos', { artigo_id: t.id, horas: 2 });
+    assert.equal((await painel('GET', 'propostas-precos')).json.pendentes.find((y) => y.id === s.json.proposta.id).antes.custo, 20);
+    assert.equal((await painel('POST', `propostas-precos/${s.json.proposta.id}/recusar`, 'ceo', {})).estado, 200);
   });
 
   test('o CEO muda a especialidade de um artigo no Catálogo', async () => {
