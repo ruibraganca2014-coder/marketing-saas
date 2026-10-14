@@ -360,8 +360,9 @@ export default function catalogo(el) {
       zonaMargem.replaceChildren(
         h("span", { text: `Sem IVA: ${euros(m.semIva)}` }),
         h("strong", { text: m.euros === null ? "Margem: —" : `Margem: ${euros(m.euros)} (${pct(m.pct)})` }),
-        m.aviso === "sem_compra" ? h("span", { class: "margem-aviso", text: "Sem preço de compra: não dá para saber a margem." })
-          : m.aviso === "baixa" ? h("span", { class: "margem-aviso", text: `Margem abaixo de ${MARGEM_MINIMA} %: confirme o preço de venda.` }) : null);
+        // Sem aviso não se passa nada (replaceChildren escrevia "null").
+        ...(m.aviso === "sem_compra" ? [h("span", { class: "margem-aviso", text: "Sem preço de compra: não dá para saber a margem." })]
+          : m.aviso === "baixa" ? [h("span", { class: "margem-aviso", text: `Margem abaixo de ${MARGEM_MINIMA} %: confirme o preço de venda.` })] : []));
     }
     el2.preco_venda_iva.addEventListener("input", mostrarMargem);
     el2.preco_compra.addEventListener("input", mostrarMargem);
