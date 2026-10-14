@@ -1,21 +1,17 @@
-// Início: resumo por papel (GET resumo). O servidor já só manda o que o papel pode ver;
-// aqui mostra-se o que vier, com nomes conhecidos para os campos do §3.
+// "Números" (só o CEO): resumo (GET resumo) com os indicadores, o negócio e as distribuições. O Início de antes deu lugar
+// ao ecrã "Hoje" (decisão do dono, 2026-10-14: ecras/hoje.js); aqui mostra-se o que vier, com nomes conhecidos para os campos do §3.
 import { pedir, campo, numero, lista } from "../api.js";
-import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt, avisar } from "../ui.js";
+import { h, euros, num, data, PLANOS, ESTADOS_CLIENTE, ESTADOS_ORC, KITS, nomeDe, carregando, erroEcra, txt } from "../ui.js";
 import { blocoNegocio } from "./negocio.js";
 
-const saudacao = () => { const hr = new Date().getHours(); return hr < 13 ? "Bom dia" : hr < 20 ? "Boa tarde" : "Boa noite"; };
-
 export default function inicio(el, ctx) {
-  const titulo = h("h1", { text: ctx.numeros ? "Números" : `${saudacao()}, ${ctx.eu.nome.split(" ")[0] || ""}`.replace(/, $/, "") });
+  const titulo = h("h1", { text: "Números" });
   const zona = h("div", { class: "inicio" }, carregando());
   el.append(h("div", { class: "ecra-topo" }, titulo), zona);
   const ctrl = new AbortController();
   // Dashboard do negócio (docs/DASHBOARD.md): só CEO e comercial; pede os seus dados à parte (GET resumo/negocio) e fica
   // entre os números de sempre e os blocos. Criado uma vez: mudar de período não volta a carregar o resto do Início.
-  // O CEO tem o Início simples (decisão do dono, 2026-10-05): o negócio está no ecrã "Números".
-  const simples = ctx.pode("ceo") && !ctx.numeros;
-  const negocio = ctx.pode("ceo", "comercial") && !simples ? blocoNegocio(ctrl.signal) : null;
+  const negocio = ctx.pode("ceo", "comercial") ? blocoNegocio(ctrl.signal) : null;
 
   async function carregar() {
     zona.replaceChildren(carregando());
@@ -26,93 +22,7 @@ export default function inicio(el, ctx) {
     let tarefas = [];
     try { tarefas = lista(await pedir("tarefas?vista=minhas", { sinal: ctrl.signal }), "tarefas").filter((t) => t.estado !== "feito" && (t.atrasada || t.hoje)); }
     catch (e) { if (e.name === "AbortError") return; }
-    if (simples) {
-      // Por receber: os mais antigos (o mesmo cálculo do ecrã "Números"); sem ele o Início aparece na mesma.
-      let porReceber = null;
-      try { porReceber = campo(await pedir("resumo/negocio?periodo=mes", { sinal: ctrl.signal }), "por_receber") ?? null; }
-      catch (e) { if (e.name === "AbortError") return; }
-      // Emails ao cliente que falharam de vez (só quando os há).
-      let falhados = [];
-      if (numero(campo(campo(r, "tratar"), "emails_falhados")) > 0) {
-        try { falhados = lista(await pedir("emails-falhados", { sinal: ctrl.signal }), "emails"); }
-        catch (e) { if (e.name === "AbortError") return; }
-      }
-      zona.replaceChildren(...montarSimples(r ?? {}, tarefas, porReceber, falhados));
-      return;
-    }
     zona.replaceChildren(...montar(r ?? {}, tarefas));
-  }
-
-  /**
-   * Início do CEO num só ecrã: "Para tratar" (uma linha por coisa à espera dele, só as que têm alguma coisa), "Esta
-   * semana" (visitas e obras) e "Por receber". As estatísticas ficam em "Números" (#/numeros).
-   */
-  function montarSimples(r, tarefas, porReceber, falhados = []) {
-    const t = campo(r, "tratar") ?? {};
-    const linha = (n, um, varios, href, perigo = false) => (numero(n) > 0
-      ? h("li", {}, h("a", { class: `lista-curta-item tratar-linha${perigo ? " perigo" : ""}`, href }, h("span", { class: "num quando", text: num(n) }), h("span", { class: "lc-quem", text: numero(n) === 1 ? um : varios })))
-      : null);
-    const linhas = [
-      linha(t.alertas_criticos, "alerta crítico numa casa", "alertas críticos nas casas", "#/alertas", true),
-      linha(t.pedidos_novos, "pedido novo por tratar", "pedidos novos por tratar", "#/orcamentos"),
-      linha(t.propostas_eletricista, "proposta de eletricista por rever", "propostas de eletricistas por rever", "#/orcamentos"),
-      linha(t.extras, "trabalho a mais por rever", "trabalhos a mais por rever", t.extras_pedido ? `#/orcamentos/${encodeURIComponent(t.extras_pedido)}` : "#/orcamentos"),
-      linha(t.idas_perdidas, "ida perdida por confirmar", "idas perdidas por confirmar", t.idas_perdidas_pedido ? `#/orcamentos/${encodeURIComponent(t.idas_perdidas_pedido)}` : "#/orcamentos"),
-      // Obra com um eletricista sem n.º da DGEG e ainda sem técnico responsável (decisão do dono, 2026-10-13): não se conclui sem ele.
-      linha(t.sem_tecnico, "trabalho sem técnico responsável", "trabalhos sem técnico responsável", t.sem_tecnico_pedido ? `#/orcamentos/${encodeURIComponent(t.sem_tecnico_pedido)}` : "#/orcamentos"),
-      linha(t.propostas_aceites, "proposta aceite, falta marcar a obra", "propostas aceites, falta marcar a obra", "#/orcamentos"),
-      linha(t.mensagens, "mensagem de cliente por responder", "mensagens de clientes por responder", "#/orcamentos"),
-      linha(t.ativacoes, "ativação de aparelho por aprovar", "ativações de aparelhos por aprovar", "#/ativacoes"),
-      linha(t.candidaturas, "candidatura de eletricista por aprovar", "candidaturas de eletricistas por aprovar", "#/eletricistas"),
-      linha(t.trabalhos_por_aprovar, "trabalho concluído por aprovar", "trabalhos concluídos por aprovar", "#/eletricistas"),
-      linha(t.pagamentos_eletricistas, "pagamento a eletricista por fazer", "pagamentos a eletricistas por fazer", "#/eletricistas"),
-      linha(tarefas.length, "tarefa para hoje ou atrasada", "tarefas para hoje ou atrasadas", "#/tarefas"),
-    ].filter(Boolean);
-    const tratar = h("section", { class: "cartao", id: "inicio-tratar" }, h("h2", { text: "Para tratar" }),
-      linhas.length ? h("ul", { class: "lista-curta" }, ...linhas) : h("p", { class: "vazio", text: "Nada à sua espera." }));
-
-    const semana = [
-      ...lista(r, "visitas_semana").map((o) => ({ quando: campo(o, "data_visita"), texto: `Visita: ${txt(o, "nome")}`, extra: txt(o, "localidade"), href: `#/orcamentos/${encodeURIComponent(campo(o, "id"))}` })),
-      ...lista(r, "obras_semana").map((o) => ({ quando: `${campo(o, "data") ?? ""}${campo(o, "hora") ? `T${campo(o, "hora")}` : ""}`, texto: `Obra: ${txt(o, "cliente_nome", "nome", "cliente")}`, extra: "", href: `#/obras/${encodeURIComponent(campo(o, "id"))}` })),
-    ].sort((a, b) => String(a.quando).localeCompare(String(b.quando)));
-    const estaSemana = h("section", { class: "cartao", id: "inicio-semana" }, h("h2", { text: "Esta semana" }),
-      semana.length ? h("ul", { class: "lista-curta" }, ...semana.slice(0, 8).map((x) => h("li", {}, h("a", { class: "lista-curta-item", href: x.href },
-        h("span", { class: "num quando", text: data(x.quando) }), h("span", { class: "lc-quem", text: x.texto }), h("span", { class: "ajuda", text: x.extra })))))
-        : h("p", { class: "vazio", text: "Sem visitas nem obras marcadas." }),
-      semana.length > 8 ? h("p", { class: "ajuda" }, h("a", { href: "#/obras", text: `Ver as ${num(semana.length)} marcações` })) : null);
-
-    const antigos = porReceber ? lista(porReceber, "lista") : [];
-    const receber = antigos.length ? h("section", { class: "cartao", id: "inicio-receber" },
-      h("h2", {}, h("a", { href: "#/pagamentos", text: `Por receber: ${euros(campo(porReceber, "total") ?? 0)}` })),
-      h("ul", { class: "lista-curta" }, ...antigos.slice(0, 5).map((o) => h("li", {}, h("a", { class: "lista-curta-item", href: `#/orcamentos/${encodeURIComponent(campo(o, "id"))}` },
-        h("span", { class: "num quando", text: data(campo(o, "desde"), { hora: false }) }), h("span", { class: "lc-quem", text: String(campo(o, "nome") ?? "—") }),
-        h("span", { class: "ajuda", text: `${campo(o, "fase") === "sinal" ? "Sinal" : "Restante"} · ${euros(campo(o, "valor"))}` })))))) : null;
-
-    // Emails que não chegaram ao cliente (3 tentativas falhadas): fica à vista até "Marcar como vistos".
-    const visto = h("button", { class: "btn sec pequeno", type: "button", id: "emails-falhados-vistos", text: "Marcar como vistos" });
-    visto.addEventListener("click", async () => {
-      visto.disabled = true;
-      try { await pedir("emails-falhados/vistos", { corpo: {} }); carregar(); } catch (e) { visto.disabled = false; avisar(e.message, "erro"); }
-    });
-    const emails = falhados.length ? h("section", { class: "cartao", id: "inicio-emails-falhados" },
-      h("h2", { text: `Emails que não chegaram ao cliente (${num(falhados.length)})` }),
-      h("p", { class: "ajuda", text: "Tentámos enviar três vezes e falhou. Contacte o cliente por outro meio, ou envie de novo." }),
-      h("ul", { class: "lista-curta" }, ...falhados.map((x) => h("li", {}, h("div", { class: "lista-curta-item" },
-        h("span", { class: "num quando", text: data(campo(x, "quando")) }), h("span", { class: "lc-quem", text: `${campo(x, "para")} · ${String(campo(x, "assunto")).replace(/^Domus Energia: /, "")}` }),
-        h("span", { class: "ajuda", text: String(campo(x, "erro")) }))))),
-      h("div", { class: "form-botoes" }, visto)) : null;
-
-    // A cópia de segurança da noite falhou, ou não corre há mais de dois dias.
-    const cp = campo(t, "copia");
-    const copia = cp ? h("section", { class: "cartao", id: "inicio-copia" },
-      h("h2", { text: campo(cp, "problema") === "falhou" ? "A cópia de segurança falhou" : "Sem cópia de segurança há mais de dois dias" }),
-      h("p", { class: "msg erro", text: campo(cp, "problema") === "falhou"
-        ? `A cópia automática de ${data(campo(cp, "quando"))} não ficou feita: ${campo(cp, "motivo") || "motivo desconhecido"}.`
-        : `A última cópia automática boa é de ${data(campo(cp, "quando"))}.` }),
-      h("p", { class: "ajuda", text: "Os dados do servidor não estão em risco por isto, mas sem cópias recentes não há como voltar atrás se algo correr mal. Fale com quem trata do servidor." })) : null;
-
-    return [h("div", { class: "blocos inicio-simples" }, ...[copia, emails, tratar, estaSemana, receber].filter(Boolean)),
-      h("p", { class: "inicio-numeros" }, h("a", { class: "btn sec pequeno", href: "#/numeros", text: "Ver números" }))];
   }
 
   function montar(r, tarefas) {

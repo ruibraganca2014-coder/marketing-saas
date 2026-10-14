@@ -901,10 +901,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     }
     return trabalho(t.id);
   }
-  /** As obras nas mãos de um eletricista, ainda por aprovar, sem técnico responsável que possa assinar (Início do CEO): quantas e o pedido da mais antiga. */
+  /**
+   * As obras nas mãos de um eletricista, ainda por aprovar, sem técnico responsável que possa assinar (Início do CEO):
+   * quantas, o pedido da mais antiga e, para o ecrã "Hoje" (decisão do dono, 2026-10-14), uma linha por obra.
+   */
   function obrasSemTecnico() {
     const l = db.prepare("SELECT * FROM trabalhos_eletricista WHERE tipo IN ('obra', 'avaria') AND estado IN ('aceite', 'visita_marcada', 'concluida_eletricista', 'confirmada') ORDER BY id").all().filter((t) => !tecnicoValido(t));
-    return { n: l.length, pedido: l[0]?.orcamento_id ?? null };
+    return { n: l.length, pedido: l[0]?.orcamento_id ?? null, lista: l.map((t) => ({ orcamento_id: t.orcamento_id, criado: t.criado })) };
   }
 
   /**

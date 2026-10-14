@@ -89,7 +89,7 @@ export default function orcamentos(el, ctx) {
   };
   pedir("lista-espera").then(desenharEspera).catch(() => {});
   el.append(
-    h("div", { class: "ecra-topo" }, h("h1", { text: "Orçamentos" }), h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar como" }, bQuadro, bLista)),
+    h("div", { class: "ecra-topo" }, h("h1", { text: "Pedidos" }), h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar como" }, bQuadro, bLista)),
     espera,
     h("div", { class: "filtros" }, fTexto, fEstado, fEsperaRotulo), contagem, zona);
   fEstado.addEventListener("change", () => { if (fEstado.value === "arquivado" && !arquivados) carregarArquivados(); else desenhar(); });

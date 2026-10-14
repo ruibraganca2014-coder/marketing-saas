@@ -15,6 +15,7 @@ const MATRIZ = [
   ['GET', 'eu', TODOS],
   ['POST', 'eu/senha', TODOS, {}],
   ['GET', 'resumo', TODOS],
+  ['GET', 'hoje', TODOS],
   ['GET', 'lista-espera', TODOS],
   ['POST', 'lista-espera', [C], {}],
   ['GET', 'emails-falhados', [C]],

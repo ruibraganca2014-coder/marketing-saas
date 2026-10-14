@@ -30,7 +30,7 @@ import { criarStock } from './stock.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { criarAcessoRapido, ROTA_EQUIPA, ROTA_CLIENTE, ROTA_CONTAS, ROTA_CODIGO, ROTA_ELETRICISTA } from './acesso-rapido.js';
 import { criarEletricistas, CAMINHO_API as API_ELETRICISTA, ESPECIALIDADES, especialidadeSugerida } from './eletricistas.js';
-import { criarCrm, ENTRADAS } from './crm.js';
+import { criarCrm, ENTRADAS, horaLisboa } from './crm.js';
 import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
 import { criarNegocio, PERIODOS } from './negocio.js';
@@ -110,6 +110,8 @@ export const ROTAS = [
   ['GET', 'eu', TODOS, 'eu'],
   ['POST', 'eu/senha', TODOS, 'mudarSenha'],
   ['GET', 'resumo', TODOS, 'resumo'],
+  // "Hoje" (decisão do dono, 2026-10-14): o que cada um tem de fazer, uma linha por coisa (só as do seu papel).
+  ['GET', 'hoje', TODOS, 'hoje'],
   ['GET', 'emails-falhados', ['ceo'], 'emailsFalhados'],
   ['POST', 'emails-falhados/vistos', ['ceo'], 'emailsFalhadosVistos'],
   // Dashboard do negócio no Início (docs/DASHBOARD.md; negocio.js): os valores em euros só vão para o CEO; o técnico não entra.
@@ -788,6 +790,125 @@ export function criarApi(ctx) {
         AND estado NOT IN ('perdido', '${ESTADO_ARQUIVADO}') ORDER BY data_visita`).all(inicio, fim).map((o) => formatarOrcamento(o));
     }
     responder(res, 200, r);
+  };
+
+  /**
+   * "Hoje" (decisão do dono, 2026-10-14): o que cada pessoa tem de fazer, uma linha por coisa — o quê, quem/onde e desde
+   * quando — com a ligação para onde se trata, a mais antiga primeiro. Calculado aqui para cada papel receber só o que é
+   * dele: o comercial e o técnico nunca recebem o que é só do CEO (validar, eletricistas, ativações, emails, cópia).
+   * `desde`: ISO, ou "AAAA-MM-DDTHH:MM" (Lisboa) nas visitas e obras de hoje, que trazem também `hora`.
+   */
+  h.hoje = async ({ res, u }) => {
+    const agora = relogio();
+    const hoje = diaLisboa(new Date(agora));
+    const agoraLx = `${hoje}T${horaLisboa(agora)}`;
+    const mapa = fichas();
+    const itens = [];
+    const ped = (o) => `#/orcamentos/${encodeURIComponent(o.id)}`;
+    const pedido = (tipo, texto, o, desde, ligacao = ped(o)) => itens.push({ tipo, texto: `${texto} ${o.nome}`, nome: o.nome, localidade: o.localidade ?? null, desde: desde ?? o.criado, pedido: o.id, ligacao });
+    const umPedido = db.prepare('SELECT id, nome, localidade, criado FROM orcamentos WHERE id = ?');
+    const casa = (c) => mapa.get(c)?.nome ?? c;
+    const alerta = (a) => itens.push({ tipo: 'alerta', texto: `${String(a.mensagem).replace(/\.$/, '')}: ver em casa de ${casa(a.cliente)}`, nome: casa(a.cliente), localidade: mapa.get(a.cliente)?.localidade ?? null, desde: a.desde ?? null, ligacao: '#/alertas' });
+    const novos = () => {
+      for (const o of db.prepare("SELECT id, nome, localidade, criado FROM orcamentos WHERE estado = 'novo' LIMIT 200").all()) {
+        if (!itens.some((x) => x.pedido === o.id && x.tipo === 'validar')) pedido('pedido_novo', 'Contactar', o, o.criado);
+      }
+    };
+    const comuns = () => {
+      // Propostas aceites pelo cliente na conta: falta marcar a obra (converter).
+      for (const o of db.prepare("SELECT id, nome, localidade, proposta_aceite FROM orcamentos WHERE estado = 'aceite' AND proposta_aceite IS NOT NULL AND cliente IS NULL LIMIT 50").all()) {
+        pedido('proposta_aceite', 'Marcar a obra da proposta aceite por', o, o.proposta_aceite);
+      }
+      // Pedidos em que a última mensagem é do cliente (ainda sem resposta da equipa).
+      for (const o of db.prepare(`SELECT o.id, o.nome, o.localidade, m.criado AS quando FROM orcamentos o
+        JOIN mensagens_pedido m ON m.id = (SELECT MAX(id) FROM mensagens_pedido WHERE orcamento_id = o.id)
+        WHERE o.estado != ? AND m.de = 'cliente' LIMIT 100`).all(ESTADO_ARQUIVADO)) pedido('mensagem', 'Responder à mensagem de', o, o.quando);
+    };
+    if (u.papel === 'ceo') {
+      // Pedidos por validar (com a validação ligada; os que o cliente já corrigiu dizem-no); depois, os novos já validados.
+      if (config.validacaoCeo) {
+        for (const o of db.prepare(`SELECT id, nome, localidade, criado, validacao_nota, validacao_em FROM orcamentos
+          WHERE validacao IS NULL AND estado NOT IN ('aceite', 'perdido', '${ESTADO_ARQUIVADO}') LIMIT 200`).all()) {
+          const nota = String(o.validacao_nota ?? '');
+          pedido('validar', /^O cliente diz que já corrigiu/.test(nota) ? 'Rever o pedido corrigido por' : /^Proposta não aceite/.test(nota) ? 'Rever a proposta não aceite por' : 'Validar o pedido de', o, o.validacao_em ?? o.criado);
+        }
+      }
+      novos();
+      comuns();
+      alertas.lista().alertas.filter((x) => x.gravidade === 'critica').slice(0, 20).forEach(alerta);
+      for (const x of db.prepare("SELECT cliente, aparelho, criado FROM aparelhos_ativacoes WHERE estado = 'pendente' LIMIT 50").all()) {
+        itens.push({ tipo: 'ativacao', texto: `Aprovar a ativação do aparelho ${x.aparelho} em casa de ${casa(x.cliente)}`, nome: casa(x.cliente), localidade: mapa.get(x.cliente)?.localidade ?? null, desde: x.criado, ligacao: '#/ativacoes' });
+      }
+      // Emails ao cliente que falharam de vez: o "Marcar como vistos" fica no próprio ecrã Hoje (não há outro sítio).
+      for (const x of db.prepare('SELECT para, assunto, quando FROM emails_falhados WHERE visto IS NULL LIMIT 50').all()) {
+        itens.push({ tipo: 'email_falhado', texto: `Contactar ${x.para} por outro meio: o email "${String(x.assunto).replace(/^Domus Energia: /, '')}" não chegou`, nome: x.para, localidade: null, desde: x.quando, ligacao: null });
+      }
+      const cp = problemaDaCopia();
+      if (cp) {
+        itens.push({ tipo: 'copia', texto: cp.problema === 'falhou' ? `A cópia de segurança falhou (${cp.motivo || 'motivo desconhecido'}): fale com quem trata do servidor`
+          : 'Sem cópia de segurança há mais de dois dias: fale com quem trata do servidor', nome: null, localidade: null, desde: cp.quando, ligacao: null });
+      }
+      if (config.eletricistas) {
+        // Propostas dos eletricistas: na bolsa, à espera de o CEO escolher uma; depois da visita, por enviar ao cliente.
+        if (config.propostasBolsa) {
+          for (const x of db.prepare(`SELECT p.orcamento_id, MIN(p.criado) AS desde FROM propostas_bolsa p
+            WHERE p.estado = 'enviada' AND EXISTS (SELECT 1 FROM trabalhos_eletricista t WHERE t.orcamento_id = p.orcamento_id AND t.estado = 'na_bolsa')
+            GROUP BY p.orcamento_id LIMIT 50`).all()) {
+            const o = umPedido.get(x.orcamento_id);
+            if (o) pedido('escolher_proposta', 'Escolher a proposta de eletricista para', o, x.desde);
+          }
+        }
+        const doTrabalho = (sql, tipo, texto, desde, ligacao) => {
+          for (const x of db.prepare(sql).all()) {
+            const o = umPedido.get(x.orcamento_id);
+            if (o) pedido(tipo, typeof texto === 'function' ? texto(x) : texto, o, desde(x), ligacao);
+          }
+        };
+        doTrabalho(`SELECT t.orcamento_id, t.atualizado FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
+          WHERE t.proposta IS NOT NULL AND t.estado != 'retirado' AND o.estado IN ('novo', 'contactado', 'visita_marcada') LIMIT 50`,
+        'enviar_proposta', 'Enviar ao cliente a proposta do eletricista para', (x) => x.atualizado);
+        doTrabalho("SELECT orcamento_id, confirmada, atualizado FROM trabalhos_eletricista WHERE estado = 'confirmada' LIMIT 50",
+          'aprovar_trabalho', 'Aprovar o trabalho do eletricista em casa de', (x) => x.confirmada ?? x.atualizado);
+        doTrabalho(`SELECT t.orcamento_id, t.aprovada, t.atualizado, e.nome AS eletricista FROM trabalhos_eletricista t
+          LEFT JOIN eletricistas e ON e.id = t.eletricista_id WHERE t.estado = 'aprovada' LIMIT 50`,
+        'pagar_eletricista', (x) => `Pagar a ${x.eletricista ?? 'o eletricista'} o trabalho em casa de`, (x) => x.aprovada ?? x.atualizado, '#/pagamentos');
+        doTrabalho("SELECT orcamento_id, criado FROM trabalhos_extra WHERE estado = 'proposto' LIMIT 50",
+          'extra', 'Pôr o preço no trabalho a mais em casa de', (x) => x.criado);
+        doTrabalho("SELECT orcamento_id, criado FROM idas_perdidas WHERE estado = 'proposta' LIMIT 50",
+          'ida_perdida', 'Confirmar ou anular a ida perdida a casa de', (x) => x.criado);
+        for (const x of eletricistas.obrasSemTecnico().lista.slice(0, 50)) {
+          const o = umPedido.get(x.orcamento_id);
+          if (o) pedido('sem_tecnico', 'Indicar o técnico responsável da obra de', o, x.criado);
+        }
+        for (const e of db.prepare("SELECT nome, criado FROM eletricistas WHERE estado = 'pendente' LIMIT 50").all()) {
+          itens.push({ tipo: 'candidatura', texto: `Decidir a candidatura de ${e.nome}`, nome: e.nome, localidade: null, desde: e.criado, ligacao: '#/eletricistas' });
+        }
+      }
+    } else if (u.papel === 'comercial') {
+      novos();
+      // A visita já foi (hora de Lisboa) e a proposta ainda não seguiu.
+      for (const o of db.prepare("SELECT id, nome, localidade, criado, data_visita FROM orcamentos WHERE estado = 'visita_marcada' AND data_visita IS NOT NULL AND data_visita < ? LIMIT 200").all(agoraLx)) {
+        pedido('enviar_proposta', 'Enviar a proposta a', o, o.data_visita);
+      }
+      comuns();
+      for (const o of db.prepare("SELECT id, nome, localidade, data_visita FROM orcamentos WHERE estado = 'visita_marcada' AND substr(data_visita, 1, 10) = ? AND data_visita >= ? LIMIT 50").all(hoje, agoraLx)) {
+        itens.push({ tipo: 'visita', texto: `Visita a ${o.nome}`, nome: o.nome, localidade: o.localidade ?? null, desde: o.data_visita, hora: String(o.data_visita).slice(11, 16) || null, pedido: o.id, ligacao: ped(o) });
+      }
+    } else {
+      // Técnico: as suas obras de hoje (obra_tecnicos) e os alertas mais graves das casas.
+      for (const o of db.prepare(`SELECT o.* FROM obras o JOIN obra_tecnicos t ON t.obra_id = o.id AND t.utilizador_id = ?
+        WHERE o.data = ? AND o.estado IN ('agendada', 'em_curso')`).all(u.id, hoje)) {
+        const quem = formatarObra(o, mapa).cliente_nome ?? o.cliente ?? '—';
+        itens.push({ tipo: 'obra', texto: `Obra em casa de ${quem}`, nome: quem, localidade: mapa.get(o.cliente)?.localidade ?? null,
+          desde: `${o.data}T${o.hora || '00:00'}`, hora: o.hora || null, ligacao: `#/obras/${encodeURIComponent(o.id)}` });
+      }
+      alertas.lista().alertas.filter((x) => x.gravidade === 'critica' || x.gravidade === 'alta').slice(0, 30).forEach(alerta);
+    }
+    // A mais antiga primeiro; sem data (um alerta sem "desde") vai para o topo. As horas de Lisboa sem fuso comparam-se
+    // como UTC: uma hora de diferença não muda a ordem do que interessa (o que está à espera há dias).
+    const quando = (x) => (x.desde ? Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(x.desde) ? x.desde : `${x.desde}Z`) || 0 : 0);
+    itens.sort((a, b) => quando(a) - quando(b));
+    responder(res, 200, { hoje, itens });
   };
 
   // Dashboard do negócio (Início): `?periodo=` semana | mes (omissão) | mes_passado | ano, comparado com o anterior equivalente.

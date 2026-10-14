@@ -1,10 +1,11 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
-// Rotas no endereço: #/inicio, #/tarefas, #/tarefas/<id>, #/tarefas/nova, #/crm, #/crm/<id> (ficha do cliente), #/clientes, #/clientes/<codigo> (ecrã "Casas e planos"), #/alertas, #/orcamentos, #/orcamentos/<id>,
+// Rotas no endereço: #/inicio (o ecrã "Hoje"), #/tarefas, #/tarefas/<id>, #/tarefas/nova, #/crm, #/crm/<id> (ficha do cliente), #/clientes, #/clientes/<codigo> (ecrã "Casas e planos"), #/alertas, #/orcamentos, #/orcamentos/<id>,
 // #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/procedimentos, #/procedimentos/<id>,
 // #/procedimentos/<id>/editar, #/procedimentos/novo, #/ajuda (Ajuda técnica: diagnóstico de avarias).
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
+import hoje from "./ecras/hoje.js";
 import clientes from "./ecras/clientes.js";
 import alertas from "./ecras/alertas.js";
 import orcamentos from "./ecras/orcamentos.js";
@@ -24,9 +25,11 @@ import ativacoes from "./ecras/ativacoes.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
-  { id: "inicio", nome: "Início", papeis: ["ceo", "tecnico", "comercial"], m: inicio },
-  // "Números" (decisão do dono, 2026-10-05): o Início de antes do CEO (indicadores, o negócio, distribuições), fora do Início simples.
-  { id: "numeros", nome: "Números", papeis: ["ceo"], m: (el, ctx) => inicio(el, { ...ctx, numeros: true }) },
+  // "Hoje" (decisão do dono, 2026-10-14): o painel abre aqui para todos — o que cada um tem de fazer, uma linha por coisa.
+  // Fica com a rota #/inicio (as ligações antigas continuam a abrir) e substitui o Início de antes.
+  { id: "inicio", nome: "Hoje", papeis: ["ceo", "tecnico", "comercial"], m: hoje },
+  // "Números" (decisão do dono, 2026-10-05): o Início de antes do CEO (indicadores, o negócio, distribuições).
+  { id: "numeros", nome: "Números", papeis: ["ceo"], m: inicio },
   // CRM e tarefas (docs/CRM-TAREFAS.md): o técnico vê só os clientes das suas obras; as tarefas de todos só o CEO.
   // "Casas e planos" é o antigo ecrã "Clientes" (as casas com conta e plano; a rota #/clientes e a API não mudaram).
   { id: "tarefas", nome: "Tarefas", papeis: ["ceo", "tecnico", "comercial"], m: tarefas },
@@ -35,7 +38,8 @@ const ECRAS = [
   { id: "alertas", nome: "Alertas", papeis: ["ceo", "tecnico"], m: alertas },
   // Ativações de aparelhos (decisões do dono, 2026-10-09): os chips registados pelos eletricistas, para o CEO decidir.
   { id: "ativacoes", nome: "Ativações", papeis: ["ceo"], m: ativacoes },
-  { id: "orcamentos", nome: "Orçamentos", papeis: ["ceo", "comercial"], m: orcamentos },
+  // "Pedidos" (decisão do dono, 2026-10-14): o nome à vista; a rota #/orcamentos e a API não mudam.
+  { id: "orcamentos", nome: "Pedidos", papeis: ["ceo", "comercial"], m: orcamentos },
   { id: "obras", nome: "Obras", papeis: ["ceo", "tecnico", "comercial"], m: obras },
   { id: "catalogo", nome: "Catálogo", papeis: ["ceo"], m: catalogo },
   { id: "stock", nome: "Stock", papeis: ["ceo"], m: stock },
@@ -50,11 +54,11 @@ const ECRAS = [
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
 ];
 
-// Menu curto (decisão do dono, 2026-10-04: "simplifica o painel"): por omissão o menu mostra só o caminho de um pedido —
-// Orçamentos, Obras, Eletricistas (com o módulo ligado) e Pagamentos — e o painel abre em Orçamentos. "Mostrar tudo", no fundo do menu, traz os outros
-// ecrãs (a escolha fica neste navegador). Nada é desligado: os outros ecrãs continuam a abrir pelo endereço e pelas
-// ligações das fichas.
-const MENU_CURTO = ["orcamentos", "obras", "eletricistas", "pagamentos"];
+// Menu curto (decisão do dono, 2026-10-04: "simplifica o painel"; 2026-10-14: com o Hoje à frente): por omissão o menu
+// mostra só Hoje, Pedidos, Obras, Eletricistas (com o módulo ligado) e Pagamentos, por esta ordem, e o painel abre no
+// Hoje. "Mostrar tudo", no fundo do menu, traz os outros ecrãs (a escolha fica neste navegador). Nada é desligado: os
+// outros ecrãs continuam a abrir pelo endereço e pelas ligações das fichas.
+const MENU_CURTO = ["inicio", "orcamentos", "obras", "eletricistas", "pagamentos"];
 const CHAVE_MENU = "domus.painel.menu";
 const menuCompleto = () => { try { return localStorage.getItem(CHAVE_MENU) === "completo"; } catch { return false; } };
 const noMenu = (ecra) => menuCompleto() || MENU_CURTO.includes(ecra.id);
@@ -167,9 +171,6 @@ function mostrarPainel() {
   vistaPainel.hidden = false;
   $("quem").replaceChildren(h("span", { class: "quem-nome", text: eu.nome }), h("span", { class: "selo-p papel", text: PAPEIS[eu.papel] ?? eu.papel }));
   desenharMenu();
-  // Menu curto: o painel abre no primeiro ecrã do menu (Orçamentos), não no Início.
-  const primeiro = ECRAS.find((e) => permitido(e) && existe(e) && noMenu(e));
-  if (!menuCompleto() && primeiro && rota().id === "inicio") history.replaceState(null, "", `#/${primeiro.id}`);
   faixaPagamentos();
   encaminhar();
   retomarPedidos();
@@ -178,7 +179,8 @@ function mostrarPainel() {
 
 function desenharMenu() {
   const lista = $("nav-lista");
-  lista.replaceChildren(...ECRAS.filter((e) => permitido(e) && existe(e) && noMenu(e)).map((e) =>
+  const ordem = (e) => (menuCompleto() ? 0 : MENU_CURTO.indexOf(e.id));
+  lista.replaceChildren(...ECRAS.filter((e) => permitido(e) && existe(e) && noMenu(e)).sort((a, b) => ordem(a) - ordem(b)).map((e) =>
     h("li", {}, h("a", { href: `#/${e.id}`, dataset: { ecra: e.id }, text: e.nome }))));
   const completo = menuCompleto();
   const alternar = h("a", { href: "#", role: "button", id: "menu-alternar", text: completo ? "Mostrar só o essencial" : "Mostrar tudo" });
