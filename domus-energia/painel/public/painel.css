@@ -214,6 +214,44 @@ a.kpi:hover { border-color: var(--musgo); }
 .hoje-vazio { margin: 8px 0; padding: 18px; background: var(--superficie); border: 1px solid var(--borda); border-radius: 14px; font-size: 1.1rem; font-weight: 700; max-width: 920px; }
 .hoje-botoes { margin: 18px 0 0; }
 @media (max-width: 599px) { .hoje-item .btn { flex: 1 1 100%; } }
+/* Ficha do pedido (decisão do dono, 2026-10-14): o andamento (✓ nas fases feitas, "agora" na atual), a caixa "Próximo
+   passo" com o botão certo e as secções que abrem e fecham, como na conta do cliente (web/conta.css). */
+.andamento { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 8px; counter-reset: fase; }
+.andamento li { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 3px 10px 3px 5px; border-radius: 999px; border: 1.5px solid var(--borda); color: var(--texto-suave); font-size: .88rem; font-weight: 600; counter-increment: fase; }
+.andamento .marca { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--musgo-claro); color: var(--texto); font: 800 .85rem/1 var(--letra-titulos); }
+.andamento .marca:empty::before { content: counter(fase); }
+.andamento li.feito { color: var(--texto); }
+.andamento li.feito .marca { background: var(--musgo); color: var(--sobre-musgo); }
+.andamento li.atual { color: var(--texto); font-weight: 800; border: 2px solid var(--argila); background: var(--areia-suave); }
+.andamento li.atual .marca { background: var(--argila-texto); color: var(--fundo); }
+.andamento .agora { font-size: .78rem; letter-spacing: .05em; text-transform: uppercase; color: var(--argila-texto); }
+.proximo-passo { display: grid; gap: 8px; margin: 14px 0; padding: 16px; background: var(--superficie); border: 1.5px solid var(--borda); border-left: 8px solid var(--argila); border-radius: var(--raio); box-shadow: var(--sombra); min-width: 0; overflow-wrap: anywhere; }
+.proximo-passo > * { margin: 0; min-width: 0; }
+.proximo-passo .rotulo { font: 800 .8rem/1.2 var(--letra); letter-spacing: .06em; text-transform: uppercase; color: var(--argila-texto); }
+.proximo-passo .grande { font: 800 1.3rem/1.25 var(--letra-titulos); }
+.proximo-passo .espera { font-weight: 700; }
+.proximo-passo.calma { border-left-color: var(--musgo); box-shadow: none; }
+.proximo-outros { padding-top: 10px; border-top: 1px solid var(--borda); }
+.proximo-outros ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.proximo-outros li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; font-weight: 600; }
+details.sec-ficha { margin-top: 10px; background: var(--superficie); border: 1.5px solid var(--borda); border-radius: 16px; min-width: 0; scroll-margin-top: 70px; }
+details.sec-ficha > summary { list-style: none; position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; min-height: 56px; padding: 8px 44px 8px 14px; cursor: pointer; border-radius: 16px; }
+details.sec-ficha > summary::-webkit-details-marker { display: none; }
+details.sec-ficha > summary::after { content: ""; position: absolute; right: 18px; top: 50%; width: 10px; height: 10px; border-right: 3px solid currentColor; border-bottom: 3px solid currentColor; transform: translateY(-70%) rotate(45deg); }
+details.sec-ficha[open] > summary::after { transform: translateY(-30%) rotate(-135deg); }
+details.sec-ficha > summary:hover { background: var(--musgo-claro); }
+details.sec-ficha.agora { border-color: var(--argila); box-shadow: 0 0 0 1px var(--argila); }
+details.sec-ficha.agora .sec-resumo { color: var(--argila-texto); font-weight: 800; }
+.sec-titulo { font: 800 1.1rem/1.2 var(--letra-titulos); }
+.sec-resumo { color: var(--texto-suave); font-weight: 600; font-size: .95rem; overflow-wrap: anywhere; min-width: 0; }
+.sec-corpo { padding: 2px 14px 16px; min-width: 0; }
+.sec-corpo > :first-child { margin-top: 0; }
+/* Dentro da secção há menos largura: os grupos (fieldset) encolhem e os botões compridos partem a linha. */
+.sec-corpo fieldset, .sec-corpo section, .sec-corpo .form-grelha > *, .sec-corpo .form-botoes > * { min-width: 0; }
+.sec-corpo select { max-width: 100%; }
+.sec-corpo .selo-p { white-space: normal; max-width: 100%; }
+.sec-corpo .btn { white-space: normal; text-align: center; }
+@media (max-width: 599px) { .proximo-passo > .form-botoes .btn { flex: 1 1 100%; white-space: normal; } .sec-corpo { padding: 2px 10px 14px; } }
 .lista-curta-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 12px; padding: 8px 10px; border-radius: 12px; color: var(--texto); text-decoration: none; min-height: 48px; }
 a.lista-curta-item:hover { background: var(--musgo-claro); }
 .lista-curta-item .quando { grid-row: span 2; font-weight: 700; color: var(--texto-suave); font-size: .9rem; }

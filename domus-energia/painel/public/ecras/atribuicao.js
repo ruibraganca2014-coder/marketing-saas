@@ -96,8 +96,9 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
     if (ida) partes.push(h("p", { class: "ajuda", id: "eletricista-ida", text: `Ida sem defeito a pagar ao eletricista: ${ida.valor ? euros(ida.valor.total) : "—"} — ${ida.pagamento_texto}${ida.prazo && ida.pagamento === "a_pagar" ? ` até ${data(ida.prazo)}` : ""}${ida.pago_em ? ` em ${data(ida.pago_em)}` : ""}.` }));
     const botoes = [];
     if (t.pode_aprovar) {
-      botoes.push(botaoConfirmar(t.tipo === "obra" ? "Aprovar trabalho (e obra concluída)" : "Aprovar trabalho", "Confirmar: aprovar?",
-        (b) => acao(b, { acao: "aprovar" }, t.tipo === "obra" ? "Trabalho aprovado: a obra ficou concluída." : "Trabalho aprovado.")));
+      // id: o botão "Aprovar o trabalho" do Próximo passo da ficha leva aqui (decisão do dono, 2026-10-14).
+      botoes.push(Object.assign(botaoConfirmar(t.tipo === "obra" ? "Aprovar trabalho (e obra concluída)" : "Aprovar trabalho", "Confirmar: aprovar?",
+        (b) => acao(b, { acao: "aprovar" }, t.tipo === "obra" ? "Trabalho aprovado: a obra ficou concluída." : "Trabalho aprovado.")), { id: "eletricista-aprovar" }));
     }
     if (t.pode_devolver) {
       const motivo = h("textarea", { id: "devolver-motivo", rows: "2", maxlength: "1000", "aria-label": "Motivo da devolução" });

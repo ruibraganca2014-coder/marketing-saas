@@ -35,6 +35,7 @@ import { criarTarefas, PRAZOS_LEMBRETES } from './tarefas.js';
 import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './emails-auto.js';
 import { criarNegocio, PERIODOS } from './negocio.js';
 import { criarProcedimentos } from './procedimentos.js';
+import { andamentoDoPedido, proximoPasso } from './proximo-passo.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -482,8 +483,45 @@ export function criarApi(ctx) {
       r.mensagens = db.prepare('SELECT id, de, assunto, texto, por_email AS por, criado FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id').all(o.id);
       r.historico = db.prepare('SELECT quando, email, acao, detalhes FROM auditoria WHERE alvo = ? ORDER BY id').all(`orcamento:${o.id}`)
         .map((h) => ({ quando: h.quando, por: h.email, acao: h.acao, detalhes: h.detalhes ? JSON.parse(h.detalhes) : null }));
+      // Ficha do pedido (decisão do dono, 2026-10-14): o andamento e o "Próximo passo" de cada papel que abre a ficha
+      // (proximo-passo.js; as mesmas regras do ecrã Hoje). O painel mostra o do papel de quem entrou.
+      const f = factosDoPedido(o, r);
+      r.andamento = andamentoDoPedido(f);
+      r.proximo = { ceo: proximoPasso(f, 'ceo'), comercial: proximoPasso(f, 'comercial') };
+      r.resumo_ficha = { n_propostas: f.n_propostas, trabalho: f.trabalhos.filter((t) => t.estado !== 'retirado').map((t) => ({ tipo: t.tipo, estado: t.estado })).at(-1) ?? null };
     }
     return r;
+  }
+
+  /**
+   * Os factos de um pedido para proximo-passo.js: as mesmas consultas do h.hoje, só para este pedido (as condições ficam
+   * em proximo-passo.js, iguais às do Hoje). `r`: o pedido já formatado (obra, pagamentos, casa por ligar…).
+   */
+  function factosDoPedido(o, r) {
+    const agora = relogio();
+    const ultima = db.prepare('SELECT de, criado FROM mensagens_pedido WHERE orcamento_id = ? ORDER BY id DESC LIMIT 1').get(o.id);
+    const comEletricistas = Boolean(config.eletricistas && eletricistas);
+    const trabalhos = comEletricistas ? db.prepare(`SELECT t.tipo, t.estado, t.proposta, t.atualizado, t.confirmada, t.aprovada, e.nome AS eletricista
+      FROM trabalhos_eletricista t LEFT JOIN eletricistas e ON e.id = t.eletricista_id WHERE t.orcamento_id = ? ORDER BY t.id`).all(o.id) : [];
+    const propostas = comEletricistas && config.propostasBolsa
+      ? db.prepare("SELECT COUNT(*) AS n, MIN(criado) AS desde FROM propostas_bolsa WHERE orcamento_id = ? AND estado = 'enviada'").get(o.id) : { n: 0, desde: null };
+    const um = (sql) => (comEletricistas ? db.prepare(sql).get(o.id)?.criado ?? null : null);
+    return {
+      estado: o.estado, criado: o.criado, telefone: o.telefone ?? null, mensagem_para: r.mensagem_para ?? null,
+      validacao_ligada: Boolean(config.validacaoCeo), validacao: o.validacao ?? 'por_validar', validacao_nota: o.validacao_nota ?? null, validacao_em: o.validacao_em ?? null,
+      validacao_em_falta: (r.validacao?.pontos ?? []).some((p) => p.em_falta === true),
+      proposta_aceite: o.proposta_aceite ?? null, cliente: o.cliente ?? null, valor_proposta: deCent(o.valor_proposta_cent),
+      data_visita: o.data_visita ?? null, agora_lx: `${diaLisboa(new Date(agora))}T${horaLisboa(agora)}`,
+      mensagem_cliente: ultima?.de === 'cliente' ? ultima.criado : null,
+      eletricistas: comEletricistas, propostas_bolsa: Boolean(config.propostasBolsa), n_propostas: propostas.n, propostas_desde: propostas.desde,
+      trabalhos, trabalho_obra: r.obra_por_confirmar?.estado ?? null,
+      extra_proposto: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'proposto'"),
+      extra_enviado: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'enviado'"),
+      ida_proposta: um("SELECT MIN(criado) AS criado FROM idas_perdidas WHERE orcamento_id = ? AND estado = 'proposta'"),
+      sem_tecnico: comEletricistas ? eletricistas.obrasSemTecnico().lista.find((x) => x.orcamento_id === o.id)?.criado ?? null : null,
+      obra: r.obra, obra_concluida: o.obra_concluida ?? null, obra_parada: r.obra_parada ?? null, pagamentos: r.pagamentos ?? [],
+      aguarda_sinal: r.aguarda_sinal, ligar_pode: r.ligar_casa ? r.ligar_casa.pode !== false : null,
+    };
   }
 
   /**

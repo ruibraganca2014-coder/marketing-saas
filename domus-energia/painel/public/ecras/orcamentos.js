@@ -202,6 +202,9 @@ export default function orcamentos(el, ctx) {
       simulacaoDe(o) || campo(o, "tem_simulacao") === true
         ? h("a", { class: "btn sec pequeno", id: "abrir-relatorio", href: `#/orcamentos/${encodeURIComponent(id)}/relatorio`, text: "Relatório técnico" }) : null,
       campo(o, "crm_cliente_id") ? h("a", { class: "btn sec pequeno", id: "abrir-crm", href: `#/crm/${encodeURIComponent(campo(o, "crm_cliente_id"))}`, text: "Ficha do cliente (CRM)" }) : null);
+    // Ficha em secções que abrem e fecham (decisão do dono, 2026-10-14): no topo, sempre à vista, os selos, o andamento e
+    // o "Próximo passo"; o resto vai para a sua secção (`S`), sem tirar nada do que já havia.
+    const S = { cliente: [], validacao: [], fotos: [], eletricista: [], proposta: [], obra: [], pagamentos: [], mensagens: [], historico: [] };
     const partes = [
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
@@ -209,34 +212,37 @@ export default function orcamentos(el, ctx) {
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
+    ];
+    S.cliente.push(
       dados([["Serviço", txt(o, "servico")], ["Localidade", txt(o, "localidade")], ...(campo(o, "morada") ? [["Morada", txt(o, "morada")]] : []),
         ["Telefone", txt(o, "telefone")], ["Email", txt(o, "email")], ["Conta de cliente", textoConta(campo(o, "conta"))], ["Recebido", data(campo(o, "criado", "criado_em"))]]),
-      contactos,
-    ];
+      contactos);
     if (campo(o, "anonimizado")) partes.unshift(h("div", { class: "msg info bloco", id: "pedido-anonimizado", text: `Anonimizado (RGPD) em ${data(campo(o, "anonimizado"))}: a conta foi apagada; ficam os valores, as referências e os pagamentos (contabilidade).` }));
-    if (campo(o, "mensagem")) partes.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
+    if (campo(o, "mensagem")) S.cliente.push(h("h3", { text: "Mensagem do cliente" }), h("p", { class: "mensagem-cliente", text: String(campo(o, "mensagem")) }));
     // Assistente (IA; docs/ASSISTENTE-IA.md): só na ficha completa (a que traz `ia`).
-    if (o && typeof o === "object" && "ia" in o) partes.push(seccaoIa(j, o, "resumo", arquivado));
+    if (o && typeof o === "object" && "ia" in o) S.cliente.push(seccaoIa(j, o, "resumo", arquivado));
     // Escrever ao cliente (ronda 2 do assistente): só com um email para onde enviar, fora dos arquivados.
-    if (!arquivado && campo(o, "mensagem_para")) partes.push(seccaoMensagem(j, o));
+    if (!arquivado && campo(o, "mensagem_para")) S.mensagens.push(seccaoMensagem(j, o));
     const sim = simulacaoDe(o);
-    if (sim) partes.push(vistaSimulacao(sim, catalogoDe(o)));
-    else if (campo(o, "tem_simulacao") === true) partes.push(h("section", { class: "simulacao", id: "simulacao-cliente", dataset: { carregando: "" } }, h("h3", { text: "Simulação do cliente" }), carregando()));
+    if (sim) S.fotos.push(vistaSimulacao(sim, catalogoDe(o)));
+    else if (campo(o, "tem_simulacao") === true) S.fotos.push(h("section", { class: "simulacao", id: "simulacao-cliente", dataset: { carregando: "" } }, h("h3", { text: "Simulação do cliente" }), carregando()));
     const fotos = lista(campo(o, "fotos") ?? [], "fotos");
     if (fotos.length) {
-      partes.push(h("section", { class: "fotos-pedido", id: "fotos-pedido" },
+      S.fotos.push(h("section", { class: "fotos-pedido", id: "fotos-pedido" },
         h("h3", { text: `Fotos do cliente (${fotos.length})` }),
         h("p", { class: "ajuda", text: "Enviadas pelo cliente (no simulador ou na conta). Toque numa foto para a ver inteira." }),
         galeriaFotos(id, fotos, { aoApagar: arquivado ? null : (f, b) => apagarFoto(j, id, f, b) })));
     }
     // Ronda B: o esquema do quadro feito pelo eletricista a partir da foto do cliente (a ficha completa traz `esquema_quadro`).
-    if (o && typeof o === "object" && "esquema_quadro" in o) partes.push(seccaoEsquemaQuadro(j, o, fotos, arquivado));
+    if (o && typeof o === "object" && "esquema_quadro" in o) S.fotos.push(seccaoEsquemaQuadro(j, o, fotos, arquivado));
     // Diagnóstico de avarias: nos pedidos da avaria rápida e nos que têm reparações (a ficha completa traz `diagnostico`).
-    if (o && typeof o === "object" && "diagnostico" in o && precisaDiagnostico(sim)) partes.push(seccaoDiagnostico(j, o, sim, arquivado));
+    if (o && typeof o === "object" && "diagnostico" in o && precisaDiagnostico(sim)) S.obra.push(seccaoDiagnostico(j, o, sim, arquivado));
     const plano = campo(o, "plano_escolhido") ? ` Plano mensal escolhido: ${PLANOS_NOME[campo(o, "plano_escolhido")] ?? campo(o, "plano_escolhido")}.` : "";
-    if (campo(o, "aguarda_sinal") === true) partes.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
-    else if (campo(o, "proposta_aceite")) partes.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
-    partes.push(...blocoPagamentos(j, o, arquivado));
+    if (campo(o, "aguarda_sinal") === true) S.proposta.push(h("div", { class: "msg info bloco", id: "proposta-aceite-online" }, `Aceite pelo cliente em ${data(campo(o, "proposta_aceite"))} — a aguardar o sinal.${plano}`));
+    else if (campo(o, "proposta_aceite")) S.proposta.push(h("div", { class: "msg ok bloco", id: "proposta-aceite-online" }, `Proposta aceite pelo cliente (online) em ${data(campo(o, "proposta_aceite"))}.${plano}`));
+    const bp = blocoPagamentos(j, o, arquivado);
+    S.pagamentos.push(...bp.pag);
+    S.obra.unshift(...bp.obra);
     // Eletricista externo (CEO; docs/ELETRICISTAS.md): atribuir o pedido (obra, visita paga ou diagnóstico) ou pô-lo na
     // bolsa; só na ficha completa (a que traz o histórico), para não pedir duas vezes.
     // Validação do CEO (decisão do dono, 2026-10-10): lista de verificação antes de o pedido ir para a bolsa; "Devolver
@@ -320,9 +326,9 @@ export default function orcamentos(el, ctx) {
             h("label", { class: "validacao-nota" }, h("span", { text: "Falta alguma coisa? Devolva ao cliente para corrigir:" }), nota), h("div", { class: "form-botoes" }, bDevolver));
         }
       }
-      partes.push(sec);
+      S.validacao.push(sec);
     }
-    if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) partes.push(blocoEletricista(id, {
+    if (ctx.pode("ceo") && ctx.eletricistas && !arquivado && o && typeof o === "object" && "historico" in o) S.eletricista.push(blocoEletricista(id, {
       aoEscolher: () => pedir(`orcamentos/${encodeURIComponent(id)}`).then((r) => { const novo = campo(r, "orcamento") ?? r; substituir(novo); if (ficha?.j === j) desenharFicha(j, novo); }).catch(() => {}),
     }));
     // Trabalho a mais (docs/ELETRICISTAS.md "Trabalho a mais"): o que o eletricista encontrou na obra e propôs. O CEO põe
@@ -388,7 +394,7 @@ export default function orcamentos(el, ctx) {
         }
         return c;
       };
-      partes.push(h("section", { class: "eletricista-externo", id: "trabalho-a-mais" }, h("h3", { text: "Trabalho a mais" }),
+      S.obra.push(h("section", { class: "eletricista-externo", id: "trabalho-a-mais" }, h("h3", { text: "Trabalho a mais" }),
         h("p", { class: "ajuda", text: "O preço da proposta aceite é definitivo. O que o eletricista encontrou a mais só se faz se o cliente aceitar; o valor soma ao restante." }),
         h("div", { class: "propostas-lista" }, ...extras.map(cartao))));
     }
@@ -444,13 +450,13 @@ export default function orcamentos(el, ctx) {
             onclick: (e) => { zona.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })), zona);
         return c;
       };
-      partes.push(h("section", { class: "eletricista-externo", id: "visita-perdida" }, h("h3", { text: "Visita perdida" }),
+      S.obra.push(h("section", { class: "eletricista-externo", id: "visita-perdida" }, h("h3", { text: "Visita perdida" }),
         h("div", { class: "propostas-lista" }, ...idas.map(cartaoIda))));
     }
     // Obra parada por segurança: o motivo que o cliente leu e a conta do sinal (fica à vista de quem abrir o pedido).
     const parada = campo(o, "obra_parada");
     if (parada && typeof parada === "object" && !arquivado) {
-      partes.push(h("section", { class: "eletricista-externo", id: "obra-parada" }, h("h3", { text: "Obra parada por segurança" }),
+      S.obra.push(h("section", { class: "eletricista-externo", id: "obra-parada" }, h("h3", { text: "Obra parada por segurança" }),
         h("p", { class: "mensagem-cliente", text: parada.motivo }),
         dados([
           ["Sinal pago", euros(parada.sinal)],
@@ -463,8 +469,8 @@ export default function orcamentos(el, ctx) {
     }
     // Ensaios medidos (relatório completo): só com simulação, fora dos arquivados; a ficha completa traz `ensaios`
     // (null enquanto não há medições: `campo()` devolve undefined para null, por isso vê-se a chave).
-    if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) partes.push(formEnsaios(j, o));
-    if (campo(o, "codigo_cliente") && !campo(o, "cliente")) partes.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
+    if ((sim || campo(o, "tem_simulacao") === true) && !arquivado && o && typeof o === "object" && "ensaios" in o) S.obra.push(formEnsaios(j, o));
+    if (campo(o, "codigo_cliente") && !campo(o, "cliente")) S.cliente.push(h("p", { class: "ajuda", text: `Pedido feito por um cliente que já existe: ${campo(o, "codigo_cliente")}.` }));
 
     // Formulário de acompanhamento
     const msg = h("div", { class: "msg", role: "alert", hidden: true });
@@ -541,9 +547,9 @@ export default function orcamentos(el, ctx) {
       // Arquivado (RGPD): só leitura — nem o estado nem os dados mudam (o servidor recusa).
       partes.push(h("p", { class: "msg info bloco", id: "pedido-arquivado", text: "Pedido arquivado (RGPD): fica só para a contabilidade (pagamentos e CSV); não se muda o estado nem os dados." }));
       const hist = lista(campo(o, "historico") ?? [], "historico");
-      if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
+      if (hist.length) S.historico.push(h("ol", { class: "historico-p" }, ...hist.map((x) =>
         h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x, sim) })))));
-      j.corpo.replaceChildren(...partes);
+      montarFicha(j, o, partes, S);
       return;
     }
     const mostrarMotivo = () => { motivo.hidden = motivoTipo.hidden = sEstado.value !== "perdido"; };
@@ -586,7 +592,7 @@ export default function orcamentos(el, ctx) {
         desenharFicha(j, novo);
       } catch (erro) { b.disabled = false; mensagem(msg, erro.message); }
     });
-    partes.push(f);
+    S.proposta.push(f);
 
     // Converter (só aceite, e ainda não convertido)
     const obra = campo(o, "obra_id", "obra");
@@ -594,7 +600,7 @@ export default function orcamentos(el, ctx) {
     const convertido = campo(o, "cliente", "cliente_codigo");
     const ob = campo(o, "obra");
     if (convertido) {
-      partes.push(h("div", { class: "msg ok bloco" }, "Convertido em cliente ",
+      S.obra.push(h("div", { class: "msg ok bloco" }, "Convertido em cliente ",
         h("a", { href: `#/clientes/${encodeURIComponent(typeof convertido === "string" ? convertido : "")}`, text: typeof convertido === "string" ? convertido : "" }),
         obra ? [" e ", h("a", { href: `#/obras/${encodeURIComponent(typeof obra === "object" ? campo(obra, "id") : obra)}`, text: "obra" })] : null, "."));
     } else if (estado === "aceite") {
@@ -602,31 +608,127 @@ export default function orcamentos(el, ctx) {
       const lig = campo(o, "ligar_casa");
       // A obra já existe (por agendar ou com data): agenda-se e atribui-se o técnico no ecrã Obras.
       if (ob && typeof ob === "object") {
-        partes.push(h("div", { class: "msg info bloco", id: "obra-do-pedido" }, h("span", {}, "Obra criada com o sinal: ",
+        S.obra.push(h("div", { class: "msg info bloco", id: "obra-do-pedido" }, h("span", {}, "Obra criada com o sinal: ",
           h("a", { href: `#/obras/${encodeURIComponent(ob.id)}`, text: ob.estado === "cancelada" ? "cancelada" : ob.estado === "concluida" ? "concluída" : ob.por_agendar ? "por agendar" : `agendada para ${data(ob.data, { hora: false })}` }),
           lig && lig.pode === false ? ". Casa por ligar — falta o restante." : ". Casa por ligar.")));
       }
       if (lig && lig.pode === false) {
-        partes.push(h("section", { class: "form-grelha converter", id: "converter-bloqueado" },
+        S.obra.push(h("section", { class: "form-grelha converter", id: "converter-bloqueado" },
           h("h3", { text: "Ligar casa" }),
           h("p", { class: "msg info", id: "converter-falta", text: `Falta o cliente pagar o restante (${euros(lig.falta)}). A casa (app e mensalidade) só se liga com a obra paga.` }),
           h("div", { class: "form-botoes" }, h("button", { class: "btn", type: "button", disabled: true, text: "Ligar casa" }))));
       } else {
-        if (lig?.aviso) partes.push(h("p", { class: "msg info bloco", id: "converter-aviso", text: lig.aviso }));
-        partes.push(formConverter(j, o));
+        if (lig?.aviso) S.obra.push(h("p", { class: "msg info bloco", id: "converter-aviso", text: lig.aviso }));
+        S.obra.push(formConverter(j, o));
       }
       // Antes de a obra ser feita, o CEO pode cancelá-la e devolver o sinal (todo ou parte).
       const sinalPago = lista(campo(o, "pagamentos") ?? [], "pagamentos").find((x) => campo(x, "fase") === "sinal" && campo(x, "estado") === "pago" && campo(x, "devolvido") == null && campo(x, "a_devolver") == null);
-      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida")) partes.push(formDevolverSinal(j, o, sinalPago));
+      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida")) S.obra.push(formDevolverSinal(j, o, sinalPago));
       // "Parar a obra por segurança" (CEO): nas mesmas condições, e com o restante ainda por pagar.
       const restantePago = lista(campo(o, "pagamentos") ?? [], "pagamentos").some((x) => campo(x, "fase") === "restante" && campo(x, "estado") === "pago");
-      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida") && !restantePago) partes.push(formPararObra(j, o, sinalPago));
+      if (ctx.pode("ceo") && sinalPago && !campo(o, "obra_concluida") && !restantePago) S.obra.push(formPararObra(j, o, sinalPago));
     }
 
     const hist = lista(campo(o, "historico") ?? [], "historico");
-    if (hist.length) partes.push(h("h3", { text: "Histórico" }), h("ol", { class: "historico-p" }, ...hist.map((x) =>
+    if (hist.length) S.historico.push(h("ol", { class: "historico-p" }, ...hist.map((x) =>
       h("li", {}, h("span", { class: "num ajuda", text: data(campo(x, "quando", "em", "data")) }), " ", h("span", { text: textoHistorico(x, sim) }), campo(x, "por", "utilizador", "email") ? h("span", { class: "ajuda", text: ` · ${txt(x, "por", "utilizador", "email")}` }) : null))));
-    j.corpo.replaceChildren(...partes);
+    montarFicha(j, o, partes, S);
+  }
+
+  /**
+   * Monta a ficha (decisão do dono, 2026-10-14): no topo os selos e avisos, o andamento e a caixa "Próximo passo" (o que
+   * o servidor calculou para o papel de quem entrou: src/proximo-passo.js, as mesmas regras do ecrã Hoje); depois as
+   * secções que abrem e fecham. Abre a do próximo passo e as que a pessoa já tinha abertas.
+   */
+  function montarFicha(j, o, topo, S) {
+    const id = String(campo(o, "id"));
+    const antes = j.corpo.dataset.ficha === id ? [...j.corpo.querySelectorAll("details.sec-ficha[open]")].map((d) => d.dataset.sec) : [];
+    const px = campo(campo(o, "proximo") ?? {}, ctx.eu.papel) ?? null;
+    const abrir = new Set(antes);
+    if (px?.sec && S[px.sec]?.length) abrir.add(px.sec);
+    if (!abrir.size) abrir.add("cliente");
+    const destaque = px?.tipo && px.sec ? px.sec : null;
+    const resumos = resumosDaFicha(o);
+    const seccoes = SECCOES_FICHA.filter(([k]) => S[k].length).map(([k, titulo]) => h("details", { class: `sec-ficha${k === destaque ? " agora" : ""}`, id: `sec-${k}`, dataset: { sec: k }, open: abrir.has(k) },
+      h("summary", {}, h("span", { class: "sec-titulo", text: titulo }), resumos[k] ? h("span", { class: "sec-resumo", text: resumos[k] }) : null),
+      h("div", { class: "sec-corpo" }, ...S[k])));
+    j.corpo.replaceChildren(...topo, andamentoFicha(o) ?? "", caixaProximo(j, px) ?? "", ...seccoes);
+    // Só a ficha completa guarda as secções abertas: a primeira, desenhada com os dados da lista, não conta.
+    if ("historico" in o) j.corpo.dataset.ficha = id; else delete j.corpo.dataset.ficha;
+  }
+
+  /** O andamento: as fases, com ✓ nas feitas e "agora" na atual (não só pela cor). */
+  function andamentoFicha(o) {
+    const fases = lista(campo(o, "andamento") ?? [], "andamento");
+    if (!fases.length) return null;
+    return h("ol", { class: "andamento", id: "andamento-pedido", "aria-label": "Andamento do pedido" }, ...fases.map((x) => {
+      const li = h("li", { class: x.feito ? "feito" : x.atual ? "atual" : null, dataset: { fase: x.chave } },
+        h("span", { class: "marca", "aria-hidden": "true", text: x.feito ? "✓" : "" }), h("span", { class: "fase-texto", text: x.texto }),
+        x.feito ? h("span", { class: "so-leitor", text: " (feito)" }) : x.atual ? h("span", { class: "agora", text: "agora" }) : null);
+      if (x.atual) li.setAttribute("aria-current", "step");
+      return li;
+    }));
+  }
+
+  /** A caixa "Próximo passo": uma frase e um botão (ou "Nada a fazer agora" e de quem se espera); "Também por fazer". */
+  function caixaProximo(j, px) {
+    if (!px) return null;
+    const botao = (a, principal) => {
+      if (!a) return null;
+      const classe = principal ? "btn" : "btn sec pequeno";
+      return a.ligacao ? h("a", { class: classe, href: a.ligacao, text: a.rotulo }) : h("button", { class: classe, type: "button", text: a.rotulo, onclick: () => irPara(j, a.sec, a.alvo) });
+    };
+    const b = botao(px.acao, true);
+    if (b) b.id = "proximo-passo-botao";
+    return h("section", { class: `proximo-passo${px.tipo ? "" : " calma"}`, id: "proximo-passo", "aria-labelledby": "proximo-passo-titulo" },
+      h("h3", { class: "rotulo", id: "proximo-passo-titulo", text: "Próximo passo" }),
+      h("p", { class: "grande", id: "proximo-passo-texto", text: px.texto }),
+      px.espera ? h("p", { class: "espera", id: "proximo-passo-espera", text: px.espera }) : null,
+      b ? h("div", { class: "form-botoes" }, b) : null,
+      px.outros?.length ? h("div", { class: "proximo-outros" }, h("p", { class: "ajuda", text: "Também por fazer:" }),
+        h("ul", {}, ...px.outros.map((x) => h("li", {}, h("span", { text: x.texto }), botao(x.acao, false))))) : null);
+  }
+
+  /** Abre a secção e leva ao sítio certo (o formulário ou o botão verdadeiro), com o foco no primeiro campo dele. */
+  function irPara(j, sec, alvoId) {
+    const d = sec ? j.corpo.querySelector(`details.sec-ficha[data-sec="${sec}"]`) : null;
+    if (d) d.open = true;
+    let alvo = alvoId ? j.corpo.querySelector(`#${CSS.escape(alvoId)}`) : null;
+    if (!alvo || !alvo.getClientRects().length) alvo = d;
+    if (!alvo) return;
+    const foco = alvo === d ? d.querySelector("summary")
+      : alvo.matches("button, a[href], input, select, textarea") ? alvo
+        : [...alvo.querySelectorAll("input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea, button:not([disabled]), a[href]")].find((x) => x.getClientRects().length) ?? alvo;
+    if (foco === alvo && !foco.matches("button, a[href], input, select, textarea, summary")) foco.tabIndex = -1;
+    // A secção fica no topo; um botão ou um campo, ao meio (no topo ficava por baixo da barra do título da janela).
+    alvo.scrollIntoView({ block: alvo === d ? "start" : "center" });
+    foco.focus({ preventScroll: true });
+  }
+
+  /** O resumo curto de cada secção, no fecho (para se ver sem a abrir). */
+  function resumosDaFicha(o) {
+    const r = {};
+    r.cliente = [campo(o, "localidade"), campo(o, "servico")].filter(Boolean).map(String).join(" · ") || null;
+    const v = campo(campo(o, "validacao"), "estado");
+    r.validacao = v === "validado" ? "Validado" : v === "devolvido" ? "Devolvido ao cliente" : v ? "Por validar" : null;
+    const nf = lista(campo(o, "fotos") ?? [], "fotos").length;
+    r.fotos = [simulacaoDe(o) || campo(o, "tem_simulacao") === true ? "Com planta" : null, nf ? `${nf} ${nf === 1 ? "foto" : "fotos"}` : null].filter(Boolean).join(" · ") || null;
+    const rf = campo(o, "resumo_ficha") ?? {};
+    const np = numero(rf.n_propostas) ?? 0;
+    r.eletricista = np ? `${np} ${np === 1 ? "proposta recebida" : "propostas recebidas"}` : rf.trabalho ? NOME_TRABALHO_FICHA[rf.trabalho.estado] ?? null : null;
+    const estado = campo(o, "estado") ?? "novo";
+    const valor = campo(o, "valor_proposta");
+    r.proposta = `${NOMES_ESTADO_ORC[estado] ?? estado}${valor != null && valor !== "" ? ` · ${euros(valor)}` : ""}`;
+    const ob = campo(o, "obra");
+    r.obra = ob && typeof ob === "object" ? (ob.estado === "concluida" ? "Obra concluída" : ob.estado === "cancelada" ? "Obra cancelada" : ob.por_agendar ? "Obra por agendar" : `Obra a ${data(ob.data, { hora: false })}`)
+      : campo(o, "data_visita") ? `Visita ${data(campo(o, "data_visita"))}` : null;
+    const pags = lista(campo(o, "pagamentos") ?? [], "pagamentos");
+    r.pagamentos = pags.length ? `${pags.filter((x) => campo(x, "estado") === "pago").length} de ${pags.length} ${pags.length === 1 ? "pago" : "pagos"}` : null;
+    const conversa = lista(campo(o, "mensagens") ?? [], "mensagens");
+    r.mensagens = conversa.length ? (campo(conversa.at(-1), "de") === "cliente" ? "O cliente escreveu: por responder" : `${conversa.length} ${conversa.length === 1 ? "mensagem" : "mensagens"}`) : null;
+    const nh = lista(campo(o, "historico") ?? [], "historico").length;
+    r.historico = nh ? `${nh} ${nh === 1 ? "registo" : "registos"}` : null;
+    return r;
   }
 
   async function apagarFoto(j, id, f, b) {
@@ -642,11 +744,15 @@ export default function orcamentos(el, ctx) {
     }
   }
 
-  /** Pagamentos do pedido, relatório para o cliente (CEO liberta) e fim da obra. */
+  /**
+   * Pagamentos do pedido, relatório para o cliente (CEO liberta) e fim da obra. Devolve {pag, obra}: a visita técnica e o
+   * fim da obra vão para a secção "Visita e obra" da ficha (decisão do dono, 2026-10-14), o resto para "Pagamentos".
+   */
   function blocoPagamentos(j, o, arquivado = false) {
     const id = String(campo(o, "id"));
     const pags = lista(campo(o, "pagamentos") ?? [], "pagamentos");
     const out = [];
+    const obraOut = [];
     const acoes = [];
     const sim = simulacaoDe(o) || campo(o, "tem_simulacao") === true;
     const acao = async (b, caminho, aviso, corpo = {}) => {
@@ -672,7 +778,7 @@ export default function orcamentos(el, ctx) {
       else if (ctx.pode("ceo")) acoes.push(h("button", { class: "btn pequeno", type: "button", id: "libertar-relatorio", text: "Libertar relatório ao cliente",
         onclick: (e) => acao(e.currentTarget, "libertar-relatorio", "Relatório libertado: o cliente já o vê na conta.") }));
       else out.push(h("p", { class: "ajuda", text: "Relatório completo em revisão: o CEO liberta-o ao cliente (até 24 h)." }));
-      out.push(...blocoVisitaPainel(j, o, acao));
+      obraOut.push(...blocoVisitaPainel(j, o, acao));
     }
     // Proposta sem IVA → o que o cliente paga online (com IVA): total, sinal e restante.
     const vp = campo(o, "valores_pagamento");
@@ -700,16 +806,16 @@ export default function orcamentos(el, ctx) {
     else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida") && campo(o, "obra_por_confirmar")) {
       // Com um eletricista externo a obra não se conclui à mão: saltava a confirmação e as estrelas do cliente.
       const t = campo(o, "obra_por_confirmar");
-      out.push(h("p", { class: "ajuda", id: "obra-por-confirmar", text: campo(t, "estado") === "confirmada"
+      obraOut.push(h("p", { class: "ajuda", id: "obra-por-confirmar", text: campo(t, "estado") === "confirmada"
         ? "O cliente já confirmou o trabalho. Aprove o trabalho do eletricista (mais abaixo) e a obra fica concluída."
         : campo(t, "estado") === "concluida_eletricista"
         ? "O eletricista deu a obra por concluída. Falta o cliente confirmar na conta (fica aceite ao fim de 7 dias sem resposta); a seguir paga o restante."
         : `A obra está ${campo(t, "estado") === "na_bolsa" ? "na bolsa dos eletricistas" : `com o eletricista ${campo(t, "nome") ?? ""}`.trim()}. Fica concluída quando ele a terminar e o cliente confirmar.` }));
     } else if (campo(o, "estado") === "aceite" && !campo(o, "obra_concluida")) {
-      acoes.push(h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
-        onclick: (e) => acao(e.currentTarget, "obra-concluida", "Obra concluída: o cliente pode pagar o restante na conta.") }));
-    } else if (campo(o, "obra_concluida")) out.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));
-    if (!pags.length && !out.length && !acoes.length) return [];
+      obraOut.push(h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "obra-concluida", text: "Marcar obra concluída",
+        onclick: (e) => acao(e.currentTarget, "obra-concluida", "Obra concluída: o cliente pode pagar o restante na conta.") })));
+    } else if (campo(o, "obra_concluida")) obraOut.push(h("p", { class: "ajuda", text: `Obra concluída em ${data(campo(o, "obra_concluida"))}.` }));
+    if (!pags.length && !out.length && !acoes.length) return { pag: [], obra: obraOut };
     const linhas = pags.map((x) => h("li", { dataset: { fase: campo(x, "fase"), estado: campo(x, "estado") } },
       h("strong", { text: `${txt(x, "fase_texto")}: ${euros(campo(x, "valor"))}` }),
       campo(x, "base") != null ? h("span", { class: "ajuda", text: ` (${euros(campo(x, "base"))} + IVA ${euros(campo(x, "iva"))})` }) : null, " ",
@@ -719,10 +825,9 @@ export default function orcamentos(el, ctx) {
       campo(x, "nao_realizada") === true ? selo("Visita não realizada — não desconta", "aviso") : null,
       campo(x, "modo") === "simulado" ? selo("Simulado", "aviso") : null,
       h("span", { class: "ajuda", text: ` ${campo(x, "pago") ? `pago ${data(campo(x, "pago"))}` : `criado ${data(campo(x, "criado"))}`} · ${txt(x, "ref")}` })));
-    return [h("section", { class: "pagamentos-pedido", id: "pagamentos-pedido" },
-      h("h3", { text: "Pagamentos" }),
+    return { obra: obraOut, pag: [h("section", { class: "pagamentos-pedido", id: "pagamentos-pedido" },
       pags.length ? h("ul", { class: "linhas-simples" }, ...linhas) : h("p", { class: "ajuda", text: "Sem pagamentos online (pedido antigo, de contacto ou registado no painel)." }),
-      ...out, acoes.length ? h("div", { class: "form-botoes" }, ...acoes) : null)];
+      ...out, acoes.length ? h("div", { class: "form-botoes" }, ...acoes) : null)] };
   }
 
   /**
@@ -1458,6 +1563,12 @@ export default function orcamentos(el, ctx) {
 }
 
 const PLANOS_NOME = { base: "Base", conforto: "Conforto", premium: "Premium" };
+// As secções da ficha do pedido, por ordem (decisão do dono, 2026-10-14); só aparecem as que têm alguma coisa.
+const SECCOES_FICHA = [["cliente", "Cliente"], ["validacao", "Validação"], ["fotos", "Planta e fotos"], ["eletricista", "Eletricista"],
+  ["proposta", "Estado e proposta"], ["obra", "Visita e obra"], ["pagamentos", "Pagamentos"], ["mensagens", "Mensagens"], ["historico", "Histórico"]];
+/** O trabalho do eletricista no resumo da secção "Eletricista". */
+const NOME_TRABALHO_FICHA = { na_bolsa: "Na bolsa", aceite: "Com um eletricista", visita_marcada: "Visita marcada pelo eletricista", concluida_eletricista: "Concluído pelo eletricista",
+  confirmada: "Confirmado pelo cliente", aprovada: "Aprovado: por pagar", paga: "Pago ao eletricista" };
 const ACOES = {
   orcamento_recebido: "Pedido recebido", orcamento_criado: "Pedido registado", orcamento_atualizado: "Atualizado",
   orcamento_convertido: "Convertido em cliente e obra", obra_criada: "Obra criada", foto_apagada: "Foto apagada",
