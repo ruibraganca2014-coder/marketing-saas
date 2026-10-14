@@ -49,7 +49,7 @@ function lerCanais(txt) {
       ...(entrada === '1' ? { entrada: true } : {}),
       ...(simular === '1' ? { simular: true } : {}),
       ...(arranque ? { arranque } : {}),
-      ...(carga === 'perigosa' ? { carga } : {}),
+      ...(carga === 'perigosa' || carga === 'luz' ? { carga } : {}),
       ...(divisao ? { divisao } : {}),
     });
   }

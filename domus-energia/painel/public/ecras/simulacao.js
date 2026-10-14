@@ -1419,7 +1419,8 @@ export function aparelhosDaSimulacao(sim, catalogo = {}) {
   const intDivs = divisoesPara("interruptores", intEls, intEls.length);
   botoesLista.forEach((b, k) => {
     const div = intDivs[k];
-    const canais = Array.from({ length: b.botoes }, (_, i) => `${i + 1}:interruptor:${b.botoes === 1 ? "Luz" : `Luz ${i + 1}`}`).join(",");
+    // carga=luz: estes interruptores acendem luzes ("Apagar tudo" da app).
+    const canais = Array.from({ length: b.botoes }, (_, i) => `${i + 1}:interruptor:${b.botoes === 1 ? "Luz" : `Luz ${i + 1}`}:carga=luz`).join(",");
     juntar(div ? `interruptor-${slug(div, 16)}` : `interruptor-${k + 1}`, {
       tipo: "openbeken", nome: div ? `Interruptor ${div}` : `Interruptor ${k + 1}`, canais, divisao: div,
       origem: `${b.sku} · ${b.botoes} ${b.botoes === 1 ? "botão" : "botões"}${div ? ` · ${div}` : ""}`,

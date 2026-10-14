@@ -185,7 +185,7 @@ export default function clientes(el, ctx) {
       h("div", { class: "duas" },
         campoForm("Nome", h("input", { name: "nome", required: true, maxlength: "60" })),
         campoForm("Divisão", h("input", { name: "divisao", maxlength: "40" }))),
-      campoForm("Canais (opcional)", h("input", { name: "canais", maxlength: "300", placeholder: "1:interruptor:Teto,2:interruptor:Candeeiro" }), "Como no domus.sh: n.º:função:nome"),
+      campoForm("Canais (opcional)", h("input", { name: "canais", maxlength: "300", placeholder: "1:interruptor:Teto,2:interruptor:Candeeiro" }), "Como no domus.sh: n.º:função:nome. Nos interruptores que acendem luzes, acrescente :carga=luz (para o \"Apagar tudo\" da app)."),
       h("div", { class: "duas" },
         campoForm("Código do chip (MAC, opcional)", h("input", { name: "mac", maxlength: "17", placeholder: "38:1F:8D:12:AB:CD", autocapitalize: "characters" }), "Fica registado: se o aparelho responder com outro chip, há alerta."),
         campoForm("Número de série ou do selo (opcional)", h("input", { name: "serie", maxlength: "40" }))),

@@ -139,6 +139,14 @@ test('"Apagar tudo": conta as luzes reguláveis e os interruptores com nome de l
   ]));
   const luzes = ap.flatMap((a) => a.canais.filter((c) => E.ehLuz(ap, a.id, c.n)).map((c) => `${a.id}:${c.n}`));
   assert.deepEqual(luzes, ['sala:1', 'sala:2', 'led:1', 'wc:1']);
+  // Com algum canal marcado pelo técnico (carga "luz"), contam só os marcados e as reguláveis; o nome deixa de contar.
+  const m = E.lerAparelhos(JSON.stringify([
+    { id: 'sala', nome: 'Sala', canais: [{ n: 1, funcao: 'interruptor', nome: 'Teto', carga: 'luz' }, { n: 2, funcao: 'interruptor', nome: 'Candeeiro' }] },
+    { id: 'tv', nome: 'Tomada', canais: [{ n: 1, funcao: 'interruptor', nome: 'Televisão', carga: 'luz' }] },
+    { id: 'led', nome: 'LED cozinha', canais: [{ n: 1, funcao: 'luz' }] },
+    { id: 'estore', nome: 'Estore', canais: [{ n: 1, funcao: 'estore', carga: 'luz' }] },
+  ]));
+  assert.deepEqual(m.flatMap((a) => a.canais.filter((c) => E.ehLuz(m, a.id, c.n)).map((c) => `${a.id}:${c.n}`)), ['sala:1', 'tv:1', 'led:1']);
 });
 
 test('cenas no topo: só as favoritas; sem nenhuma favorita, todas (casas antigas)', () => {

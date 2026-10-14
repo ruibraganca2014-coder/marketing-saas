@@ -51,6 +51,7 @@ export function lerAparelhos(texto) {
         if (c.funcao === "porta" && c.entrada === true) extra.entrada = true;
         if ((c.funcao === "interruptor" || c.funcao === "luz") && c.simular === true) extra.simular = true;
         if (CONTROLAVEIS.includes(c.funcao) && c.carga === "perigosa") extra.carga = "perigosa";
+        if ((c.funcao === "interruptor" || c.funcao === "luz") && c.carga === "luz") extra.carga = "luz";
         if (typeof c.divisao === "string" && c.divisao.trim()) extra.divisao = c.divisao.trim().slice(0, 40);
         canais.push({ n, funcao: c.funcao, nome: c.nome != null && String(c.nome).trim() ? String(c.nome) : nome, temNome: c.nome != null && String(c.nome).trim() !== "", ...extra });
       }
@@ -647,16 +648,19 @@ export function ehGeral(aparelhos, id, n) {
 }
 
 /**
- * O canal é uma luz, para o "Apagar tudo" (decisão do dono, 2026-10-14)? As luzes reguláveis sempre; um
- * interruptor só se o nome (do aparelho ou do canal) falar em luz, teto, candeeiro, lâmpada, LED, aplique, foco,
- * spot ou iluminação. Nunca o disjuntor geral nem uma carga perigosa (termoacumulador).
+ * O canal é uma luz, para o "Apagar tudo" (decisão do dono, 2026-10-14)? As luzes reguláveis sempre. Um
+ * interruptor: se o técnico marcou algum canal da casa com `carga: "luz"`, só os marcados; senão, se o nome (do
+ * aparelho ou do canal) falar em luz, teto, candeeiro, lâmpada, LED, aplique, foco, spot ou iluminação. Nunca o
+ * disjuntor geral nem uma carga perigosa (termoacumulador).
  */
 const NOME_DE_LUZ = /\b(luz|luzes|teto|tecto|candeeiros?|lampadas?|led|leds|apliques?|focos?|spots?|iluminacao)\b/;
 export function ehLuz(aparelhos, id, n) {
   const { a, c } = acharCanal(aparelhos, id, n);
   if (!a || !c || c.carga === "perigosa" || ehGeral(aparelhos, id, n)) return false;
   if (c.funcao === "luz") return true;
-  return c.funcao === "interruptor" && NOME_DE_LUZ.test(semAcentos([a.nome, c.nome].filter(Boolean).join(" ")));
+  if (c.funcao !== "interruptor") return false;
+  if (aparelhos.some((x) => x.canais.some((k) => k.carga === "luz"))) return c.carga === "luz";
+  return NOME_DE_LUZ.test(semAcentos([a.nome, c.nome].filter(Boolean).join(" ")));
 }
 
 // "o Quadro geral", "a Bomba de calor", "as Tomadas" — artigo pela primeira palavra (heurística).

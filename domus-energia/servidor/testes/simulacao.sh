@@ -102,7 +102,7 @@ saida_tem "Shelly: reiniciar" "rpc/Shelly.Reboot"
 
 deve_passar "luz do jardim com simulação de férias (Shelly, último estado)" \
   aparelho joao jardim shelly "Luz do jardim" --divisao Jardim \
-  --canais "1:interruptor:Jardim:simular:arranque=ultimo" jardim-senha-1
+  --canais "1:interruptor:Jardim:simular:arranque=ultimo:carga=luz" jardim-senha-1
 saida_tem "Shelly: restore_last sem auto_off" \
   'Switch.SetConfig?id=0&config={"initial_state":"restore_last","in_mode":"follow","auto_off":false}'
 
@@ -130,7 +130,7 @@ assert l["porta-entrada"]["canais"] == [
     {"n":2,"funcao":"bateria","divisao":"Hall"}], l["porta-entrada"]
 assert l["pir-corredor"]["canais"] == [{"n":1,"funcao":"movimento"},{"n":2,"funcao":"bateria"}]
 assert l["termo"]["canais"] == [{"n":1,"funcao":"interruptor","nome":"Termo","arranque":"desligado","carga":"perigosa","divisao":"Cozinha"}]
-assert l["jardim"]["canais"] == [{"n":1,"funcao":"interruptor","nome":"Jardim","simular":True,"arranque":"ultimo","divisao":"Jardim"}]
+assert l["jardim"]["canais"] == [{"n":1,"funcao":"interruptor","nome":"Jardim","simular":True,"arranque":"ultimo","carga":"luz","divisao":"Jardim"}]
 assert l["estore"]["nome"] == 'Estore "quarto"'
 assert l["estore"]["canais"] == [{"n":1,"funcao":"estore","arranque":"desligado","divisao":'Quarto "grande"'}]
 assert all("divisao" not in a for a in l.values()), "divisao só nos canais"
@@ -165,6 +165,7 @@ deve_falhar "arranque=ligado num estore"         "um estore fica sempre parado" 
 deve_falhar "arranque num sensor"                "'arranque' só se aplica a canais controláveis" "${A[@]}" --canais "1:movimento:arranque=desligado"
 deve_falhar "carga num sensor"                   "'carga' só se aplica a canais controláveis"    "${A[@]}" --canais "1:porta:carga=perigosa"
 deve_falhar "carga com valor inválido"           "carga inválida 'alta'"                    "${A[@]}" --canais "1:interruptor:carga=alta"
+deve_falhar "carga=luz num estore"               "'carga=luz' só é válido em 'interruptor' ou 'luz'" "${A[@]}" --canais "1:estore:carga=luz"
 deve_falhar "opção desconhecida"                 "opção desconhecida 'cor'"                 "${A[@]}" --canais "1:luz:cor=azul"
 deve_falhar "opção repetida"                     "a opção 'simular' aparece repetida"       "${A[@]}" --canais "1:luz:simular:simular"
 deve_falhar "dois nomes no mesmo canal"          "dois nomes ('Teto' e 'Sala')"             "${A[@]}" --canais "1:interruptor:Teto:Sala"

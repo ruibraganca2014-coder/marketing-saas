@@ -153,10 +153,12 @@ Uso:
                                    interruptor/luz/estore; por omissão
                                    "desligado"). "ultimo" só em interruptor/luz
                                    sem carga perigosa; estore só "desligado".
-                carga=normal|perigosa
+                carga=normal|perigosa|luz
                                    perigosa = aquecedor, termoacumulador, bomba,
                                    motor (nunca "ultimo"; limite local de 4 h
                                    nos Shelly)
+                                   luz = este interruptor acende uma luz (o
+                                   "Apagar tudo" da app); só interruptor/luz
                 divisao=Texto      divisão da casa deste canal (substitui --divisao)
               Exemplos:
                 "1:interruptor:Teto:simular:arranque=ultimo:divisao=Sala"
@@ -443,7 +445,7 @@ validar_divisao() {
 
 # Valida e normaliza a especificação de canais (contrato v3 §3).
 # Entrada:  "n:funcao[:nome][:opção]...,..."   opções: entrada, simular,
-#           arranque=desligado|ligado|ultimo, carga=normal|perigosa, divisao=Texto
+#           arranque=desligado|ligado|ultimo, carga=normal|perigosa|luz, divisao=Texto
 # Saída:    "n:funcao:nome:entrada(0/1):simular(0/1):arranque:carga:divisao,..."
 #           (arranque vazio nos canais não controláveis; carga/divisao vazias
 #           = por omissão)
@@ -480,8 +482,8 @@ normalizar_canais() { # <espec>
                     [[ "$arr" == desligado || "$arr" == ligado || "$arr" == ultimo ]] \
                       || erro "canal $n: arranque inválido '$arr' (use desligado, ligado ou ultimo)" ;;
           carga)    carga="$valor"
-                    [[ "$carga" == normal || "$carga" == perigosa ]] \
-                      || erro "canal $n: carga inválida '$carga' (use normal ou perigosa)" ;;
+                    [[ "$carga" == normal || "$carga" == perigosa || "$carga" == luz ]] \
+                      || erro "canal $n: carga inválida '$carga' (use normal, perigosa ou luz)" ;;
           divisao)  div="$valor"; validar_divisao "$div" "no canal $n" ;;
           *)        erro "canal $n: opção desconhecida '$chave' (use: entrada, simular, arranque=, carga=, divisao=)" ;;
         esac
@@ -508,6 +510,9 @@ normalizar_canais() { # <espec>
       fi
       if [[ "$arr" == ultimo && "$funcao" != interruptor && "$funcao" != luz ]]; then
         erro "canal $n: 'arranque=ultimo' só é permitido em 'interruptor' ou 'luz' (este é '$funcao')"
+      fi
+      if [[ "$carga" == luz && "$funcao" != interruptor && "$funcao" != luz ]]; then
+        erro "canal $n: 'carga=luz' só é válido em 'interruptor' ou 'luz' (este é '$funcao')"
       fi
       if [[ "$funcao" == estore && "$arr" != desligado ]]; then
         erro "canal $n: um estore fica sempre parado depois de um corte de luz; use arranque=desligado (ou omita)"
@@ -566,6 +571,7 @@ json_aparelhos() { # <cliente>
       [[ "$sim" == 1 ]] && printf ',"simular":true'
       [[ -n "$arr" ]] && printf ',"arranque":%s' "$(json_str "$arr")"
       [[ "$carga" == perigosa ]] && printf ',"carga":"perigosa"'
+      [[ "$carga" == luz ]] && printf ',"carga":"luz"'
       [[ -n "$cdiv" ]] || cdiv="$adiv"
       [[ -n "$cdiv" ]] && printf ',"divisao":%s' "$(json_str "$cdiv")"
       printf '}'

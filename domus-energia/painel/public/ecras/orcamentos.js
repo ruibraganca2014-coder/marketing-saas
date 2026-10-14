@@ -1566,7 +1566,7 @@ function checklistAparelhos(sugeridos) {
       campoForm("Nome", h("input", { name: "nome", value: a.nome, maxlength: "60" })),
       campoForm("Tipo", escolha("tipo", TIPOS_APARELHO, a.tipo)),
       campoForm("Divisão", h("input", { name: "divisao", value: a.divisao, maxlength: "40" })),
-      h("div", { class: "aparelho-canais" }, campoForm("Canais", h("input", { name: "canais", value: a.canais, maxlength: "1000", autocapitalize: "none", spellcheck: "false" }))),
+      h("div", { class: "aparelho-canais" }, campoForm("Canais", h("input", { name: "canais", value: a.canais, maxlength: "1000", autocapitalize: "none", spellcheck: "false" }), ":carga=luz nos interruptores que acendem luzes; tire-o nos que ligam outra coisa.")),
       h("div", { class: "caixas" },
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "medidor", checked: a.medidor }), "Medidor"),
         h("label", { class: "caixa" }, h("input", { type: "checkbox", name: "geral", checked: !!a.geral }), "Medidor geral da casa"),

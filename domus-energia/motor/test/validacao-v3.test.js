@@ -52,6 +52,13 @@ test('_aparelhos v3: entrada, simular, arranque, carga, divisao (canal e aparelh
   assert.equal(x.canais.get(3).arranque, 'desligado');
   assert.equal(x.canais.get(3).carga, 'normal');
   assert.equal(r.rejeitados.length, 6);
+  // carga "luz" (o "Apagar tudo" da app): só em interruptores e luzes.
+  const l = normalizarAparelhos([
+    { id: 'y', nome: 'Y', tipo: 'shelly', canais: [{ n: 1, funcao: 'interruptor', carga: 'luz' }, { n: 2, funcao: 'estore', carga: 'luz' }] },
+  ]);
+  assert.equal(l.aparelhos.get('y').canais.get(1).carga, 'luz');
+  assert.equal(l.aparelhos.get('y').canais.get(2).carga, 'normal');
+  assert.equal(l.rejeitados.length, 1);
 });
 
 test('campos novos da automação aceites; desconhecidos rejeitados', () => {

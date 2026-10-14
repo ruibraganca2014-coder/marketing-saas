@@ -22,7 +22,7 @@ export const MAX_PERIGOSA_S = 4 * 3600;
  * @property {boolean} entrada        só `porta`: porta de entrada (atraso do alarme)
  * @property {boolean} simular        só `interruptor`/`luz`: simulação de presença (férias)
  * @property {'desligado'|'ligado'|'ultimo'} [arranque]  só controláveis: estado após corte de luz
- * @property {'normal'|'perigosa'} [carga]              só controláveis
+ * @property {'normal'|'perigosa'|'luz'} [carga]        só controláveis; luz = acende uma luz ("Apagar tudo" da app)
  * @property {string} [divisao]       divisão do canal (ou a do aparelho)
  */
 
@@ -63,7 +63,7 @@ function camposV3(idAp, c, funcao, divisaoAp, rejeitados) {
   if (CONTROLAVEIS.has(funcao)) {
     r.carga = 'normal';
     if (c.carga !== undefined) {
-      if (c.carga === 'perigosa' || c.carga === 'normal') r.carga = c.carga;
+      if (c.carga === 'perigosa' || c.carga === 'normal' || (c.carga === 'luz' && (funcao === 'interruptor' || funcao === 'luz'))) r.carga = c.carga;
       else rejeitados.push(`${onde}: "carga" inválida ${JSON.stringify(c.carga)}; fica "normal"`);
     }
     r.arranque = 'desligado';

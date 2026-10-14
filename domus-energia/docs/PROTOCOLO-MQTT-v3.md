@@ -52,7 +52,7 @@ Por canal:
 - `"entrada": true` (só `porta`): porta de entrada com atraso.
 - `"simular": true` (só `interruptor`/`luz`): usado na simulação de férias.
 - `"arranque": "desligado"|"ligado"|"ultimo"` (só controláveis): estado depois de um corte de luz. **Por omissão `desligado`**. `ultimo` só é aceite pelo script para `luz`/`interruptor` sem `"carga": "perigosa"`.
-- `"carga": "normal"|"perigosa"` (aquecedor, termoacumulador, bomba, motor): nunca `ultimo`, e as automações não o ligam sem `durante_s` (máx. 4 h).
+- `"carga": "normal"|"perigosa"|"luz"`: `perigosa` (aquecedor, termoacumulador, bomba, motor) nunca `ultimo`, e as automações não o ligam sem `durante_s` (máx. 4 h); `luz` (só `interruptor`/`luz`; 2026-10-14) = acende uma luz, para o "Apagar tudo" da app. Se nenhum canal da casa tiver `luz`, a app adivinha pelo nome.
 - `"divisao": "Sala"` (texto, opcional): agrupa no relatório e na app.
 
 ## 4. Regras nos aparelhos (funcionar sem internet)
