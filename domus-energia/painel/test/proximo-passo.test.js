@@ -29,6 +29,19 @@ describe('próximo passo (funções puras)', () => {
     assert.equal(atual(f), 'verificado');
   });
 
+  test('pedido perdido ou arquivado: do eletricista só o pagamento do trabalho feito; casa por ligar não fica com tudo ✓', () => {
+    const trabalhos = [{ estado: 'aprovada', aprovada: '2026-10-10T10:00:00.000Z', eletricista: 'Ana' }];
+    for (const estado of ['perdido', 'arquivado']) {
+      const f = base({ estado, trabalhos, extra_proposto: '2026-10-11T10:00:00.000Z', sem_tecnico: '2026-10-11T10:00:00.000Z', mensagem_cliente: '2026-10-12T10:00:00.000Z' });
+      assert.deepEqual(pendentesDoPedido(f).map((x) => x.tipo), ['pagar_eletricista'], estado);
+    }
+    assert.deepEqual(pendentesDoPedido(base({ estado: 'perdido' })), []);
+    const porLigar = base({ estado: 'aceite', validacao: 'validado', proposta_aceite: '2026-10-05T10:00:00.000Z', valor_proposta: 100,
+      obra: { id: 'o1', estado: 'concluida' }, pagamentos: [{ fase: 'restante', estado: 'pago' }] });
+    assert.equal(atual(porLigar), 'ligada');
+    assert.equal(atual({ ...porLigar, cliente: 'joao' }), null);
+  });
+
   test('o cliente corrigiu: "Rever e validar"; sem validação ligada, o CEO contacta', () => {
     assert.equal(proximoPasso(base({ validacao_nota: 'O cliente diz que já corrigiu: x' }), 'ceo').acao.rotulo, 'Rever e validar');
     const semFoto = proximoPasso(base({ validacao_em_falta: true }), 'ceo');

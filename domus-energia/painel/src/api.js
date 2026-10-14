@@ -844,7 +844,9 @@ export function criarApi(ctx) {
     const itens = [];
     const ped = (o) => `#/orcamentos/${encodeURIComponent(o.id)}`;
     const pedido = (tipo, texto, o, desde, ligacao = ped(o)) => itens.push({ tipo, texto: `${texto} ${o.nome}`, nome: o.nome, localidade: o.localidade ?? null, desde: desde ?? o.criado, pedido: o.id, ligacao });
-    const umPedido = db.prepare('SELECT id, nome, localidade, criado FROM orcamentos WHERE id = ?');
+    const umPedido = db.prepare('SELECT id, nome, localidade, criado, estado FROM orcamentos WHERE id = ?');
+    // Pedido perdido ou arquivado (decisão do dono, 2026-10-14): do eletricista só fica o pagamento do trabalho já feito.
+    const acabado = (o) => o.estado === 'perdido' || o.estado === ESTADO_ARQUIVADO;
     const casa = (c) => mapa.get(c)?.nome ?? c;
     const alerta = (a) => itens.push({ tipo: 'alerta', texto: `${String(a.mensagem).replace(/\.$/, '')}: ver em casa de ${casa(a.cliente)}`, nome: casa(a.cliente), localidade: mapa.get(a.cliente)?.localidade ?? null, desde: a.desde ?? null, ligacao: '#/alertas' });
     const novos = () => {
@@ -893,13 +895,13 @@ export function criarApi(ctx) {
             WHERE p.estado = 'enviada' AND EXISTS (SELECT 1 FROM trabalhos_eletricista t WHERE t.orcamento_id = p.orcamento_id AND t.estado = 'na_bolsa')
             GROUP BY p.orcamento_id LIMIT 50`).all()) {
             const o = umPedido.get(x.orcamento_id);
-            if (o) pedido('escolher_proposta', 'Escolher a proposta de eletricista para', o, x.desde);
+            if (o && !acabado(o)) pedido('escolher_proposta', 'Escolher a proposta de eletricista para', o, x.desde);
           }
         }
         const doTrabalho = (sql, tipo, texto, desde, ligacao) => {
           for (const x of db.prepare(sql).all()) {
             const o = umPedido.get(x.orcamento_id);
-            if (o) pedido(tipo, typeof texto === 'function' ? texto(x) : texto, o, desde(x), ligacao);
+            if (o && (tipo === 'pagar_eletricista' || !acabado(o))) pedido(tipo, typeof texto === 'function' ? texto(x) : texto, o, desde(x), ligacao);
           }
         };
         doTrabalho(`SELECT t.orcamento_id, t.atualizado FROM trabalhos_eletricista t JOIN orcamentos o ON o.id = t.orcamento_id
@@ -916,7 +918,7 @@ export function criarApi(ctx) {
           'ida_perdida', 'Confirmar ou anular a ida perdida a casa de', (x) => x.criado);
         for (const x of eletricistas.obrasSemTecnico().lista.slice(0, 50)) {
           const o = umPedido.get(x.orcamento_id);
-          if (o) pedido('sem_tecnico', 'Indicar o técnico responsável da obra de', o, x.criado);
+          if (o && !acabado(o)) pedido('sem_tecnico', 'Indicar o técnico responsável da obra de', o, x.criado);
         }
         for (const e of db.prepare("SELECT nome, criado FROM eletricistas WHERE estado = 'pendente' LIMIT 50").all()) {
           itens.push({ tipo: 'candidatura', texto: `Decidir a candidatura de ${e.nome}`, nome: e.nome, localidade: null, desde: e.criado, ligacao: '#/eletricistas' });

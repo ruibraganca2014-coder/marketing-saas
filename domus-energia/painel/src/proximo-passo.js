@@ -13,7 +13,7 @@ const ORDEM = ['validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabal
 /** As fases que o painel mostra: as da conta do cliente (painel/src/conta.js `passos`), mais o pagamento no fim. */
 export const FASES = {
   recebido: 'Pedido recebido', verificado: 'Pedido verificado', proposta: 'Proposta', aceite: 'Proposta aceite',
-  obra: 'Visita e obra', pago: 'Pago',
+  obra: 'Visita e obra', pago: 'Pago', ligada: 'Casa ligada',
 };
 
 const obraConcluidaDe = (f) => f.obra?.estado === 'concluida' || (f.estado === 'aceite' && Boolean(f.obra_concluida));
@@ -29,7 +29,12 @@ const paradaDe = (f) => Boolean(f.obra_parada) || (f.estado === 'perdido' && Boo
 export function pendentesDoPedido(f) {
   const out = [];
   const juntar = (tipo, papeis, desde, extra = {}) => out.push({ tipo, papeis, desde: desde ?? null, ...extra });
-  if (f.estado === 'arquivado') return out;
+  // Pedido perdido ou arquivado (decisão do dono, 2026-10-14): só o pagamento do trabalho que o eletricista já fez.
+  if (f.estado === 'arquivado' || f.estado === 'perdido') {
+    const aprovado = f.eletricistas && (f.trabalhos ?? []).find((x) => x.estado === 'aprovada');
+    if (aprovado) juntar('pagar_eletricista', ['ceo'], aprovado.aprovada ?? aprovado.atualizado, { eletricista: aprovado.eletricista ?? null });
+    return out;
+  }
   const porValidar = f.validacao_ligada && f.validacao === 'por_validar' && !['aceite', 'perdido'].includes(f.estado);
   if (porValidar) {
     const nota = String(f.validacao_nota ?? '');
@@ -75,6 +80,8 @@ export function andamentoDoPedido(f) {
     { chave: 'obra', feito: concluida },
     // Pago: o restante pago; sem pagamentos online (pedido antigo ou registado no painel), basta a obra concluída.
     { chave: 'pago', feito: restantePagoDe(f) || (concluida && !(f.pagamentos ?? []).length) },
+    // Casa ligada (2026-10-14): enquanto falta "Ligar casa" a última fase não fica com ✓.
+    { chave: 'ligada', feito: Boolean(f.cliente) },
   ].map((x) => ({ ...x, texto: FASES[x.chave] }));
   const fim = ['perdido', 'arquivado'].includes(f.estado);
   const atual = fim ? null : fases.find((x) => !x.feito);
