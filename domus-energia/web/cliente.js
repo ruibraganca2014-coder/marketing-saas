@@ -884,7 +884,8 @@ function criarLinha(a, c) {
   const detalhes = el("small", "mosaico-detalhes");
   detalhes.hidden = true;
   info.append(nome, estado, detalhes);
-  const nomeCompleto = c.temNome && a.canais.length > 1 ? `${a.nome} — ${c.nome}` : c.nome;
+  // O nome lido pelos leitores de ecrã e pelo controlo por voz é o que está escrito no mosaico (WCAG 2.5.3).
+  const nomeCompleto = rotuloCanal(a, c);
   const linha = { raiz, ilus, estado, detalhes };
 
   if (c.funcao === "interruptor" || c.funcao === "luz") {

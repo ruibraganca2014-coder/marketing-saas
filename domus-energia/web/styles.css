@@ -1157,3 +1157,8 @@ nav .link.acesso-equipa { display: none; }
 /* Na conta dos pedidos a informação fica por baixo do cartão de entrada e sai depois de entrar. */
 .pagina-conta .entrar-info { margin-top: 20px; }
 .pagina-conta .wrap:has(#conta-dentro:not([hidden])) > .entrar-info { display: none; }
+
+/* App da casa (teste no telemóvel, 2026-10-14): botões pequenos com 48 px de altura e letras um pouco maiores. */
+.app-cliente .btn.pequeno { min-height: 48px; }
+.app-cliente .modo-desc { font-size: .8rem; }
+.app-cliente .separador { font-size: .95rem; }

@@ -190,7 +190,10 @@ export function criarCenas({ publicar, ligado, aparelhos, apagarTudo }) {
     g.textContent = aberto ? "Fechar" : "Gerir";
     $("cenas-gerir").hidden = !aberto || lista == null;
     if (lista == null) return;
-    if (lista.length === 0 && (ap?.hidden ?? true)) linha.append(el("p", "vazio", "Ainda não tem cenas. Crie uma em \"Gerir\"."));
+    // Sem cenas no servidor: se o "Apagar tudo" saiu do topo, não se diz que não há cenas (ele continua em "Gerir").
+    if (lista.length === 0 && (ap?.hidden ?? true)) {
+      linha.append(el("p", "vazio", comApagar ? "Nada no topo. Ponha aqui as cenas que usa mais em \"Gerir\"." : "Ainda não tem cenas. Crie uma em \"Gerir\"."));
+    }
     for (const c of cenasDoTopo(lista)) {
       const b = botao(null, "cena-botao", () => executar(c));
       b.dataset.id = c.id;
