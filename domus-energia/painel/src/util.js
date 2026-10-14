@@ -81,5 +81,14 @@ export function criarRegisto(saida = console) {
   };
 }
 
+/**
+ * A saudação dos emails ao cliente (teste de 2026-10-14): "Olá Ana," com o primeiro nome, quando se sabe; senão "Olá,".
+ * Só letras, apóstrofo e hífen (o nome vem de um formulário).
+ */
+export function ola(nome) {
+  const n = String(nome ?? '').trim().split(/\s+/)[0].replace(/[^\p{L}\p{M}'’-]/gu, '').slice(0, 40);
+  return n ? `Olá ${n},` : 'Olá,';
+}
+
 /** Registo mudo (testes). */
 export const registoMudo = { info() {}, aviso() {}, erro() {} };

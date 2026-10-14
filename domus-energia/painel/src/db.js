@@ -1228,6 +1228,34 @@ export const MIGRACOES = [
     CREATE INDEX propostas_precos_estado ON propostas_precos(estado, criado);
     CREATE INDEX propostas_precos_eletricista ON propostas_precos(eletricista_id);
   `),
+  // 56: proposta da bolsa que o CLIENTE não aceitou (teste de 2026-10-14): `recusada` = a do escolhido, depois do "Não
+  // aceito" do cliente — já não conta como recebida (nem no painel nem como "Proposta enviada" na área do eletricista) e ele
+  // pode enviar uma proposta nova quando o pedido voltar à bolsa (a anterior fica à vista dele, "não aceite pelo cliente");
+  // o CEO continua a vê-la, como "Não aceite pelo cliente", e pode escolhê-la outra vez (com o preço retificado).
+  semChaves((db) => {
+    const seq = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'propostas_bolsa'").get()?.seq ?? null;
+    db.exec(`
+      CREATE TABLE propostas_bolsa_novo (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        orcamento_id INTEGER NOT NULL REFERENCES orcamentos(id) ON DELETE CASCADE,
+        eletricista_id INTEGER NOT NULL REFERENCES eletricistas(id) ON DELETE CASCADE,
+        horas REAL NOT NULL,
+        material TEXT NOT NULL DEFAULT '[]',
+        notas TEXT,
+        disponibilidade TEXT NOT NULL,
+        estado TEXT NOT NULL CHECK (estado IN ('enviada', 'escolhida', 'reserva', 'retirada', 'recusada')),
+        criado TEXT NOT NULL,
+        atualizado TEXT NOT NULL,
+        UNIQUE (orcamento_id, eletricista_id)
+      );
+      INSERT INTO propostas_bolsa_novo SELECT * FROM propostas_bolsa;
+      DROP TABLE propostas_bolsa;
+      ALTER TABLE propostas_bolsa_novo RENAME TO propostas_bolsa;
+      CREATE INDEX propostas_bolsa_eletricista ON propostas_bolsa(eletricista_id);
+    `);
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('propostas_bolsa', 'propostas_bolsa_novo')").run();
+    if (seq !== null) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('propostas_bolsa', ?)").run(seq);
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

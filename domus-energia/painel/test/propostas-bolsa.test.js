@@ -334,7 +334,7 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     assert.equal((await atribuicao(id2, { acao: 'escolher', eletricista_id: a.id })).estado, 200);
   });
 
-  test('pela conta do cliente: "Não aceito" retira o escolhido (a proposta fica de reserva) e "Aceito" dá-lhe a obra', async () => {
+  test('pela conta do cliente: "Não aceito" retira o escolhido (a proposta fica "não aceite pelo cliente") e "Aceito" dá-lhe a obra', async () => {
     const id3 = await pedido();
     const daConta = (caminho, corpo) => p.pedir('POST', `/api/conta/pedidos/${id3}/${caminho}`, { cookie: conta.cookie, corpo });
     const partes = { estado: 'proposta_enviada', proposta_mao_obra: 200, proposta_material: 300, proposta_deslocacao: 5.85 };
@@ -342,12 +342,13 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     assert.equal((await area(a, 'POST', `bolsa/${t1}/proposta`, proposta(6))).estado, 200);
     assert.equal((await atribuicao(id3, { acao: 'escolher', eletricista_id: a.id })).estado, 200);
     assert.equal((await painel('POST', `orcamentos/${id3}`, 'ceo', partes)).estado, 200);
-    // "Não aceito": o pedido volta ao CEO, o trabalho do escolhido é retirado e a proposta dele fica de reserva.
+    // "Não aceito": o pedido volta ao CEO, o trabalho do escolhido é retirado e a proposta dele fica "não aceite pelo
+    // cliente" (`recusada`; teste de 2026-10-14) — o CEO ainda a pode escolher outra vez, com o preço retificado.
     const nao = await daConta('recusar', { motivo: 'preco' });
     assert.equal(nao.estado, 200, nao.texto);
     let at = (await atribuicao(id3)).json;
     assert.equal(p.app.db.prepare('SELECT estado FROM trabalhos_eletricista WHERE id = ?').get(t1).estado, 'retirado');
-    assert.deepEqual(at.propostas.map((x) => [x.eletricista.id, x.estado, x.pode_escolher]), [[a.id, 'reserva', false]]);
+    assert.deepEqual(at.propostas.map((x) => [x.eletricista.id, x.estado, x.pode_escolher]), [[a.id, 'recusada', false]]);
     assert.equal((await area(a, 'GET', 'trabalhos')).json.trabalhos.some((x) => x.id === t1), false);
     // O CEO volta a pôr na bolsa, escolhe a proposta de reserva e envia a proposta outra vez; agora o cliente aceita.
     const t2 = (await atribuicao(id3, { acao: 'bolsa' })).json.trabalho.id;
@@ -361,11 +362,53 @@ describe('propostas na bolsa: vários propõem, o CEO escolhe, a obra fica com o
     assert.deepEqual(linhas.map((x) => [x.tipo, x.estado, x.modo, x.eletricista_id]), [['visita', 'retirado', 'bolsa', a.id], ['obra', 'aceite', 'direto', a.id]]);
     assert.equal(p.emails.filter((m) => m.para === a.email && /o cliente aceitou a proposta/.test(m.assunto)).length, 1);
     assert.equal((await area(a, 'GET', `trabalhos/${linhas[1].id}`)).json.trabalho.cliente.nome, CLIENTE.nome);
+    assert.equal((await atribuicao(id3)).json.trabalho.da_bolsa, true, 'a ficha diz "Escolhido na bolsa", não "Atribuição direta"');
     // Regra de sempre dos trabalhos diretos: 48 h sem marcar a visita e a obra volta ao CEO, por atribuir.
     p.relogio.avancar(49 * HORA);
     at = (await atribuicao(id3)).json;
     assert.deepEqual([at.trabalho, at.pode, at.tipo], [null, true, 'obra']);
     assert.equal(p.app.db.prepare('SELECT estado FROM trabalhos_eletricista WHERE id = ?').get(linhas[1].id).estado, 'retirado');
+  });
+
+  test('"Não aceito" e o pedido de volta à bolsa (teste de 2026-10-14): o escolhido propõe de novo e as contagens batem certo', async () => {
+    const id4 = await pedido();
+    const daConta = (caminho, corpo) => p.pedir('POST', `/api/conta/pedidos/${id4}/${caminho}`, { cookie: conta.cookie, corpo });
+    const partes = { estado: 'proposta_enviada', proposta_mao_obra: 200, proposta_material: 300, proposta_deslocacao: 5.85 };
+    const t1 = (await atribuicao(id4, { acao: 'bolsa' })).json.trabalho.id;
+    p.emails.length = 0;
+    assert.equal((await area(a, 'POST', `bolsa/${t1}/proposta`, proposta(6))).estado, 200);
+    // O aviso aos CEO leva à ficha do pedido (antes ia para Eletricistas).
+    const aviso = p.emails.find((m) => /chegou uma proposta/.test(m.assunto));
+    assert.match(aviso.texto, new RegExp(`/painel/#/orcamentos/${id4}\n`));
+    assert.equal((await area(b, 'POST', `bolsa/${t1}/proposta`, proposta(8))).estado, 200);
+    assert.equal((await atribuicao(id4, { acao: 'escolher', eletricista_id: a.id })).estado, 200);
+    assert.equal((await painel('POST', `orcamentos/${id4}`, 'ceo', partes)).estado, 200);
+    p.emails.length = 0;
+    assert.equal((await daConta('recusar', { motivo: 'preco' })).estado, 200);
+    // Foi o cliente que não aceitou: o email ao escolhido diz isso (não "retirado pela Domus Energia").
+    const retirado = p.emails.filter((m) => m.para === a.email);
+    assert.equal(retirado.length, 1);
+    assert.match(retirado[0].assunto, /o cliente não aceitou a proposta/);
+    assert.match(retirado[0].texto, /O cliente não aceitou a proposta do trabalho em Sintra/);
+    assert.doesNotMatch(retirado[0].texto, /retirado pela Domus Energia/);
+    // De volta à bolsa: a proposta anterior do escolhido já não conta — o trabalho está aberto a uma proposta nova dele
+    // (a anterior vem à parte, "não aceite pelo cliente") — e a de reserva de b volta a estar à espera, nos dois lados.
+    const t2 = (await atribuicao(id4, { acao: 'bolsa' })).json.trabalho.id;
+    const doA = (await area(a, 'GET', `bolsa/${t2}`)).json.trabalho;
+    assert.deepEqual([doA.proposta_enviada, doA.minha_proposta, doA.proposta_anterior?.horas, doA.proposta_anterior?.nao_aceite_cliente], [false, null, 6, true]);
+    assert.equal((await area(a, 'GET', 'bolsa')).json.trabalhos.find((x) => x.id === t2).proposta_enviada, false);
+    assert.equal((await area(b, 'GET', `bolsa/${t2}`)).json.trabalho.proposta_enviada, true);
+    const recebidas = async () => (await painel('GET', `orcamentos/${id4}`)).json.resumo_ficha.n_propostas;
+    assert.equal(await recebidas(), 1, 'só a de b conta como recebida');
+    assert.deepEqual((await atribuicao(id4)).json.propostas.map((x) => [x.eletricista.id, x.estado, x.pode_escolher]), [[a.id, 'recusada', true], [b.id, 'enviada', true]]);
+    // a envia uma proposta nova: passa a contar, e os CEO são avisados outra vez.
+    p.emails.length = 0;
+    const nova = await area(a, 'POST', `bolsa/${t2}/proposta`, proposta(5));
+    assert.equal(nova.estado, 200, nova.texto);
+    assert.deepEqual([nova.json.trabalho.proposta_enviada, nova.json.trabalho.minha_proposta.horas, nova.json.trabalho.proposta_anterior], [true, 5, null]);
+    assert.equal(await recebidas(), 2);
+    assert.ok(p.emails.some((m) => /chegou uma proposta/.test(m.assunto)));
+    assert.equal((await atribuicao(id4, { acao: 'escolher', eletricista_id: a.id })).estado, 200);
   });
 
   test('a avaria continua a ser "o primeiro a aceitar": sem propostas, com as 48 h e os dados do cliente', async () => {

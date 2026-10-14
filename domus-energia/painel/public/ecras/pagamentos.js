@@ -37,7 +37,9 @@ export default function pagamentos(el, ctx = {}) {
   let linhas = [];
   const fMes = h("select", { name: "mes", "aria-label": "Mês da tabela" });
   const exportar = h("button", { class: "btn sec", type: "button", id: "exportar-csv", text: "Exportar CSV", "aria-label": "Exportar CSV dos pagamentos dos planos", disabled: true });
-  const zonaTotais = h("section", { class: "cartao", "aria-labelledby": "totais-titulo" }, h("h2", { id: "totais-titulo", text: "Totais por mês" }), carregando());
+  // Teste de 2026-10-14: os totais e a tabela de cima são só dos PLANOS (pagamentos.csv); os dos pedidos estão na secção de
+  // baixo. Os títulos dizem isso (antes, "Ainda não há pagamentos." aparecia por cima de pedidos pagos).
+  const zonaTotais = h("section", { class: "cartao", "aria-labelledby": "totais-titulo" }, h("h2", { id: "totais-titulo", text: "Totais por mês dos planos" }), carregando());
   const zonaTabela = h("div", { class: "tabela-rolar" });
   // Pagamentos dos pedidos (relatório, visita, avaria, sinal, restante; docs/PAGAMENTOS-PEDIDO.md), com base, IVA e total e o pedido
   // (também os anonimizados pelo RGPD). CSV do servidor: data;referencia;descricao;base;iva;total;estado;pedido.
@@ -46,7 +48,7 @@ export default function pagamentos(el, ctx = {}) {
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Pagamentos" }), exportar),
     zonaTotais,
-    h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Pagamentos" }), fMes), zonaTabela),
+    h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Pagamentos dos planos" }), fMes), zonaTabela),
     h("section", { class: "bloco-lista", id: "pagamentos-pedidos", "aria-labelledby": "pp-titulo" },
       h("div", { class: "seccao-topo" }, h("h2", { id: "pp-titulo", text: "Pagamentos dos pedidos (relatório, visita, sinal e restante)" }), exportarPed), zonaPed));
   fMes.addEventListener("change", desenharTabela);
@@ -79,7 +81,7 @@ export default function pagamentos(el, ctx = {}) {
         campo(d, "estado") === "por_fazer" ? h("button", { class: "btn sec pequeno", type: "button", text: "Devolvido", "aria-label": `Marcar como devolvido: ${euros(campo(d, "valor"))}`,
           onclick: async (e) => {
             const b = e.currentTarget;
-            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; return; }
+            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; b.setAttribute("aria-label", `Confirmar: já transferi a devolução de ${euros(campo(d, "valor"))}`); return; }
             b.disabled = true;
             try {
               await pedir(`devolucoes/${encodeURIComponent(campo(d, "id"))}/devolvida`, { corpo: {} });
@@ -141,7 +143,8 @@ export default function pagamentos(el, ctx = {}) {
         t.pagamento === "a_pagar" ? h("button", { class: "btn sec pequeno", type: "button", id: idBotao, text: "Pago", "aria-label": `Marcar como pago: ${euros(v.total)} a ${t.eletricista.nome}${ida ? " (ida sem defeito)" : ""}`,
           onclick: async (e) => {
             const b = e.currentTarget;
-            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; return; }
+            // O nome acessível muda com o texto (teste de 2026-10-14: o leitor de ecrã continuava a dizer "Marcar como pago").
+            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já transferi"; b.setAttribute("aria-label", `Confirmar: já transferi ${euros(v.total)} a ${t.eletricista.nome}${ida ? " (ida sem defeito)" : ""}`); return; }
             b.disabled = true;
             try {
               await pedir(`trabalhos-eletricista/${encodeURIComponent(t.id)}/pago`, { corpo: ida ? { parte: "regresso" } : {} });
@@ -160,7 +163,7 @@ export default function pagamentos(el, ctx = {}) {
     linhas = lista(r, "linhas", "pagamentos");
     const totais = totaisDe(r, linhas).sort((a, b) => b.mes.localeCompare(a.mes));
     const max = Math.max(1, ...totais.map((t) => t.total));
-    zonaTotais.replaceChildren(h("h2", { id: "totais-titulo", text: "Totais por mês" }), totais.length
+    zonaTotais.replaceChildren(h("h2", { id: "totais-titulo", text: "Totais por mês dos planos" }), totais.length
       ? h("table", { class: "tabela totais", id: "totais" },
           h("thead", {}, h("tr", {}, h("th", { scope: "col", text: "Mês" }), h("th", { scope: "col", class: "num", text: "Com IVA" }), h("th", { scope: "col", class: "num so-largo", text: "Sem IVA" }), h("th", { scope: "col" }, h("span", { class: "so-leitor", text: "Proporção" })))),
           h("tbody", {}, ...totais.map((t) => {
@@ -168,7 +171,7 @@ export default function pagamentos(el, ctx = {}) {
             barra.style.setProperty("--p", `${Math.round((t.total / max) * 100)}%`);
             return h("tr", { dataset: { mes: t.mes } }, h("th", { scope: "row" }, mes(t.mes), t.n != null ? h("span", { class: "ajuda bloco-ajuda", text: `${t.n} ${t.n === 1 ? "pagamento" : "pagamentos"}` }) : null), h("td", { class: "num", text: euros(t.total) }), h("td", { class: "num so-largo", text: t.semIva == null ? "—" : euros(t.semIva) }), h("td", { class: "celula-barra" }, barra));
           })))
-      : h("p", { class: "vazio", text: "Ainda não há pagamentos." }));
+      : h("p", { class: "vazio", text: "Ainda não há pagamentos de planos. Os pagamentos dos pedidos estão mais abaixo." }));
     const meses = [...new Set(linhas.map(mesDe).filter(Boolean))].sort().reverse();
     fMes.replaceChildren(h("option", { value: "", text: "Todos os meses" }), ...meses.map((m) => h("option", { value: m, text: mes(m) })));
     if (meses.length) fMes.value = meses[0];

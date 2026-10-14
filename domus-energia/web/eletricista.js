@@ -272,7 +272,7 @@ async function inicio() {
     if (!lista.aberto) continue;
     const t = fichas.get(lista.id) ?? lista;
     const c = t.cliente ?? {};
-    const onde = [c.morada, c.localidade].filter(Boolean).join(", ") || t.concelho;
+    const onde = moradaCompleta(c.morada, c.localidade) || t.concelho;
     const quem = [c.nome, t.titulo].filter(Boolean).join(" · ");
     const nomeTrabalho = t.tipo === "obra" ? "Obra" : "Trabalho";
     if (t.espera_cliente) espera(t, "À espera de o cliente aceitar a proposta");
@@ -622,16 +622,27 @@ function fotosDoCliente(t) {
 /** O formulário da proposta na bolsa: o da proposta depois da visita (horas, material, notas) mais "Quando pode ir?". Depois de enviada, pode corrigir-se. */
 function formPropostaBolsa(t) {
   const p = t.minha_proposta;
+  // Teste de 2026-10-14: o cliente não aceitou a proposta anterior e o pedido voltou à bolsa — propõe de novo, com os
+  // campos preenchidos pela anterior (para a ajustar), que fica à vista por cima.
+  const ant = p ? null : t.proposta_anterior;
   const c = com(el("div", "cartao pilha"), el("h3", null, p ? "A sua proposta" : "Fazer proposta"));
   c.id = "proposta-bolsa";
+  if (ant) {
+    const nota = el("div", "nota calma");
+    nota.id = "proposta-anterior";
+    com(nota, el("p", null, "A sua proposta anterior (não aceite pelo cliente):"),
+      el("p", "pequeno", `${dataCurta(ant.quando)}: ${decimal(ant.horas)} h de trabalho${ant.material.length ? `, ${ant.material.length} ${ant.material.length === 1 ? "artigo" : "artigos"}` : ""} · ${ant.disponibilidade}`),
+      el("p", "pequeno suave", "Pode ajustá-la abaixo e enviar uma proposta nova."));
+    c.append(nota);
+  }
   const msg = el("p", "erro");
   msg.hidden = true;
   msg.setAttribute("role", "alert");
-  const f = camposProposta(p, msg);
+  const f = camposProposta(p ?? ant, msg);
   const quando = el("input");
   quando.type = "text"; quando.maxLength = 200; quando.id = "proposta-disponibilidade";
   quando.placeholder = "ex.: a partir de 20 de outubro, manhãs";
-  quando.value = p?.disponibilidade ?? "";
+  quando.value = (p ?? ant)?.disponibilidade ?? "";
   const enviar = el("button", "btn cheio", p ? "Enviar proposta corrigida" : "Enviar proposta");
   enviar.type = "button";
   enviar.id = "proposta-enviar";
@@ -771,7 +782,7 @@ async function obraAssino(id) {
   const quem = com(el("div", "cartao pilha"), el("h3", null, "A obra"));
   quem.id = "assino-obra";
   if (o.executante?.nome) quem.append(com(el("p"), "Quem faz a obra: ", el("b", null, o.executante.nome)));
-  if (o.cliente) quem.append(com(el("p"), "Cliente: ", el("b", null, o.cliente.nome ?? "—")), el("p", "pequeno", [o.cliente.morada, o.cliente.localidade].filter(Boolean).join(", ") || o.concelho));
+  if (o.cliente) quem.append(com(el("p"), "Cliente: ", el("b", null, o.cliente.nome ?? "—")), el("p", "pequeno", moradaCompleta(o.cliente.morada, o.cliente.localidade) || o.concelho));
   quem.append(el("p", "pequeno", o.visita ? `Visita: ${visitaTxt(o.visita)}` : "Visita ainda por marcar."));
   if (o.concluida) quem.append(el("p", "pequeno", `Dada por concluída em ${dataLonga(o.concluida)}.`));
   out.push(quem);
@@ -993,10 +1004,22 @@ function seccao(titulo, seloEl, ...corpo) {
   return d;
 }
 
+/**
+ * A morada com a localidade, sem a repetir quando a morada já acaba nela (teste de 2026-10-14: "Rua de Teste 1, 2710-000
+ * Sintra, Sintra"). Compara sem maiúsculas nem acentos.
+ */
+function moradaCompleta(morada, localidade) {
+  const m = String(morada ?? "").trim(), l = String(localidade ?? "").trim();
+  const simples = (s) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const fim = simples(m).replace(/[\s.]+$/, ""), loc = simples(l);
+  if (m && l && (fim === loc || fim.endsWith(` ${loc}`) || fim.endsWith(`,${loc}`))) return m;
+  return [m, l].filter(Boolean).join(", ");
+}
+
 function parteCliente(t) {
   const c = t.cliente ?? {};
   const dl = el("dl", "dados");
-  for (const [k, v] of [["Nome", c.nome], ["Morada", [c.morada, c.localidade].filter(Boolean).join(", ")], ["Telefone", c.telefone]]) dl.append(el("dt", null, k), el("dd", null, v || "—"));
+  for (const [k, v] of [["Nome", c.nome], ["Morada", moradaCompleta(c.morada, c.localidade)], ["Telefone", c.telefone]]) dl.append(el("dt", null, k), el("dd", null, v || "—"));
   const ligar = c.telefone ? (() => { const a = el("a", "btn sec mini", "Ligar"); a.href = `tel:${String(c.telefone).replace(/[^\d+]/g, "")}`; return a; })() : null;
   const cliente = seccao("Cliente", null, dl, el("p", "nota calma", "Ligue ou escreva sempre em nome da Domus Energia. Estes dados ficam visíveis até o trabalho fechar."),
     ligar ? com(el("div", "fila"), ligar) : el("p", "pequeno suave", "Sem telefone: peça o contacto à Domus Energia."));
@@ -1539,7 +1562,8 @@ function seccaoChecklists(t) {
 
 // ---- Ensaios medidos (fora do limite: assinalado, com nota obrigatória) e diagnóstico da avaria
 const ENSAIOS = [
-  { k: "continuidade_pe", nome: "Continuidade do PE", un: "Ω", dica: () => "Valor medido, da tomada ao quadro.", fora: () => false },
+  // Teste de 2026-10-14: o contador diz "x/3 obrigatórios" e este, que não conta para concluir, diz "(opcional)".
+  { k: "continuidade_pe", nome: "Continuidade do PE", opcional: true, un: "Ω", dica: () => "Valor medido, da tomada ao quadro.", fora: () => false },
   { k: "isolamento", nome: "Resistência de isolamento", un: "MΩ", dica: (l) => `Mínimo ${decimal(l.isolamento_min)} MΩ (500 V c.c.).`, fora: (n, l) => n < l.isolamento_min },
   { k: "terra", nome: "Resistência de terra", un: "Ω", dica: (l) => `Até ${decimal(l.terra_max)} Ω.`, fora: (n, l) => n > l.terra_max },
   { k: "diferencial", nome: "Disparo do diferencial", un: "ms", dica: (l) => `Tempo medido a IΔn: até ${decimal(l.diferencial_max)} ms.`, fora: (n, l) => n > l.diferencial_max },
@@ -1558,7 +1582,7 @@ function parteEnsaios(t) {
     i.value = e[x.k] === null || e[x.k] === undefined ? "" : decimal(e[x.k]);
     i.disabled = !t.editavel;
     const dica = el("span", "dica", x.dica(lim));
-    const c = com(el("label", "campo"), el("span", null, x.nome), com(el("div", "com-un"), i, el("span", null, x.un)), dica);
+    const c = com(el("label", "campo"), el("span", null, x.opcional ? `${x.nome} (opcional)` : x.nome), com(el("div", "com-un"), i, el("span", null, x.un)), dica);
     const avaliar = () => {
       const n = numeroDe(i.value);
       const mau = Number.isNaN(n) || (n !== null && n < 0);
@@ -1597,7 +1621,7 @@ function parteEnsaios(t) {
     acaoFicha(t, "ensaios", corpo, { botao: guardar, msg, texto: "Ensaios guardados." });
   });
   const nFeitos = ["isolamento", "diferencial", "terra"].filter((k) => e[k] !== null && e[k] !== undefined).length;
-  return [seccao("Ensaios", (e.fora ?? []).length ? selo("Fora do limite", "mau") : selo(`${nFeitos}/3`, nFeitos === 3 ? "bom" : "aviso"),
+  return [seccao("Ensaios", (e.fora ?? []).length ? selo("Fora do limite", "mau") : selo(`${nFeitos}/3 obrigatórios`, nFeitos === 3 ? "bom" : "aviso"),
     ...linhas, com(el("label", "campo"), el("span", null, (e.fora ?? []).length ? "Nota (obrigatória: há valores fora do limite)" : "Nota (opcional)"), notas),
     msg, t.editavel ? guardar : null, e.data ? el("p", "pequeno suave", `Guardados em ${dataCurta(e.data)}.`) : null)];
 }

@@ -124,6 +124,8 @@ async function carregar() {
   const voltou = Boolean(regresso);
   if (regresso) await mostrarRegresso(); else if ($("conta-pedidos-msg").classList.contains("erro")) mensagem(null);
   const pedidos = Array.isArray(r?.pedidos) ? r.pedidos : [];
+  // O aviso da lista de espera só enquanto um pedido ainda espera pela proposta (teste de 2026-10-14; o servidor decide).
+  if (window.DOMUS?.listaEspera?.ativa) $("conta-espera").hidden = r?.aviso_espera === false;
   if (!pedidos.length) {
     const p = el("p", "vazio", `Ainda não há pedidos ${variasCasas ? "nesta casa" : "nesta conta"}. Quando simular e enviar, aparecem aqui com o relatório e o andamento. `);
     const a = el("a", null, "Simular orçamento");

@@ -17,7 +17,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerCorpo, CABECALHOS_SEGURANCA } from './http.js';
 import { falha } from './validar.js';
 import { ESTADO_ARQUIVADO } from './db.js';
-import { iso, diaLisboa, somarDiasCivil } from './util.js';
+import { iso, diaLisboa, somarDiasCivil, ola } from './util.js';
 import { horaLisboa, agoraLisboa } from './crm.js';
 import { PRAZO_CONFIRMAR_MS } from './eletricistas.js';
 
@@ -194,7 +194,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     ];
     return enviar(o, 'boas_vindas', chave, para, {
       assunto: 'Domus Energia: recebemos o seu pedido',
-      texto: ['Olá,', '', `Recebemos o seu pedido n.º ${o.id}. Obrigado!`, '', 'O que acontece a seguir:', ...passos.map((t, i) => `${i + 1}. ${t}`), '',
+      texto: [ola(o.nome), '', `Recebemos o seu pedido n.º ${o.id}. Obrigado!`, '', 'O que acontece a seguir:', ...passos.map((t, i) => `${i + 1}. ${t}`), '',
         'Se precisar de falar connosco antes, responda a este email ou ligue-nos.', ...(comConta ? ligacaoConta() : []), '', 'Domus Energia'].join('\n'),
     });
   }
@@ -237,7 +237,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
       if (!para) continue;
       if (enviar(o, 'visita', chave, para, {
         assunto: 'Domus Energia: a visita é amanhã',
-        texto: ['Olá,', '', `Lembramos que a visita do seu pedido n.º ${o.id} é amanhã: ${dataVisita(quando)}.`, 'Se não puder, responda a este email ou ligue-nos.',
+        texto: [ola(o.nome), '', `Lembramos que a visita do seu pedido n.º ${o.id} é amanhã: ${dataVisita(quando)}.`, 'Se não puder, responda a este email ou ligue-nos.',
           ...(o.conta_id ? ligacaoConta() : []), '', 'Domus Energia'].join('\n'),
       })) n++;
     }
@@ -273,7 +273,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
       const oque = f.fase === 'sinal' ? 'O sinal' : 'O restante da obra';
       if (enviar(o, `pagamento_${etapa}`, `${o.id}:pagamento_${etapa}:${f.fase}:${f.desde}`, para, {
         assunto: etapa === 1 ? 'Domus Energia: pagamento por fazer' : 'Domus Energia: pagamento por fazer (segundo aviso)',
-        texto: ['Olá,', '', etapa === 1 ? `${oque} do seu pedido n.º ${o.id} (${euro(f.cent)}, com IVA) ainda está por pagar. Pode pagar na sua conta quando quiser.`
+        texto: [ola(o.nome), '', etapa === 1 ? `${oque} do seu pedido n.º ${o.id} (${euro(f.cent)}, com IVA) ainda está por pagar. Pode pagar na sua conta quando quiser.`
           : `Voltamos a lembrar: ${oque.toLowerCase()} do seu pedido n.º ${o.id} (${euro(f.cent)}, com IVA) continua por pagar. Pode pagar na sua conta.`,
         f.fase === 'sinal' ? (pagamentos().visitaIncluida?.(o) ? 'A visita só é marcada depois de pagar o sinal.' : 'A instalação só fica confirmada depois de pagar o sinal.') : 'A app da casa fica ativa depois de pagar o restante.',
         'Se já pagou (por exemplo, por referência Multibanco), não precisa de fazer nada: a confirmação pode demorar.',
@@ -306,7 +306,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
       if (enviar(o, 'obra', chave, para, {
         assunto: 'Domus Energia: como usar a sua conta e a sua casa',
         cabecalhos: { 'List-Unsubscribe': `<${sair}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
-        texto: ['Olá,', '', `A obra do seu pedido n.º ${o.id} está concluída. Obrigado por ter escolhido a Domus Energia!`, '', 'Um guia rápido:',
+        texto: [ola(o.nome), '', `A obra do seu pedido n.º ${o.id} está concluída. Obrigado por ter escolhido a Domus Energia!`, '', 'Um guia rápido:',
           `- A minha conta${site ? ` (${site}/conta.html)` : ''}: o seu pedido, os pagamentos com os recibos e o relatório.`,
           ...(o.plano_escolhido || o.cliente ? [`- Área de cliente${site ? ` (${site}/cliente.html)` : ''}: a sua casa, para ver e comandar os aparelhos instalados. Entra com o mesmo email; fica ativa depois de a obra estar paga.`] : []),
           ...(avaliado ? [] : ['', `Como correu? Diga-nos de 1 a 5 estrelas na sua conta, no pedido n.º ${o.id}: demora menos de um minuto.`]),
@@ -341,7 +341,7 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
       if (!marcou) continue;
       const feito = Date.parse(t.concluida);
       correio.enviar({ para, assunto: 'Domus Energia: falta confirmar o trabalho em sua casa', resumo: `email automático (confirmar trabalho) do pedido ${o.id}`,
-        texto: ['Olá,', '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id} em ${diaTexto(feito)}.`,
+        texto: [ola(o.nome), '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id} em ${diaTexto(feito)}.`,
           'Na sua conta pode confirmar que ficou tudo bem ou dizer-nos o que falta.',
           `Se não disser nada até ${diaTexto(feito + PRAZO_CONFIRMAR_MS)}, consideramos o trabalho aceite.`, ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
       n++;

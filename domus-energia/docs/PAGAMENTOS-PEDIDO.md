@@ -44,13 +44,13 @@ Só as avarias têm dois preços. Obras e visitas técnicas ficam sempre ao pre�
 - **Pagamentos desligados ou lista de espera:** a avaria entra grátis como sempre; a escolha fica guardada, sem preço nem devolução.
 - Eletricistas (quem as recebe e quanto ganham): docs/ELETRICISTAS.md "Avarias fora de horas".
 
-Exemplo em Sintra (diagnóstico 25 € + 0,5 h × 38 € = 44 €; deslocação 7,20 €):
+Exemplo em Sintra (diagnóstico 25 € + 0,5 h × 38 € = 44 €; deslocação 46,40 €). A deslocação de um dia é `deslocacao_iva` + (km − `deslocacao_km_gratis`) × 2 (ida e volta) × `deslocacao_preco_km_iva`, com os km por estrada desde `deslocacao_base` (Sintra: 29 km de Lisboa). Com a configuração em uso (Catálogo → Configuração: 0 € fixos, 0 km grátis, 0,80 €/km) dá 29 × 2 × 0,80 = **46,40 €**; com os valores de origem da migração 4 (20 km grátis, 0,40 €/km) daria (29 − 20) × 2 × 0,40 = 7,20 €. Os valores mudam com a configuração; o cálculo é sempre este (`deslocacaoServidor`, `web/simulador/deslocacao.js`).
 
 | | Horário normal | Fora de horas |
 |---|---|---|
 | Diagnóstico e mão de obra | 44,00 € | 66,00 € |
-| Deslocação | 7,20 € | 7,20 € |
-| O cliente paga ao enviar | 51,20 € | 73,20 € |
+| Deslocação | 46,40 € | 46,40 € |
+| O cliente paga ao enviar | 90,40 € | 112,40 € |
 | Visita marcada em horário normal | — | devolvem-se 22,00 € |
 
 ## Decisões de 2026-10-11 (propostas na bolsa)
@@ -104,7 +104,7 @@ Devolução manual, passo a passo:
 
 Como se sabe o método: no modo stripe, ao devolver lê-se a sessão com `expand[]=payment_intent.latest_charge` (`payment_method_details.type`); um pagamento confirmado por `checkout.session.async_payment_succeeded` fica logo anotado como Multibanco (`pagamentos_pedido.metodo`). No modo simulado, a página `pagamento-simulado.html` tem "Pagar como" (cartão, MB Way, referência Multibanco).
 
-Também de 2026-10-02 (decisão 4, com o simulador): **a deslocação é ida e volta por dia de obra** — `deslocacaoServidor(localidade, cfg, dias)` = (fixo + km acima dos grátis × 2 × preço por km) × min(dias, `deslocacao_max_dias`) — **no máximo 5 dias de deslocação por obra** (`deslocacao_max_dias`, migração 25, editável em Catálogo → Configuração e público no `/api/catalogo`); a visita técnica e a avaria são um dia (Sintra: 7,20 €; visita 26,20 €); no relatório, dias = horas ÷ `horas_por_dia` (8). Nos artigos de **preço fechado** (`especificacoes.preco_fechado`) as horas contam para os dias mas não para a mão de obra cobrada à parte.
+Também de 2026-10-02 (decisão 4, com o simulador): **a deslocação é ida e volta por dia de obra** — `deslocacaoServidor(localidade, cfg, dias)` = (fixo + km acima dos grátis × 2 × preço por km) × min(dias, `deslocacao_max_dias`) — **no máximo 5 dias de deslocação por obra** (`deslocacao_max_dias`, migração 25, editável em Catálogo → Configuração e público no `/api/catalogo`); a visita técnica e a avaria são um dia (Sintra, 29 km: 46,40 € com a configuração em uso — 0 km grátis e 0,80 €/km —, visita 65,40 €; com os valores de origem, 20 km grátis e 0,40 €/km, 7,20 € e visita 26,20 €); no relatório, dias = horas ÷ `horas_por_dia` (8). Nos artigos de **preço fechado** (`especificacoes.preco_fechado`) as horas contam para os dias mas não para a mão de obra cobrada à parte.
 
 O relatório do cliente e o básico trazem `dias` ("≈ N dias de obra"), `deslocacao_dias` e `deslocacao_limitada`: a conta mostra "+ deslocação X € (ida e volta, N dias)" ou "(ida e volta; máximo 5 dias)", como o Orçamento do simulador.
 

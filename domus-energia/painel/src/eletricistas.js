@@ -43,7 +43,7 @@ import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE, diagnostico a
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { RE_EMAIL } from './pedidos.js';
 import { LimiteTaxa } from './limite.js';
-import { iso, deCent, escreverAtomico } from './util.js';
+import { iso, deCent, escreverAtomico, ola } from './util.js';
 import { CODIGO_MS, CODIGO_TENTATIVAS } from './conta.js';
 import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO, semMetadados } from './fotos.js';
 import { ESTADO_ARQUIVADO, GRUPOS_FOTO_TRABALHO } from './db.js';
@@ -240,8 +240,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const ligacaoArea = () => (config.siteUrl ? ['', `Área do eletricista: ${config.siteUrl}/eletricista.html`] : []);
 
   /** Aviso à empresa (os CEO ativos do painel): sem dados do documento nem do cliente. */
-  function avisarEmpresa(assunto, linhas) {
-    const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/#/eletricistas`] : [];
+  // `ligacao` (teste de 2026-10-14): o ecrã do painel onde se trata do aviso — a ficha do pedido (`pedidoPainel`), os
+  // Pagamentos, ou Eletricistas (as candidaturas).
+  const pedidoPainel = (id) => `#/orcamentos/${encodeURIComponent(id)}`;
+  function avisarEmpresa(assunto, linhas, ligacao = '#/eletricistas') {
+    const painel = config.origens[0] ? ['', `Painel: ${config.origens[0]}/painel/${ligacao}`] : [];
     for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
       correio.enviar({ para: email, assunto, resumo: assunto, texto: ['Olá,', '', ...linhas, ...painel, '', 'Domus Energia'].join('\n') });
     }
@@ -622,10 +625,14 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (porProposta(t)) {
       const minha = propostaBolsa(o.id, e.id);
       r.por_proposta = true;
-      r.proposta_enviada = Boolean(minha) && minha.estado !== 'retirada';
+      // Teste de 2026-10-14: a que o cliente não aceitou (`recusada`) já não conta — o trabalho volta a estar aberto a uma
+      // proposta nova dele, e a anterior vai à parte (`proposta_anterior`), só para a ver.
+      r.proposta_enviada = Boolean(minha) && !['retirada', 'recusada'].includes(minha.estado);
       if (comRelatorio) {
+        const dados = minha ? { ...propostaDe({ proposta: jsonDaProposta(minha) }), disponibilidade: minha.disponibilidade } : null;
         r.fotos = fotosDoCliente(t, o);
-        r.minha_proposta = r.proposta_enviada ? { ...propostaDe({ proposta: jsonDaProposta(minha) }), disponibilidade: minha.disponibilidade } : null;
+        r.minha_proposta = r.proposta_enviada ? dados : null;
+        r.proposta_anterior = minha?.estado === 'recusada' ? { ...dados, nao_aceite_cliente: true } : null;
       }
     }
     return r;
@@ -983,6 +990,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const insEvento = db.prepare('INSERT INTO trabalhos_eletricista_eventos (trabalho_id, eletricista_id, evento, quando, por) VALUES (?, ?, ?, ?, ?)');
   const evento = (t, nome, eletricistaId, por) => insEvento.run(t.id, eletricistaId ?? null, nome, agoraIso(), por);
   const trabalho = (id) => db.prepare('SELECT * FROM trabalhos_eletricista WHERE id = ?').get(id) ?? null;
+  /** "Olá Ana," (o primeiro nome do pedido, ou o da conta), ou "Olá,". */
+  const olaCliente = (o) => ola(o.nome || (o.conta_id ? db.prepare('SELECT nome FROM contas WHERE id = ?').get(o.conta_id)?.nome : null));
   const emailCliente = (o) => (o.conta_id ? db.prepare('SELECT email FROM contas WHERE id = ?').get(o.conta_id)?.email : null) ?? o.email ?? null;
   const ligacaoConta = () => (config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []);
   /** "sexta-feira, 9 de outubro, 10:00" a partir de "AAAA-MM-DDTHH:MM" (hora de Lisboa, sem fuso: formata-se tal e qual). */
@@ -1026,13 +1035,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       const email = emailCliente(o);
       if (email) {
         correio.enviar({ para: email, assunto: 'Domus Energia: a visita vai ter nova data', resumo: `visita do pedido ${o.id} desmarcada`,
-          texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id}, marcada para ${dataTexto(t.visita)}, foi desmarcada.`,
+          texto: [olaCliente(o), '', `A visita do seu pedido n.º ${o.id}, marcada para ${dataTexto(t.visita)}, foi desmarcada.`,
             'Vamos marcar uma data nova e avisamos por email. Pedimos desculpa pelo incómodo.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
       }
     }
     avisarEmpresa('Domus Energia: um eletricista deixou um trabalho', [
       `${nomeEvento === 'expirou' ? 'Passaram 48 h sem visita marcada' : 'O eletricista largou o trabalho'} do pedido n.º ${t.orcamento_id}.`,
-      t.modo === 'bolsa' ? 'O trabalho voltou à bolsa.' : 'O trabalho voltou a ficar por atribuir.']);
+      t.modo === 'bolsa' ? 'O trabalho voltou à bolsa.' : 'O trabalho voltou a ficar por atribuir.'], pedidoPainel(t.orcamento_id));
     // De volta à bolsa: os outros eletricistas da zona recebem "voltou à bolsa" (nunca quem o largou ou deixou caducar).
     // Havendo parceiros da especialidade no concelho, voltam a ter 24 horas só para eles (decisão do dono, 2026-10-13).
     if (t.modo === 'bolsa') avisarBolsa(darPrioridade(trabalho(t.id), o), true);
@@ -1101,7 +1110,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       evento(t, 'confirmada', t.eletricista_id, 'sistema');
       auditar(null, 'trabalho_confirmado_auto', `orcamento:${t.orcamento_id}`, { trabalho: t.id, criterio: '7 dias sem resposta do cliente' });
       avisarEmpresa('Domus Energia: um trabalho ficou aceite (7 dias sem resposta)', [
-        `O cliente do pedido n.º ${t.orcamento_id} não respondeu em 7 dias: o trabalho ficou aceite.`, 'Falta a sua aprovação, na ficha do pedido.']);
+        `O cliente do pedido n.º ${t.orcamento_id} não respondeu em 7 dias: o trabalho ficou aceite.`, 'Falta a sua aprovação, na ficha do pedido.'], pedidoPainel(t.orcamento_id));
     }
     return idos.length;
   }
@@ -1223,9 +1232,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(quem(e), 'visita_marcada', `orcamento:${o.id}`, { data_visita: quando, trabalho: t.id, por: 'eletricista externo' }, ip);
     // Uma data passada é só o registo de quando a visita foi: o cliente não recebe "visita marcada" para um dia que já passou.
     const email = passada ? null : emailCliente(o);
+    // "Alterar data" (teste de 2026-10-14): o cliente recebe um email próprio da data nova, que diz a que estava antes.
+    const mudou = Boolean(t.visita) && t.visita !== quando;
     if (email) {
-      correio.enviar({ para: email, assunto: 'Domus Energia: visita marcada', resumo: `visita do pedido ${o.id} marcada para ${quando}`,
-        texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} está marcada para ${dataTexto(quando)}.`, 'Vai a sua casa um técnico em nome da Domus Energia.', ...(t.tipo === 'obra' && pagamentos().visitaIncluida(o) ? ['Se for possível, a obra fica feita nesse dia.'] : []),
+      correio.enviar({ para: email, assunto: mudou ? 'Domus Energia: a visita mudou de data' : 'Domus Energia: visita marcada',
+        resumo: `visita do pedido ${o.id} ${mudou ? 'remarcada' : 'marcada'} para ${quando}`,
+        texto: [olaCliente(o), '', mudou ? `A visita do seu pedido n.º ${o.id}, que estava marcada para ${dataTexto(t.visita)}, passou para ${dataTexto(quando)}.`
+          : `A visita do seu pedido n.º ${o.id} está marcada para ${dataTexto(quando)}.`, 'Vai a sua casa um técnico em nome da Domus Energia.', ...(t.tipo === 'obra' && pagamentos().visitaIncluida(o) ? ['Se for possível, a obra fica feita nesse dia.'] : []),
           'Se não puder, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, { trabalho: paraEletricista(trabalho(t.id), pedidoDe(o.id), true) });
@@ -1516,7 +1529,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(quem(e), 'proposta_eletricista', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, horas, artigos: proposta.material.length }, ip);
     avisarEmpresa('Domus Energia: um eletricista enviou a proposta de um pedido', [
       `O eletricista enviou a proposta do pedido n.º ${o.id} (${t.concelho}): as horas de trabalho e o material.`,
-      'Veja-a na ficha do pedido, em Orçamentos: "Preencher pela proposta do eletricista", reveja os valores e envie a proposta ao cliente.']);
+      'Veja-a na ficha do pedido, em Orçamentos: "Preencher pela proposta do eletricista", reveja os valores e envie a proposta ao cliente.'], pedidoPainel(o.id));
     responder(res, 200, fichaAtual(t));
   };
 
@@ -1588,10 +1601,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       ON CONFLICT(orcamento_id, eletricista_id) DO UPDATE SET horas = excluded.horas, material = excluded.material, notas = excluded.notas,
         disponibilidade = excluded.disponibilidade, estado = 'enviada', atualizado = excluded.atualizado`).run(o.id, e.id, horas, JSON.stringify(material), notas, disponibilidade, agora, agora);
     auditar(quem(e), 'proposta_bolsa', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, horas, artigos: material.length, corrigida: Boolean(antes) }, ip);
-    if (!antes || antes.estado === 'retirada') {
+    if (!antes || ['retirada', 'recusada'].includes(antes.estado)) {
       avisarEmpresa('Domus Energia: chegou uma proposta de um eletricista', [
         `Um eletricista enviou uma proposta para o pedido n.º ${o.id} (${t.concelho}): as horas, o material e quando pode ir.`,
-        'Compare as propostas na ficha do pedido, em "Eletricista externo", e escolha quando quiser.']);
+        'Compare as propostas na ficha do pedido, em "Eletricista externo", e escolha quando quiser.'], pedidoPainel(o.id));
     }
     responder(res, 200, { trabalho: paraBolsa(t, o, e, true), mensagem: 'Proposta enviada. A Domus Energia escolhe o eletricista e avisa por email.' });
   };
@@ -1654,15 +1667,20 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!aberto(t, o)) throw new ErroApi(409, 'Este pedido já não está por visitar: retire-o da bolsa.');
     const e = linha(idEletricista);
     const p = e ? propostaBolsa(o.id, e.id) : null;
-    if (!p || !['enviada', 'reserva'].includes(p.estado)) throw new ErroApi(404, 'Esse eletricista não tem uma proposta neste pedido.');
+    // A que o cliente não aceitou (`recusada`) também se escolhe: o CEO pode retificar o preço e voltar a enviá-la.
+    if (!p || !['enviada', 'reserva', 'recusada'].includes(p.estado)) throw new ErroApi(404, 'Esse eletricista não tem uma proposta neste pedido.');
     if (e.estado !== 'aprovado' || !visivelNaBolsa(t, e, o)) throw new ErroApi(409, `Só se escolhe um eletricista aprovado que trabalhe em ${t.concelho} e que não tenha largado este trabalho.`);
     const agora = agoraIso();
     const r = db.prepare(`UPDATE trabalhos_eletricista SET estado = 'aceite', eletricista_id = ?, percentagem = ?, aceite_em = NULL, proposta = ?, atualizado = ?
       WHERE id = ? AND estado = 'na_bolsa'`).run(e.id, percentagemDe(e), jsonDaProposta(p), agora, t.id);
     if (!r.changes) throw new ErroApi(409, 'Este trabalho já não está na bolsa.');
-    // Só quem estava à espera é avisado de que ficou de reserva (quem já era reserva de uma escolha anterior já sabe).
-    const outros = db.prepare("SELECT eletricista_id FROM propostas_bolsa WHERE orcamento_id = ? AND estado = 'enviada' AND eletricista_id <> ?").all(o.id, e.id);
-    db.prepare("UPDATE propostas_bolsa SET estado = CASE WHEN eletricista_id = ? THEN 'escolhida' ELSE 'reserva' END WHERE orcamento_id = ? AND estado <> 'retirada'").run(e.id, o.id);
+    // Só quem estava à espera é avisado de que ficou de reserva (quem já era reserva de uma escolha anterior já sabe: as de
+    // reserva voltam a `enviada` quando o pedido volta à bolsa, mas não mudaram desde essa escolha).
+    const antes = db.prepare(`SELECT MAX(v.quando) AS q FROM trabalhos_eletricista_eventos v JOIN trabalhos_eletricista x ON x.id = v.trabalho_id
+      WHERE x.orcamento_id = ? AND x.modo = 'bolsa' AND v.evento = 'atribuido'`).get(o.id)?.q ?? null;
+    const outros = db.prepare("SELECT eletricista_id FROM propostas_bolsa WHERE orcamento_id = ? AND estado = 'enviada' AND eletricista_id <> ? AND (? IS NULL OR atualizado > ?)").all(o.id, e.id, antes, antes);
+    db.prepare(`UPDATE propostas_bolsa SET estado = CASE WHEN eletricista_id = ? THEN 'escolhida' ELSE 'reserva' END
+      WHERE orcamento_id = ? AND (eletricista_id = ? OR estado NOT IN ('retirada', 'recusada'))`).run(e.id, o.id, e.id);
     evento(t, 'atribuido', e.id, u.email);
     auditar(u, 'trabalho_escolhido', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, percentagem: percentagemDe(e), horas: p.horas, reservas: outros.length }, ip);
     correio.enviar({ para: e.email, assunto: `Domus Energia: foi escolhido para um trabalho em ${t.concelho}`, resumo: `trabalho ${t.id}: eletricista ${e.id} escolhido entre as propostas`,
@@ -1746,11 +1764,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(quem(e), 'trabalho_concluido_eletricista', `orcamento:${o.id}`, { trabalho: t.id, eletricista: e.id, tipo: t.tipo, fotos: fotosDe(t.id).length }, ip);
     avisarEmpresa('Domus Energia: um eletricista deu um trabalho por concluído', [
       `O eletricista deu por concluído o trabalho do pedido n.º ${o.id} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}, ${t.concelho}).`,
-      'Veja as fotos e os ensaios na ficha do pedido. Falta a confirmação do cliente.']);
+      'Veja as fotos e os ensaios na ficha do pedido. Falta a confirmação do cliente.'], pedidoPainel(o.id));
     const email = emailCliente(o);
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: o trabalho em sua casa está concluído', resumo: `trabalho do pedido ${o.id} concluído pelo técnico`,
-        texto: ['Olá,', '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id}.`,
+        texto: [olaCliente(o), '', `O nosso técnico deu por concluído o trabalho do seu pedido n.º ${o.id}.`,
           'Pedimos-lhe que confirme na sua conta que ficou tudo bem, ou que nos diga o que falta. Sem resposta em 7 dias, o trabalho fica aceite.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
     responder(res, 200, fichaAtual(t));
@@ -1827,7 +1845,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(quem(e), 'trabalho_extra_proposto', `orcamento:${o.id}`, { extra: id, trabalho: t.id, eletricista: e.id, horas, artigos: material.length }, ip);
     avisarEmpresa('Domus Energia: um eletricista propôs trabalho a mais', [
       `O eletricista encontrou trabalho a mais na obra do pedido n.º ${o.id} (${t.concelho}): diz o que é, as horas e o material.`,
-      'Veja-o na ficha do pedido, em Orçamentos: ponha o preço e envie ao cliente, ou não avance. Sem o cliente aceitar, esse trabalho não é feito.']);
+      'Veja-o na ficha do pedido, em Orçamentos: ponha o preço e envie ao cliente, ou não avance. Sem o cliente aceitar, esse trabalho não é feito.'], pedidoPainel(o.id));
     responder(res, 200, fichaAtual(t));
   };
 
@@ -2009,7 +2027,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(quem(e), 'ida_perdida_assinalada', `orcamento:${o.id}`, { ida: id, trabalho: t.id, eletricista: e.id, data_visita: t.visita }, ip);
     avisarEmpresa('Domus Energia: um eletricista diz que o cliente não estava', [
       `O eletricista foi à visita do pedido n.º ${o.id} (${t.concelho}), marcada para ${dataTexto(t.visita)}, e diz que o cliente não estava.`,
-      'Veja na ficha do pedido, em Orçamentos, no cartão "Visita perdida": confirme (a deslocação dessa ida soma ao que o cliente paga no fim) ou anule.']);
+      'Veja na ficha do pedido, em Orçamentos, no cartão "Visita perdida": confirme (a deslocação dessa ida soma ao que o cliente paga no fim) ou anule.'], pedidoPainel(o.id));
     responder(res, 200, fichaAtual(t));
   };
 
@@ -2066,7 +2084,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const email = emailCliente(o);
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: não o encontrámos na visita', resumo: `pedido ${o.id}: ida perdida confirmada (${euro(total)} com IVA)`,
-        texto: ['Olá,', '', `Não o encontrámos na visita de ${dataTexto(x.visita)} do seu pedido n.º ${o.id}.`,
+        texto: [olaCliente(o), '', `Não o encontrámos na visita de ${dataTexto(x.visita)} do seu pedido n.º ${o.id}.`,
           `Como combinado nos Termos e Condições, a deslocação dessa ida (${euro(total)} com IVA) soma ao que paga no fim da obra.`,
           'Vamos marcar nova visita consigo. Pode mudar a data sem custo até 24 horas antes.',
           'Se não concordar, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
@@ -2259,7 +2277,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     if (!r.changes) { await unlink(ficheiroFatura(nova)).catch(() => {}); throw new ErroApi(409, 'Este trabalho já não aceita a fatura-recibo.'); }
     if (t.fatura_id) await unlink(ficheiroFatura(t)).catch(() => {});
     auditar(quem(e), 'fatura_eletricista', `orcamento:${t.orcamento_id}`, { trabalho: t.id, documento: doc.tipo, substitui: Boolean(t.fatura_id) }, ip);
-    if (!t.fatura_id) avisarEmpresa('Domus Energia: fatura-recibo de um eletricista', [`Chegou a fatura-recibo do trabalho do pedido n.º ${t.orcamento_id}.`, 'Veja em Pagamentos, em "Pagamentos a eletricistas".']);
+    if (!t.fatura_id) avisarEmpresa('Domus Energia: fatura-recibo de um eletricista', [`Chegou a fatura-recibo do trabalho do pedido n.º ${t.orcamento_id}.`, 'Veja em Pagamentos, em "Pagamentos a eletricistas".'], '#/pagamentos');
     responder(res, 201, pagamentosDoEletricista(e));
   };
 
@@ -2346,7 +2364,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       evento(t, 'confirmada', t.eletricista_id, 'cliente');
       auditar(cliente, 'trabalho_confirmado_cliente', `orcamento:${o.id}`, { trabalho: t.id, estrelas, comentario: Boolean(comentario), site }, ip);
       avisarEmpresa('Domus Energia: o cliente confirmou um trabalho', [
-        `O cliente do pedido n.º ${o.id} confirmou que o trabalho ficou concluído (${estrelas} em 5 estrelas).`, 'Falta a sua aprovação, na ficha do pedido.']);
+        `O cliente do pedido n.º ${o.id} confirmou que o trabalho ficou concluído (${estrelas} em 5 estrelas).`, 'Falta a sua aprovação, na ficha do pedido.'], pedidoPainel(o.id));
       return;
     }
     if (v.concluido !== false) falha('Diga se o trabalho ficou concluído.');
@@ -2364,7 +2382,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     auditar(cliente, 'trabalho_contestado_cliente', `orcamento:${o.id}`, { trabalho: t.id }, ip);
     avisarEmpresa('Domus Energia: o cliente diz que o trabalho não ficou concluído', [
       `O cliente do pedido n.º ${o.id} respondeu que o trabalho não ficou concluído. O trabalho voltou ao eletricista.`,
-      'Veja o que o cliente escreveu na ficha do pedido e decida: defeito (o eletricista volta sem receber mais) ou sem defeito (o cliente paga uma visita).']);
+      'Veja o que o cliente escreveu na ficha do pedido e decida: defeito (o eletricista volta sem receber mais) ou sem defeito (o cliente paga uma visita).'], pedidoPainel(o.id));
     if (e) {
       correio.enviar({ para: e.email, assunto: 'Domus Energia: um trabalho voltou para si', resumo: `trabalho ${t.id}: o cliente diz que não ficou concluído`,
         texto: [`Olá ${e.nome},`, '', `O cliente do trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) respondeu que não ficou concluído.`,
@@ -2464,7 +2482,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const email = emailCliente(o);
     if (email) {
       correio.enviar({ para: email, assunto: 'Domus Energia: o trabalho em sua casa', resumo: `pedido ${o.id}: sem defeito, visita a cobrar ao cliente`,
-        texto: ['Olá,', '', `Voltámos a ver o trabalho do seu pedido n.º ${o.id} e não encontrámos defeito: o trabalho fica dado como concluído.`,
+        texto: [olaCliente(o), '', `Voltámos a ver o trabalho do seu pedido n.º ${o.id} e não encontrámos defeito: o trabalho fica dado como concluído.`,
           'Como combinado nos Termos e Condições, a visita em que não se encontra defeito é paga. Pode pagá-la na sua conta.',
           'Se não concordar, responda a este email ou ligue-nos.', ...ligacaoConta(), '', 'Domus Energia'].join('\n') });
     }
@@ -2792,6 +2810,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         recebe_idas: e && t.tipo === 'obra' ? deCent(idasDoTrabalho(t)) : 0,
         // Por proposta: escolhido pelo CEO; `espera_cliente` = o cliente ainda não aceitou (sem prazo, sem dados do cliente).
         ...(config.propostasBolsa ? { por_proposta: porProposta(t), espera_cliente: esperaCliente(t) } : {}),
+        // A obra que nasceu da proposta escolhida na bolsa (aoClienteAceitar; teste de 2026-10-14: a ficha dizia "Atribuição direta").
+        da_bolsa: t.tipo === 'obra' && Boolean(db.prepare("SELECT 1 FROM trabalhos_eletricista_eventos WHERE trabalho_id = ? AND evento = 'atribuido' AND por = 'sistema' LIMIT 1").get(t.id)),
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
         prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null, visita: t.visita ?? null,
         recebe: e ? recebeDoTrabalho(t, o, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) : null,
@@ -2861,6 +2881,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   function porNaBolsa(o, u, ip) {
     const t = novoTrabalho(o, 'bolsa', null);
+    // Teste de 2026-10-14: as propostas de reserva voltam a estar à espera da escolha (contam no painel como "recebidas",
+    // tal como a área do eletricista as mostra como "Proposta enviada").
+    if (config.propostasBolsa) db.prepare("UPDATE propostas_bolsa SET estado = 'enviada' WHERE orcamento_id = ? AND estado = 'reserva'").run(o.id);
     evento(t, 'posto_na_bolsa', null, u.email);
     const avisados = avisarBolsa(t);
     auditar(u, 'trabalho_na_bolsa', `orcamento:${o.id}`, { trabalho: t.id, tipo: t.tipo, concelho: t.concelho, eletricistas: aprovadosEm(t.concelho).length, avisados,
@@ -2877,9 +2900,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function aoClienteRecusar(o, u, ip) {
     const t = ativoDoPedido(o.id);
     if (!t || !(t.estado === 'na_bolsa' || esperaCliente(t))) return null;
-    return retirar(o, u, ip);
+    return retirar(o, u, ip, true);
   }
-  function retirar(o, u, ip) {
+  /** `peloCliente`: foi o "Não aceito" do cliente (teste de 2026-10-14): a proposta do escolhido fica `recusada` e o email diz isso. */
+  function retirar(o, u, ip, peloCliente = false) {
     expirar();
     const t = ativoDoPedido(o.id);
     if (!t) throw new ErroApi(409, 'Este pedido não está na bolsa nem atribuído.');
@@ -2891,12 +2915,15 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Propostas na bolsa: retirado pelo CEO (ou pelo "Não aceito" do cliente), o escolhido não largou nada — a proposta
     // dele volta a ficar de reserva, com as dos outros, para quando o pedido voltar à bolsa.
     // A cópia que ficou no trabalho sai (senão "Preencher pela proposta do eletricista" mostrava a de quem já não o tem).
-    if (config.propostasBolsa && t.eletricista_id) db.prepare("UPDATE propostas_bolsa SET estado = 'reserva' WHERE orcamento_id = ? AND eletricista_id = ? AND estado = 'escolhida'").run(o.id, t.eletricista_id);
+    // Pelo "Não aceito" do cliente, a dele fica `recusada`: já não conta, e ele pode propor de novo (teste de 2026-10-14).
+    if (config.propostasBolsa && t.eletricista_id) db.prepare("UPDATE propostas_bolsa SET estado = ? WHERE orcamento_id = ? AND eletricista_id = ? AND estado = 'escolhida'").run(peloCliente ? 'recusada' : 'reserva', o.id, t.eletricista_id);
     if (porProposta(t)) db.prepare('UPDATE trabalhos_eletricista SET proposta = NULL WHERE id = ?').run(t.id);
     const e = t.eletricista_id ? linha(t.eletricista_id) : null;
     if (e) {
-      correio.enviar({ para: e.email, assunto: 'Domus Energia: trabalho retirado', resumo: `trabalho ${t.id} retirado ao eletricista ${e.id}`,
-        texto: [`Olá ${e.nome},`, '', `O trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) foi retirado pela Domus Energia e já não está nos seus trabalhos.`,
+      correio.enviar({ para: e.email, assunto: peloCliente ? 'Domus Energia: o cliente não aceitou a proposta' : 'Domus Energia: trabalho retirado', resumo: `trabalho ${t.id} retirado ao eletricista ${e.id}`,
+        texto: [`Olá ${e.nome},`, '', peloCliente
+          ? `O cliente não aceitou a proposta do trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}), que já não está nos seus trabalhos. Se o pedido voltar à bolsa, avisamos e pode enviar uma proposta nova.`
+          : `O trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) foi retirado pela Domus Energia e já não está nos seus trabalhos.`,
           'Se tiver dúvidas, fale connosco.', '', 'Domus Energia'].join('\n') });
     }
     return t;

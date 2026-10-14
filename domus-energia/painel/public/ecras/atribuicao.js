@@ -144,7 +144,8 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
       const fim = x.pode_escolher
         ? botaoConfirmar("Escolher", "Confirmar: escolher?", (b) => acao(b, { acao: "escolher", eletricista_id: x.eletricista.id },
           `${x.eletricista.nome} foi escolhido e avisado por email. Os outros ficam de reserva.`), { classe: "btn pequeno" })
-        : x.estado === "escolhida" ? selo("Escolhido", "estado-ativo") : x.estado === "reserva" ? selo("Reserva", "info") : null;
+        : x.estado === "escolhida" ? selo("Escolhido", "estado-ativo") : x.estado === "reserva" ? selo("Reserva", "info")
+          : x.estado === "recusada" ? selo("Não aceite pelo cliente", "aviso") : null;
       if (fim instanceof HTMLButtonElement) fim.id = `escolher-${x.eletricista.id}`;
       // Um cartão por proposta (teste de 2026-10-11: a tabela larga não cabia na ficha e o "Escolher" ficava escondido).
       return h("div", { class: "proposta-cartao", id: `proposta-${x.eletricista.id}` },
@@ -159,7 +160,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
           ["Avaliação", `${av} · ${x.concluidos} ${x.concluidos === 1 ? "trabalho concluído" : "trabalhos concluídos"}`],
           ...(x.notas ? [["Notas", `«${x.notas}»`]] : []),
           ["Proposta de", data(x.quando)],
-        ]));
+        ]), x.estado === "recusada" && x.pode_escolher ? h("p", { class: "ajuda", text: "O cliente não aceitou esta proposta. Pode escolhê-la outra vez (com o preço retificado) ou esperar por uma proposta nova." }) : null);
     };
     const partes = [h("h4", { id: "propostas-titulo", text: `Propostas dos eletricistas (${lista.length})` }),
       h("div", { class: "propostas-lista", id: "tabela-propostas", role: "group", "aria-labelledby": "propostas-titulo" }, ...lista.map(linha))];
@@ -281,7 +282,7 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
         h("p", { class: "linha-selos" }, selo(seloTxt, seloTipo), t.aberto ? null : selo("Fechado", "info")),
         dados([
           ["Eletricista", t.eletricista ? h("a", { href: "#/eletricistas", text: t.eletricista.nome }) : "—"],
-          ["Como", t.por_proposta ? "Escolhido entre as propostas da bolsa" : t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
+          ["Como", t.por_proposta ? "Escolhido entre as propostas da bolsa" : t.da_bolsa ? "Escolhido na bolsa" : t.modo === "bolsa" ? "Aceitou na bolsa" : "Atribuição direta"],
           ["Recebe (estimativa, sem IVA)", r ? `${euros(r.total + (t.recebe_extras || 0) + (t.recebe_idas || 0))} — ${String(r.percentagem).replace(".", ",")} % de ${euros(r.mao_obra)} + ${euros(r.deslocacao)} de deslocação${t.recebe_extras ? ` + ${euros(t.recebe_extras)} do trabalho a mais` : ""}${t.recebe_idas ? ` + ${euros(t.recebe_idas)} de ida perdida` : ""}${r.provisoria ? " (provisório: pela simulação)" : ""}` : "A combinar (proposta sem as três partes)"],
           ...(t.concluida ? [["Concluída pelo eletricista", data(t.concluida)]] : []),
           ["Visita", t.espera_cliente ? "Só depois de o cliente aceitar a proposta: aí a obra fica com ele e tem 48 h para marcar"

@@ -73,6 +73,22 @@ function validarEstado(v) {
   return json;
 }
 
+/**
+ * A casa descrita fica na conta enquanto o cliente faz um pedido SEM casa (teste de 2026-10-14: depois de descrever a casa
+ * e pedir um serviço, "Tenho uma avaria" gravava a avaria em curso por cima da casa e, ao enviá-la, a conta ficava sem
+ * nada — "planta por desenhar"). Um estado "tem casa" com o tipo de imóvel e uma planta com divisões (estado.js temCasa).
+ * A simulação em curso sem casa leva a casa guardada em `_casaDaConta`, e ao enviar o pedido é ela que fica na conta.
+ */
+const CASA_GUARDADA = '_casaDaConta';
+const temCasaEstado = (e) => Boolean(e && typeof e === 'object' && e.casa?.tipo && Array.isArray(e.planta?.divisoes) && e.planta.divisoes.length > 0);
+/** A casa que a simulação guardada na conta (JSON) tem ou leva consigo, ou null. */
+function casaDaSimulacao(json) {
+  let e = null;
+  try { e = JSON.parse(json ?? 'null'); } catch { return null; }
+  if (temCasaEstado(e)) { const { [CASA_GUARDADA]: _x, ...casa } = e; return casa; }
+  return temCasaEstado(e?.[CASA_GUARDADA]) ? e[CASA_GUARDADA] : null;
+}
+
 /** Resumo simples da simulação para o cliente (sem nada técnico: nem circuitos, nem artigos, nem horas). */
 function resumoSimulacao(json) {
   let s;
@@ -550,6 +566,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const r = db.prepare('SELECT simulacao, simulacao_atualizada FROM contas WHERE id = ?').get(c.id);
     let estado = null;
     try { estado = r?.simulacao ? JSON.parse(r.simulacao) : null; } catch { estado = null; }
+    if (estado && typeof estado === 'object') delete estado[CASA_GUARDADA];   // é do servidor: o simulador não a usa
     responder(res, 200, { estado, atualizado: r?.simulacao_atualizada ?? null });
   };
 
@@ -558,7 +575,12 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     contar([[L.simulacao, String(c.id)]]);
     const v = await lerJson(req, ['estado'], MAX_ESTADO + 64 * 1024);
     if (v.estado === undefined) falha('Indique o estado da simulação (ou null para apagar).');
-    const json = validarEstado(v.estado);
+    let json = validarEstado(v.estado);
+    // Uma simulação em curso sem casa (uma avaria, por exemplo) não apaga a casa que a conta já tinha: leva-a consigo.
+    if (json && !temCasaEstado(v.estado)) {
+      const casa = casaDaSimulacao(db.prepare('SELECT simulacao FROM contas WHERE id = ?').get(c.id)?.simulacao);
+      if (casa) json = JSON.stringify({ ...v.estado, [CASA_GUARDADA]: casa });
+    }
     const agora = json ? agoraIso() : null;
     db.prepare('UPDATE contas SET simulacao = ?, simulacao_atualizada = ? WHERE id = ?').run(json, agora, c.id);
     responder(res, 200, { ok: true, atualizado: agora });
@@ -720,7 +742,13 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     const linhas = db.prepare('SELECT * FROM orcamentos WHERE conta_id = ? AND casa_id = ? ORDER BY id DESC LIMIT 50').all(c.id, ativa);
     const noutras = db.prepare(`SELECT o.id, k.id AS casa, k.nome FROM orcamentos o JOIN contas_casas k ON k.id = o.casa_id
       WHERE o.conta_id = ? AND o.casa_id <> ? ORDER BY o.id DESC LIMIT 100`).all(c.id, ativa);
-    responder(res, 200, { pedidos: linhas.map(pedidoParaCliente), noutras });
+    // `aviso_espera` (teste de 2026-10-14): o aviso "lista de espera" da conta só serve enquanto um pedido ainda espera
+    // pela proposta — sem pedidos, ou com algum ainda por propor. Com tudo já com proposta (enviada, aceite, paga, em obra)
+    // ou fechado, sai.
+    const ESPERA = ['novo', 'contactado', 'visita_marcada'];
+    const avancados = linhas.filter((o) => ['proposta_enviada', 'aceite'].includes(o.estado));
+    const aviso = !avancados.length || linhas.some((o) => ESPERA.includes(o.estado) && !o.anonimizado);
+    responder(res, 200, { pedidos: linhas.map(pedidoParaCliente), noutras, aviso_espera: aviso });
   };
 
   // ------------------------------------------------------------ várias casas por conta (decisão do dono, 2026-10-10)
@@ -1071,12 +1099,20 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
   }
 
   // ------------------------------------------------------------ orçamento (POST /api/orcamento)
-  /** Depois de um pedido com conta: guarda o contacto no perfil e apaga a simulação em curso (já foi enviada). */
+  /**
+   * Depois de um pedido com conta: guarda o contacto no perfil e apaga a simulação em curso (já foi enviada). Se ela não
+   * tinha casa mas a conta tinha uma (`_casaDaConta`, ou a própria casa guardada), a casa fica (teste de 2026-10-14):
+   * "não precisa de a descrever outra vez". Um pedido COM casa apaga como sempre (o simulador grava a casa a seguir).
+   */
   function aposOrcamento(contaId, k, orcamentoId = null) {
     if (orcamentoId) db.prepare('UPDATE orcamentos SET casa_id = ? WHERE id = ? AND conta_id = ?').run(casaAtiva(contaId), orcamentoId, contaId);
+    const guardada = db.prepare('SELECT simulacao FROM contas WHERE id = ?').get(contaId)?.simulacao ?? null;
+    let fica = null;
+    try { const e = JSON.parse(guardada ?? 'null'); fica = e?.soCasa === true || !temCasaEstado(e) ? casaDaSimulacao(guardada) : null; } catch { fica = null; }
+    const agora = agoraIso();
     db.prepare(`UPDATE contas SET nome = COALESCE(?, nome), telefone = COALESCE(?, telefone), morada = COALESCE(?, morada),
-      localidade = COALESCE(?, localidade), simulacao = NULL, simulacao_atualizada = NULL, atualizado = ? WHERE id = ?`)
-      .run(k.nome ?? null, k.telefone ?? null, k.morada ?? null, k.localidade ?? null, agoraIso(), contaId);
+      localidade = COALESCE(?, localidade), simulacao = ?, simulacao_atualizada = ?, atualizado = ? WHERE id = ?`)
+      .run(k.nome ?? null, k.telefone ?? null, k.morada ?? null, k.localidade ?? null, fica ? JSON.stringify(fica) : null, fica ? agora : null, agora, contaId);
   }
 
   // ---- "aproveitar a foto da casa; pedir se não houver" (decisão do dono, 2026-10-11): um pedido com planta sem foto

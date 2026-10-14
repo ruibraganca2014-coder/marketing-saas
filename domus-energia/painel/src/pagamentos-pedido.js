@@ -41,7 +41,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson } from './http.js';
 import { idNum, opcao, booleano, MELHORIAS } from './validar.js';
-import { iso, deCent } from './util.js';
+import { iso, deCent, ola } from './util.js';
 import { LimiteTaxa } from './limite.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { foraDeHoras } from '../public/vendor/horario.js';
@@ -861,7 +861,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const para = emailConta(c.id);
     if (para) {
       correio.enviar({ para, assunto: 'Domus Energia: visita cancelada', resumo: `visita do pedido ${o.id} cancelada; ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}`,
-        texto: ['Olá,', '', `Cancelou ${info.avaria ? 'o diagnóstico da avaria' : 'a visita técnica'} do pedido n.º ${o.id}.`,
+        texto: [ola(o.nome || c.nome), '', `Cancelou ${info.avaria ? 'o diagnóstico da avaria' : 'a visita técnica'} do pedido n.º ${o.id}.`,
           r.manual ? `Como pagou por referência Multibanco, devolvemos ${euro(cent)} por transferência bancária: indique o IBAN na sua conta.`
             : `Devolvemos ${euro(cent)} para o mesmo meio de pagamento (até 14 dias)${p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
           info.avaria ? 'Se voltar a precisar, envie um novo pedido.' : 'Pode marcar outra visita na sua conta quando quiser.', ...(config.siteUrl ? ['', `A sua conta: ${config.siteUrl}/conta.html`] : []), '', 'Domus Energia'].join('\n') });
@@ -938,7 +938,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const para = p.conta_id ? emailConta(p.conta_id) : null;
     if (para) {
       correio.enviar({ para, assunto: 'Domus Energia: devolvemos a diferença do fora de horas', resumo: `visita do pedido ${o.id} em horário normal; ${euro(cent)} ${r.manual ? 'a devolver por transferência' : 'devolvidos'}`,
-        texto: ['Olá,', '', `A visita do seu pedido n.º ${o.id} ficou marcada em horário normal: ${r.manual ? 'vamos devolver' : 'devolvemos'} ${euro(cent)}.`,
+        texto: [ola(o.nome), '', `A visita do seu pedido n.º ${o.id} ficou marcada em horário normal: ${r.manual ? 'vamos devolver' : 'devolvemos'} ${euro(cent)}.`,
           'Tinha pago o preço de fora de horas (noite, fim de semana ou feriado), que já não se aplica.',
           r.manual ? 'Como pagou por referência Multibanco, a devolução é por transferência bancária: indique o IBAN na sua conta.'
             : `A devolução vai para o mesmo meio de pagamento (até 14 dias)${p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nem devolvido nada)' : ''}.`,
@@ -1127,13 +1127,14 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!para) return;
     const site = config.siteUrl ? `${config.siteUrl}/conta.html` : null;
     const sim = p.modo === 'simulado' ? ' (SIMULAÇÃO: não foi cobrado nada)' : '';
+    const nome = (p.orcamento_id ? db.prepare('SELECT nome FROM orcamentos WHERE id = ?').get(p.orcamento_id)?.nome : null) || db.prepare('SELECT nome FROM contas WHERE id = ?').get(p.conta_id)?.nome;
     const texto = tipo === 'pago' ? [
-      'Olá,', '', `Recebemos o seu pagamento${sim}.`, '',
+      ola(nome), '', `Recebemos o seu pagamento${sim}.`, '',
       `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`, `  Referência: ${p.ref}`, '',
       eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : p.fase === 'sinal' && sinalComVisita(p) ? TEXTO_PAGO_SINAL_VISITA : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ] : [
-      'Olá,', '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}.${sim ? '' : ' Não foi cobrado nada.'}`,
+      ola(nome), '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}.${sim ? '' : ' Não foi cobrado nada.'}`,
       'Pode tentar de novo quando quiser.', ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ];
     correio.enviar({ para, assunto: tipo === 'pago' ? 'Domus Energia: pagamento recebido' : 'Domus Energia: pagamento não concluído',

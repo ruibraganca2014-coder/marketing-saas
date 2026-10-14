@@ -62,4 +62,26 @@ describe('lista de espera decidida pelo servidor', () => {
     assert.deepEqual(JSON.parse(aud.detalhes).antes, { ativa: true, arranque: 'setembro de 2027' });
     assert.equal((await painel('POST', 'ceo', { arranque: 'setembro de 2027' })).estado, 200);
   });
+
+  test('conta: o aviso da lista de espera só enquanto um pedido espera pela proposta (teste de 2026-10-14)', async () => {
+    const c = await p.contaConfirmada('espera.conta@exemplo.pt');
+    const pedidos = async () => (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json;
+    assert.equal((await pedidos()).aviso_espera, true, 'sem pedidos: o aviso fica');
+    const SIM = { versao: 1, casa: { tipo: 'apartamento', tipologia: 'T2', localidade: 'Sintra' }, divisoes: [{ nome: 'Sala' }], itens: [], total: { min: 600, max: 800 } };
+    const enviar = async () => {
+      const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { ...PEDIDO, morada: 'Rua do Exemplo, 1', servico: 'Remodelação elétrica', simulacao: SIM } });
+      assert.equal(r.estado, 201, r.texto);
+      return r.json.pedido;
+    };
+    const id = await enviar();
+    assert.equal((await pedidos()).aviso_espera, true, 'o pedido ainda espera pela proposta');
+    // A proposta já foi enviada (e depois aceite e paga): o aviso sai.
+    p.app.db.prepare("UPDATE orcamentos SET estado = 'proposta_enviada', valor_proposta_cent = 100000 WHERE id = ?").run(id);
+    assert.equal((await pedidos()).aviso_espera, false);
+    p.app.db.prepare("UPDATE orcamentos SET estado = 'aceite' WHERE id = ?").run(id);
+    assert.equal((await pedidos()).aviso_espera, false);
+    // Um pedido novo, ainda à espera, volta a pôr o aviso.
+    await enviar();
+    assert.equal((await pedidos()).aviso_espera, true);
+  });
 });

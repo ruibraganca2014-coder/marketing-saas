@@ -437,6 +437,38 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal((await concluir(outro.tid)).estado, 200);
   });
 
+  test('"Alterar data" (teste de 2026-10-14): o cliente recebe um email com a data nova e a anterior; os emails dizem o nome dele e o aviso aos CEO leva à ficha do pedido', async () => {
+    const e = await aprovado();
+    const { id, tid } = await trabalhoDe(e, { visita: false });
+    const dataTexto = (quando) => new Date(`${quando}:00Z`).toLocaleString('pt-PT', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    const visita = (data) => area(e, 'POST', `trabalhos/${tid}/visita`, { data_visita: data });
+    const primeira = lisboa(p.relogio.agora() + 30 * HORA);
+    p.emails.length = 0;
+    assert.equal((await visita(primeira)).estado, 200);
+    const marcada = p.emails.filter((m) => m.para === 'cliente.obra@exemplo.pt');
+    assert.deepEqual(marcada.map((m) => m.assunto), ['Domus Energia: visita marcada']);
+    assert.match(marcada[0].texto, /^Olá Carla,\n/, 'o primeiro nome do cliente');
+    // Alterar a data: outro email, que diz as duas datas.
+    const nova = lisboa(p.relogio.agora() + 54 * HORA);
+    p.emails.length = 0;
+    assert.equal((await visita(nova)).estado, 200);
+    const mudou = p.emails.filter((m) => m.para === 'cliente.obra@exemplo.pt');
+    assert.equal(mudou.length, 1);
+    assert.equal(mudou[0].assunto, 'Domus Energia: a visita mudou de data');
+    assert.ok(mudou[0].texto.includes(`que estava marcada para ${dataTexto(primeira)}, passou para ${dataTexto(nova)}.`), mudou[0].texto);
+    // Concluída pelo eletricista: o aviso aos CEO leva à ficha do pedido, não a Eletricistas.
+    p.relogio.avancar(55 * HORA);
+    assert.equal((await enviarFoto(e, tid, 'quadro_antes')).estado, 201);
+    assert.equal((await enviarFoto(e, tid, 'quadro_depois')).estado, 201);
+    assert.equal((await area(e, 'POST', `trabalhos/${tid}/ensaios`, { isolamento: 200, terra: 40, diferencial: 28 })).estado, 200);
+    p.emails.length = 0;
+    assert.equal((await area(e, 'POST', `trabalhos/${tid}/concluir`, {})).estado, 200);
+    const aoCeo = p.emails.find((m) => /deu um trabalho por concluído/.test(m.assunto));
+    assert.match(aoCeo.texto, new RegExp(`/painel/#/orcamentos/${id}\n`));
+    assert.doesNotMatch(aoCeo.texto, /#\/eletricistas/);
+    assert.match(p.emails.find((m) => m.para === 'cliente.obra@exemplo.pt').texto, /^Olá Carla,\n/);
+  });
+
   test('avaria e visita técnica: concluir pede o mesmo que a obra (visita marcada, foto de antes, foto de depois e os três ensaios); a avaria também a conclusão do diagnóstico', async () => {
     const e = await aprovado();
     const c = await p.contaConfirmada();
