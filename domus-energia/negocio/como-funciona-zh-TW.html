@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<title>Domus Energia 如何運作（中文版）</title>
+<link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&family=Noto+Sans+TC:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Tema "Terra" da Domus Energia (web/styles.css, docs/TEMA.md), em versão para papel. */
+  @page { size: A4; margin: 13mm 15mm 14mm; }
+  :root { --texto: #283618; --suave: #5c6446; --borda: #d9d2a8; --musgo: #606c38; --musgo-claro: #eef0d9; --argila: #8f4f15; --areia: #f7e5c6; --creme: #fefae0; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+  body { font: 10pt/1.42 "Nunito Sans", "Noto Sans TC", "Segoe UI", Arial, sans-serif; color: var(--texto); max-width: 180mm; margin: 0 auto; padding: 0; }
+  h1, h2, h3 { font-family: "Alegreya Sans", "Noto Sans TC", "Gill Sans", "Segoe UI", sans-serif; font-weight: 800; margin: 0; }
+  h1 { font-size: 24pt; line-height: 1.1; margin-bottom: 1.5mm; }
+  h2 { font-size: 15pt; color: var(--musgo); margin: 0 0 2mm; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 3.5mm 0 1mm; break-after: avoid; }
+  p { margin: 0 0 2mm; }
+  ul, ol { margin: 0 0 2mm; padding-left: 5.5mm; }
+  li { margin-bottom: 1mm; }
+  li::marker { color: var(--musgo); font-weight: 800; }
+  .topo { display: flex; align-items: center; gap: 3mm; padding: 2.4mm 3.5mm; background: var(--creme); border: 1px solid var(--borda); border-radius: 3.5mm; margin-bottom: 5mm; }
+  .logo { width: 9mm; height: 9mm; border-radius: 3mm; background: var(--musgo); color: var(--creme); display: grid; place-items: center; flex: none; }
+  .logo svg { width: 6mm; height: 6mm; }
+  .marca { font: 800 13pt "Alegreya Sans", "Noto Sans TC", "Gill Sans", "Segoe UI", sans-serif; white-space: nowrap; }
+  .marca b { color: var(--musgo); }
+  .topo .onde { margin-left: auto; text-align: right; font-size: 7.8pt; color: var(--suave); line-height: 1.25; }
+  .sub { font-size: 11pt; color: var(--suave); margin-bottom: 4mm; }
+  .pagina { break-before: page; }
+  .cartao { border: 1px solid var(--borda); border-radius: 3mm; padding: 3mm 3.5mm; background: #fff; break-inside: avoid; }
+  .creme { background: var(--creme); }
+  .grelha { display: grid; gap: 3mm; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+  .quem b { display: block; font: 800 11pt "Alegreya Sans", "Noto Sans TC", sans-serif; color: var(--musgo); }
+  /* O fluxo em caixas */
+  .fluxo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2.5mm 5mm; margin: 2mm 0 3mm; }
+  .fluxo div { position: relative; border: 1px solid var(--borda); border-radius: 2.5mm; padding: 2mm 2.5mm; background: var(--creme); font-size: 8.8pt; line-height: 1.3; min-height: 19mm; }
+  .fluxo div b { display: block; font: 800 10pt "Alegreya Sans", "Noto Sans TC", sans-serif; }
+  .fluxo div i { font-style: normal; display: inline-block; font-size: 7.6pt; font-weight: 800; padding: 0 1.6mm; border-radius: 2mm; margin-bottom: 0.6mm; }
+  .fluxo .c i { background: var(--areia); color: var(--argila); }
+  .fluxo .e i { background: var(--musgo); color: var(--creme); }
+  .fluxo .t i { background: var(--musgo-claro); color: var(--texto); }
+  .fluxo div:not(:nth-child(4n)):not(:last-child)::after { content: "→"; position: absolute; right: -4.4mm; top: 50%; transform: translateY(-50%); color: var(--musgo); font-weight: 800; font-size: 11pt; }
+  /* Um passo: texto à esquerda, ecrã(s) à direita */
+  .passo { display: grid; grid-template-columns: 1fr auto; gap: 5mm; align-items: start; }
+  .num { display: inline-grid; place-items: center; width: 8mm; height: 8mm; border-radius: 50%; background: var(--musgo); color: var(--creme); font: 800 12pt "Alegreya Sans", "Noto Sans TC", sans-serif; margin-right: 2mm; vertical-align: -1.2mm; }
+  .quemfaz { font-size: 8.6pt; font-weight: 800; color: var(--argila); text-transform: uppercase; letter-spacing: .04em; margin: -1mm 0 2mm 10mm; }
+  .ecras { display: flex; gap: 3mm; }
+  figure { margin: 0; text-align: center; }
+  figure img { display: block; border: 1px solid var(--borda); border-radius: 3mm; box-shadow: 0 1px 4px rgba(40, 54, 24, .15); }
+  figure.tel img { width: 42mm; }
+  .ecras4 figure.tel img { width: 40mm; } .ecras4 figcaption { max-width: 40mm; }
+  figure.largo img { width: 100%; }
+  figcaption { font-size: 7.8pt; color: var(--suave); margin-top: 1mm; max-width: 42mm; line-height: 1.25; }
+  figure.largo figcaption { max-width: none; }
+  .vantagem { border-left: 1.2mm solid var(--musgo); background: var(--musgo-claro); border-radius: 2mm; padding: 1.6mm 3mm; margin: 2.5mm 0; break-inside: avoid; }
+  .vantagem b { color: var(--musgo); }
+  /* O espaço para as ideias */
+  .ideias { border: 1.5px dashed var(--argila); border-radius: 3mm; padding: 2.4mm 3.5mm 1mm; margin-top: 3mm; break-inside: avoid; }
+  .ideias h3 { margin: 0 0 1mm; color: var(--argila); font-size: 11pt; }
+  .ideias ul { margin-bottom: 1mm; font-size: 9.2pt; }
+  .linhas { height: var(--h, 24mm); background: repeating-linear-gradient(to bottom, transparent 0, transparent 7.2mm, var(--borda) 7.2mm, var(--borda) 7.5mm); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; border: 1px solid var(--borda); border-radius: 2.5mm; overflow: hidden; margin: 1mm 0 2.5mm; }
+  th, td { border-bottom: 1px solid var(--borda); border-right: 1px solid var(--borda); padding: 1.3mm 2.2mm; vertical-align: top; text-align: left; }
+  tr > :last-child { border-right: 0; } tr:last-child > * { border-bottom: 0; }
+  th { background: var(--musgo-claro); font-weight: 800; font-size: 9pt; }
+  td.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .nota { font-size: 8.6pt; color: var(--suave); }
+  .aviso { border: 1px solid var(--borda); border-left: 1.2mm solid var(--argila); border-radius: 2.5mm; background: var(--creme); padding: 1.8mm 3mm; font-size: 9.2pt; break-inside: avoid; }
+  @media screen { body { padding: 8mm; } .pagina { margin-top: 14mm; padding-top: 8mm; border-top: 2px dashed var(--borda); } }
+</style>
+</head>
+<body>
+
+<div class="topo"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span class="marca">Domus <b>Energia</b></span><span class="onde">Estação Nómada, Unipessoal Lda.<br>opancas.pt · 2026 年 10 月</span></div>
+
+<h1>Domus Energia 如何運作</h1>
+<p class="sub">一張訂單從第一次點擊到工程付款完成的完整流程。請閱讀、劃記，並提出改進意見。</p>
+
+<p>Domus Energia 在大里斯本地區承接電氣工程與智慧家居安裝。客戶透過網站 <b>opancas.pt</b> 提出所有需求；工程則由各自專精不同領域的<b>合作電工</b>施作。一套系統負責處理通常最費工、也最容易起爭議的部分：報價、預約、照片、檢測、向客戶收款，以及付款給施工的人。</p>
+<p>本文件以真實畫面截圖，呈現這套系統<b>目前的樣貌</b>。系統已經可以運作，但還沒有客戶：工程將於 <b>2027 年 9 月</b>開始。現在正是改進它的最佳時機。每個步驟都有一個虛線框<b>「您的想法」</b>：請寫下您會修改什麼、缺少什麼，以及在真實工地上哪些地方行不通。</p>
+<p class="nota">說明：畫面截圖是葡萄牙文。文中提到的按鈕與畫面名稱，會在括號內附上葡萄牙原文，方便您在圖中對照，例如「接受」（"Aceito"）。</p>
+
+<h2 style="margin-top:4mm">誰在使用這套系統</h2>
+<div class="grelha g4 quem">
+  <div class="cartao creme"><b>客戶</b>描述自己的房子、收到報價、付款，並在自己的帳戶中追蹤所有進度。用手機操作。</div>
+  <div class="cartao creme"><b>公司</b>審核訂單、訂定價格、寄出報價，並付款給合作夥伴。在管理後台操作。</div>
+  <div class="cartao creme"><b>電工</b>某一專業領域的合作夥伴，或外部電工。查看所在市鎮的訂單、提出報價、施工並登錄工程。用手機操作。</div>
+  <div class="cartao creme"><b>房子</b>安裝好的設備會與客戶的 App 連線：燈光、電動百葉窗、用電量、警報。</div>
+</div>
+
+<h2 style="margin-top:5mm">八個步驟的完整流程</h2>
+<div class="fluxo">
+  <div class="c"><i>客戶</i><b>1. 描述房子</b>畫出平面圖，並附上配電盤的照片。</div>
+  <div class="e"><i>公司</i><b>2. 審核訂單</b>平面圖、照片、服務區域與聯絡方式。缺資料就退回。</div>
+  <div class="t"><i>電工</i><b>3. 提出報價</b>該專業的合作夥伴優先查看。在不知道客戶是誰的情況下，提出工時與材料。</div>
+  <div class="e"><i>公司</i><b>4. 寄出報價</b>選定一位電工、訂定價格，寄給客戶。</div>
+  <div class="c"><i>客戶</i><b>5. 接受並支付訂金</b>直到這時，電工才看得到客戶姓名與地址。</div>
+  <div class="t"><i>電工</i><b>6. 到府與施工</b>預約到府時間、施工、拍照並量測。</div>
+  <div class="c"><i>客戶</i><b>7. 確認並支付尾款</b>表示完工沒問題、給評價、付款。</div>
+  <div class="e"><i>公司</i><b>8. 核准並付款</b>核准工程，付款給電工。</div>
+</div>
+<p class="nota">與一般做法最大的不同：<b>客戶在任何人到府之前就已經拿到價格。</b>到府是在客戶接受報價並付訂金之後，而且很多時候工程當天就能完成。</p>
+
+<!-- ===================================================== 步驟 1 -->
+<section class="pagina">
+  <h2><span class="num">1</span>客戶描述房子</h2>
+  <p class="quemfaz">客戶 · 用手機或電腦</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>在網站上選擇<b>「描述我的房子」</b>（"Descrever a minha casa"，第一次使用）或<b>「申請服務」</b>（"Pedir um serviço"）：自動化、維修、更換配電盤、工程。</li>
+        <li>填寫房屋類型與格局。系統會先畫出一張<b>平面圖</b>；客戶調整房間位置，並把門、窗、開關、插座和燈位放到實際的位置。</li>
+        <li>打開配電盤的門，拍一張<b>配電盤照片</b>。沒有這張照片，訂單就無法往下走：報價就是根據這張照片準備的。</li>
+        <li>選擇想要的項目：安全配電盤、節能、電動百葉窗、電動車充電器等。馬上就能看到<b>估價</b>（一個價格區間）。</li>
+        <li>送出。客戶會有一個帳戶，可以追蹤訂單，最多儲存五間房子。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>客戶花十分鐘，就完成原本需要專程到府一趟的勘查。施工的人事先就知道有幾個房間、幾個點位、幾個迴路，以及配電盤的狀況。</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/01-site.png" alt=""><figcaption>網站首頁</figcaption></figure>
+      <figure class="tel"><img src="ecras/02-simulador-planta.png" alt=""><figcaption>平面圖，以及客戶放上的插座</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:66mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>在報價之前，您真正需要知道房子的哪些資訊，而這裡沒有問到？</li>
+      <li>除了配電盤，您還會要求哪些照片？（電錶、接線盒、浴室……）</li>
+      <li>客戶能不能正確地把插座放到平面圖上？怎樣可以更簡單？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 步驟 2 -->
+<section class="pagina">
+  <h2><span class="num">2</span>公司審核訂單</h2>
+  <p class="quemfaz">公司 · 在管理後台</p>
+  <ul>
+    <li>每張新訂單都標示為<b>「待審核」</b>（"Por validar"）。打開訂單後依清單核對：平面圖是否合理、配電盤照片是否看得清楚、房子是否在服務的市鎮內、聯絡方式是否正確。</li>
+    <li>若缺少資料，就按<b>「退回給客戶」</b>（"Devolver ao cliente"）並寫明缺什麼。客戶會收到電子郵件，在帳戶中補正後按「已補正」（"Já corrigi"）。</li>
+    <li>審核時同時確認訂單的<b>專業類別</b>。系統會依客戶的選擇提出建議（例如有電動車充電器，就建議「太陽能與充電器」）；審核的人可以修改。</li>
+    <li>未經審核的訂單<b>不會送到電工手上</b>，報價也<b>無法寄出</b>。</li>
+  </ul>
+  <figure class="largo"><img src="ecras/03-painel-validar.png" alt=""><figcaption>管理後台的訂單頁面與核對清單</figcaption></figure>
+  <div class="vantagem"><b>為什麼這樣做：</b>電工只會收到資料完整的訂單。沒有人會浪費時間，去替服務區域外的房子、或照片什麼都看不清楚的案子報價。</div>
+  <div class="ideias" style="--h:44mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>在訂單送到電工之前，還應該核對哪些事項？</li>
+      <li>在您的專業領域，什麼樣的訂單是「無法遠端報價」的？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 步驟 3 -->
+<section class="pagina">
+  <h2><span class="num">3</span>訂單進入案件池，電工提出報價</h2>
+  <p class="quemfaz">合作電工 · 用手機</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>審核通過的訂單進入<b>案件池</b>（"Bolsa"）。前 <b>24 小時</b>只有在該市鎮工作、<b>該專業的合作夥伴</b>看得到。之後開放給該市鎮所有電工。如果沒有對應的合作夥伴，就直接開放。</li>
+        <li>共有四種專業：一般電氣與配電盤；智慧家居與自動化；太陽能與電動車充電器；網路、通訊與保全。</li>
+        <li>電工看得到<b>平面圖</b>、<b>照片</b>和一份<b>不含價格的技術報告</b>。<b>看不到</b>客戶的姓名、地址或電話。</li>
+        <li>提出<b>工時</b>、<b>材料</b>（從型錄中選擇）以及<b>可以到府的時間</b>。可以附上備註。</li>
+        <li>同一張訂單可以有多位電工報價。公司選擇其中一位；其他報價保留備用。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>由了解工程的人來說需要多少時間，價格不是從一張不看現場的價目表算出來的。客戶也受到保護：只有真正要施工的人，才拿得到客戶的資料。</div>
+      <div class="aviso"><b>如何加入：</b>每位電工在「與我們合作」（"Trabalhe connosco"）頁面申請，提供稅號（NIF）、公共意外責任險，以及工作的市鎮。DGEG（葡萄牙能源地質總局，負責電氣技師的執照登記）的執照號碼是<b>選填</b>：沒有執照的人也可以施工，但每項工程都由一位技術負責人簽署（見步驟 6）。公司審核申請，並標註誰是各專業的合作夥伴。</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/04-eletricista-bolsa.png" alt=""><figcaption>案件池中的一張訂單：沒有姓名與地址</figcaption></figure>
+      <figure class="tel"><img src="ecras/05-eletricista-proposta.png" alt=""><figcaption>電工的報價：工時與材料</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:52mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>有了平面圖、照片和報告，您能有把握地估出工時嗎？還想看到什麼？</li>
+      <li>您的專業領域，型錄裡缺少哪些材料？</li>
+      <li>合作夥伴優先 24 小時：太短還是太長？如果他正在休假怎麼辦？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 步驟 4 與 5 -->
+<section class="pagina">
+  <h2><span class="num">4</span><span class="num" style="margin-left:-1mm">5</span>報價、「接受」與訂金</h2>
+  <p class="quemfaz">公司 · 接著是客戶</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>公司以電工的報價為基礎，把價格分成<b>三部分</b>訂定：工資、材料與交通費。客戶看到的說明文字會自動產生（例如「包含：6.5 小時工作；2 × 插座……」）。</li>
+        <li>客戶在帳戶中看到<b>含加值稅（IVA）的價格</b>和兩個按鈕：<b>「接受」</b>（"Aceito"）與<b>「不接受」</b>（"Não aceito"）。不接受不需付任何費用，只要說明原因。</li>
+        <li>接受時支付<b>訂金</b>：總價的 30% 與材料成本，兩者取較高者。材料會從庫存中保留。</li>
+        <li>價格是<b>確定的</b>，只有在現場才發現的狀況除外（見步驟 6 的「追加工程」）。</li>
+        <li><b>直到這時</b>，被選中的電工才看得到客戶的姓名、地址和電話。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>沒有人需要專程跑一趟去做一份不會被接受的報價。電工出門的時候，客戶已經同意，材料也已經付了錢。</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/06-cliente-proposta.png" alt=""><figcaption>客戶帳戶中的報價</figcaption></figure>
+    </div>
+  </div>
+  <h3>電工可以拿到多少</h3>
+  <p>電工在接案之前，就能在手機上看到。目前的規則，所有人都一樣（比例可在管理後台修改）：</p>
+  <table>
+    <tr><th>項目</th><th>規則</th><th>範例訂單</th></tr>
+    <tr><td>工資</td><td>報價中工資的 70%，未稅</td><td class="n">70% × 480.00 € = 336.00 €</td></tr>
+    <tr><td>交通費</td><td>客戶支付的交通費全額，未稅</td><td class="n">13.01 €</td></tr>
+    <tr><td>追加工程</td><td>客戶同意追加部分的工資 70%</td><td class="n">—</td></tr>
+    <tr><td>白跑一趟</td><td>那一趟的交通費（最低 20.33 €，即含稅 25 €）</td><td class="n">—</td></tr>
+    <tr><td>非營業時間的故障維修</td><td>同樣 70%，但工資貴 50%</td><td class="n">—</td></tr>
+    <tr><td><b>合計</b></td><td>客戶付款且公司核准後 7 天內支付，憑發票收據（"fatura-recibo"）</td><td class="n"><b>349.01 €</b></td></tr>
+  </table>
+  <p class="nota">在範例中，客戶含稅支付 840.10 €（工資 480.00 €、材料 190.00 €、交通費 13.01 €，另加加值稅）：訂金 252.03 €，完工時付 588.07 €。材料屬於 Domus Energia：電工不需購買，也不需為材料開發票。</p>
+  <div class="aviso"><b>故障維修：兩種價格。</b>客戶在<b>正常時段</b>（工作日 8:00–20:00）與<b>非營業時間</b>（夜間、週末、國定假日）之間選擇，後者的診斷費與工資<b>貴 50%</b>。只有開啟「我提供夜間與週末服務」的電工會收到這類案件。如果最後約在正常時段，差額會退還給客戶。</div>
+  <div class="ideias" style="--h:8mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>70% 加交通費的分配，對您的專業公平嗎？哪些應該算進去卻沒算？</li>
+      <li>夜間與週末多 50%：足以讓您出門嗎？您會接這種案子嗎？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 步驟 6 -->
+<section class="pagina">
+  <h2><span class="num">6</span>到府與施工</h2>
+  <p class="quemfaz">合作電工 · 用手機，在工地</p>
+  <div>
+    <div>
+      <ul>
+        <li>打開自己的頁面時，首先看到<b>「今天要做的事」</b>（"O que tenho para fazer hoje"）：今天的到府行程、待完成的工程、待預約的到府與剩餘期限、缺少的發票、新的訂單。</li>
+        <li>有 <b>48 小時</b>與客戶約定日期並登錄。沒有預約的話，案件會回到案件池。</li>
+        <li>工程頁面依施工順序分成<b>六個步驟</b>：客戶與到府、施工前照片、施工、檢測（接地連續性、絕緣、接地電阻、漏電斷路器動作時間）、施工後照片、完工。每完成一步就打 ✓。</li>
+        <li>每項工程都有一位<b>技術負責人</b>簽署。如果施工者有 DGEG 執照，就是他本人；如果沒有，公司會指定另一位，他可以看到平面圖、照片與檢測結果。<b>沒有技術負責人，工程就無法完工。</b></li>
+        <li>只有全部填好、且已過了預約時間，才能按<b>「工程完工」</b>（"Obra concluída"）。</li>
+      </ul>
+      <h3>工程不如預期時</h3>
+      <ul>
+        <li><b>追加工程：</b>電工描述發現的狀況，附上工時與材料。公司訂價後寄給客戶，客戶在帳戶中接受或拒絕。如果拒絕，其餘部分照原價完成。</li>
+        <li><b>客戶不在家：</b>電工在預約時間之後登記。若公司確認，客戶需支付那一趟的交通費（含稅最低 25 €），由電工收取。</li>
+        <li><b>無法安全地繼續：</b>公司停止工程，把訂金扣除已訂購的材料與已完成的工作後退還客戶，並付款給電工已完成的部分。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>約定的內容和實際完成的內容都有書面紀錄，還有照片和量測數據。一年後如果有客訴，證據都在。而且任何追加工程，都必須客戶書面同意才會施作。</div>
+    </div>
+    <div class="ecras ecras4" style="justify-content: center; gap: 4mm; margin-top: 3mm">
+      <figure class="tel"><img src="ecras/12-eletricista-inicio.png" alt=""><figcaption>首頁：今天要做的事</figcaption></figure>
+      <figure class="tel"><img src="ecras/07-eletricista-obra.png" alt=""><figcaption>工程頁面，分成六個步驟</figcaption></figure>
+      <figure class="tel"><img src="ecras/08b-eletricista-fotos.png" alt=""><figcaption>施工前與施工後的照片</figcaption></figure>
+      <figure class="tel"><img src="ecras/08-eletricista-concluir.png" alt=""><figcaption>最後一步：「工程完工」</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:15mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>戴著手套、滿是灰塵，您實際上能在手機上登錄什麼？哪些該拿掉、哪些該加上？</li>
+      <li>簽署工程的人一定要到現場嗎？他需要看到什麼，才能放心簽名？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 步驟 7 與 8 -->
+<section class="pagina">
+  <h2><span class="num">7</span><span class="num" style="margin-left:-1mm">8</span>客戶確認並付款，公司付款給電工</h2>
+  <p class="quemfaz">客戶 · 接著是公司</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>客戶收到電子郵件，並在帳戶中看到：<b>「工程完成了嗎？」</b>（"O trabalho ficou concluído?"）回答「是」並給 1 到 5 顆星，或說明還缺什麼。</li>
+        <li>如果客戶說還有缺漏，由公司決定：工程退回給電工，或確認並無瑕疵。</li>
+        <li>如果客戶沒有回覆，<b>第 5 天</b>會收到提醒；<b>第 7 天</b>視為接受。</li>
+        <li>在帳戶中支付<b>尾款</b>。這時房子的 App 才會啟用。</li>
+        <li>公司<b>核准</b>工程。電工用手機上傳<b>發票收據</b>，並在 <b>7 天內</b>以轉帳收款。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>電工不必追著客戶收錢。由公司收款，電工在手機上就看得到自己做了什麼、哪些已核准、何時付款。</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/09-cliente-confirmar.png" alt=""><figcaption>客戶確認並評價</figcaption></figure>
+      <figure class="tel"><img src="ecras/09b-cliente-fim-da-obra.png" alt=""><figcaption>接著支付尾款</figcaption></figure>
+    </div>
+  </div>
+  <figure class="largo" style="margin: 3mm auto 0; width: 118mm"><img src="ecras/10-painel-orcamentos.png" alt=""><figcaption>公司的管理後台：所有訂單依階段排列</figcaption></figure>
+  <div class="ideias" style="--h:31mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>客戶有七天回覆、電工七天內收款：合理嗎？您會怎麼改？</li>
+      <li>完工三個月後的客訴該怎麼處理？誰回去現場？誰付錢？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 房子 -->
+<section class="pagina">
+  <h2>完工之後：房子與 App</h2>
+  <p class="quemfaz" style="margin-left:0">客戶 · 每天使用</p>
+  <div class="passo">
+    <div>
+      <ul>
+        <li>安裝的設備（Wi-Fi 開關、插座與斷路器、感測器、電動百葉窗）會連線到 Domus Energia 的伺服器。客戶在一個從網站安裝到手機上的 <b>App</b> 中查看並控制它們。</li>
+        <li>App 用四個分頁呈現房子：<b>房子</b>（"Casa"：模式與警報、情境、用電量）、<b>自動化</b>（"Automações"）、<b>設備</b>（"Aparelhos"：每個設備的狀態）與<b>紀錄</b>（"Histórico"）。</li>
+        <li>在手機上通知：警報、門沒關、設備斷線、電池快沒電。</li>
+        <li>月費服務有不同方案；公司可以看到各個房子的警示，並遠端協助。</li>
+      </ul>
+      <h3>兩條不容討論的安全規則</h3>
+      <ul>
+        <li><b>手動按鈕永遠有效</b>，不論有沒有網路、伺服器是否正常。</li>
+        <li><b>伺服器絕不會遠端切斷任何迴路。</b>它負責量測與通知；切斷電源的永遠是人。</li>
+      </ul>
+      <div class="vantagem"><b>為什麼這樣做：</b>這是客戶每天都會用的部分，也是讓客戶在完工後繼續留在 Domus Energia 的原因。對智慧家居的合作夥伴來說，這是會重複出現的工作：擴充、新增感測器、保養維護。</div>
+    </div>
+    <div class="ecras">
+      <figure class="tel"><img src="ecras/11-app-casa.png" alt=""><figcaption>客戶的 App，「房子」分頁</figcaption></figure>
+    </div>
+  </div>
+  <div class="ideias" style="--h:80mm">
+    <h3>您的想法</h3>
+    <ul>
+      <li>一般住家您會安裝哪些設備？您信任哪些品牌？避開哪些品牌？</li>
+      <li>客戶真正想在手機上做什麼？哪些功能從來不用？</li>
+      <li>太陽能與充電器：App 應該顯示什麼（發電量、電動車充電、最便宜的時段）？</li>
+      <li>完工時怎麼把房子交給客戶？誰來向客戶說明 App？</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+</section>
+
+<!-- ===================================================== 好處 -->
+<section class="pagina">
+  <h2>對每一方的好處</h2>
+  <div class="grelha g3">
+    <div class="cartao">
+      <h3 style="margin-top:0">對電工</h3>
+      <ul>
+        <li>不必打廣告，也沒有白做的報價，案子自己上門。</li>
+        <li>只有在工程已被接受、材料已付款時才出門。</li>
+        <li>接案前就知道能拿到多少。</li>
+        <li>不必向客戶收款，也不必購買材料。</li>
+        <li>每項工程都留有紀錄：照片、檢測、配電圖。</li>
+        <li>由一家公司付款，有明確期限，而且帳目看得到。</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h3 style="margin-top:0">對客戶</h3>
+      <ul>
+        <li>在任何人進家門之前就知道價格。</li>
+        <li>個人資料只會交給施工的人。</li>
+        <li>沒有書面同意，就不會有任何追加費用。</li>
+        <li>只有一份合約、一張發票，都來自 Domus Energia。</li>
+        <li>看得到自己工程的照片與量測數據。</li>
+        <li>可以用 App 掌握自己的房子。</li>
+      </ul>
+    </div>
+    <div class="cartao">
+      <h3 style="margin-top:0">對合作關係</h3>
+      <ul>
+        <li>每個人都優先收到自己專業的訂單。</li>
+        <li>所有人都遵循相同的規則與作業程序。</li>
+        <li>一個品牌、一個網站，而不是五個。</li>
+        <li>帳目透明：每個人都看得到自己做了什麼、還有多少待收。</li>
+        <li>透過房子的月費服務，客戶會留下來。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2 style="margin-top:6mm">目前還沒有的東西</h2>
+  <p>為了讓大家不要期待還不存在的東西：</p>
+  <ul>
+    <li><b>客戶與工程。</b>工程將於 2027 年 9 月開始。在那之前，訂單都在候補名單中，不收任何費用。</li>
+    <li><b>真實付款。</b>系統已支援信用卡、MB Way 和 Multibanco（葡萄牙常用的手機支付與 ATM 繳費方式），但目前只用模擬付款測試過。</li>
+    <li><b>技術負責人。</b>系統已經要求每項工程都要有人簽署，但還缺這個人：Rui 目前不能簽。我們之中誰可以，或將來可以？</li>
+    <li><b>新的法律條款。</b>網站的使用條款正由律師審閱中，讓它們與系統實際的做法一致。</li>
+    <li><b>各專業的價目表。</b>目前有一份通用價目表；太陽能、充電器與網路的價目表還沒做。這是我們最需要您協助的事情之一。</li>
+  </ul>
+
+  <div class="ideias" style="--h:38mm">
+    <h3>您最先會改什麼？</h3>
+    <ul>
+      <li>如果這套系統只能改三件事，會是哪三件？</li>
+      <li>什麼情況會讓您說「這樣我不做」？</li>
+      <li>您的專業有哪些價格與工時需要放進價目表？（例如：安裝一台充電器、一台變流器、一個網路點位需要幾小時）</li>
+    </ul>
+    <div class="linhas"></div>
+  </div>
+  <p class="nota" style="margin-top:3mm">圖片來自測試網站，使用的是範例訂單與虛構資料。數值與規則是系統在 2026 年 10 月採用的版本，可能會依讀者的意見而調整。</p>
+</section>
+
+</body>
+</html>
