@@ -41,7 +41,21 @@ export function criarEsperaCena(dizer, prazo = TEMPO_MOTOR) {
   };
 }
 
-export function criarCenas({ publicar, ligado, aparelhos }) {
+/**
+ * Cenas que vão para o topo do separador Casa: as marcadas com estrela; se nenhuma estiver marcada
+ * (casas antigas), todas, como antes. Sem DOM; testado em painel/test/app-cliente.test.js.
+ */
+export function cenasDoTopo(lista) {
+  const l = lista ?? [];
+  return l.some((c) => c.favorita) ? l.filter((c) => c.favorita) : l;
+}
+
+/**
+ * `apagarTudo` (decisão do dono, 2026-10-14): botão fixo que desliga as luzes ligadas no momento
+ * (as que forem instaladas depois também). Não é uma cena do servidor: não se edita, só se tira do topo.
+ * { visivel(): boolean, mudarVisivel(v), haLuzes(): boolean, executar() }
+ */
+export function criarCenas({ publicar, ligado, aparelhos, apagarTudo }) {
   let lista = null;
   let textoAtual = null;
   let guardando = null;   // { anterior, timer, aoTerminar }
@@ -143,17 +157,41 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
   });
   $("nova-cena").addEventListener("click", () => abrirForm(null));
 
+  // Favorita = aparece no topo. Guarda a lista inteira com a estrela mudada (como editar).
+  function mudarFavorita(c) {
+    const nova = (lista ?? []).map((x) => {
+      if (x.id !== c.id) return x;
+      const y = { ...x };
+      if (x.favorita) delete y.favorita; else y.favorita = true;
+      return y;
+    });
+    textoGuardado = c.favorita ? `"${c.nome ?? c.id}" saiu do topo.` : `"${c.nome ?? c.id}" está no topo.`;
+    guardar(nova);
+  }
+
+  function botaoEstrela(ativa, nome, aoMudar) {
+    const b = botao(ativa ? "No topo" : "Pôr no topo", `btn sec pequeno estrela${ativa ? " ativa" : ""}`, aoMudar);
+    b.setAttribute("aria-pressed", String(ativa));
+    b.setAttribute("aria-label", ativa ? `Tirar ${nome} do topo` : `Pôr ${nome} no topo`);
+    b.prepend(criarIcone("estrela"));
+    return b;
+  }
+
   function desenhar() {
     const linha = $("cenas-linha");
     linha.replaceChildren();
-    $("cenas").hidden = lista == null;
+    const comApagar = !!apagarTudo?.haLuzes();
+    const ap = $("apagar-tudo");
+    if (ap) ap.hidden = !comApagar || !apagarTudo.visivel();
+    $("cenas").hidden = lista == null && !(comApagar && apagarTudo.visivel());
     const g = $("cenas-gerir-botao");
+    g.hidden = lista == null;
     g.setAttribute("aria-expanded", String(aberto));
     g.textContent = aberto ? "Fechar" : "Gerir";
-    $("cenas-gerir").hidden = !aberto;
+    $("cenas-gerir").hidden = !aberto || lista == null;
     if (lista == null) return;
-    if (lista.length === 0) linha.append(el("p", "vazio", "Ainda não tem cenas. Crie uma em \"Gerir\"."));
-    for (const c of lista) {
+    if (lista.length === 0 && (ap?.hidden ?? true)) linha.append(el("p", "vazio", "Ainda não tem cenas. Crie uma em \"Gerir\"."));
+    for (const c of cenasDoTopo(lista)) {
       const b = botao(null, "cena-botao", () => executar(c));
       b.dataset.id = c.id;
       const ic = el("span", "cena-icone");
@@ -184,6 +222,18 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
     if (formBotao) { formBotao.disabled = !!guardando; formBotao.textContent = guardando ? "A guardar…" : "Guardar cena"; }
     const l = $("cenas-lista");
     l.replaceChildren();
+    if (comApagar) {
+      const art = el("article", "cena-item");
+      const topo = el("div", "cena-item-topo");
+      const ic = el("span", "cena-icone");
+      ic.append(criarIcone("lua"));
+      topo.append(ic, el("b", null, "Apagar tudo"));
+      art.append(topo, el("p", "descricao", "Desliga todas as luzes que estiverem ligadas, também as que forem instaladas mais tarde. Não se edita."));
+      const b = el("div", "botoes");
+      b.append(botaoEstrela(apagarTudo.visivel(), "Apagar tudo", () => { apagarTudo.mudarVisivel(!apagarTudo.visivel()); desenhar(); }));
+      art.append(b);
+      l.append(art);
+    }
     for (const c of lista) {
       const art = el("article", `cena-item${c.bloqueada ? " bloqueada" : ""}`);
       art.dataset.id = c.id;
@@ -197,6 +247,11 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
         const k = el("span", "cadeado");
         k.append(ICONE_CADEADO(), document.createTextNode("Criada pela Domus Energia — só leitura"));
         art.append(k);
+        const b = el("div", "botoes");
+        const est = botaoEstrela(!!c.favorita, c.nome ?? c.id, () => mudarFavorita(c));
+        est.disabled = !!guardando;
+        b.append(est);
+        art.append(b);
       } else if (aApagar === c.id) {
         const conf = el("div", "confirmar");
         conf.append(el("p", null, `Apagar a cena "${c.nome ?? c.id}"?`));
@@ -210,8 +265,9 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
         const b = el("div", "botoes");
         const ed = botao("Editar", "btn sec pequeno", () => abrirForm(c));
         const ap = botao("Apagar", "btn sec pequeno", () => { aApagar = c.id; desenhar(); });
-        ed.disabled = ap.disabled = !!guardando || !!aEditar;
-        b.append(ed, ap);
+        const est = botaoEstrela(!!c.favorita, c.nome ?? c.id, () => mudarFavorita(c));
+        ed.disabled = ap.disabled = est.disabled = !!guardando || !!aEditar;
+        b.append(est, ed, ap);
         art.append(b);
       }
       l.append(art);
@@ -281,6 +337,8 @@ export function criarCenas({ publicar, ligado, aparelhos }) {
         bloqueada: false,
         acoes: acoes.ler(),
       };
+      // As novas vão logo para o topo (sem nenhuma estrela já lá estão todas); ao editar, a estrela fica como estava.
+      if (original ? original.favorita : (lista ?? []).some((x) => x.favorita)) cena.favorita = true;
       const erros = E.validarCena(cena, aparelhos());
       if (nome && (lista ?? []).some((x) => x.id !== cena.id && String(x.nome ?? "").trim().toLowerCase() === nome.toLowerCase())) erros.push("Já existe uma cena com este nome. Escolha outro nome.");
       if (!original && (lista?.length ?? 0) >= MAX_CENAS) erros.push(`Máximo de ${MAX_CENAS} cenas.`);

@@ -176,6 +176,19 @@ test('cenas bloqueadas (da empresa): nada é editável e não podem ser apagadas
   assert.equal(validarCenas([cena({ bloqueada: true })], { aparelhos, admin: true }).ok, true);
 });
 
+test('cenas favoritas (topo da app): o cliente marca as suas e as da empresa; só true fica guardado', () => {
+  const r = validarCenas([cena({ favorita: true }), cena({ id: 'outra', favorita: false })], { aparelhos });
+  assert.equal(r.ok, true, r.erro);
+  assert.equal(r.lista[0].favorita, true);
+  assert.equal('favorita' in r.lista[1], false);
+  assert.match(validarCenas([cena({ favorita: 'sim' })], { aparelhos }).erro, /"favorita" tem de ser true ou false/);
+  const empresa = { id: 'empresa', nome: 'Sair de casa', bloqueada: true, acoes: [{ acao: 'modo', modo: 'fora', forcar: false }] };
+  const m = validarCenas([{ ...empresa, nome: 'Mudada', favorita: true }], { aparelhos, existentes: [empresa] });
+  assert.deepEqual(m.lista[0], { ...empresa, favorita: true });
+  const d = validarCenas([{ id: 'empresa' }], { aparelhos, existentes: [m.lista[0]] });
+  assert.deepEqual(d.lista[0], empresa);
+});
+
 test('conflitos: mesmo gatilho, mesmo canal, sentidos opostos', () => {
   const q = { tipo: 'hora', hora: '07:00', dias: [1, 2, 3, 4, 5, 6, 7] };
   const lista = [

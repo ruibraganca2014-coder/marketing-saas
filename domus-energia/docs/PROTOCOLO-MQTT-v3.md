@@ -86,6 +86,7 @@ Retido, atualizado a cada 5 min: `{"hoje_kwh": 7.4, "ontem_kwh": 9.1, "mes_kwh":
  "acoes": [ /* ações da §8, exceto "se" e "cena" (sem cenas dentro de cenas) */ ]}
 ```
 `icone` ∈ `filme`, `sol`, `lua`, `porta`, `casa`, `energia`, `luz`, `estrela`.
+`favorita` (opcional, `true`; 2026-10-14): a cena aparece no topo do separador Casa. Sem nenhuma favorita aparecem todas. É o único campo que o cliente pode mudar numa cena `bloqueada`. O botão "Apagar tudo" da app não é uma cena: a app desliga as luzes ligadas, uma a uma.
 
 ## 8. Automações v3
 Campos novos da automação: `descricao` (≤ 200, a frase-objetivo), `categoria` (`conveniencia`|`energia`|`seguranca`|`conforto`|`rotina`), `ignorar_pausa` (bool).

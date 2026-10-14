@@ -31,7 +31,7 @@ let entrou = false;    // já houve uma ligação aceite nesta sessão
 let aparelhos = [];    // lerAparelhos(_aparelhos)
 let estados = {};      // id → estado bruto (estado.js)
 let pendentes = {};    // "id:n" → { esperado, qualquer, timer }
-let cartoes = {};      // id → { cartao, estado, detalhes, medidor, canais: { n → linha } }
+let cartoes = {};      // id → { canais: { n → linha (um mosaico) } }
 let alarme = null;     // lerAlarme(_alarme): v2 { ativo, desde } ou v3 { estado, tipo, ate, ignorados, … }
 let modo = null;       // lerModo(_modo) — só com o motor v3
 let modoPendente = null; // { modo, forcar, timer }
@@ -68,7 +68,45 @@ function abrirSubscricao({ escolher = false } = {}) {
 const bloqueio = (chave, texto) => criarBloqueio(chave, () => abrirSubscricao({ escolher: true }), texto);
 
 const definicoes = criarDefinicoes({ publicar: publicarJson, ligado: ligadoServidor, permite, bloqueio });
-const cenas = criarCenas({ publicar: publicarJson, ligado: ligadoServidor, aparelhos: () => aparelhos });
+// "Apagar tudo" (decisão do dono, 2026-10-14): desliga as luzes ligadas nesse momento (E.ehLuz), uma a uma, sem passar
+// pelo servidor das automações. Só luzes: nunca tomadas, disjuntores nem o termoacumulador. Tirar do topo fica
+// guardado neste navegador.
+const chaveApagar = () => `domus-apagar-tudo-oculto:${codigo}`;
+function luzesLigadas() {
+  const agora = Date.now();
+  const r = [];
+  for (const a of aparelhos) {
+    const m = modeloDe(a, agora);
+    if (!E.disponivel(m)) continue;
+    for (const c of m.canais) {
+      if (c.ligado && E.ehLuz(aparelhos, a.id, c.n)) r.push([a, a.canais.find((x) => x.n === c.n)]);
+    }
+  }
+  return r;
+}
+const apagarTudo = {
+  haLuzes: () => aparelhos.some((a) => a.canais.some((c) => E.ehLuz(aparelhos, a.id, c.n))),
+  visivel: () => { try { return localStorage.getItem(chaveApagar()) !== "1"; } catch { return true; } },
+  mudarVisivel: (v) => { try { if (v) localStorage.removeItem(chaveApagar()); else localStorage.setItem(chaveApagar(), "1"); } catch {} },
+  executar() {
+    const m = $("cenas-estado");
+    const dizer = (texto, tipo) => { m.hidden = false; m.textContent = texto; m.className = `msg ${tipo}`; };
+    if (!cliente?.connected) { dizer(SEM_LIGACAO, "erro"); return; }
+    const luzes = luzesLigadas();
+    if (!luzes.length) { dizer("As luzes já estão todas apagadas.", "ok"); return; }
+    for (const [a, c] of luzes) if (c) pedir(a, c, { ligado: false });
+    dizer(luzes.length === 1 ? "A apagar 1 luz…" : `A apagar ${luzes.length} luzes…`, "info");
+    // As que não responderem já dão o seu aviso (pedir); aqui só se confirma o que correu bem.
+    setTimeout(() => {
+      if (luzesLigadas().length) { m.hidden = true; return; }
+      dizer("Luzes apagadas.", "ok");
+      setTimeout(() => { if (m.textContent === "Luzes apagadas.") m.hidden = true; }, 4000);
+    }, 4000);
+  },
+};
+$("apagar-tudo").addEventListener("click", () => apagarTudo.executar());
+$("apagar-tudo-icone").append(criarIcone("lua"));
+const cenas = criarCenas({ publicar: publicarJson, ligado: ligadoServidor, aparelhos: () => aparelhos, apagarTudo });
 const automacoes = criarAutomacoes({
   publicar: publicarJson,
   ligado: ligadoServidor,
@@ -497,7 +535,7 @@ const PRAZO_MOTOR = 150_000;
 let motorVisto = 0;
 let motorParou = false;
 let ligadoDesde = 0;
-const BLOQUEADOS_SEM_MOTOR = ["modos", "cenas", "sec-automacoes", "sec-definicoes"];
+const BLOQUEADOS_SEM_MOTOR = ["modos", "cenas-linha", "cenas-gerir-botao", "cenas-gerir", "sec-automacoes", "sec-definicoes"]; // "Apagar tudo" continua a funcionar
 function avaliarMotor() {
   const parado = !!cliente?.connected && (motorParou || Date.now() - (motorVisto || ligadoDesde) > PRAZO_MOTOR);
   $("motor-aviso").hidden = !parado;
@@ -750,6 +788,8 @@ function pedirEstadoShelly() {
 }
 
 // ---------- Desenho dos aparelhos ----------
+// Mosaicos por divisão (decisão do dono, 2026-10-14): um mosaico por luz, tomada, estore ou sensor; nas luzes e
+// tomadas um toque em qualquer sítio do mosaico liga e desliga; brilho e posição abrem-se num botão à parte.
 function desenhar() {
   const lista = $("lista");
   lista.replaceChildren();
@@ -760,55 +800,31 @@ function desenhar() {
   }
 
   for (const g of E.agruparPorDivisao(aparelhos)) {
-    if (g.nome) lista.appendChild(el("h3", "divisao-titulo", g.nome));
-    for (const a of g.itens) desenharAparelho(lista, a);
+    const bloco = el("div", "divisao");
+    if (g.nome) bloco.appendChild(el("h3", "divisao-titulo", g.nome));
+    const grelha = el("div", "mosaicos");
+    for (const a of g.itens) desenharAparelho(grelha, a);
+    bloco.append(grelha);
+    lista.appendChild(bloco);
   }
   resumo();
 }
 
-function desenharAparelho(lista, a) {
-  {
-    const cartao = el("article", "cartao aparelho");
-    cartao.dataset.id = a.id;
-    const topo = el("div", "aparelho-topo");
-    const estado = el("span", "estado");
-    const info = el("div", "info");
-    const nome = el("b", null, a.nome);
-    const detalhes = el("small", "detalhes");
-    info.append(nome, detalhes);
-    topo.append(estado, info);
-    let medidor = null;
-    if (a.medidor || a.v1) {
-      medidor = criarIlustracao("medidor");
-      medidor.hidden = true;
-      topo.append(medidor);
-    }
-    cartao.append(topo);
-    const canais = {};
-    for (const c of a.canais) {
-      const linha = criarLinha(a, c);
-      canais[c.n] = linha;
-      cartao.append(linha.raiz);
-    }
-    lista.appendChild(cartao);
-    cartoes[a.id] = { cartao, estado, detalhes, medidor, canais };
-    atualizar(a.id, false);
+function desenharAparelho(grelha, a) {
+  const canais = {};
+  for (const c of a.canais) {
+    const linha = criarLinha(a, c);
+    canais[c.n] = linha;
+    grelha.append(linha.raiz);
   }
+  cartoes[a.id] = { canais };
+  atualizar(a.id, false);
 }
 
 function rotuloCanal(a, c) {
-  // Canal sem nome próprio num aparelho de um só canal: mostra a função (o nome do aparelho já está no topo).
-  return c.temNome ? c.nome : E.ROTULO_FUNCAO[c.funcao];
-}
-
-function interruptor(rotulo, aoMudar) {
-  const label = el("label", "interruptor");
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.setAttribute("aria-label", rotulo);
-  input.addEventListener("change", () => aoMudar(input.checked));
-  label.append(input, document.createElement("span"));
-  return { label, input };
+  // Aparelho de um só canal: o nome do aparelho. Com vários: o nome do canal, ou o do aparelho e a função.
+  if (a.canais.length === 1) return a.nome;
+  return c.temNome ? c.nome : `${a.nome} · ${E.ROTULO_FUNCAO[c.funcao]}`;
 }
 
 function deslizador(rotulo, texto, aoLargar) {
@@ -827,8 +843,22 @@ function deslizador(rotulo, texto, aoLargar) {
   return { caixa, input, saida };
 }
 
+// Botão que mostra ou esconde o brilho / a posição por baixo do mosaico.
+function botaoMais(texto, extra, raiz) {
+  const b = el("button", "btn sec pequeno mosaico-mais", texto);
+  b.type = "button";
+  b.setAttribute("aria-expanded", "false");
+  b.addEventListener("click", () => {
+    extra.hidden = !extra.hidden;
+    b.setAttribute("aria-expanded", String(!extra.hidden));
+    raiz.classList.toggle("aberto", !extra.hidden);
+  });
+  return b;
+}
+
 function criarLinha(a, c) {
-  const raiz = el("div", `canal canal-${c.funcao}`);
+  const raiz = el("article", `mosaico canal canal-${c.funcao}`);
+  raiz.dataset.id = a.id;
   raiz.dataset.canal = String(c.n);
   raiz.dataset.funcao = c.funcao;
   const caixaIlus = el("div", "canal-ilus");
@@ -837,56 +867,74 @@ function criarLinha(a, c) {
   const info = el("div", "canal-info");
   const nome = el("span", "canal-nome", rotuloCanal(a, c));
   const estado = el("small", "canal-estado");
-  info.append(nome, estado);
-  raiz.append(caixaIlus, info);
+  const detalhes = el("small", "mosaico-detalhes");
+  detalhes.hidden = true;
+  info.append(nome, estado, detalhes);
   const nomeCompleto = c.temNome && a.canais.length > 1 ? `${a.nome} — ${c.nome}` : c.nome;
-  const linha = { raiz, ilus, estado };
+  const linha = { raiz, ilus, estado, detalhes };
 
   if (c.funcao === "interruptor" || c.funcao === "luz") {
-    const s = interruptor(`Ligar ou desligar ${nomeCompleto}`, (v) => {
+    // O mosaico inteiro é a etiqueta da caixa: tocar em qualquer sítio liga e desliga.
+    const label = el("label", "mosaico-toque");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.className = "mosaico-caixa";
+    input.setAttribute("aria-label", `Ligar ou desligar ${nomeCompleto}`);
+    input.addEventListener("change", () => {
+      const v = input.checked;
       // Desligar o disjuntor geral deixa a casa às escuras: confirmar na página primeiro.
       if (!v && E.ehGeral(aparelhos, a.id, c.n)) { confirmarGeral(a, c, linha); return; }
       linha.confirmar?.remove();
       pedir(a, c, { ligado: v });
     });
-    raiz.append(s.label);
-    linha.sw = s;
+    label.append(input, caixaIlus, info, el("span", "mosaico-luz"));
+    raiz.append(label);
+    linha.sw = { label, input };
+  } else {
+    const cabeca = el("div", "mosaico-cabeca");
+    cabeca.append(caixaIlus, info);
+    raiz.append(cabeca);
   }
   if (c.funcao === "luz") {
     const extra = el("div", "canal-extra");
+    extra.hidden = true;
     const d = deslizador(`Brilho de ${nomeCompleto}`, "Brilho", (v) => pedir(a, c, { brilho: Math.max(1, v) }));
     d.input.min = "1";
     extra.append(d.caixa);
-    raiz.append(extra);
+    raiz.append(botaoMais("Brilho", extra, raiz), extra);
     linha.brilho = d;
   }
   if (c.funcao === "estore") {
-    const extra = el("div", "canal-extra");
-    const d = deslizador(`Posição de ${nomeCompleto} (0 fechado, 100 aberto)`, "Posição", (v) => pedir(a, c, { posicao: v }));
-    const botoes = el("div", "linha");
-    const abrir = el("button", "btn sec pequeno", "Abrir");
-    abrir.type = "button";
-    abrir.addEventListener("click", () => pedir(a, c, { estore: "abrir" }));
-    const fechar = el("button", "btn sec pequeno", "Fechar");
-    fechar.type = "button";
-    fechar.addEventListener("click", () => pedir(a, c, { estore: "fechar" }));
-    botoes.append(abrir);
+    const botoes = el("div", "mosaico-estore");
+    const subir = el("button", "btn sec", "Subir");
+    subir.type = "button";
+    subir.setAttribute("aria-label", `Subir ${nomeCompleto}`);
+    subir.addEventListener("click", () => pedir(a, c, { estore: "abrir" }));
+    const descer = el("button", "btn sec", "Descer");
+    descer.type = "button";
+    descer.setAttribute("aria-label", `Descer ${nomeCompleto}`);
+    descer.addEventListener("click", () => pedir(a, c, { estore: "fechar" }));
+    botoes.append(subir);
     let parar = null;
     if (a.tipo === "shelly") {
-      parar = el("button", "btn sec pequeno", "Parar");
+      parar = el("button", "btn sec", "Parar");
       parar.type = "button";
+      parar.setAttribute("aria-label", `Parar ${nomeCompleto}`);
       parar.addEventListener("click", () => pedir(a, c, { estore: "parar" }));
       botoes.append(parar);
     }
-    botoes.append(fechar);
-    extra.append(d.caixa, botoes);
-    raiz.append(extra);
+    botoes.append(descer);
+    const extra = el("div", "canal-extra");
+    extra.hidden = true;
+    const d = deslizador(`Posição de ${nomeCompleto} (0 fechado, 100 aberto)`, "Posição", (v) => pedir(a, c, { posicao: v }));
+    extra.append(d.caixa);
+    raiz.append(botoes, botaoMais("Posição", extra, raiz), extra);
     linha.posicao = d;
-    linha.botoes = [abrir, parar, fechar].filter(Boolean);
+    linha.botoes = [subir, parar, descer].filter(Boolean);
   }
   if (c.funcao === "porta" || c.funcao === "movimento" || c.funcao === "bateria") {
     const selo = el("span", "selo-estado");
-    raiz.append(selo);
+    raiz.querySelector(".mosaico-cabeca").append(selo);
     linha.selo = selo;
   }
   return linha;
@@ -924,29 +972,22 @@ function atualizar(id, comResumo = true) {
     const m = modeloDe(a, agora);
     const disponivel = E.disponivel(m);
 
-    // Estado do aparelho + medição
-    k.estado.className = `estado${m.bateria ? " dorme" : m.online ? " online" : ""}`;
-    k.cartao.classList.toggle("offline", !disponivel);
-    let ligacao;
-    k.detalhes.classList.remove("aviso");
+    // No mosaico só o que importa no dia a dia: sem ligação, sem notícias e a potência; o resto (sinal, tensão,
+    // reinícios, pilhas) está no separador Aparelhos.
+    let ligacao = null;
+    let aviso = false;
     if (m.bateria) {
       if (m.ultimaNoticia == null) ligacao = "À espera de notícias";
-      else if (m.semNoticias) {
-        ligacao = `Sem notícias há ${Math.floor((agora - m.ultimaNoticia) / 3600_000)} h`;
-        k.detalhes.classList.add("aviso");
-      } else ligacao = `Último sinal ${E.tempoRelativo(m.ultimaNoticia, agora)}`;
-    } else ligacao = m.online ? "Online" : "Offline";
-    k.detalhes.textContent = [
-      ligacao,
-      m.potenciaW != null && `${E.decimal(m.potenciaW, 1)} W`,
-      m.tensaoV != null && `${m.tensaoV.toFixed(0)} V`,
-      m.correnteA != null && `${E.decimal(m.correnteA, 2)} A`,
-      m.energiaKWh != null && E.kwhTexto(m.energiaKWh, 2),
-    ].filter(Boolean).join(" · ");
-    if (k.medidor) {
-      k.medidor.hidden = !m.temMedicao;
-      atualizarIlustracao(k.medidor, "medidor", { potenciaW: m.potenciaW });
-    }
+      else if (m.semNoticias) { ligacao = `Sem notícias há ${Math.floor((agora - m.ultimaNoticia) / 3600_000)} h`; aviso = true; }
+    } else if (!m.online) { ligacao = "Sem ligação"; aviso = true; }
+    const potencia = m.online && m.potenciaW != null ? `${E.decimal(m.potenciaW, 1)} W` : null;
+    Object.values(k.canais).forEach((linha, i) => {
+      linha.raiz.classList.toggle("offline", !disponivel);
+      const t = i === 0 ? [ligacao, potencia].filter(Boolean).join(" · ") : aviso ? ligacao : "";
+      linha.detalhes.textContent = t;
+      linha.detalhes.hidden = !t;
+      linha.detalhes.classList.toggle("aviso", aviso);
+    });
 
     for (const c of m.canais) {
       const linha = k.canais[c.n];
@@ -1141,6 +1182,8 @@ const ilusAlarme = criarIlustracao("alarme");
 $("alarme-ilus").append(ilusAlarme);
 const TEMPO_MODO = 10_000;
 const DESC_MODO = { casa: "Desarmado", fora: "Alarme total", noite: "Portas e janelas", ferias: "Alarme + simulação" };
+// Nomes dos botões do topo (decisão do dono, 2026-10-14); o resto da app continua a usar E.NOME_MODO.
+const NOME_BOTAO_MODO = { casa: "Estou em casa", fora: "Sair de casa", noite: "Boa noite", ferias: "Férias" };
 const botoesModo = {};
 for (const m of E.MODOS) {
   const b = el("button", "modo-opcao");
@@ -1153,7 +1196,7 @@ for (const m of E.MODOS) {
   const cad = el("span", "modo-cadeado");
   cad.hidden = true;
   cad.append(iconeCadeado());
-  b.append(ic, el("span", "modo-nome", E.NOME_MODO[m]), el("span", "modo-desc", DESC_MODO[m]), cad);
+  b.append(ic, el("span", "modo-nome", NOME_BOTAO_MODO[m]), el("span", "modo-desc", DESC_MODO[m]), cad);
   b.addEventListener("click", () => pedirModo(m, false));
   b.addEventListener("keydown", (e) => {
     if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
@@ -1250,6 +1293,8 @@ function desenharAlarme() {
 
   const alvo = modoPendente ? modoPendente.modo : atual;
   const semAlarme = !permite("alarme");
+  // Sem alarme no plano, o topo mostra só as cenas (decisão do dono, 2026-10-14); se o alarme ainda estiver ligado, fica à vista para o desligar.
+  cartao.hidden = semAlarme && !alarme?.ativo && !erroPlanoModo;
   for (const m of E.MODOS) {
     const b = botoesModo[m];
     const sel = alvo === m;

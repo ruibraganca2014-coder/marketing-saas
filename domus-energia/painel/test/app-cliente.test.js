@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as E from '../../web/estado.js';
-import { criarEsperaCena } from '../../web/cenas.js';
+import { criarEsperaCena, cenasDoTopo } from '../../web/cenas.js';
 
 const AGORA = Date.parse('2026-10-12T12:00:00Z');
 const tomada = (id, mais = {}) => ({ id, nome: id, tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: id, divisao: 'Sala' }], ...mais });
@@ -125,4 +125,25 @@ test('ligação para a app ntfy: ntfy://servidor/tópico (https), ?secure=false 
   // O que a área de cliente recebe em `_ntfy` (lerNtfy) dá a ligação.
   const lido = E.lerNtfy(JSON.stringify({ url: 'https://ntfy.exemplo.pt/domus-joao-9f3k2', servidor: 'https://ntfy.exemplo.pt', topico: 'domus-joao-9f3k2' }));
   assert.equal(E.ligacaoNtfy(lido.url), 'ntfy://ntfy.exemplo.pt/domus-joao-9f3k2');
+});
+
+test('"Apagar tudo": conta as luzes reguláveis e os interruptores com nome de luz; nunca o geral, tomadas nem cargas perigosas', () => {
+  const ap = E.lerAparelhos(JSON.stringify([
+    { id: 'quadro', nome: 'Quadro geral', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Luz geral' }] },
+    { id: 'sala', nome: 'Sala', canais: [{ n: 1, funcao: 'interruptor', nome: 'Teto' }, { n: 2, funcao: 'interruptor', nome: 'Candeeiro' }] },
+    { id: 'tv', nome: 'Tomada da televisão', canais: [{ n: 1, funcao: 'interruptor' }] },
+    { id: 'led', nome: 'LED cozinha', canais: [{ n: 1, funcao: 'luz' }] },
+    { id: 'wc', nome: 'Iluminação WC', canais: [{ n: 1, funcao: 'interruptor' }] },
+    { id: 'termo', nome: 'Termoacumulador da luz', canais: [{ n: 1, funcao: 'interruptor', carga: 'perigosa', nome: 'Termo' }] },
+    { id: 'estore', nome: 'Estore da sala', canais: [{ n: 1, funcao: 'estore', nome: 'Luz do dia' }] },
+  ]));
+  const luzes = ap.flatMap((a) => a.canais.filter((c) => E.ehLuz(ap, a.id, c.n)).map((c) => `${a.id}:${c.n}`));
+  assert.deepEqual(luzes, ['sala:1', 'sala:2', 'led:1', 'wc:1']);
+});
+
+test('cenas no topo: só as favoritas; sem nenhuma favorita, todas (casas antigas)', () => {
+  const a = { id: 'a' }, b = { id: 'b', favorita: true }, c = { id: 'c' };
+  assert.deepEqual(cenasDoTopo([a, b, c]), [b]);
+  assert.deepEqual(cenasDoTopo([a, c]), [a, c]);
+  assert.deepEqual(cenasDoTopo(null), []);
 });

@@ -52,6 +52,7 @@ export const EVENTOS_SISTEMA = ['aparelho_offline', 'aparelho_online', 'energia_
  * @property {string} nome
  * @property {string} [icone]
  * @property {boolean} bloqueada
+ * @property {boolean} [favorita]   aparece no topo da app
  * @property {any[]} acoes
  */
 
@@ -561,10 +562,11 @@ export function validarCena(c, i, aparelhos, opcoes = {}) {
     falhar(`Cena n.º ${i + 1}: "id" inválido ${JSON.stringify(x.id ?? null)} (use só letras minúsculas, dígitos e "-", até 40 caracteres).`);
   }
   const onde = `Cena "${x.id}"`;
-  soCampos(x, ['id', 'nome', 'icone', 'bloqueada', 'acoes'], onde);
+  soCampos(x, ['id', 'nome', 'icone', 'bloqueada', 'favorita', 'acoes'], onde);
   if (x.nome !== undefined && (typeof x.nome !== 'string' || x.nome.length > 80)) falhar(`${onde}: "nome" tem de ser texto até 80 caracteres.`);
   if (x.icone !== undefined && x.icone !== null && !ICONES.includes(x.icone)) falhar(`${onde}: "icone" tem de ser ${ICONES.map((c) => `"${c}"`).join(', ')}.`);
   if (x.bloqueada !== undefined && typeof x.bloqueada !== 'boolean') falhar(`${onde}: "bloqueada" tem de ser true ou false.`);
+  if (x.favorita !== undefined && typeof x.favorita !== 'boolean') falhar(`${onde}: "favorita" tem de ser true ou false.`);
   const acoes = validarAcoesRaiz(x.acoes, onde, ctx, true, 'acoes');
   /** @type {Cena} */
   const r = {
@@ -574,6 +576,7 @@ export function validarCena(c, i, aparelhos, opcoes = {}) {
     acoes,
   };
   if (typeof x.icone === 'string') r.icone = x.icone;
+  if (x.favorita === true) r.favorita = true;
   return r;
 }
 
@@ -599,7 +602,11 @@ export function validarCenas(lista, { aparelhos, existentes = [], admin = false,
       if (typeof id === 'string') vistos.add(id);
       const antiga = !admin && typeof id === 'string' ? bloqueadas.get(id) : undefined;
       if (antiga) {
-        resultado.push(structuredClone(antiga)); // da empresa: nada é editável
+        // Da empresa: nada é editável, exceto a estrela que a põe no topo da app.
+        const copia = structuredClone(antiga);
+        delete copia.favorita;
+        if (eObjeto(c) && c.favorita === true) copia.favorita = true;
+        resultado.push(copia);
         return;
       }
       const v = validarCena(c, i, aparelhos, { verificarAparelhos });

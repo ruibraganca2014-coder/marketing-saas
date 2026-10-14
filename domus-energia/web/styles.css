@@ -323,29 +323,43 @@ select[aria-invalid="true"] { border: 2px solid var(--alarme); }
 .resumo .rotulo { color: var(--texto-suave); font-size: .88rem; }
 .resumo .alerta .valor { color: var(--alarme-texto); }
 
-/* Aparelhos */
-.aparelhos { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); align-items: start; }
-.aparelho { padding: 14px 16px 8px; }
-.aparelho-topo { display: flex; align-items: center; gap: 10px; padding-bottom: 8px; }
-.aparelho .estado { width: 10px; height: 10px; border-radius: 50%; background: var(--borda); flex: none; box-shadow: inset 0 0 0 1.5px var(--texto-suave); }
-.aparelho .estado.online { background: var(--musgo); box-shadow: none; }
-.aparelho .estado.dorme { background: var(--areia); box-shadow: none; }
-.aparelho .info { flex: 1; min-width: 0; }
-.aparelho .info b { display: block; font-family: var(--letra-titulos); font-size: 1.15rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.aparelho .info small { color: var(--texto-suave); font-variant-numeric: tabular-nums; display: block; }
-.aparelho .info small.aviso { color: var(--argila-texto); font-weight: 700; }
-.aparelho .ilus-medidor { width: 40px; height: 40px; flex: none; }
-.aparelho.offline .canal { opacity: .7; }
-
-.canal { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--borda); }
-.canal-ilus { width: 52px; height: 52px; border-radius: 16px; background: var(--musgo-claro); display: grid; place-items: center; }
-.canal-ilus .ilus { width: 48px; height: 48px; }
+/* Aparelhos: mosaicos por divisão (decisão do dono, 2026-10-14). Dois por linha no telemóvel; um toque no mosaico
+   liga e desliga; ligado fica a verde-musgo. Letras maiores e botões de 56/48 px, como na conta e no simulador. */
+.aparelhos { display: grid; gap: 18px; margin-bottom: 18px; }
+.divisao { display: grid; gap: 10px; min-width: 0; }
+.mosaicos { display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+@media (min-width: 640px) { .mosaicos { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); } }
+.mosaico { position: relative; display: grid; gap: 8px; min-width: 0; padding: 12px; border-radius: var(--raio); border: 1.5px solid var(--borda); background: var(--superficie); box-shadow: var(--sombra); color: var(--texto); transition: background .2s, border-color .2s; }
+.mosaico-toque, .mosaico-cabeca { display: grid; gap: 8px; min-height: 104px; align-content: start; }
+.mosaico-toque { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mosaico-toque:active { transform: scale(.98); }
+.mosaico-caixa { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.mosaico:has(.mosaico-caixa:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
+.mosaico:has(.mosaico-caixa:checked) { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.mosaico:has(.mosaico-caixa:checked) .canal-estado, .mosaico:has(.mosaico-caixa:checked) .mosaico-detalhes { color: inherit; }
+.mosaico:has(.mosaico-caixa:checked) .canal-ilus { background: color-mix(in srgb, var(--sobre-musgo) 22%, transparent); }
+.mosaico:has(.mosaico-caixa:disabled) .mosaico-toque { cursor: default; }
+.mosaico:has(.mosaico-caixa:disabled) .mosaico-toque:active { transform: none; }
+.mosaico-toque.pendente { opacity: .75; }
+/* Pastilha no canto: o estado também se vê sem depender da cor. */
+.mosaico-luz { position: absolute; top: 12px; right: 12px; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 2px var(--texto-suave); }
+.mosaico:has(.mosaico-caixa:checked) .mosaico-luz { background: var(--sobre-musgo); box-shadow: none; }
+.mosaico.offline { opacity: .72; border-style: dashed; }
+.mosaico .canal-ilus { width: 52px; height: 52px; border-radius: 16px; background: var(--musgo-claro); display: grid; place-items: center; }
+.mosaico .canal-ilus .ilus { width: 48px; height: 48px; }
 .canal-info { min-width: 0; }
-.canal-nome { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.canal-estado { display: block; color: var(--texto-suave); font-size: .9rem; font-variant-numeric: tabular-nums; }
-.canal-extra { grid-column: 1 / -1; display: grid; gap: 8px; }
-.canal-extra .linha { display: flex; gap: 8px; flex-wrap: wrap; }
-.canal-extra .linha .btn { flex: 1; }
+.canal-nome { display: block; font-family: var(--letra-titulos); font-size: 1.12rem; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.canal-estado { display: block; color: var(--texto-suave); font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mosaico-detalhes { display: block; color: var(--texto-suave); font-size: .92rem; font-variant-numeric: tabular-nums; }
+.mosaico-detalhes.aviso { color: var(--argila-texto); font-weight: 700; }
+.mosaico:has(.mosaico-caixa:checked) .mosaico-detalhes.aviso { color: inherit; }
+.mosaico-cabeca .selo-estado { justify-self: start; }
+.mosaico-mais { min-height: 48px; width: 100%; }
+.mosaico-estore { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 6px; }
+.mosaico-estore .btn { min-height: 56px; padding: 0 4px; font-size: 1rem; }
+/* Aberto (brilho ou posição) ou com uma confirmação: o mosaico ocupa a linha toda. */
+.mosaico.aberto, .mosaico:has(.confirmar) { grid-column: 1 / -1; }
+.canal-extra { display: grid; gap: 8px; }
 .deslizador { display: grid; grid-template-columns: auto minmax(0, 1fr) 3.2em; align-items: center; gap: 10px; font-size: .88rem; color: var(--texto-suave); font-weight: 600; }
 .deslizador output { text-align: right; font-variant-numeric: tabular-nums; color: var(--texto); }
 input[type=range] { padding: 0; border: 0; background: transparent; accent-color: var(--musgo); height: 44px; }
@@ -502,6 +516,14 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .cena-botao { flex: none; scroll-snap-align: start; display: grid; justify-items: center; gap: 6px; width: 96px; min-height: 92px; padding: 10px 6px; border-radius: var(--raio); border: 1px solid var(--borda); background: var(--superficie); color: var(--texto); box-shadow: var(--sombra); font: 700 .88rem/1.2 var(--letra); cursor: pointer; }
 .cena-botao:hover { border-color: var(--musgo); }
 .cena-botao:active { transform: scale(.97); }
+/* Topo do separador Casa (2026-10-14): "Apagar tudo" e as cenas favoritas na mesma fila, botões maiores. */
+.cenas-fila { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+.cenas-fila .cenas-linha { display: contents; }
+.cenas-fila .cena-botao { width: 108px; min-height: 104px; font-size: 1rem; }
+.cena-apagar { border-color: var(--musgo); }
+.cena-item .estrela svg { width: 18px; height: 18px; margin-right: 4px; vertical-align: -3px; }
+.cena-item .estrela.ativa { background: var(--musgo-claro); border-color: var(--musgo); }
+.cena-item .estrela.ativa svg { fill: currentColor; }
 .cena-icone { width: 40px; height: 40px; border-radius: 12px; background: var(--musgo-claro); color: var(--musgo-texto); display: grid; place-items: center; flex: none; }
 .cena-icone svg { width: 24px; height: 24px; }
 .cena-nome { text-align: center; overflow-wrap: anywhere; }
@@ -523,7 +545,7 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .icone-opcao:has(input:focus-visible) { outline: 3px solid var(--areia); outline-offset: 2px; }
 
 .casa-acoes { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin: -4px 0 12px; }
-.divisao-titulo { grid-column: 1 / -1; margin: 6px 0 -4px; font-size: 1.15rem; color: var(--texto-suave); }
+.divisao-titulo { margin: 0; font-size: 1.3rem; color: var(--texto); }
 .canal.em-espera .canal-estado { color: var(--argila-texto); font-weight: 700; }
 
 /* Assistente de automações */

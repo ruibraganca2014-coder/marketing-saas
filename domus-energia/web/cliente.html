@@ -184,17 +184,25 @@
               <h2>Cenas</h2>
               <button class="btn sec pequeno" id="cenas-gerir-botao" type="button" aria-controls="cenas-gerir" aria-expanded="false">Gerir</button>
             </div>
-            <div class="cenas-linha" id="cenas-linha"></div>
+            <!-- "Apagar tudo" fica fora de #cenas-linha: não depende do servidor das automações (cliente.js apagarTudo). -->
+            <div class="cenas-fila">
+              <button class="cena-botao cena-apagar" id="apagar-tudo" type="button" hidden><span class="cena-icone" id="apagar-tudo-icone"></span><span class="cena-nome">Apagar tudo</span></button>
+              <div class="cenas-linha" id="cenas-linha"></div>
+            </div>
             <div class="msg" id="cenas-estado" role="status" hidden></div>
             <div class="cartao cenas-gerir" id="cenas-gerir" hidden>
               <div class="seccao-topo">
                 <h3>Gerir cenas</h3>
                 <button class="btn pequeno" id="nova-cena" type="button">Nova cena</button>
               </div>
+              <p class="ajuda">Ponha no topo as cenas que usa mais. Enquanto nenhuma estiver no topo, aparecem todas.</p>
               <div id="form-cena-caixa"></div>
               <div class="cenas-lista" id="cenas-lista"></div>
             </div>
           </div>
+
+          <!-- Divisões: um mosaico por luz, tomada ou estore; um toque liga e desliga (decisão do dono, 2026-10-14). -->
+          <div class="aparelhos" id="lista"></div>
 
           <!-- Receber avisos no telemóvel (app ntfy; docs/APP-CLIENTE.md). Fechado ocupa uma linha, para não empurrar o
                resumo; só nos planos com notificações (nos outros aparece com o cadeado). O endereço é um segredo da casa:
@@ -231,7 +239,6 @@
             <button class="btn sec pequeno" id="abrir-relatorio" type="button" aria-controls="sec-relatorio">Relatório da casa</button>
             <a class="btn sec pequeno" id="ampliar" href="simulador.html?cliente=1">Ampliar a instalação</a>
           </div>
-          <div class="aparelhos" id="lista"></div>
         </section>
 
         <!-- Automações -->
