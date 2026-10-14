@@ -99,7 +99,9 @@ await new Promise((ok) => servidorMqtt.listen(PORTA_MQTT, '127.0.0.1', ok));
 const filhos = [];
 const { ANTHROPIC_API_KEY: chaveAnthropic, ...ambiente } = process.env;
 function arrancar(nome, env) {
-  const f = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.js'], {
+  // --use-system-ca: os certificados do Windows (com um antivírus que inspeciona HTTPS, o Node não reconhecia o do
+  // serviço de avisos da Google e o web push local falhava com "unable to verify the first certificate").
+  const f = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--use-system-ca', 'src/index.js'], {
     cwd: join(RAIZ, nome),
     // A chave da Anthropic só vai para o painel (é passada em `env`); os outros serviços não a recebem.
     env: { ...ambiente, TZ: 'Europe/Lisbon', MQTT_URL: `mqtt://127.0.0.1:${PORTA_MQTT}`, ...env },
