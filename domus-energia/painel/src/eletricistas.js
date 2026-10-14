@@ -54,6 +54,7 @@ import { concelho as concelhoDe, deslocacaoServidor, diasDeObra, partirIva, comI
 export const COOKIE_ELETRICISTA = 'domus_eletricista';
 export const CAMINHO_API = '/api/eletricista/';
 export const PRAZO_VISITA_MS = 48 * 3600_000;         // depois de aceite: 48 h para marcar a visita
+export const PRAZO_URGENTE_MS = 2 * 3600_000;         // avaria urgente (fora de horas): 2 h (decisão do dono, 2026-10-14)
 export const SEGURO_MAX_BYTES = 5 * 1024 * 1024;      // documento do seguro
 export const PERCENTAGEM_OMISSAO = 70;                // % da mão de obra sem IVA (config `eletricista_pct`)
 export const MAX_CONCELHOS = 40;
@@ -403,6 +404,14 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   const fazForaHoras = (e) => Boolean(e?.fora_horas);
   /** O pedido é uma avaria que CONTINUA fora de horas (pedida assim e sem a diferença devolvida)? */
   const exigeForaHoras = (o) => Boolean(o) && pagamentos().foraHorasEmVigor(o);
+  /**
+   * Avaria URGENTE (decisão do dono, 2026-10-14): a avaria fora de horas (o cliente pagou mais para ser o mais depressa
+   * possível, também de noite e ao fim de semana). Vai direta para a bolsa, sem a validação do CEO (aoAvariaPaga), e quem a
+   * aceita tem 2 horas para marcar a visita em vez de 48 h; passadas 2 horas na bolsa sem ninguém, os CEO são avisados.
+   */
+  const urgente = (t, o = null) => t?.tipo === 'avaria' && exigeForaHoras(o ?? pedidoDe(t.orcamento_id));
+  /** O prazo para marcar a visita depois de aceite: 2 h numa avaria urgente, 48 h no resto. */
+  const prazoDe = (t, o = null) => (urgente(t, o) ? PRAZO_URGENTE_MS : PRAZO_VISITA_MS);
   /** Os concelhos onde há pelo menos um eletricista aprovado que faz fora de horas: só os nomes (nunca quantos nem quem). */
   const concelhosForaHoras = () => [...new Set(db.prepare("SELECT concelhos FROM eletricistas WHERE estado = 'aprovado' AND fora_horas = 1").all().flatMap(concelhosDe))].sort((a, b) => a.localeCompare(b, 'pt'));
 
@@ -615,8 +624,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const r = { id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), ...duracao(o, t.tipo, rel), recebe: recebeDe(o, t.tipo, percentagemDe(e)) };
     if (comRelatorio) r.relatorio = relatorioTecnico(rel, false);
     // Avaria fora de horas: a percentagem a mais da mão de obra ("Fora de horas: recebe mais 50 %"); o campo só vai quando é.
-    if (t.tipo === 'avaria' && exigeForaHoras(o)) r.fora_horas = pagamentos().acrescimoForaHoras(o);
-    // Especialidade do pedido e, para o parceiro que o vê primeiro, até quando é só dele (decisão do dono, 2026-10-13).
+    if (t.tipo === 'avaria' && exigeForaHoras(o)) { r.fora_horas = pagamentos().acrescimoForaHoras(o); r.urgente = true; r.prazo_horas = PRAZO_URGENTE_MS / 3600_000; }
+    // Especialidade do pedido e, para os parceiros que o veem primeiro, até quando é só deles (decisões do dono, 2026-10-13 e 2026-10-14).
     r.especialidade = t.especialidade ?? especialidadeDoPedido(o);
     r.especialidade_nome = ESPECIALIDADES[r.especialidade];
     r.prioridade_ate = emPrioridade(t) && parceiroDe(e, t.especialidade) ? iso(t.prioridade_ate) : null;
@@ -658,7 +667,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       id: t.id, concelho: t.concelho, tipo: t.tipo, titulo: titulo(o, t.tipo), estado: t.estado, aberto: estaAberto, espera_cliente: espera, ...duracao(o, t.tipo, rel),
       recebe: recebeDoTrabalho(t, o, Number.isFinite(t.percentagem) ? t.percentagem : percentagemOmissao()),
       aceite: t.aceite_em ? iso(t.aceite_em) : null,
-      prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null,
+      prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + prazoDe(t, o)) : null,
       visita: t.visita ?? null, concluida: t.concluida ?? null,
     };
     // Obra parada por segurança (aoPararObra): já não vale a estimativa — recebe só o trabalho já feito, fixado pelo CEO.
@@ -830,7 +839,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    */
   function darPrioridade(t, o) {
     const esp = especialidadeDoPedido(o);
-    const ate = t.estado === 'na_bolsa' && !t.so_para && parceirosEm(t.concelho, esp, t).length ? relogio() + PRIORIDADE_MS : null;
+    // A avaria urgente (2026-10-14) não espera 24 horas pelos parceiros: vai logo a todos os que fazem fora de horas.
+    const ate = t.estado === 'na_bolsa' && !t.so_para && !urgente(t, o) && parceirosEm(t.concelho, esp, t).length ? relogio() + PRIORIDADE_MS : null;
     db.prepare('UPDATE trabalhos_eletricista SET especialidade = ?, prioridade_ate = ? WHERE id = ?').run(esp, ate, t.id);
     return trabalho(t.id);
   }
@@ -1040,7 +1050,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       }
     }
     avisarEmpresa('Domus Energia: um eletricista deixou um trabalho', [
-      `${nomeEvento === 'expirou' ? 'Passaram 48 h sem visita marcada' : 'O eletricista largou o trabalho'} do pedido n.º ${t.orcamento_id}.`,
+      `${nomeEvento === 'expirou' ? `Passaram ${prazoDe(t, o) / 3600_000} h sem visita marcada${urgente(t, o) ? ' (avaria urgente)' : ''}` : 'O eletricista largou o trabalho'} do pedido n.º ${t.orcamento_id}.`,
       t.modo === 'bolsa' ? 'O trabalho voltou à bolsa.' : 'O trabalho voltou a ficar por atribuir.'], pedidoPainel(t.orcamento_id));
     // De volta à bolsa: os outros eletricistas da zona recebem "voltou à bolsa" (nunca quem o largou ou deixou caducar).
     // Havendo parceiros da especialidade no concelho, voltam a ter 24 horas só para eles (decisão do dono, 2026-10-13).
@@ -1059,7 +1069,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Prioridade (decisão do dono, 2026-10-13): enquanto dura, só os parceiros da especialidade são avisados, com mais uma
     // linha; os outros recebem o aviso de sempre quando abrir a todos (`fimPrioridade`: aí os parceiros não voltam a ser avisados).
     const prioridade = emPrioridade(t);
-    const soParceiros = prioridade ? [`É da sua especialidade (${ESPECIALIDADES[t.especialidade]}): tem 24 horas antes de abrir aos outros eletricistas.`] : [];
+    const soParceiros = prioridade ? [`É da sua especialidade (${ESPECIALIDADES[t.especialidade]}): os parceiros desta especialidade têm 24 horas antes de abrir aos outros eletricistas.`] : [];
     const ins = db.prepare('INSERT OR IGNORE INTO trabalhos_eletricista_avisos (trabalho_id, eletricista_id, quando) VALUES (?, ?, ?)');
     // Por proposta (decisão do dono, 2026-10-10) já não é "o primeiro a aceitar": o email diz para enviar a proposta.
     const comoFica = porProposta(t) ? 'Veja o relatório técnico na área do eletricista e envie a sua proposta (horas, material e quando pode ir): a Domus Energia escolhe o eletricista.'
@@ -1067,6 +1077,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // Avaria fora de horas (decisão do dono, 2026-10-13): só é avisado quem faz fora de horas, com mais uma linha.
     const foraHoras = exigeForaHoras(pedidoDe(t.orcamento_id));
     if (foraHoras) soParceiros.push(`É uma avaria fora de horas (noite, fim de semana ou feriado): recebe mais ${pagamentos().acrescimoForaHoras(pedidoDe(t.orcamento_id))} % na mão de obra.`);
+    // Urgente (decisão do dono, 2026-10-14): o assunto diz "URGENTE" e o prazo é de 2 horas.
+    const urg = urgente(t);
+    if (urg) soParceiros.push(`URGENTE: o cliente quer a avaria resolvida o mais depressa possível. Quem aceitar tem ${PRAZO_URGENTE_MS / 3600_000} horas para combinar com o cliente e marcar a visita.`);
+    const assunto = (texto) => (urg ? `URGENTE — ${texto}` : texto);
     let n = 0;
     for (const e of aprovadosEm(t.concelho).slice(0, 500)) {
       if (largouOuExpirou(t, e) || (t.so_para && t.so_para !== e.id) || (foraHoras && !fazForaHoras(e))) continue;
@@ -1075,13 +1089,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       if (!ins.run(t.id, e.id, agoraIso()).changes) {
         if (!voltou || (fimPrioridade && parceiro)) continue;
         n += 1;
-        correio.enviar({ para: e.email, assunto: `Domus Energia: um trabalho voltou à bolsa em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} voltou, ao eletricista ${e.id}`,
+        correio.enviar({ para: e.email, assunto: assunto(`Domus Energia: um trabalho voltou à bolsa em ${t.concelho}`), resumo: `aviso da bolsa: trabalho ${t.id} voltou, ao eletricista ${e.id}`,
           texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) voltou à bolsa e está outra vez disponível.`,
             comoFica, ...soParceiros, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
         continue;
       }
       n += 1;
-      correio.enviar({ para: e.email, assunto: `Domus Energia: novo trabalho em ${t.concelho}`, resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
+      correio.enviar({ para: e.email, assunto: assunto(urg ? `Domus Energia: avaria fora de horas em ${t.concelho}` : `Domus Energia: novo trabalho em ${t.concelho}`), resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
         texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
           comoFica, ...soParceiros, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     }
@@ -1094,8 +1108,18 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
    * trabalhos voltaram (48 h).
    */
   function expirar() {
-    const idos = db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'aceite' AND aceite_em <= ?").all(relogio() - PRAZO_VISITA_MS);
+    // 48 h, ou 2 h numa avaria urgente (decisão do dono, 2026-10-14).
+    const idos = db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'aceite' AND aceite_em <= ?").all(relogio() - PRAZO_URGENTE_MS)
+      .filter((t) => t.aceite_em <= relogio() - prazoDe(t));
     for (const t of idos) devolver(t, 'expirou', 'sistema');
+    // Avaria urgente há 2 horas na bolsa sem ninguém: os CEO são avisados (uma vez por trabalho).
+    for (const t of db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'na_bolsa' AND tipo = 'avaria' AND criado <= ?").all(iso(relogio() - PRAZO_URGENTE_MS))) {
+      if (!urgente(t) || db.prepare("SELECT 1 FROM auditoria WHERE acao = 'avaria_urgente_sem_eletricista' AND alvo = ? AND json_extract(detalhes, '$.trabalho') = ? LIMIT 1").get(`orcamento:${t.orcamento_id}`, t.id)) continue;
+      auditar(null, 'avaria_urgente_sem_eletricista', `orcamento:${t.orcamento_id}`, { trabalho: t.id, horas: PRAZO_URGENTE_MS / 3600_000 });
+      avisarEmpresa('Domus Energia: URGENTE — avaria fora de horas sem eletricista', [
+        `A avaria urgente do pedido n.º ${t.orcamento_id} (${t.concelho}) está há ${PRAZO_URGENTE_MS / 3600_000} horas na bolsa e nenhum eletricista a aceitou.`,
+        'Atribua-a a um eletricista que faça fora de horas, ou fale com o cliente.'], pedidoPainel(t.orcamento_id));
+    }
     // Prioridade dos parceiros (decisão do dono, 2026-10-13): passadas as 24 horas — ou se entretanto deixou de haver um
     // parceiro que veja o trabalho (suspenso, ou largou-o) — abre a todos os eletricistas do concelho, que são avisados.
     for (const t of db.prepare("SELECT * FROM trabalhos_eletricista WHERE estado = 'na_bolsa' AND prioridade_ate IS NOT NULL").all()) {
@@ -1147,7 +1171,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   h.bolsaDetalhe = ({ res, e, params }) => {
     expirar();
     const { t, o } = daBolsa(e, params.id);
-    responder(res, 200, { trabalho: paraBolsa(t, o, e, true), prazo_visita_horas: PRAZO_VISITA_MS / 3600_000, propostas_bolsa: config.propostasBolsa });
+    responder(res, 200, { trabalho: paraBolsa(t, o, e, true), prazo_visita_horas: prazoDe(t, o) / 3600_000, propostas_bolsa: config.propostasBolsa });
   };
 
   // Aceitar: atómico. O UPDATE só muda a linha se ainda está na bolsa; o segundo a chegar não muda nada e recebe 409.
@@ -1166,7 +1190,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     evento(t, 'aceite', e.id, `eletricista:${e.id}`);
     tecnicoAutomatico(t.id, e);   // numa obra: quem a aceita e tem n.º da DGEG é o técnico responsável
     auditar(quem(e), 'trabalho_aceite', `orcamento:${t.orcamento_id}`, { trabalho: t.id, eletricista: e.id, percentagem: percentagemDe(e) }, ip);
-    responder(res, 200, { trabalho: paraEletricista(trabalho(t.id), pedidoDe(t.orcamento_id), true) });
+    responder(res, 200, { trabalho: paraEletricista(trabalho(t.id), pedidoDe(t.orcamento_id), true), prazo_visita_horas: prazoDe(t) / 3600_000 });
   };
 
   h.trabalhos = ({ res, e }) => {
@@ -2784,6 +2808,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       // (as de reserva esperam que o CEO volte a pôr o pedido na bolsa) — e se já se pode escolher.
       ...(config.propostasBolsa ? { propostas_bolsa: true, propostas: propostasDoPedido(o, ativo), pode_escolher: naBolsa && porProposta(ativo) } : {}),
       pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
+      // Avaria urgente (decisão do dono, 2026-10-14): o prazo para marcar a visita depois de aceite (2 h; 48 h no resto).
+      urgente: alvo === 'avaria' && exigeForaHoras(o), prazo_horas: (alvo === 'avaria' && exigeForaHoras(o) ? PRAZO_URGENTE_MS : PRAZO_VISITA_MS) / 3600_000,
       motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.'
         : 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.',
       trabalho: t ? {
@@ -2813,7 +2839,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         // A obra que nasceu da proposta escolhida na bolsa (aoClienteAceitar; teste de 2026-10-14: a ficha dizia "Atribuição direta").
         da_bolsa: t.tipo === 'obra' && Boolean(db.prepare("SELECT 1 FROM trabalhos_eletricista_eventos WHERE trabalho_id = ? AND evento = 'atribuido' AND por = 'sistema' LIMIT 1").get(t.id)),
         percentagem: t.percentagem ?? null, aceite: t.aceite_em ? iso(t.aceite_em) : null,
-        prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + PRAZO_VISITA_MS) : null, visita: t.visita ?? null,
+        prazo: t.estado === 'aceite' && t.aceite_em ? iso(t.aceite_em + prazoDe(t, o)) : null, visita: t.visita ?? null,
+        urgente: urgente(t, o),
         recebe: e ? recebeDoTrabalho(t, o, Number.isFinite(t.percentagem) ? t.percentagem : percentagemDe(e)) : null,
         // Ficha de obra do eletricista (ronda 2): estado, material recebido, fotos, ensaios e o que falta para concluir.
         concluida: t.concluida ?? null,
@@ -2876,6 +2903,27 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     correio.enviar({ para: e.email, assunto: 'Domus Energia: tem um trabalho novo', resumo: `trabalho ${t.id} atribuído ao eletricista ${e.id}`,
       texto: [`Olá ${e.nome},`, '', `Atribuímos-lhe um trabalho em ${t.concelho} (${NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
         'Tem 48 h para marcar a visita com o cliente, na área do eletricista, em "Trabalhos".', ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+    return t;
+  }
+
+  /**
+   * A avaria urgente foi paga (pagamentos-pedido.js confirmar → `aoAvariaPaga`; decisão do dono, 2026-10-14): sem a
+   * validação do CEO, vai logo para a bolsa — só a veem e só são avisados (com "URGENTE") os eletricistas do concelho que
+   * fazem fora de horas — e os CEO recebem um email. Devolve o trabalho, ou null se não é uma avaria urgente.
+   */
+  function aoAvariaPaga(id) {
+    const o = pedidoDe(id);
+    if (!o || simDe(o)?.funil !== 'avaria' || !exigeForaHoras(o) || ativoDoPedido(o.id)) return null;
+    const agora = agoraIso();
+    db.prepare("UPDATE orcamentos SET validacao = 'validado', validacao_nota = ?, validacao_em = ?, atualizado = ? WHERE id = ? AND validacao IS NULL")
+      .run('Avaria urgente (fora de horas, paga): posta na bolsa logo, sem validação.', agora, agora, o.id);
+    let t = null;
+    try { t = porNaBolsa(pedidoDe(o.id), { id: null, email: 'sistema' }, null); } catch (e) { registo.erro(`avaria urgente ${o.id}: não foi para a bolsa: ${e?.message || e}`); }
+    const quantos = t ? aprovadosEm(t.concelho).filter((x) => fazForaHoras(x)).length : 0;
+    avisarEmpresa('Domus Energia: URGENTE — avaria fora de horas', [
+      `Chegou uma avaria urgente (fora de horas, paga) no pedido n.º ${o.id}${t ? ` (${t.concelho})` : ''}.`,
+      t ? `Foi logo para a bolsa, sem validação: ${quantos} ${quantos === 1 ? 'eletricista que faz fora de horas foi avisado' : 'eletricistas que fazem fora de horas foram avisados'}. Quem aceitar tem ${PRAZO_URGENTE_MS / 3600_000} horas para marcar a visita.`
+        : 'Não foi possível pô-la na bolsa: atribua-a a um eletricista na ficha do pedido.'], pedidoPainel(o.id));
     return t;
   }
 
@@ -3166,7 +3214,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
 
   return {
-    tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, retirar, aoClienteRecusar, expirar, limpar,
+    tratar, sessao, listar, obter, atualizar, seguro, paraPainel, atribuicao, atribuir, porNaBolsa, aoAvariaPaga, retirar, aoClienteRecusar, expirar, limpar,
     apagar, fotoParaPainel, apagarFotosDoPedido,
     prazos: expirar, paraCliente, confirmarCliente, clienteConfirmou, obraPorConfirmar, visitaSemDefeito, decidir, pagamentosPainel, resumoPagamentos, marcarPago, faturaParaPainel,
     iniciar, parar, ROTAS_ELETRICISTA, estimativa, propostaDoPedido, escolher, aoClienteAceitar,

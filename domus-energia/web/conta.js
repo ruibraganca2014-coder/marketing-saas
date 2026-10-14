@@ -4,7 +4,7 @@
 // proposta", a simulação por acabar (retomar no simulador) e a ligação à área da casa (depois da instalação).
 // Pagamentos (docs/PAGAMENTOS-PEDIDO.md), fase 3: o relatório básico (grátis, logo ao enviar); comprar o relatório
 // pormenorizado (revisto antes de o vermos) e a visita técnica (a data aparece quando a marcarmos); estado e recibo de
-// cada pagamento; aceitar a proposta com o plano mensal e pagar o sinal (menos o que já pagou), e o restante no fim.
+// cada pagamento; aceitar a proposta e pagar o sinal (menos o que já pagou; o plano mensal escolhe-se ao ligar a casa), e o restante no fim.
 // Fase 4, ronda 3: "O trabalho ficou concluído?" (Sim com 1 a 5 estrelas / Não com o que falta) e a visita sem defeito.
 // Emails automáticos (docs/EMAILS-AUTOMATICOS.md): "Como correu?" (1 a 5 estrelas depois da obra) e o convite do Google.
 import { criarBlocoConta, pedirConta, urlDoPainel, ErroConta, faixaDemonstracao, marcarSessao } from "./conta-comum.js";
@@ -602,7 +602,7 @@ function cartaoPedido(p) {
     sec("pagamentos", "Pagamentos", resumoPagamentos(p), (p.devolucoes ?? []).map(blocoDevolucao), p.pagamentos?.length ? blocoPagamentos(p) : null),
     sec("fotos", "Fotos", [nf ? forte(String(nf)) : "ainda sem fotos", faltaFotoQuadro(p) ? " · falta a do quadro elétrico" : ""], nf || p.pode_fotos ? blocoFotos(p) : null),
     sec("mensagens", "Mensagens", p.mensagens?.length ? [forte(String(p.mensagens.length))] : null, p.mensagens?.length ? blocoMensagens(p) : null),
-    sec("relatorio", avaria ? "O seu pedido" : "Relatório", resumoRelatorio(p), p.relatorio_basico ? blocoBasico(p) : null, p.relatorio ? blocoRelatorio(p) : null, p.resumo ? blocoResumo(p.resumo, p.id) : null),
+    sec("relatorio", avaria ? "O seu pedido" : "Relatório", resumoRelatorio(p), p.relatorio_basico ? blocoBasico(p) : null, p.relatorio ? blocoRelatorio(p) : null, p.resumo ? blocoResumo(p.resumo, p.id, avariaPaga(p)) : null),
   ].filter(Boolean));
   ultimaFase.set(p.id, fase?.chave ?? null);
   return c;
@@ -1230,7 +1230,7 @@ function blocoBasico(p) {
     ver.disabled = true;
     try {
       const r = await pedirConta(`pedidos/${p.id}/relatorio-basico`);
-      zona.replaceChildren(...desenharBasico(r.relatorio));
+      zona.replaceChildren(...desenharBasico(r.relatorio, avariaPaga(p)));
       ver.hidden = true;
     } catch (e) {
       zona.replaceChildren(el("p", "msg erro", e.message));
@@ -1241,13 +1241,19 @@ function blocoBasico(p) {
   return b;
 }
 
-function desenharBasico(r) {
+/** O pagamento da avaria já pago (diagnóstico e deslocação; fora de horas, com o acréscimo), ou undefined. */
+const avariaPaga = (p) => (p.pagamentos ?? []).find((x) => x.fase === "avaria" && x.estado === "pago");
+/** "63,75 € (diagnóstico fora de horas e deslocação)": o que pagou (teste de 2026-10-14: dizia o diagnóstico normal "+ deslocação"). */
+const textoAvariaPaga = (x) => `${euro(x.valor)} com IVA (diagnóstico${x.fora_horas && !x.fora_horas_devolvida ? " fora de horas" : ""} e deslocação)`;
+
+function desenharBasico(r, paga = null) {
   const out = [];
   // Como no Orçamento do simulador: o intervalo sem a deslocação e "+ deslocação X €" (fora da área: sem deslocação;
   // sem concelho reconhecido: "+ deslocação a confirmar"; 0 €: "sem custo de deslocação").
   const desl = r.deslocacao == null ? "" : r.deslocacao_a_confirmar ? " + deslocação a confirmar"
     : r.deslocacao > 0 ? ` + deslocação ${euro(r.deslocacao)}${idaEVolta(r)}` : " (sem custo de deslocação)";
-  if (r.intervalo) out.push(el("p", "valor num", `${r.intervalo.min === r.intervalo.max ? formatarEuroRedondo(r.intervalo.min) : `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`}${desl}`),
+  if (paga) out.push(el("p", "valor num", `Pagou ${textoAvariaPaga(paga)}`), el("p", "ajuda", "Descontado na reparação, que se orça na visita."));
+  else if (r.intervalo) out.push(el("p", "valor num", `${r.intervalo.min === r.intervalo.max ? formatarEuroRedondo(r.intervalo.min) : `${formatarEuroRedondo(r.intervalo.min)} – ${formatarEuroRedondo(r.intervalo.max)}`}${desl}`),
     el("p", "ajuda", `${r.deslocacao != null ? "Com IVA." : "Com IVA, sem deslocação."}${r.dias ? ` ${textoDias(r.dias)}.` : ""}${r.obra_minima ? ` Obra mínima: ${formatarEuroRedondo(r.obra_minima)}.` : ""}`));
   const a = r.acoes ?? {};
   const resumo = [["reparar", "a reparar"], ["substituir", "a substituir"], ["novo", "novos"], ["manter", "ficam como estão"]]
@@ -1280,7 +1286,9 @@ function blocoVisita(p) {
   b.setAttribute("aria-label", "Visita técnica");
   b.append(el("h4", null, "Visita técnica"));
   if (v.paga) {
-    b.append(el("p", null, cp.avaria ? "Visita pedida com o diagnóstico. Vamos marcar a data e avisamos por email." : "Visita paga. Vamos marcar a data e avisamos por email."));
+    // Avaria urgente, fora de horas (decisão do dono, 2026-10-14): é o eletricista que combina a visita, logo que aceite o pedido.
+    b.append(el("p", null, cp.avaria && p.fora_horas?.em_vigor ? "Visita pedida com o diagnóstico. Um eletricista contacta-o para a marcar assim que aceitar o pedido; a data fica aqui e vai por email."
+      : cp.avaria ? "Visita pedida com o diagnóstico. Vamos marcar a data e avisamos por email." : "Visita paga. Vamos marcar a data e avisamos por email."));
     return b;
   }
   if (!cp.pode) return null;
@@ -1425,7 +1433,7 @@ function confirmarAceitar(p, b, botao, msg, comecarJa = null) {
   });
 }
 
-function blocoResumo(r, id) {
+function blocoResumo(r, id, paga = null) {
   const b = el("details", "conta-resumo");
   b.open = resumosAbertos.has(id);
   b.addEventListener("toggle", () => { if (b.open) resumosAbertos.add(id); else resumosAbertos.delete(id); });
@@ -1437,7 +1445,8 @@ function blocoResumo(r, id) {
   linha("Localidade", r.localidade);
   linha("Divisões", r.divisoes ? String(r.divisoes) : null);
   // Avaria rápida: o diagnóstico, fixo (como no simulador); pedidos antigos com intervalo, o intervalo.
-  if (r.avaria && r.estimativa && r.estimativa.min === r.estimativa.max) linha("Diagnóstico", `${euro(r.estimativa.min)} + deslocação (com IVA)`);
+  if (r.avaria && paga) linha("Pagou", textoAvariaPaga(paga));
+  else if (r.avaria && r.estimativa && r.estimativa.min === r.estimativa.max) linha("Diagnóstico", `${euro(r.estimativa.min)} + deslocação (com IVA)`);
   else linha("Estimativa", r.estimativa ? `${euro(r.estimativa.min)} – ${euro(r.estimativa.max)} (com IVA; o valor final é o da proposta)` : null);
   b.append(dl);
   if (r.inclui?.length) {

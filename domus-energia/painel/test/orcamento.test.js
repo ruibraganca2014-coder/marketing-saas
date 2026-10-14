@@ -188,7 +188,7 @@ test('simulação (lote 8): disponibilidade para a visita e urgência — valida
   assert.equal(depois, antes + 4);
   for (const [sim, re] of [
     [{ urgencia: 'ja' }, /Urgência/], [{ urgencia: 1 }, /Urgência/], [{ visita: 'segunda' }, /objeto/], [{ visita: [] }, /objeto/],
-    [{ visita: { dias: ['dom'] } }, /dias/], [{ visita: { dias: 'seg' } }, /dias/], [{ visita: { dias: ['seg', 'seg'] } }, /dias/],
+    [{ visita: { dias: ['feriado'] } }, /dias/], [{ visita: { dias: 'seg' } }, /dias/], [{ visita: { dias: ['seg', 'seg'] } }, /dias/],
     [{ visita: { periodo: 'noite' } }, /período/],
   ]) {
     const r2 = await enviar({ ...BASE, simulacao: { versao: 1, ...sim } });

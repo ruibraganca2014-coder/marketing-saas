@@ -13,7 +13,7 @@ import { h, euros, data, selo, dados, avisar, botaoConfirmar } from "../ui.js";
 
 const EVENTOS = {
   posto_na_bolsa: "Posto na bolsa", atribuido: "Atribuído", aceite: "Aceite na bolsa", visita_marcada: "Visita marcada",
-  largou: "Largou o trabalho", expirou: "48 h sem visita marcada: voltou", retirado: "Retirado pelo CEO",
+  largou: "Largou o trabalho", expirou: "Prazo sem visita marcada (48 h; 2 h numa avaria urgente): voltou", retirado: "Retirado pelo CEO",
   concluida: "Dado por concluído pelo eletricista", confirmada: "Confirmado (cliente, 7 dias ou sem defeito)", contestada: "O cliente disse que não ficou concluído",
   devolvida: "Devolvido ao eletricista", aprovada: "Aprovado", paga: "Pago ao eletricista",
 };
@@ -256,22 +256,22 @@ export function blocoEletricista(orcamentoId, { aoEscolher = null } = {}) {
             ? h("button", { class: "btn pequeno", type: "button", id: "atribuir", text: "Pedir proposta só a este",
               onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, "Proposta pedida: só este eletricista vê o pedido, sem os dados do cliente.") })
             : h("button", { class: "btn pequeno", type: "button", id: "atribuir", text: "Atribuir",
-              onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, "Atribuído: o eletricista tem 48 h para marcar a visita.") }))
+              onclick: (e) => acao(e.currentTarget, { acao: "atribuir", eletricista_id: Number(sel.value) }, `Atribuído: o eletricista tem ${a.prazo_horas ?? 48} h para marcar a visita.`) }))
           : h("p", { class: "msg info", text: `Ainda não há eletricistas aprovados em ${a.concelho}.` }),
         h("div", { class: "form-botoes" }, h("button", { class: "btn sec pequeno", type: "button", id: "por-na-bolsa", text: `Pôr na bolsa · ${veem(a.candidatos.length)}`,
           onclick: (e) => acao(e.currentTarget, { acao: "bolsa" }, "Trabalho na bolsa.") })),
         h("p", { class: "ajuda", id: "bolsa-quem", text: a.propostas_bolsa && a.tipo === "visita"
           ? `Na bolsa, veem o trabalho: ${nomes}. Cada um envia a sua proposta (horas, material e quando pode ir) e é você que escolhe, quando quiser.`
-          : `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem 48 h para marcar a visita.` }));
+          : `Na bolsa, veem o trabalho: ${nomes}. O primeiro a aceitar fica com ele e tem ${a.prazo_horas ?? 48} h para marcar a visita.` }));
     } else if (t.estado === "na_bolsa") {
       partes.push(
-        h("p", { class: "linha-selos" }, selo(t.so_para ? "Proposta pedida a um eletricista" : "Na bolsa", "aviso"), selo(a.concelho, "info"), t.especialidade_nome ? selo(t.especialidade_nome, "info") : null),
+        h("p", { class: "linha-selos" }, selo(t.so_para ? "Proposta pedida a um eletricista" : "Na bolsa", "aviso"), a.urgente ? selo("Urgente: fora de horas", "grav-critica") : null, selo(a.concelho, "info"), t.especialidade_nome ? selo(t.especialidade_nome, "info") : null),
         ...prioridade(a),
         h("p", { id: "bolsa-estado", text: t.so_para
           ? `Proposta pedida só a ${t.so_para.nome ?? "um eletricista"}: ${(a.propostas ?? []).some((x) => x.eletricista?.id === t.so_para.id && x.estado !== "retirada") ? "já a enviou, pode escolhê-la abaixo" : "ainda não a enviou"}. Os outros eletricistas não veem este pedido. Para o abrir a todos, retire-o e ponha-o na bolsa.`
           : t.por_proposta
           ? `À espera das propostas dos eletricistas: ${quantas((a.propostas ?? []).length)} até agora. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.`
-          : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.` }),
+          : `À espera de um eletricista. Visível para ${a.candidatos.length} em ${a.concelho}: ${nomes}.${a.urgente ? ` Avaria urgente: só a veem os que fazem fora de horas e quem aceitar tem ${a.prazo_horas} h para marcar a visita.` : ""}` }),
         ...tecnico(a, t),
         h("div", { class: "form-botoes" }, botaoConfirmar(t.so_para ? "Retirar o pedido de proposta" : "Retirar da bolsa", "Confirmar: retirar?", (b) => acao(b, { acao: "retirar" }, t.so_para ? "Pedido de proposta retirado." : "Retirado da bolsa."))));
     } else {

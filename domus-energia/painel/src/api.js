@@ -343,6 +343,8 @@ export function criarApi(ctx) {
     // O cliente já confirmou a obra feita por um eletricista externo (o "Sim", ou os 7 dias)? A data, ou null: com as
     // propostas na bolsa o restante paga-se a partir daí, antes de o CEO aprovar (decisão do dono, 2026-10-11).
     clienteConfirmou: (o) => (config.eletricistas ? eletricistas.clienteConfirmou(o) : null),
+    // Avaria urgente paga (decisão do dono, 2026-10-14): vai logo para a bolsa, sem a validação do CEO.
+    aoAvariaPaga: (id) => (config.eletricistas ? eletricistas.aoAvariaPaga(id) : null),
   });
   if (pedidos) pedidos.aoResultado = (p, r) => contas.aoResultadoPedido(p, r);
   // Procedimentos (SOP) e checklists por obra (procedimentos.js; docs/PROCEDIMENTOS.md).
@@ -522,6 +524,7 @@ export function criarApi(ctx) {
       data_visita: o.data_visita ?? null, agora_lx: `${diaLisboa(new Date(agora))}T${horaLisboa(agora)}`,
       mensagem_cliente: ultima?.de === 'cliente' ? ultima.criado : null,
       eletricistas: comEletricistas, propostas_bolsa: Boolean(config.propostasBolsa), n_propostas: propostas.n, propostas_desde: propostas.desde,
+      urgente: Boolean(r.fora_horas?.em_vigor),
       trabalhos, trabalho_obra: r.obra_por_confirmar?.estado ?? null,
       extra_proposto: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'proposto'"),
       extra_enviado: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'enviado'"),
@@ -944,7 +947,9 @@ export function criarApi(ctx) {
     // A mais antiga primeiro; sem data (um alerta sem "desde") vai para o topo. As horas de Lisboa sem fuso comparam-se
     // como UTC: uma hora de diferença não muda a ordem do que interessa (o que está à espera há dias).
     const quando = (x) => (x.desde ? Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(x.desde) ? x.desde : `${x.desde}Z`) || 0 : 0);
-    itens.sort((a, b) => quando(a) - quando(b));
+    // A avaria urgente (fora de horas, à espera de um eletricista) vai sempre para o topo (decisão do dono, 2026-10-14).
+    const urg = (x) => Number(x.tipo === 'avaria_urgente');
+    itens.sort((a, b) => urg(b) - urg(a) || quando(a) - quando(b));
     responder(res, 200, { hoje, itens });
   };
 

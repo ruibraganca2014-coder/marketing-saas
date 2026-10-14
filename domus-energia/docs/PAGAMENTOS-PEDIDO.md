@@ -12,7 +12,7 @@ Pagamentos do fluxo simulador → proposta → obra. As subscrições mensais co
 - **Desconto na obra:** tudo o que foi pago antes (relatório, visita, avaria, e os 19 € antigos) sai do sinal — menos o que foi devolvido e as visitas a que o cliente faltou. **Sinal = o maior entre 30 % × proposta com IVA e o custo do material com IVA, − tudo o que já foi pago (nunca abaixo de 0 nem acima do que falta pagar)** — ver "Decisões de 2026-10-02".
 - **Intervalo da estimativa −10 % / +20 %** (`intervalo_menos_pct`, `intervalo_mais_pct`, migração 14, editáveis no painel), no simulador, no PDF, na ficha do painel, na conta e no relatório básico. O `margem_intervalo_pct` (15) fica na base mas já não se usa; um servidor antigo que só o tenha continua simétrico no simulador (`preco.js`).
 - **Os pagamentos online incluem IVA.** A proposta do painel é **sem IVA**; o sinal e o restante são calculados sobre o total **com IVA** (taxa `iva_pct`, no painel em Catálogo → Configuração → "IVA dos pagamentos"; o valor inicial vem de `IVA_TAXA`, por omissão 23). O relatório, a visita e a avaria já são com IVA. Cada pagamento guarda a taxa usada (`iva_pct`, migração 11): o recibo, o email, a conta, o painel e o CSV mostram a base, o IVA e o total. Com o sinal pago, o restante usa a taxa do sinal.
-- **Aceitar a proposta = pagar o sinal**, com o plano mensal (Base 4,99 €, Conforto 9,99 € ou Premium 19,99 €). Antes do sinal pago o painel mostra "Aceite — a aguardar sinal"; só depois o pedido passa a "Aceite". Aceite a proposta, já não se compra o relatório nem a visita.
+- **Aceitar a proposta = pagar o sinal.** O cliente **não escolhe o plano mensal ao aceitar** (decisão do dono, 2026-10-14): o plano (Base 4,99 €, Conforto 9,99 € ou Premium 19,99 €) escolhe-se quando a casa é ligada ("Ligar casa", no painel, depois da obra e do restante pago). Antes do sinal pago o painel mostra "Aceite — a aguardar sinal"; só depois o pedido passa a "Aceite". Aceite a proposta, já não se compra o relatório nem a visita.
 - **O restante paga-se no fim da obra.** O painel marca "Obra concluída" e a conta mostra "Pagar o restante".
 - **A subscrição começa quando a casa fica ligada** (conversão no painel): no modo simulado, a conversão cria o pedido-admin `plano` (`ativo`); no modo stripe, o cliente ativa-a na área de cliente, pelo serviço `pagamentos/`. **A casa só se liga com o restante pago** (decisão de 2026-10-02, abaixo).
 - **Pedidos antigos (19 €, fase `relatorio`)** continuam a ler-se: contam como relatório completo comprado e (com `com_visita = 1`) visita paga, e descontam no sinal como antes.
@@ -43,6 +43,7 @@ Só as avarias têm dois preços. Obras e visitas técnicas ficam sempre ao pre�
 - **Conta e painel:** cada pagamento traz `fora_horas`, `fora_horas_valor` e `fora_horas_devolvida`; o pedido traz `fora_horas` (`{em_vigor, pct, pago, devolvido, devolvido_em, por_transferencia}` ou `null`) e, no painel, `horario`. O painel mostra o selo "Fora de horas" enquanto está em vigor.
 - **Pagamentos desligados ou lista de espera:** a avaria entra grátis como sempre; a escolha fica guardada, sem preço nem devolução.
 - Eletricistas (quem as recebe e quanto ganham): docs/ELETRICISTAS.md "Avarias fora de horas".
+- **Urgente (decisão do dono, 2026-10-14).** Paga a avaria fora de horas, **não espera pela validação do CEO**: fica validada e vai logo para a bolsa (`eletricistas.js aoAvariaPaga`, chamado pelo `confirmar` do pagamento), sem a prioridade de 24 horas dos parceiros. Só a veem e só são avisados os eletricistas do concelho que fazem fora de horas, com "URGENTE" no assunto. Os CEO recebem logo um email (com a ligação à ficha) e o Hoje mostra, no topo, "Avaria urgente de … na bolsa: à espera de um eletricista" até alguém a aceitar (a ficha tem o selo "Urgente: fora de horas" no bloco do eletricista). **Quem a aceita tem 2 horas** (`PRAZO_URGENTE_MS`) para marcar a visita, em vez de 48 h; passadas as 2 horas volta à bolsa como qualquer trabalho caducado (e o CEO é avisado). Se ficar 2 horas na bolsa sem ninguém, os CEO recebem outro email (uma vez). Ao cliente, o simulador, a conta e o email do pagamento dizem que um eletricista o contacta assim que aceitar o pedido (sem o prazo do "dia útil"), o fim do simulador e a conta mostram o valor pago (ex.: "Pagou 79,75 € (diagnóstico fora de horas e deslocação)", em vez do diagnóstico de horário normal "+ deslocação"), e em "Que dias lhe dão jeito?" há também o domingo (só fora de horas). Ainda não há um canal de avisos da empresa por telemóvel: o aviso aos CEO é por email e no Hoje.
 
 Exemplo em Sintra (diagnóstico 25 € + 0,5 h × 38 € = 44 €; deslocação 46,40 €). A deslocação de um dia é `deslocacao_iva` + (km − `deslocacao_km_gratis`) × 2 (ida e volta) × `deslocacao_preco_km_iva`, com os km por estrada desde `deslocacao_base` (Sintra: 29 km de Lisboa). Com a configuração em uso (Catálogo → Configuração: 0 € fixos, 0 km grátis, 0,80 €/km) dá 29 × 2 × 0,80 = **46,40 €**; com os valores de origem da migração 4 (20 km grátis, 0,40 €/km) daria (29 − 20) × 2 × 0,40 = 7,20 €. Os valores mudam com a configuração; o cálculo é sempre este (`deslocacaoServidor`, `web/simulador/deslocacao.js`).
 
@@ -185,7 +186,7 @@ O Stripe é chamado pela **API REST** (`fetch`, form-encoded, com `Idempotency-K
 | `modo` | `simulado` · `stripe` |
 | `retorno` | para onde se volta: `simulador` ou `conta` |
 | `com_visita` | 1 quando o pagamento inclui a visita (visita, relatório + visita, avaria; nos 19 € antigos, 0 fora da área) |
-| `plano` | sinal: o plano mensal escolhido |
+| `plano` | sinal: o plano mensal, se vier no pedido (pedidos antigos); hoje fica vazio — o plano escolhe-se ao ligar a casa |
 | `pedido` | avaria por pagar: o pedido (JSON) que passa a orçamento quando é pago; apagado depois |
 
 `pagamentos_eventos` guarda os ids dos eventos já tratados. Nos `orcamentos` há três colunas novas: `relatorio_libertado`, `plano_escolhido` e `obra_concluida`; a migração 23 junta `proposta_mao_obra_cent`, `proposta_material_cent`, `proposta_deslocacao_cent`, `inicio_imediato` e `visita_faltou`.
@@ -206,7 +207,7 @@ Avaria rápida (paga ao enviar):
 Proposta:
 
 1. O painel põe o estado "Proposta enviada" com o valor.
-2. Na conta, "Aceito a proposta e pago o sinal (X €)" com o plano (`POST /api/conta/pedidos/:id/aceitar {valor, plano}`):
+2. Na conta, "Aceito a proposta e pago o sinal (X €)", sem escolher plano (`POST /api/conta/pedidos/:id/aceitar {valor}`; o `plano` é opcional e a conta já não o envia — escolhe-se no "Ligar casa"):
    - fica `proposta_aceite` com o estado ainda `proposta_enviada` ("Aceite — a aguardar sinal");
    - a resposta traz o pagamento do sinal;
    - se o sinal der 0, fica logo `aceite`.
@@ -256,7 +257,7 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | GET | `/api/conta/pagamentos/:ref[?fotos=1][&cancelado=1]` | conta dona | `{pagamento}`: `ref`, `fase`, `valor`, `descricao`, `estado`, `modo`, `url` se por pagar, `recibo` se pago; mais `fotos_token`/`fotos_max` para a avaria paga há menos de 2 h. Com `cancelado=1` (regresso do Stripe) cancela a sessão por pagar |
 | POST | `/api/conta/pagamentos/:ref/simular` | conta dona, **só no modo simulado** | `{resultado: sucesso\|falha\|cancelar}` → `{pagamento, voltar}` |
 | POST | `/api/conta/pagamentos/stripe-webhook` | Stripe (assinado), **só no modo stripe** | `200 {resultado}` · `400` com assinatura inválida · `500` temporário (o Stripe repete) |
-| POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano, inicio_imediato?}` → `{pedido, pagamento}` |
+| POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano?, inicio_imediato?}` → `{pedido, pagamento}` (o plano escolhe-se no "Ligar casa") |
 | POST | `/api/conta/pedidos/:id/pagar` | conta dona | `{fase: sinal\|restante\|relatorio_pormenorizado\|visita\|pormenorizado_visita\|visita_sem_defeito, inicio_imediato?}` → `{pagamento}` (`visita_sem_defeito` só com o módulo dos eletricistas) (com `metodos` enquanto está por pagar); `409` se já estiver pago, fora da área (visita) ou ainda não se puder pagar |
 | POST | `/api/conta/pedidos/:id/cancelar-visita` | conta dona | cancela a visita técnica (ou o diagnóstico da avaria) com mais de 24 h de antecedência → `{ok, devolvido, manual}` (`manual`: pagou por Multibanco, a conta pede o IBAN); `409` com menos de 24 h, sem visita paga ou já cancelada |
 | POST | `/api/conta/devolucoes/:id/iban` | conta dona | `{iban, titular}` de uma devolução por transferência → `{devolucao}` (IBAN mascarado); `400` IBAN inválido; `409` já feita |

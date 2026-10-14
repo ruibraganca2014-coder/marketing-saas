@@ -221,8 +221,10 @@ test('lote 8: 7 passos (ordem 5) e 8 (ordem 6) → 9 com "Planta" e "Trocar e re
   for (const [antes, depois] of [[3, 5], [4, 5], [5, 6], [6, 7], [7, 7]]) {
     assert.equal(normalizarEstado({ ...estadoNovo(), passos: 8, ordem: 6, passo: antes, visitado: antes }).passo, depois, `8 passos: ${antes} → ${depois}`);
   }
-  const n = normalizarEstado({ ...estadoNovo(), visita: { dias: ['sex', 'seg', 'dom', 'seg'], periodo: 'noite' }, urgencia: 'ja', quadroAvaria: 'x'.repeat(300) });
+  const n = normalizarEstado({ ...estadoNovo(), visita: { dias: ['sex', 'seg', 'feriado', 'seg'], periodo: 'noite' }, urgencia: 'ja', quadroAvaria: 'x'.repeat(300) });
   assert.deepEqual(n.visita, { dias: ['seg', 'sex'], periodo: 'qualquer' });
+  // Domingo (decisão do dono, 2026-10-14): escolhe-se na avaria fora de horas; fica no fim da semana.
+  assert.deepEqual(normalizarEstado({ ...estadoNovo(), visita: { dias: ['dom', 'sab'] } }).visita.dias, ['sab', 'dom']);
   assert.equal(n.urgencia, 'normal');
   assert.equal(n.quadroAvaria.length, 200);
 

@@ -115,6 +115,9 @@ function ajudas(obterP) {
   const naBolsa = async (e) => (await area(e, 'GET', 'bolsa')).json.trabalhos;
   /** Põe o pedido na bolsa e devolve o id do trabalho. */
   async function paraBolsa(id) {
+    // A avaria urgente (fora de horas, paga) já foi sozinha para a bolsa (decisão do dono, 2026-10-14).
+    const ja = (await atribuicao(id)).json.trabalho;
+    if (ja?.ativo && ja.estado === 'na_bolsa') return ja.id;
     const r = await atribuicao(id, { acao: 'bolsa' });
     assert.equal(r.estado, 200, r.texto);
     return r.json.trabalho.id;
@@ -251,7 +254,17 @@ describe('avarias fora de horas, com os pagamentos ligados (modo simulado)', () 
   });
 
   test('bolsa: só quem ligou "fora de horas" vê a avaria e é avisado; recebe a mesma percentagem sobre a mão de obra mais alta', async () => {
+    const n00 = p.emails.length;
     const { id } = await a.avariaPaga('fora_horas');
+    // Urgente (decisão do dono, 2026-10-14): paga, foi logo para a bolsa, sem validação, e só quem faz fora de horas foi
+    // avisado, com "URGENTE"; os CEO também.
+    const tAuto = (await a.atribuicao(id)).json.trabalho;
+    assert.deepEqual([tAuto.estado, tAuto.ativo, tAuto.urgente], ['na_bolsa', true, true]);
+    const urg = p.emails.slice(n00).filter((m) => /avaria fora de horas em Sintra/.test(m.assunto));
+    assert.deepEqual(urg.map((m) => [m.para, m.assunto]), [[H.email, 'URGENTE — Domus Energia: avaria fora de horas em Sintra']]);
+    assert.match(urg[0].texto, /Quem aceitar tem 2 horas para combinar com o cliente e marcar a visita\./);
+    assert.ok(p.emails.slice(n00).some((m) => m.para === p.u.ceo.email && /URGENTE — avaria fora de horas/.test(m.assunto) && m.texto.includes(`#/orcamentos/${id}`)));
+    assert.equal((await a.atribuicao(id, { acao: 'retirar' })).estado, 200);
     // O painel mostra o selo e os valores.
     const ficha = (await a.painel('GET', `orcamentos/${id}`)).json;
     assert.deepEqual([ficha.horario, ficha.fora_horas], ['fora_horas', { em_vigor: true, pct: 50, pago: DIFERENCA, devolvido: null, devolvido_em: null, por_transferencia: false }]);
@@ -263,7 +276,7 @@ describe('avarias fora de horas, com os pagamentos ligados (modo simulado)', () 
     assert.match(direto.json.erro, /não faz serviço de noite nem ao fim de semana/);
     const n0 = p.emails.length;
     const tid = await a.paraBolsa(id);
-    const avisos = p.emails.slice(n0).filter((m) => /novo trabalho em Sintra/.test(m.assunto));
+    const avisos = p.emails.slice(n0).filter((m) => /avaria fora de horas em Sintra/.test(m.assunto));
     assert.deepEqual(avisos.map((m) => m.para), [H.email], 'só o que faz fora de horas é avisado');
     assert.match(avisos[0].texto, /É uma avaria fora de horas \(noite, fim de semana ou feriado\): recebe mais 50 % na mão de obra\./);
     assert.ok(!/Carla|Neves|912 345 678|Rua do Exemplo/.test(avisos[0].texto), 'nada do cliente');
@@ -290,6 +303,56 @@ describe('avarias fora de horas, com os pagamentos ligados (modo simulado)', () 
     assert.ok((await a.naBolsa(N)).some((t) => t.id === tid));
     await a.area(N, 'POST', 'fora-horas', { ligado: false });
     await a.area(H, 'POST', 'fora-horas', { ligado: true });
+  });
+
+  test('avaria urgente (decisão do dono, 2026-10-14): sem validação e logo na bolsa; o Hoje e a conta dizem-no; 2 horas para marcar; 2 horas sem ninguém avisa os CEO', async () => {
+    const HORA = 3600_000;
+    const n0 = p.emails.length;
+    const { c, id, ref } = await a.avariaPaga('fora_horas');
+    assert.equal(p.app.db.prepare('SELECT validacao FROM orcamentos WHERE id = ?').get(id).validacao, 'validado', 'não espera pela validação do CEO');
+    // O cliente: o email do pagamento e a conta dizem que um eletricista o contacta assim que aceitar (sem o "dia útil").
+    const pago = p.emails.slice(n0).find((m) => m.para === c.email && m.assunto === 'Domus Energia: pagamento recebido');
+    assert.match(pago.texto, /O seu pedido urgente foi recebido\. Um eletricista contacta-o assim que aceitar o pedido/);
+    const naConta = await a.pedidoConta(c, id);
+    assert.match(naConta.estado_texto, /^Pedido urgente recebido\. Um eletricista contacta-o assim que aceitar o pedido/);
+    assert.doesNotMatch(naConta.estado_texto, /dia útil/);
+    // O CEO: a ficha e o Hoje dizem que está na bolsa à espera de um eletricista.
+    const ficha = (await a.painel('GET', `orcamentos/${id}`)).json;
+    assert.equal(ficha.proximo.tipo, 'avaria_urgente');
+    const itensHoje = (await a.painel('GET', 'hoje')).json.itens;
+    assert.equal(itensHoje[0].tipo, 'avaria_urgente', 'a avaria urgente vai para o topo do Hoje');
+    const hoje = itensHoje.filter((x) => x.tipo === 'avaria_urgente');
+    assert.ok(hoje.some((x) => x.texto === `Avaria urgente de ${CLIENTE.nome} na bolsa: à espera de um eletricista`), JSON.stringify(hoje));
+    // Quem aceita tem 2 horas (não 48 h) para marcar a visita; passadas, volta à bolsa como qualquer trabalho caducado.
+    const atrib = (await a.atribuicao(id)).json;
+    assert.deepEqual([atrib.urgente, atrib.prazo_horas], [true, 2]);
+    const tid = atrib.trabalho.id;
+    const aceite = await a.area(H, 'POST', `bolsa/${tid}/aceitar`, {});
+    assert.equal(aceite.estado, 200, aceite.texto);
+    assert.equal(aceite.json.prazo_visita_horas, 2);
+    assert.equal(Math.round((Date.parse(aceite.json.trabalho.prazo) - p.relogio.agora()) / 60_000), 120);
+    p.relogio.avancar(HORA);
+    assert.equal((await a.atribuicao(id)).json.trabalho.estado, 'aceite', 'uma hora depois ainda é dele');
+    p.emails.length = 0;
+    p.relogio.avancar(HORA + 60_000);
+    const depois = (await a.atribuicao(id)).json.trabalho;
+    assert.deepEqual([depois.estado, depois.eletricista], ['na_bolsa', null], 'passadas 2 horas sem visita, voltou à bolsa');
+    assert.ok(p.emails.some((m) => m.para === p.u.ceo.email && /deixou um trabalho/.test(m.assunto) && m.texto.includes('Passaram 2 h sem visita marcada (avaria urgente)')), 'o CEO é avisado');
+    // Na bolsa há mais de 2 horas sem ninguém (criado há 2 h 1 min): os CEO recebem um aviso, uma só vez.
+    const semNinguem = () => p.emails.filter((m) => m.para === p.u.ceo.email && m.assunto === 'Domus Energia: URGENTE — avaria fora de horas sem eletricista' && m.texto.includes(`pedido n.º ${id} (`));
+    await a.atribuicao(id);
+    assert.equal(semNinguem().length, 1);
+    assert.ok(semNinguem()[0].texto.includes(`#/orcamentos/${id}`));
+    p.relogio.avancar(HORA);
+    await a.atribuicao(id);
+    assert.equal(semNinguem().length, 1, 'só uma vez');
+    // Uma avaria em horário normal continua com as 48 h e a validação do CEO.
+    const normal = await a.avariaPaga('normal');
+    assert.equal((await a.atribuicao(normal.id)).json.trabalho, null, 'a normal não vai sozinha para a bolsa');
+    const tn = await a.paraBolsa(normal.id);
+    const an = await a.area(H, 'POST', `bolsa/${tn}/aceitar`, {});
+    assert.equal(Math.round((Date.parse(an.json.trabalho.prazo) - p.relogio.agora()) / 60_000), 48 * 60);
+    assert.equal(a.pagamento(ref).estado, 'pago');
   });
 
   test('marcar fora de horas não devolve nada; marcar em horário normal devolve a diferença UMA SÓ VEZ e avisa o cliente; depois já não se marca fora de horas (409) e o eletricista recebe o valor normal', async () => {

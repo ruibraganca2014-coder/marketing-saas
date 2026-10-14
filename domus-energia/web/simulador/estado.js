@@ -273,7 +273,7 @@ const MIGRAR = {
   ordem8: [0, 1, 2, 3, 4, 5, 6, 7, 8],
 };
 /** Disponibilidade para a visita e urgência (passo Enviar, lote 8; §6 `visita`, `urgencia`). */
-export const DIAS_VISITA = { seg: "Segunda", ter: "Terça", qua: "Quarta", qui: "Quinta", sex: "Sexta", sab: "Sábado" };
+export const DIAS_VISITA = { seg: "Segunda", ter: "Terça", qua: "Quarta", qui: "Quinta", sex: "Sexta", sab: "Sábado", dom: "Domingo" };   // domingo: só na avaria fora de horas (2026-10-14)
 export const PERIODOS_VISITA = { manha: "Manhã", tarde: "Tarde", qualquer: "Qualquer" };
 export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente (avaria sem luz)" };
 export const SERVICO = "Simulador de orçamento";

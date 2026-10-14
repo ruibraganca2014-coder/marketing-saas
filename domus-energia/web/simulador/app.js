@@ -4968,7 +4968,18 @@ function montarVisita() {
   montarHorario();   // avaria: horário normal ou fora de horas (2026-10-13)
   montarCompleto();   // ronda A: "Quero o relatório completo" (o mesmo estado.compras.relatorio)
 }
+/** Domingo só na avaria fora de horas (decisão do dono, 2026-10-14); nos outros pedidos sai (e sai das escolhas). */
+function desenharDomingo() {
+  const dom = document.querySelector("input[name=visita-dia][value=dom]")?.closest("label");
+  if (!dom) return;
+  dom.hidden = !(funilAvaria() && horarioEscolhido() === "fora_horas");
+  if (dom.hidden && estado.visita.dias.includes("dom")) {
+    estado.visita = normalizarVisita({ ...estado.visita, dias: estado.visita.dias.filter((d) => d !== "dom") });
+    dom.querySelector("input").checked = false;
+  }
+}
 function desenharVisita() {
+  desenharDomingo();
   $("visita-urgencia-caixa").hidden = funilAvaria();   // na avaria já se pergunta no passo Avaria
   for (const i of document.querySelectorAll("input[name=visita-dia]")) i.checked = estado.visita.dias.includes(i.value);
   for (const i of document.querySelectorAll("input[name=visita-periodo]")) i.checked = i.value === estado.visita.periodo;
@@ -5381,7 +5392,7 @@ function textosPagamento() {
     $("fim-texto").textContent = listaEspera
       ? `Recebemos o pedido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos: as obras começam ${ESPERA_QUANDO}.${funilAvaria() ? "" : " O relatório grátis já está na sua conta."}`
       : `${funilAvaria()
-        ? "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta."
+        ? (urgenteForaHoras() ? "Recebemos o pedido urgente." : "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta.")
         : "Recebemos o pedido. O relatório grátis já está na sua conta."} ${textoPrazo()}`;
   }
 }
@@ -5390,7 +5401,12 @@ function textosPagamento() {
  * Prazo de contacto (decisão do dono, 2026-10-10): pedido normal no dia útil seguinte; avaria urgente no próprio dia
  * se chegar até às 18h de um dia útil, senão na manhã do dia útil seguinte. Igual em painel/src/conta.js prazoContacto.
  */
-const textoPrazo = () => (estado.urgencia === "urgente"
+// Avaria fora de horas, paga (decisão do dono, 2026-10-14): vai logo para os eletricistas que fazem fora de horas, sem esperar
+// por nós. Com os pagamentos desligados a escolha fica só guardada (o pedido segue o caminho de sempre).
+const urgenteForaHoras = () => funilAvaria() && pagamentosAtivos && horarioEscolhido() === "fora_horas";
+const textoPrazo = () => (urgenteForaHoras()
+  ? "Um eletricista contacta-o assim que aceitar o pedido, também de noite ou ao fim de semana."
+  : estado.urgencia === "urgente"
   ? "Como é urgente, ligamos-lhe ainda hoje se o pedido chegou até às 18h de um dia útil; depois disso, na manhã do dia útil seguinte."
   : comProposta("Contactamos no dia útil seguinte.", funilAvaria() ? "Contactamos no dia útil seguinte." : "Verificamos o pedido no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe."));
 
@@ -5426,6 +5442,7 @@ function montarHorario() {
     const l = escolha("radio", "enviar-horario", k, "…", "…", (sim) => {   // os textos vêm de desenharHorario
       if (!sim) return;
       estado.horario = k;
+      desenharDomingo();      // o domingo só se escolhe fora de horas
       agendarGravacao(false);
       desenharDeslocacao();   // o valor a pagar e o botão seguem a escolha
     });
@@ -5434,6 +5451,7 @@ function montarHorario() {
   }));
 }
 function desenharHorario() {
+  desenharDomingo();   // a localidade pode ter mudado o horário possível
   const caixa = $("enviar-horario");
   caixa.hidden = !horarioAtivo();
   if (caixa.hidden) return;
@@ -5742,7 +5760,9 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   enviado = true;
   if (pagamento) {
     // Avaria paga ao enviar: diagnóstico e deslocação (descontados se a reparação avançar); o CEO marca a visita.
-    $("fim-texto").textContent = `Recebemos o pedido e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. Vamos marcar a visita: a data fica na sua conta e vai por email. ${textoPrazo()}`;
+    $("fim-texto").textContent = urgenteForaHoras()
+      ? `Recebemos o pedido urgente e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. ${textoPrazo()}`
+      : `Recebemos o pedido e o pagamento de ${formatarEuro(pagamento.valor)} (referência ${pagamento.ref}), descontado na reparação. Vamos marcar a visita: a data fica na sua conta e vai por email. ${textoPrazo()}`;
     if (pagamento.modo === "simulado") $("fim-texto").textContent += " (Pagamento simulado: não foi cobrado nada.)";
   }
   clearTimeout(temporizador);
@@ -5761,7 +5781,10 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
-    : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${textoDiagnostico(preco.artigos_iva + preco.mao_obra_iva)}. A reparação orça-se na visita.`
+    // O valor que pagou (teste de 2026-10-14: fora de horas dizia o diagnóstico de horário normal "+ deslocação").
+    : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${pagamento
+      ? `Pagou ${formatarEuro(pagamento.valor)} (diagnóstico${urgenteForaHoras() ? " fora de horas" : ""} e deslocação)`
+      : textoDiagnostico(cent(preco.artigos_iva + preco.mao_obra_iva + (urgenteForaHoras() ? extraForaHoras(preco.artigos_iva + preco.mao_obra_iva) : 0)))}. A reparação orça-se na visita.`
     : `Estimativa enviada: ${textoComDeslocacao(preco)}; ${textoEstimativa().replace(/^[^;]*; /, "")}${semFundo ? " (A planta foi sem a imagem de fundo.)" : ""}`;
   if (codigoCliente) { $("fim-voltar").href = "cliente.html"; $("fim-voltar").textContent = "Voltar à área de cliente"; }
   // Fotos: o pedido já foi aceite; diz quantas não foram (o eletricista pode vê-las na visita).

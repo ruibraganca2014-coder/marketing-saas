@@ -186,7 +186,7 @@ describe('especialidades: o CEO define os parceiros, confirma a especialidade ao
     // Só o parceiro de domótica é avisado, com a linha da especialidade; nada do cliente.
     const avisos = p.emails.slice(n0).filter((m) => /novo trabalho em Sintra/.test(m.assunto));
     assert.deepEqual(avisos.map((m) => m.para), [P.email]);
-    assert.match(avisos[0].texto, /É da sua especialidade \(Domótica e automação\): tem 24 horas antes de abrir aos outros eletricistas\./);
+    assert.match(avisos[0].texto, /É da sua especialidade \(Domótica e automação\): os parceiros desta especialidade têm 24 horas antes de abrir aos outros eletricistas./);
     assert.ok(!doCliente(avisos[0].texto) && !doCliente(avisos[0].assunto));
     // Só ele o vê na bolsa, com a especialidade e até quando é só dele.
     const lista = (await a.area(P, 'GET', 'bolsa')).json.trabalhos;

@@ -7,7 +7,7 @@
 //   como SHA-256 na tabela contas_sessoes — separada das sessões do painel: uma conta de cliente não abre
 //   nenhuma rota /painel/api/;
 // - o cliente só vê os SEUS pedidos (conta_id); acrescenta/troca fotos enquanto o pedido não está aceite nem
-//   convertido; aceita a proposta e escolhe o plano mensal (fica "aceite" no painel depois de pagar o sinal:
+//   convertido; aceita a proposta, sem escolher o plano mensal (fica "aceite" no painel depois de pagar o sinal:
 //   docs/PAGAMENTOS-PEDIDO.md; data/hora/IP na auditoria);
 // - guarda o estado do simulador em curso (retomar noutro aparelho);
 // - depois da conversão em cliente, guarda cifradas (AES-256-GCM, CONTA_CHAVE) as credenciais MQTT da casa, que
@@ -678,6 +678,9 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     // Lista de espera (web/config.js listaEspera; coluna `lista_espera` do pedido): sem prazo de contacto.
     if (o.estado === 'novo' && o.lista_espera === 1) {
       estadoTexto = `Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos.${sim?.funil === 'avaria' ? '' : ' O relatório grátis já está aqui.'}`;
+    } else if (o.estado === 'novo' && sim?.funil === 'avaria' && pagamentos()?.foraHorasEmVigor(o)) {
+      // Avaria urgente, fora de horas (decisão do dono, 2026-10-14): vai logo para os eletricistas, sem esperar por nós.
+      estadoTexto = 'Pedido urgente recebido. Um eletricista contacta-o assim que aceitar o pedido, também de noite ou ao fim de semana.';
     } else if (o.estado === 'novo') estadoTexto += sim?.urgencia === 'urgente'
       ? ' Como é urgente, ligamos-lhe no próprio dia se chegou até às 18h de um dia útil; senão, na manhã do dia útil seguinte.'
       // Com as propostas na bolsa o passo seguinte é a empresa verificar o pedido (não um telefonema).
@@ -894,7 +897,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 201, { ok: true, id: f.id });
   };
 
-  // "Aceito a proposta" com o plano mensal escolhido (docs/PAGAMENTOS-PEDIDO.md): fica "Aceite — a aguardar sinal" e
+  // "Aceito a proposta" (docs/PAGAMENTOS-PEDIDO.md; o plano mensal escolhe-se no "Ligar casa", decisão do dono, 2026-10-14): fica "Aceite — a aguardar sinal" e
   // devolve o pagamento do sinal (30 % menos o que já foi pago: relatório, visita, avaria); só depois de pago passa a
   // "aceite" no painel ("Proposta aceite pelo cliente (online)", data/hora/IP na auditoria). Sem pagamentos (PAGAMENTO_PEDIDO=0) ou
   // com sinal 0 fica logo aceite. Aceitar outra vez enquanto o sinal está por pagar devolve o mesmo pagamento.

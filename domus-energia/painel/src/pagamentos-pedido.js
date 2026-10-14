@@ -81,6 +81,8 @@ const MARCAR_VISITA = 'Vamos marcar a visita técnica: enviamos a data e a hora 
 const TEXTO_PAGO = {
   relatorio_pormenorizado: RELATORIO_PRONTO, visita: MARCAR_VISITA, pormenorizado_visita: `${RELATORIO_PRONTO} ${MARCAR_VISITA}`,
   avaria: `O seu pedido foi recebido. ${MARCAR_VISITA}`,
+  // Avaria urgente, fora de horas (decisão do dono, 2026-10-14): vai logo para os eletricistas, sem esperar por nós.
+  avaria_urgente: 'O seu pedido urgente foi recebido. Um eletricista contacta-o assim que aceitar o pedido, também de noite ou ao fim de semana.',
   sinal: 'A proposta está aceite. Vamos contactá-lo para marcar a instalação.', restante: 'A obra está paga. Obrigado!',
   relatorio: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h).',
   relatorio_visita: 'O seu pedido foi recebido. O relatório técnico fica pronto na sua conta depois de revisto (até 24 h) e vamos contactá-lo para marcar a visita técnica.',
@@ -210,7 +212,7 @@ export const foraHorasPct = (cfg) => Math.min(200, numCfg(cfg, 'fora_horas_pct',
  *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
  */
 export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch,
-  visitaSemDefeito = () => null, clienteConfirmou = () => null }) {
+  visitaSemDefeito = () => null, clienteConfirmou = () => null, aoAvariaPaga = () => null }) {
   const modo = config.pagamentosModo;
   // Fluxo das propostas na bolsa (docs/ELETRICISTAS.md "Propostas na bolsa"): só com o módulo dos eletricistas e
   // PROPOSTAS_BOLSA ligados. Com um deles desligado, tudo aqui fica como antes.
@@ -1106,6 +1108,10 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       throw e;
     }
     auditar(null, 'pagamento_confirmado', `orcamento:${orcamentoId}`, { ref: p.ref, fase: p.fase, valor: deCent(p.valor_cent), modo: p.modo });
+    // Avaria urgente (fora de horas; decisão do dono, 2026-10-14): paga, vai logo para a bolsa (eletricistas.js aoAvariaPaga).
+    if (p.fase === 'avaria' && !p.orcamento_id && orcamentoId) {
+      try { aoAvariaPaga(orcamentoId); } catch (e) { registo.erro(`pagamento ${p.ref}: avaria urgente não foi para a bolsa: ${e?.stack || e}`); }
+    }
     registo.info(`pagamento ${p.ref} (${p.fase}, ${euro(p.valor_cent)}${p.modo === 'simulado' ? ', simulado' : ''}) confirmado — orçamento ${orcamentoId}`);
     avisarEmail(linha(p.ref), 'pago');
     return 'pago';
@@ -1131,7 +1137,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const texto = tipo === 'pago' ? [
       ola(nome), '', `Recebemos o seu pagamento${sim}.`, '',
       `  Descrição: ${p.descricao}`, `  Valor: ${euroComIva(p.valor_cent, ivaDe(p))}`, `  Data: ${new Date(p.pago).toLocaleString("pt-PT", { timeZone: "Europe/Lisbon", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`, `  Referência: ${p.ref}`, '',
-      eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : p.fase === 'sinal' && sinalComVisita(p) ? TEXTO_PAGO_SINAL_VISITA : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
+      eVisitaExtra(p) ? 'Este pagamento é da visita em que não encontrámos defeito: não é descontado na obra.' : p.fase === 'sinal' && sinalComVisita(p) ? TEXTO_PAGO_SINAL_VISITA : p.fase === 'avaria' && p.fora_horas_cent != null && !p.fora_horas_devolvida ? TEXTO_PAGO.avaria_urgente : TEXTO_PAGO[p.fase] ?? (p.com_visita ? TEXTO_PAGO.relatorio_visita : TEXTO_PAGO.relatorio),
       ...(site ? ['', `A sua conta: ${site}`] : []), '', 'Domus Energia',
     ] : [
       ola(nome), '', `O pagamento "${p.descricao}" (${euro(p.valor_cent)} com IVA) não foi concluído${sim}.${sim ? '' : ' Não foi cobrado nada.'}`,

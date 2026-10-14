@@ -154,7 +154,7 @@ const NOMES_UM = {
 
 const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
 // Lote 8 (passo Enviar do simulador): disponibilidade para a visita e urgência (pedidos antigos: sem elas).
-const DIAS_VISITA = { seg: "segunda", ter: "terça", qua: "quarta", qui: "quinta", sex: "sexta", sab: "sábado" };
+const DIAS_VISITA = { seg: "segunda", ter: "terça", qua: "quarta", qui: "quinta", sex: "sexta", sab: "sábado", dom: "domingo" };
 const PERIODOS_VISITA = { manha: "de manhã", tarde: "à tarde", qualquer: "a qualquer hora" };
 export const URGENCIAS = { normal: "Normal", semana: "Esta semana", urgente: "Urgente — avaria sem luz" };
 /** "Terça e quinta, à tarde" / "Qualquer dia, a qualquer hora"; null nos pedidos sem `visita`. */

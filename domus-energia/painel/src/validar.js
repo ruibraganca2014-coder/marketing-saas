@@ -303,7 +303,7 @@ function horarioSimulacao(horario, funil) {
  * Lote 8 (passo Enviar): disponibilidade para a visita {dias: ["seg"…"sab"], periodo: "manha" | "tarde" | "qualquer"}
  * e urgência ("normal" | "semana" | "urgente"). Opcionais (pedidos antigos não os têm).
  */
-export const DIAS_VISITA = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+export const DIAS_VISITA = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'];   // 'dom': avaria fora de horas (decisão do dono, 2026-10-14)
 export const PERIODOS_VISITA = ['manha', 'tarde', 'qualquer'];
 export const URGENCIAS = ['normal', 'semana', 'urgente'];
 function visitaSimulacao(v, urgencia) {

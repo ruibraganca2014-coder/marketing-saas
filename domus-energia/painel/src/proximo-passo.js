@@ -7,7 +7,7 @@
  * Por ordem de prioridade (a primeira que se aplica é o "Próximo passo"; as outras ficam em "Também por fazer").
  * `sec`: a secção da ficha onde se trata; `alvo`: o id do elemento a mostrar (o botão ou o formulário verdadeiro).
  */
-const ORDEM = ['validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabalho', 'escolher_proposta', 'enviar_proposta',
+const ORDEM = ['avaria_urgente', 'validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabalho', 'escolher_proposta', 'enviar_proposta',
   'proposta_aceite', 'pagar_eletricista', 'pedido_novo', 'mensagem', 'visita'];
 
 /** Um trabalho de eletricista ainda por acabar: na bolsa, com ele (visita por marcar ou marcada), feito à espera do cliente ou por aprovar. */
@@ -56,6 +56,9 @@ export function pendentesDoPedido(f) {
   if (f.eletricistas) {
     const t = f.trabalhos ?? [];
     if (f.propostas_bolsa && f.n_propostas > 0 && t.some((x) => x.estado === 'na_bolsa')) juntar('escolher_proposta', ['ceo'], f.propostas_desde);
+    // Avaria urgente, fora de horas (decisão do dono, 2026-10-14): foi logo para a bolsa; o CEO acompanha até alguém a aceitar.
+    const urgenteNaBolsa = f.urgente && t.find((x) => x.tipo === 'avaria' && x.estado === 'na_bolsa');
+    if (urgenteNaBolsa) juntar('avaria_urgente', ['ceo'], urgenteNaBolsa.atualizado);
     const comProposta = t.find((x) => x.proposta && x.estado !== 'retirado');
     if (comProposta && ['novo', 'contactado', 'visita_marcada'].includes(f.estado)) juntar('enviar_proposta', ['ceo'], comProposta.atualizado);
     const confirmado = t.find((x) => x.estado === 'confirmada');
@@ -109,7 +112,7 @@ export function esperaDoPedido(f) {
   if (f.extra_enviado) return 'À espera do cliente: responder ao trabalho a mais.';
   if (obraT === 'concluida_eletricista') return 'À espera do cliente: confirmar que a obra ficou concluída (fica aceite ao fim de 7 dias).';
   if (obraT === 'na_bolsa') return 'À espera dos eletricistas: a obra está na bolsa.';
-  if (obraT === 'aceite') return 'À espera do eletricista: marcar a visita (tem 48 h).';
+  if (obraT === 'aceite') return `À espera do eletricista: marcar a visita (tem ${f.urgente ? 2 : 48} h).`;
   if (obraT === 'visita_marcada') return 'À espera do eletricista: fazer a obra.';
   if (t.some((x) => x.estado === 'na_bolsa')) return 'À espera dos eletricistas: o pedido está na bolsa, ainda sem propostas.';
   if (t.some((x) => ['aceite', 'visita_marcada'].includes(x.estado))) return 'À espera do eletricista: ir ao local e fazer a proposta.';
@@ -135,6 +138,7 @@ function frasesDe(p, f) {
       if (p.motivo === 'corrigido') return fr('O cliente diz que já corrigiu: rever o pedido e validar.', `Rever o pedido corrigido por ${nome}`);
       if (p.motivo === 'recusada') return fr('O cliente não aceitou a proposta: rever e validar de novo, ou dar o pedido como perdido.', `Rever a proposta não aceite por ${nome}`);
       return fr('Validar o pedido.', `Validar o pedido de ${nome}`);
+    case 'avaria_urgente': return fr('Avaria urgente na bolsa: à espera de um eletricista (fora de horas). Se ninguém a aceitar, atribua-a.', `Avaria urgente de ${nome} na bolsa: à espera de um eletricista`);
     case 'pedido_novo': return fr('Contactar o cliente e, a seguir, mudar o estado para "Em preparação".', `Contactar ${nome}`);
     case 'proposta_aceite':
       if (!f.obra) return fr('O cliente aceitou a proposta: converter em cliente e marcar a obra.', `Marcar a obra da proposta aceite por ${nome}`);
@@ -173,6 +177,7 @@ function acaoDe(p, f) {
       return { rotulo: f.obra ? 'Ligar casa' : 'Converter em cliente e obra', sec: 'obra', alvo: 'form-converter' };
     case 'mensagem': return { rotulo: 'Responder', sec: 'mensagens', alvo: 'mensagem-cliente' };
     case 'escolher_proposta': return { rotulo: 'Ver as propostas', sec: 'eletricista', alvo: 'propostas-titulo' };
+    case 'avaria_urgente': return { rotulo: 'Ver a bolsa', sec: 'eletricista', alvo: 'bolsa-estado' };
     case 'enviar_proposta': return { rotulo: 'Preparar a proposta', sec: 'proposta', alvo: p.papeis.includes('ceo') ? 'proposta-eletricista' : 'proposta-partes' };
     case 'aprovar_trabalho': return { rotulo: 'Aprovar o trabalho', sec: 'eletricista', alvo: 'eletricista-aprovar' };
     case 'pagar_eletricista': return { rotulo: 'Abrir Pagamentos', ligacao: '#/pagamentos' };

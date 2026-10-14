@@ -16,7 +16,7 @@
 // do trabalho em seis passos (cliente e visita, fotos de antes, trabalho, ensaios, fotos de depois, concluir), com um
 // visto nos que já estão feitos e o passo seguinte em destaque. Só muda o aspeto: as regras continuam no servidor.
 // Decisões do dono de 2026-10-13: na bolsa, o nome da especialidade do pedido e, para o parceiro que o vê primeiro, o
-// selo "Da sua especialidade · só para si até <dia, hora>"; na ficha da obra, quem é o técnico responsável (sem ele não
+// selo "Da sua especialidade · só para os parceiros até <dia, hora>" (2026-10-14: pode haver mais de um parceiro); na ficha da obra, quem é o técnico responsável (sem ele não
 // se dá por concluída); e "Obras que assino" — as obras de que é o técnico responsável sem ser quem as faz, só para
 // leitura. Um servidor mais antigo não envia estes campos nem tem a rota: nada disto aparece e o resto fica igual.
 // Tabela de preços da minha especialidade (decisão do dono, 2026-10-14): só para os parceiros, a partir do Início (#/precos).
@@ -210,9 +210,10 @@ const diaHoraTxt = (isoTxt) => { const d = new Date(isoTxt); return Number.isNaN
 // Especialidade do pedido e prioridade do parceiro (decisão do dono, 2026-10-13). Um servidor antigo não envia
 // `especialidade_nome` nem `prioridade_ate`: não aparece selo nenhum.
 const seloEspecialidade = (t) => (t.especialidade_nome ? selo(t.especialidade_nome) : null);
-const textoPrioridade = (ate) => (ate && diaHoraTxt(ate) ? `Da sua especialidade · só para si até ${diaHoraTxt(ate)}` : null);
+const textoPrioridade = (ate) => (ate && diaHoraTxt(ate) ? `Da sua especialidade · só para os parceiros até ${diaHoraTxt(ate)}` : null);
 // Avaria fora de horas (decisão do dono, 2026-10-13): `fora_horas` é a percentagem a mais da mão de obra. Sem o campo (trabalho normal, ou servidor antigo) não há selo.
-const seloForaHoras = (t) => (Number(t.fora_horas) > 0 ? selo(`Fora de horas: recebe mais ${decimal(t.fora_horas)} %`, "bom") : null);
+// Urgente (decisão do dono, 2026-10-14): a avaria fora de horas na bolsa leva "URGENTE" (quem aceitar tem `prazo_horas`, 2 h, para marcar).
+const seloForaHoras = (t) => (Number(t.fora_horas) > 0 ? selo(`${t.urgente ? `URGENTE (${t.prazo_horas ?? 2} h para marcar) · ` : ""}Fora de horas: recebe mais ${decimal(t.fora_horas)} %`, t.urgente ? "mau" : "bom") : null);
 const seloPrioridade = (t) => (textoPrioridade(t.prioridade_ate) ? selo(textoPrioridade(t.prioridade_ate), "bom") : null);
 const duracaoTxt = (t) => [t.horas ? `cerca de ${decimal(Math.round(t.horas * 10) / 10)} h` : null, t.dias ? `${t.dias} ${t.dias === 1 ? "dia" : "dias"}` : null].filter(Boolean).join(" · ");
 function contadores(nBolsa, nTrab) {
