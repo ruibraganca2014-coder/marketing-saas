@@ -1195,6 +1195,39 @@ export const MIGRACOES = [
     ALTER TABLE devolucoes_pedido ADD COLUMN fora_horas INTEGER;
     INSERT OR IGNORE INTO config_orcamento (chave, valor) VALUES ('fora_horas_pct', 50);
   `),
+  // 55: tabela de preços por especialidade (decisão do dono, 2026-10-14; docs/ELETRICISTAS.md "Tabela de preços da
+  // especialidade"). `catalogo.especialidade`: a especialidade de cada artigo (as quatro de eletricistas.js; o CEO muda-a
+  // no Catálogo). Os artigos que já existem ficam: domótica os de casa inteligente (interruptores, sensores, estores,
+  // tomadas e luzes Wi-Fi, termóstatos, centrais e tudo o que é Wi-Fi, Zigbee ou "inteligente" — módulos, disjuntores e
+  // fechaduras inteligentes); geral o resto (quadros, disjuntores, diferenciais, circuitos, pontos, tomadas e linhas).
+  // Solar e redes ainda sem artigos.
+  // `propostas_precos`: o que um eletricista PARCEIRO propõe para um artigo da sua especialidade (`artigo_id`) ou para um
+  // artigo novo (`artigo_id` NULL até o CEO aprovar; `nome`): horas, material (texto), custo do material (cêntimos sem
+  // IVA, opcional) e uma nota. Nunca o preço ao cliente. Nada muda no catálogo até o CEO aprovar (`estado`).
+  (db) => db.exec(`
+    ALTER TABLE catalogo ADD COLUMN especialidade TEXT NOT NULL DEFAULT 'geral' CHECK (especialidade IN ('geral', 'domotica', 'solar', 'redes'));
+    UPDATE catalogo SET especialidade = 'domotica'
+      WHERE categoria IN ('interruptor', 'sensor', 'estore', 'tomada', 'luz', 'termostato', 'central')
+        OR nome LIKE '%Wi-Fi%' OR nome LIKE '%Zigbee%' OR nome LIKE '%inteligente%';
+    CREATE TABLE propostas_precos (
+      id INTEGER PRIMARY KEY,
+      eletricista_id INTEGER NOT NULL REFERENCES eletricistas(id),
+      artigo_id INTEGER REFERENCES catalogo(id),
+      especialidade TEXT NOT NULL CHECK (especialidade IN ('geral', 'domotica', 'solar', 'redes')),
+      nome TEXT,
+      horas REAL NOT NULL CHECK (horas > 0),
+      material TEXT,
+      custo_cent INTEGER CHECK (custo_cent IS NULL OR custo_cent >= 0),
+      nota TEXT,
+      estado TEXT NOT NULL DEFAULT 'pendente' CHECK (estado IN ('pendente', 'aprovada', 'recusada')),
+      motivo TEXT,
+      criado TEXT NOT NULL,
+      decidido TEXT,
+      decidido_por TEXT
+    );
+    CREATE INDEX propostas_precos_estado ON propostas_precos(estado, criado);
+    CREATE INDEX propostas_precos_eletricista ON propostas_precos(eletricista_id);
+  `),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

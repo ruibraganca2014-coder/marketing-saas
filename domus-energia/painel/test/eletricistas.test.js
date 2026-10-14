@@ -323,7 +323,8 @@ describe('painel, área do eletricista, bolsa e trabalhos (pagamentos simulados)
     const fora = await p.pedir('POST', '/api/eletricista/sair', { corpo: {}, cabecalhos: { Host: 'painel.teste' } });
     assert.match(fora.cabecalhos['set-cookie'][0], /; HttpOnly; Secure; SameSite=Lax; Max-Age=0$/);
     // `obras_assino` (2026-10-13): só diz à página que este servidor tem "Obras que assino"; não é um dado do eletricista.
-    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'fora_horas', 'iban', 'nome', 'obras_assino', 'percentagem']);
+    // `parceiro_de` (2026-10-14): as especialidades de que é parceiro (a tabela de preços só aparece a esses).
+    assert.deepEqual(Object.keys(r.json.eletricista).sort(), ['concelhos', 'email', 'fora_horas', 'iban', 'nome', 'obras_assino', 'parceiro_de', 'percentagem']);
     const cookie = cookieDe(r);
     assert.equal((await p.pedir('POST', '/api/eletricista/entrar', { corpo: { email: e.email, codigo } })).estado, 400, 'o código só serve uma vez');
     assert.equal((await p.pedir('GET', '/api/eletricista/eu', { cookie })).json.eletricista.email, e.email);

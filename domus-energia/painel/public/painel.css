@@ -756,6 +756,11 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .aviso-na-janela { position: fixed; right: 16px; bottom: 16px; max-width: min(420px, calc(100vw - 32px)); z-index: 5; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
 /* Propostas dos eletricistas (2026-10-11): um cartão por proposta, com o "Escolher" sempre à vista. */
 .propostas-lista { display: grid; gap: 10px; }
+/* Propostas de preços dos parceiros (Catálogo, 2026-10-14): o artigo agora e o proposto lado a lado. */
+.bloco-propostas-precos { margin-bottom: 8px; }
+.bloco-propostas-precos article { display: grid; gap: 10px; }
+.bloco-propostas-precos h3 { margin: 0; overflow-wrap: anywhere; }
+.tabela-comparar th[scope="row"] { text-align: left; }
 .proposta-cartao { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 12px; }
 .proposta-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 

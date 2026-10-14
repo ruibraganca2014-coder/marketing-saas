@@ -393,7 +393,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   // O IBAN sai sempre mascarado ("PT50 •••• 0154"), mesmo para o próprio; inteiro só para o CEO, nos pagamentos.
   // `obras_assino`: este servidor tem "Obras que assino" (técnico responsável, 2026-10-13) — a página só pede a lista se o vir aqui.
-  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e), iban: pagamentos().ibanMascarado(e.iban ?? null), obras_assino: true, fora_horas: fazForaHoras(e) });
+  const publico = (e) => ({ nome: e.nome, email: e.email, concelhos: concelhosDe(e), percentagem: percentagemDe(e), iban: pagamentos().ibanMascarado(e.iban ?? null), obras_assino: true, fora_horas: fazForaHoras(e),
+    parceiro_de: especialidadesDe(e).map((k) => ({ chave: k, nome: ESPECIALIDADES[k] })) });   // tabela de preços (2026-10-14): só os parceiros a têm
   // Avarias fora de horas (decisão do dono, 2026-10-13; migração 54): só as recebe quem disse que faz serviço de noite e
   // ao fim de semana (`eletricistas.fora_horas`; o próprio liga e desliga na área dele, o CEO na ficha do painel).
   const fazForaHoras = (e) => Boolean(e?.fora_horas);
@@ -515,6 +516,14 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return Number.isFinite(h0) && h0 > 0 ? h0 : VISITA_HORAS;
   };
 
+  /** A mão de obra (cêntimos SEM IVA) de `horas` à tarifa por hora da configuração (que é com IVA). */
+  function maoObraDeHoras(horas, cfg = lerCfg()) {
+    const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
+    return partirIva(Math.round(horas * tarifa * 100), pagamentos().ivaAtual()).base;
+  }
+  /** A parte do eletricista na mão de obra (cêntimos): a percentagem dele × a mão de obra sem IVA. */
+  const parteDaMaoObra = (mao, pct) => Math.round((mao * pct) / 100);
+
   /**
    * Quanto o eletricista recebe (estimativa, € SEM IVA): percentagem × mão de obra + a deslocação paga pelo cliente.
    * Obra: as partes da proposta (mão de obra e deslocação); sem proposta em partes, as sugeridas pela simulação
@@ -533,8 +542,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         if (s) { mao = Math.round(s.mao_obra * 100); desl = Math.round(s.deslocacao * 100); provisoria = true; }
       }
     } else {
-      const tarifa = Number.isFinite(Number(cfg.tarifa_hora_iva)) ? Number(cfg.tarifa_hora_iva) : 38;
-      mao = semIva((tipo === 'avaria' ? horasDiagnostico() : VISITA_HORAS) * tarifa);
+      mao = maoObraDeHoras(tipo === 'avaria' ? horasDiagnostico() : VISITA_HORAS, cfg);
       const d = deslocacaoServidor(localidadeDe(o), cfg);
       desl = d === null ? 0 : semIva(d);
     }
@@ -543,7 +551,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     // pagou. Se a visita ficou em horário normal (a diferença foi devolvida ao cliente), vale a mão de obra normal.
     const foraHoras = tipo === 'avaria' ? pag.acrescimoForaHoras(o) : 0;
     if (foraHoras) mao = Math.round((mao * (100 + foraHoras)) / 100);
-    const parte = Math.round((mao * pct) / 100);
+    const parte = parteDaMaoObra(mao, pct);
     return { percentagem: pct, mao_obra: deCent(mao), parte_mao_obra: deCent(parte), deslocacao: deCent(desl), total: deCent(parte + desl), provisoria, ...(foraHoras ? { fora_horas: foraHoras } : {}) };
   }
 
@@ -2682,7 +2690,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       db.prepare('DELETE FROM eletricistas_sessoes WHERE eletricista_id = ?').run(e.id);
       db.prepare('DELETE FROM eletricistas_codigos WHERE eletricista_id = ?').run(e.id);
       db.prepare('DELETE FROM trabalhos_eletricista_avisos WHERE eletricista_id = ?').run(e.id);
-      db.prepare('DELETE FROM propostas_bolsa WHERE eletricista_id = ?').run(e.id);   // as propostas da bolsa (notas e disponibilidade são texto dele)
+      db.prepare('DELETE FROM propostas_bolsa WHERE eletricista_id = ?').run(e.id);
+      db.prepare('DELETE FROM propostas_precos WHERE eletricista_id = ?').run(e.id);   // as propostas de preços (a nota é texto dele; o aprovado já está no catálogo)   // as propostas da bolsa (notas e disponibilidade são texto dele)
       db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`eletricista:${e.id}`);
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`eletricista:${e.id}`);
       if (historico) {
@@ -2918,6 +2927,135 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   }
   const parar = () => clearInterval(temporizador);
 
+  // ------------------------------------------------------------ tabela de preços da especialidade (decisão do dono, 2026-10-14; migração 55)
+  // Um eletricista PARCEIRO vê os artigos ativos do catálogo das SUAS especialidades só com as horas de mão de obra que a
+  // Domus usa hoje — nunca o preço ao cliente nem o custo de compra — e o que receberia por esse trabalho (a percentagem
+  // dele da mão de obra, a mesma regra de `estimativa`). Propõe horas, material (texto), o custo do material na estimativa
+  // DELE (opcional) e uma nota para um artigo, ou um artigo novo da sua especialidade. Nada muda no catálogo, no simulador nem nas propostas até o CEO aprovar (no
+  // Catálogo do painel; api.js aprovarPropostaPreco). Um eletricista de fora não tem esta tabela (403).
+  const MAX_HORAS_PRECO = 100;          // como as horas de instalação do catálogo (api.js camposArtigo)
+  const MAX_PENDENTES_PRECO = 30;       // propostas à espera de decisão, por eletricista
+  /** O texto do material do artigo (`especificacoes.material`), ou null. */
+  const materialDoArtigo = (a) => { try { const m = JSON.parse(a?.especificacoes || '{}')?.material; return typeof m === 'string' && m.trim() ? m : null; } catch { return null; } };
+  /** O que o eletricista receberia por `horas` (€ sem IVA): a percentagem dele × a mão de obra, como em `estimativa`. */
+  const recebeDeHoras = (horas, pct) => deCent(parteDaMaoObra(maoObraDeHoras(Number(horas) || 0), pct));
+  function soParceiro(e) {
+    const esp = especialidadesDe(e);
+    if (!esp.length) throw new ErroApi(403, 'A tabela de preços é só para os eletricistas parceiros de uma especialidade.');
+    return esp;
+  }
+  const propostaPrecoDoEletricista = (p, pct) => ({
+    id: p.id, artigo_id: p.artigo_id, novo: p.nome !== null, nome: p.nome, especialidade: p.especialidade, especialidade_nome: ESPECIALIDADES[p.especialidade],
+    horas: p.horas, material: p.material, custo: deCent(p.custo_cent), nota: p.nota, recebe: recebeDeHoras(p.horas, pct),
+    estado: p.estado, motivo: p.motivo, criado: p.criado, decidido: p.decidido,
+  });
+
+  // GET precos: os artigos das especialidades dele e as propostas que já fez (as últimas 100).
+  h.precos = ({ res, e }) => {
+    const esp = soParceiro(e);
+    const pct = percentagemDe(e);
+    // Decisão do dono (2026-10-14): do artigo, só as horas de mão de obra de hoje. Nem o preço ao cliente (com ou sem IVA),
+    // nem o custo de compra, o fornecedor ou a margem da Domus saem daqui — as colunas nem são lidas.
+    const artigos = db.prepare(`SELECT id, sku, nome, especialidade, horas_instalacao FROM catalogo
+      WHERE ativo = 1 AND especialidade IN (${esp.map(() => '?').join(', ')}) ORDER BY nome`).all(...esp)
+      .map((a) => ({ id: a.id, sku: a.sku, nome: a.nome, especialidade: a.especialidade, horas: a.horas_instalacao, recebe: recebeDeHoras(a.horas_instalacao, pct) }));
+    const propostas = db.prepare('SELECT * FROM propostas_precos WHERE eletricista_id = ? ORDER BY id DESC LIMIT 100').all(e.id).map((p) => propostaPrecoDoEletricista(p, pct));
+    responder(res, 200, { especialidades: esp.map((k) => ({ chave: k, nome: ESPECIALIDADES[k] })), percentagem: pct, max_horas: MAX_HORAS_PRECO, artigos, propostas });
+  };
+
+  // POST precos {artigo_id, horas, material, custo, nota} ou, para um artigo novo, {nome, especialidade, horas, material,
+  // custo, nota}. Só horas e material: nunca o preço ao cliente. Uma proposta à espera para o mesmo artigo é corrigida.
+  h.proporPreco = async ({ req, res, e, ip }) => {
+    const v = await lerJson(req, ['artigo_id', 'nome', 'especialidade', 'horas', 'material', 'custo', 'nota']);
+    esperar([[L.acoes, String(e.id)]]);
+    contar([[L.acoes, String(e.id)]]);
+    const esp = soParceiro(e);
+    const horas = numero(v.horas, 'as horas', { max: MAX_HORAS_PRECO, nulo: false });
+    if (horas <= 0) falha('As horas têm de ser mais do que 0.');
+    const material = texto(v.material, 'o material', { max: 300 });
+    const custo = v.custo === undefined || v.custo === null || v.custo === '' ? null : Math.round(numero(v.custo, 'o custo do material', { max: 100_000, nulo: false }) * 100);
+    const nota = texto(v.nota, 'a nota', { max: 600, multilinha: true });
+    let artigo = null, nome = null, especialidade;
+    if (v.artigo_id !== undefined && v.artigo_id !== null) {
+      if (v.nome !== undefined && v.nome !== null) falha('Um artigo que já existe não leva nome: proponha só as horas e o material.');
+      artigo = Number.isInteger(v.artigo_id) && v.artigo_id > 0 ? db.prepare('SELECT * FROM catalogo WHERE id = ? AND ativo = 1').get(v.artigo_id) : null;
+      if (!artigo) throw new ErroApi(404, 'Artigo não encontrado.');
+      if (!esp.includes(artigo.especialidade)) throw new ErroApi(403, 'Este artigo não é da sua especialidade.');
+      especialidade = artigo.especialidade;
+    } else {
+      nome = texto(v.nome, 'o nome do artigo novo', { max: 160, min: 3, obrigatorio: true });
+      especialidade = v.especialidade === undefined || v.especialidade === null ? (esp.length === 1 ? esp[0] : null) : opcao(v.especialidade, 'especialidade', Object.keys(ESPECIALIDADES));
+      if (!especialidade) falha('Escolha a especialidade do artigo novo.');
+      if (!esp.includes(especialidade)) throw new ErroApi(403, 'Só pode propor artigos da sua especialidade.');
+    }
+    const antes = artigo ? db.prepare("SELECT id FROM propostas_precos WHERE eletricista_id = ? AND artigo_id = ? AND estado = 'pendente'").get(e.id, artigo.id) : null;
+    if (!antes && db.prepare("SELECT COUNT(*) AS n FROM propostas_precos WHERE eletricista_id = ? AND estado = 'pendente'").get(e.id).n >= MAX_PENDENTES_PRECO) {
+      throw new ErroApi(409, `Já tem ${MAX_PENDENTES_PRECO} propostas à espera da Domus Energia: espere pela resposta antes de propor mais.`);
+    }
+    const agora = agoraIso();
+    let id;
+    if (antes) {
+      db.prepare('UPDATE propostas_precos SET horas = ?, material = ?, custo_cent = ?, nota = ?, criado = ? WHERE id = ?').run(horas, material, custo, nota, agora, antes.id);
+      id = antes.id;
+    } else {
+      id = Number(db.prepare(`INSERT INTO propostas_precos (eletricista_id, artigo_id, especialidade, nome, horas, material, custo_cent, nota, estado, criado)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?)`).run(e.id, artigo?.id ?? null, especialidade, nome, horas, material, custo, nota, agora).lastInsertRowid);
+    }
+    auditar(quem(e), 'proposta_precos', artigo ? `catalogo:${artigo.id}` : `eletricista:${e.id}`, { proposta: id, eletricista: e.id, artigo: artigo?.sku ?? null, novo: !artigo, horas, corrigida: Boolean(antes) }, ip);
+    responder(res, antes ? 200 : 201, { proposta: propostaPrecoDoEletricista(db.prepare('SELECT * FROM propostas_precos WHERE id = ?').get(id), percentagemDe(e)) });
+  };
+
+  // ---- no painel (só o CEO; api.js propostasPrecos, aprovarPropostaPreco e recusarPropostaPreco)
+  /** Uma proposta de preços (painel): quem propôs, o artigo como está agora (`antes`) e o que propõe, com o que recebe em cada caso. */
+  function propostaPrecoPainel(p) {
+    const x = linha(p.eletricista_id);
+    const pct = x ? percentagemDe(x) : percentagemOmissao();
+    const a = p.artigo_id ? db.prepare('SELECT * FROM catalogo WHERE id = ?').get(p.artigo_id) : null;
+    return {
+      id: p.id, novo: p.nome !== null, estado: p.estado, motivo: p.motivo, criado: p.criado, decidido: p.decidido, decidido_por: p.decidido_por,
+      eletricista: { id: p.eletricista_id, nome: x?.nome ?? '—' }, especialidade: p.especialidade, especialidade_nome: ESPECIALIDADES[p.especialidade], percentagem: pct,
+      artigo: a ? { id: a.id, sku: a.sku, nome: a.nome } : null,
+      antes: a && p.nome === null ? { horas: a.horas_instalacao, material: materialDoArtigo(a), custo: deCent(a.preco_compra_cent), recebe: recebeDeHoras(a.horas_instalacao, pct) } : null,
+      proposta: { nome: p.nome, horas: p.horas, material: p.material, custo: deCent(p.custo_cent), nota: p.nota, recebe: recebeDeHoras(p.horas, pct) },
+    };
+  }
+  /** As propostas à espera de decisão (a mais antiga primeiro) e as últimas 20 decididas. */
+  function propostasPrecos() {
+    return {
+      pendentes: db.prepare("SELECT * FROM propostas_precos WHERE estado = 'pendente' ORDER BY criado, id LIMIT 200").all().map(propostaPrecoPainel),
+      decididas: db.prepare("SELECT * FROM propostas_precos WHERE estado != 'pendente' ORDER BY decidido DESC, id DESC LIMIT 20").all().map(propostaPrecoPainel),
+    };
+  }
+  /** As que esperam o CEO, para o ecrã Hoje: {eletricista, artigo, novo, criado}, a mais antiga primeiro. */
+  const precosPorRever = () => db.prepare(`SELECT p.criado, p.nome, e.nome AS eletricista, c.nome AS artigo FROM propostas_precos p
+    LEFT JOIN eletricistas e ON e.id = p.eletricista_id LEFT JOIN catalogo c ON c.id = p.artigo_id
+    WHERE p.estado = 'pendente' ORDER BY p.criado, p.id LIMIT 50`).all().map((x) => ({ eletricista: x.eletricista ?? 'um eletricista', artigo: x.nome ?? x.artigo ?? '—', novo: x.nome !== null, criado: x.criado }));
+  /** A proposta à espera de decisão (404 se não existe; 409 se já foi decidida). */
+  function propostaPrecoPendente(idTexto) {
+    const p = db.prepare('SELECT * FROM propostas_precos WHERE id = ?').get(idNum(String(idTexto)));
+    if (!p) throw new ErroApi(404, 'Proposta não encontrada.');
+    if (p.estado !== 'pendente') throw new ErroApi(409, 'Esta proposta já foi decidida.');
+    return p;
+  }
+  /**
+   * Aprovada (os valores já foram postos no artigo `artigoId` pelo api.js, na mesma transação) ou recusada (com o motivo,
+   * opcional, que o eletricista vê). Fica quem e quando (e na auditoria); o eletricista recebe um email curto.
+   */
+  function decidirPropostaPreco(p, estado, { artigoId = null, motivo = null, valores = null }, u, ip) {
+    const mudou = db.prepare(`UPDATE propostas_precos SET estado = ?, motivo = ?, artigo_id = COALESCE(?, artigo_id), decidido = ?, decidido_por = ?
+      WHERE id = ? AND estado = 'pendente'`).run(estado, motivo, artigoId, agoraIso(), u.email, p.id).changes;
+    if (!mudou) throw new ErroApi(409, 'Esta proposta já foi decidida.');
+    auditar(u, estado === 'aprovada' ? 'proposta_precos_aprovada' : 'proposta_precos_recusada', `catalogo:${artigoId ?? p.artigo_id ?? 'novo'}`,
+      { proposta: p.id, eletricista: p.eletricista_id, novo: p.nome !== null, ...(valores ?? {}), ...(motivo ? { motivo } : {}) }, ip);
+    const x = linha(p.eletricista_id);
+    if (!x || x.anonimizado) return;
+    const artigo = p.nome ?? db.prepare('SELECT nome FROM catalogo WHERE id = ?').get(p.artigo_id)?.nome ?? 'o artigo';
+    const aprovada = estado === 'aprovada';
+    correio.enviar({ para: x.email, assunto: `Domus Energia: a sua proposta de preços foi ${aprovada ? 'aprovada' : 'recusada'}`, resumo: `proposta de preços ${p.id} ${estado}`,
+      texto: [`Olá ${x.nome},`, '', aprovada ? `A sua proposta para "${artigo}" foi aprovada: os novos valores já estão na tabela de preços da sua especialidade.`
+        : `A sua proposta para "${artigo}" não foi aprovada.${motivo ? ` Motivo: ${motivo}` : ''}`, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
+  }
+
   // ------------------------------------------------------------ despacho /api/eletricista/*
   // [método, caminho, precisa de sessão, handler]
   const ROTAS_ELETRICISTA = [
@@ -2963,6 +3101,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['GET', 'obras-assino', true, 'obrasAssino'],                       // as obras de que é o técnico responsável sem ser o executante (só leitura)
     ['GET', 'obras-assino/:id', true, 'obraAssino'],
     ['GET', 'obras-assino/:id/fotos/:foto', true, 'fotoAssino'],
+    ['GET', 'precos', true, 'precos'],         // tabela de preços da especialidade (só parceiros; 2026-10-14): artigos, o que recebe e as suas propostas
+    ['POST', 'precos', true, 'proporPreco'],   // {artigo_id | nome + especialidade, horas, material, custo, nota}: proposta ao CEO
   ].filter(([, , , nome]) => config.propostasBolsa || !['proporBolsa', 'fotoBolsa'].includes(nome))   // com PROPOSTAS_BOLSA=0 estas rotas não existem (404, como antes)
     .map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
@@ -3004,6 +3144,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     idasDoPedido, confirmarIda, anularIda, idasPorConfirmar, verificarParagem, aoPararObra, aoCancelarObra,
     abrirATodos, aoMudarEspecialidade, indicarTecnico, obrasSemTecnico,   // especialidades, prioridade e técnico responsável (2026-10-13)
     concelhosForaHoras,   // avarias fora de horas (2026-10-13): onde há quem as faça (só os nomes dos concelhos)
+    propostasPrecos, precosPorRever, propostaPrecoPendente, decidirPropostaPreco,   // tabela de preços da especialidade (2026-10-14)
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
   };
 }

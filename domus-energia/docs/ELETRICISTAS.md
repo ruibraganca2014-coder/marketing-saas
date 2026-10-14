@@ -115,6 +115,25 @@ Regras do cliente e do dinheiro: docs/PAGAMENTOS-PEDIDO.md "Avarias fora de hora
 - **Se marcar a visita em horário normal** (dia útil, das 8h às 20h), o cliente recebe a diferença de volta e o trabalho passa ao valor normal; a partir daí (como numa avaria pedida em horário normal) a visita já não se marca fora do horário normal: o servidor responde 409 e a ficha avisa (`so_horario_normal`).
 - Exemplo em Sintra, a 70 %: horário normal 10,82 € + 5,85 € de deslocação = 16,67 €; fora de horas 16,23 € + 5,85 € = 22,08 € (sem IVA).
 
+## Tabela de preços da especialidade (decisão do dono, 2026-10-14)
+
+Cada artigo do catálogo tem uma especialidade (`catalogo.especialidade`, migração 55; o CEO muda-a no Catálogo). Os
+artigos que já existiam ficaram em **domótica** os de casa inteligente (interruptores, sensores, estores, tomadas e luzes
+Wi-Fi, termóstatos, centrais e tudo o que é Wi-Fi, Zigbee ou "inteligente") e em **geral** o resto; solar e redes ainda
+sem artigos.
+
+- **Área do eletricista** (só PARCEIROS; o de fora recebe 403 e não vê a secção): no Início, "Tabela de preços da minha
+  especialidade" (`#/precos`). De cada artigo ativo das suas especialidades vê **só** as horas de mão de obra de hoje e o
+  que recebe por elas (a percentagem dele da mão de obra sem IVA, a regra de `estimativa`). Nunca o preço ao cliente
+  (com ou sem IVA), o custo de compra, o fornecedor, a margem ou o material do catálogo — a resposta nem os traz.
+  Propõe horas (> 0 e até 100), material (texto), o custo do material na estimativa dele (opcional) e uma nota; ou um
+  artigo novo (nome + o mesmo). Uma proposta à espera para o mesmo artigo é corrigida. No máximo 30 à espera.
+- **Painel**: no Catálogo, o bloco "Propostas dos parceiros" (agora e proposto lado a lado, quem propôs; o CEO pode mudar
+  os valores) com Aprovar / Recusar (motivo opcional, que o eletricista vê); no Hoje do CEO, "Rever a proposta de preços
+  de <nome> (<artigo>)". Aprovar põe as horas, o material (`especificacoes.material`) e o custo no artigo; num artigo novo
+  cria-o com o SKU, a categoria e o preço de venda que o CEO indicar, escondido do cliente. Fica na auditoria e o
+  eletricista recebe um email. Nada muda no catálogo, no simulador nem nas propostas antes disso.
+
 ## Técnico responsável (decisão do dono, 2026-10-13)
 
 Cada trabalho do tipo `obra` tem um técnico responsável, que a assina. **Sem técnico indicado, a obra não pode ser dada por concluída.** Não se aplica às visitas técnicas nem aos diagnósticos de avaria.

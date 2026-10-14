@@ -19,7 +19,8 @@
 // selo "Da sua especialidade · só para si até <dia, hora>"; na ficha da obra, quem é o técnico responsável (sem ele não
 // se dá por concluída); e "Obras que assino" — as obras de que é o técnico responsável sem ser quem as faz, só para
 // leitura. Um servidor mais antigo não envia estes campos nem tem a rota: nada disto aparece e o resto fica igual.
-// Rotas no endereço: #/inicio, #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/assino/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
+// Tabela de preços da minha especialidade (decisão do dono, 2026-10-14): só para os parceiros, a partir do Início (#/precos).
+// Rotas no endereço: #/inicio, #/precos, #/bolsa, #/bolsa/<id>, #/trabalhos, #/trabalhos/<id>, #/assino/<id>, #/pagamentos, #/ajuda, #/ajuda/<id> (um procedimento). Só textContent (nunca HTML com dados).
 import { seccaoTecnica } from "./simulador/simbolos.js";
 import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo, AMPERES_GERAL, AMPERES_DISJUNTOR, PROTECOES_ESQUEMA } from "./simulador/quadro-desenho.js";
 import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
@@ -164,7 +165,7 @@ function entrou(e) {
 // ---------------------------------------------------------------- rotas
 function rota() {
   const [aba, id] = location.hash.replace(/^#\/?/, "").split("/");
-  return { aba: ["bolsa", "trabalhos", "assino", "pagamentos", "ajuda"].includes(aba) ? aba : "inicio", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
+  return { aba: ["bolsa", "trabalhos", "assino", "pagamentos", "ajuda", "precos"].includes(aba) ? aba : "inicio", id: /^\d{1,10}$/.test(id ?? "") ? id : null };
 }
 const ir = (c) => { if (location.hash === `#/${c}`) encaminhar(); else location.hash = `#/${c}`; };
 window.addEventListener("hashchange", () => { if (eu) encaminhar(); });
@@ -176,11 +177,11 @@ async function encaminhar() {
   const minha = ++geracao;
   pararContagem();
   // "Obras que assino" vive dentro de "Os meus trabalhos" (não tem separador próprio).
-  for (const b of document.querySelectorAll(".app-abas [data-aba]")) b.setAttribute("aria-selected", String(b.dataset.aba === (aba === "assino" ? "trabalhos" : aba)));
+  for (const b of document.querySelectorAll(".app-abas [data-aba]")) b.setAttribute("aria-selected", String(b.dataset.aba === (aba === "assino" ? "trabalhos" : aba === "precos" ? "inicio" : aba)));
   const vista = $("el-vista");
   vista.replaceChildren(el("p", "vazio", "A carregar…"));
   try {
-    const partes = aba === "inicio" ? await inicio() : aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : aba === "assino" && id ? await obraAssino(id) : (id ? await ficha(id) : await trabalhosLista());
+    const partes = aba === "inicio" ? await inicio() : aba === "precos" ? await precos() : aba === "ajuda" ? (id ? await procedimento(id) : await ajuda()) : aba === "pagamentos" ? desenharPagamentos(await pedir("pagamentos")) : aba === "bolsa" ? (id ? await bolsaDetalhe(id) : await bolsaLista()) : aba === "assino" && id ? await obraAssino(id) : (id ? await ficha(id) : await trabalhosLista());
     if (minha !== geracao) return;
     vista.replaceChildren(...partes);
     $("conteudo").scrollTo?.(0, 0);
@@ -322,6 +323,9 @@ async function inicio() {
   for (const o of assino.filter((x) => x.aberto)) {
     grupos.espera.push(tarefa({ id: `inicio-assino-${o.id}`, tipo: "discreta", grande: "É o técnico responsável desta obra", linhas: [`${o.titulo} · ${o.concelho}`], ir: `assino/${o.id}` }));
   }
+  // Parceiro (decisão do dono, 2026-10-14): a tabela de preços da sua especialidade, sempre no fim.
+  const tabela = eParceiro() ? [tarefa({ id: "inicio-precos", tipo: "discreta", rotulo: "Tabela de preços", grande: "Tabela de preços da minha especialidade",
+    linhas: [`${eu.parceiro_de.map((x) => x.nome).join(" · ")}: as horas de cada artigo e o que recebe. Proponha outros valores.`], botao: "Ver a tabela", ir: "precos" })] : [];
   const cartoes = [...porOrdem(grupos.hoje), ...porOrdem(grupos.amanha), ...grupos.concluir, ...porOrdem(grupos.marcar), ...grupos.devolvido, ...grupos.espera, ...faturas, ...bolsa];
   const data = new Date().toLocaleDateString("pt-PT", { timeZone: "Europe/Lisbon", weekday: "long", day: "numeric", month: "long" });
   const out = [el("h2", null, "O que tenho para fazer hoje"), el("p", "suave", `${data[0].toUpperCase()}${data.slice(1)}`)];
@@ -330,7 +334,122 @@ async function inicio() {
     vazio.id = "inicio-vazio";
     out.push(vazio);
   }
-  return [...out, ...cartoes];
+  return [...out, ...cartoes, ...tabela];
+}
+
+// ---------------------------------------------------------------- Tabela de preços da minha especialidade
+// Decisão do dono (2026-10-14): só para os PARCEIROS de uma especialidade (`eu.parceiro_de`; o servidor responde 403 a
+// quem não é). De cada artigo vê só as horas de mão de obra de hoje e o que receberia — nunca o preço ao cliente nem o
+// custo de compra da Domus (o servidor nem os envia). Propõe horas, material (texto), o custo do material na estimativa
+// dele (opcional) e uma nota, ou um artigo novo. Nada muda até a Domus Energia aprovar.
+const ESTADO_PRECO = { pendente: ["À espera da Domus Energia", "aviso"], aprovada: ["Aprovada", "bom"], recusada: ["Não aprovada", "mau"] };
+const eParceiro = () => Array.isArray(eu?.parceiro_de) && eu.parceiro_de.length > 0;
+const horasTxt = (v) => `${decimal(Math.round(Number(v) * 100) / 100)} h`;
+
+function campoTexto(rotulo, input, dica) {
+  return com(el("label", "campo"), el("span", null, rotulo), input, dica ? el("span", "dica", dica) : null);
+}
+/** O formulário da proposta: `artigo` (um que já existe) ou null (artigo novo). Envia e volta a desenhar a tabela. */
+function formPreco(r, artigo) {
+  const sufixo = artigo ? String(artigo.id) : "novo";
+  const entrada = (nome, attrs = {}) => { const i = el("input"); i.id = `preco-${nome}-${sufixo}`; Object.assign(i, attrs); return i; };
+  const nome = artigo ? null : entrada("nome", { maxLength: 160, autocomplete: "off" });
+  let esp = null;
+  if (!artigo && r.especialidades.length > 1) {
+    esp = el("select");
+    esp.id = `preco-especialidade-${sufixo}`;
+    for (const x of r.especialidades) { const o = el("option", null, x.nome); o.value = x.chave; esp.append(o); }
+  }
+  const horas = entrada("horas", { type: "text", inputMode: "decimal", autocomplete: "off", placeholder: artigo ? horasTxt(artigo.horas).replace(" h", "") : "ex.: 0,5" });
+  const material = entrada("material", { maxLength: 300, autocomplete: "off" });
+  const custo = entrada("custo", { type: "text", inputMode: "decimal", autocomplete: "off" });
+  const nota = el("textarea");
+  nota.id = `preco-nota-${sufixo}`;
+  nota.maxLength = 600;
+  nota.rows = 3;
+  const msg = el("p", "msg erro");
+  msg.hidden = true;
+  msg.setAttribute("role", "alert");
+  const b = el("button", "btn cheio", artigo ? "Enviar a proposta" : "Propor o artigo novo");
+  b.type = "button";
+  b.id = `preco-enviar-${sufixo}`;
+  const erro = (t, foco) => { msg.textContent = t; msg.hidden = false; foco?.focus(); };
+  b.addEventListener("click", async () => {
+    msg.hidden = true;
+    const h = numeroDe(horas.value);
+    if (h === null || Number.isNaN(h) || h <= 0 || h > (r.max_horas ?? 100)) return erro(`Horas: um número maior que 0 e até ${r.max_horas ?? 100}.`, horas);
+    const c = numeroDe(custo.value);
+    if (Number.isNaN(c) || (c !== null && c < 0)) return erro("O custo do material tem de ser um número (ou vazio).", custo);
+    if (nome && nome.value.trim().length < 3) return erro("Escreva o nome do artigo novo.", nome);
+    const corpo = { horas: h, material: material.value.trim() || null, custo: c, nota: nota.value.trim() || null };
+    if (artigo) corpo.artigo_id = artigo.id;
+    else { corpo.nome = nome.value.trim(); if (esp) corpo.especialidade = esp.value; }
+    b.disabled = true;
+    try {
+      await pedir("precos", corpo);
+      aviso("Proposta enviada. A Domus Energia vai rever.");
+      encaminhar();
+    } catch (e) { if (e.estado !== 401) erro(e.message); }
+    finally { b.disabled = false; }
+  });
+  return [
+    nome ? campoTexto("Nome do artigo", nome, "O que é, como aparece numa proposta.") : null,
+    esp ? campoTexto("Especialidade", esp) : null,
+    campoTexto("Horas de mão de obra", horas, artigo ? `Hoje: ${horasTxt(artigo.horas)}.` : null),
+    campoTexto("Material", material, "O que leva (texto)."),
+    campoTexto("Custo do material, na sua estimativa (€, opcional)", custo),
+    campoTexto("Nota (opcional)", nota),
+    el("p", "pequeno suave", "Só propõe horas e material: o preço ao cliente é da Domus Energia."),
+    msg, b,
+  ];
+}
+function linhaProposta(x) {
+  const [txt, tipo] = ESTADO_PRECO[x.estado] ?? [x.estado, ""];
+  const p = com(el("div", "nota pilha"), com(el("div", "selos"), selo(`A sua proposta: ${txt}`, tipo)),
+    el("p", "pequeno", [`${horasTxt(x.horas)} · recebe ${euro(x.recebe)}`, x.material ? `Material: ${x.material}` : null, x.custo !== null && x.custo !== undefined ? `Custo do material: ${euro(x.custo)}` : null].filter(Boolean).join(" · ")),
+    x.estado === "recusada" && x.motivo ? el("p", "pequeno", `Motivo: ${x.motivo}`) : null);
+  p.id = `preco-proposta-${x.id}`;
+  return p;
+}
+async function precos() {
+  const r = await pedir("precos");
+  const ultima = new Map();
+  for (const x of r.propostas) if (x.artigo_id && !x.novo && !ultima.has(x.artigo_id)) ultima.set(x.artigo_id, x);   // vêm da mais recente para a mais antiga
+  const nomes = r.especialidades.map((x) => x.nome).join(" · ");
+  const out = [botaoVoltar("Início", "inicio"), el("h2", null, "Tabela de preços da minha especialidade"),
+    el("p", "suave pequeno", `${nomes}. As horas de mão de obra que a Domus Energia usa hoje em cada artigo e o que recebe por elas: ${decimal(r.percentagem)} % da mão de obra, sem IVA. Se acha que um artigo leva mais (ou menos) tempo ou outro material, proponha: nada muda até a Domus Energia aprovar.`)];
+  const procurar = el("input");
+  procurar.type = "search";
+  procurar.id = "precos-procurar";
+  procurar.placeholder = "Procurar artigo";
+  procurar.maxLength = 80;
+  const cartoes = r.artigos.map((a) => {
+    const p = ultima.get(a.id);
+    const d = seccao(a.nome, p ? selo(ESTADO_PRECO[p.estado]?.[0] ?? p.estado, ESTADO_PRECO[p.estado]?.[1] ?? "") : null,
+      com(el("div", "grelha-2"),
+        com(el("div", "pilha"), el("p", "rotulo", "Mão de obra hoje"), el("p", "valor-grande", horasTxt(a.horas))),
+        com(el("div", "pilha"), el("p", "rotulo", "Recebe"), el("p", "valor-grande", euro(a.recebe)))),
+      p ? linhaProposta(p) : null,
+      ...formPreco(r, a));
+    d.open = false;
+    d.id = `preco-artigo-${a.id}`;
+    d.dataset.procura = `${a.nome} ${a.sku}`.toLowerCase();
+    return d;
+  });
+  procurar.addEventListener("input", () => { const t = procurar.value.trim().toLowerCase(); for (const c of cartoes) c.hidden = Boolean(t) && !c.dataset.procura.includes(t); });
+  out.push(campoTexto("Procurar", procurar));
+  if (!cartoes.length) out.push(com(el("div", "cartao"), el("p", null, "Ainda não há artigos da sua especialidade no catálogo."), el("p", "suave pequeno", "Pode propor um artigo novo aqui em baixo.")));
+  out.push(...cartoes);
+  const novo = seccao("Propor um artigo novo", null, ...formPreco(r, null));
+  novo.open = false;
+  novo.id = "preco-artigo-novo";
+  out.push(novo);
+  const novos = r.propostas.filter((x) => x.novo);
+  if (novos.length) {
+    out.push(el("h2", null, "Artigos novos que propôs"));
+    for (const x of novos) out.push(com(el("div", "cartao pilha"), el("p", null, x.nome), linhaProposta(x)));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- o que recebe

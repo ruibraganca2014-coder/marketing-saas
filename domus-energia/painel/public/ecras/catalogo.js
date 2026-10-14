@@ -12,6 +12,9 @@ export const CATEGORIAS = {
   disjuntor: "Disjuntor", interruptor: "Interruptor", sensor: "Sensor", estore: "Estore", tomada: "Tomada", luz: "Luz",
   termostato: "Termóstato", central: "Central", acessorio: "Acessório", outro: "Outro",
 };
+// Especialidades (decisão do dono, 2026-10-14; migração 55): cada artigo é de uma; os eletricistas parceiros dela propõem
+// as horas e o material (bloco "Propostas dos parceiros"), e nada muda até o CEO aprovar. As de eletricistas.js.
+export const ESPECIALIDADES = { geral: "Instalação geral e quadros", domotica: "Domótica e automação", solar: "Solar e carregadores de carro", redes: "Redes, telecomunicações e segurança" };
 export const IVA = 0.23;
 export const MARGEM_MINIMA = 25;       // %: abaixo disto o artigo fica assinalado
 const RE_SKU = /^[A-Z0-9][A-Z0-9._-]{0,39}$/;
@@ -61,17 +64,21 @@ export default function catalogo(el) {
   const novo = h("button", { class: "btn", type: "button", id: "novo-artigo", text: "Novo artigo", onclick: () => abrirArtigo(null) });
   const fTexto = h("input", { type: "search", name: "procurar", placeholder: "Procurar SKU, nome ou fornecedor", "aria-label": "Procurar artigo", maxlength: "80" });
   const fCat = escolha("categoria", { "": "Todas as categorias", ...CATEGORIAS }, "", { "aria-label": "Filtrar por categoria" });
+  const fEsp = escolha("especialidade", { "": "Todas as especialidades", ...ESPECIALIDADES }, "", { "aria-label": "Filtrar por especialidade" });
   const fAtivo = escolha("ativo", { "": "Ativos e inativos", sim: "Só ativos", nao: "Só inativos" }, "", { "aria-label": "Filtrar por estado" });
   const contagem = h("p", { class: "ajuda", role: "status", id: "catalogo-contagem" });
   const zona = h("div", { class: "tabela-rolar" }, carregando());
   const zonaConfig = h("section", { class: "cartao bloco-config", "aria-labelledby": "config-titulo" }, h("h2", { id: "config-titulo", text: "Simulador de orçamento" }), carregando());
+  // Propostas dos parceiros (2026-10-14): só aparece com o módulo dos eletricistas ligado e alguma proposta.
+  const zonaPropostas = h("section", { class: "bloco-propostas-precos", id: "propostas-precos", "aria-labelledby": "propostas-precos-titulo", hidden: true });
   el.append(
     h("div", { class: "ecra-topo" }, h("h1", { text: "Catálogo" }), novo),
     h("p", { class: "ajuda", text: `Artigos do simulador de orçamento. O cliente só vê o nome, o preço de venda e as horas; nunca o custo, o stock, o fornecedor nem o link. Margem = preço de venda sem IVA (÷ 1,23) − custo real de compra (preço + transporte + alfândega); abaixo de ${MARGEM_MINIMA} % fica assinalada.` }),
+    zonaPropostas,
     zonaConfig,
     h("section", { class: "bloco-lista" }, h("div", { class: "seccao-topo" }, h("h2", { text: "Artigos" })),
-      h("div", { class: "filtros" }, fTexto, fCat, fAtivo), contagem, zona));
-  for (const f of [fCat, fAtivo]) f.addEventListener("change", desenhar);
+      h("div", { class: "filtros" }, fTexto, fCat, fEsp, fAtivo), contagem, zona));
+  for (const f of [fCat, fEsp, fAtivo]) f.addEventListener("change", desenhar);
   fTexto.addEventListener("input", desenhar);
 
   async function carregar() {
@@ -83,6 +90,96 @@ export default function catalogo(el) {
     if (!config) { try { config = await pedir("config-orcamento", { sinal: ctrl.signal }); } catch { config = {}; } }
     desenharConfig();
     desenhar();
+    carregarPropostas();
+  }
+
+  // ---------- Propostas dos parceiros (decisão do dono, 2026-10-14) ----------
+  // O que os eletricistas parceiros propõem para os artigos da sua especialidade (horas, material, custo do material) ou
+  // um artigo novo. Antes e depois lado a lado; o CEO pode mudar os valores antes de aprovar. Recusar pede um motivo
+  // (opcional) que o eletricista vê. O preço ao cliente nunca vem do eletricista.
+  async function carregarPropostas() {
+    let r;
+    try { r = await pedir("propostas-precos", { sinal: ctrl.signal }); }
+    catch (e) { if (e.name !== "AbortError") zonaPropostas.hidden = true; return; }   // módulo dos eletricistas desligado: 404
+    const pendentes = lista(r, "pendentes");
+    zonaPropostas.hidden = !pendentes.length;
+    if (!pendentes.length) { zonaPropostas.replaceChildren(); return; }
+    zonaPropostas.replaceChildren(
+      h("div", { class: "seccao-topo" }, h("h2", { id: "propostas-precos-titulo", text: `Propostas dos parceiros (${pendentes.length})` })),
+      h("p", { class: "ajuda", text: "Horas e material propostos pelos eletricistas parceiros para os artigos da sua especialidade. Nada muda no catálogo, no simulador nem nas propostas até aprovar. \"Recebe\" = a percentagem do eletricista da mão de obra sem IVA." }),
+      h("div", { class: "propostas-lista" }, ...pendentes.map(cartaoProposta)));
+  }
+
+  function cartaoProposta(x) {
+    const id = String(campo(x, "id"));
+    const novo = campo(x, "novo") === true;
+    const antes = campo(x, "antes"), prop = campo(x, "proposta") ?? {};
+    const msg = h("div", { class: "msg", role: "alert", hidden: true });
+    const entrada = (nome, valor, attrs = {}) => h("input", { name: nome, id: `pp-${nome}-${id}`, value: valor ?? "", ...attrs });
+    const horasI = entrada("horas", campo(prop, "horas"), { type: "number", min: "0.05", max: "100", step: "0.05", inputmode: "decimal", required: true });
+    const materialI = entrada("material", campo(prop, "material"), { maxlength: "300" });
+    const custoI = entrada("custo", campo(prop, "custo"), { type: "number", min: "0", step: "0.01", inputmode: "decimal" });
+    const skuI = novo ? entrada("sku", "", { maxlength: "40", autocapitalize: "characters", spellcheck: "false", required: true }) : null;
+    const nomeI = novo ? entrada("nome", campo(prop, "nome"), { maxlength: "160", required: true }) : null;
+    const catI = novo ? escolha("categoria", CATEGORIAS, "outro", { id: `pp-categoria-${id}` }) : null;
+    const vendaI = novo ? entrada("preco_venda_iva", "", { type: "number", min: "0", step: "0.01", inputmode: "decimal", required: true }) : null;
+    const linhaT = (rotulo, a, b) => h("tr", {}, h("th", { scope: "row", text: rotulo }), h("td", { "data-rotulo": "Agora", text: a }), h("td", { "data-rotulo": "Proposta", text: b }));
+    const txtOu = (v) => (v == null || v === "" ? "—" : String(v));
+    const tabela = h("table", { class: "tabela tabela-cartoes tabela-comparar" },
+      h("caption", { class: "so-leitor", text: "Valores atuais e propostos" }),
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", text: "" }), h("th", { scope: "col", text: "Agora" }), h("th", { scope: "col", text: "Proposta" }))),
+      h("tbody", {},
+        linhaT("Horas", antes ? horas(campo(antes, "horas")) : "—", horas(campo(prop, "horas"))),
+        linhaT("Material", antes ? txtOu(campo(antes, "material")) : "—", txtOu(campo(prop, "material"))),
+        linhaT("Custo do material", antes ? euros(campo(antes, "custo")) : "—", euros(campo(prop, "custo"))),
+        linhaT(`Recebe o eletricista (${num(campo(x, "percentagem"))} %)`, antes ? euros(campo(antes, "recebe")) : "—", euros(campo(prop, "recebe")))));
+    const motivo = h("textarea", { rows: "2", maxlength: "300", id: `pp-motivo-${id}`, "aria-label": "Motivo da recusa" });
+    const zonaRecusa = h("div", { class: "form-grelha", hidden: true },
+      campoForm("Porque recusa (opcional; o eletricista vê este texto)", motivo),
+      h("div", { class: "form-botoes" }, h("button", { class: "btn pequeno", type: "button", id: `pp-recusar-confirmar-${id}`, text: "Confirmar: recusar", onclick: (e) => decidir(e.currentTarget, "recusar", { motivo: motivo.value.trim() || null }) })));
+    async function decidir(botao, acao, corpo) {
+      botao.disabled = true; mensagem(msg, null);
+      try {
+        await pedir(`propostas-precos/${encodeURIComponent(id)}/${acao}`, { corpo });
+        avisar(acao === "aprovar" ? "Proposta aprovada: o catálogo foi atualizado." : "Proposta recusada.");
+        carregar();
+      } catch (er) { botao.disabled = false; mensagem(msg, er.message); }
+    }
+    function aprovar(e) {
+      const hv = numero(horasI.value);
+      if (hv === null || hv <= 0 || hv > 100) { mensagem(msg, "Horas: número maior que 0 e até 100."); horasI.focus(); return; }
+      const ct = custoI.value.trim(), cv = ct === "" ? null : numero(ct);
+      if (ct !== "" && (cv === null || cv < 0)) { mensagem(msg, "O custo do material tem de ser um número (ou vazio)."); custoI.focus(); return; }
+      const corpo = { horas: hv, material: materialI.value.trim() || null, custo: cv };
+      if (novo) {
+        const sku = skuI.value.trim().toUpperCase();
+        if (!RE_SKU.test(sku)) { mensagem(msg, "SKU inválido: maiúsculas, números, \".\", \"_\" e \"-\" (máx. 40)."); skuI.focus(); return; }
+        const venda = numero(vendaI.value);
+        if (venda === null || venda < 0) { mensagem(msg, "Indique o preço de venda (c/ IVA)."); vendaI.focus(); return; }
+        if (!nomeI.value.trim()) { mensagem(msg, "Escreva o nome do artigo."); nomeI.focus(); return; }
+        Object.assign(corpo, { sku, nome: nomeI.value.trim(), categoria: catI.value, preco_venda_iva: venda });
+      }
+      decidir(e.currentTarget, "aprovar", corpo);
+    }
+    const titulo = novo ? `Artigo novo: ${txtOu(campo(prop, "nome"))}` : `${txtOu(campo(x, "artigo")?.nome)} (${txtOu(campo(x, "artigo")?.sku)})`;
+    return h("article", { class: "cartao", id: `proposta-precos-${id}`, dataset: { id } },
+      h("h3", { text: titulo }),
+      h("p", { class: "ajuda", text: `Proposta de ${txtOu(campo(x, "eletricista")?.nome)} · ${txtOu(campo(x, "especialidade_nome"))} · ${data(campo(x, "criado"))}` }),
+      tabela,
+      campo(prop, "nota") ? h("p", {}, h("strong", { text: "Nota: " }), h("span", { text: String(campo(prop, "nota")) })) : null,
+      h("details", { class: "pp-editar" }, h("summary", { text: novo ? "Dados do artigo novo e valores a aprovar" : "Mudar os valores antes de aprovar" }),
+        h("div", { class: "form-grelha" },
+          novo ? h("div", { class: "duas" }, campoForm("SKU", skuI, "Maiúsculas, números, \".\", \"_\" e \"-\""), campoForm("Categoria", catI)) : null,
+          novo ? campoForm("Nome", nomeI) : null,
+          novo ? campoForm("Preço de venda (€, c/ IVA)", vendaI, "O eletricista nunca propõe o preço ao cliente. O artigo fica escondido do cliente até o mostrar.") : null,
+          h("div", { class: "tres" }, campoForm("Horas", horasI), campoForm("Material", materialI), campoForm("Custo do material (€)", custoI, "Vazio = fica o custo que já tem")))),
+      h("div", { class: "form-botoes" },
+        h("button", { class: "btn pequeno", type: "button", id: `pp-aprovar-${id}`, text: "Aprovar", onclick: (e) => {
+          if (novo && !e.currentTarget.closest("article").querySelector("details").open) { e.currentTarget.closest("article").querySelector("details").open = true; mensagem(msg, "Indique o SKU, a categoria e o preço de venda do artigo novo.", "info"); skuI.focus(); return; }
+          aprovar(e);
+        } }),
+        h("button", { class: "btn sec pequeno", type: "button", id: `pp-recusar-${id}`, text: "Recusar", onclick: (e) => { zonaRecusa.hidden = false; e.currentTarget.hidden = true; motivo.focus(); } })),
+      zonaRecusa, msg);
   }
 
   // ---------- Configuração ----------
@@ -154,6 +251,7 @@ export default function catalogo(el) {
     const t = fTexto.value.trim().toLowerCase();
     return itens
       .filter((a) => !fCat.value || campo(a, "categoria") === fCat.value)
+      .filter((a) => !fEsp.value || (campo(a, "especialidade") ?? "geral") === fEsp.value)
       .filter((a) => !fAtivo.value || (campo(a, "ativo") !== false) === (fAtivo.value === "sim"))
       .filter((a) => !t || ["sku", "nome", "fornecedor"].some((k) => String(campo(a, k) ?? "").toLowerCase().includes(t)))
       .sort((a, b) => (CATEGORIAS[campo(a, "categoria")] ?? "").localeCompare(CATEGORIAS[campo(b, "categoria")] ?? "", "pt") || String(campo(a, "nome")).localeCompare(String(campo(b, "nome")), "pt"));
@@ -180,7 +278,8 @@ export default function catalogo(el) {
     const nota = campo(a, "especificacoes")?.nota, provisorio = typeof nota === "string" && /preço provisório/i.test(nota);
     return h("tr", { dataset: { id, sku: String(campo(a, "sku") ?? "") }, class: `${ativo ? "" : "inativo"} ${m.aviso ? `margem-${m.aviso}` : ""}`.trim() },
       h("td", { "data-rotulo": "Artigo" }, h("div", {}, h("strong", { class: "bloco-ajuda", text: String(campo(a, "nome") ?? "—") }), h("span", { class: "ajuda bloco-ajuda", text: [campo(a, "sku"), campo(a, "fornecedor")].filter(Boolean).join(" · ") }))),
-      h("td", { "data-rotulo": "Categoria", text: CATEGORIAS[campo(a, "categoria")] ?? String(campo(a, "categoria") ?? "—") }),
+      h("td", { "data-rotulo": "Categoria" }, h("div", {}, h("span", { class: "bloco-ajuda", text: CATEGORIAS[campo(a, "categoria")] ?? String(campo(a, "categoria") ?? "—") }),
+        h("span", { class: "ajuda bloco-ajuda", text: ESPECIALIDADES[campo(a, "especialidade")] ?? "" }))),
       h("td", { class: "num", "data-rotulo": "Custo", text: euros(campo(a, "preco_compra")) }),
       h("td", { class: "num", "data-rotulo": "Venda c/ IVA", text: euros(campo(a, "preco_venda_iva")) }),
       h("td", { class: "celula-margem", "data-rotulo": "Margem" }, h("span", { class: "linha-selos" }, ...celulaMargem(m))),
@@ -220,11 +319,15 @@ export default function catalogo(el) {
     const linkAtual = typeof v("link") === "string" && RE_LINK.test(v("link"))
       ? h("a", { href: v("link"), target: "_blank", rel: "noopener noreferrer", id: "abrir-link", text: "Abrir a página do fornecedor ↗" }) : null;
     const categoria = escolha("categoria", CATEGORIAS, campo(a, "categoria") ?? "outro");
+    const especialidade = escolha("especialidade", ESPECIALIDADES, campo(a, "especialidade") ?? "geral");
     const f = h("form", { class: "form-grelha", id: "form-artigo", novalidate: true },
       h("div", { class: "duas" },
         campoForm("SKU", inp("sku", { required: true, maxlength: "40", autocapitalize: "characters", spellcheck: "false" }), "Maiúsculas, números, \".\", \"_\" e \"-\""),
         campoForm("Categoria", categoria)),
       campoForm("Nome", inp("nome", { required: true, maxlength: "160" })),
+      h("div", { class: "duas" },
+        campoForm("Especialidade", especialidade, "Os eletricistas parceiros desta especialidade propõem as horas e o material."),
+        campoForm("Material (texto)", h("input", { name: "material", maxlength: "300", value: typeof esp.material === "string" ? esp.material : "" }), "O que leva. Fica nas especificações.")),
       h("div", { class: "duas" },
         campoForm("Fornecedor", inp("fornecedor", { maxlength: "160" })),
         campoForm("Link (página do fornecedor)", inp("link", { type: "url", maxlength: "500", inputmode: "url", placeholder: "https://…", spellcheck: "false" }), "Só https://. Nunca aparece ao cliente.")),
@@ -333,8 +436,10 @@ export default function catalogo(el) {
       if (minimo === null || minimo < 0 || !Number.isInteger(minimo)) return erro("Stock mínimo: número inteiro igual ou maior que 0.", el2.stock_minimo);
       const especificacoes = lerJson();
       if (especificacoes === null) { f.querySelector("details.esp-json").open = true; return erro("As especificações têm de ser um objeto JSON válido.", json); }
+      const materialTxt = el2.material.value.trim();
+      if (materialTxt) especificacoes.material = materialTxt; else delete especificacoes.material;
       const tudo = {
-        sku, nome, categoria: categoria.value, fornecedor: el2.fornecedor.value.trim() || null, link: link || null,
+        sku, nome, categoria: categoria.value, especialidade: especialidade.value, fornecedor: el2.fornecedor.value.trim() || null, link: link || null,
         preco_compra: compra, preco_venda_iva: venda, horas_instalacao: horas, horas_troca: horasTroca, especificacoes, stock_minimo: minimo,
         ativo: el2.ativo.checked, visivel_cliente: el2.visivel_cliente.checked,
       };
@@ -343,7 +448,7 @@ export default function catalogo(el) {
       if (a) {
         corpo = {};
         for (const [k, val] of Object.entries(tudo)) {
-          const antes = campo(a, k) ?? (k === "stock_minimo" ? 0 : null);
+          const antes = campo(a, k) ?? (k === "stock_minimo" ? 0 : k === "especialidade" ? "geral" : null);
           if (JSON.stringify(k === "especificacoes" ? (antes ?? {}) : antes) !== JSON.stringify(val)) corpo[k] = val;
         }
         if (!Object.keys(corpo).length) { mensagem(msg, "Não mudou nada.", "info"); return; }

@@ -173,6 +173,11 @@ export const ROTAS = [
   ['POST', 'catalogo', ['ceo'], 'criarArtigo'],
   ['POST', 'catalogo/:id', ['ceo'], 'atualizarArtigo'],
   ['POST', 'catalogo/:id/stock', ['ceo'], 'movimentoStock'],
+  // Tabela de preços da especialidade (decisão do dono, 2026-10-14; migração 55): o que os eletricistas parceiros propõem
+  // para os artigos da sua especialidade (horas, material, custo) espera aqui pelo CEO; só ao aprovar muda o catálogo.
+  ['GET', 'propostas-precos', ['ceo'], 'propostasPrecos'],
+  ['POST', 'propostas-precos/:id/aprovar', ['ceo'], 'aprovarPropostaPreco'],   // {horas, material, custo} e, num artigo novo, {sku, nome, categoria, preco_venda_iva, especialidade}
+  ['POST', 'propostas-precos/:id/recusar', ['ceo'], 'recusarPropostaPreco'],   // {motivo} (opcional; o eletricista vê-o)
   ['GET', 'stock', ['ceo'], 'stock'],
   ['GET', 'config-orcamento', ['ceo'], 'configOrcamento'],
   ['POST', 'config-orcamento', ['ceo'], 'atualizarConfigOrcamento'],
@@ -237,7 +242,8 @@ export const ROTAS = [
  * (ELETRICISTAS=1); sem ele respondem 404, como qualquer endereço desconhecido.
  */
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
-  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda', 'indicarTecnico']);
+  'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda', 'indicarTecnico',
+  'propostasPrecos', 'aprovarPropostaPreco', 'recusarPropostaPreco']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -582,6 +588,7 @@ export function criarApi(ctx) {
       id: a.id, sku: a.sku, nome: a.nome, categoria: a.categoria, fornecedor: a.fornecedor, link: a.link,
       preco_compra: deCent(a.preco_compra_cent), preco_venda_iva: deCent(a.preco_venda_iva_cent),
       horas_instalacao: a.horas_instalacao, horas_troca: a.horas_troca ?? null, especificacoes: JSON.parse(a.especificacoes || '{}'),
+      especialidade: a.especialidade ?? 'geral',   // migração 55: a especialidade dos parceiros que propõem os valores deste artigo
       ativo: Boolean(a.ativo), visivel_cliente: Boolean(a.visivel_cliente), atualizado: a.atualizado,
       // Stock (migração 22; só CEO): em armazém, reservado para obras aceites, mínimo e se o artigo tem stock gerido.
       stock_qtd: a.stock_qtd ?? 0, stock_reservado: a.stock_reservado ?? 0, stock_minimo: a.stock_minimo ?? 0, stock_gerido: stock.gerido(a),
@@ -922,6 +929,10 @@ export function criarApi(ctx) {
         }
         for (const e of db.prepare("SELECT nome, criado FROM eletricistas WHERE estado = 'pendente' LIMIT 50").all()) {
           itens.push({ tipo: 'candidatura', texto: `Decidir a candidatura de ${e.nome}`, nome: e.nome, localidade: null, desde: e.criado, ligacao: '#/eletricistas' });
+        }
+        // Tabela de preços da especialidade (decisão do dono, 2026-10-14): o que os parceiros propuseram, no Catálogo.
+        for (const x of eletricistas.precosPorRever()) {
+          itens.push({ tipo: 'proposta_precos', texto: `Rever a proposta de preços de ${x.eletricista} (${x.novo ? `artigo novo: ${x.artigo}` : x.artigo})`, nome: x.eletricista, localidade: null, desde: x.criado, ligacao: '#/catalogo' });
         }
       }
     } else if (u.papel === 'comercial') {
@@ -2234,6 +2245,7 @@ export function criarApi(ctx) {
     }
     if (!parcial || v.nome !== undefined) r.nome = texto(v.nome, 'o nome', { max: 160, obrigatorio: true });
     if (!parcial || v.categoria !== undefined) r.categoria = opcao(v.categoria, 'categoria', CATEGORIAS);
+    if (v.especialidade !== undefined) r.especialidade = opcao(v.especialidade, 'especialidade', Object.keys(ESPECIALIDADES));
     if (v.fornecedor !== undefined) r.fornecedor = texto(v.fornecedor, 'o fornecedor', { max: 160 });
     if (v.link !== undefined) {
       r.link = texto(v.link, 'o link', { max: 500, re: /^https:\/\/[^\s"<>]+$/, reMsg: 'Link: endereço https:// completo.' });
@@ -2256,7 +2268,7 @@ export function criarApi(ctx) {
     if (v.stock_minimo !== undefined) r.stock_minimo = numero(v.stock_minimo, 'o stock mínimo', { max: 1_000_000, casas: 0, nulo: false });
     return r;
   }
-  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'horas_troca', 'especificacoes', 'ativo', 'visivel_cliente', 'stock_minimo'];
+  const CAMPOS_ARTIGO = ['sku', 'nome', 'categoria', 'especialidade', 'fornecedor', 'link', 'preco_compra', 'preco_venda_iva', 'horas_instalacao', 'horas_troca', 'especificacoes', 'ativo', 'visivel_cliente', 'stock_minimo'];
 
   // ---- stock (só CEO; stock.js): os artigos (abaixo do mínimo primeiro) e os últimos movimentos
   h.stock = ({ res }) => responder(res, 200, stock.listar());
@@ -2303,6 +2315,52 @@ export function criarApi(ctx) {
     db.prepare(`UPDATE catalogo SET ${cols.map((k) => `${k} = ?, `).join('')}atualizado = ? WHERE id = ?`).run(...cols.map((k) => r[k]), agoraIso(), a.id);
     auditar(u, 'catalogo_atualizado', `catalogo:${a.id}`, { sku: a.sku, campos: cols }, ip);
     responder(res, 200, formatarArtigo(db.prepare('SELECT * FROM catalogo WHERE id = ?').get(a.id)));
+  };
+
+  // ---- tabela de preços da especialidade (decisão do dono, 2026-10-14; eletricistas.js h.proporPreco): o CEO aprova —
+  // podendo mudar os valores antes — ou recusa. Aprovar põe as horas, o material (`especificacoes.material`) e o custo do
+  // material no artigo (o que a proposta não traz fica como estava); num artigo NOVO cria-o com o SKU, a categoria e o
+  // preço de venda que o CEO indicar, escondido do cliente até o CEO o mostrar. O preço ao cliente nunca vem do eletricista.
+  h.propostasPrecos = ({ res }) => responder(res, 200, eletricistas.propostasPrecos());
+
+  h.aprovarPropostaPreco = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['horas', 'material', 'custo', 'sku', 'nome', 'categoria', 'preco_venda_iva', 'especialidade'], 32 * 1024);
+    const p = eletricistas.propostaPrecoPendente(params.id);
+    const horas = v.horas === undefined ? p.horas : numero(v.horas, 'as horas', { max: 100, nulo: false });
+    if (!(horas > 0)) falha('As horas têm de ser mais do que 0.');
+    const material = v.material === undefined ? p.material : texto(v.material, 'o material', { max: 300 });
+    const custo = v.custo === undefined ? p.custo_cent : v.custo === null || v.custo === '' ? null : paraCent(numero(v.custo, 'o custo do material', { max: 100_000, nulo: false }));
+    let artigoId = p.artigo_id;
+    transacao(db, () => {
+      if (p.nome !== null) {
+        const r = camposArtigo({ sku: v.sku, nome: v.nome ?? p.nome, categoria: v.categoria ?? 'outro', preco_venda_iva: v.preco_venda_iva, horas_instalacao: horas,
+          preco_compra: custo === null ? null : deCent(custo), especificacoes: material ? { material } : {}, especialidade: v.especialidade ?? p.especialidade, visivel_cliente: false }, false);
+        if (db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(r.sku)) throw new ErroApi(409, 'Já existe um artigo com este SKU.');
+        const cols = Object.keys(r);
+        artigoId = Number(db.prepare(`INSERT INTO catalogo (${cols.join(', ')}, atualizado) VALUES (${cols.map(() => '?').join(', ')}, ?)`)
+          .run(...cols.map((k) => r[k]), agoraIso()).lastInsertRowid);
+        auditar(u, 'catalogo_criado', `catalogo:${artigoId}`, { sku: r.sku, proposta_precos: p.id }, ip);
+      } else {
+        const a = db.prepare('SELECT * FROM catalogo WHERE id = ?').get(p.artigo_id);
+        if (!a) throw new ErroApi(404, 'Artigo não encontrado.');
+        let esp = {};
+        try { esp = JSON.parse(a.especificacoes || '{}') ?? {}; } catch { esp = {}; }
+        if (material) esp.material = material;
+        db.prepare('UPDATE catalogo SET horas_instalacao = ?, especificacoes = ?, preco_compra_cent = COALESCE(?, preco_compra_cent), atualizado = ? WHERE id = ?')
+          .run(horas, JSON.stringify(esp), custo, agoraIso(), a.id);
+        auditar(u, 'catalogo_atualizado', `catalogo:${a.id}`, { sku: a.sku, campos: ['horas_instalacao', 'especificacoes', ...(custo === null ? [] : ['preco_compra_cent'])], proposta_precos: p.id,
+          antes: { horas: a.horas_instalacao, custo: deCent(a.preco_compra_cent) } }, ip);
+      }
+      eletricistas.decidirPropostaPreco(p, 'aprovada', { artigoId, valores: { horas, material, custo: deCent(custo) } }, u, ip);
+    });
+    responder(res, 200, { ...eletricistas.propostasPrecos(), artigo: formatarArtigo(db.prepare('SELECT * FROM catalogo WHERE id = ?').get(artigoId)) });
+  };
+
+  h.recusarPropostaPreco = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['motivo']);
+    const p = eletricistas.propostaPrecoPendente(params.id);
+    eletricistas.decidirPropostaPreco(p, 'recusada', { motivo: texto(v.motivo, 'o motivo', { max: 300, multilinha: true }) }, u, ip);
+    responder(res, 200, eletricistas.propostasPrecos());
   };
 
   // `emails_auto_inicio` (só leitura): desde quando contam os emails automáticos ao cliente (migração 35).

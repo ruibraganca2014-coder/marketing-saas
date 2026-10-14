@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
 import { diaLisboa, somarDiasCivil } from '../src/util.js';
 
-const SO_CEO = ['validar', 'ativacao', 'email_falhado', 'copia', 'escolher_proposta', 'aprovar_trabalho', 'pagar_eletricista', 'extra', 'ida_perdida', 'sem_tecnico', 'candidatura'];
+const SO_CEO = ['validar', 'ativacao', 'email_falhado', 'copia', 'escolher_proposta', 'aprovar_trabalho', 'pagar_eletricista', 'extra', 'ida_perdida', 'sem_tecnico', 'candidatura', 'proposta_precos'];
 
 describe('ecrã Hoje', () => {
   let p, tec2, ana, bruno;
