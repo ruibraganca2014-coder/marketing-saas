@@ -55,7 +55,7 @@
   .tabela tr.outro td { height: 11mm; }
   .tabela tr.outro td.trab span { display: block; font-weight: 800; color: var(--suave); font-size: 8pt; margin-top: -4mm; }
   .tag { font-style: normal; font-size: 6.8pt; font-weight: 800; padding: 0 1.2mm; border-radius: 1.5mm; background: var(--musgo-claro); color: var(--suave); white-space: nowrap; }
-  .t6 .c-trab { width: 34%; } .t6 .c-hoje { width: 10.5%; } .t6 .c-horas { width: 10%; } .t6 .c-mat { width: 19%; } .t6 .c-obs { width: 16%; }
+  .t5 .c-trab { width: 38%; } .t5 .c-hoje { width: 10%; } .t5 .c-horas { width: 10%; } .t5 .c-mat { width: 22%; } .t5 .c-obs { width: 20%; }
   .t4 .c-trab4 { width: 42%; } .t4 .c-horas { width: 11%; } .t4 .c-mat4 { width: 25%; } .t4 .c-obs4 { width: 22%; }
   /* A linha de exemplo, "escrita à mão" */
   .mao { font: 600 13pt/1.05 "Caveat", "Segoe Print", cursive; color: var(--caneta); }
@@ -74,7 +74,7 @@
 <h1>Tabelas de preços por especialidade</h1>
 <p class="sub">Para preencher à mão na reunião com os parceiros · uma folha por especialidade · 2026</p>
 
-<p>Estas folhas servem para pormos na tabela da Domus Energia <b>os tempos e o material reais</b> de cada trabalho, ditos por quem o faz. É com esta tabela que o simulador dá o preço ao cliente e que o painel calcula quanto recebe o eletricista.</p>
+<p>Estas folhas servem para pormos na tabela da Domus Energia <b>os tempos e o material reais</b> de cada trabalho, ditos por quem o faz. É com esta tabela que se fazem os orçamentos e que o painel calcula quanto recebe o eletricista.</p>
 
 <h3>O que tem de preencher</h3>
 <ol class="passos">
@@ -84,68 +84,68 @@
   <li>Nas linhas <b>"Outro trabalho"</b>, no fim de cada folha, escreva trabalhos que faz muitas vezes e que faltam.</li>
 </ol>
 
-<div class="aviso"><b>Não precisa de dizer o preço ao cliente.</b> A empresa calcula-o: as suas horas × o valor por hora, mais o material com a margem da Domus Energia, mais a deslocação. As colunas cinzentas ("Horas hoje", "Preço hoje") são o que está hoje no catálogo, só para comparar. O material é comprado pela Domus Energia: o eletricista não o compra nem o fatura.</div>
+<div class="aviso"><b>Não precisa de dizer o preço ao cliente.</b> A empresa calcula-o a partir das suas horas e do material. A coluna cinzenta "Horas hoje" é o tempo que está hoje na tabela, só para comparar. O material é comprado pela Domus Energia: o eletricista não o compra nem o fatura.</div>
 
 <h3>Quanto recebe pelas horas que escrever</h3>
 <div class="contas">
-  <div><b>38,00 €</b>por hora, com IVA, é o que o cliente paga hoje de mão de obra (30,89 € sem IVA)</div>
-  <div><b>70 %</b>da mão de obra sem IVA é do eletricista: cerca de <b>21,63 €</b> por hora, mais toda a deslocação que o cliente paga</div>
+  <div><b>21,63 €</b>por cada hora da tabela, sem IVA, é o que recebe hoje</div>
+  <div><b>70 %</b>da mão de obra sem IVA é do eletricista, mais toda a deslocação que o cliente paga</div>
   <div><b>+50 %</b>nas avarias fora de horas (noite, fim de semana, feriado): os mesmos 70 %, sobre uma mão de obra 50 % mais cara</div>
 </div>
 <p class="nota" style="font-size:8.4pt;color:var(--suave)">Valores de hoje no painel (o valor por hora e a percentagem mudam-se lá, iguais para todos). Pago até 7 dias depois de o cliente pagar e a empresa aprovar, contra fatura-recibo.</p>
 
 <h3>Exemplo de uma linha preenchida</h3>
-<table class="tabela t6 exemplo"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-hoje">Preço hoje<br><span>(com IVA)</span></th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
-<tr><td class="trab">Ponto de rede Cat6 embutido, com tubo já existente (cabo até 20 m, tomada RJ45, ligar e testar)</td><td class="hoje">—</td><td class="hoje">—</td><td class="mao">1,5 h</td><td class="mao">20 m Cat6, tomada RJ45 e espelho ≈ 18 €</td><td class="mao">+0,5 h se não houver tubo</td></tr>
+<table class="tabela t5 exemplo"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
+<tr><td class="trab">Ponto de rede Cat6 embutido, com tubo já existente (cabo até 20 m, tomada RJ45, ligar e testar)</td><td class="hoje">—</td><td class="mao">1,5 h</td><td class="mao">20 m Cat6, tomada RJ45 e espelho ≈ 18 €</td><td class="mao">+0,5 h se não houver tubo</td></tr>
 </tbody></table>
-<p style="font-size:9pt">Com estas 1,5 h, o eletricista recebe 1,5 × 21,63 € = <b>32,44 €</b> pela mão de obra deste ponto, mais a deslocação. O cliente paga 1,5 × 38 € = 57 € de mão de obra, mais o material e a deslocação.</p>
+<p style="font-size:9pt">Com estas 1,5 h, o eletricista recebe 1,5 × 21,63 € = <b>32,44 €</b> pela mão de obra deste ponto, mais a deslocação.</p>
 
 <section class="pagina">
 <div class="topo"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4.6l8 6.6M6.2 9.6V19.4h11.6V9.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 9.4 10 14h2.6l-1 3.8 3-4.8H12z" fill="currentColor"/></svg></span><span class="marca">Domus <b>Energia</b></span><span class="onde">Estação Nómada, Unipessoal Lda.<br>opancas.pt</span></div>
 <h2><span class="num">1</span>Geral e quadros</h2>
-<p class="sub">Pontos novos, aparelhagem, avarias, linhas para máquinas e quadro elétrico. As colunas cinzentas mostram o que está hoje no catálogo: confirme ou corrija.</p>
+<p class="sub">Pontos novos, aparelhagem, avarias, linhas para máquinas e quadro elétrico. A coluna cinzenta mostra as horas que estão hoje na tabela: confirme ou corrija.</p>
 <table class="quem"><tr><td>Nome: <span class="campo"></span></td><td>Especialidade: <span class="campo"></span></td><td>Data: <span class="campo curto"></span></td></tr></table>
-<table class="tabela t6"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-hoje">Preço hoje<br><span>(com IVA)</span></th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
-<tr class="grupo"><td colspan="6">Pontos novos <span>preço fechado: o preço já inclui material e mão de obra; as horas dizem quanta mão de obra vai lá dentro</span></td></tr>
-<tr><td class="trab">Ponto de luz novo (tubo, cabo, caixas, ligação e mão de obra) </td><td class="hoje">0,75 h</td><td class="hoje">45,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Tomada nova (tubo, cabo, caixa, tomada com terra e mão de obra) </td><td class="hoje">0,6 h</td><td class="hoje">40,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Tomada dupla nova (2 tomadas na mesma caixa; material e mão de obra) </td><td class="hoje">0,75 h</td><td class="hoje">55,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Tomada tripla nova (3 tomadas na mesma caixa; material e mão de obra) </td><td class="hoje">0,9 h</td><td class="hoje">65,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor novo (tubo, cabo, caixa, interruptor simples e mão de obra) </td><td class="hoje">0,5 h</td><td class="hoje">35,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Aparelhagem e campainha</td></tr>
-<tr><td class="trab">Comutador de escada (luz comandada de 2 sítios; um por interruptor) <i class="tag">provisório</i></td><td class="hoje">0,15 h</td><td class="hoje">14,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Inversor de grupo (luz comandada de 3 ou mais sítios; um por sítio a mais) <i class="tag">provisório</i></td><td class="hoje">0,15 h</td><td class="hoje">18,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Botão de pressão (campainha, telerruptor) <i class="tag">provisório</i></td><td class="hoje">0,15 h</td><td class="hoje">12,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Campainha com transformador (ligação e mão de obra; o botão à parte) <i class="tag">provisório</i></td><td class="hoje">0,5 h</td><td class="hoje">39,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Avarias, trocas e máquinas</td></tr>
-<tr><td class="trab">Diagnóstico de avaria (por aparelho; a peça confirma-se na visita) </td><td class="hoje">0,5 h</td><td class="hoje">25,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Tomada, interruptor ou ponto de luz normal (troca) </td><td class="hoje">0,5 h<small>troca: 0,25 h</small></td><td class="hoje">9,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Ligar uma máquina no lugar da antiga (troca; a máquina é do cliente) <i class="tag">provisório</i></td><td class="hoje">1 h<small>troca: 0,5 h</small></td><td class="hoje"><small>só mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Linha dedicada da máquina até 15 m (cabo, tubo e mão de obra) </td><td class="hoje">1,5 h</td><td class="hoje">140,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra) </td><td class="hoje">0,75 h</td><td class="hoje">70,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Quadro elétrico <span>as horas da caixa incluem passar os circuitos para o quadro novo</span></td></tr>
-<tr><td class="trab">Caixa de quadro elétrico 12 módulos (1 fila, com barramentos) </td><td class="hoje">3 h</td><td class="hoje">44,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Caixa de quadro elétrico 18 módulos (1 fila, com barramentos) </td><td class="hoje">3,5 h</td><td class="hoje">52,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Caixa de quadro elétrico 24 módulos (2 filas, com barramentos) </td><td class="hoje">4 h</td><td class="hoje">64,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Caixa de quadro elétrico 36 módulos (3 filas, com barramentos) </td><td class="hoje">5 h</td><td class="hoje">99,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Caixa de quadro elétrico 48 módulos (4 filas, com barramentos) </td><td class="hoje">6 h</td><td class="hoje">139,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Ampliação do quadro (calha DIN, módulos) </td><td class="hoje">1 h</td><td class="hoje">25,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor geral 2P (40–63 A) — quadro novo </td><td class="hoje">0,5 h</td><td class="hoje">74,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor 1P+N curva C (6–40 A) — quadro novo </td><td class="hoje">0,25 h</td><td class="hoje">21,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor tetrapolar 4P curva C (10–40 A) — máquina trifásica, quadro novo </td><td class="hoje">0,25 h</td><td class="hoje">79,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor diferencial 2P 40 A 30 mA tipo AC </td><td class="hoje">0,5 h</td><td class="hoje">49,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Descarregador de sobretensões tipo 2 (1P+N, 40 kA) </td><td class="hoje">0,5 h</td><td class="hoje">89,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A) <i class="tag">provisório</i></td><td class="hoje">0,5 h</td><td class="hoje">339,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Aparelhos Wi-Fi que vão no quadro</td></tr>
-<tr><td class="trab">Disjuntor inteligente Wi-Fi com medição (1P+N, até 63 A) </td><td class="hoje">0,5 h</td><td class="hoje">39,90&nbsp;€<small>compra 11,04&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor inteligente Wi-Fi com medição e proteções (1–63 A ajustável) </td><td class="hoje">0,5 h</td><td class="hoje">54,90&nbsp;€<small>compra 14,30&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor geral Wi-Fi com medição e corte remoto (2P, 63 A) </td><td class="hoje">0,75 h</td><td class="hoje">69,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1, 30 mA) </td><td class="hoje">0,75 h</td><td class="hoje">119,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou) </td><td class="hoje">0,5 h</td><td class="hoje">59,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Medidor de energia geral Wi-Fi (calha DIN, até 63 A) </td><td class="hoje">0,5 h</td><td class="hoje">49,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Disjuntor inteligente Zigbee com medição e proteções (1–63 A) <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td class="hoje">59,90&nbsp;€<small>compra 20,11&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Trabalhos que ainda não estão na tabela</td></tr>
-<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr>
+<table class="tabela t5"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
+<tr class="grupo"><td colspan="5">Pontos novos <span>tubo, cabo, caixa, aparelho e ligação: as horas dizem quanta mão de obra leva cada ponto</span></td></tr>
+<tr><td class="trab">Ponto de luz novo (tubo, cabo, caixas, ligação e mão de obra) </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Tomada nova (tubo, cabo, caixa, tomada com terra e mão de obra) </td><td class="hoje">0,6 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Tomada dupla nova (2 tomadas na mesma caixa; material e mão de obra) </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Tomada tripla nova (3 tomadas na mesma caixa; material e mão de obra) </td><td class="hoje">0,9 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor novo (tubo, cabo, caixa, interruptor simples e mão de obra) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Aparelhagem e campainha</td></tr>
+<tr><td class="trab">Comutador de escada (luz comandada de 2 sítios; um por interruptor) </td><td class="hoje">0,15 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Inversor de grupo (luz comandada de 3 ou mais sítios; um por sítio a mais) </td><td class="hoje">0,15 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Botão de pressão (campainha, telerruptor) </td><td class="hoje">0,15 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Campainha com transformador (ligação e mão de obra; o botão à parte) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Avarias, trocas e máquinas</td></tr>
+<tr><td class="trab">Diagnóstico de avaria (por aparelho; a peça confirma-se na visita) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Tomada, interruptor ou ponto de luz normal (troca) </td><td class="hoje">0,5 h<small>troca: 0,25 h</small></td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Ligar uma máquina no lugar da antiga (troca; a máquina é do cliente) </td><td class="hoje">1 h<small>troca: 0,5 h</small></td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Linha dedicada da máquina até 15 m (cabo, tubo e mão de obra) </td><td class="hoje">1,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra) </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Quadro elétrico <span>as horas da caixa incluem passar os circuitos para o quadro novo</span></td></tr>
+<tr><td class="trab">Caixa de quadro elétrico 12 módulos (1 fila, com barramentos) </td><td class="hoje">3 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Caixa de quadro elétrico 18 módulos (1 fila, com barramentos) </td><td class="hoje">3,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Caixa de quadro elétrico 24 módulos (2 filas, com barramentos) </td><td class="hoje">4 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Caixa de quadro elétrico 36 módulos (3 filas, com barramentos) </td><td class="hoje">5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Caixa de quadro elétrico 48 módulos (4 filas, com barramentos) </td><td class="hoje">6 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Ampliação do quadro (calha DIN, módulos) </td><td class="hoje">1 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor geral 2P (40–63 A) — quadro novo </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor 1P+N curva C (6–40 A) — quadro novo </td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor tetrapolar 4P curva C (10–40 A) — máquina trifásica, quadro novo </td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor diferencial 2P 40 A 30 mA tipo AC </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Descarregador de sobretensões tipo 2 (1P+N, 40 kA) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Aparelhos Wi-Fi que vão no quadro</td></tr>
+<tr><td class="trab">Disjuntor inteligente Wi-Fi com medição (1P+N, até 63 A) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor inteligente Wi-Fi com medição e proteções (1–63 A ajustável) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor geral Wi-Fi com medição e corte remoto (2P, 63 A) </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1, 30 mA) </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Medidor de energia geral Wi-Fi (calha DIN, até 63 A) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Disjuntor inteligente Zigbee com medição e proteções (1–63 A) <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Trabalhos que ainda não estão na tabela</td></tr>
+<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr>
 </tbody></table>
 </section>
 
@@ -154,34 +154,34 @@
 <h2><span class="num">2</span>Casa inteligente e automação</h2>
 <p class="sub">Interruptores, módulos, sensores, termóstato e central. As horas contam montar, ligar e pôr o aparelho a funcionar na app. Confirme ou corrija.</p>
 <table class="quem"><tr><td>Nome: <span class="campo"></span></td><td>Especialidade: <span class="campo"></span></td><td>Data: <span class="campo curto"></span></td></tr></table>
-<table class="tabela t6"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-hoje">Preço hoje<br><span>(com IVA)</span></th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
-<tr class="grupo"><td colspan="6">Interruptores e módulos Wi-Fi</td></tr>
-<tr><td class="trab">Interruptor de parede tátil Wi-Fi 1 botão </td><td class="hoje">0,5 h</td><td class="hoje">24,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor de parede tátil Wi-Fi 2 botões </td><td class="hoje">0,5 h</td><td class="hoje">27,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor de parede tátil Wi-Fi 3 botões </td><td class="hoje">0,5 h</td><td class="hoje">29,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor de parede tátil Wi-Fi 4 botões </td><td class="hoje">0,5 h</td><td class="hoje">32,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Módulo interruptor Wi-Fi 2 canais (atrás do interruptor) </td><td class="hoje">0,5 h</td><td class="hoje">24,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Regulador de luz Wi-Fi </td><td class="hoje">0,5 h</td><td class="hoje">29,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Tomada inteligente Wi-Fi com medição </td><td class="hoje">0,1 h</td><td class="hoje">19,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Módulo de estore Wi-Fi </td><td class="hoje">0,75 h</td><td class="hoje">29,90&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Sensores e clima</td></tr>
-<tr><td class="trab">Sensor de porta/janela Wi-Fi </td><td class="hoje">0,25 h</td><td class="hoje">19,90&nbsp;€<small>compra 6,70&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Sensor de movimento Wi-Fi </td><td class="hoje">0,25 h</td><td class="hoje">22,90&nbsp;€<small>compra 6,82&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Sensor de fuga de água Wi-Fi </td><td class="hoje">0,25 h</td><td class="hoje">24,90&nbsp;€<small>compra 6,80&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Sensor de temperatura e humidade Wi-Fi com ecrã </td><td class="hoje">0,1 h</td><td class="hoje">22,90&nbsp;€<small>compra 8,02&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Termóstato Wi-Fi ecrã tátil </td><td class="hoje">1 h</td><td class="hoje">49,90&nbsp;€<small>compra 15,10&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Central</td></tr>
-<tr><td class="trab">Central local Raspberry Pi (UPS, sirene) — plano Premium </td><td class="hoje">2 h</td><td class="hoje">149,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Fora de venda por agora <span>Zigbee e fechaduras não ligam à nossa plataforma; diga se valia a pena</span></td></tr>
-<tr><td class="trab">Gateway Zigbee 3.0 com cabo de rede <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td class="hoje">69,90&nbsp;€<small>compra 27,97&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Sensor de porta/janela Zigbee <i class="tag">fora de venda</i></td><td class="hoje">0,25 h</td><td class="hoje">24,90&nbsp;€<small>compra 13,92&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Sensor de temperatura e humidade sem fios (protocolo a confirmar) <i class="tag">fora de venda</i></td><td class="hoje">0,1 h</td><td class="hoje">24,90&nbsp;€<small>compra 10,88&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Cabeça termostática inteligente para radiador <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td class="hoje">59,90&nbsp;€<small>compra 25,04&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Fechadura inteligente de puxador (impressão digital, código, cartão, app) <i class="tag">fora de venda</i></td><td class="hoje">1,5 h</td><td class="hoje">119,00&nbsp;€<small>compra 33,02&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Fechadura inteligente de puxador 5 em 1 (impressão digital, chave, cartão, código, app) <i class="tag">fora de venda</i></td><td class="hoje">1,5 h</td><td class="hoje">129,00&nbsp;€<small>compra 35,20&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Fechadura inteligente de segurança <i class="tag">fora de venda</i></td><td class="hoje">2 h</td><td class="hoje">199,00&nbsp;€<small>compra 64,27&nbsp;€</small></td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Trabalhos que ainda não estão na tabela <span>por exemplo: configurar a app e as cenas, campainha com vídeo, rega, portão</span></td></tr>
-<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr>
+<table class="tabela t5"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
+<tr class="grupo"><td colspan="5">Interruptores e módulos Wi-Fi</td></tr>
+<tr><td class="trab">Interruptor de parede tátil Wi-Fi 1 botão </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor de parede tátil Wi-Fi 2 botões </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor de parede tátil Wi-Fi 3 botões </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor de parede tátil Wi-Fi 4 botões </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Módulo interruptor Wi-Fi 2 canais (atrás do interruptor) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Regulador de luz Wi-Fi </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Tomada inteligente Wi-Fi com medição </td><td class="hoje">0,1 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Módulo de estore Wi-Fi </td><td class="hoje">0,75 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Sensores e clima</td></tr>
+<tr><td class="trab">Sensor de porta/janela Wi-Fi </td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Sensor de movimento Wi-Fi </td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Sensor de fuga de água Wi-Fi </td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Sensor de temperatura e humidade Wi-Fi com ecrã </td><td class="hoje">0,1 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Termóstato Wi-Fi ecrã tátil </td><td class="hoje">1 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Central</td></tr>
+<tr><td class="trab">Central local Raspberry Pi (UPS, sirene) — plano Premium </td><td class="hoje">2 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Fora de venda por agora <span>Zigbee e fechaduras não ligam à nossa plataforma; diga se valia a pena</span></td></tr>
+<tr><td class="trab">Gateway Zigbee 3.0 com cabo de rede <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Sensor de porta/janela Zigbee <i class="tag">fora de venda</i></td><td class="hoje">0,25 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Sensor de temperatura e humidade sem fios (protocolo a confirmar) <i class="tag">fora de venda</i></td><td class="hoje">0,1 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Cabeça termostática inteligente para radiador <i class="tag">fora de venda</i></td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Fechadura inteligente de puxador (impressão digital, código, cartão, app) <i class="tag">fora de venda</i></td><td class="hoje">1,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Fechadura inteligente de puxador 5 em 1 (impressão digital, chave, cartão, código, app) <i class="tag">fora de venda</i></td><td class="hoje">1,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Fechadura inteligente de segurança <i class="tag">fora de venda</i></td><td class="hoje">2 h</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Trabalhos que ainda não estão na tabela <span>por exemplo: configurar a app e as cenas, campainha com vídeo, rega, portão</span></td></tr>
+<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr>
 </tbody></table>
 </section>
 
@@ -190,40 +190,40 @@
 <h2><span class="num">3</span>Solar e carregadores</h2>
 <p class="sub">Ainda quase nada está no catálogo: diga as horas e o material de cada trabalho, numa casa normal da Grande Lisboa. Os painéis, o inversor e a bateria contam como material.</p>
 <table class="quem"><tr><td>Nome: <span class="campo"></span></td><td>Especialidade: <span class="campo"></span></td><td>Data: <span class="campo curto"></span></td></tr></table>
-<table class="tabela t6"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-hoje">Preço hoje<br><span>(com IVA)</span></th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
-<tr class="grupo"><td colspan="6">Painéis solares (autoconsumo) <span>diga as horas de montagem e ligação; o material, se souber o custo</span></td></tr>
-<tr><td class="trab">Kit de autoconsumo 2 kWp (4 a 5 painéis) em telhado inclinado de telha</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Kit de autoconsumo 4 kWp em telhado inclinado de telha</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Kit de autoconsumo 6 kWp em telhado inclinado de telha</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Telhado plano ou terraço: estrutura com inclinação ou lastro (a mais, por kWp)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Telhado de chapa ou painel sandwich (a mais, por kWp)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Kit de varanda até 800 W (fixação, microinversor e tomada própria)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Inversor de rede monofásico (montagem e ligação)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Inversor híbrido monofásico (preparado para bateria)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Inversor híbrido trifásico</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Bateria de 5 kWh junto ao inversor</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Módulo de bateria a mais (cada 5 kWh)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Quadro AC/DC com proteções (seccionador DC, descarregadores, disjuntor e diferencial)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Passagem de cabo DC do telhado ao inversor (a mais, por cada 10 m acima de 15 m)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Monitorização: medidor no quadro, Wi-Fi do inversor e limite de injeção na rede</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Registo da UPAC (pedido, esquema e documentos)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Revisão e limpeza anual de um sistema solar</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Carregadores de carro <span>as duas primeiras linhas já estão no catálogo</span></td></tr>
-<tr><td class="trab">Linha dedicada do carregador até 15 m (cabo, tubo, disjuntor, diferencial tipo A e mão de obra) </td><td class="hoje">4 h</td><td class="hoje">390,00&nbsp;€<small>com mão de obra</small></td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE) <i class="tag">provisório</i></td><td class="hoje">0,5 h</td><td class="hoje">45,00&nbsp;€</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Wallbox monofásica até 7,4 kW, na parede, até 15 m do quadro (só o carregador: montar, ligar, configurar)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Wallbox trifásica 11 kW, até 15 m do quadro</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Wallbox trifásica 22 kW, até 15 m do quadro</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Metro de linha a mais (acima de 15 m): à vista em calha ou tubo</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Metro de linha a mais (acima de 15 m): enterrado ou em vala</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Diferencial tipo B (ou tipo A com deteção DC de 6 mA, se o carregador não a tiver)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Gestão dinâmica de potência (pinça ou medidor no quadro de entrada)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Carregar com o excedente solar (ligação do carregador ao inversor ou ao medidor)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Coluna ou pedestal no exterior (fixação e base)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Garagem de prédio: linha desde o contador da fração até ao lugar</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr><td class="trab">Aumento de potência ou passagem a trifásico (quadro e pedido ao comercializador)</td><td class="hoje">—</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
-<tr class="grupo"><td colspan="6">Trabalhos que ainda não estão na tabela</td></tr>
-<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td><td></td></tr>
+<table class="tabela t5"><thead><tr><th class="c-trab">Trabalho</th><th class="c-hoje">Horas<br>hoje</th><th class="c-horas">Horas<br>(a sua)</th><th class="c-mat">Material e custo</th><th class="c-obs">Observações</th></tr></thead><tbody>
+<tr class="grupo"><td colspan="5">Painéis solares (autoconsumo) <span>diga as horas de montagem e ligação; o material, se souber o custo</span></td></tr>
+<tr><td class="trab">Kit de autoconsumo 2 kWp (4 a 5 painéis) em telhado inclinado de telha</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Kit de autoconsumo 4 kWp em telhado inclinado de telha</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Kit de autoconsumo 6 kWp em telhado inclinado de telha</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Telhado plano ou terraço: estrutura com inclinação ou lastro (a mais, por kWp)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Telhado de chapa ou painel sandwich (a mais, por kWp)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Kit de varanda até 800 W (fixação, microinversor e tomada própria)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Inversor de rede monofásico (montagem e ligação)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Inversor híbrido monofásico (preparado para bateria)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Inversor híbrido trifásico</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Bateria de 5 kWh junto ao inversor</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Módulo de bateria a mais (cada 5 kWh)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Quadro AC/DC com proteções (seccionador DC, descarregadores, disjuntor e diferencial)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Passagem de cabo DC do telhado ao inversor (a mais, por cada 10 m acima de 15 m)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Monitorização: medidor no quadro, Wi-Fi do inversor e limite de injeção na rede</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Registo da UPAC (pedido, esquema e documentos)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Revisão e limpeza anual de um sistema solar</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Carregadores de carro <span>as duas primeiras linhas já estão no catálogo</span></td></tr>
+<tr><td class="trab">Linha dedicada do carregador até 15 m (cabo, tubo, disjuntor, diferencial tipo A e mão de obra) </td><td class="hoje">4 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE) </td><td class="hoje">0,5 h</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Wallbox monofásica até 7,4 kW, na parede, até 15 m do quadro (só o carregador: montar, ligar, configurar)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Wallbox trifásica 11 kW, até 15 m do quadro</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Wallbox trifásica 22 kW, até 15 m do quadro</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Metro de linha a mais (acima de 15 m): à vista em calha ou tubo</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Metro de linha a mais (acima de 15 m): enterrado ou em vala</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Diferencial tipo B (ou tipo A com deteção DC de 6 mA, se o carregador não a tiver)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Gestão dinâmica de potência (pinça ou medidor no quadro de entrada)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Carregar com o excedente solar (ligação do carregador ao inversor ou ao medidor)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Coluna ou pedestal no exterior (fixação e base)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Garagem de prédio: linha desde o contador da fração até ao lugar</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr><td class="trab">Aumento de potência ou passagem a trifásico (quadro e pedido ao comercializador)</td><td class="hoje">—</td><td></td><td></td><td></td></tr>
+<tr class="grupo"><td colspan="5">Trabalhos que ainda não estão na tabela</td></tr>
+<tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr><tr class="outro"><td class="trab"><span>Outro trabalho:</span></td><td></td><td></td><td></td><td></td></tr>
 </tbody></table>
 </section>
 
@@ -266,9 +266,9 @@
 <h2><span class="num">5</span>Perguntas gerais</h2>
 <p class="sub">Para todos os parceiros. Responda ao que souber; o resto fala-se na reunião.</p>
 <table class="quem"><tr><td>Nome: <span class="campo"></span></td><td>Especialidade: <span class="campo"></span></td><td>Data: <span class="campo curto"></span></td></tr></table>
-<div class="pergunta"><b>1. Que valor por hora acha justo receber, sem IVA?</b><p class="hoje">Hoje: o cliente paga 38 € por hora com IVA; o eletricista recebe 70 % da mão de obra sem IVA (cerca de 21,63 € por hora).</p><div class="linhas"><span></span><span></span></div></div>
+<div class="pergunta"><b>1. Que valor por hora acha justo receber, sem IVA?</b><p class="hoje">Hoje: o eletricista recebe 70 % da mão de obra sem IVA, cerca de 21,63 € por hora.</p><div class="linhas"><span></span><span></span></div></div>
 <div class="pergunta"><b>2. Deslocação: como a costuma cobrar? (valor fixo, por km, por dia de obra)</b><p class="hoje">Hoje: sem valor fixo; 20 km grátis a partir de Lisboa e depois 0,40 € por km, ida e volta, por cada dia de obra (no máximo 5 dias). O eletricista recebe toda a deslocação. Visita perdida (cliente ausente): no mínimo 25 € com IVA.</p><div class="linhas"><span></span><span></span></div></div>
-<div class="pergunta"><b>3. Mínimo de serviço: abaixo de que valor não vale a pena sair de casa?</b><p class="hoje">Hoje: obra mínima de 100 € com IVA (abaixo disso cobra-se o mínimo).</p><div class="linhas"><span></span><span></span></div></div>
+<div class="pergunta"><b>3. Mínimo de serviço: abaixo de que valor não vale a pena sair de casa?</b><div class="linhas"><span></span><span></span></div></div>
 <div class="pergunta"><b>4. Urgências e fora de horas: faz? Quanto devia custar a mais?</b><p class="hoje">Hoje: avarias fora de horas (noite, fim de semana, feriado) custam mais 50 % no diagnóstico e na mão de obra; o eletricista recebe os mesmos 70 % sobre esse valor. Horário normal: dias úteis, 8h–20h.</p><div class="linhas"><span></span><span></span></div></div>
 <div class="pergunta"><b>5. Quanto tempo de garantia dá ao seu trabalho? E ao material?</b><div class="linhas"><span></span><span></span></div></div>
 <div class="pergunta"><b>6. Que fornecedores e armazenistas usa? Tem conta ou desconto em algum?</b><div class="linhas"><span></span><span></span><span></span></div></div>
