@@ -128,7 +128,7 @@ publicar() { # <permitido|negado> <utilizador> <tópico>
 for t in domus/joao/sala/1/set domus/joao/sala/2/set domus/joao/sala/led_dimmer/set \
          domus/joao/luz/rpc domus/joao/luz/command domus/joao/luz/command/switch:0 \
          domus/joao/luz/command/switch:1 domus/joao/_alarme/set domus/joao/_automacoes/set \
-         domus/joao/_fcm/registar; do
+         domus/joao/_fcm/registar domus/joao/_webpush/registar; do
   publicar permitido joao "$t"
 done
 # Cliente joao — permitido (v3 secção 10)
@@ -151,12 +151,12 @@ for t in domus/joao/_config domus/joao/_modo domus/joao/_cenas domus/joao/_saude
 done
 # Cliente joao — negado: reservados, estados dos aparelhos, outro cliente, fora de domus/
 for t in domus/joao/_aparelhos domus/joao/_alarme domus/joao/_automacoes domus/joao/_historico \
-         domus/joao/_eventos domus/joao/_ntfy domus/joao/_fcm domus/joao \
+         domus/joao/_eventos domus/joao/_ntfy domus/joao/_fcm domus/joao/_webpush domus/joao/_webpush/registar/x domus/joao \
          domus/joao/sala domus/joao/sala/1/get domus/joao/sala/connected domus/joao/sala/power/get \
          domus/joao/sala/led_dimmer/get domus/joao/luz/online domus/joao/luz/status/switch:0 \
          domus/joao/sala/1/set/x domus/joao/luz/command/switch:0/x domus/joao/_alarme/set/x \
          domus/maria/quadro/1/set domus/maria/quadro/command/switch:0 domus/maria/quadro/rpc \
-         domus/maria/_alarme/set domus/maria/_automacoes/set domus/maria/_fcm/registar \
+         domus/maria/_alarme/set domus/maria/_automacoes/set domus/maria/_fcm/registar domus/maria/_webpush/registar \
          domus/maria/_aparelhos domus/outro/x/1/set outro/topico; do
   publicar negado joao "$t"
 done

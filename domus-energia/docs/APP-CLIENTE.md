@@ -4,8 +4,9 @@ A "app" do cliente é a área de cliente do site (`web/cliente.html`), instaláv
 
 ## Decisões do dono
 
-1. **Web instalável, sem service worker (2026-10-09).** A área de cliente ganha um ícone no ecrã do telemóvel e abre sem a barra do navegador (`manifest.json`, `display: standalone`). Não há service worker, de propósito: com ele o telemóvel podia ficar a mostrar páginas velhas guardadas em cache depois de uma publicação, e a casa (alarme, luzes) tem de mostrar sempre o estado verdadeiro. O preço é não funcionar sem internet (sem ligação não há estado para mostrar de qualquer maneira) e não ter notificações próprias (ver "Notificações").
-2. **Notificações pela app ntfy, sem web push (2026-10-12).** Ver "Notificações".
+1. **Web instalável, sem service worker de páginas (2026-10-09).** A área de cliente ganha um ícone no ecrã do telemóvel e abre sem a barra do navegador (`manifest.json`, `display: standalone`). Não há service worker, de propósito: com ele o telemóvel podia ficar a mostrar páginas velhas guardadas em cache depois de uma publicação, e a casa (alarme, luzes) tem de mostrar sempre o estado verdadeiro. O preço é não funcionar sem internet (sem ligação não há estado para mostrar de qualquer maneira). O único service worker é o dos avisos (decisão 3), que não guarda nada.
+2. **Notificações pela app ntfy (2026-10-12).** Continua, agora como alternativa (decisão 3).
+3. **Avisos da própria app por web push, como canal principal (2026-10-14).** O ntfy fica como alternativa e continua a receber tudo o que recebia. Os mesmos avisos que o ntfy (alarme disparado com prioridade máxima, porta aberta com o alarme ligado, aparelho sem ligação, pilhas a acabar, ações "Enviar notificação" das automações) e a mesma regra do plano. No iPhone só funciona com a app instalada no ecrã principal (iOS 16.4 ou mais recente), e a app explica-o.
 
 ## Entrar
 
@@ -25,9 +26,30 @@ A mesma conta dos pedidos ([CONTA-CLIENTE.md](CONTA-CLIENTE.md)): email com pala
 
 ## Notificações
 
-Caminho: **motor → ntfy → app ntfy no telemóvel**. O motor publica cada aviso no tópico ntfy da casa (`motor/src/notificacoes.js`); o endereço do tópico chega à área de cliente em `domus/<cliente>/_ntfy` (retido, criado pelo `domus.sh`). Só nos planos com notificações ([PROTOCOLO-PLANOS.md](PROTOCOLO-PLANOS.md)); nos outros o cartão aparece com o cadeado.
+Dois caminhos, com o mesmo texto e a mesma prioridade, só nos planos com notificações ([PROTOCOLO-PLANOS.md](PROTOCOLO-PLANOS.md)); nos outros o cartão aparece com o cadeado. O motor envia para os dois ao mesmo tempo, e uma falha num nunca impede o outro (`motor/src/notificacoes.js` `criarNotificador`).
 
-O cartão **"Receber avisos no telemóvel"** está no separador Casa, por baixo das cenas (fechado ocupa uma linha). O Histórico tem uma ligação para ele. Tem três passos:
+O cartão **"Receber avisos no telemóvel"** está no separador Casa, por baixo das cenas (fechado ocupa uma linha). O Histórico tem uma ligação para ele. Primeiro os avisos da app; por baixo, "Alternativa (iPhone sem a app instalada, ou se preferir a app ntfy)".
+
+### Avisos da app (web push, o caminho principal)
+
+Caminho: **motor → serviço de push do navegador (Google, Apple, Mozilla, Microsoft) → `web/sw.js` → aviso no telemóvel**, mesmo com a app fechada.
+
+- **Botão "Ativar avisos neste telemóvel"** ("neste computador" num computador). O telemóvel pergunta se autoriza; com "Permitir" a app regista o service worker, subscreve e envia a subscrição ao motor. Depois aparece "Desativar avisos neste telemóvel". Sair da conta também desativa os avisos nesse telemóvel (telemóvel partilhado).
+- **O que o cartão diz** (`web/estado.js` `estadoAvisos`): pronto a ativar; ativo; bloqueado pelo telemóvel (como voltar a permitir nas definições); **iPhone sem a app instalada** ("os avisos só chegam com a app Domus instalada no ecrã principal, iOS 16.4 ou mais recente", com o botão "Como instalar no iPhone" que abre a janela de instalação); iPhone com iOS antigo; navegador sem suporte (ex.: a página aberta por `http://` na rede local); indisponível (o servidor ainda não tem chaves).
+- **Toque no aviso:** abre a app (ou volta a ela) no separador **Histórico** (`cliente.html#historico`).
+- **Alarme disparado:** vibra com força e fica no ecrã até lhe tocarem (`requireInteraction`); urgência "high" no serviço de push e validade de 1 hora. Os outros avisos têm urgência normal e validade de 1 dia.
+- **`web/sw.js` só serve para isto:** sem `fetch` e sem cache (decisão 1 mantida; um teste do painel confirma). Só é registado quando o cliente ativa os avisos, ou já estava registado.
+
+**No servidor** (`motor/src/webpush.js`, biblioteca `web-push` para a cifra e a assinatura):
+- **Subscrições:** a app envia-as ao motor por MQTT em `domus/<c>/_webpush/registar` (como o `_fcm/registar`), pela mesma ligação autenticada da casa; a ACL só deixa cada cliente escrever na sua casa. O motor guarda-as no seu estado (`dados/motor/estado.json`), uma por telemóvel (o endpoint), no máximo 10 por casa (sai a mais antiga). A cada ligação a app volta a registar a sua (idempotente). Quando o serviço de push responde 404/410 (app desinstalada, autorização retirada) a subscrição é apagada.
+- **Contra SSRF:** o servidor faz um pedido para o endereço que vem do navegador, por isso só aceita `https://` sem porta nem utilizador, até 1024 caracteres, em serviços de push conhecidos (`HOSTS_PUSH`: `fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `*.push.apple.com`, `*.notify.windows.com`). O endpoint nunca vai para o registo nem para tópicos retidos.
+- **Chaves VAPID:** criadas pelo motor no primeiro arranque em `dados/motor/vapid.json` (modo 600), nunca no registo, no git nem no `.env`; entram nas cópias de segurança com o resto de `dados`. Se o ficheiro se estragar, o web push fica desligado (sem trocar a chave em silêncio) e o erro fica no registo. A chave pública chega à app em `domus/<c>/_webpush` (retido): `{"chave": "...", "total": 2}`. Se as chaves mudarem, a app renova a subscrição sozinha.
+- **Contacto VAPID:** `WEBPUSH_CONTACTO=https://<DOMUS_HOST>` (docker-compose.yml).
+- **Publicar:** nada a fazer à mão. O `instalar.sh --atualizar` reconstrói o motor (instala a `web-push`), o motor cria as chaves e a ACL nova (`_webpush/registar`) entra sozinha no minuto seguinte (`domus.sh sincronizar-planos`).
+
+### App ntfy (a alternativa)
+
+Caminho: **motor → ntfy → app ntfy no telemóvel**. O motor publica cada aviso no tópico ntfy da casa; o endereço do tópico chega à área de cliente em `domus/<cliente>/_ntfy` (retido, criado pelo `domus.sh`). Três passos:
 
 1. Instalar a app ntfy (Google Play ou App Store).
 2. Juntar a casa à app:
@@ -40,10 +62,6 @@ O endereço do tópico é um **segredo da casa** (quem o tiver recebe os avisos)
 
 **Não há "Enviar um aviso de teste".** O motor e o protocolo MQTT não têm um pedido para isso; fazê-lo pede uma alteração ao protocolo, que fica para decidir.
 
-### Para depois: web push próprio
-
-Notificações da própria app (sem a app ntfy) exigem um **service worker**, o que contraria a decisão 1; teria de ser um service worker só para o push, sem guardar páginas. No **iPhone** o web push só funciona com a app instalada no ecrã principal (iOS 16.4 ou mais recente). Pede também chaves VAPID e o envio no servidor.
-
 ## Por testar num telemóvel real
 
 - **Xiaomi (problema em aberto):** a instalação ficou parada em "A instalar a app Domus…" e desistiu. Causa por isolar (Chrome ou navegador da Xiaomi, WebAPK, ícones do manifesto, poupança de bateria da MIUI).
@@ -52,3 +70,5 @@ Notificações da própria app (sem a app ntfy) exigem um **service worker**, o 
 - Android: o botão "Abrir na app ntfy" com a app instalada e sem ela; o código QR lido pela câmara (nem todas as câmaras abrem ligações `ntfy://`).
 - iPhone: juntar a casa à app ntfy à mão, com o servidor e o tópico do endereço.
 - Voltar à app depois de muito tempo em segundo plano: religa sozinha e o estado fica certo.
+- Avisos da app no Android (Chrome) e no iPhone instalado (iOS 16.4+): ativar, receber com a app fechada, o alarme a vibrar e a ficar no ecrã, o toque a abrir o Histórico, desativar. No computador (Chrome) foi verificado de ponta a ponta pelo serviço da Google em 2026-10-14; num telemóvel ainda não.
+- iPhone no Safari sem a app instalada: aparece a explicação e o botão "Como instalar no iPhone".

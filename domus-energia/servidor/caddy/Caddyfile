@@ -105,6 +105,8 @@
 	# Site estático. Sem build nem nomes com hash, o HTML, o JS (módulos ES que se importam uns aos outros) e o CSS
 	# revalidam-se sempre (no-cache + ETag → 304 baratos): depois de publicar, ninguém fica com um módulo antigo e
 	# outro novo. O que tem nome estável (ícones, imagens, fontes) fica uma semana em cache.
+	# O web/sw.js (service worker só dos avisos da app, decisão do dono de 2026-10-14) é um *.js: vai com no-cache e
+	# text/javascript, na raiz (âmbito /); a CSP abaixo já o permite (worker-src 'self'); o push não precisa de mais nada.
 	handle {
 		root * /srv/web
 		encode zstd gzip

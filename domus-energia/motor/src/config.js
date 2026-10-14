@@ -14,6 +14,8 @@ import path from 'node:path';
  * @property {string} [ntfyPass]
  * @property {string} [ntfyToken]
  * @property {string} fcmServiceAccount
+ * @property {string} vapidFicheiro      chaves VAPID do web push (criadas no 1.º arranque; nunca no git nem no .env)
+ * @property {string} webPushContacto    contacto pedido pelos serviços de push ("https://HOST" ou "mailto:…")
  * @property {number} tickMs
  * @property {number} esperaArranqueMs
  * @property {number} maxPayload
@@ -37,6 +39,9 @@ export function lerConfig(env = process.env) {
     ntfyPass: env.NTFY_PASS || undefined,
     ntfyToken: env.NTFY_TOKEN || undefined,
     fcmServiceAccount: env.FCM_SERVICE_ACCOUNT ?? path.join(dadosDir, 'firebase-service-account.json'),
+    vapidFicheiro: path.join(dadosDir, 'vapid.json'),
+    // No servidor: https://DOMUS_HOST (docker-compose.yml). O Safari recusa um contacto https://localhost.
+    webPushContacto: env.WEBPUSH_CONTACTO || 'mailto:avisos@domus.local',
     tickMs: Number(env.MOTOR_TICK_MS) || 1000,
     esperaArranqueMs: Number(env.MOTOR_ESPERA_ARRANQUE_MS ?? 3000),
     // Tem de ficar abaixo do max_packet_size do Mosquitto (1 MB em servidor/mosquitto/mosquitto.conf).

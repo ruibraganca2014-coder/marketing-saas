@@ -21,6 +21,7 @@ import { metodosAutomacoes, MAX_EXECUCOES_MINUTO } from './motor-automacoes.js';
 import { metodosSaude } from './motor-saude.js';
 import { metodosPlanos } from './motor-planos.js';
 import { validarPlano } from './planos.js';
+import { MAX_SUBSCRICOES_WEBPUSH, validarSubscricao } from './webpush.js';
 
 /** @typedef {import('./aparelhos.js').Aparelho} Aparelho */
 /** @typedef {import('./validacao.js').Automacao} Automacao */
@@ -52,6 +53,7 @@ export { MAX_EXECUCOES_MINUTO };
  * @property {string} cliente
  * @property {string|null} topicoNtfy  null = cliente sem tópico ntfy (só FCM)
  * @property {string[]} tokensFcm
+ * @property {{endpoint: string, keys: {p256dh: string, auth: string}}[]} [subscricoesWebPush]
  * @property {Evento['tipo']} tipo
  * @property {string} titulo
  * @property {string} mensagem
@@ -68,7 +70,8 @@ export { MAX_EXECUCOES_MINUTO };
 /**
  * @typedef {object} OpcoesMotor
  * @property {(topico: string, payload: string, opcoes?: {retain?: boolean}) => void} publicar
- * @property {(pedido: PedidoNotificacao) => (Promise<{tokensInvalidos?: string[]}|void>|void)} [notificar]
+ * @property {(pedido: PedidoNotificacao) => (Promise<{tokensInvalidos?: string[], subscricoesInvalidas?: string[]}|void>|void)} [notificar]
+ * @property {string|null} [chaveWebPush] chave pública VAPID (null = web push desligado; ver webpush.js)
  * @property {{agora: () => number}} [relogio]
  * @property {Armazenamento} [armazenamento]
  * @property {{info: Function, aviso: Function, erro: Function}} [log]
@@ -142,6 +145,7 @@ export { MAX_EXECUCOES_MINUTO };
  * @property {string|null} topicoNtfy   lido do `_ntfy` retido (criado pelo domus.sh)
  * @property {boolean} avisouSemNtfy
  * @property {string[]} tokensFcm
+ * @property {{endpoint: string, keys: {p256dh: string, auth: string}, desde: string}[]} subscricoesWebPush  web push (webpush.js)
  * @property {Record<string, string>} horaDisparos  id da automação → "data hora" do último disparo
  * @property {string|null} relatorioDia
  * @property {boolean} avisoCasaOffline
@@ -166,6 +170,7 @@ export class Motor {
   constructor(opcoes) {
     this.publicarBruto = opcoes.publicar;
     this.notificador = opcoes.notificar ?? (() => {});
+    this.chaveWebPush = opcoes.chaveWebPush ?? null;
     this.relogio = opcoes.relogio ?? { agora: () => Date.now() };
     this.armazenamento = opcoes.armazenamento ?? null;
     this.log = opcoes.log ?? logPadrao;
@@ -236,6 +241,7 @@ export class Motor {
         topicoNtfy: null,
         avisouSemNtfy: false,
         tokensFcm: [],
+        subscricoesWebPush: [],
         horaDisparos: {},
         relatorioDia: null,
         avisoCasaOffline: false,
@@ -298,6 +304,13 @@ export class Motor {
       if (d.avisoCasaOffline === true) c.avisoCasaOffline = true;
       if (Array.isArray(d.historico)) c.historico = d.historico.slice(0, MAX_HISTORICO);
       if (Array.isArray(d.tokensFcm)) c.tokensFcm = d.tokensFcm.filter((t) => typeof t === 'string').slice(-MAX_TOKENS_FCM);
+      if (Array.isArray(d.subscricoesWebPush)) {
+        c.subscricoesWebPush = d.subscricoesWebPush
+          .map((x) => ({ v: validarSubscricao(x), desde: typeof x?.desde === 'string' ? x.desde : null }))
+          .filter((x) => x.v.ok)
+          .map((x) => ({ ...x.v.subscricao, desde: x.desde ?? this.agoraIso() }))
+          .slice(-MAX_SUBSCRICOES_WEBPUSH);
+      }
       if (d.horaDisparos && typeof d.horaDisparos === 'object') c.horaDisparos = { ...d.horaDisparos };
       if (d.plano) {
         const p = validarPlano(d.plano);
@@ -371,6 +384,7 @@ export class Motor {
         avisoCasaOffline: c.avisoCasaOffline,
         historico: c.historico,
         tokensFcm: c.tokensFcm,
+        subscricoesWebPush: c.subscricoesWebPush,
         horaDisparos: c.horaDisparos,
         plano: c.plano,
         aparelhos,
@@ -441,6 +455,7 @@ export class Motor {
     this.publicar(`${base}/_cenas`, c.cenas, true);
     this.publicar(`${base}/_presenca`, c.presenca, true);
     this.publicar(`${base}/_historico`, c.historico, true);
+    this.publicarWebPush(c);
     if (c.aparelhos) {
       this.publicarSaude(c, true);
       this.publicarEnergia(c, true);
@@ -519,6 +534,8 @@ export class Motor {
           return this.aoPlano(codigo, payload);
         case '_fcm/registar':
           return !retida && this.aoFcm(codigo, payload);
+        case '_webpush/registar':
+          return !retida && this.aoWebPush(codigo, payload);
         default:
           return; // _eventos, _saude, _energia…: publicados por nós ou desconhecidos
       }
@@ -807,6 +824,52 @@ export class Motor {
     this.guardar();
   }
 
+  // ------------------------------------------------------------- web push
+
+  /**
+   * `_webpush/registar` (não retido, da app do cliente; decisão do dono, 2026-10-14):
+   * {"subscricao": {"endpoint": "https://fcm.googleapis.com/…", "keys": {"p256dh": "…", "auth": "…"}}} ou
+   * {"endpoint": "…", "remover": true} ("Desativar avisos neste telemóvel"). Uma por telemóvel/navegador (o
+   * endpoint); no máximo MAX_SUBSCRICOES_WEBPUSH por casa (sai a mais antiga). Só serviços de push conhecidos.
+   */
+  aoWebPush(codigo, payload) {
+    const c = this.cliente(codigo);
+    const v = lerJson(payload);
+    if (v && v.remover === true && typeof v.endpoint === 'string') {
+      const antes = c.subscricoesWebPush.length;
+      c.subscricoesWebPush = c.subscricoesWebPush.filter((s) => s.endpoint !== v.endpoint);
+      if (c.subscricoesWebPush.length !== antes) {
+        this.log.info(`[webpush] ${codigo}: telemóvel removido (${c.subscricoesWebPush.length} no total)`);
+        this.guardar();
+        this.publicarWebPush(c);
+      }
+      return;
+    }
+    const r = validarSubscricao(v?.subscricao);
+    if (!r.ok) {
+      this.log.aviso(`[webpush] ${codigo}: registo recusado (${r.erro})`);
+      return;
+    }
+    const existente = c.subscricoesWebPush.find((s) => s.endpoint === r.subscricao.endpoint);
+    c.subscricoesWebPush = c.subscricoesWebPush.filter((s) => s.endpoint !== r.subscricao.endpoint);
+    c.subscricoesWebPush.push({ ...r.subscricao, desde: existente?.desde ?? this.agoraIso() });
+    if (c.subscricoesWebPush.length > MAX_SUBSCRICOES_WEBPUSH) c.subscricoesWebPush = c.subscricoesWebPush.slice(-MAX_SUBSCRICOES_WEBPUSH);
+    this.guardar();
+    // Só republica quando o total muda: a app volta a registar-se a cada ligação e não pode entrar num ciclo.
+    if (!existente) {
+      this.log.info(`[webpush] ${codigo}: telemóvel registado (${c.subscricoesWebPush.length} no total)`);
+      this.publicarWebPush(c);
+    }
+  }
+
+  /**
+   * `_webpush` (retido): a chave pública VAPID de que a app precisa para subscrever e quantos telemóveis recebem os
+   * avisos. Nunca os endpoints (são segredos de cada telemóvel). @param {Cliente} c
+   */
+  publicarWebPush(c) {
+    this.publicar(`domus/${c.codigo}/_webpush`, { chave: this.chaveWebPush, total: c.subscricoesWebPush.length }, true);
+  }
+
   // --------------------------------------------------------------- eventos
 
   /**
@@ -841,7 +904,7 @@ export class Motor {
    * @param {{prioridade?: PedidoNotificacao['prioridade'], ignorarSilencio?: boolean}} [opcoes]
    */
   enviarNotificacao(c, ev, opcoes = {}) {
-    // Notificações (ntfy/FCM) só nos planos que as incluem; o evento fica no histórico.
+    // Notificações (ntfy/FCM/web push) só nos planos que as incluem; o evento fica no histórico.
     if (!this.pode(c, 'notificacoes')) {
       this.log.info(`[notificações] ${c.codigo}: "${ev.titulo}" não enviada (fora do plano)`);
       return;
@@ -875,6 +938,7 @@ export class Motor {
       cliente: c.codigo,
       topicoNtfy: c.topicoNtfy,
       tokensFcm: [...c.tokensFcm],
+      subscricoesWebPush: c.subscricoesWebPush.map(({ endpoint, keys }) => ({ endpoint, keys })),
       tipo: ev.tipo,
       titulo: ev.titulo,
       mensagem: ev.mensagem,
@@ -894,6 +958,17 @@ export class Motor {
           c.tokensFcm = c.tokensFcm.filter((t) => !invalidos.includes(t));
           this.log.info(`[fcm] ${c.codigo}: ${invalidos.length} token(s) inválido(s) removido(s)`);
           this.guardar();
+        }
+        // Web push: o serviço respondeu 404/410 (o telemóvel desinstalou a app ou retirou a autorização).
+        const mortas = r?.subscricoesInvalidas ?? [];
+        if (mortas.length) {
+          const antes = c.subscricoesWebPush.length;
+          c.subscricoesWebPush = c.subscricoesWebPush.filter((s) => !mortas.includes(s.endpoint));
+          if (c.subscricoesWebPush.length !== antes) {
+            this.log.info(`[webpush] ${c.codigo}: ${antes - c.subscricoesWebPush.length} telemóvel(eis) sem subscrição removido(s)`);
+            this.guardar();
+            this.publicarWebPush(c);
+          }
         }
       })
       .catch((e) => this.log.erro(`[notificações] ${c.codigo}: ${e.message}`));

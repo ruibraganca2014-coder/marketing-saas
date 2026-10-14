@@ -104,8 +104,11 @@ services:
       NTFY_PUBLIC_URL: https://ntfy.${DOMUS_HOST}
       # Se o ficheiro não existir, o FCM fica desligado (sem erro).
       FCM_SERVICE_ACCOUNT: /dados/firebase-service-account.json
+      # Web push da app do cliente: contacto pedido pelos serviços de push. As chaves VAPID são criadas pelo motor
+      # no 1.º arranque em dados/motor/vapid.json (modo 600; nunca no .env nem no git).
+      WEBPUSH_CONTACTO: https://${DOMUS_HOST}
     volumes:
-      - ./dados/motor:/dados                 # estado do motor + conta de serviço Firebase
+      - ./dados/motor:/dados                 # estado do motor + conta de serviço Firebase + chaves VAPID
     logging: *registos
 
   # Subscrições e pagamentos (Stripe). Ver README "Planos e pagamentos".

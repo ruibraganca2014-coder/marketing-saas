@@ -134,8 +134,15 @@ Construído na app/site a partir de `_aparelhos`, estados, `_saude`, `_energia`,
 - botão **Copiar** (texto simples pt-PT). O motor envia o mesmo resumo em texto por notificação às `relatorio_diario` (tipo `aviso`, prioridade normal, respeita o silêncio).
 
 ## 10. Permissões (ACL) — acrescenta à v2
-Cliente `C` pode também **escrever**: `domus/C/_config/set`, `domus/C/_modo/set`, `domus/C/_cenas/set`, `domus/C/_cenas/executar`, `domus/C/_automacoes/executar`, `domus/C/_presenca/set`.
-Continua a **não** poder escrever: `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`.
+Cliente `C` pode também **escrever**: `domus/C/_config/set`, `domus/C/_modo/set`, `domus/C/_cenas/set`, `domus/C/_cenas/executar`, `domus/C/_automacoes/executar`, `domus/C/_presenca/set`, `domus/C/_webpush/registar` (§11).
+Continua a **não** poder escrever: `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`, `_webpush`.
+
+## 11. Avisos da app (web push) — `_webpush` (2026-10-14)
+Decisão do dono: os avisos chegam pela própria app (canal principal); o ntfy continua igual, como alternativa. Mesmo conteúdo, prioridade e regra do plano (`notificacoes`). Detalhes em `APP-CLIENTE.md`.
+- `domus/<c>/_webpush/registar` (cliente → motor, **não** retido):
+  `{"subscricao": {"endpoint": "https://fcm.googleapis.com/fcm/send/…", "keys": {"p256dh": "…", "auth": "…"}}}` (o `PushSubscription.toJSON()` do navegador; outros campos ignorados) ou `{"endpoint": "…", "remover": true}`. O motor valida (https, sem porta nem utilizador, ≤ 1024 caracteres, só serviços de push conhecidos — `HOSTS_PUSH` em `motor/src/webpush.js`; chaves em base64url) e guarda no máximo 10 por casa. Inválido: ignorado e registado.
+- `domus/<c>/_webpush` (motor, **retido**): `{"chave": "<chave pública VAPID>"|null, "total": 2}`. Publicado ao sincronizar e quando o total muda (nunca com os endpoints). `chave: null` = web push desligado no servidor.
+- Conteúdo cifrado enviado ao telemóvel (lido pelo `web/sw.js`): `{"titulo", "mensagem", "tipo", "prioridade"}`. Alarme: urgência `high`, validade 1 h; outros: `normal`, 1 dia. Respostas 404/410 do serviço apagam a subscrição.
 
 ## Notas de implementação (servidor)
 - **ACL por aparelho**: em vez de `domus/C/+/+/set`, o ficheiro gerado dá a cada cliente `domus/C/<id>/+/set`, `/rpc`, `/command`, `/command/+` para cada aparelho seu, mais a lista fixa de pedidos ao motor. Assim `+` nunca apanha caminhos dentro das áreas reservadas (ex. `_automacoes/admin/set`), e remover um aparelho retira também a permissão de o comandar (131 testes num Mosquitto real).

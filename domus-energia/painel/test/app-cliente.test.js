@@ -155,3 +155,41 @@ test('cenas no topo: só as favoritas; sem nenhuma favorita, todas (casas antiga
   assert.deepEqual(cenasDoTopo([a, c]), [a, c]);
   assert.deepEqual(cenasDoTopo(null), []);
 });
+
+// ------------------------------------------------------------ avisos da própria app (web push, 2026-10-14)
+test('avisos da app: _webpush lido com validação; chave VAPID em bytes', () => {
+  const chave = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U';
+  assert.deepEqual(E.lerWebPush(JSON.stringify({ chave, total: 2 })), { chave, total: 2 });
+  assert.deepEqual(E.lerWebPush(JSON.stringify({ chave: null, total: 0 })), { chave: null, total: 0 });
+  assert.deepEqual(E.lerWebPush(JSON.stringify({ chave: '<script>', total: -1 })), { chave: null, total: 0 });
+  assert.equal(E.lerWebPush('lixo'), null);
+  const bytes = E.chaveParaBytes(chave);
+  assert.equal(bytes.length, 65); // chave pública P-256 não comprimida
+  assert.equal(bytes[0], 4);
+});
+
+test('avisos da app: o que o cartão mostra (Android, computador, iPhone com e sem a app instalada)', () => {
+  const base = { sistema: 'android', instalada: false, suportado: true, permissao: 'default', ativo: false, chave: 'x'.repeat(87) };
+  assert.equal(E.estadoAvisos(base).estado, 'pode');
+  assert.match(E.estadoAvisos(base).texto, /telemóvel/);
+  assert.match(E.estadoAvisos({ ...base, sistema: 'computador' }).texto, /computador/);
+  assert.equal(E.estadoAvisos({ ...base, ativo: true, permissao: 'granted' }).estado, 'ativo');
+  assert.equal(E.estadoAvisos({ ...base, permissao: 'denied' }).estado, 'negado');
+  assert.equal(E.estadoAvisos({ ...base, chave: null }).estado, 'indisponivel');
+  assert.equal(E.estadoAvisos({ ...base, suportado: false }).estado, 'sem-suporte');
+  const iphone = E.estadoAvisos({ ...base, sistema: 'iphone', suportado: false });
+  assert.equal(iphone.estado, 'iphone-instalar');
+  assert.match(iphone.texto, /ecrã principal/);
+  assert.match(iphone.texto, /16\.4/);
+  assert.equal(E.estadoAvisos({ ...base, sistema: 'iphone', suportado: false, instalada: true }).estado, 'iphone-antigo');
+  assert.equal(E.estadoAvisos({ ...base, sistema: 'iphone', instalada: true }).estado, 'pode');
+});
+
+test('service worker só para os avisos: sem "fetch" e sem cache (decisão de 2026-10-09 mantida)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const sw = await readFile(new URL('../../web/sw.js', import.meta.url), 'utf8');
+  const codigo = sw.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+  assert.match(codigo, /addEventListener\("push"/);
+  assert.match(codigo, /addEventListener\("notificationclick"/);
+  assert.doesNotMatch(codigo, /addEventListener\(["']fetch["']|onfetch|caches\.|importScripts/);
+});

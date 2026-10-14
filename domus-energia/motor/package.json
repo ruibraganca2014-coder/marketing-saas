@@ -18,7 +18,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "google-auth-library": "^10.9.1",
-    "mqtt": "^5.16.0"
+    "mqtt": "^5.16.0",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "aedes": "^1.2.0"

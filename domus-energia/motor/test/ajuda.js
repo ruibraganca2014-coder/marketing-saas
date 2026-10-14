@@ -24,7 +24,7 @@ export const silencioso = { info() {}, aviso() {}, erro() {} };
 
 /**
  * Cria um motor de teste com relógio falso.
- * @param {{agora?: number|string, armazenamento?: MemoriaEstado, aleatorio?: () => number, respostaNotificar?: Function}} [o]
+ * @param {{agora?: number|string, armazenamento?: MemoriaEstado, aleatorio?: () => number, respostaNotificar?: Function, chaveWebPush?: string}} [o]
  */
 export function criarMotor(o = {}) {
   const relogio = { t: typeof o.agora === 'string' ? Date.parse(o.agora) : o.agora ?? Date.parse('2026-06-15T10:00:00Z') };
@@ -42,6 +42,7 @@ export function criarMotor(o = {}) {
     log: silencioso,
     esperaArranqueMs: 0,
     ...(o.aleatorio ? { aleatorio: o.aleatorio } : {}),
+    ...(o.chaveWebPush ? { chaveWebPush: o.chaveWebPush } : {}),
   });
   const api = {
     motor,

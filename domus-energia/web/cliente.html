@@ -204,13 +204,21 @@
           <!-- Divisões: um mosaico por luz, tomada ou estore; um toque liga e desliga (decisão do dono, 2026-10-14). -->
           <div class="aparelhos" id="lista"></div>
 
-          <!-- Receber avisos no telemóvel (app ntfy; docs/APP-CLIENTE.md). Fechado ocupa uma linha, para não empurrar o
-               resumo; só nos planos com notificações (nos outros aparece com o cadeado). O endereço é um segredo da casa:
-               a ligação e o código QR são feitos aqui no navegador (cliente.js desenharNtfy). -->
+          <!-- Receber avisos no telemóvel (docs/APP-CLIENTE.md). Fechado ocupa uma linha, para não empurrar o resumo; só
+               nos planos com notificações (nos outros aparece com o cadeado). Primeiro os avisos da própria app (web push,
+               web/sw.js; decisão do dono, 2026-10-14); depois a app ntfy como alternativa. O endereço ntfy é um segredo da
+               casa: a ligação e o código QR são feitos aqui no navegador (cliente.js desenharNtfy). -->
           <details class="cartao ntfy" id="ntfy" hidden>
             <summary>Receber avisos no telemóvel</summary>
             <p id="ntfy-texto"></p>
+            <div class="push" id="push" hidden>
+              <p id="push-texto" role="status"></p>
+              <button class="btn grande" id="push-ativar" type="button" hidden>Ativar avisos neste telemóvel</button>
+              <button class="btn sec pequeno" id="push-instalar" type="button" hidden>Como instalar no iPhone</button>
+              <button class="btn sec pequeno" id="push-desativar" type="button" hidden>Desativar avisos neste telemóvel</button>
+            </div>
             <div id="ntfy-passos">
+              <h4 class="ntfy-alternativa">Alternativa (iPhone sem a app instalada, ou se preferir a app ntfy)</h4>
               <ol>
                 <li><b>Instale a app gratuita ntfy</b> no telemóvel: <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noopener noreferrer">Google Play (Android)</a> ou <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" rel="noopener noreferrer">App Store (iPhone)</a>.</li>
                 <li><b>Junte a sua casa à app.</b> <span id="ntfy-como"></span>

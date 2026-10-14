@@ -317,9 +317,9 @@ Se os ficheiros de `systemd/` mudaram, copie-os de novo (§16.2) e faça `sudo s
 - Permissões (geradas pelo `domus.sh`, nunca editar à mão):
   - cliente `C`: lê `domus/C/#`; escreve apenas
     - comandos para os **seus** aparelhos `A`: `domus/C/A/+/set` (inclui `led_dimmer/set`), `domus/C/A/rpc`, `domus/C/A/command`, `domus/C/A/command/+` — uma linha por aparelho, sem `+` no lugar do aparelho, para que nada como `domus/C/_automacoes/admin/set` fique aberto;
-    - pedidos ao motor: `_alarme/set`, `_automacoes/set`, `_fcm/registar`, `_config/set`, `_modo/set`, `_cenas/set`, `_cenas/executar`, `_automacoes/executar`, `_presenca/set`.
+    - pedidos ao motor: `_alarme/set`, `_automacoes/set`, `_fcm/registar`, `_webpush/registar`, `_config/set`, `_modo/set`, `_cenas/set`, `_cenas/executar`, `_automacoes/executar`, `_presenca/set`.
 
-    Não consegue escrever `_aparelhos`, `_alarme`, `_automacoes`, `_historico`, `_eventos`, `_ntfy`, `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`, nem nada de outro cliente (verificado em `testes/acl.sh`);
+    Não consegue escrever `_aparelhos`, `_alarme`, `_automacoes`, `_historico`, `_eventos`, `_ntfy`, `_webpush`, `_config`, `_modo`, `_cenas`, `_saude`, `_energia`, `_presenca`, `_automacoes/registo`, `_automacoes/avisos`, `_automacoes/admin`, nem nada de outro cliente (verificado em `testes/acl.sh`);
   - aparelho `C-A`: lê e escreve `domus/C/A/#`;
   - `motor` e `admin`: lê e escreve `domus/#`;
   - `pagamentos`: só escreve `domus/+/_plano` (não lê nada). Nenhum cliente nem aparelho escreve `_plano`;

@@ -665,8 +665,10 @@ json_plano() { # <cliente>
 # O _plano (PROTOCOLO-PLANOS §2) só é escrito pelo "pagamentos" (e admin/motor).
 # Cliente suspenso/cancelado (dados/planos/<c>.json, §3): só lê domus/<c>/_plano;
 # os utilizadores dos aparelhos dele não mudam (interruptores e estados continuam).
+# _webpush/registar (decisão do dono, 2026-10-14): avisos da própria app (web push). Nos servidores já instalados a
+# ACL nova entra sozinha no minuto seguinte à atualização (sincronizar-planos → sincronizar_acl).
 # Ver testes/acl.sh.
-PEDIDOS_CLIENTE="_alarme/set _automacoes/set _fcm/registar _config/set _modo/set _cenas/set _cenas/executar _automacoes/executar _presenca/set"
+PEDIDOS_CLIENTE="_alarme/set _automacoes/set _fcm/registar _webpush/registar _config/set _modo/set _cenas/set _cenas/executar _automacoes/executar _presenca/set"
 
 gerar_acl() {
   local c id t

@@ -1,5 +1,5 @@
-// Envio de notificações: ntfy (no próprio servidor) e Firebase Cloud
-// Messaging (API HTTP v1, opcional).
+// Envio de notificações: ntfy (no próprio servidor), Firebase Cloud
+// Messaging (API HTTP v1, opcional) e web push da app do cliente (webpush.js).
 
 import fs from 'node:fs';
 
@@ -138,15 +138,24 @@ export class Fcm {
 }
 
 /**
- * Junta ntfy + FCM numa só função `notificar` para o motor.
- * @param {{ntfy: Ntfy, fcm: Fcm, log: {erro: Function}}} o
+ * Junta ntfy + FCM + web push numa só função `notificar` para o motor. Cada canal falha sozinho: um erro num nunca
+ * impede os outros (decisão do dono, 2026-10-14: o web push é o canal principal e o ntfy continua como alternativa).
+ * @param {{ntfy: Ntfy, fcm: Fcm, webPush?: {enviar: (p: PedidoNotificacao) => Promise<string[]>}, log: {erro: Function}}} o
  */
-export function criarNotificador({ ntfy, fcm, log }) {
+export function criarNotificador({ ntfy, fcm, webPush, log }) {
   /** @param {PedidoNotificacao} p */
   return async (p) => {
-    const [rNtfy, rFcm] = await Promise.allSettled([ntfy.enviar(p), fcm.enviar(p)]);
+    const [rNtfy, rFcm, rWeb] = await Promise.allSettled([
+      ntfy.enviar(p),
+      fcm.enviar(p),
+      webPush ? webPush.enviar(p) : Promise.resolve([]),
+    ]);
     if (rNtfy.status === 'rejected') log.erro(`[ntfy] ${p.cliente}: ${rNtfy.reason?.message ?? rNtfy.reason}`);
     if (rFcm.status === 'rejected') log.erro(`[fcm] ${p.cliente}: ${rFcm.reason?.message ?? rFcm.reason}`);
-    return { tokensInvalidos: rFcm.status === 'fulfilled' ? rFcm.value : [] };
+    if (rWeb.status === 'rejected') log.erro(`[webpush] ${p.cliente}: ${rWeb.reason?.message ?? rWeb.reason}`);
+    return {
+      tokensInvalidos: rFcm.status === 'fulfilled' ? rFcm.value : [],
+      subscricoesInvalidas: rWeb.status === 'fulfilled' ? rWeb.value : [],
+    };
   };
 }

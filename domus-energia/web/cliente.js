@@ -41,6 +41,7 @@ let saude = {};        // lerSaude(_saude)
 let secao = "casa";    // secção visível
 let plano = { ...PL.PLANO_OMISSAO }; // lerPlano(_plano) — sem `_plano` retido: conforto/ativo/manual (§2)
 let ntfy = null;       // lerNtfy(_ntfy)
+let webpush = null;    // lerWebPush(_webpush): chave VAPID e quantos telemóveis recebem os avisos da app
 let erroPlanoModo = null; // "Disponível a partir do plano Conforto." do motor, ao mudar de modo
 let credenciais = null; // { codigo, password } só em memória, para o /api (a mesma conta do MQTT)
 let autenticado = false;
@@ -277,6 +278,8 @@ async function abrirPrevisao(eu) {
 }
 
 $("sair").addEventListener("click", () => {
+  // Telemóvel partilhado: quem sai deixa de receber os avisos da casa (o motor também apaga a subscrição morta).
+  desativarPush({ aoSair: true }).catch(() => {});
   apagarLembrar();
   pedirConta("sair", { corpo: {} }).catch(() => {});   // também a sessão da conta (senão voltava a entrar sozinho)
   credenciais = null;
@@ -420,6 +423,11 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       definicoes.desenhar();
       aplicarPlano(plano);
       if (abrirSubscricaoAoEntrar) { abrirSubscricaoAoEntrar = false; abrirSubscricao(); }
+      // Aberta por um toque num aviso (web/sw.js): cliente.html#historico.
+      if (window.location.hash === "#historico") {
+        mostrarSeccao("historico");
+        try { history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
+      }
     }
     estadoLigacao(true);
     // (`motorParou` fica: só um sinal de vida o desfaz — a mensagem retida "parado" volta a chegar em cada ligação.)
@@ -476,6 +484,7 @@ function terminar() {
   api.esquecer();
   plano = { ...PL.PLANO_OMISSAO };
   ntfy = null;
+  webpush = null;
   erroPlanoModo = null;
   subscricao.limpar();
   entrou = false;
@@ -742,6 +751,11 @@ function receber(topico, texto, retido) {
         ntfy = E.lerNtfy(texto);
         $("ntfy-msg").textContent = "";
         desenharNtfy();
+        break;
+      case "_webpush":
+        webpush = E.lerWebPush(texto);
+        desenharNtfy();
+        sincronizarPush();
         break;
       case "_plano": {
         const p = PL.lerPlano(texto);
@@ -1402,12 +1416,18 @@ let qrDe = null;       // a ligação que o código QR à vista tem
 function desenharNtfy() {
   const bloq = !permite("notificacoes");
   // Sem o plano: a caixa aparece na mesma, com o cadeado (para se saber que existe).
-  $("ntfy").hidden = !bloq && !ntfy;
+  $("ntfy").hidden = !bloq && !ntfy && !webpush;
   $("ntfy").classList.toggle("bloqueado", bloq);
   $("ntfy-bloqueio").hidden = !bloq;
-  $("ntfy-ir").hidden = bloq || !ntfy;
-  $("ntfy-texto").textContent = bloq ? "Receba no telemóvel os alertas da sua casa: alarme, portas abertas, aparelhos sem ligação e pilhas a acabar." : "Os alertas da sua casa (alarme, aparelhos sem ligação, pilhas a acabar) chegam ao telemóvel pela app gratuita ntfy. Faz-se uma só vez, em três passos.";
-  $("ntfy-passos").hidden = bloq;
+  $("ntfy-ir").hidden = bloq || (!ntfy && !webpush);
+  $("ntfy-texto").textContent = bloq ? "Receba no telemóvel os alertas da sua casa: alarme, portas abertas, aparelhos sem ligação e pilhas a acabar."
+    : webpush ? "Os alertas da sua casa (alarme, portas abertas com o alarme ligado, aparelhos sem ligação, pilhas a acabar e as suas automações) chegam ao telemóvel como avisos da app Domus."
+      : "Os alertas da sua casa (alarme, aparelhos sem ligação, pilhas a acabar) chegam ao telemóvel pela app gratuita ntfy. Faz-se uma só vez, em três passos.";
+  $("push").hidden = bloq || !webpush;
+  if (!$("push").hidden) desenharPush();
+  $("ntfy-passos").hidden = bloq || !ntfy;
+  // Sem os avisos da app neste aparelho, o título "Alternativa" não faz sentido.
+  $("ntfy-passos").querySelector(".ntfy-alternativa").hidden = !webpush;
   const url = bloq ? "" : ntfy?.url ?? "";
   $("ntfy-url").textContent = url;
   const ligacao = url ? E.ligacaoNtfy(url) : null;
@@ -1431,6 +1451,130 @@ $("ntfy-ir").addEventListener("click", () => {
   $("ntfy").open = true;
   $("ntfy").querySelector("summary").focus();
 });
+
+// ---------- Avisos da própria app (web push; decisão do dono, 2026-10-14) ----------
+// Caminho: motor → serviço de push do navegador → web/sw.js → aviso no telemóvel. O service worker só serve para
+// isto (sem cache, sem "fetch") e só é registado quando o cliente ativa os avisos aqui. A subscrição vai ao motor em
+// `_webpush/registar` (MQTT, a mesma ligação autenticada da casa); a chave VAPID vem em `_webpush`.
+// iPhone: só com a app instalada no ecrã principal (iOS 16.4 ou mais recente); antes disso o Safari não tem PushManager.
+const PUSH_SUPORTADO = window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const INSTALADA = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let pushAtivo = false;     // este aparelho tem uma subscrição e autorização
+let pushOcupado = false;   // a ativar/desativar (botões desligados)
+let pushMsg = "";          // resultado da última tentativa (sobrepõe-se ao texto do estado)
+
+const subscricaoAtual = async () => {
+  if (!PUSH_SUPORTADO) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+};
+/** A subscrição foi feita com esta chave VAPID? (o servidor pode ter chaves novas) */
+function mesmaChave(sub, chave) {
+  const a = sub?.options?.applicationServerKey;
+  if (!a || !chave) return true; // sem forma de saber: fica como está
+  const b = E.chaveParaBytes(chave);
+  const x = new Uint8Array(a);
+  return x.length === b.length && x.every((v, i) => v === b[i]);
+}
+
+function desenharPush() {
+  const aqui = SISTEMA === "computador" ? "computador" : "telemóvel";
+  const permissao = PUSH_SUPORTADO ? Notification.permission : "default";
+  const e = E.estadoAvisos({ sistema: SISTEMA, instalada: INSTALADA, suportado: PUSH_SUPORTADO, permissao, ativo: pushAtivo, chave: webpush?.chave ?? null });
+  $("push-texto").textContent = pushMsg || e.texto;
+  const ativar = $("push-ativar");
+  ativar.textContent = `Ativar avisos neste ${aqui}`;
+  ativar.hidden = !["pode", "negado"].includes(e.estado);
+  ativar.disabled = pushOcupado;
+  $("push-instalar").hidden = e.estado !== "iphone-instalar";
+  const desativar = $("push-desativar");
+  desativar.textContent = `Desativar avisos neste ${aqui}`;
+  desativar.hidden = e.estado !== "ativo";
+  desativar.disabled = pushOcupado;
+}
+
+/** Ao entrar (quando chega `_webpush`): se este aparelho já tem os avisos, volta a dizê-lo ao motor (idempotente). */
+async function sincronizarPush() {
+  const antes = pushAtivo;
+  try {
+    const sub = await subscricaoAtual();
+    pushAtivo = !!sub && Notification.permission === "granted";
+    if (pushAtivo !== antes) pushMsg = ""; // a mensagem da última tentativa já não corresponde ao estado
+    if (pushAtivo && webpush?.chave && !mesmaChave(sub, webpush.chave)) {
+      // Chaves novas no servidor: a subscrição antiga já não serve. Com a autorização dada, renova-se sem perguntar.
+      await sub.unsubscribe();
+      const reg = await navigator.serviceWorker.ready;
+      const nova = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: E.chaveParaBytes(webpush.chave) });
+      publicarJson("_webpush/registar", { subscricao: nova.toJSON() });
+    } else if (pushAtivo && webpush) {
+      publicarJson("_webpush/registar", { subscricao: sub.toJSON() });
+    }
+  } catch {
+    pushAtivo = false;
+  }
+  desenharNtfy();
+}
+
+async function ativarPush() {
+  if (pushOcupado || !webpush?.chave) return;
+  if (!ligadoServidor()) { pushMsg = "Sem ligação ao servidor. Tente de novo daqui a pouco."; desenharPush(); return; }
+  pushOcupado = true;
+  pushMsg = "";
+  desenharPush();
+  try {
+    // O pedido de autorização tem de ser o primeiro passo depois do toque (o Safari recusa-o mais tarde).
+    const permissao = await Notification.requestPermission();
+    if (permissao !== "granted") {
+      pushMsg = permissao === "denied" ? "" : "Os avisos não foram ativados. Toque outra vez em Ativar e escolha Permitir.";
+      return;
+    }
+    await navigator.serviceWorker.register("sw.js", { scope: "./" });
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !mesmaChave(sub, webpush.chave)) { await sub.unsubscribe(); sub = null; }
+    sub ??= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: E.chaveParaBytes(webpush.chave) });
+    if (!publicarJson("_webpush/registar", { subscricao: sub.toJSON() })) throw new Error("sem ligação");
+    pushAtivo = true;
+    pushMsg = "Pronto. Os avisos da casa passam a chegar aqui, mesmo com a app fechada.";
+  } catch {
+    pushMsg = "Não foi possível ativar os avisos neste aparelho. Tente de novo ou use a alternativa abaixo.";
+  } finally {
+    pushOcupado = false;
+    desenharPush();
+  }
+}
+
+/** "Desativar avisos neste telemóvel" (e ao sair): diz ao motor, cancela a subscrição e retira o service worker. */
+async function desativarPush({ aoSair = false } = {}) {
+  if (!PUSH_SUPORTADO || pushOcupado) return;
+  pushOcupado = true;
+  if (!aoSair) { pushMsg = ""; desenharPush(); }
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg ? await reg.pushManager.getSubscription() : null;
+    if (sub) {
+      publicarJson("_webpush/registar", { endpoint: sub.endpoint, remover: true });
+      await sub.unsubscribe();
+    }
+    if (reg) await reg.unregister();
+    pushAtivo = false;
+    pushMsg = aoSair ? "" : "Os avisos foram desativados neste aparelho.";
+  } catch {
+    pushMsg = "Não foi possível desativar os avisos. Tente de novo.";
+  } finally {
+    pushOcupado = false;
+    if (!aoSair) desenharPush();
+  }
+}
+$("push-ativar").addEventListener("click", ativarPush);
+$("push-desativar").addEventListener("click", () => desativarPush());
+$("push-instalar").addEventListener("click", () => $("instalar-janela").showModal());
+// Toque num aviso com a app já aberta: o service worker pede para mostrar o Histórico.
+if (PUSH_SUPORTADO) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data?.domus === "abrir" && e.data.seccao === "historico" && entrou) mostrarSeccao("historico");
+  });
+}
 
 // ---------- Plano ----------
 $("energia-bloqueio").append(bloqueio("energia"));

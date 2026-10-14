@@ -535,6 +535,44 @@ export function ligacaoNtfy(url) {
   return `ntfy://${u.host}/${m[1]}${u.protocol === "http:" ? "?secure=false" : ""}`;
 }
 
+// ---------- Avisos da própria app (web push; decisão do dono, 2026-10-14) ----------
+// `_webpush` (retido, do motor): {"chave": "<chave pública VAPID>"|null, "total": <telemóveis com avisos>}.
+export function lerWebPush(texto) {
+  const v = json(texto);
+  if (!v || typeof v !== "object") return null;
+  const chave = typeof v.chave === "string" && /^[A-Za-z0-9_-]{40,200}$/.test(v.chave) ? v.chave : null;
+  const total = Number.isInteger(v.total) && v.total >= 0 ? v.total : 0;
+  return { chave, total };
+}
+/** Chave VAPID (base64url) → bytes, como o pushManager.subscribe a pede. */
+export function chaveParaBytes(chave) {
+  const b64 = (chave + "=".repeat((4 - (chave.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+/**
+ * O que o cartão "Receber avisos no telemóvel" mostra neste aparelho.
+ * @param {{sistema: "android"|"iphone"|"computador", instalada: boolean, suportado: boolean, permissao: string,
+ *          ativo: boolean, chave: string|null}} o
+ * @returns {{estado: "ativo"|"pode"|"negado"|"iphone-instalar"|"iphone-antigo"|"sem-suporte"|"indisponivel", texto: string}}
+ */
+export function estadoAvisos({ sistema, instalada, suportado, permissao, ativo, chave }) {
+  const aqui = sistema === "computador" ? "computador" : "telemóvel";
+  // iPhone: o Safari só deixa receber avisos com a app instalada no ecrã principal (iOS 16.4 ou mais recente).
+  if (sistema === "iphone" && !suportado) {
+    return instalada
+      ? { estado: "iphone-antigo", texto: "Este iPhone precisa do iOS 16.4 ou mais recente para receber os avisos da app. Atualize o iPhone em Definições, Geral, Atualização de software, ou use a alternativa abaixo." }
+      : { estado: "iphone-instalar", texto: "No iPhone, os avisos só chegam com a app Domus instalada no ecrã principal (iOS 16.4 ou mais recente). Instale primeiro a app, abra-a pelo ícone e volte aqui para ativar os avisos." };
+  }
+  if (!suportado) return { estado: "sem-suporte", texto: "Este navegador não recebe os avisos da app. Abra esta página no Chrome (Android) ou no Safari (iPhone), ou use a alternativa abaixo." };
+  if (ativo) return { estado: "ativo", texto: `Os avisos estão ativos neste ${aqui}. O alarme, as portas abertas com o alarme ligado, os aparelhos sem ligação, as pilhas a acabar e as suas automações chegam aqui.` };
+  if (permissao === "denied") {
+    return { estado: "negado", texto: `Este ${aqui} bloqueou as notificações da Domus. Para as permitir, abra as definições do navegador (ou da app), procure Notificações e escolha Permitir. Depois toque outra vez em Ativar.` };
+  }
+  if (!chave) return { estado: "indisponivel", texto: "Os avisos da app estão indisponíveis de momento. Tente mais tarde ou use a alternativa abaixo." };
+  return { estado: "pode", texto: `Toque no botão e, quando o ${aqui} perguntar, escolha Permitir.` };
+}
+
 const TIPOS_EVENTO = ["alarme", "sensor", "automacao", "aviso", "erro", "modo"];
 export function lerEvento(v) {
   if (typeof v === "string") v = json(v);

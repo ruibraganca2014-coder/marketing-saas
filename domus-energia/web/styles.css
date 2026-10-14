@@ -431,6 +431,12 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .ntfy ol { margin: 0 0 12px; padding-left: 1.4em; display: grid; gap: 14px; }
 .ntfy li > .btn { display: flex; width: fit-content; margin-top: 10px; }
 .ntfy small { display: block; margin-top: 6px; }
+/* Avisos da própria app (web push): o botão grande vem primeiro; a app ntfy fica por baixo, como alternativa. */
+.push { display: grid; gap: 10px; margin-bottom: 18px; }
+.push p { margin: 0; }
+.push .btn.grande { width: 100%; min-height: 52px; font-size: 1.05rem; white-space: normal; }
+.push .btn.pequeno { width: fit-content; }
+.ntfy-alternativa { margin: 0 0 10px; padding-top: 14px; border-top: 1px solid var(--borda); font-size: .95rem; color: var(--texto); }
 /* Código QR: sempre escuro sobre branco, também no tema escuro (as câmaras leem mal o invertido). */
 .ntfy-qr { width: 192px; margin-top: 10px; padding: 8px; border-radius: 12px; background: #fff; border: 1px solid var(--borda); }
 .ntfy-qr svg { display: block; width: 100%; height: auto; }

@@ -30,6 +30,8 @@ continua válido. Planos e subscrições:
 | `_cenas/executar` | cliente → | `{"id","por"?}` executa a cena |
 | `_cenas/admin` | admin/motor → | administração das cenas **bloqueadas** |
 | `_fcm/registar` | app → | `{"token"}` regista, `{"token","remover":true}` apaga (máx. 10 por cliente) |
+| `_webpush/registar` | app → | `{"subscricao":{endpoint,keys}}` regista, `{"endpoint","remover":true}` apaga (máx. 10 por casa; v3 §11) |
+| `_webpush` | → app (retido) | `{"chave","total"}`: chave pública VAPID e telemóveis com avisos |
 | `_ntfy` (retido) | domus.sh → | lê o tópico ntfy secreto do cliente (o motor nunca o gera nem publica) |
 | `_plano` (retido) | pagamentos/domus.sh → | plano e estado da subscrição (validação estrita; o motor nunca o publica); sem `_plano` = `conforto`/`ativo` |
 | `_eventos` | → todos | eventos (não retidos) |
@@ -190,6 +192,10 @@ o motor tiver perdido o seu estado local.
   continua.
 - **FCM** (opcional): API HTTP v1 com a conta de serviço; tokens que o FCM diz
   não existirem (`UNREGISTERED`/404) são apagados.
+- **Web push** (avisos da app do cliente, canal principal desde 2026-10-14;
+  `src/webpush.js`, biblioteca `web-push`): só para serviços de push conhecidos
+  (`HOSTS_PUSH`); chaves VAPID criadas no 1.º arranque em `$DADOS_DIR/vapid.json`
+  (modo 600, nunca no registo); subscrições com resposta 404/410 são apagadas.
 - **Robustez**: nenhuma mensagem maior do que `MQTT_MAX_PAYLOAD` é publicada;
   os contadores dos limites por minuto são limpos a cada minuto e o estado de um
   aparelho removido de `_aparelhos` é esquecido; mensagens inválidas nunca derrubam o serviço; gravação do
@@ -272,6 +278,7 @@ online, eventos de porta no histórico), para a reativação ser imediata.
 | `NTFY_TOKEN` | — | alternativa: token de acesso (`Authorization: Bearer`) |
 | `NTFY_PUBLIC_URL` | — | não é usado pelo motor (o URL público vem do `_ntfy`) |
 | `FCM_SERVICE_ACCOUNT` | `$DADOS_DIR/firebase-service-account.json` | conta de serviço Firebase; se não existir, o FCM fica desligado (registado uma vez no arranque) |
+| `WEBPUSH_CONTACTO` | `mailto:avisos@domus.local` | contacto VAPID pedido pelos serviços de push (no servidor: `https://DOMUS_HOST`) |
 | `TZ` | `Europe/Lisbon` | só para os registos; as automações usam sempre Europe/Lisbon |
 | `MOTOR_TICK_MS` | `1000` | intervalo do relógio interno (testes) |
 | `MOTOR_ESPERA_ARRANQUE_MS` | `3000` | espera pelas mensagens retidas antes de publicar o estado |
@@ -394,7 +401,8 @@ Estrutura:
 - `src/saude.js`, `src/energia.js`, `src/relatorio.js` — cálculos puros;
 - `src/tempo.js` — horas de Lisboa (Intl);
 - `src/notificacoes.js` — ntfy e FCM (o `google-auth-library` só é carregado
-  se houver conta de serviço);
+  se houver conta de serviço), e junta o web push;
+- `src/webpush.js` — web push: validação das subscrições, chaves VAPID, envio;
 - `src/armazenamento.js` — ficheiro de estado (gravação adiada e atómica);
 - `src/index.js` — ligações (MQTT, ntfy/FCM, disco, sinais);
 - `src/admin.js` — CLI de administração.

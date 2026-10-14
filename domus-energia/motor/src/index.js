@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Motor de regras da Domus Energia — ligação ao MQTT, ntfy/FCM e disco.
+// Motor de regras da Domus Energia — ligação ao MQTT, ntfy/FCM/web push e disco.
 // A lógica está em motor.js; aqui só se liga tudo.
 
 import mqtt from 'mqtt';
+import webPushBiblioteca from 'web-push';
 import { pathToFileURL } from 'node:url';
 import { lerConfig } from './config.js';
 import { Motor } from './motor.js';
 import { FicheiroEstado } from './armazenamento.js';
 import { Ntfy, Fcm, criarNotificador } from './notificacoes.js';
+import { WebPush } from './webpush.js';
 
 const agoraTexto = () => new Date().toISOString();
 
@@ -35,6 +37,8 @@ export function iniciar(config, opcoes = {}) {
     log: l,
   });
   const fcm = new Fcm({ ficheiroConta: config.fcmServiceAccount, log: l });
+  // Web push (decisão do dono, 2026-10-14): chaves VAPID criadas no 1.º arranque em <dados>/vapid.json.
+  const webPush = new WebPush({ ficheiroChaves: config.vapidFicheiro, contacto: config.webPushContacto, biblioteca: webPushBiblioteca, log: l });
 
   /** @type {mqtt.MqttClient} */
   let cliente;
@@ -44,7 +48,8 @@ export function iniciar(config, opcoes = {}) {
         if (e) l.erro(`[mqtt] publicação em ${topico} falhou: ${e.message}`);
       });
     },
-    notificar: criarNotificador({ ntfy, fcm, log: l }),
+    notificar: criarNotificador({ ntfy, fcm, webPush, log: l }),
+    chaveWebPush: webPush.chavePublica,
     armazenamento,
     log: l,
     esperaArranqueMs: config.esperaArranqueMs,
