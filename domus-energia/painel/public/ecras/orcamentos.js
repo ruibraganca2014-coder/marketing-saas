@@ -150,6 +150,9 @@ export default function orcamentos(el, ctx) {
         comEstado ? selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`) : null,
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : urgenciaPedido(o) === "semana" ? selo("Esta semana", "info") : null,
         seloForaHoras(o),
+        // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): prédio (projeto e técnico responsável) e ITED.
+        campo(campo(o, "servico_fotos"), "precisa_projeto") === true ? selo("Precisa de projeto e técnico responsável", "aviso") : null,
+        campo(campo(o, "servico_fotos"), "precisa_ited") === true ? selo("Precisa da ficha ITED", "info") : null,
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null,
@@ -209,6 +212,9 @@ export default function orcamentos(el, ctx) {
       h("div", { class: "linha-selos" }, selo(NOMES_ESTADO_ORC[estado] ?? estado, `orc-${estado}`),
         urgenciaPedido(o) === "urgente" ? selo("Urgente", "aviso") : null,
         seloForaHoras(o),
+        // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): prédio (projeto e técnico responsável) e ITED.
+        campo(campo(o, "servico_fotos"), "precisa_projeto") === true ? selo("Precisa de projeto e técnico responsável", "aviso") : null,
+        campo(campo(o, "servico_fotos"), "precisa_ited") === true ? selo("Precisa da ficha ITED", "info") : null,
         campo(o, "lista_espera") === true && !["aceite", "perdido"].includes(estado) ? selo("Lista de espera", "info") : null, campo(campo(o, "validacao"), "estado") === "por_validar" && !["aceite", "perdido"].includes(estado) ? selo("Por validar", "aviso") : campo(campo(o, "validacao"), "estado") === "devolvido" ? selo("Devolvido ao cliente", "info") : null,
         seloEspecialidade(o),
         campo(o, "aguarda_sinal") === true ? selo("Aceite — a aguardar sinal", "info") : null),
@@ -247,6 +253,36 @@ export default function orcamentos(el, ctx) {
     // bolsa; só na ficha completa (a que traz o histórico), para não pedir duas vezes.
     // Validação do CEO (decisão do dono, 2026-10-10): lista de verificação antes de o pedido ir para a bolsa; "Devolver
     // ao cliente" manda-lhe por email o que falta corrigir. Todos veem o estado; só o CEO tem os botões.
+    // Para-raios e coluna montante (decisão do dono, 2026-10-14): pedido de orçamento de um prédio, que precisa de projeto e
+    // técnico responsável — não vai sozinho para a bolsa (nem com a validação); o CEO decide se a Domus o aceita.
+    const sf = campo(o, "servico_fotos");
+    const predioPorDecidir = campo(sf, "precisa_projeto") === true && campo(campo(sf, "decisao"), "estado") !== "aceite";
+    if (campo(sf, "precisa_projeto") === true && !arquivado && o && typeof o === "object" && "historico" in o) {
+      const dec = campo(sf, "decisao");
+      const pr = campo(sf, "predio");
+      const caixa = h("section", { class: "bloco", id: "predio-decisao" }, h("h3", { text: "Pedido de orçamento de um prédio" }),
+        h("p", { text: `${campo(sf, "nome")}: ${lista(campo(sf, "opcoes") ?? [], "opcoes").join("; ") || "—"}.${pr ? ` ${[campo(pr, "nome"), campo(pr, "texto")].filter(Boolean).join(" · ")}.` : ""}` }),
+        h("p", { class: "ajuda", text: "Precisa de projeto e técnico responsável: não vai sozinho para a bolsa, nem com a validação. Decida se a Domus Energia o aceita." }));
+      if (dec) caixa.append(h("p", { class: campo(dec, "estado") === "aceite" ? "msg ok" : "msg info", id: "predio-decidido",
+        text: `${campo(dec, "estado") === "aceite" ? "Aceite" : "Não aceite"}${campo(dec, "por") ? ` por ${campo(dec, "por")}` : ""}${campo(dec, "em") ? `, ${data(campo(dec, "em"))}` : ""}.${campo(dec, "estado") === "aceite" ? " Pode pô-lo na bolsa ou atribuí-lo (Eletricista externo), ou fazer a proposta." : ""}` }));
+      else if (ctx.pode("ceo") && ["novo", "contactado", "visita_marcada"].includes(estado)) {
+        const motivo = h("input", { id: "predio-motivo", maxlength: "300", placeholder: "Porquê? (opcional; fica no pedido)" });
+        const decidir = async (b, aceita) => {
+          b.disabled = true;
+          try {
+            const novo = await pedir(`orcamentos/${encodeURIComponent(id)}/predio`, { corpo: { aceita, ...(motivo.value.trim() ? { motivo: motivo.value.trim() } : {}) } });
+            substituir(novo);
+            avisar(aceita ? "Pedido aceite: siga como num pedido normal." : "Pedido não aceite: ficou como perdido.");
+            if (ficha?.j === j) desenharFicha(j, novo);
+          } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+        };
+        const bAceitar = h("button", { class: "btn pequeno", type: "button", id: "predio-aceitar", text: "Aceitar o pedido", onclick: (e) => decidir(e.currentTarget, true) });
+        const bRecusar = botaoConfirmar("Não aceitar", "Confirmar: não aceitar?", (b) => decidir(b, false));
+        bRecusar.id = "predio-recusar";
+        caixa.append(h("div", { class: "form-botoes" }, bAceitar, bRecusar), h("label", { class: "campo" }, h("span", { text: "Motivo (opcional)" }), motivo));
+      } else caixa.append(h("p", { class: "msg info", text: "Por decidir pelo CEO." }));
+      S.validacao.push(caixa);
+    }
     const val = campo(o, "validacao");
     if (val && !arquivado && o && typeof o === "object" && "historico" in o) {
       const estadoV = campo(val, "estado");
@@ -305,9 +341,11 @@ export default function orcamentos(el, ctx) {
           const marcados = () => Object.fromEntries(caixas.map(([i]) => [i.dataset.chave, i.checked]));
           const todos = () => caixas.every(([i]) => i.checked);
           const escolhida = () => (comEspecialidade ? { especialidade: selEsp.value } : {});
-          const bValidar = h("button", { class: "btn pequeno", type: "button", id: "validar-pedido", text: ctx.eletricistas ? "Validar e pôr na bolsa" : "Validar",
-            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: Boolean(ctx.eletricistas), ...escolhida() }, ctx.eletricistas ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
-          const bSoValidar = ctx.eletricistas ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
+          // Prédio por decidir (2026-10-14): só "Validar" (não vai para a bolsa).
+          const comBolsa = Boolean(ctx.eletricistas) && !predioPorDecidir;
+          const bValidar = h("button", { class: "btn pequeno", type: "button", id: "validar-pedido", text: comBolsa ? "Validar e pôr na bolsa" : "Validar",
+            onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: comBolsa, ...escolhida() }, comBolsa ? "Pedido validado e posto na bolsa." : "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) });
+          const bSoValidar = comBolsa ? h("button", { class: "btn sec pequeno", type: "button", id: "validar-sem-bolsa", text: "Validar sem pôr na bolsa",
             onclick: (e) => (todos() ? enviar(e.currentTarget, "validar", { pontos: marcados(), bolsa: false, ...escolhida() }, "Pedido validado.") : avisar("Marque todos os pontos da lista antes de validar.", "erro")) }) : null;
           if (emFalta.length) { bValidar.disabled = true; if (bSoValidar) bSoValidar.disabled = true; }
           // "Devolver ao cliente" em dois toques (decisão do dono, 2026-10-11): o primeiro vê se o texto do que falta está
@@ -716,7 +754,7 @@ export default function orcamentos(el, ctx) {
     const v = campo(campo(o, "validacao"), "estado");
     r.validacao = v === "validado" ? "Validado" : v === "devolvido" ? "Devolvido ao cliente" : v ? "Por validar" : null;
     const nf = lista(campo(o, "fotos") ?? [], "fotos").length;
-    r.fotos = [simulacaoDe(o) || campo(o, "tem_simulacao") === true ? "Com planta" : null, nf ? `${nf} ${nf === 1 ? "foto" : "fotos"}` : null].filter(Boolean).join(" · ") || null;
+    r.fotos = [campo(o, "servico_fotos") ? "Serviço com fotos, sem planta" : simulacaoDe(o) || campo(o, "tem_simulacao") === true ? "Com planta" : null, nf ? `${nf} ${nf === 1 ? "foto" : "fotos"}` : null].filter(Boolean).join(" · ") || null;
     const rf = campo(o, "resumo_ficha") ?? {};
     const np = numero(rf.n_propostas) ?? 0;
     r.eletricista = np ? `${np} ${np === 1 ? "proposta recebida" : "propostas recebidas"}` : rf.trabalho ? NOME_TRABALHO_FICHA[rf.trabalho.estado] ?? null : null;

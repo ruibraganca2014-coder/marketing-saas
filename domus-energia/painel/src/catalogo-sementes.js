@@ -215,3 +215,28 @@ export const SEMENTES_DINHEIRO = [
   // Em "Instalação nova" (a obra já está aberta) a linha da máquina custa 70 €; a do carregador é a mesma (390 €).
   linha('LINHA-DEDICADA-NOVA', 'Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra)', 70, 0.75, 'linha_dedicada_nova'),
 ];
+
+// Serviços com preço depois das fotos (decisão do dono, 2026-10-14; web/simulador/servicos-fotos.js SERVICOS_FOTOS, os
+// mesmos SKUs). PROVISÓRIOS: sem preço de lista (0 €: o preço vem na proposta, depois de ver as fotos), escondidos do
+// cliente e com as horas por confirmar pelos parceiros da especialidade (tabela de preços da área do eletricista; o CEO
+// aprova). O CEO só os mostra ao cliente depois de aprovar as horas. `preco_depois_fotos`: sem preço de lista;
+// `precisa_ited`: precisa da ficha ITED da ANACOM (assinada por um instalador ITED — por agora só fica assinalado);
+// `precisa_projeto`: precisa de projeto e técnico responsável (só pedido de orçamento, o CEO decide caso a caso).
+// Entram pela migração 57 (INSERT OR IGNORE), cada um com a sua `especialidade`.
+const servicoFotos = (sku, nome, horas, especialidade, extra = {}) => ({
+  sku, nome, categoria: 'outro', fornecedor: null, preco_compra: null, preco_venda_iva: 0, horas_instalacao: horas, especialidade,
+  visivel_cliente: false, especificacoes: { funcao: 'servico_fotos', preco_depois_fotos: true, nota: PROVISORIO, ...extra },
+});
+export const SEMENTES_SERVICOS_FOTOS = [
+  servicoFotos('VIDEOPORTEIRO-MORADIA', 'Videoporteiro de moradia: instalar ou trocar (botoneira e monitor)', 3, 'redes'),
+  servicoFotos('INTERCOMUNICADOR-TELEFONE', 'Intercomunicador de prédio: trocar o telefone ou o monitor do apartamento', 1, 'redes'),
+  servicoFotos('VIDEOPORTEIRO-REPARAR', 'Reparação de videoporteiro ou intercomunicador (diagnóstico e reparação)', 1, 'redes'),
+  servicoFotos('ANTENA-TDT', 'Antena de TV (TDT): instalar ou orientar, com o cabo até à casa', 2, 'redes'),
+  servicoFotos('TOMADA-TV-REDE', 'Tomada de TV ou de rede nova (alteração da instalação ITED)', 1, 'redes', { precisa_ited: true }),
+  servicoFotos('ITED-REPARAR', 'Reparação da instalação de TV, telefone e rede da casa (ITED)', 1, 'redes'),
+  servicoFotos('MOTOR-PORTAO', 'Motor de portão automático: ligar ou reparar (comando, fotocélulas e fins de curso)', 3, 'domotica'),
+  servicoFotos('BOMBA-AGUA', 'Bomba de água: ligar ou reparar (circuito, proteção e comando)', 2, 'domotica'),
+  servicoFotos('CIRCUITO-COMANDO', 'Automatismo ou circuito de comando: ligar ou reparar (contactores, relés, temporizadores)', 2, 'domotica'),
+  servicoFotos('PARA-RAIOS', 'Para-raios de prédio: orçamento caso a caso (precisa de projeto e técnico responsável)', 0, 'geral', { precisa_projeto: true }),
+  servicoFotos('COLUNA-MONTANTE', 'Coluna montante de prédio: orçamento caso a caso (precisa de projeto e técnico responsável)', 0, 'geral', { precisa_projeto: true }),
+];

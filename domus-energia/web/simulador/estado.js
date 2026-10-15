@@ -15,6 +15,7 @@ import { ACOES, MAX_AVARIA, normalizarServico, temAcao, acaoDe, contarAcoes, ped
 import { divisoesDaCasa, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO, nomeEscadas, pisoTipicoMaquina, assinaturaCasa, acertarPisos, tipoDivisao, LIMITES_OUTRAS } from "./casa.js";
 import { quadroOmissao, normalizarProtecoes, resumoQuadro, avisosProtecoes, levaQuadroNovo, TAMANHO_PARCIAL } from "./quadro.js";
 import { melhoriasNovas, normalizarMelhorias, instaladoDe, normalizarInstalado } from "./melhorias.js";
+import { SERVICOS_FOTOS, FOTOS_SERVICO, DESCRICAO_SERVICO_MAX, PREDIO_NOME_MAX, PREDIO_PISOS_MAX, PREDIO_FOGOS_MAX } from "./servicos-fotos.js";
 
 export const VERSAO = 1;
 export const CHAVE = "domus.simulador";
@@ -34,19 +35,21 @@ export const MAX_IMAGEM = 700 * 1024;                    // data URL da imagem d
  * básico grátis com PDF + a amostra do completo e "Quero o relatório completo"); o 12 fica reformado (em nenhum funil;
  * os estados que lá estavam passam ao 11).
  */
-export const PASSOS = ["Início", "A casa", "Equipamentos", "Portas e janelas", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo", "Interruptores e tomadas"];
+export const PASSOS = ["Início", "A casa", "Equipamentos", "Portas e janelas", "Quadro elétrico", "Divisões", "Trocar e reparar", "Orçamento", "Enviar", "Avaria", "Melhorias", "Relatório", "Relatório completo", "Interruptores e tomadas", "O serviço"];
 /** Índices dos passos (os mesmos ids `passo-N` da página). */
 // 13 (decisão do dono, 2026-10-10): "Interruptores e tomadas", a seguir a "Portas e janelas" — a planta à largura toda,
 // onde o cliente põe os interruptores, as tomadas e os pontos de luz. Os estados guardados com 13 passos carregam-se
 // como os de agora (normalizarEstado).
-export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12, tomadas: 13 };
+// 14 (decisão do dono, 2026-10-14): "O serviço" — os serviços com preço depois das fotos (servicos-fotos.js), só no funil
+// `servico`. Os estados guardados com 14 passos carregam-se como os de agora (normalizarEstado).
+export const PASSO = { inicio: 0, casa: 1, quer: 2, planta: 3, quadro: 4, divisoes: 5, trocar: 6, preco: 7, enviar: 8, avaria: 9, melhorias: 10, relatorio: 11, completo: 12, tomadas: 13, servico: 14 };
 /**
  * Os passos pela ordem em que se fazem (a Avaria, só do seu funil, no fim): o "mais adiantado" (`visitado`) e "já lá
  * chegou" comparam-se por esta ordem, não pelo índice.
  */
 // Decisão do dono (2026-10-10): o passo 3 ("Portas e janelas", o antigo "Planta") volta ao funil da primeira vez, logo a
 // seguir a "A casa". Os estados guardados ficam como estão: quem já ia nos Equipamentos tem-no como passado.
-export const ORDEM_PASSOS = [0, 1, 3, 13, 2, 5, 4, 11, 6, 10, 7, 8, 9, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
+export const ORDEM_PASSOS = [0, 1, 3, 13, 2, 5, 4, 11, 6, 10, 7, 8, 9, 14, 12];   // o 12 (reformado) no fim: nunca é "o mais adiantado"
 export const ordemPasso = (i) => ORDEM_PASSOS.indexOf(i);
 /** O mais adiantado de vários passos (por ORDEM_PASSOS). */
 export const maisAdiantado = (...l) => l.reduce((a, b) => (ordemPasso(b) > ordemPasso(a) ? b : a));
@@ -65,8 +68,13 @@ export const FUNIS = {
   primeira: { nome: "Descrever a minha casa", passos: [0, 1, 3, 13, 2, 5, 4, 11], minutos: { 0: 0.5, 1: 1, 3: 1, 13: 1, 2: 1, 5: 1, 4: 1, 11: 0.5 } },
   planta: { nome: "Pedir um serviço", passos: [0, 6, 10, 7, 8], minutos: { 0: 0.5, 6: 2, 10: 1, 7: 0.5, 8: 0.5 } },
   avaria: { nome: "Tenho uma avaria", passos: [0, 9, 8], minutos: { 0: 0.5, 9: 1, 8: 0.5 } },
+  // Serviços com preço depois das fotos (decisão do dono, 2026-10-14; servicos-fotos.js): escolhem-se em "Pedir um
+  // serviço" (sem casa descrita, sem planta), como a avaria: o que precisa, descrição e fotos; o preço vem na proposta.
+  servico: { nome: "Pedir um serviço", passos: [0, 14, 8], minutos: { 0: 0.5, 14: 1.5, 8: 0.5 } },
 };
 export const CHAVES_FUNIL = Object.keys(FUNIS);
+/** Os cartões de "Qual é o seu caso?" (o funil `servico` escolhe-se dentro de "Pedir um serviço"). */
+export const CARTOES_FUNIL = ["primeira", "planta", "avaria"];
 /** Os passos de "Pedir um serviço": um estado de antes das duas partes que já lá estava passa ao funil `planta`. */
 const PARTE_SERVICO = [6, 10, 7, 8];
 /** Os passos do funil (sem funil escolhido, os da primeira vez). */
@@ -254,7 +262,7 @@ const FUNIS_11 = { primeira: [0, 1, 2, 4, 5, 3, 11, 6, 10, 12, 7, 8], planta: [0
  * a ele. Muda `e`.
  */
 function reordenar(e, ordemAntes = ORDEM_10, funisAntes = FUNIS_10) {
-  if (e.funil === "avaria" || !e.funil) return;
+  if (e.funil === "avaria" || e.funil === "servico" || !e.funil) return;
   const lim = ordemAntes.indexOf(e.visitado);
   const vistos = new Set(funisAntes[e.funil].filter((i) => ordemAntes.indexOf(i) <= lim));
   // "Portas e janelas" (o passo 3, de volta ao funil logo a seguir a "A casa"): não prende quem já ia mais à frente.
@@ -404,6 +412,7 @@ export function estadoNovo() {
     urgencia: "normal",                           // lote 8: normal | semana | urgente (avaria sem luz)
     horario: "normal",                            // avaria (2026-10-13): normal (dias úteis, 8h–20h) | fora_horas (noite e fim de semana, mais caro)
     avaria: { onde: [], problema: [], descricao: "" },       // funil "avaria": listas de chaves (AVARIA_ONDE, AVARIA_PROBLEMA)
+    servicoFotos: servicoFotosNovo(),                        // funil "servico" (2026-10-14): o serviço, o que precisa, descrição e prédio
     melhorias: melhoriasNovas(),                             // fase 2 (melhorias.js): pacotes aceites; proteções do quadro de antes do "Quadro seguro"
     melhoriasPorVer: false,                                  // fase 2: estado de antes das Melhorias já para lá delas — a barra não as dá como feitas até lá ir
     relatoriosPorVer: [],                                    // ronda A: o mesmo para os relatórios (PASSOS_NOVOS) num estado de antes deles
@@ -644,8 +653,9 @@ export function normalizarEstado(v) {
   // estado de agora, pela ordem de então, e depois passam à de agora (reordenar).
   // `ordem: 13` (antes do inventário das Divisões): os mesmos passos pela mesma ordem (`antesInventario`, mais abaixo).
   const antesInventario = v.ordem !== ORDEM;
-  // (13 passos: antes do passo "Interruptores e tomadas", o 13 — os mesmos índices, carregam-se como os de agora.)
-  const deAgora = (v.ordem === ORDEM || v.ordem === 13) && (v.passos === PASSOS.length || v.passos === 13);
+  // (13 passos: antes do passo "Interruptores e tomadas", o 13 — os mesmos índices, carregam-se como os de agora. 14
+  // passos: antes de "O serviço", o 14 — idem.)
+  const deAgora = (v.ordem === ORDEM || v.ordem === 13) && (v.passos === PASSOS.length || v.passos === 13 || v.passos === 14);
   const de12 = v.ordem === 12 && v.passos === 13;   // ronda A/B: os dois relatórios (o 12 depois das Melhorias), a ordem de agora
   const de11 = v.ordem === 11 && v.passos === 13;   // ronda A: o Quadro ainda antes das Divisões e da Planta
   const atual = deAgora || de12 || de11 || (v.ordem === 10 && v.passos === 11) || (v.ordem === 9 && v.passos === 10);
@@ -676,7 +686,7 @@ export function normalizarEstado(v) {
     // Duas partes (2026-10-04): "Pedir um serviço" já não tem Relatório — quem lá estava segue para o Orçamento.
     if (e.funil === "planta" && passo === PASSO.relatorio) passo = PASSO.preco;
     // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
-    if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : PASSO.preco;
+    if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : e.funil === "servico" ? PASSO.servico : PASSO.preco;
     // O passo Planta saiu do funil da primeira vez (2026-10-04): quem lá estava segue para o Quadro (o passo a seguir).
     const semPlanta = (i) => (i === PASSO.planta && e.funil === "primeira" && !seq.includes(i) ? PASSO.quadro : i);
     passo = semPlanta(passo);
@@ -699,10 +709,13 @@ export function normalizarEstado(v) {
   const guardavaVisitado = !migrar || [MIGRAR.ordem3, MIGRAR.ordem4, MIGRAR.ordem5, MIGRAR.ordem6, MIGRAR.ordem7, MIGRAR.ordem8].includes(migrar);
   e.soCasa = bool(v.soCasa) && e.funil === null && e.passo === 0;
   e.avaria = normalizarAvaria(v.avaria);
+  // Serviço com preço depois das fotos (2026-10-14): sem serviço escolhido volta ao Início de "Pedir um serviço".
+  e.servicoFotos = normalizarServicoFotos(v.servicoFotos);
+  if (e.funil === "servico" && !e.servicoFotos.tipo) { e.funil = "planta"; e.caminho = null; e.passo = 0; e.visitado = 0; }
   e.melhorias = normalizarMelhorias(v.melhorias);
   // Estados de antes das Melhorias (ordem ≤ 9) já para lá delas nunca as viram: a barra não as dá como feitas.
   const antesMelhorias = !deAgora && !de12 && !(v.ordem === 10 && v.passos === 11);
-  e.melhoriasPorVer = e.funil !== "avaria" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
+  e.melhoriasPorVer = e.funil !== "avaria" && e.funil !== "servico" && ordemPasso(e.visitado) > ordemPasso(PASSO.melhorias) && (antesMelhorias || bool(v.melhoriasPorVer));
   e.instalado = normalizarInstalado(v.instalado);
   e.mexerQuadro = bool(v.mexerQuadro);
   e.quadroIdade = Object.hasOwn(IDADES_QUADRO, v.quadroIdade) ? v.quadroIdade : null;
@@ -1324,6 +1337,7 @@ export function deslocacaoParaEnvio(d) {
  */
 export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = null, melhorias = []) {
   if (estado.funil === "avaria") return montarSimulacaoAvaria(estado, preco, fotos);
+  if (estado.funil === "servico") return montarSimulacaoServico(estado, preco, fotos);
   const servico = Array.isArray(estado.servico) && estado.servico.length ? [...estado.servico] : ["nova"];
   // Em "Obras" com o quadro em "Manter como está" os circuitos vão sem disjuntor inteligente, como no preço
   // (preco.js circuitosDoPedido): o painel e o eletricista não veem "Inteligente" no que o cliente não comprou.
@@ -1434,6 +1448,60 @@ export function montarSimulacaoAvaria(estado, preco, fotos = []) {
     })),
   };
 }
+/**
+ * Serviço com preço depois das fotos (decisão do dono, 2026-10-14; servicos-fotos.js): {tipo, opcoes, descricao, predio:
+ * {nome, pisos, fogos}}. `tipo` null = por escolher; as opções só as do tipo; o prédio só conta no tipo `predio`.
+ */
+export function servicoFotosNovo() {
+  return { tipo: null, opcoes: [], descricao: "", predio: { nome: "", pisos: null, fogos: null } };
+}
+export function normalizarServicoFotos(v) {
+  const o = v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  const tipo = typeof o.tipo === "string" && Object.hasOwn(SERVICOS_FOTOS, o.tipo) ? o.tipo : null;
+  const pedidas = Array.isArray(o.opcoes) ? o.opcoes : [];
+  const p = o.predio && typeof o.predio === "object" ? o.predio : {};
+  const n = (x, max) => (Number.isInteger(x) && x >= 1 && x <= max ? x : null);
+  return {
+    tipo,
+    opcoes: tipo ? Object.keys(SERVICOS_FOTOS[tipo].opcoes).filter((k) => pedidas.includes(k)) : [],
+    descricao: typeof o.descricao === "string" ? o.descricao.slice(0, DESCRICAO_SERVICO_MAX).replace(CONTROLO, " ") : "",
+    predio: { nome: typeof p.nome === "string" ? p.nome.slice(0, PREDIO_NOME_MAX).replace(CONTROLO_LINHA, " ") : "", pisos: n(p.pisos, PREDIO_PISOS_MAX), fogos: n(p.fogos, PREDIO_FOGOS_MAX) },
+  };
+}
+/**
+ * `simulacao` do funil "servico" (§6; decisão do dono, 2026-10-14): `funil: "servico"` e `servico_fotos` = {tipo, opcoes,
+ * descricao, predio (só no prédio)}; as fotos (a 1.ª obrigatória). Sem preço (o valor vem na proposta), sem planta,
+ * quadro, máquinas nem divisões; a casa só com a localidade (para a deslocação e o concelho da bolsa).
+ */
+export function montarSimulacaoServico(estado, preco, fotos = []) {
+  const sf = normalizarServicoFotos(estado.servicoFotos);
+  const def = SERVICOS_FOTOS[sf.tipo];
+  const foraArea = preco?.deslocacao?.estado === "fora_area";
+  return {
+    versao: VERSAO,
+    funil: "servico",
+    casa: { tipo: null, divisoes: null, localidade: textoSeguro(estado.contacto.localidade, 80) || null, potencia_contratada_kva: null, fases: null },
+    quer: null,
+    planta: null,
+    quadro: null,
+    servico_fotos: {
+      tipo: sf.tipo, opcoes: sf.opcoes, descricao: textoSeguro(sf.descricao, DESCRICAO_SERVICO_MAX, true),
+      ...(def?.projeto ? { predio: { nome: textoSeguro(sf.predio.nome, PREDIO_NOME_MAX), pisos: sf.predio.pisos, fogos: sf.predio.fogos } } : {}),
+    },
+    trabalho: [],
+    visita: foraArea ? null : normalizarVisita(estado.visita),
+    urgencia: foraArea ? null : URGENCIAS[estado.urgencia] ? estado.urgencia : "normal",
+    divisoes: [],
+    itens: [],
+    deslocacao: preco?.deslocacao ? deslocacaoParaEnvio(preco.deslocacao) : null,
+    total: null,   // o preço vem na proposta, depois de ver as fotos
+    plano_sugerido: null,
+    avisos: [],
+    fotos: fotos.filter((f) => FOTOS_SERVICO.includes(f.chave)).slice(0, FOTOS_SERVICO.length).map((f) => ({
+      chave: f.chave, tipo: "servico", divisao: null, divisao_nome: def ? def.nome : null, piso: null, legenda: textoSeguro(f.legenda, 120),
+    })),
+  };
+}
 /** "Sala, Cozinha — Luz não acende, Disjuntor dispara" (onde e o que se passa, com várias escolhas). */
 export function textoAvaria(a) {
   const n = normalizarAvaria(a);
@@ -1494,7 +1562,9 @@ export function problemaContacto(k) {
  */
 export function montarPedido(estado, simulacao, { codigo = null, website = "" } = {}) {
   const k = estado.contacto;
-  const corpo = { nome: textoSeguro(k.nome, 120), servico: codigo ? SERVICO_CLIENTE : SERVICO };
+  // Serviço com preço depois das fotos (2026-10-14): o "Serviço" do pedido no painel é o nome dele.
+  const servicoFotos = simulacao?.funil === "servico" ? SERVICOS_FOTOS[simulacao.servico_fotos?.tipo]?.nome : null;
+  const corpo = { nome: textoSeguro(k.nome, 120), servico: servicoFotos ?? (codigo ? SERVICO_CLIENTE : SERVICO) };
   const tel = String(k.telefone ?? "").trim();
   const email = String(k.email ?? "").trim();
   const loc = textoSeguro(k.localidade || estado.casa.localidade, 80);

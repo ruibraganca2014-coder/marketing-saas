@@ -2,6 +2,7 @@
 
 import { ErroApi } from './http.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
+import { SERVICOS_FOTOS, TIPOS_SERVICO_FOTOS, DESCRICAO_SERVICO_MAX, PREDIO_NOME_MAX, PREDIO_PISOS_MAX, PREDIO_FOGOS_MAX } from '../public/vendor/servicos-fotos.js';
 
 const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const CONTROLO_LINHA = /[\u0000-\u001f\u007f]/;
@@ -126,6 +127,7 @@ export function simulacao(v) {
   fotosSimulacao(v.fotos);
   visitaSimulacao(v.visita, v.urgencia);
   funilSimulacao(v.funil, v.avaria);
+  servicoFotosSimulacao(v.funil, v.servico_fotos);
   horarioSimulacao(v.horario, v.funil);
   melhoriasSimulacao(v.melhorias, v.melhorias_margem_iva);
   inventarioSimulacao(v.inventario);
@@ -269,7 +271,7 @@ export function diagnostico(d) {
  * rápida) = {onde, problema, descricao ≤ 200}, com valores conhecidos. Ronda B: `onde` e `problema` com várias escolhas
  * (lista de 1 a 7 chaves sem repetidas); os pedidos antigos trazem uma só (string), que continua aceite.
  */
-export const FUNIS = ['primeira', 'planta', 'avaria'];
+export const FUNIS = ['primeira', 'planta', 'avaria', 'servico'];   // 'servico': serviços com preço depois das fotos (2026-10-14)
 export const AVARIA_ONDE = ['sala', 'cozinha', 'quarto', 'casa_banho', 'exterior', 'quadro', 'outro'];
 export const AVARIA_PROBLEMA = ['sem_corrente', 'luz', 'disjuntor', 'queimado', 'faiscas', 'choque', 'outro'];
 function funilSimulacao(funil, a) {
@@ -284,6 +286,39 @@ function funilSimulacao(funil, a) {
   chaves(a.onde, AVARIA_ONDE, 'onde');
   chaves(a.problema, AVARIA_PROBLEMA, 'problema');
   if (a.descricao !== undefined && a.descricao !== null && (typeof a.descricao !== 'string' || a.descricao.length > 200)) falha('Avaria: descrição até 200 caracteres.');
+}
+
+/**
+ * Serviços com preço depois das fotos (decisão do dono, 2026-10-14; public/vendor/servicos-fotos.js): no funil `servico`,
+ * `servico_fotos` = {tipo (SERVICOS_FOTOS), opcoes: 1 ou mais chaves desse tipo sem repetir, descricao ≤ 600 (opcional),
+ * predio: {nome 2–80, pisos 1–60, fogos 1–500} — obrigatório no tipo `predio` (para-raios e coluna montante; o cliente é
+ * em regra o condomínio ou a administração) e proibido nos outros}. Obrigatório nesse funil e recusado nos outros.
+ */
+function servicoFotosSimulacao(funil, p) {
+  if (funil !== 'servico') {
+    if (p !== undefined && p !== null) falha('O pedido de serviço só vai no funil "servico".');
+    return;
+  }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) falha('Diga que serviço precisa.');
+  if (!TIPOS_SERVICO_FOTOS.includes(p.tipo)) falha(`Serviço inválido (use: ${TIPOS_SERVICO_FOTOS.join(', ')}).`);
+  const def = SERVICOS_FOTOS[p.tipo];
+  const chaves = Object.keys(def.opcoes);
+  const l = p.opcoes;
+  if (!Array.isArray(l) || !l.length || l.length > chaves.length || new Set(l).size !== l.length || l.some((k) => !chaves.includes(k))) {
+    falha(`Serviço: escolha o que precisa (use: ${chaves.join(', ')}; uma ou várias, sem repetir).`);
+  }
+  if (p.descricao !== undefined && p.descricao !== null && (typeof p.descricao !== 'string' || p.descricao.length > DESCRICAO_SERVICO_MAX || CONTROLO.test(p.descricao))) {
+    falha(`Serviço: descrição até ${DESCRICAO_SERVICO_MAX} caracteres.`);
+  }
+  const pr = p.predio;
+  if (!def.projeto) {
+    if (pr !== undefined && pr !== null) falha('Serviço: os dados do prédio só vão no pedido de para-raios ou coluna montante.');
+    return;
+  }
+  if (!pr || typeof pr !== 'object' || Array.isArray(pr)) falha('Prédio: indique o condomínio (ou a administração), os pisos e os fogos.');
+  if (typeof pr.nome !== 'string' || pr.nome.trim().length < 2 || pr.nome.length > PREDIO_NOME_MAX || CONTROLO_LINHA.test(pr.nome)) falha(`Prédio: nome do condomínio ou da administração entre 2 e ${PREDIO_NOME_MAX} caracteres.`);
+  if (!Number.isInteger(pr.pisos) || pr.pisos < 1 || pr.pisos > PREDIO_PISOS_MAX) falha(`Prédio: n.º de pisos entre 1 e ${PREDIO_PISOS_MAX}.`);
+  if (!Number.isInteger(pr.fogos) || pr.fogos < 1 || pr.fogos > PREDIO_FOGOS_MAX) falha(`Prédio: n.º de fogos entre 1 e ${PREDIO_FOGOS_MAX}.`);
 }
 
 /**

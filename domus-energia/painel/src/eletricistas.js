@@ -49,6 +49,7 @@ import { bytesDeImagem, FOTO_MAX_BYTES, RE_ID_FOTO, semMetadados } from './fotos
 import { ESTADO_ARQUIVADO, GRUPOS_FOTO_TRABALHO } from './db.js';
 import { CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA, MAX_CONCLUSAO } from '../public/ecras/diagnostico-conteudo.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
+import { especialidadeServicoFotos, precisaProjeto, SERVICOS_FOTOS, servicoFotosDe } from '../public/vendor/servicos-fotos.js';
 import { concelho as concelhoDe, deslocacaoServidor, diasDeObra, partirIva, comIva, VISITA_HORAS } from './pagamentos-pedido.js';
 
 export const COOKIE_ELETRICISTA = 'domus_eletricista';
@@ -157,11 +158,14 @@ const CONTAGENS_DOMOTICA = ['estores', 'sensores_porta', 'sensores_movimento', '
  * |               | de movimento, luzes reguláveis ou tomadas inteligentes                                             |
  * | `geral`       | tudo o resto: quadro, tomadas, pontos de luz, obras, avaria (`funil` "avaria") e pedido sem simulação |
  *
- * O simulador não tem painéis solares nem ITED: um pedido desses chega como `geral` e o CEO muda-o ao validar.
+ * Os serviços com preço depois das fotos (`funil` "servico"; decisão do dono, 2026-10-14) têm a especialidade do serviço
+ * (servicos-fotos.js): videoporteiro, intercomunicador, antenas e ITED → `redes`; motores, portões e bombas →
+ * `domotica`; para-raios e coluna montante → `geral`. O simulador não tem painéis solares: chegam como `geral`.
  */
 export function especialidadeSugerida(simulacao) {
   const s = simulacao && typeof simulacao === 'object' && !Array.isArray(simulacao) ? simulacao : null;
   if (!s || s.funil === 'avaria') return 'geral';
+  if (s.funil === 'servico') return especialidadeServicoFotos(s) ?? 'geral';
   const lista = (v) => (Array.isArray(v) ? v : []);
   const ids = (v) => lista(v).map((m) => (m && typeof m === 'object' ? m.id : m));
   // As máquinas da planta em que o cliente pede trabalho (as que ficam como estão não contam).
@@ -520,6 +524,9 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   function titulo(o, tipo) {
     const casa = simDe(o)?.casa ?? {};
     const c = [TIPOS_CASA[casa.tipo], typeof casa.tipologia === 'string' && /^[A-Za-z0-9+ ]{1,8}$/.test(casa.tipologia) ? casa.tipologia : null].filter(Boolean).join(' ');
+    // Serviço com preço depois das fotos (2026-10-14): "Visita técnica — Videoporteiro e intercomunicador" (sem casa descrita).
+    const servico = SERVICOS_FOTOS[servicoFotosDe(simDe(o))?.tipo]?.nome;
+    if (servico) return `${NOME_TIPO_TRABALHO[tipo]} — ${servico}`;
     return c && tipo !== 'avaria' ? `${NOME_TIPO_TRABALHO[tipo]} — ${c}` : NOME_TIPO_TRABALHO[tipo];
   }
 
@@ -631,6 +638,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     r.prioridade_ate = emPrioridade(t) && parceiroDe(e, t.especialidade) ? iso(t.prioridade_ate) : null;
     // Por proposta (decisão do dono, 2026-10-10): a página mostra o formulário em vez de "Aceitar"; quem propõe vê ainda
     // as fotos que o cliente enviou (só o nome da divisão: a legenda é texto livre do cliente e não sai) e a sua proposta.
+    // Serviço com preço depois das fotos (2026-10-14): sem planta — a página diz "Pedido com fotos".
+    if (servicoFotosDe(simDe(o))) r.pedido_com_fotos = true;
     if (porProposta(t)) {
       const minha = propostaBolsa(o.id, e.id);
       r.por_proposta = true;
@@ -1071,6 +1080,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const prioridade = emPrioridade(t);
     const soParceiros = prioridade ? [`É da sua especialidade (${ESPECIALIDADES[t.especialidade]}): os parceiros desta especialidade têm 24 horas antes de abrir aos outros eletricistas.`] : [];
     const ins = db.prepare('INSERT OR IGNORE INTO trabalhos_eletricista_avisos (trabalho_id, eletricista_id, quando) VALUES (?, ?, ?)');
+    // O que é, entre parênteses: "pedido com planta", ou o serviço com preço depois das fotos (2026-10-14: "pedido com
+    // fotos: Antenas de TV e ITED"), ou o tipo de trabalho.
+    const servico = SERVICOS_FOTOS[servicoFotosDe(simDe(pedidoDe(t.orcamento_id)))?.tipo]?.nome;
+    const oQue = porProposta(t) ? (servico ? `pedido com fotos: ${servico}` : 'pedido com planta') : NOME_TIPO_TRABALHO[t.tipo].toLowerCase();
     // Por proposta (decisão do dono, 2026-10-10) já não é "o primeiro a aceitar": o email diz para enviar a proposta.
     const comoFica = porProposta(t) ? 'Veja o relatório técnico na área do eletricista e envie a sua proposta (horas, material e quando pode ir): a Domus Energia escolhe o eletricista.'
       : 'Veja o relatório técnico e o valor que recebe na área do eletricista. O primeiro a aceitar fica com o trabalho.';
@@ -1090,13 +1103,13 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
         if (!voltou || (fimPrioridade && parceiro)) continue;
         n += 1;
         correio.enviar({ para: e.email, assunto: assunto(`Domus Energia: um trabalho voltou à bolsa em ${t.concelho}`), resumo: `aviso da bolsa: trabalho ${t.id} voltou, ao eletricista ${e.id}`,
-          texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}) voltou à bolsa e está outra vez disponível.`,
+          texto: ['Olá,', '', `Um trabalho em ${t.concelho} (${oQue}) voltou à bolsa e está outra vez disponível.`,
             comoFica, ...soParceiros, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
         continue;
       }
       n += 1;
       correio.enviar({ para: e.email, assunto: assunto(urg ? `Domus Energia: avaria fora de horas em ${t.concelho}` : `Domus Energia: novo trabalho em ${t.concelho}`), resumo: `aviso da bolsa: trabalho ${t.id} ao eletricista ${e.id}`,
-        texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${porProposta(t) ? 'pedido com planta' : NOME_TIPO_TRABALHO[t.tipo].toLowerCase()}).`,
+        texto: ['Olá,', '', `Há um trabalho novo na bolsa em ${t.concelho} (${oQue}).`,
           comoFica, ...soParceiros, ...ligacaoArea(), '', 'Domus Energia'].join('\n') });
     }
     return n;
@@ -2775,6 +2788,10 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   /** Um trabalho deste tipo já aprovado (ou pago) neste pedido: não se atribui outro igual (pagava-se duas vezes). */
   const feitoDoPedido = (orcamentoId, tipo = null) => db.prepare(`SELECT * FROM trabalhos_eletricista WHERE orcamento_id = ? AND estado IN ('aprovada', 'paga')${tipo ? ' AND tipo = ?' : ''} ORDER BY id DESC LIMIT 1`)
     .get(...(tipo ? [orcamentoId, tipo] : [orcamentoId])) ?? null;
+  // Para-raios e coluna montante (decisão do dono, 2026-10-14): precisa de projeto e técnico responsável — antes da
+  // proposta aceite não vai para a bolsa nem para um eletricista (nem com a validação) sem o CEO o aceitar primeiro.
+  const MOTIVO_PREDIO = 'Pedido de um prédio (precisa de projeto e técnico responsável): decida primeiro se a Domus Energia o aceita.';
+  const predioPorDecidir = (o, tipo) => tipo !== 'obra' && precisaProjeto(simDe(o)) && o.predio_decisao !== 'aceite';
   const aprovadosEm = (nomeConcelho) => db.prepare("SELECT * FROM eletricistas WHERE estado = 'aprovado' ORDER BY nome COLLATE NOCASE").all().filter((e) => concelhosDe(e).includes(nomeConcelho));
 
   /** O bloco "Eletricista externo" de um pedido, para o painel. */
@@ -2788,7 +2805,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     const e = t?.eletricista_id ? linha(t.eletricista_id) : null;
     const alvo = ativo?.tipo ?? tipo ?? t?.tipo ?? null;
-    const pode = Boolean(tipo) && !ativo && !repetido && Boolean(c);
+    const predio = predioPorDecidir(o, tipo);
+    const pode = Boolean(tipo) && !ativo && !repetido && Boolean(c) && !predio;
     // Na bolsa, os candidatos são quem a vê agora (o mesmo filtro da área do eletricista: quem largou ou deixou caducar já não a vê).
     const naBolsa = ativo?.estado === 'na_bolsa';
     // Numa avaria fora de horas só quem faz fora de horas (decisão do dono, 2026-10-13).
@@ -2810,7 +2828,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       pode, tipo: alvo, tipo_nome: alvo ? NOME_TIPO_TRABALHO[alvo] : null, concelho: ativo?.concelho ?? c ?? t?.concelho ?? null,
       // Avaria urgente (decisão do dono, 2026-10-14): o prazo para marcar a visita depois de aceite (2 h; 48 h no resto).
       urgente: alvo === 'avaria' && exigeForaHoras(o), prazo_horas: (alvo === 'avaria' && exigeForaHoras(o) ? PRAZO_URGENTE_MS : PRAZO_VISITA_MS) / 3600_000,
-      motivo: t || pode ? null : !tipo ? 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.'
+      motivo: t || pode ? null : predio && tipo ? MOTIVO_PREDIO : !tipo ? 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.'
         : 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.',
       trabalho: t ? {
         // Ronda 3: confirmação e avaliação do cliente, reclamação, aprovação e pagamento; e o que o CEO pode fazer agora.
@@ -2863,6 +2881,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const tipo = tipoAtribuivel(o);
     if (!tipo) throw new ErroApi(409, 'Só se atribui um pedido ainda sem proposta aceite (numa avaria, com o diagnóstico pago; com a visita vendida à parte, com ela paga) ou um pedido aceite com a obra por fazer.');
     if (ativoDoPedido(o.id)) throw new ErroApi(409, 'Este pedido já está na bolsa ou atribuído a um eletricista: retire-o primeiro.');
+    if (predioPorDecidir(o, tipo)) throw new ErroApi(409, MOTIVO_PREDIO);
     if (feitoDoPedido(o.id, tipo)) throw new ErroApi(409, 'Este trabalho já foi feito e aprovado neste pedido.');
     const c = concelhoDe(localidadeDe(o))?.nome ?? null;
     if (!c) throw new ErroApi(409, 'A localidade do pedido não é um concelho reconhecido: corrija-a na ficha do pedido.');

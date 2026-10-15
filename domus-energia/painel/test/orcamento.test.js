@@ -5,7 +5,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO, SEMENTES_SERVICOS_FOTOS } from '../src/catalogo-sementes.js';
 
 let p;
 before(async () => { p = await painelComEquipa(); });
@@ -227,7 +227,7 @@ test('simulação: limites da planta (§2.1) — 40 divisões, 400 elementos, 10
 test('catálogo público: só ativos e visíveis, sem preço de compra, fornecedor nem link; cache 300 s', async () => {
   const cab = { cookie: p.cookies.ceo };
   const lista = (await p.pedir('GET', '/painel/api/catalogo', cab)).json.itens;
-  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro, as das ações, os pontos da ronda regras, a tomada tripla e as linhas dedicadas)');
+  assert.equal(lista.length, SEMENTES_CATALOGO.length + SEMENTES_QUADRO.length + SEMENTES_ACOES.length + SEMENTES_PONTOS.length + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length + SEMENTES_SERVICOS_FOTOS.length, 'sementes do SIMULADOR-ORCAMENTO §3 (com as do quadro, as das ações, os pontos da ronda regras, a tomada tripla, as linhas dedicadas e os serviços com preço depois das fotos)');
   const sy1 = lista.find((a) => a.sku === 'TONGOU-SY1-JWT');
   assert.equal(sy1.preco_compra, 11.04);
   assert.equal(sy1.preco_venda_iva, 39.9);

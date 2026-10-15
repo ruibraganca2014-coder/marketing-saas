@@ -93,6 +93,10 @@
           <fieldset class="escolhas" id="planta-caixa" hidden>
             <legend>O que precisa?</legend>
             <div class="escolhas-grelha caminhos" id="caminhos"></div>
+            <!-- Serviços com preço depois das fotos (decisão do dono, 2026-10-14; simulador/servicos-fotos.js): sem casa nem
+                 planta — o cliente diz o que precisa e manda fotos; o preço vem na proposta (app.js escolherServicoFotos). -->
+            <p class="servicos-fotos-titulo" id="servicos-fotos-titulo"><strong>Outros serviços</strong> · preço depois de ver as fotos</p>
+            <div class="escolhas-grelha caminhos" id="servicos-fotos" role="group" aria-labelledby="servicos-fotos-titulo"></div>
             <input type="file" id="planta-ficheiro" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" hidden>
             <p class="msg" id="planta-msg" role="status" hidden></p>
           </fieldset>
@@ -428,6 +432,35 @@
             <div class="escolhas-grelha tres-curtas" id="avaria-urgencia"></div>
           </fieldset>
           <p class="msg info" id="avaria-preco" aria-live="polite" hidden></p>
+        </section>
+
+        <!-- O serviço (decisão do dono, 2026-10-14; funil "servico", simulador/servicos-fotos.js): videoporteiro e
+             intercomunicador, antenas de TV e ITED, motores e portões, para-raios e coluna montante. Sem planta: o que
+             precisa, no prédio o condomínio, os pisos e os fogos, a descrição e as fotos (a 1.ª obrigatória). Sem preço:
+             vem na proposta (§6 simulacao.servico_fotos; app.js desenharServicoFotos). -->
+        <section class="sim-passo" id="passo-14" aria-labelledby="titulo-14" data-passo="14" hidden>
+          <h2 id="titulo-14" tabindex="-1">2. O serviço</h2>
+          <p class="msg info" id="servico-nota">Preço depois de ver as fotos: o valor certo vem na proposta. Enviar o pedido é grátis.</p>
+          <p class="msg info" id="servico-espera" hidden></p>
+          <fieldset class="escolhas" id="servico-opcoes-caixa">
+            <legend><span id="servico-nome">Serviço</span>: o que precisa? <small class="ajuda">Pode escolher vários.</small></legend>
+            <div class="escolhas-grelha avaria-grelha" id="servico-opcoes"></div>
+          </fieldset>
+          <fieldset class="escolhas" id="servico-predio" hidden>
+            <legend>O prédio</legend>
+            <label>Condomínio ou administração *<input id="servico-predio-nome" maxlength="80" autocomplete="organization"></label>
+            <div class="duas">
+              <label>N.º de pisos *<input id="servico-predio-pisos" type="number" inputmode="numeric" min="1" max="60" step="1"></label>
+              <label>N.º de fogos (frações) *<input id="servico-predio-fogos" type="number" inputmode="numeric" min="1" max="500" step="1"></label>
+            </div>
+          </fieldset>
+          <label>Descrição <small class="ajuda">Opcional. O que quer fazer, a marca ou o modelo, onde fica.</small><textarea id="servico-descricao" maxlength="600" rows="3"></textarea></label>
+          <div class="cartao quadro-foto" id="servico-foto">
+            <h3>Fotos *</h3>
+            <p class="ajuda">A 1.ª é obrigatória; pode juntar até 5. Mostre o aparelho, o sítio e o que já lá está: é com elas que fazemos o preço.</p>
+            <div id="servico-foto-corpo"></div>
+            <p class="msg" id="servico-foto-msg" role="status" hidden></p>
+          </div>
         </section>
 
         <!-- Enviado -->

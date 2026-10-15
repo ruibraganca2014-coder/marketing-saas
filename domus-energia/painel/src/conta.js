@@ -22,6 +22,7 @@ import { LimiteTaxa } from './limite.js';
 import { iso, deCent } from './util.js';
 import { RE_ID_FOTO } from './fotos.js';
 import { ESTADO_ARQUIVADO, transacao } from './db.js';
+import { servicoFotosDe, SERVICOS_FOTOS, NOTA_PRECO_FOTOS, PROJETO_TEXTO, textoServicoFotos } from '../public/vendor/servicos-fotos.js';
 
 export const COOKIE_CONTA = 'domus_conta';
 const RE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -160,6 +161,20 @@ function resumoSimulacao(json) {
       inclui: ['Diagnóstico da avaria (a reparação orça-se na visita)', 'Visita de técnico habilitado'],
       plano: null,
       estimativa: min !== null && max0 !== null ? { min, max: max0 } : null,
+    };
+  }
+  // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): o que pediu; o preço vem na proposta.
+  const sf = servicoFotosDe(s);
+  if (sf) {
+    const projeto = SERVICOS_FOTOS[sf.tipo].projeto === true;
+    return {
+      casa: projeto ? 'Prédio (pedido de orçamento)' : 'Sem planta (serviço com fotos)',
+      servico: textoServicoFotos(s),
+      localidade: typeof casa.localidade === 'string' ? casa.localidade.slice(0, 80) : null,
+      divisoes: null,
+      inclui: [projeto ? `${PROJETO_TEXTO}: vemos o pedido e dizemos-lhe se avançamos` : `${NOTA_PRECO_FOTOS}: o valor vem na proposta`, 'Trabalho por técnico habilitado'],
+      plano: null,
+      estimativa: null,
     };
   }
   const max = Number.isFinite(s.total?.max) ? s.total.max : null;
@@ -674,10 +689,12 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     try { sim = o.simulacao ? JSON.parse(o.simulacao) : null; } catch { sim = null; }
     // Avaria: não há "relatório básico" com estimativa; o passo seguinte é a visita do diagnóstico.
     if (sim?.funil === 'avaria' && estadoTexto === TEXTO_ESTADO.novo) estadoTexto = 'Pedido recebido. Vamos marcar a visita para o diagnóstico.';
+    // Serviço com preço depois das fotos (2026-10-14): sem relatório grátis; o preço vem na proposta.
+    if (sim?.funil === 'servico' && estadoTexto === TEXTO_ESTADO.novo) estadoTexto = 'Pedido recebido. Vemos o que pediu e as fotos e enviamos-lhe a proposta, com o preço.';
     // Prazo de contacto (decisão do dono, 2026-10-10; igual a web/simulador/app.js textoPrazo), enquanto o pedido é novo.
     // Lista de espera (web/config.js listaEspera; coluna `lista_espera` do pedido): sem prazo de contacto.
     if (o.estado === 'novo' && o.lista_espera === 1) {
-      estadoTexto = `Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos.${sim?.funil === 'avaria' ? '' : ' O relatório grátis já está aqui.'}`;
+      estadoTexto = `Pedido recebido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos.${sim?.funil === 'avaria' || sim?.funil === 'servico' ? '' : ' O relatório grátis já está aqui.'}`;
     } else if (o.estado === 'novo' && sim?.funil === 'avaria' && pagamentos()?.foraHorasEmVigor(o)) {
       // Avaria urgente, fora de horas (decisão do dono, 2026-10-14): vai logo para os eletricistas, sem esperar por nós.
       estadoTexto = 'Pedido urgente recebido. Um eletricista contacta-o assim que aceitar o pedido, também de noite ou ao fim de semana.';
@@ -687,6 +704,13 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       : visitaDepois ? ' Verificamos o pedido no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.' : ' Contactamos no dia útil seguinte.';
     // Verificado pela empresa e ainda sem proposta (fora da lista de espera, que mantém o texto dela).
     if (visitaDepois && verificado && ['novo', 'contactado'].includes(o.estado) && !(o.estado === 'novo' && o.lista_espera === 1)) estadoTexto = 'Pedido verificado. Estamos a preparar a proposta.';
+    // Para-raios ou coluna montante (decisão do dono, 2026-10-14): pedido de orçamento — a empresa decide se avança.
+    const servicoFotos = servicoFotosDe(sim);
+    if (servicoFotos && SERVICOS_FOTOS[servicoFotos.tipo].projeto && ['novo', 'contactado'].includes(o.estado) && !(o.estado === 'novo' && o.lista_espera === 1)) {
+      estadoTexto = o.predio_decisao === 'aceite' ? 'Pedido de orçamento aceite. Estamos a preparar a proposta (com projeto e técnico responsável).'
+        : 'Pedido de orçamento recebido. Como é um prédio, precisa de projeto e técnico responsável: vemos o pedido e as fotos e dizemos-lhe se avançamos.';
+    }
+    if (o.estado === 'perdido' && o.predio_decisao === 'recusado') estadoTexto = 'Vimos o pedido: de momento não fazemos este trabalho no seu prédio.';
     // Devolvido pelo CEO para corrigir (migração 44): o cliente vê o que falta e carrega em "Já corrigi".
     const correcao = o.validacao === 'devolvido' && !['aceite', 'perdido'].includes(o.estado) ? { nota: o.validacao_nota ?? '' } : null;
     if (correcao) estadoTexto = 'Falta corrigir um pormenor antes de avançarmos: veja abaixo.';

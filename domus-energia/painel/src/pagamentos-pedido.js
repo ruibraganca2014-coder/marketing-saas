@@ -45,6 +45,7 @@ import { iso, deCent, ola } from './util.js';
 import { LimiteTaxa } from './limite.js';
 import { CONCELHOS } from '../public/vendor/concelhos.js';
 import { foraDeHoras } from '../public/vendor/horario.js';
+import { servicoFotosDe, SERVICOS_FOTOS, textoPredio, precisaProjeto, precisaFichaIted, PROJETO_TEXTO } from '../public/vendor/servicos-fotos.js';
 import { esquemasDaPlanta } from '../public/vendor/simbolos.js';
 import { CHECKLIST, CHAVES_CHECKLIST, NOME_TIPO as NOME_TIPO_AVARIA } from '../public/ecras/diagnostico-conteudo.js';
 
@@ -444,6 +445,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     if (!config.pagamentoPedido) throw new ErroApi(409, 'Os pagamentos online estão desligados. Fale connosco para pedir o relatório ou a visita.');
     // Avaria: o diagnóstico já inclui a visita; só se compra uma visita nova depois de o cliente faltar ao diagnóstico.
     if (simDe(o)?.funil === 'avaria' && (inclui.relatorio || temVisita(o))) throw new ErroApi(409, 'Na avaria, o diagnóstico já inclui a visita.');
+    // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): sem planta não há relatório completo; o preço vem na proposta.
+    if (simDe(o)?.funil === 'servico' && inclui.relatorio) throw new ErroApi(409, 'Neste pedido não há relatório completo: o preço vem na proposta, depois de vermos as fotos.');
     // Não basta a conta e o simulador esconderem o botão: o servidor recusa (decisão do dono, 2026-10-11).
     if (inclui.visita && visitaIncluida(o)) throw new ErroApi(409, 'A visita técnica já não se paga à parte: está incluída na obra e fazemo-la depois de aceitar a proposta.');
     if (!podeComprar(o)) throw new ErroApi(409, 'Este pedido já não aceita esta compra.');
@@ -477,6 +480,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   /** O que se pode comprar num pedido (conta e painel): preços do servidor e o que já está pago ou por pagar. */
   function compras(o) {
     const avaria = simDe(o)?.funil === 'avaria';
+    const servico = simDe(o)?.funil === 'servico';
     const cfg = lerConfigOrc();
     const visitaCent = valorVisitaCent(localidadeDe(o), cfg);
     const semConcelho = !concelhoConhecido(localidadeDe(o));
@@ -486,6 +490,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       ativas: Boolean(config.pagamentoPedido),
       pode: podeComprar(o) && (!avaria || !temVisita(o)),
       avaria,
+      // Serviço com preço depois das fotos (2026-10-14): sem relatório completo à venda (a conta não o oferece).
+      ...(servico ? { servico: true } : {}),
       relatorio: { valor: deCent(precoRelatorioCent(cfg)), comprado: temRelatorio(o), pendente: pendente(['relatorio_pormenorizado', 'pormenorizado_visita']) },
       // `sem_concelho`: localidade sem concelho reconhecido — sem visita (B2); `fora_area`: concelho fora da área servida.
       // `incluida`: a visita já não se vende à parte neste pedido (visitaIncluida); uma já paga antes continua em `paga`.
@@ -1412,6 +1418,21 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       d.junta('DIAG-AVARIA', itens.get('DIAG-AVARIA')?.qtd ?? 1);
       divs.push(d);
     }
+    // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): o que o cliente pediu, a descrição e as fotos; no
+    // prédio, os pisos e os fogos (o nome do condomínio não: é do cliente) e que precisa de projeto e técnico responsável.
+    // Sem material nem preço (vêm na proposta); a ficha ITED fica assinalada.
+    const sf = servicoFotosDe(s);
+    if (sf) {
+      const def = SERVICOS_FOTOS[sf.tipo];
+      const d = novaDivisao(def.nome);
+      for (const k of sf.opcoes) d.trabalho.push(`${def.opcoes[k].nome}${def.opcoes[k].ited ? ' (precisa da ficha ITED)' : ''}`);
+      if (sf.descricao) d.trabalho.push(`Descrição: «${txtCurto(sf.descricao, 600)}»`);
+      if (textoPredio(s)) d.trabalho.push(`Prédio: ${textoPredio(s)}`);
+      if (def.projeto) d.trabalho.push(`${PROJETO_TEXTO}.`);
+      const temFoto = Array.isArray(s.fotos) && s.fotos.some((f) => typeof f?.chave === 'string' && f.chave.startsWith('servico:foto'));
+      d.trabalho.push(temFoto ? 'Com fotos (ver as fotos do pedido).' : 'Sem fotos.');
+      divs.push(d);
+    }
     const trabalho = Array.isArray(s.trabalho) ? s.trabalho.slice(0, 201).filter((g) => g && typeof g === 'object' && Array.isArray(g.acoes)) : [];
     if (trabalho.length) {
       for (const g of trabalho) {
@@ -1424,7 +1445,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
         }
         if (d.trabalho.length || d.material.length) divs.push(d);
       }
-    } else if (s.funil !== 'avaria') {
+    } else if (s.funil !== 'avaria' && !sf) {
       // Pedidos antigos (sem ações): tudo Novo, pelas linhas das divisões.
       divs = (Array.isArray(s.divisoes) ? s.divisoes.slice(0, 200) : []).filter((d) => d && typeof d === 'object').map((x) => {
         const d = novaDivisao(txtCurto(x.nome, 60) || 'Divisão');
@@ -1506,7 +1527,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const soma = divisoes.reduce((t, d) => t + d.total, 0) + somaGeral + (maoObra ?? 0) + (deslocacao ?? 0) + (melhorias?.total ?? 0);
     const ta = s.totais_acao && typeof s.totais_acao === 'object' ? s.totais_acao : {};
     const aparelhos = (k) => inteiro(ta[k]?.aparelhos, 10_000);
-    const planta = s.funil === 'avaria' ? null : plantaParaRelatorio(s.planta);
+    const planta = s.funil === 'avaria' || sf ? null : plantaParaRelatorio(s.planta);
     return {
       pedido: o.id, libertado: o.relatorio_libertado,
       acoes: { manter: aparelhos('manter'), reparar: aparelhos('reparar'), substituir: aparelhos('substituir'), novo: aparelhos('novo') },
@@ -1540,6 +1561,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const r = relatorioCliente(o);
     if (!r) return null;
     const avaria = simDe(o)?.funil === 'avaria';
+    const servico = servicoFotosDe(simDe(o));
     const divisoes = r.divisoes.filter((d) => d.trabalho.length).map((d) => ({ nome: d.nome, trabalho: d.trabalho }));
     if (r.geral.material.length) divisoes.push({ nome: 'Quadro elétrico e geral', trabalho: ['Trabalho no quadro elétrico (o material está no relatório completo).'] });
     const semDesloc = Math.round((r.total - (r.deslocacao ?? 0)) * 100) / 100;
@@ -1563,7 +1585,12 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       deslocacao_a_confirmar: !avaria && r.deslocacao !== null && distancia(o.localidade ?? simDe(o)?.casa?.localidade ?? '', cfg).km === null,
       // Na avaria não há estimativa nem relatório completo à venda: o preço é o do diagnóstico.
       avaria,
+      // Serviço com preço depois das fotos (2026-10-14): o nome do serviço (null nos outros) e se precisa de projeto.
+      servico: servico ? SERVICOS_FOTOS[servico.tipo].nome : null,
+      precisa_projeto: precisaProjeto(simDe(o)), precisa_ited: precisaFichaIted(simDe(o)),
       nota: avaria ? 'O diagnóstico e a deslocação são descontados na reparação. O valor da reparação vai na proposta, depois da visita.'
+        : servico ? (precisaProjeto(simDe(o)) ? 'Pedido de orçamento: precisa de projeto e técnico responsável. Vemos o pedido e as fotos e dizemos-lhe se avançamos; o preço vem na proposta.'
+          : 'Preço depois de ver as fotos: o valor vem na proposta.')
         : 'Estimativa com IVA. O valor final é o da proposta. O relatório completo tem o material e o preço de cada divisão.',
     };
   }
@@ -1665,7 +1692,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       // Relatório básico: logo, grátis, com a simulação. O pormenorizado: por comprar → em revisão (pago) → disponível
       // (libertado pelo CEO). Na avaria não se vende (o diagnóstico já inclui a visita).
       relatorio_basico: Boolean(o.simulacao),
-      relatorio: !o.simulacao ? null : o.relatorio_libertado ? 'disponivel' : cp.relatorio.comprado ? 'em_revisao' : cp.avaria ? null : 'por_comprar',
+      relatorio: !o.simulacao ? null : o.relatorio_libertado ? 'disponivel' : cp.relatorio.comprado ? 'em_revisao' : cp.avaria || cp.servico ? null : 'por_comprar',
       compras: cp,
       // A proposta é sem IVA; o que se paga online inclui-o (total = proposta + IVA).
       proposta_iva: v.total === null ? null : { base: deCent(v.base), iva_pct: v.iva_pct, iva: deCent(v.iva), total: deCent(v.total) },

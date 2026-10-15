@@ -36,6 +36,7 @@ import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './email
 import { criarNegocio, PERIODOS } from './negocio.js';
 import { criarProcedimentos } from './procedimentos.js';
 import { andamentoDoPedido, proximoPasso, linhasDoHoje } from './proximo-passo.js';
+import { servicoFotosDe, SERVICOS_FOTOS, precisaProjeto, precisaFichaIted, textoPredio } from '../public/vendor/servicos-fotos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
 const P = '/painel/api/';
@@ -134,6 +135,7 @@ export const ROTAS = [
   ['POST', 'orcamentos/:id/converter', ['ceo', 'comercial'], 'converter'],
   ['POST', 'orcamentos/:id/validar', ['ceo'], 'validarPedido'],
   ['POST', 'orcamentos/:id/devolver-cliente', ['ceo'], 'devolverAoCliente'],
+  ['POST', 'orcamentos/:id/predio', ['ceo'], 'decidirPredio'],   // {aceita: true | false, motivo?} — para-raios e coluna montante (2026-10-14)
   ['POST', 'orcamentos/:id/libertar-relatorio', ['ceo'], 'libertarRelatorio'],
   ['GET', 'orcamentos/:id/relatorio-cliente', ['ceo'], 'previaRelatorioCliente'],
   ['POST', 'orcamentos/:id/obra-concluida', ['ceo', 'comercial'], 'obraConcluida'],
@@ -393,6 +395,7 @@ export function criarApi(ctx) {
     planta: 'A planta está completa (divisões, tomadas, interruptores e pontos de luz).',
     foto_quadro: 'A foto do quadro elétrico lê-se.',
     fotos_avaria: 'As fotos da avaria mostram o problema.',
+    fotos_servico: 'As fotos mostram o que é preciso fazer.',
     area: 'A morada está dentro da área servida.',
     contacto: 'O contacto do cliente está confirmado (telefone ou email).',
   };
@@ -400,7 +403,9 @@ export function criarApi(ctx) {
   function pontosValidacao(o) {
     let funil = null;
     if (o.simulacao) { try { funil = JSON.parse(o.simulacao)?.funil ?? null; } catch { funil = null; } }
-    const chaves = !o.simulacao ? ['area', 'contacto'] : funil === 'avaria' ? ['fotos_avaria', 'area', 'contacto'] : ['planta', 'foto_quadro', 'area', 'contacto'];
+    // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): sem planta, como a avaria — as fotos do serviço.
+    const chaves = !o.simulacao ? ['area', 'contacto'] : funil === 'avaria' ? ['fotos_avaria', 'area', 'contacto'] : funil === 'servico' ? ['fotos_servico', 'area', 'contacto']
+      : ['planta', 'foto_quadro', 'area', 'contacto'];
     // Pedido com planta sem foto do quadro não se valida (decisão do dono, 2026-10-11): o ponto vem `em_falta` (o painel
     // não o deixa marcar) e `validarPedido` recusa; o CEO devolve o pedido ao cliente para ele juntar a foto.
     const semFotoQuadro = chaves.includes('foto_quadro') && !db.prepare("SELECT 1 FROM fotos WHERE orcamento_id = ? AND chave = 'quadro'").get(o.id);
@@ -411,6 +416,24 @@ export function criarApi(ctx) {
     let s = null;
     if (o.simulacao) { try { s = JSON.parse(o.simulacao); } catch { s = null; } }
     return especialidadeSugerida(s);
+  }
+  /**
+   * Serviço com preço depois das fotos (decisão do dono, 2026-10-14; public/vendor/servicos-fotos.js): o que o cliente
+   * pediu, para o selo e a ficha — {tipo, nome, opcoes (nomes), precisa_projeto, precisa_ited, predio: {nome, pisos,
+   * fogos, texto} | null, decisao: {estado, em, por} | null (só no prédio: null = por decidir)}; null nos outros pedidos.
+   */
+  function servicoFotosDoPedido(o) {
+    let sim = null;
+    if (o.simulacao) { try { sim = JSON.parse(o.simulacao); } catch { sim = null; } }
+    const sf = servicoFotosDe(sim);
+    if (!sf) return null;
+    const def = SERVICOS_FOTOS[sf.tipo];
+    const projeto = precisaProjeto(sim);
+    return {
+      tipo: sf.tipo, nome: def.nome, opcoes: sf.opcoes.map((k) => def.opcoes[k].nome), precisa_projeto: projeto, precisa_ited: precisaFichaIted(sim),
+      predio: sf.predio ? { ...sf.predio, texto: textoPredio(sim) } : null,
+      decisao: projeto && o.predio_decisao ? { estado: o.predio_decisao, em: o.predio_decisao_em ?? null, por: o.predio_decisao_por ?? null } : null,
+    };
   }
   /** A especialidade muda-se enquanto o pedido não tiver proposta aceite (nem estiver perdido ou arquivado). */
   const podeMudarEspecialidade = (o) => ['novo', 'contactado', 'visita_marcada', 'proposta_enviada'].includes(o.estado) && !o.proposta_aceite && !o.anonimizado;
@@ -426,6 +449,9 @@ export function criarApi(ctx) {
       // Avaria pedida fora de horas (decisão do dono, 2026-10-13): selo "Fora de horas" e os valores ({em_vigor, pct, pago,
       // devolvido, devolvido_em, por_transferencia}); null nos outros pedidos. `horario`: o que o cliente escolheu, ou null.
       fora_horas: pagPed.foraHoras(o), horario: pagPed.horarioPedido(o),
+      // Serviço com preço depois das fotos (2026-10-14): selos "Precisa de projeto e técnico responsável" e "Ficha ITED",
+      // e a decisão do CEO no prédio; null nos outros pedidos.
+      servico_fotos: servicoFotosDoPedido(o),
       lista_espera: o.lista_espera === 1,   // recebido enquanto as obras não começam (web/config.js listaEspera)
       // Validação do CEO (migração 44): por_validar | validado | devolvido, a nota da devolução e os pontos a verificar.
       validacao: { estado: o.validacao ?? 'por_validar', nota: o.validacao_nota ?? null, por: o.validacao_por ?? null, em: o.validacao_em ?? null, pontos: pontosValidacao(o) },
@@ -525,6 +551,8 @@ export function criarApi(ctx) {
       mensagem_cliente: ultima?.de === 'cliente' ? ultima.criado : null,
       eletricistas: comEletricistas, propostas_bolsa: Boolean(config.propostasBolsa), n_propostas: propostas.n, propostas_desde: propostas.desde,
       urgente: Boolean(r.fora_horas?.em_vigor),
+      // Para-raios ou coluna montante (decisão do dono, 2026-10-14): o CEO decide se a Domus o aceita (`decisao` null = por decidir).
+      predio: r.servico_fotos?.precisa_projeto ? { decisao: o.predio_decisao ?? null } : null,
       trabalhos, trabalho_obra: r.obra_por_confirmar?.estado ?? null,
       extra_proposto: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'proposto'"),
       extra_enviado: um("SELECT MIN(criado) AS criado FROM trabalhos_extra WHERE orcamento_id = ? AND estado = 'enviado'"),
@@ -875,6 +903,10 @@ export function criarApi(ctx) {
     if (u.papel === 'ceo') {
       // Pedidos por validar (com a validação ligada); depois, os novos já validados.
       if (config.validacaoCeo) procurar(`SELECT id FROM orcamentos WHERE validacao IS NULL AND estado NOT IN ('aceite', 'perdido', '${ESTADO_ARQUIVADO}') LIMIT 200`);
+      // Pedidos de prédio (para-raios, coluna montante; decisão do dono, 2026-10-14) por decidir: precisam de projeto e
+      // técnico responsável e não vão sozinhos para a bolsa — o CEO decide se a Domus os aceita.
+      procurar(`SELECT id FROM orcamentos WHERE predio_decisao IS NULL AND estado IN ('novo', 'contactado', 'visita_marcada')
+        AND simulacao IS NOT NULL AND json_valid(simulacao) AND json_extract(simulacao, '$.funil') = 'servico' AND json_extract(simulacao, '$.servico_fotos.tipo') = 'predio' LIMIT 50`);
       novos();
       comuns();
       alertas.lista().alertas.filter((x) => x.gravidade === 'critica').slice(0, 20).forEach(alerta);
@@ -2505,7 +2537,10 @@ export function criarApi(ctx) {
     auditar(u, 'pedido_validado', `orcamento:${o.id}`, { pontos: pontos.map((p) => p.chave), bolsa: v.bolsa === true, especialidade }, ip);
     // A validação fica feita mesmo que a bolsa não o aceite (ex.: falta pagar a visita): o painel diz porquê (`aviso`).
     let aviso = null;
-    if (v.bolsa === true) {
+    // Para-raios e coluna montante (decisão do dono, 2026-10-14): nem com a validação vai para a bolsa sem o CEO o aceitar.
+    const predio = Boolean(servicoFotosDoPedido(o)?.precisa_projeto) && o.predio_decisao !== 'aceite';
+    if (v.bolsa === true && predio) aviso = 'Pedido validado. É de um prédio (precisa de projeto e técnico responsável): não foi para a bolsa — decida primeiro se a Domus Energia o aceita.';
+    else if (v.bolsa === true) {
       if (!config.eletricistas) aviso = 'Pedido validado, mas a bolsa dos eletricistas está desligada.';
       else try { eletricistas.porNaBolsa(obterOrcamento(params.id), u, ip); } catch (e) {
         if (!(e instanceof ErroApi)) throw e;
@@ -2513,6 +2548,29 @@ export function criarApi(ctx) {
       }
     }
     responder(res, 200, { ...formatarOrcamento(obterOrcamento(params.id), true, u.papel), aviso });
+  };
+  // Pedido de um prédio (para-raios, coluna montante; decisão do dono, 2026-10-14; só o CEO): precisa de projeto e técnico
+  // responsável, por isso não vai sozinho para a bolsa. "Aceitar" deixa-o seguir o caminho de sempre (o CEO põe-no na
+  // bolsa ou atribui-o, ou faz ele a proposta); "Não aceitar" dá o pedido como perdido, com o motivo. Só antes da proposta.
+  h.decidirPredio = async ({ req, res, u, params, ip }) => {
+    const v = await lerJson(req, ['aceita', 'motivo']);
+    const o = naoArquivado(obterOrcamento(params.id));
+    if (!servicoFotosDoPedido(o)?.precisa_projeto) throw new ErroApi(409, 'Este pedido não é de para-raios nem de coluna montante.');
+    if (typeof v.aceita !== 'boolean') falha('Diga se a Domus Energia aceita o pedido (aceita: true ou false).');
+    if (!['novo', 'contactado', 'visita_marcada'].includes(o.estado) || o.proposta_aceite) throw new ErroApi(409, 'Só se decide um pedido ainda sem proposta enviada nem aceite.');
+    if (o.predio_decisao) throw new ErroApi(409, 'Este pedido já foi decidido.');
+    const motivo = texto(v.motivo, 'o motivo', { max: 300 });
+    const agora = agoraIso();
+    if (v.aceita) {
+      db.prepare("UPDATE orcamentos SET predio_decisao = 'aceite', predio_decisao_em = ?, predio_decisao_por = ?, atualizado = ? WHERE id = ?").run(agora, u.email, agora, o.id);
+    } else {
+      if (config.eletricistas && eletricistas.atribuicao(o).trabalho?.ativo) throw new ErroApi(409, 'Este pedido está na bolsa ou com um eletricista: retire-o primeiro.');
+      const motivoPerda = `Prédio: a Domus Energia não aceitou o pedido (precisa de projeto e técnico responsável)${motivo ? `. ${motivo}` : '.'}`;
+      db.prepare("UPDATE orcamentos SET predio_decisao = 'recusado', predio_decisao_em = ?, predio_decisao_por = ?, estado = 'perdido', motivo_perda = ?, motivo_perda_tipo = 'outro', atualizado = ? WHERE id = ?")
+        .run(agora, u.email, motivoPerda, agora, o.id);
+    }
+    auditar(u, v.aceita ? 'predio_aceite' : 'predio_recusado', `orcamento:${o.id}`, motivo ? { motivo } : {}, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
   };
   // "Devolver ao cliente" (só o CEO): o que falta corrigir vai por email e fica na conversa do pedido; o cliente corrige
   // na conta e carrega em "Já corrigi" (conta.js), e o pedido volta a ficar por validar.
@@ -2706,7 +2764,7 @@ export function criarApi(ctx) {
     // Pedido com planta de uma casa que já deu a foto do quadro noutro pedido: aproveita-a (decisão do dono, 2026-10-11;
     // sem ela o CEO não o consegue validar). Antes de a resposta sair, para uma foto nova do navegador a substituir.
     // A avaria não tem o ponto da foto do quadro (pontosValidacao): não leva. Nunca falha o pedido.
-    if (conta && simObj && simObj.funil !== 'avaria') await contas.aproveitarFotoQuadro(conta.id, id);
+    if (conta && simObj && simObj.funil !== 'avaria' && simObj.funil !== 'servico') await contas.aproveitarFotoQuadro(conta.id, id);
     // Token para as fotos deste pedido (POST /api/orcamento/fotos, 30 min); sem fotos não é usado.
     const r = { ok: true, fotos_token: fotos.emitirToken(id), fotos_max: FOTOS_MAX };
     if (conta) r.pedido = id;

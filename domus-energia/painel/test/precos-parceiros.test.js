@@ -26,7 +26,8 @@ describe('migração 55: a especialidade de cada artigo', () => {
     for (const sku of ['CAIXA-QUADRO-24', 'MCB-1PN-C', 'IDR-2P-40A-30MA', 'GERAL-2P-63A', 'TOMADA-NOVA', 'PONTO-LUZ-NOVO', 'INTERRUPTOR-NOVO', 'LINHA-DEDICADA', 'DIAG-AVARIA']) {
       assert.equal(esp(sku), 'geral', sku);
     }
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM catalogo WHERE especialidade IN ('solar', 'redes')").get().n, 0);
+    // Os da 57 (serviços com preço depois das fotos, 2026-10-14) já entram com a deles: os de antes não ficam em solar nem em redes.
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM catalogo WHERE especialidade IN ('solar', 'redes') AND especificacoes NOT LIKE '%servico_fotos%'").get().n, 0);
     assert.throws(() => db.prepare("UPDATE catalogo SET especialidade = 'outra' WHERE sku = 'MCB-1PN-C'").run());
     db.close();
   });

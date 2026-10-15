@@ -39,6 +39,7 @@ const MATRIZ = [
   ['POST', 'orcamentos/999/libertar-relatorio', [C], {}],
   ['POST', 'orcamentos/999/validar', [C], {}],
   ['POST', 'orcamentos/999/devolver-cliente', [C], {}],
+  ['POST', 'orcamentos/999/predio', [C], { aceita: true }],
   ['GET', 'orcamentos/999/relatorio-cliente', [C]],
   ['POST', 'orcamentos/999/obra-concluida', [C, M], {}],
   ['POST', 'orcamentos/999/marcar-visita', [C, M], { data_visita: '2026-10-05T10:00' }],

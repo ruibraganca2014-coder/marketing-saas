@@ -28,11 +28,14 @@ import {
   normalizarQuer, fasesSugeridas, POTENCIA_OMISSAO_KVA, potenciaOmissao,
   maquinasParaPlanta, pisosDaCasa, maquinasEscolhidas, quantidadeNoPiso, MAX_QUANTIDADE,
   DIAS_VISITA, PERIODOS_VISITA, URGENCIAS, normalizarVisita,
-  PASSO, FUNIS, CHAVES_FUNIL, passosDoFunil, passosDoEstado, fotoQuadroNoEnviar, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
+  PASSO, FUNIS, passosDoFunil, passosDoEstado, fotoQuadroNoEnviar, IDADES_QUADRO, AVARIA_ONDE, AVARIA_PROBLEMA, ICONES_PROBLEMA, FOTOS_AVARIA, legendaAvaria, avariaPerigosa, normalizarAvaria,
   temCasa, resumoCasa, guardarCasa, carregarCasa, CHAVE_CASA, CHAVE_CASA_ID, CHAVE, usarCasa, ordemPasso, maisAdiantado,
   divisaoVista, divisoesPorVer, marcarVista, CAMINHOS, AVARIA_PERIGO, assinaturaDivisoes, assinaturaPasso,
-  TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem,
+  TIPOS_INVENTARIO, inventarioDivisao, divisoesPorInventariar, marcarNaoTem, CARTOES_FUNIL, normalizarServicoFotos,
 } from "./estado.js";
+import {
+  SERVICOS_FOTOS, TIPOS_SERVICO_FOTOS, FOTOS_SERVICO, NOTA_PRECO_FOTOS, PROJETO_TEXTO, PREDIO_PISOS_MAX, PREDIO_FOGOS_MAX, textoServicoFotos,
+} from "./servicos-fotos.js";
 import { CHAVES_MELHORIA, QUADRO_SEGURO, mudarMelhoria, acertarMelhorias, calcularMelhorias } from "./melhorias.js";
 import {
   opcoesCircuitos, protecoesDoPacote, pacoteDoQuadro, levaQuadroNovo, pisosDosQuadros, quadroDoPiso, existentesNoQuadroNovo,
@@ -258,6 +261,12 @@ const casaDescrita = () => ordemPasso(visitado) >= ordemPasso(P.relatorio);
 /** O funil (o caso do Início); sem nenhum escolhido, conta como o da primeira vez (barra e tempos). */
 const funil = () => estado.funil ?? "primeira";
 const funilAvaria = () => estado.funil === "avaria";
+/** Serviço com preço depois das fotos (decisão do dono, 2026-10-14; servicos-fotos.js): sem planta, como a avaria, mas sem diagnóstico pago. */
+const funilServico = () => estado.funil === "servico";
+/** Os funis sem planta nem casa: a avaria rápida e os serviços com preço depois das fotos. */
+const semPlantaFunil = () => funilAvaria() || funilServico();
+/** O prédio (para-raios, coluna montante): precisa de projeto e técnico responsável; só pedido de orçamento. */
+const servicoPredio = () => funilServico() && SERVICOS_FOTOS[estado.servicoFotos.tipo]?.projeto === true;
 /** Lista de espera: o aviso do topo e o da avaria (quem tem uma avaria não pode esperar). */
 function avisosEspera() {
   if (!listaEspera) return;
@@ -314,7 +323,7 @@ const feito = (i) => posicao(i) < posicao(estado.passo) && !(i === P.melhorias &
  * não conta). O Enviar só pelo "Seguinte". Pela posição no funil (fase 3 da auditoria: no "Já tenho a planta" o
  * Relatório vem depois das Melhorias, ao contrário da ordem geral; um `visitado` fora do funil não dá nada como visto).
  */
-const chegou = (i) => (funilAvaria() ? posicao(i) < posicao(estado.passo) : posicao(i) <= posicao(visitado));
+const chegou = (i) => (semPlantaFunil() ? posicao(i) < posicao(estado.passo) : posicao(i) <= posicao(visitado));
 
 function desenharProgresso() {
   const ol = $("sim-passos");
@@ -398,6 +407,8 @@ function desenharEstimativaProvisoria() {
   let texto = null;
   if (funilAvaria()) {
     if (p !== P.inicio && catalogo) { const { total } = calcularPreco(PEDIDOS_AVARIA.map((x) => ({ ...x })), catalogo, configOrc, { valor_iva: 0 }); if (total !== null) texto = textoDiagnostico(total); }
+  } else if (funilServico()) {
+    if (p !== P.inicio) texto = NOTA_PRECO_FOTOS;   // o preço vem na proposta (2026-10-14)
   } else if (p !== P.inicio && funilPlanta()) {   // em "Descrever a minha casa" não há preços
     const est = estimativaProvisoria();
     if (est) texto = `Estimativa: ${textoIntervalo(est)}${ordemPasso(p) < ordemPasso(P.preco) ? " · afina nos passos seguintes" : ""}`;
@@ -410,6 +421,7 @@ function desenharEstimativaProvisoria() {
 function podeIrPara(i) {
   if (posicao(i) > 0 && bloquearInicio()) return false;
   if (funilAvaria()) return !(i === P.enviar && bloquearAvaria());
+  if (funilServico()) return !(i === P.enviar && bloquearServicoFotos());
   if (i > P.casa && !funilPlanta() && bloquearCasa()) return false;
   if (estado.passo === P.quer && posicao(i) > posicao(P.quer) && bloquearSitios()) return false;
   if (posicao(P.quadro) >= 0 && posicao(i) > posicao(P.quadro) && bloquearQuadro()) return false;   // a foto do quadro
@@ -424,10 +436,10 @@ function irPara(i, { foco = true } = {}) {
   // quadro e termóstatos pré-preenchidos (só o que o cliente ainda não mudou à mão).
   estado.passo = sequencia().includes(i) ? i : sequencia()[0];
   // O passo mais adiantado (a planta vai aparecendo por ele: fasePlanta); a avaria não tem planta e não conta.
-  if (!funilAvaria()) visitado = maisAdiantado(visitado, estado.passo);
+  if (!semPlantaFunil()) visitado = maisAdiantado(visitado, estado.passo);
   estado.visitado = visitado;
   // (Depois de acertar o passo mais adiantado: a planta desenhada já leva os aparelhos, fasePlanta.)
-  if (!funilAvaria() && depoisDe(estado.passo, P.quer) && !depoisDe(de, P.quer)) prepararPassosSeguintes();
+  if (!semPlantaFunil() && depoisDe(estado.passo, P.quer) && !depoisDe(de, P.quer)) prepararPassosSeguintes();
   if (estado.passo !== de) editor.limparAviso();   // as mensagens da planta não passam para o passo seguinte
   if (estado.passo !== de) desassinalarTodos();   // as marcas de "em falta" ficam só no passo onde faltou a escolha
   const porVerAoEntrar = estado.passo !== de ? abrirPrimeiraPorVer() : null;   // divisão a divisão
@@ -464,7 +476,7 @@ function bloquearLuz() {
 /** A planta não se vê no Início (o caso ainda não está escolhido) nem na avaria rápida (sem planta). */
 /** Ronda A: nem no Relatório (leva a planta dentro e a amostra do completo). */
 // Decisão do dono (2026-10-10): nem no Quadro elétrico (é só a foto e a idade; à direita, "Como fotografar o quadro").
-const semPlanta = () => [P.inicio, P.relatorio, P.quadro].includes(estado.passo) || funilAvaria();
+const semPlanta = () => [P.inicio, P.relatorio, P.quadro].includes(estado.passo) || semPlantaFunil();
 
 function mostrarPasso(foco = true) {
   for (let i = 0; i < PASSOS.length; i++) { const s = $(`passo-${i}`); if (s) s.hidden = i !== estado.passo; }   // (o 12 já não existe na página)
@@ -505,6 +517,7 @@ function mostrarPasso(foco = true) {
   desenharAcaoPlanta();   // a caixa "o que fazer" por baixo da planta só existe em "Trocar e reparar"
   if (p === P.preco) desenharPreco();
   if (p === P.avaria) desenharAvaria();
+  if (p === P.servico) desenharServicoFotos();
   if (p === P.enviar) desenharEnviar();
   desenharProgresso();
   if (foco) {
@@ -524,7 +537,7 @@ function mostrarPasso(foco = true) {
 
 /** Numa avaria a página não é "Simular orçamento" (o cliente quer ajuda, não um orçamento). */
 function atualizarTitulo() {
-  const titulo = funilAvaria() ? "Pedir ajuda para uma avaria" : "Simular orçamento";
+  const titulo = funilAvaria() ? "Pedir ajuda para uma avaria" : funilServico() ? "Pedir um serviço" : "Simular orçamento";
   document.title = `${titulo} | Domus Energia`;
   const h1 = document.querySelector(".sim-cabecalho h1");
   if (h1 && h1.textContent !== titulo) h1.textContent = titulo;
@@ -580,7 +593,7 @@ function concluirCasa() {
 }
 
 /** Os bloqueios de todo o caminho até ao Enviar (o "Seguinte" do Enviar). Devolve true se bloqueou. */
-const bloquearTudo = () => bloquearInicio() || (funilAvaria() ? bloquearAvaria() : bloquearCasa() || bloquearInventario() || bloquearQuadro() || bloquearTrocar() || bloquearMelhorias());
+const bloquearTudo = () => bloquearInicio() || (funilAvaria() ? bloquearAvaria() : funilServico() ? bloquearServicoFotos() : bloquearCasa() || bloquearInventario() || bloquearQuadro() || bloquearTrocar() || bloquearMelhorias());
 
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
 $("sim-anterior").addEventListener("click", () => irPara(passoAo(estado.passo, -1)));
@@ -601,6 +614,7 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.trocar && bloquearTrocar()) return;
   if (estado.passo === P.melhorias && bloquearMelhorias()) return;
   if (estado.passo === P.avaria && bloquearAvaria()) return;
+  if (estado.passo === P.servico && bloquearServicoFotos()) return;   // o que precisa, o prédio e a foto (2026-10-14)
   if (confirmarPasso()) return;   // "Está certo? Sim, continuar" nos passos em que o cliente preenche
   if (fimDaParteCasa()) {
     if (relatorioFechado()) {
@@ -690,7 +704,7 @@ function iconeDe(caminhos) {
   return svg;
 }
 function montarServico() {
-  $("funis").append(...CHAVES_FUNIL.map((k) => {
+  $("funis").append(...CARTOES_FUNIL.map((k) => {
     const l = escolha("radio", "funil", k, FUNIS[k].nome, AJUDA_FUNIL[k] ?? " ", (sim) => { if (sim) escolherFunil(k); }, iconeDe(ICONES_FUNIL[k]));
     l.id = `funil-${k}`;
     return l;
@@ -706,6 +720,13 @@ function montarServico() {
     const l = escolha("radio", "caminho", k, t, a, (sim) => { if (sim) escolherCaminho(k); }, iconeDe(ICONES_CAMINHO[k]));
     l.id = `caminho-${k}`;
     l.dataset.caminho = k;
+    return l;
+  }));
+  // Serviços com preço depois das fotos (decisão do dono, 2026-10-14): em "Pedir um serviço", com ou sem casa guardada.
+  $("servicos-fotos").append(...TIPOS_SERVICO_FOTOS.map((k) => {
+    const d = SERVICOS_FOTOS[k];
+    const l = escolha("radio", "caminho", `servico:${k}`, d.nome, d.projeto ? `${d.ajuda} ${NOTA_PRECO_FOTOS}.` : `${NOTA_PRECO_FOTOS}.`, (sim) => { if (sim) escolherServicoFotos(k); }, iconeDe(ICONES_SERVICO_FOTOS[k]));
+    l.id = `servico-fotos-${k}`;
     return l;
   }));
   $("inicio-problema").append(...Object.entries(AVARIA_PROBLEMA).map(([k, t]) => {
@@ -731,6 +752,13 @@ const ICONES_CAMINHO = {
   obras: ICONES_SERVICO.nova,
   carregar: ["M13 6h15l8 8v28H13z", "M28 6v8h8", "M24.5 36V22M19 27.5l5.5-5.5 5.5 5.5"],
 };
+/** Desenhos de linha dos serviços com preço depois das fotos (caixa 48×48, o mesmo traço dos outros cartões). */
+const ICONES_SERVICO_FOTOS = {
+  videoporteiro: ["M14 6h20v36H14z", "M20 16a4 4 0 1 0 8 0a4 4 0 1 0-8 0", "M19 27h10M19 32h10", "M23 37h2"],
+  antenas: ["M24 6v36", "M17 42h14", "M13 11h22M15 17h18M17 23h14", "M20 29h8"],
+  portoes: ["M6 42h36", "M9 42V16h30v26", "M15 16v26M21 16v26M27 16v26M33 16v26", "M18 9h12"],
+  predio: ["M14 15h20v27H14z", "M24 15V4M21 7l3-3 3 3", "M19 21h3M26 21h3M19 27h3M26 27h3M19 33h3M26 33h3", "M22 42v-4h4v4"],
+};
 // ICONES_PROBLEMA (os 7 problemas) vem de estado.js: partilhado com o passo Avaria e o quadro em Trocar e reparar.
 /**
  * Escolher o caso: a primeira vez e a avaria começam do zero se só havia a casa guardada; "Já tenho a planta" (ronda A:
@@ -741,11 +769,11 @@ function escolherFunil(k) {
   casaPreEscolhida = false;   // a escolha passa a ser do cliente
   acabarAnular();
   mensagemPlanta(null);
-  // Duas partes (2026-10-04): "Pedir um serviço" sem casa guardada leva primeiro a "Descrever a minha casa".
-  semCasaParaServico = k === "planta" && !casaParaPlanta();
-  if (semCasaParaServico) k = "primeira";
+  // Duas partes (2026-10-04): "Pedir um serviço" sem casa guardada leva primeiro a "Descrever a minha casa" — mas só ao
+  // escolher o que precisa (escolherCaminho): os serviços com preço depois das fotos (2026-10-14) não precisam da casa.
+  semCasaParaServico = false;
   if (k === "planta") {
-    if (estado.funil !== "planta") { estado.funil = "planta"; estado.caminho = null; }
+    if (estado.funil !== "planta" && estado.funil !== "servico") { estado.funil = "planta"; estado.caminho = null; }
   } else {
     // "Descrever a minha casa" com uma casa já guardada (teste de 2026-10-11: começava em branco e, com sessão, a casa
     // vazia ia por cima da guardada na conta): parte-se da casa guardada, para a alterar. Para descrever outra de raiz há
@@ -784,8 +812,10 @@ function escolherCaminho(k) {
   mensagemPlanta(null);
   if (k === "carregar") { $("planta-ficheiro").click(); return; }
   const c = casaParaPlanta();
-  if (!c) { desenharInicio(); return; }
+  // Sem casa guardada: primeiro "Descrever a minha casa" (duas partes, 2026-10-04), com a frase que o explica.
+  if (!c) { escolherFunil("primeira"); semCasaParaServico = true; desenharInicio(); return; }
   casaPreEscolhida = false;   // o cliente escolheu o que precisa: passa a ser uma simulação em curso
+  if (estado.funil === "servico") estado.funil = "planta";   // vinha de um serviço com fotos
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
   const caminhoAntes = estado.caminho;
@@ -808,6 +838,26 @@ function escolherCaminho(k) {
   editor.definirAcoes(acaoOmissao(servicos()));
   desenharInicio();
   desenharProgresso();
+  agendarGravacao();
+}
+/**
+ * Serviço com preço depois das fotos (decisão do dono, 2026-10-14; servicos-fotos.js): em "Pedir um serviço", sem casa
+ * nem planta — segue no funil `servico` (Início, O serviço, Enviar). Trocar de serviço limpa o que precisa (as opções
+ * são de cada um); a descrição, o prédio e as fotos ficam. Uma casa guardada fica como está (não vai no pedido).
+ */
+function escolherServicoFotos(k) {
+  casaPreEscolhida = false;
+  acabarAnular();
+  mensagemPlanta(null);
+  semCasaParaServico = false;
+  if (estado.soCasa) { const e = estadoInicial(); e.contacto = estado.contacto; estado = e; visitado = PASSO_INICIAL; }
+  estado.soCasa = false;
+  estado.funil = "servico";
+  estado.caminho = null;
+  if (estado.servicoFotos.tipo !== k) estado.servicoFotos = { ...normalizarServicoFotos(estado.servicoFotos), tipo: k, opcoes: [] };
+  desenharInicio();
+  desenharProgresso();
+  atualizarTitulo();
   agendarGravacao();
 }
 /**
@@ -919,22 +969,25 @@ function desenharInicio() {
   const cartao = $("funil-planta");
   // Fase 3 da auditoria: sem casa guardada o cartão só promete o que há — carregar a planta e seguir o funil da primeira
   // vez (~12 min); com casa guardada, continuar com ela (~5 min).
-  cartao.querySelector("small").textContent = c ? `Com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : `Obras, trocar ou automatizar · ~${minutosFunil("planta")} min`;
+  cartao.querySelector("small").textContent = c ? `Com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : "Obras, automatizar, videoporteiro, antenas, portões e mais";
   cartao.classList.toggle("destaque-casa", !!c && (!estado.funil || casaPreEscolhida));
   // Cliente que regressa (2026-10-04): a frase da casa encontrada, por cima dos cartões (fica até recomeçar: não salta ao escolher).
   const frase = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.` : semCasaParaServico && !c ? `Para pedir um serviço, descreva primeiro a sua casa (~${minutosFunil("primeira")} min).` : "";
   if ($("inicio-casa").textContent !== frase) $("inicio-casa").textContent = frase;
   $("inicio-casa").hidden = !frase;
   const caso = estado.funil;
-  for (const i of document.querySelectorAll("#funis input")) i.checked = i.value === caso;
+  // O serviço com preço depois das fotos escolhe-se dentro de "Pedir um serviço": o cartão fica escolhido.
+  for (const i of document.querySelectorAll("#funis input")) i.checked = i.value === (caso === "servico" ? "planta" : caso);
   // Planta carregada: os serviços por baixo da escolha (sem serviço por omissão).
   // Duas partes (2026-10-04): a casa descreve-se sem escolher serviço (só um estado de antes, com a planta carregada, ainda os mostra).
   $("servicos-caixa").hidden = estado.caminho !== "carregar";
   $("servicos-legenda").textContent = estado.caminho === "carregar" ? "E o que precisa fazer?" : "O que precisa?";
   for (const i of document.querySelectorAll("#servicos input[type=checkbox]")) i.checked = estado.servico.includes(i.value);
-  $("planta-caixa").hidden = caso !== "planta";
-  for (const l of $("caminhos").children) l.hidden = l.dataset.caminho === "carregar" || !c;   // a planta em PDF/foto carrega-se no "⋯" da planta (Planta de fundo)
-  for (const i of document.querySelectorAll("#caminhos input")) i.checked = i.value === estado.caminho;
+  $("planta-caixa").hidden = caso !== "planta" && caso !== "servico";
+  // Sem casa guardada os caminhos da casa aparecem na mesma: escolhê-los leva primeiro a descrever a casa (escolherCaminho).
+  for (const l of $("caminhos").children) l.hidden = l.dataset.caminho === "carregar";   // a planta em PDF/foto carrega-se no "⋯" da planta (Planta de fundo)
+  for (const i of document.querySelectorAll("#caminhos input")) i.checked = caso === "planta" && i.value === estado.caminho;
+  for (const i of document.querySelectorAll("#servicos-fotos input")) i.checked = caso === "servico" && i.value === `servico:${estado.servicoFotos.tipo}`;
   $("problema-caixa").hidden = caso !== "avaria";
   for (const i of document.querySelectorAll("#inicio-problema input")) i.checked = problemasAvaria().includes(i.value);
   desenharPerigo();
@@ -2073,7 +2126,7 @@ function agendarPlanta() {
 function atualizarPlanta() {
   clearTimeout(temporizadorPlanta);
   temporizadorPlanta = null;
-  if (enviado || funilAvaria()) return;   // a avaria rápida não tem planta
+  if (enviado || semPlantaFunil()) return;   // a avaria rápida e o serviço com fotos não têm planta
   const redesenhada = preencherPlanta();
   if (redesenhada && depoisDe(estado.passo, P.quer)) acertarPedido();
   ferramentasEditor();
@@ -2658,6 +2711,8 @@ async function carregarFotosDoEstado() {
  * passo 4 (por piso); `legenda` = "Sala — Tomadas" (com pisos, "· Piso 1"). A do quadro geral é a "quadro".
  */
 function fotosParaEnvio() {
+  // Serviço com preço depois das fotos (2026-10-14): só as fotos do serviço.
+  if (funilServico()) return fotosServico().map((chave, n) => ({ chave, tipo: "servico", divisao: null, divisao_nome: null, piso: null, legenda: `${SERVICOS_FOTOS[estado.servicoFotos.tipo]?.nome ?? "Serviço"}${n ? ` (${n + 1})` : ""}` }));
   if (funilAvaria()) return fotosAvaria().map((chave, n) => ({ chave, tipo: "avaria", divisao: null, divisao_nome: estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", ").slice(0, 120) || null, piso: null, legenda: `${legendaAvaria(estado.avaria)}${n ? ` (${n + 1})` : ""}` }));
   const r = [];
   if (fotos.has("quadro")) r.push({ chave: "quadro", tipo: "quadro", divisao: null, divisao_nome: null, piso: null, legenda: "Quadro elétrico" });
@@ -4378,6 +4433,132 @@ function bloquearAvaria() {
 }
 montarAvaria();
 
+// ------------------------------------------------------------ O serviço (decisão do dono, 2026-10-14; funil "servico")
+// Videoporteiro e intercomunicador, antenas de TV e ITED, motores e portões, para-raios e coluna montante
+// (servicos-fotos.js): o que precisa (escolha múltipla, pelo menos uma), no prédio o condomínio, os pisos e os fogos, a
+// descrição (opcional) e as fotos (até 5, a 1.ª obrigatória: FOTOS_SERVICO). Sem preço: vem na proposta.
+const sfAtual = () => estado.servicoFotos;
+function montarServicoFotos() {
+  $("servico-descricao").addEventListener("input", () => {
+    estado.servicoFotos = { ...sfAtual(), descricao: $("servico-descricao").value };
+    agendarGravacao(false);
+  });
+  $("servico-predio-nome").addEventListener("input", () => {
+    estado.servicoFotos = { ...sfAtual(), predio: { ...sfAtual().predio, nome: $("servico-predio-nome").value } };
+    $("servico-predio-nome").removeAttribute("aria-invalid");
+    agendarGravacao(false);
+  });
+  for (const [k, max] of [["pisos", PREDIO_PISOS_MAX], ["fogos", PREDIO_FOGOS_MAX]]) {
+    const i = $(`servico-predio-${k}`);
+    i.addEventListener("input", () => {
+      const n = Number(i.value);
+      estado.servicoFotos = { ...sfAtual(), predio: { ...sfAtual().predio, [k]: Number.isInteger(n) && n >= 1 && n <= max ? n : null } };
+      i.removeAttribute("aria-invalid");
+      agendarGravacao(false);
+    });
+  }
+}
+function desenharServicoFotos() {
+  const sf = sfAtual();
+  const def = SERVICOS_FOTOS[sf.tipo];
+  if (!def) return;
+  $("servico-nome").textContent = def.nome;
+  // No prédio (para-raios, coluna montante): é só pedido de orçamento — a empresa decide se avança.
+  $("servico-nota").textContent = def.projeto ? `${PROJETO_TEXTO}: é um pedido de orçamento. Vemos o pedido e as fotos e dizemos-lhe se avançamos; o preço vem na proposta. Enviar o pedido é grátis.`
+    : "Preço depois de ver as fotos: o valor certo vem na proposta. Enviar o pedido é grátis.";
+  // As opções do serviço escolhido (refeitas quando o serviço muda).
+  const caixa = $("servico-opcoes");
+  if (caixa.dataset.tipo !== sf.tipo) {
+    caixa.dataset.tipo = sf.tipo;
+    caixa.replaceChildren(...Object.entries(def.opcoes).map(([k, o]) => escolha("checkbox", "servico-opcao", k, o.nome, null, (sim) => {
+      const l = new Set(sfAtual().opcoes);
+      if (sim) l.add(k); else l.delete(k);
+      estado.servicoFotos = normalizarServicoFotos({ ...sfAtual(), opcoes: [...l] });
+      agendarGravacao(false);
+    })));
+  }
+  for (const i of document.querySelectorAll("input[name=servico-opcao]")) i.checked = sf.opcoes.includes(i.value);
+  $("servico-predio").hidden = !def.projeto;
+  if ($("servico-predio-nome").value !== sf.predio.nome) $("servico-predio-nome").value = sf.predio.nome;
+  for (const k of ["pisos", "fogos"]) { const i = $(`servico-predio-${k}`); if (document.activeElement !== i) i.value = sf.predio[k] ?? ""; }
+  if ($("servico-descricao").value !== sf.descricao) $("servico-descricao").value = sf.descricao;
+  $("servico-espera").hidden = !listaEspera;
+  if (listaEspera) $("servico-espera").textContent = `Ainda não fazemos estes trabalhos: só ${ESPERA_QUANDO}. O pedido fica em lista de espera, sem pagar nada.`;
+  desenharFotoServico();
+}
+const fotosServico = () => FOTOS_SERVICO.filter((k) => fotos.has(k));
+/** Fotos do serviço: até 5 (a 1.ª obrigatória); miniaturas com "Apagar" e, enquanto houver lugar, "Tirar outra foto". */
+function desenharFotoServico() {
+  const corpo = $("servico-foto-corpo");
+  corpo.replaceChildren();
+  let foco = "servico-foto-botao";
+  const depois = (ok, texto) => {
+    const m = $("servico-foto-msg");
+    m.textContent = texto ?? "";
+    m.className = `msg ${ok === false ? "erro" : "info"}`;
+    m.hidden = !texto;
+    if (ok === null) return;
+    desenharFotoServico();
+    focar(foco) || focar("servico-foto-apagar-0");
+  };
+  const tiradas = fotosServico();
+  if (tiradas.length) {
+    const lista = el("ul", "fotos-avaria");
+    tiradas.forEach((k, n) => {
+      const li = el("li", "foto-avaria");
+      const img = el("img", "foto-quadro");
+      img.src = fotos.get(k).miniatura;
+      img.alt = `Foto ${n + 1} do serviço`;
+      const apagar = el("button", "btn sec pequeno perigo-sec", "Apagar");
+      apagar.type = "button";
+      apagar.id = `servico-foto-apagar-${n}`;
+      apagar.setAttribute("aria-label", `Apagar a foto ${n + 1} do serviço`);
+      apagar.addEventListener("click", async () => {
+        foco = tiradas.length > 1 ? `servico-foto-apagar-${Math.max(0, n - 1)}` : "servico-foto-botao";
+        await tirarFoto(k);
+        depois(true, "Foto apagada.");
+      });
+      li.append(img, apagar);
+      lista.append(li);
+    });
+    corpo.append(lista);
+  }
+  const livre = FOTOS_SERVICO.find((k) => !fotos.has(k));
+  if (!livre) { corpo.append(el("p", "ajuda", `Já tem ${FOTOS_SERVICO.length} fotos, o máximo.`)); return; }
+  const b = el("button", tiradas.length ? "btn sec" : "btn foto-grande");
+  b.type = "button";
+  b.id = "servico-foto-botao";
+  b.append(iconeCamara(), el("span", null, tiradas.length ? "Tirar outra foto" : "Tirar foto"));
+  b.addEventListener("click", () => { foco = "servico-foto-botao"; pedirFoto(livre, depois, { rotulo: `Foto ${FOTOS_SERVICO.indexOf(livre) + 1} do serviço` }); });
+  corpo.append(b);
+}
+/** O que falta no serviço (texto para os leitores de ecrã e onde pôr o foco), ou null. */
+function faltaServicoFotos() {
+  const sf = sfAtual();
+  const def = SERVICOS_FOTOS[sf.tipo];
+  if (!def) return ["Escolha o serviço.", "#servicos-fotos input"];
+  if (!sf.opcoes.length) return ["Diga o que precisa.", "#servico-opcoes input"];
+  if (def.projeto) {
+    if (sf.predio.nome.trim().length < 2) return ["Indique o condomínio ou a administração.", "#servico-predio-nome"];
+    if (!sf.predio.pisos) return [`Indique o n.º de pisos (1 a ${PREDIO_PISOS_MAX}).`, "#servico-predio-pisos"];
+    if (!sf.predio.fogos) return [`Indique o n.º de fogos (1 a ${PREDIO_FOGOS_MAX}).`, "#servico-predio-fogos"];
+  }
+  return !fotosServico().length ? ["Falta a foto.", "#servico-foto-botao"] : null;
+}
+/** Serviço por responder: fica (ou volta) no passo "O serviço" e assinala o que falta (foco nele). Devolve true se bloqueou. */
+function bloquearServicoFotos() {
+  const f = faltaServicoFotos();
+  if (!f) return false;
+  if (!sfAtual().tipo) { irPara(P.inicio, { foco: false }); assinalar($("planta-caixa"), f[0], document.querySelector(f[1])); return true; }
+  if (estado.passo !== P.servico) irPara(P.servico, { foco: false });
+  const alvo = document.querySelector(f[1]);
+  if (alvo?.matches("input:not([type=checkbox])")) alvo.setAttribute("aria-invalid", "true");
+  const grupo = alvo?.closest(f[1] === "#servico-foto-botao" ? ".cartao" : alvo.matches("input[type=checkbox]") ? "fieldset" : "label");
+  assinalar(grupo ?? alvo, f[0], alvo);
+  return true;
+}
+montarServicoFotos();
+
 // ------------------------------------------------------------ Melhorias (fase 2)
 // 4 cartões (melhorias.js): o que o pacote leva nesta casa, "a partir de" (material + horas × tarifa + margem dos
 // pacotes) e a escolha (sim/não). "Quadro seguro" com o quadro já no máximo: "Já incluído", sem escolha. Por baixo, o
@@ -4468,18 +4649,19 @@ function calcular() {
   // Fase 2: os pacotes do passo "Melhorias" (melhorias.js) — os aceites juntam as suas linhas (grupo "melhoria") e a
   // margem dos pacotes (`extra`) ao total. A avaria rápida não tem melhorias.
   // Já nas Melhorias (ou para lá delas), um pacote aceite que ficou sem nada a acrescentar sai dos aceites.
-  if (!funilAvaria()) acertarMelhorias(estado, ordemPasso(visitado) >= ordemPasso(P.melhorias));
-  const melhorias = funilAvaria() ? [] : calcularMelhorias(estado, catalogo ?? null, configOrc);
+  if (!semPlantaFunil()) acertarMelhorias(estado, ordemPasso(visitado) >= ordemPasso(P.melhorias));
+  const melhorias = semPlantaFunil() ? [] : calcularMelhorias(estado, catalogo ?? null, configOrc);
   const aceites = melhorias.filter((m) => m.aceite);
   // Ronda regras: os pontos novos com preço fechado contam-se na planta que conta (`plantaPontos`; preco.js).
-  const pedidos = funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao({ ...estado, plantaPontos: plantaParaContar() }), ...aceites.flatMap((m) => m.linhas)];
+  // Serviço com preço depois das fotos: sem linhas (o preço vem na proposta); só a deslocação, para a mostrar.
+  const pedidos = funilServico() ? [] : funilAvaria() ? PEDIDOS_AVARIA.map((x) => ({ ...x })) : [...pedidosDaSelecao({ ...estado, plantaPontos: plantaParaContar() }), ...aceites.flatMap((m) => m.linhas)];
   const extra = aceites.reduce((t, m) => t + (m.margem ?? 0), 0);
   // Local da obra: a localidade do contacto (passo 7) — como em casaParaEnvio. `preco` (o que se envia) já leva a
   // deslocação; `semDesloc` é o do Resumo (passo 6), sem deslocação ("+ deslocação").
   // Ronda dinheiro: a deslocação é ida e volta por dia de obra (calcularPreco acerta os dias pelas horas) e, fora da
   // avaria, o total nunca fica abaixo da obra mínima (comObraMinima).
   const deslocacao = calcularDeslocacao(estado.contacto.localidade.trim(), configOrc);
-  const minimo = (p) => (funilAvaria() ? p : comObraMinima(p));
+  const minimo = (p) => (semPlantaFunil() ? p : comObraMinima(p));
   const preco = minimo(calcularPreco(pedidos, catalogo ?? null, configOrc, deslocacao, extra));
   const semDesloc = minimo(calcularPreco(pedidos, catalogo ?? null, configOrc, { valor_iva: 0 }, extra));
   // Plano sugerido: "controlar à distância" = o pacote Casa inteligente aceite (B8: os cartões "O que quer fazer" saíram
@@ -5176,7 +5358,7 @@ async function oferecerSimulacaoDaConta(eu) {
   casaEncontrada = false;
   estado = daConta;
   visitado = visitadoDe(estado);
-  if (depoisDe(estado.passo, P.quer) && !funilAvaria()) acertarPedido();
+  if (depoisDe(estado.passo, P.quer) && !semPlantaFunil()) acertarPedido();
   document.querySelector(".sim-progresso").hidden = false;
   $("sim-form").hidden = false;
   if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;
@@ -5211,7 +5393,7 @@ function desenharDeslocacao() {
   }
   else if (d.estado === "visita") caixa.append(el("p", null, visitaAParte && !listaEspera ? "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita." : "Não reconhecemos o concelho. Escolha-o da lista para calcularmos a deslocação."));
   // Ronda dinheiro: ida e volta por dia de obra ("Deslocação a Sintra (cerca de 29 km): 28,80 € (ida e volta, 4 dias)").
-  else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}${d.valor_iva > 0 ? (d.limitado ? ` (ida e volta; máximo ${d.dias} dias)` : ` (ida e volta, ${d.dias} ${d.dias === 1 ? "dia" : "dias"})`) : ""}`));
+  else caixa.append(el("p", null, `Deslocação a ${d.concelho}${km}: ${formatarEuro(d.valor_iva)}${d.valor_iva > 0 ? (d.limitado ? ` (ida e volta; máximo ${d.dias} dias)` : ` (ida e volta, ${d.dias} ${d.dias === 1 ? "dia" : "dias"})`) : ""}${funilServico() ? ", vai na proposta" : ""}`));
   textosPagamento();   // fora da área: textos sem visita e sem o bloco "A visita"
   if (funilAvaria()) {
     // Fora de horas (decisão do dono, 2026-10-13): o diagnóstico custa mais; a deslocação é a mesma.
@@ -5220,6 +5402,7 @@ function desenharDeslocacao() {
     // A avaria paga-se ao enviar: o diagnóstico e a deslocação (o servidor confirma o valor).
     if (pagamentosAtivos && d.estado !== "fora_area" && preco.total !== null) caixa.append(el("p", "num forte", `A pagar ao enviar: ${formatarEuro(cent(preco.total + extra))} (descontado na reparação)`));
   }
+  else if (funilServico()) caixa.append(el("p", null, `${NOTA_PRECO_FOTOS}: o valor vem na proposta.`));
   else if (pedidos.length && preco.min !== null) caixa.append(el("p", "num", `${d.estado === "fora_area" ? "Total sem deslocação" : "Total"}: ${textoComDeslocacao(preco)}`));
   caixa.hidden = false;
 }
@@ -5346,7 +5529,7 @@ function partesVisita() {
 /** A localidade escrita não é um concelho da lista (deslocação "visita"): sem visita técnica até escolher um. */
 const semConcelho = () => calcularDeslocacao(estado.contacto.localidade.trim(), configOrc).estado === "visita";
 /** Compras no passo Enviar: com os pagamentos ligados e fora da avaria (lá o diagnóstico já inclui a visita). */
-const comprasAtivas = () => pagamentosAtivos && !funilAvaria();
+const comprasAtivas = () => pagamentosAtivos && !semPlantaFunil();   // no serviço com fotos não há relatório completo (2026-10-14)
 /** O que se compra de facto: estado.compras, sem a visita fora da área nem sem concelho reconhecido (B2). */
 function compraEfetiva() {
   if (!comprasAtivas()) return { relatorio: false, visita: false };
@@ -5385,14 +5568,17 @@ function textosPagamento() {
     ? `As obras começam ${ESPERA_QUANDO}. O pedido fica em lista de espera e não paga nada. * obrigatório`
     : funilAvaria() && pagamentosAtivos
       ? `${fora ? `${foraAreaTexto()}: fale connosco.` : "Paga o diagnóstico e a deslocação ao enviar (descontados na reparação)."} * obrigatório`
+      : funilServico() ? `Enviar é grátis. ${NOTA_PRECO_FOTOS}: o valor vem na proposta. * obrigatório`
       : `Enviar é grátis: recebe logo o relatório grátis na sua conta. * obrigatório`;
   TEXTO_ENVIAR = textoBotaoEnviar();
   if (estado.passo === P.enviar && !aEnviar && !enviado) $("sim-seguinte").textContent = TEXTO_ENVIAR;
   if (!enviado) {
     $("fim-texto").textContent = listaEspera
-      ? `Recebemos o pedido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos: as obras começam ${ESPERA_QUANDO}.${funilAvaria() ? "" : " O relatório grátis já está na sua conta."}`
+      ? `Recebemos o pedido. Fica em lista de espera, por ordem de chegada. Avisamos por email quando abrirmos: as obras começam ${ESPERA_QUANDO}.${semPlantaFunil() ? "" : " O relatório grátis já está na sua conta."}`
       : `${funilAvaria()
         ? (urgenteForaHoras() ? "Recebemos o pedido urgente." : "Recebemos o pedido. Vamos marcar a visita: a data fica na sua conta.")
+        : servicoPredio() ? `Recebemos o pedido de orçamento. ${PROJETO_TEXTO}: vemos o pedido e as fotos e dizemos-lhe se avançamos.`
+        : funilServico() ? "Recebemos o pedido. Vemos as fotos e enviamos-lhe a proposta, com o preço, para a sua conta."
         : "Recebemos o pedido. O relatório grátis já está na sua conta."} ${textoPrazo()}`;
   }
 }
@@ -5768,7 +5954,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   clearTimeout(temporizador);
   clearTimeout(temporizadorConta);   // o painel já apagou a simulação guardada na conta (foi enviada)
   // A casa fica guardada (funil "Já tenho a planta" no próximo pedido): neste navegador e, com sessão, na conta.
-  if (!funilAvaria() && temCasa(estado) && guardarCasa(armazem ?? semArmazem, estado)) {
+  if (!semPlantaFunil() && temCasa(estado) && guardarCasa(armazem ?? semArmazem, estado)) {
     casaGuardada = carregarCasa(armazem ?? semArmazem);
     if (contaEu && casaGuardada) pedirConta("simulacao", { corpo: { estado: casaGuardada } }).catch(() => {});
   }
@@ -5780,7 +5966,8 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   $("sim-navegacao").hidden = true;
   document.querySelector(".sim-progresso").hidden = true;
   $("passo-fim").hidden = false;
-  $("fim-resumo").textContent = preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
+  $("fim-resumo").textContent = funilServico() ? `${textoServicoFotos({ funil: "servico", servico_fotos: estado.servicoFotos })}. ${NOTA_PRECO_FOTOS}: o valor vem na proposta.`
+    : preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
     // O valor que pagou (teste de 2026-10-14: fora de horas dizia o diagnóstico de horário normal "+ deslocação").
     : funilAvaria() ? `Avaria: ${[estado.avaria.onde.map((k) => AVARIA_ONDE[k]).join(", "), estado.avaria.problema.map((k) => AVARIA_PROBLEMA[k]).join(", ")].filter(Boolean).join(" — ")}. ${pagamento
       ? `Pagou ${formatarEuro(pagamento.valor)} (diagnóstico${urgenteForaHoras() ? " fora de horas" : ""} e deslocação)`
@@ -5962,7 +6149,7 @@ $("sim-recomecar-topo").addEventListener("click", recomecarComAnular);
 addEventListener("pagehide", acabarAnular);
 
 /** O passo mais adiantado de um estado lido (na avaria o que conta é o da primeira vez, que ela não muda). */
-const visitadoDe = (e) => (e.funil === "avaria" ? e.visitado ?? 0 : maisAdiantado(e.passo, e.visitado ?? 0));
+const visitadoDe = (e) => (e.funil === "avaria" || e.funil === "servico" ? e.visitado ?? 0 : maisAdiantado(e.passo, e.visitado ?? 0));
 $("trocar-casa-mudar").addEventListener("click", mudarACasa);
 
 /**
@@ -5972,7 +6159,7 @@ $("trocar-casa-mudar").addEventListener("click", mudarACasa);
  */
 function preEscolherPacote() {
   const k = params.get("pacote");
-  if (!CHAVES_MELHORIA.includes(k) || funilAvaria() || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
+  if (!CHAVES_MELHORIA.includes(k) || semPlantaFunil() || estado.melhorias.aceites.length || ordemPasso(visitado) >= ordemPasso(P.melhorias)) return;
   estado.melhorias.aceites = [k];
   acertarMelhorias(estado);
 }
@@ -6004,7 +6191,7 @@ function iniciar() {
     // Lote 8: retoma logo onde ficou (sem "Continuar onde ficou?").
     estado = guardado;
     visitado = visitadoDe(estado);
-    if (depoisDe(estado.passo, P.quer) && !funilAvaria()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+    if (depoisDe(estado.passo, P.quer) && !semPlantaFunil()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
     preEscolherPacote();
     mostrarPasso(false);
     carregarFotosDoEstado();
@@ -6018,7 +6205,8 @@ function iniciar() {
     limparFotos(null);   // sem simulação para continuar: fotos que tenham ficado no navegador já não são de nenhuma
   }
   // Botões da página inicial (decisão do dono, 2026-10-05): `?caso=casa|servico|avaria` abre o Início com esse cartão
-  // escolhido, como se o cliente lá tivesse carregado ("Pedir um serviço" sem casa guardada leva a descrever a casa).
+  // escolhido, como se o cliente lá tivesse carregado ("Pedir um serviço" sem casa guardada mostra o que precisa: os
+  // caminhos da casa levam a descrevê-la; os serviços com preço depois das fotos, 2026-10-14, não precisam dela).
   const caso = { casa: "primeira", servico: "planta", avaria: "avaria" }[params.get("caso")];
   if (caso && !regressoPagamento && !enviado) {
     if (estado.passo !== P.inicio) irPara(P.inicio, { foco: false });

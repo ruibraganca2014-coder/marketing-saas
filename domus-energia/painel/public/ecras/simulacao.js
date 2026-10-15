@@ -10,6 +10,7 @@ import * as desenho from "../vendor/planta-svg.js";
 import { desenharEsquemaQuadro, resumoEsquema } from "../vendor/quadro-desenho.js";
 // Diagnóstico de avarias (ecras/diagnostico-conteudo.js): nomes da lista de verificação e dos tipos de avaria.
 import { CHECKLIST, NOME_TIPO } from "./diagnostico-conteudo.js";
+import { servicoFotosDe, SERVICOS_FOTOS, textoPredio, precisaProjeto, precisaFichaIted, PROJETO_TEXTO, NOTA_PRECO_FOTOS } from "../vendor/servicos-fotos.js";
 
 export const PLANOS_SIM = { base: "Base", conforto: "Conforto", premium: "Premium" };
 const TIPOS_CASA = {
@@ -130,13 +131,27 @@ export const CARGA_PERIGOSA_W = 2000;
 const SERVICOS_SIM = { nova: "Instalação nova / remodelação total", automatizar: "Automatizar o que já tenho", reparar: "Reparações / avarias" };
 const ACOES_SIM = { manter: "Manter", reparar: "Reparar", substituir: "Substituir", novo: "Novo" };
 // Fase 1 (funis; web/simulador/estado.js FUNIS, AVARIA_*): o caso escolhido pelo cliente e a avaria rápida (sem planta).
-const FUNIS_SIM = { primeira: "Primeira vez (obras ou automatizar)", planta: "Já tinha a planta", avaria: "Avaria rápida (sem planta)" };
+const FUNIS_SIM = { primeira: "Primeira vez (obras ou automatizar)", planta: "Já tinha a planta", avaria: "Avaria rápida (sem planta)", servico: "Serviço com fotos (sem planta)" };
 const AVARIA_ONDE_SIM = { sala: "Sala", cozinha: "Cozinha", quarto: "Quarto", casa_banho: "Casa de banho", exterior: "Exterior", quadro: "Quadro elétrico", outro: "Outro" };
 /** Fotos da avaria: "avaria:foto" (a 1.ª, obrigatória) e "avaria:foto_2"… "avaria:foto_5". */
 const fotoAvaria = (f) => /^avaria:foto(_[2-5])?$/.test(String(obj(f).chave ?? ""));
 const AVARIA_PROBLEMA_SIM = { sem_corrente: "Tomada sem corrente", luz: "Luz não acende", disjuntor: "Disjuntor dispara", queimado: "Cheiro a queimado", faiscas: "Faz faíscas", choque: "Dá choque", outro: "Outro" };
 /** É um pedido da avaria rápida (sem planta)? */
 export const ehAvaria = (sim) => obj(sim).funil === "avaria";
+/**
+ * Serviço com preço depois das fotos (decisão do dono, 2026-10-14; vendor/servicos-fotos.js): "Antenas de TV e ITED —
+ * Tomadas de TV ou de rede novas (ficha ITED) — «…»"; no prédio, os pisos, os fogos e o condomínio. null nos outros.
+ */
+export function servicoFotosTxt(sim) {
+  const sf = servicoFotosDe(sim);
+  if (!sf) return null;
+  const def = SERVICOS_FOTOS[sf.tipo];
+  const ops = sf.opcoes.map((k) => `${def.opcoes[k].nome}${def.opcoes[k].ited ? " (ficha ITED)" : ""}`).join("; ");
+  const predio = sf.predio ? [sf.predio.nome ? `Condomínio/administração: ${sf.predio.nome}` : null, textoPredio(sim)].filter(Boolean).join(" · ") : "";
+  return [def.nome, ops, predio, sf.descricao ? `«${sf.descricao}»` : null].filter(Boolean).join(" — ");
+}
+/** Fotos do serviço: "servico:foto" (a 1.ª, obrigatória) e "servico:foto_2"… "servico:foto_5". */
+const fotoServico = (f) => /^servico:foto(_[2-5])?$/.test(String(obj(f).chave ?? ""));
 /** Os nomes de `onde`/`problema` da avaria (ronda B: lista; os pedidos antigos: uma string) juntos com ", ". */
 const nomesAvaria = (v, mapa) => (Array.isArray(v) ? v : v ? [v] : []).map((k) => mapa[k]).filter(Boolean).join(", ");
 /** "Sala, Cozinha — Luz não acende, Disjuntor dispara — «não dá nada»" (avaria rápida); null nos outros pedidos. */
@@ -328,12 +343,16 @@ export function vistaSimulacao(sim, catalogo = {}) {
   const objetivosTxt = arr(quer.objetivos).filter((o) => typeof o === "string").map((o) => OBJETIVOS[o] ?? o).join(", ");
   const deslTxt = deslocacaoTxt(sim.deslocacao);
 
-  const avaria = ehAvaria(sim);
+  const servicoFotos = servicoFotosTxt(sim);
+  // A avaria e o serviço com preço depois das fotos (2026-10-14) não têm casa descrita nem planta.
+  const avaria = ehAvaria(sim) || Boolean(servicoFotos);
   const partes = [
     h("h3", { text: "Simulação do cliente" }),
+    servicoFotos ? h("p", { class: "linha-selos" }, precisaProjeto(sim) ? selo(PROJETO_TEXTO, "aviso") : null, precisaFichaIted(sim) ? selo("Precisa da ficha ITED", "info") : null) : null,
     dados([
       ...(FUNIS_SIM[sim.funil] ? [["Pedido", FUNIS_SIM[sim.funil]]] : []),
-      ...(avaria ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some(fotoAvaria) ? " (ver foto)" : ""}`]] : []),
+      ...(ehAvaria(sim) ? [["Avaria", `${avariaTxt(sim)}${arr(sim.fotos).some(fotoAvaria) ? " (ver foto)" : ""}`]] : []),
+      ...(servicoFotos ? [["Serviço pedido", `${servicoFotos}${arr(sim.fotos).some(fotoServico) ? " (ver fotos)" : " (sem fotos)"}`]] : []),
       ...linhasVisita(sim),
       ["Casa", avaria ? ["Sem planta", typeof casa.localidade === "string" ? casa.localidade : null].filter(Boolean).join(" · ") : casaTxt || "—"],
       ...(Array.isArray(sim.servico) ? [["Serviço", servicoTexto(sim)]] : []),
@@ -346,7 +365,7 @@ export function vistaSimulacao(sim, catalogo = {}) {
       ...(quer.pequenas !== undefined ? [["Máquinas pequenas", pequenasTxt || "Nenhuma"]] : []),
       ...(sim.quer != null ? [["Objetivos", objetivosTxt || "Nenhum"]] : []),
       ...(avaria ? [] : [["Potência contratada e ligação", instalacaoTxt]]),
-      [avaria ? "Diagnóstico (c/ IVA)" : "Estimativa (c/ IVA)", estimativa],
+      servicoFotos ? ["Preço", `${NOTA_PRECO_FOTOS} (vai na proposta)`] : [ehAvaria(sim) ? "Diagnóstico (c/ IVA)" : "Estimativa (c/ IVA)", estimativa],
       ...(avaria ? [] : [["Plano sugerido", plano ? selo(PLANOS_SIM[plano] ?? plano, "plano-sugerido") : "—"]]),
       ["Equipamentos", String(nItens)],
     ]),
@@ -699,6 +718,10 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   const urg = urgenciaDe(s), disp = visitaTxt(s);
   // Fase 1: a avaria rápida (sem planta) — o que o cliente disse, primeiro.
   if (ehAvaria(s)) por("Avaria", `${avariaTxt(s)}${arr(s.fotos).some(fotoAvaria) ? " (ver foto)" : " (sem foto)"}. Pedido sem planta: diagnosticar e orçar a reparação na visita.`);
+  // Serviço com preço depois das fotos (2026-10-14): o que o cliente pediu; no prédio, o projeto e o técnico responsável.
+  if (servicoFotosDe(s)) por("Serviço", `${servicoFotosTxt(s)}${arr(s.fotos).some(fotoServico) ? " (ver fotos)" : " (sem fotos)"}. Pedido sem planta: o preço vai na proposta, pelas fotos.`);
+  if (precisaProjeto(s)) por("Prédio", `${PROJETO_TEXTO}: só avança se a Domus Energia o aceitar.`);
+  if (precisaFichaIted(s)) por("ITED", "Mexe na instalação de telecomunicações: precisa da ficha ITED (termo de responsabilidade da ANACOM, por um instalador ITED).");
   if (urg === "urgente") por("Urgência", `URGENTE — o cliente diz que está sem luz (avaria)${disp ? `. Disponível: ${disp.toLowerCase()}` : ""}. Marcar a visita o mais cedo possível.`);
   else if (urg === "semana") por("Urgência", `O cliente pede a visita ESTA SEMANA${disp ? ` (${disp.toLowerCase()})` : ""}.`);
   if (disp && urg !== "urgente" && urg !== "semana") por("Visita", `Disponibilidade do cliente: ${disp.toLowerCase()}.`);
@@ -839,7 +862,7 @@ function verificarLeitura(leitura, novos = null) {
   return out;
 }
 
-export const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : t === "outra" ? "Foto" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
+export const nomeTipoFoto = (t) => (t === "quadro" ? "Quadro elétrico" : t === "outra" ? "Foto" : t === "servico" ? "Serviço" : NOMES_ELEMENTOS[t] ?? (typeof t === "string" && t ? t.replace(/_/g, " ") : "Foto"));
 /** Endereço da foto no painel (reconstruído a partir dos ids, nunca copiado da resposta). */
 export const urlFoto = (orcamentoId, fotoId) => `/painel/api/orcamentos/${encodeURIComponent(String(orcamentoId))}/fotos/${encodeURIComponent(String(fotoId))}`;
 
@@ -1212,8 +1235,8 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const kva = numero(casa.potencia_contratada_kva), sug = numero(q.potencia_sugerida_kva), carga = numero(q.potencia_carga_w);
   const estimativa = estimativaTxt(s);
   const objetivos = arr(obj(s.quer).objetivos).filter((x) => typeof x === "string").map((x) => OBJETIVOS[x] ?? x).join(", ");
-  const avaria = ehAvaria(s);
-  const servicoTxt = avaria ? FUNIS_SIM.avaria : servicoTexto(s);
+  const avaria = ehAvaria(s) || Boolean(servicoFotosDe(s));
+  const servicoTxt = ehAvaria(s) ? FUNIS_SIM.avaria : servicoFotosDe(s) ? servicoFotosTxt(s) : servicoTexto(s);
   // Diagnóstico da avaria feito no painel (ficha do pedido): a seguir ao que o cliente descreveu.
   const blocoDiag = blocoDiagnostico(diagnostico);
 
@@ -1232,7 +1255,17 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
         ["Relatório de", data(new Date().toISOString())],
       ])),
     ...(temPlanta ? [blocoTrabalho(s, catalogo, listaFotos)] : []),
-    ...(avaria ? [h("section", { class: "rel-seccao rel-trabalho", id: "rel-avaria", "aria-labelledby": "rel-avaria-titulo" },
+    // Serviço com preço depois das fotos (2026-10-14): o que o cliente pediu, sem planta.
+    ...(servicoFotosDe(s) ? [h("section", { class: "rel-seccao rel-trabalho", id: "rel-servico", "aria-labelledby": "rel-servico-titulo" },
+      h("h3", { id: "rel-servico-titulo", text: "SERVIÇO (pedido sem planta)" }),
+      dados([
+        ["Serviço", SERVICOS_FOTOS[servicoFotosDe(s).tipo].nome],
+        ["O que precisa", servicoFotosDe(s).opcoes.map((k) => SERVICOS_FOTOS[servicoFotosDe(s).tipo].opcoes[k].nome).join("; ") || "—"],
+        ...(servicoFotosDe(s).predio ? [["Prédio", [servicoFotosDe(s).predio.nome, textoPredio(s)].filter(Boolean).join(" · ") || "—"]] : []),
+        ["Descrição", servicoFotosDe(s).descricao ? `«${servicoFotosDe(s).descricao}»` : "—"],
+        ["Fotos", listaFotos.some(fotoServico) || arr(s.fotos).some(fotoServico) ? "ver em baixo" : "sem fotos"],
+      ]))] : []),
+    ...(ehAvaria(s) ? [h("section", { class: "rel-seccao rel-trabalho", id: "rel-avaria", "aria-labelledby": "rel-avaria-titulo" },
       h("h3", { id: "rel-avaria-titulo", text: "AVARIA (pedido sem planta)" }),
       dados([
         ["Onde", nomesAvaria(obj(s.avaria).onde, AVARIA_ONDE_SIM) || "—"],
@@ -1242,7 +1275,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
       ]))] : []),
     ...(blocoDiag ? [h("section", { class: "rel-seccao", id: "rel-diagnostico" }, h("h3", { text: "Diagnóstico da avaria (feito no painel)" }), blocoDiag)] : []),
     blocoVerificar,
-    avaria ? seccao("Casa", dados([["Imóvel", "Sem planta (avaria rápida)"], ["Deslocação", deslocacaoTxt(s.deslocacao) ?? "—"]])) : seccao("Casa e pisos", dados([
+    avaria ? seccao("Casa", dados([["Imóvel", ehAvaria(s) ? "Sem planta (avaria rápida)" : "Sem planta (serviço com fotos)"], ["Deslocação", deslocacaoTxt(s.deslocacao) ?? "—"]])) : seccao("Casa e pisos", dados([
       ["Imóvel", [TIPOS_CASA[casa.tipo] ?? casa.tipo, numero(casa.divisoes) !== null ? plural(numero(casa.divisoes), "divisão", "divisões") : null].filter(Boolean).join(" · ") || "—"],
       ...(tipologiaTxt(casa) ? [["Tipologia", tipologiaTxt(casa)]] : []),
       ...pisosDetalhe(casa),
@@ -1274,7 +1307,7 @@ export function relatorioTecnico(pedido, sim, catalogo = {}, { fotos = [], leitu
   const blocoEsquema = blocoEsquemaQuadro(esquema);
   if (blocoEsquema) partes.push(h("section", { class: "rel-seccao", id: "rel-esquema-quadro" }, h("h3", { text: "Esquema do quadro (feito no painel a partir da foto)" }), blocoEsquema));
   const outrasFotos = listaFotos.filter((f) => f.chave !== "quadro");
-  if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: avaria ? (outrasFotos.length > 1 ? `Fotos da avaria (${outrasFotos.length})` : "Foto da avaria") : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
+  if (outrasFotos.length) partes.push(h("section", { class: "rel-seccao", id: "rel-fotos" }, h("h3", { text: servicoFotosDe(s) ? `Fotos do serviço (${outrasFotos.length})` : avaria ? (outrasFotos.length > 1 ? `Fotos da avaria (${outrasFotos.length})` : "Foto da avaria") : `Fotos do cliente por divisão (${outrasFotos.length})` }), galeriaFotos(o.id, outrasFotos)));
   if (itens.length) {
     partes.push(seccao("Artigos e horas", tabelaItens(itens, mo, catalogo, numero(obj(s.deslocacao).valor_iva), { horas: true, margem: numero(s.melhorias_margem_iva), minimo: numero(s.obra_minima_iva) }),
       dados([[avaria ? "Diagnóstico dado ao cliente (c/ IVA)" : "Estimativa dada ao cliente (c/ IVA)", estimativa], ...(avaria ? [] : [["Plano sugerido", PLANOS_SIM[s.plano_sugerido] ?? t(s.plano_sugerido)]])])));

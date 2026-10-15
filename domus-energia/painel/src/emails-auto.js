@@ -20,6 +20,7 @@ import { ESTADO_ARQUIVADO } from './db.js';
 import { iso, diaLisboa, somarDiasCivil, ola } from './util.js';
 import { horaLisboa, agoraLisboa } from './crm.js';
 import { PRAZO_CONFIRMAR_MS } from './eletricistas.js';
+import { servicoFotosDe, precisaProjeto } from '../public/vendor/servicos-fotos.js';
 
 const DIA_MS = 24 * 3600_000;
 /** Não se envia entre as 21:00 e as 08:00 (Lisboa): o que for devido fica para a primeira volta depois das 08:00. */
@@ -175,10 +176,19 @@ export function criarEmailsAuto({ db, config, relogio, auditar, correio, crm, ta
     // Lista de espera (coluna `lista_espera`: simulador ou formulário do site): sem prazo de contacto nem visita.
     const espera = o.lista_espera === 1;
     const visitaDepois = Boolean(pagamentos()?.visitaIncluida?.(o));
+    // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): sem relatório grátis; o preço vem na proposta. No
+    // prédio (para-raios, coluna montante) a empresa decide primeiro se avança (precisa de projeto e técnico responsável).
+    let sim = null;
+    try { sim = JSON.parse(o.simulacao ?? 'null'); } catch { sim = null; }
+    const servico = servicoFotosDe(sim);
     const passos = espera ? [
       'O seu pedido ficou em lista de espera: ainda não começámos as obras.',
-      ...(comConta ? ['O relatório grátis (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),
+      ...(comConta && !servico ? ['O relatório grátis (o intervalo de preço e a lista de trabalho) já está na sua conta.'] : []),
       'Os pedidos são tratados por ordem de chegada. Avisamos por email quando abrirmos.',
+    ] : comConta && servico ? [
+      precisaProjeto(sim) ? 'Como é um prédio, o trabalho precisa de projeto e técnico responsável: vemos o pedido e as fotos e dizemos-lhe se avançamos.'
+        : 'Vemos o que pediu e as fotos, normalmente no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.',
+      'Enviamos-lhe a proposta, com o preço, que pode aceitar na sua conta. Ao aceitar paga o sinal, que já inclui a visita.',
     ] : comConta ? [
       'O relatório grátis (o intervalo de preço e a lista de trabalho) já está na sua conta.',
       visitaDepois ? 'Verificamos o seu pedido (a planta e as fotos), normalmente no dia útil seguinte. Se faltar alguma coisa, dizemos-lhe.'

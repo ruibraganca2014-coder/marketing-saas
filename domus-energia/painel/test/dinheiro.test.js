@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, migrar, versaoEsquema, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO, HORAS_PONTOS } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO, HORAS_PONTOS, SEMENTES_SERVICOS_FOTOS } from '../src/catalogo-sementes.js';
 import { pontosDoElemento, pedidosDoElemento, pedidosPontosNovos, plantaNovos, plantaInteligentes, perguntaMedicao } from '../../web/simulador/acoes.js';
 import { pedidosDaSelecao, calcularPreco, comObraMinima, diasDeObra, textoDias, textoIntervalo, textoIntervaloTrabalhos, precoFechado, encontrarArtigo, PEDIDOS, CONFIG_OMISSAO } from '../../web/simulador/preco.js';
 import { calcularDeslocacao } from '../../web/simulador/deslocacao.js';
@@ -301,7 +301,7 @@ test('migração 24: horas e marca nos pontos sem mexer no preço do CEO; linhas
   assert.deepEqual([art('TOMADA-NOVA').h, art('TOMADA-NOVA').e.preco_fechado], [1, undefined], 'um ponto a que o CEO já deu horas fica como ele o deixou');
   for (const sku of ['TOMADA-DUPLA-NOVA', 'TOMADA-TRIPLA-NOVA', 'INTERRUPTOR-NOVO']) assert.deepEqual([art(sku).h, art(sku).e.preco_fechado], [HORAS_PONTOS[sku], true], sku);
   assert.deepEqual([art('INTERRUPTOR-NOVO').c, art('TOMADA-DUPLA-NOVA').c, art('TOMADA-TRIPLA-NOVA').c], [3500, 5500, 6500]);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0 + 2, 'entram a linha do carregador e a da instalação nova');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0 + 2 + SEMENTES_SERVICOS_FOTOS.length, 'entram a linha do carregador e a da instalação nova (e, na 57, os serviços com preço depois das fotos)');
   assert.deepEqual([art('LINHA-DEDICADA-NOVA').c, art('LINHA-DEDICADA-NOVA').h, art('LINHA-DEDICADA-NOVA').e.preco_fechado, art('LINHA-DEDICADA-NOVA').e.funcao], [7000, 0.75, true, 'linha_dedicada_nova']);
   assert.deepEqual([art('LINHA-DEDICADA').c, art('LINHA-DEDICADA').h], [16000, 2], 'a do CEO fica');
   assert.deepEqual([art('LINHA-DEDICADA-VE').c, art('LINHA-DEDICADA-VE').h, art('LINHA-DEDICADA-VE').e.preco_fechado, art('LINHA-DEDICADA-VE').e.funcao], [39000, 4, true, 'linha_dedicada_ve']);

@@ -7,7 +7,7 @@
  * Por ordem de prioridade (a primeira que se aplica é o "Próximo passo"; as outras ficam em "Também por fazer").
  * `sec`: a secção da ficha onde se trata; `alvo`: o id do elemento a mostrar (o botão ou o formulário verdadeiro).
  */
-const ORDEM = ['avaria_urgente', 'validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabalho', 'escolher_proposta', 'enviar_proposta',
+const ORDEM = ['avaria_urgente', 'decidir_predio', 'validar', 'sem_tecnico', 'ida_perdida', 'extra', 'aprovar_trabalho', 'escolher_proposta', 'enviar_proposta',
   'proposta_aceite', 'pagar_eletricista', 'pedido_novo', 'mensagem', 'visita'];
 
 /** Um trabalho de eletricista ainda por acabar: na bolsa, com ele (visita por marcar ou marcada), feito à espera do cliente ou por aprovar. */
@@ -38,6 +38,9 @@ export function pendentesDoPedido(f) {
     if (aprovado) juntar('pagar_eletricista', ['ceo'], aprovado.aprovada ?? aprovado.atualizado, { eletricista: aprovado.eletricista ?? null });
     return out;
   }
+  // Para-raios ou coluna montante (decisão do dono, 2026-10-14): precisa de projeto e técnico responsável e não vai
+  // sozinho para a bolsa (nem com a validação): o CEO decide, caso a caso, se a Domus o aceita. Até lá fica no topo.
+  if (f.predio && !f.predio.decisao && ['novo', 'contactado', 'visita_marcada'].includes(f.estado) && !f.proposta_aceite) juntar('decidir_predio', ['ceo'], f.criado);
   const porValidar = f.validacao_ligada && f.validacao === 'por_validar' && !['aceite', 'perdido'].includes(f.estado);
   if (porValidar) {
     const nota = String(f.validacao_nota ?? '');
@@ -138,6 +141,8 @@ function frasesDe(p, f) {
       if (p.motivo === 'corrigido') return fr('O cliente diz que já corrigiu: rever o pedido e validar.', `Rever o pedido corrigido por ${nome}`);
       if (p.motivo === 'recusada') return fr('O cliente não aceitou a proposta: rever e validar de novo, ou dar o pedido como perdido.', `Rever a proposta não aceite por ${nome}`);
       return fr('Validar o pedido.', `Validar o pedido de ${nome}`);
+    case 'decidir_predio': return fr('Pedido de orçamento de um prédio: decidir se a Domus o aceita (precisa de projeto e técnico responsável).',
+      `Pedido de orçamento de um prédio (${nome}): decidir se a Domus o aceita (precisa de projeto e técnico responsável)`);
     case 'avaria_urgente': return fr('Avaria urgente na bolsa: à espera de um eletricista (fora de horas). Se ninguém a aceitar, atribua-a.', `Avaria urgente de ${nome} na bolsa: à espera de um eletricista`);
     case 'pedido_novo': return fr('Contactar o cliente e, a seguir, mudar o estado para "Em preparação".', `Contactar ${nome}`);
     case 'proposta_aceite':
@@ -178,6 +183,7 @@ function acaoDe(p, f) {
     case 'mensagem': return { rotulo: 'Responder', sec: 'mensagens', alvo: 'mensagem-cliente' };
     case 'escolher_proposta': return { rotulo: 'Ver as propostas', sec: 'eletricista', alvo: 'propostas-titulo' };
     case 'avaria_urgente': return { rotulo: 'Ver a bolsa', sec: 'eletricista', alvo: 'bolsa-estado' };
+    case 'decidir_predio': return { rotulo: 'Decidir', sec: 'validacao', alvo: 'predio-decisao' };
     case 'enviar_proposta': return { rotulo: 'Preparar a proposta', sec: 'proposta', alvo: p.papeis.includes('ceo') ? 'proposta-eletricista' : 'proposta-partes' };
     case 'aprovar_trabalho': return { rotulo: 'Aprovar o trabalho', sec: 'eletricista', alvo: 'eletricista-aprovar' };
     case 'pagar_eletricista': return { rotulo: 'Abrir Pagamentos', ligacao: '#/pagamentos' };

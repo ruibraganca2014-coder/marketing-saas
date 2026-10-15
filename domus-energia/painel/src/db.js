@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO, SEMENTES_SERVICOS_FOTOS } from './catalogo-sementes.js';
 import { SEMENTES_PROCEDIMENTOS } from './procedimentos-sementes.js';
 import { iso } from './util.js';
 
@@ -1256,6 +1256,23 @@ export const MIGRACOES = [
     db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('propostas_bolsa', 'propostas_bolsa_novo')").run();
     if (seq !== null) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('propostas_bolsa', ?)").run(seq);
   }),
+  // 57: serviços com preço depois das fotos (decisão do dono, 2026-10-14; docs/SIMULADOR-ORCAMENTO.md §0). Os artigos
+  // provisórios do catálogo (SEMENTES_SERVICOS_FOTOS: 0 €, escondidos do cliente, horas por confirmar pelos parceiros),
+  // cada um com a sua especialidade — só os que entram agora (um SKU que o CEO já tenha criado fica como está).
+  // `predio_decisao`: o CEO aceita (`aceite`) ou não (`recusado`) um pedido de para-raios ou coluna montante, que precisa
+  // de projeto e técnico responsável e nunca vai sozinho para a bolsa; com quem e quando. NULL = por decidir.
+  (db) => {
+    const existem = new Set(db.prepare('SELECT sku FROM catalogo').all().map((x) => x.sku));
+    const novas = SEMENTES_SERVICOS_FOTOS.filter((s) => !existem.has(s.sku));
+    semear(db, novas, true);
+    const esp = db.prepare('UPDATE catalogo SET especialidade = ? WHERE sku = ?');
+    for (const s of novas) esp.run(s.especialidade, s.sku);
+    db.exec(`
+      ALTER TABLE orcamentos ADD COLUMN predio_decisao TEXT CHECK (predio_decisao IS NULL OR predio_decisao IN ('aceite', 'recusado'));
+      ALTER TABLE orcamentos ADD COLUMN predio_decisao_em TEXT;
+      ALTER TABLE orcamentos ADD COLUMN predio_decisao_por TEXT;
+    `);
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

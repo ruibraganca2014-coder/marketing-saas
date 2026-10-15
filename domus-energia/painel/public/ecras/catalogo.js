@@ -277,6 +277,7 @@ export default function catalogo(el) {
       h("tbody", {}, ...vis.map(linha))));
   }
 
+  const especDe = (a) => { const e = campo(a, "especificacoes"); return e && typeof e === "object" ? e : {}; };
   function linha(a) {
     const id = String(campo(a, "id"));
     const m = margem(campo(a, "preco_venda_iva"), campo(a, "preco_compra"));
@@ -294,7 +295,11 @@ export default function catalogo(el) {
         h("span", { text: `${campo(a, "stock_qtd") ?? 0}${numero(campo(a, "stock_reservado")) > 0 ? ` (${campo(a, "stock_reservado")} res.)` : ""}` }),
         abaixoMinimo(a) ? selo("Abaixo do mínimo", "grav-critica") : null)),
       h("td", { class: "num", "data-rotulo": "Mínimo", text: String(campo(a, "stock_minimo") ?? 0) }),
-      h("td", { "data-rotulo": "Estado" }, h("span", { class: "linha-selos" }, ativo ? selo("Ativo", "orc-aceite") : selo("Inativo", "obra-cancelada"), visivel ? null : selo("Escondido do cliente", "aviso"), provisorio ? selo("Preço provisório", "aviso") : null)),
+      h("td", { "data-rotulo": "Estado" }, h("span", { class: "linha-selos" }, ativo ? selo("Ativo", "orc-aceite") : selo("Inativo", "obra-cancelada"), visivel ? null : selo("Escondido do cliente", "aviso"), provisorio ? selo("Preço provisório", "aviso") : null,
+        // Serviços com preço depois das fotos (decisão do dono, 2026-10-14; catalogo-sementes.js SEMENTES_SERVICOS_FOTOS).
+        especDe(a).preco_depois_fotos === true ? selo("Preço depois das fotos", "info") : null,
+        especDe(a).precisa_ited === true ? selo("Precisa da ficha ITED", "info") : null,
+        especDe(a).precisa_projeto === true ? selo("Precisa de projeto e técnico responsável", "aviso") : null)),
       h("td", { class: "acoes" }, h("span", { class: "form-botoes" },
         h("button", { class: "btn sec pequeno", type: "button", text: "Editar", "aria-label": `Editar ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirArtigo(a) }),
         h("button", { class: "btn sec pequeno", type: "button", text: "Entrada de stock", "aria-label": `Entrada de stock de ${campo(a, "nome") ?? campo(a, "sku")}`, onclick: () => abrirEntradaStock(a, guardado) }))));

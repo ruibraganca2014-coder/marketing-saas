@@ -54,6 +54,10 @@ Exemplo em Sintra (diagnóstico 25 € + 0,5 h × 38 € = 44 €; deslocação 
 | O cliente paga ao enviar | 90,40 € | 112,40 € |
 | Visita marcada em horário normal | — | devolvem-se 22,00 € |
 
+## Serviços com preço depois das fotos (decisões do dono, 2026-10-14)
+
+Videoporteiro e intercomunicador, antenas de TV e ITED, motores e portões, para-raios e coluna montante (docs/SIMULADOR-ORCAMENTO.md §0; docs/ELETRICISTAS.md). **Regra do dinheiro escolhida:** o caminho da avaria (o cliente descreve e manda fotos; o preço vem na proposta), **sem o diagnóstico pago** — enviar é grátis (o pedido passa logo a `novo`, nunca "a aguardar pagamento"), como um pedido com planta. Por isso segue as regras dos pedidos que não são avaria: com as propostas na bolsa a visita vai **incluída no sinal** (`visitaIncluida`), o eletricista propõe pelas fotos, o CEO envia a proposta e o cliente paga o sinal ao aceitar e o restante no fim. Não há relatório completo à venda (não há planta): `compras.servico = true`, `relatorio: null` na conta e `POST /api/conta/pedidos/:id/pagar` com o relatório responde **409** "Neste pedido não há relatório completo: o preço vem na proposta, depois de vermos as fotos." (uma `compra` no envio fica em `pagamento_erro`; o pedido é recebido na mesma). O relatório básico da conta mostra o que pediu, sem intervalo, com a nota "Preço depois de ver as fotos" (no prédio, que vemos o pedido e dizemos se avançamos). O horário fora de horas continua só das avarias.
+
 ## Decisões de 2026-10-11 (propostas na bolsa)
 
 Só com o módulo dos eletricistas e `PROPOSTAS_BOLSA` ligados (docs/ELETRICISTAS.md "Propostas na bolsa"); com um deles desligado, tudo o que está abaixo neste documento vale como está escrito.

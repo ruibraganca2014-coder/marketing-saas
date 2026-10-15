@@ -532,7 +532,7 @@ function resumoPagamentos(p) {
 function resumoRelatorio(p) {
   if (p.relatorio === "disponivel") return ["completo disponível"];
   if (p.relatorio === "em_revisao") return ["completo em revisão"];
-  return p.relatorio_basico && !p.compras?.avaria ? ["grátis"] : null;
+  return p.relatorio_basico && !p.compras?.avaria && !p.compras?.servico ? ["grátis"] : null;
 }
 
 function cartaoPedido(p) {
@@ -592,7 +592,8 @@ function cartaoPedido(p) {
   // avaliação por dar ("Como correu?"), que também abre a secção dela.
   const acao = acaoDoPedido(p);
   const fase = acao ? { sec: acao.sec, chave: acao.chave, destaque: true } : p.avaliacao?.pode ? { sec: "obra", chave: "avaliar" } : null;
-  const avaria = Boolean(p.compras?.avaria);
+  // A avaria e o serviço com preço depois das fotos (2026-10-14) não têm relatório: a secção é "O seu pedido".
+  const avaria = Boolean(p.compras?.avaria) || Boolean(p.compras?.servico);
   const nf = p.fotos.length;
   const sec = (chave, titulo, resumo, ...blocos) => seccaoPedido(p, fase, chave, titulo, resumo, blocos);
   c.append(...[
@@ -1219,11 +1220,13 @@ function blocoBasico(p) {
   const b = el("section", "conta-relatorio conta-basico");
   // Avaria: o mesmo bloco mostra o que o cliente descreveu e o diagnóstico (não há estimativa nem lista por divisão).
   const avaria = Boolean(p.compras?.avaria);
-  const titulo = avaria ? "O seu pedido de avaria" : "Relatório grátis";
+  // Serviço com preço depois das fotos (decisão do dono, 2026-10-14): o que pediu; o preço vem na proposta.
+  const servico = Boolean(p.compras?.servico);
+  const titulo = avaria ? "O seu pedido de avaria" : servico ? "O seu pedido" : "Relatório grátis";
   b.setAttribute("aria-label", titulo);
   b.append(el("h4", null, titulo));
   const zona = el("div", "relatorio-cliente");
-  const ver = el("button", "btn sec pequeno", avaria ? "Ver o pedido" : "Ver o relatório grátis");
+  const ver = el("button", "btn sec pequeno", avaria || servico ? "Ver o pedido" : "Ver o relatório grátis");
   ver.type = "button";
   ver.id = `basico-${p.id}`;
   ver.addEventListener("click", async () => {
@@ -1237,7 +1240,7 @@ function blocoBasico(p) {
       ver.disabled = false;
     }
   });
-  b.append(el("p", "ajuda", avaria ? "A avaria que descreveu e o diagnóstico." : "A estimativa e a lista do trabalho, por divisão."), ver, zona);
+  b.append(el("p", "ajuda", avaria ? "A avaria que descreveu e o diagnóstico." : servico ? "O serviço que pediu. O preço vem na proposta, depois de vermos as fotos." : "A estimativa e a lista do trabalho, por divisão."), ver, zona);
   return b;
 }
 
@@ -1442,6 +1445,7 @@ function blocoResumo(r, id, paga = null) {
   const linha = (k, v) => { if (v) { dl.append(el("dt", null, k), el("dd", null, v)); } };
   linha("Casa", r.casa);
   linha("Avaria", r.avaria);
+  linha("Serviço", r.servico);   // serviço com preço depois das fotos (2026-10-14)
   linha("Localidade", r.localidade);
   linha("Divisões", r.divisoes ? String(r.divisoes) : null);
   // Avaria rápida: o diagnóstico, fixo (como no simulador); pedidos antigos com intervalo, o intervalo.
@@ -1503,7 +1507,7 @@ function blocoFotos(p) {
 }
 
 /** Falta a foto do quadro elétrico e ainda se pode juntar (o botão próprio das Fotos e o da caixa do topo). */
-const faltaFotoQuadro = (p) => Boolean(p.pode_fotos) && !p.compras?.avaria && !p.fotos.some((f) => f.chave === "quadro") && p.fotos.length < (p.fotos_max ?? 40);
+const faltaFotoQuadro = (p) => Boolean(p.pode_fotos) && !p.compras?.avaria && !p.compras?.servico && !p.fotos.some((f) => f.chave === "quadro") && p.fotos.length < (p.fotos_max ?? 40);
 
 /** Botão (com teclado) que abre a câmara/galeria por um input file escondido. `rotulo`: nome acessível mais claro. */
 function botaoFoto(texto, id, rotulo, aoEscolher) {

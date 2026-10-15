@@ -823,9 +823,9 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 .foto-avaria .foto-quadro { width: 100%; aspect-ratio: 1; object-fit: cover; }
 
 /* ---------- Ronda A: Início (o que precisa, o que se passa, aviso de segurança) e os dois relatórios ---------- */
-#caminhos { grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 720px) { #caminhos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-#caminhos .escolha.com-icone { min-height: 84px; }
+#caminhos, #servicos-fotos { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 720px) { #caminhos, #servicos-fotos { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+#caminhos .escolha.com-icone, #servicos-fotos .escolha.com-icone { min-height: 84px; }
 #caminhos .escolha[hidden] { display: none; }
 .escolhas-grelha.problemas { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }   /* auto-fit: os cartões esticam até à largura toda (sem colunas vazias) */
 .sim-perigo { margin-top: 12px; }
@@ -1097,3 +1097,6 @@ html:has(.pagina-simulador) { font-size: 106.25%; }   /* 17 px */
 /* Aviso duplicado (2026-10-13): com o "Seguinte" a assinalar o que falta num cartão de divisão (app.js assinalar), a
    frase "Falta responder: …" que o cartão já mostrava dá o lugar à do aviso, que diz o mesmo — uma só de cada vez. */
 .divisao-cartao:is(.em-falta, :has(.em-falta)) .divisao-falta { display: none; }
+
+/* Serviços com preço depois das fotos em "Pedir um serviço" (decisão do dono, 2026-10-14): o título por cima dos cartões. */
+.servicos-fotos-titulo { margin: 1.1rem 0 .5rem; }

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { abrirDb, migrar, versaoEsquema, MIGRACOES } from '../src/db.js';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO } from '../src/catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, SEMENTES_DINHEIRO, SEMENTES_SERVICOS_FOTOS } from '../src/catalogo-sementes.js';
 import { pontosDoElemento, pedidosDoElemento, pedidosPontosNovos, plantaNovos, plantaInteligentes } from '../../web/simulador/acoes.js';
 import { pedidosDaSelecao, calcularPreco, encontrarArtigo, PEDIDOS } from '../../web/simulador/preco.js';
 import { plantaDaCasa, aparelhosOmissao, comandoSugerido } from '../../web/simulador/casa.js';
@@ -46,7 +46,7 @@ test('migração 15: os artigos da ronda regras entram numa base existente sem d
   const antes = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1 + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length);   // a 20 traz a tomada tripla; a 24, as linhas dedicadas
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, antes + SEMENTES_PONTOS.length - 1 + SEMENTES_PONTOS_20.length + SEMENTES_DINHEIRO.length + SEMENTES_SERVICOS_FOTOS.length);   // a 20 traz a tomada tripla; a 24, as linhas dedicadas; a 57, os serviços com fotos
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'PONTO-LUZ-NOVO'").get().c, 5000);
   for (const s of SEMENTES_PONTOS) assert.ok(db.prepare('SELECT 1 FROM catalogo WHERE sku = ?').get(s.sku), s.sku);
   const a = db.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'IDR-2P-40A-30MA-A'").get();
@@ -298,7 +298,7 @@ test('ronda sinalizar — tomada tripla: caixas 1–3 (dupla antiga → 2), pont
   const n0 = db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n;
   migrar(db);
   assert.equal(versaoEsquema(db), MIGRACOES.length);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0 + SEMENTES_DINHEIRO.length);   // a 24 traz as linhas dedicadas
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM catalogo').get().n, n0 + SEMENTES_DINHEIRO.length + SEMENTES_SERVICOS_FOTOS.length);   // a 24 traz as linhas dedicadas; a 57, os serviços com fotos
   assert.equal(db.prepare("SELECT preco_venda_iva_cent AS c FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get().c, 7000);
   const nova = abrirDb(':memory:');
   const a = nova.prepare("SELECT preco_venda_iva_cent AS c, especificacoes AS e FROM catalogo WHERE sku = 'TOMADA-TRIPLA-NOVA'").get();
