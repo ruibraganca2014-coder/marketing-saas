@@ -4,14 +4,15 @@
 // (/eletricista) reutiliza-o. Textos nossos, para um eletricista habilitado: as fontes (dois infográficos do dono e um
 // artigo sobre os três passos e as oito técnicas) serviram só de referência — não se copiam frases nem figuras. Onde a
 // RTIEBT (Portaria 949-A/2006, consolidada 2015; scratchpad verificacao/rtiebt-valores.md) dá valores, cita-se o
-// artigo; os números das fontes que a RTIEBT não fixa vão marcados "referência prática".
+// artigo; os números das fontes que a RTIEBT não fixa vão marcados "referência prática". Coerente com o manual de
+// instalações BT da empresa (2026; caps. B4, 16 e 20): onde diferiam, segue-se o manual.
 
 /** Regras de segurança: antes de tudo, sempre. */
 export const SEGURANCA = [
   { titulo: "Cortar no quadro", texto: "Desligar o circuito (ou o geral) no quadro antes de mexer em caixas, tomadas ou aparelhagem; sinalizar o disjuntor para ninguém o voltar a ligar." },
-  { titulo: "Confirmar a ausência de tensão", texto: "Depois de cortar, medir no ponto de trabalho com o multímetro ou o detetor sem contacto — testar o aparelho antes num ponto com tensão conhecida." },
+  { titulo: "Confirmar a ausência de tensão", texto: "Depois de cortar e bloquear, verificar no ponto de trabalho com um detetor de tensão bipolar (ou o multímetro), testado antes e depois num ponto com tensão conhecida. O busca-polos e o detetor sem contacto não provam a ausência de tensão." },
   { titulo: "Nunca trabalhar com tensão", texto: "As medições com tensão fazem-se com pontas e ferramentas isoladas, de pé seco e sem tocar em massas; tudo o resto faz-se sem tensão." },
-  { titulo: "Fumo, faíscas ou cheiro a queimado", texto: "Parar, cortar o geral e não religar até encontrar a causa. Não se insiste num disjuntor que dispara logo." },
+  { titulo: "Fumo, faíscas ou cheiro a queimado", texto: "Parar, cortar o geral e não religar até encontrar a causa. Não se insiste num disjuntor que dispara logo; nunca se aumenta o calibre do disjuntor nem se faz ponte ao diferencial." },
   { titulo: "Equipamento de proteção", texto: "Luvas isolantes e óculos nos ensaios com tensão e junto ao quadro; nunca medir resistências ou isolamento num circuito ainda ligado." },
 ];
 
@@ -130,10 +131,10 @@ export const VALORES = [
   { medicao: "Tensão de alimentação (c.a.)", valor: "230 V ± 10 % (207 a 253 V)", fonte: "referência prática", nota: "Valor nominal da rede BT; a RTIEBT não fixa a tolerância na verificação." },
   { medicao: "Continuidade de um condutor", valor: "sinal sonoro; menos de cerca de 50 Ω", fonte: "referência prática", nota: "Depende do comprimento e da secção; serve para \"está inteiro / está partido\"." },
   { medicao: "Continuidade do condutor de proteção (PE) e das ligações equipotenciais", valor: "valor medido, sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A", fonte: "RTIEBT 612.2", nota: "Na prática, tomada → quadro abaixo de 0,5 Ω (referência prática)." },
-  { medicao: "Resistência de isolamento (cada condutor ativo à terra)", valor: "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados", fonte: "RTIEBT 612.3 (Quadro 61A)", nota: "Circuitos até 500 V; TRS/TRP ≥ 0,25 MΩ a 250 V. Valores do DR original." },
-  { medicao: "Disparo do diferencial", valor: "dispara a uma corrente ≤ IΔn", fonte: "RTIEBT Anexo B", nota: "A RTIEBT não fixa tempo; os ≤ 300 ms a IΔn (tipo geral) são das normas de produto EN 61008/61009 (referência prática)." },
-  { medicao: "Resistência de terra das massas (habitação com disjuntor de entrada diferencial)", valor: "≤ 100 Ω; e RA × IΔn ≤ 50 V", fonte: "RTIEBT 801.5.6.1 e 413.1.4.2", nota: "Com 30 mA o limite da fórmula é 1667 Ω; os 100 Ω são a exigência explícita para habitações." },
-  { medicao: "Ordem dos ensaios", valor: "inspeção visual; depois continuidade do PE → isolamento → separação de circuitos → corte automático (terra, malha, diferencial) → polaridade → funcionais", fonte: "RTIEBT 611.1 e 612.1", nota: "Um ensaio que falha repete-se depois da correção, com os anteriores que possa ter afetado." },
+  { medicao: "Resistência de isolamento (cada condutor ativo à terra)", valor: "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados", fonte: "RTIEBT 612.3 (Quadro 61A)", nota: "Circuitos até 500 V; TRS/TRP ≥ 0,25 MΩ a 250 V. Objetivo da Domus Energia: ≥ 1 MΩ (manual de instalações, anexo A)." },
+  { medicao: "Disparo do diferencial", valor: "dispara entre ½ IΔn e IΔn (não dispara abaixo de ½ IΔn)", fonte: "RTIEBT Anexo B", nota: "A RTIEBT não fixa tempo; os ≤ 300 ms a IΔn (tipo geral) são das normas de produto EN 61008/61009 (referência prática)." },
+  { medicao: "Resistência de terra das massas (habitação com disjuntor de entrada diferencial)", valor: "< 100 Ω; e RA × IΔn ≤ 50 V", fonte: "RTIEBT 801.5.6.1 e 413.1.4.2", nota: "Com 30 mA o limite da fórmula é 1667 Ω; os 100 Ω são a exigência explícita para habitações." },
+  { medicao: "Ordem dos ensaios", valor: "inspeção visual; depois continuidade do PE → isolamento → separação de circuitos → corte automático (terra, malha, diferencial) → polaridade → funcionais → quedas de tensão", fonte: "RTIEBT 611.1 e 612.1", nota: "Um ensaio que falha repete-se depois da correção, com os anteriores que possa ter afetado." },
 ];
 
 /** Quando parar e pedir ajuda ou outra equipa. */
@@ -172,7 +173,7 @@ export function sugestoesPara(problemas) {
 export const CHECKLIST = [
   { chave: "isolado", nome: "Circuito isolado no quadro e ausência de tensão confirmada no ponto de trabalho" },
   { chave: "visual", nome: "Inspeção visual do quadro, das caixas e da aparelhagem em causa" },
-  { chave: "rcd", nome: "Teste do diferencial (botão e testador)", valor: { unidade: "ms", max: 10_000, casas: 0 }, referencia: "dispara a ≤ IΔn (RTIEBT Anexo B); ≤ 300 ms é referência prática" },
+  { chave: "rcd", nome: "Teste do diferencial (botão e testador)", valor: { unidade: "ms", max: 10_000, casas: 0 }, referencia: "dispara entre ½ IΔn e IΔn (RTIEBT Anexo B); ≤ 300 ms é referência prática" },
   { chave: "tensao", nome: "Tensão medida no ponto da avaria", valor: { unidade: "V", max: 1000, casas: 1 }, referencia: "230 V ± 10 % (referência prática)" },
   { chave: "continuidade", nome: "Continuidade dos condutores e do PE", valor: { unidade: "Ω", max: 1_000_000, casas: 3 }, referencia: "PE: valor medido (RTIEBT 612.2); condutor inteiro: sinal sonoro" },
   { chave: "isolamento", nome: "Resistência de isolamento (500 V c.c., aparelhos desligados)", valor: { unidade: "MΩ", max: 100_000, casas: 3 }, referencia: "≥ 0,5 MΩ (RTIEBT 612.3)" },

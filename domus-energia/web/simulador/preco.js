@@ -50,8 +50,9 @@ export const PEDIDOS = {
   // Quadro elétrico (§4.1): proteções, extras, disjuntores de um quadro novo e caixas.
   diferencial: { sku: "IDR-2P-40A-30MA", nome: "Interruptor diferencial 2P 40 A 30 mA tipo AC",
     procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi && a.especificacoes?.tipo !== "A" },
-  // Ronda regras: o circuito do carregador VE leva sempre um diferencial tipo A (RTIEBT 722.531.2.101), nunca o AC.
-  diferencial_tipo_a: { sku: "IDR-2P-40A-30MA-A", nome: "Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)",
+  // Os diferenciais do quadro são tipo A (manual de instalações BT, 11.3: o padrão da casa; o AC já não se usa); o do
+  // carregador VE também (com a deteção de 6 mA CC da wallbox). O AC fica no catálogo, sem uso.
+  diferencial_tipo_a: { sku: "IDR-2P-40A-30MA-A", nome: "Interruptor diferencial 2P 40 A 30 mA tipo A",
     procura: (a) => funcao(a) === "diferencial" && !a.especificacoes?.wifi && a.especificacoes?.tipo === "A" },
   diferencial_wifi: { sku: "RCBO-WIFI-TOSMR1", nome: "Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1)",
     procura: (a) => funcao(a) === "diferencial" && !!a.especificacoes?.wifi },

@@ -39,6 +39,7 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto
 import { readFile, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ErroApi, responder, lerJson, lerCorpo, verificarOrigemPublica, tipoJson, lerCookies } from './http.js';
+import { MANUAL_NOME, servirManual, naoExiste } from './manual.js';
 import { texto, numero, opcao, idNum, falha, diaHora, RE_TELEFONE, diagnostico as validarDiagnostico, esquemaQuadro as validarEsquemaQuadro } from './validar.js';
 import { normalizarEsquema } from '../public/vendor/quadro-desenho.js';
 import { RE_EMAIL } from './pedidos.js';
@@ -782,12 +783,12 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const n = (k, omissao) => (Number.isFinite(Number(cfg[k])) && Number(cfg[k]) >= 0 ? Number(cfg[k]) : omissao);
     return { isolamento_min: n('ensaio_isolamento_mohm', 0.5), diferencial_max: n('ensaio_diferencial_ms', 300), terra_max: n('ensaio_terra_ohm', 100) };
   }
-  /** Os ensaios fora do limite: isolamento abaixo do mínimo, diferencial ou terra acima do máximo. */
+  /** Os ensaios fora do limite: isolamento abaixo do mínimo, diferencial acima do máximo, terra não abaixo do limite (< 100 Ω). */
   function ensaiosFora(e, lim = limitesEnsaios()) {
     const fora = [];
     if (e.isolamento !== null && e.isolamento !== undefined && e.isolamento < lim.isolamento_min) fora.push('isolamento');
     if (e.diferencial !== null && e.diferencial !== undefined && e.diferencial > lim.diferencial_max) fora.push('diferencial');
-    if (e.terra !== null && e.terra !== undefined && e.terra > lim.terra_max) fora.push('terra');
+    if (e.terra !== null && e.terra !== undefined && e.terra >= lim.terra_max) fora.push('terra');   // inferior a 100 Ω (RTIEBT 801.5.6.1; manual 11.4)
     return fora;
   }
   function ensaiosDoPedido(o) {
@@ -3209,6 +3210,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
 
   async function tratar(req, res, url, ip) {
     const segs = url.pathname.slice(CAMINHO_API.length).split('/');
+    // Manual de instalações BT (2026-10-24; manual.js): só o eletricista aprovado com sessão; os outros recebem 404.
+    if (segs.length === 1 && segs[0] === MANUAL_NOME) return sessao(req, res) ? servirManual(req, res) : naoExiste(res);
     let rota = null;
     let params = {};
     let existe = false;

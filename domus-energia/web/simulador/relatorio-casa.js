@@ -6,7 +6,7 @@ import {
   pontosDivisao, areaPoligono, caixasDe, maquinaDaPlanta, contarPlanta, sugerirCircuitos, codigoCircuito, seccaoCabo,
   circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA,
 } from "./regras.js";
-import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, FRACAO_LIVRE } from "./quadro.js";
+import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA } from "./quadro.js";
 import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
 
 /**
@@ -106,12 +106,12 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
   // ---- 3b. O quadro que a casa pede, para desenhar (o modelo de quadro-desenho.js), com a proteção completa: o geral
   // Wi-Fi pela potência (a sugerida, senão a contratada), o descarregador, o relé de tensão e o medidor geral, um
   // diferencial de 30 mA por grupo (quadro.js gruposDiferenciais), um disjuntor por circuito logo a seguir ao seu
-  // diferencial (com AFDD nos quartos e na sala) e os módulos livres até ao tamanho de quadro com 25 % de folga.
+  // diferencial (com AFDD nos quartos e na sala) e os módulos livres até ao tamanho de quadro com 20 % de reserva.
   let esquema = null;
   if (brutos.length) {
     const kva = typeof sugeridaKva === "number" ? Math.max(sugeridaKva, contratada) : contratada;
-    // Trifásico: o que a casa diz, ou qualquer potência acima do máximo monofásico (13,8 kVA).
-    const tri = casa?.fases === "tri" || kva > 13.8;
+    // Trifásico: o que a casa diz, ou qualquer potência acima do máximo monofásico (10,35 kVA; quadro.js MAX_MONO_KVA).
+    const tri = casa?.fases === "tri" || kva > MAX_MONO_KVA;
     const P = tri ? 2 : 1;   // em trifásico o geral, os diferenciais e as proteções ocupam o dobro (quadro.js resumoQuadro)
     const amperes = (kva * 1000) / (tri ? 690 : 230);
     const acima = (l, a) => l.find((x) => x >= a) ?? l[l.length - 1];
@@ -142,9 +142,9 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     const nAfdd = disjuntores.filter((d) => d.afdd).length;
     const ocupados = P * (MODULOS_ESQUEMA.geral + protecoes.reduce((s, p) => s + MODULOS_ESQUEMA[p], 0) + grupos.length * MODULOS_ESQUEMA.diferencial)
       + nAfdd * MODULOS_ESQUEMA.afdd + (disjuntores.length - nAfdd) * MODULOS_ESQUEMA.disjuntor;
-    // Não cabe com 25 % de folga no maior quadro (48): não se dá um tamanho, confirma-se na visita.
-    const cabeNum = TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE)));
-    const grande = cabeNum === undefined;
+    // Não cabe com 20 % de reserva no maior quadro (48): não se dá um tamanho, confirma-se na visita.
+    const cabeNum = tamanhoQuadro(ocupados);
+    const grande = cabeNum === null;
     const tamanho = cabeNum ?? TAMANHOS_QUADRO[TAMANHOS_QUADRO.length - 1];
     const livres = grande ? 0 : tamanho - ocupados;
     for (let i = 0; i < Math.min(livres, MAX_LIVRES_ORDEM); i++) ordem.push("livre");

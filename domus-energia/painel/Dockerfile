@@ -15,6 +15,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY src ./src
 COPY public ./public
+# O manual de instalações BT (só com sessão, src/manual.js): fora de public/, nunca servido como ficheiro estático.
+COPY recursos ./recursos
 
 # Corre como o utilizador "node" (uid 1000), sem privilégios. As pastas de
 # /dados são montadas do servidor (ver docker-compose.yml): painel e

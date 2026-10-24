@@ -294,12 +294,13 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     let f = await ficha(e, tid);
     assert.deepEqual(f.ensaios.limites, { isolamento_min: 0.5, diferencial_max: 300, terra_max: 100 });
     assert.deepEqual([f.ensaios.isolamento, f.ensaios.fora], [null, []]);
-    const bons = { continuidade_pe: 0.4, isolamento: 250, terra: 100, diferencial: 300 };
+    // Terra: inferior a 100 Ω (RTIEBT 801.5.6.1; manual de instalações BT, 11.4) — 100 Ω já fica fora.
+    const bons = { continuidade_pe: 0.4, isolamento: 250, terra: 99.9, diferencial: 300 };
     const r = await area(e, 'POST', `trabalhos/${tid}/ensaios`, bons);
     assert.equal(r.estado, 200, r.texto);
-    assert.deepEqual([r.json.trabalho.ensaios.isolamento, r.json.trabalho.ensaios.terra, r.json.trabalho.ensaios.diferencial, r.json.trabalho.ensaios.fora], [250, 100, 300, []], 'no limite conta como dentro');
+    assert.deepEqual([r.json.trabalho.ensaios.isolamento, r.json.trabalho.ensaios.terra, r.json.trabalho.ensaios.diferencial, r.json.trabalho.ensaios.fora], [250, 99.9, 300, []], 'no limite conta como dentro (isolamento e diferencial); a terra tem de ficar abaixo de 100 Ω');
     // Fora do limite, sem nota: 400; com nota: guardado e assinalado.
-    for (const [mau, nome] of [[{ isolamento: 0.3 }, 'isolamento'], [{ diferencial: 301 }, 'diferencial'], [{ terra: 100.5 }, 'terra']]) {
+    for (const [mau, nome] of [[{ isolamento: 0.3 }, 'isolamento'], [{ diferencial: 301 }, 'diferencial'], [{ terra: 100 }, 'terra'], [{ terra: 100.5 }, 'terra']]) {
       const x = await area(e, 'POST', `trabalhos/${tid}/ensaios`, { ...bons, ...mau });
       assert.equal(x.estado, 400, nome);
       assert.match(x.json.erro, /fora do limite.*nota/i);
@@ -521,7 +522,7 @@ describe('ronda 2: avisos da bolsa, ficha de obra, obra concluída, painel e RGP
     assert.equal((await enviarFoto(e, tv, 'quadro_antes')).estado, 201);
     assert.equal((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).estado, 409, 'a foto de antes já não chega');
     assert.equal((await enviarFoto(e, tv, 'quadro_depois')).estado, 201);
-    assert.equal((await area(e, 'POST', `trabalhos/${tv}/ensaios`, { isolamento: 200, terra: 100, diferencial: 28 })).estado, 200);
+    assert.equal((await area(e, 'POST', `trabalhos/${tv}/ensaios`, { isolamento: 200, terra: 99, diferencial: 28 })).estado, 200);
     assert.deepEqual((await ficha(e, tv)).falta, []);
     assert.equal((await area(e, 'POST', `trabalhos/${tv}/concluir`, {})).estado, 200);
   });

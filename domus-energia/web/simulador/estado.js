@@ -300,10 +300,11 @@ const CONTROLO = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 export const POTENCIA_OMISSAO_KVA = 6.9;
 /**
  * Potência contratada sugerida pelo tamanho da casa (decisão do dono, 2026-10-04), enquanto o cliente não escolher
- * outra (`potenciaEditada`): T0 e T1 → 3,45 kVA; T2 e T3 → 6,9; T4 e T5+ → 10,35; sem tipologia (serviços, industrial,
- * outro, ou a casa ainda por escolher) → 6,9.
+ * outra (`potenciaEditada`): T0 → 3,45 kVA; T1, T2 e T3 → 6,9; T4 e T5+ → 10,35; sem tipologia (serviços, industrial,
+ * outro, ou a casa ainda por escolher) → 6,9. O T1 era 3,45: abaixo do mínimo de 6,9 kVA para 2 a 6 compartimentos
+ * (manual de instalações BT, 2.5; RTIEBT 801.5.2.2).
  */
-export const POTENCIA_POR_TIPOLOGIA = { T0: 3.45, T1: 3.45, T2: 6.9, T3: 6.9, T4: 10.35, "T5+": 10.35 };
+export const POTENCIA_POR_TIPOLOGIA = { T0: 3.45, T1: 6.9, T2: 6.9, T3: 6.9, T4: 10.35, "T5+": 10.35 };
 export const potenciaOmissao = (casa) => POTENCIA_POR_TIPOLOGIA[casa?.tipologia] ?? POTENCIA_OMISSAO_KVA;
 
 /**

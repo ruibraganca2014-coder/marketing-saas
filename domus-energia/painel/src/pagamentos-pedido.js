@@ -1302,7 +1302,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
    * Lista de ensaios do relatório completo (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem da RTIEBT
    * 612.1: continuidade do PE (612.2, valor medido), isolamento (612.3, ≥ `ensaio_isolamento_mohm` a 500 V DC), terra
    * (801.5.6.1, < `ensaio_terra_ohm` em habitação com disjuntor de entrada diferencial; RA × IΔn ≤ 50 V, 413.1.4.2) e o
-   * diferencial (Anexo B: disparo ≤ IΔn; os ≤ `ensaio_diferencial_ms` são só referência EN 61008/61009). Os valores de
+   * diferencial (Anexo B; manual de instalações BT, 16.2: disparo entre ½ IΔn e IΔn; os ≤ `ensaio_diferencial_ms` são só
+   * referência EN 61008/61009). Os valores de
    * referência vêm da configuração (editáveis no painel) e vão marcados "a confirmar pelo técnico"; `medido` vem dos
    * ensaios registados no painel (null = a medir na visita/obra). Textos nossos.
    */
@@ -1315,8 +1316,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       lista: [
         { chave: 'continuidade_pe', nome: 'Continuidade do condutor de proteção (PE) e das ligações equipotenciais', referencia: 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', unidade: 'Ω', norma: 'RTIEBT 612.2', medido: m.continuidade_pe ?? null },
         { chave: 'isolamento', nome: 'Resistência de isolamento, entre cada condutor ativo e a terra, com os aparelhos desligados', referencia: `≥ ${fmt(iso)} MΩ, a 500 V DC`, unidade: 'MΩ', norma: 'RTIEBT 612.3 (Quadro 61A)', medido: m.isolamento ?? null },
-        { chave: 'terra', nome: 'Resistência de terra das massas (habitação com disjuntor de entrada diferencial)', referencia: `≤ ${fmt(terra)} Ω; e RA × IΔn ≤ 50 V`, unidade: 'Ω', norma: 'RTIEBT 801.5.6.1 e 413.1.4.2', medido: m.terra ?? null },
-        { chave: 'diferencial', nome: 'Disparo do diferencial de 30 mA (à corrente IΔn)', referencia: `dispara a uma corrente ≤ IΔn; tempo ≤ ${fmt(dif)} ms`, unidade: 'ms', norma: 'RTIEBT Anexo B (só exige disparo ≤ IΔn); o tempo é referência EN 61008/61009', medido: m.diferencial ?? null },
+        { chave: 'terra', nome: 'Resistência de terra das massas (habitação com disjuntor de entrada diferencial)', referencia: `< ${fmt(terra)} Ω; e RA × IΔn ≤ 50 V`, unidade: 'Ω', norma: 'RTIEBT 801.5.6.1 e 413.1.4.2', medido: m.terra ?? null },
+        { chave: 'diferencial', nome: 'Disparo do diferencial de 30 mA (à corrente IΔn)', referencia: `dispara entre ½ IΔn e IΔn; tempo ≤ ${fmt(dif)} ms`, unidade: 'ms', norma: 'RTIEBT Anexo B (não fixa o tempo); o tempo é referência EN 61008/61009', medido: m.diferencial ?? null },
       ],
       notas: m.notas ?? null,
       nota: 'Valores de referência a confirmar pelo técnico.',

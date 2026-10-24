@@ -165,7 +165,7 @@ export const SEMENTES_ACOES = [
 //   interruptor (2 interruptores = 2 comutadores); inversor = o ponto + um inversor; botão de pressão = o ponto + um botão;
 //   lustre = o ponto com 2 botões (sem artigo à parte). Horas de aparelhagem: 0,15 h por peça.
 // - Campainha normal (máquina "campainha" na planta): a campainha com transformador + um botão de pressão.
-// - Diferencial tipo A: o circuito do carregador VE usa-o sempre (RTIEBT 722.531.2.101: no mínimo tipo A).
+// - Diferencial tipo A: o padrão do quadro (manual de instalações BT, 11.3) e o do circuito do carregador VE.
 // Ronda dinheiro (decisão 3 do dono, 2026-10-02): os pontos são artigos de PREÇO FECHADO (`especificacoes.preco_fechado`)
 // — o cliente paga `preco_venda_iva` (o mesmo de sempre) e as `horas_instalacao` dizem quanta mão de obra vai lá dentro
 // (horas × tarifa, para os 70 % do eletricista e os dias de obra); o material é o que sobra. Nas bases já existentes as
@@ -192,7 +192,7 @@ export const SEMENTES_PONTOS = [
   { sku: 'CAMPAINHA', nome: 'Campainha com transformador (ligação e mão de obra; o botão à parte)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 39, horas_instalacao: 0.5,
     especificacoes: { funcao: 'campainha', nota: PROVISORIO } },
-  { sku: 'IDR-2P-40A-30MA-A', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)', categoria: 'disjuntor',
+  { sku: 'IDR-2P-40A-30MA-A', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo A', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
     especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
 ];

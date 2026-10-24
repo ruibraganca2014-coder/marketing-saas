@@ -1,7 +1,8 @@
 // Simulador de orçamento — passo "Quadro elétrico" (docs/SIMULADOR-ORCAMENTO.md §4.1): sugestão de circuitos,
-// proteções por pacotes, grupos diferenciais, AFDD, módulos e tamanho do quadro (critério Domus: a RTIEBT só exige
-// proteção diferencial em todos os circuitos, 801.5.9, 30 mA nas casas de banho/exterior/VE e um local acessível,
-// 801.5.11), potência sugerida pelos escalões da E-Redes, nunca abaixo do mínimo da RTIEBT 801.5.2.2. Só lógica, sem DOM.
+// proteções por pacotes, grupos diferenciais, AFDD, módulos e tamanho do quadro (a RTIEBT exige proteção diferencial
+// em todos os circuitos, 801.5.9, e um local acessível, 801.5.11; diferenciais de 30 mA tipo A e 20 % de reserva no
+// quadro seguem o manual de instalações BT da empresa, 3.3 e 11.3), potência sugerida pelos escalões da E-Redes
+// (previsão de cargas do manual, 2.5), nunca abaixo do mínimo da RTIEBT 801.5.2.2. Só lógica, sem DOM.
 // As regras são ORIENTATIVAS: a solução final é validada na visita técnica.
 
 import {
@@ -16,32 +17,36 @@ const SKU_SY1 = "TONGOU-SY1-JWT";
 
 /** Zonas húmidas (tomadas no C5): cozinha/copa, casas de banho/sanitários/vestiários, lavandaria, sala e cozinha. */
 const HUMIDAS = ["cozinha", "wc", "lavandaria", "sala_cozinha"];
-/** Zona de noite (T3 e mais: iluminação e tomadas num circuito à parte da zona de dia). */
+/** Das zonas húmidas, as cozinhas: circuito de tomadas exclusivo (manual de instalações BT, 3.2). */
+const COZINHAS = ["cozinha", "sala_cozinha"];
+/** Zona de noite (iluminação e tomadas num circuito à parte da zona de dia). */
 const NOITE = ["quarto", "wc", "corredor", "escritorio", "escadas"];
 export const zonaHumida = (nome) => HUMIDAS.includes(tipoDivisao(nome));
+export const zonaCozinha = (nome) => COZINHAS.includes(tipoDivisao(nome));
 export const zonaNoite = (nome) => NOITE.includes(tipoDivisao(nome));
 /** Serviços e industrial: a partir desta área a iluminação e as tomadas também se dividem em 2. */
 export const AREA_DIVIDIR_M2 = 100;
 
 /**
- * Dividir iluminação e tomadas em 2 (zona de dia / zona de noite)? Critério Domus (não é regra da RTIEBT): T3 e
- * mais (3 ou mais quartos); serviços e industrial: o equivalente pela área (≥ 100 m²).
+ * Dividir iluminação e tomadas em 2 (zona de dia / zona de noite)? Habitação com mais de uma zona — T1 e mais (1 ou mais
+ * quartos): pelo menos dois circuitos de iluminação, para nunca ficar tudo às escuras (manual de instalações BT, 3.2);
+ * serviços e industrial: pela área (≥ 100 m², critério Domus).
  */
 export function dividirZonas(casa) {
   const perfil = perfilCasa(casa?.tipo);
   if (perfil !== "habitacao") return (Number(casa?.area_m2) || 0) >= AREA_DIVIDIR_M2;
   const t = casa?.tipologia;
-  return t === "T3" || t === "T4" || t === "T5+" || (Number(casa?.quartos) || 0) >= 3;
+  return ["T1", "T2", "T3", "T4", "T5+"].includes(t) || (Number(casa?.quartos) || 0) >= 1;
 }
 
-/** Opções de `sugerirCircuitos` (regras.js) para a casa: ligação, zonas húmidas, zona de noite e divisão T3+. */
-export const opcoesCircuitos = (casa) => ({ fases: casa?.fases ?? null, humida: zonaHumida, noite: zonaNoite, dividir: dividirZonas(casa) });
+/** Opções de `sugerirCircuitos` (regras.js) para a casa: ligação, zonas húmidas, cozinhas, zona de noite e divisão por zonas. */
+export const opcoesCircuitos = (casa) => ({ fases: casa?.fases ?? null, humida: zonaHumida, cozinha: zonaCozinha, noite: zonaNoite, dividir: dividirZonas(casa) });
 
 // ------------------------------------------------------------ proteções e pacotes
 
 /**
  * Proteções e extras que se ligam/desligam (os 2 diferenciais de 30 mA vão sempre — a RTIEBT exige diferencial em
- * todos os circuitos, 801.5.9; "2 × 30 mA" é o critério Domus; `idr_wifi` troca-os pelos Wi-Fi com religação automática).
+ * todos os circuitos, 801.5.9; "2 × 30 mA tipo A" segue o manual de instalações BT, 8.1 e 11.3; `idr_wifi` troca-os pelos Wi-Fi com religação automática).
  */
 export const PROTECOES = {
   idr_wifi: { grupo: "Pessoas", nome: "Diferenciais Wi-Fi com religação automática", ajuda: "RCBO Tongou TOSMR1: avisa no telemóvel e volta a ligar sozinho depois de um disparo passageiro." },
@@ -55,7 +60,7 @@ export const CHAVES_PROTECOES = Object.keys(PROTECOES);
 
 /** Pacotes: Essencial (2 diferenciais + disjuntores), Recomendado (+ descarregador + proteção de tensão), Completo (+ AFDD + medidor + geral Wi-Fi). */
 export const PACOTES = {
-  essencial: { nome: "Essencial", ajuda: "2 diferenciais de 30 mA e os disjuntores (diferencial obrigatório, RTIEBT 801.5.9; 2 × 30 mA é o critério Domus)", liga: [] },
+  essencial: { nome: "Essencial", ajuda: "2 diferenciais de 30 mA tipo A e os disjuntores (diferencial obrigatório, RTIEBT 801.5.9; os 2 diferenciais tipo A seguem o manual de instalações da Domus Energia)", liga: [] },
   recomendado: { nome: "Recomendado", ajuda: "+ descarregador de sobretensões e proteção de tensão", liga: ["descarregador", "rele_tensao"] },
   completo: { nome: "Completo", ajuda: "+ AFDD nos quartos e sala, medidor geral e geral Wi-Fi", liga: ["descarregador", "rele_tensao", "afdd", "medidor_geral", "geral_wifi"] },
 };
@@ -80,7 +85,8 @@ export function pacoteDe(p, ignorar = []) {
 
 /**
  * Pacote do quadro pelas proteções que o cliente escolheu: com para-raios ou linha aérea o descarregador vai sempre
- * (recomendado pela RTIEBT 801.5.10 com linha aérea; critério Domus com para-raios — fica ligado e bloqueado) e não
+ * (recomendado pela RTIEBT 801.5.10 com linha aérea; obrigatório com para-raios, de tipo 1 — manual de instalações BT,
+ * 18.4 — fica ligado e bloqueado) e não
  * conta — "Essencial" com para-raios continua "Essencial".
  */
 export const pacoteDoQuadro = (q) => pacoteDe(q?.protecoes, q?.para_raios === "sim" ? ["descarregador"] : []);
@@ -136,13 +142,14 @@ const temCarregador = (c) => (c.itens?.maquinas ?? []).some(ehCarregador);
 export const MAX_CIRCUITOS_DIFERENCIAL = 8;
 
 /**
- * Grupos diferenciais (IDR 40 A / 30 mA; critério Domus: pelo menos 2 — a RTIEBT exige diferencial em todos os
- * circuitos, 801.5.9). Grupo 1: a 1.ª iluminação, as tomadas
+ * Grupos diferenciais (IDR 40 A / 30 mA tipo A; pelo menos 2, misturando luz e tomadas em cada um — manual de instalações
+ * BT, 8.1; a RTIEBT exige diferencial em todos os circuitos, 801.5.9). Grupo 1: a 1.ª iluminação, as tomadas
  * gerais (C2) e placa/forno (C3); grupo 2: a 2.ª iluminação, máquinas de lavar e termoacumulador (C4) e as
  * tomadas das zonas húmidas (C5) — as cargas grandes ficam repartidas e um disparo num grupo nunca deixa a
  * casa toda às escuras. As outras máquinas vão
  * para o grupo com menos circuitos. Mais de 8 circuitos num grupo → outro diferencial. O carregador do
- * carro elétrico tem sempre diferencial próprio, tipo A (RTIEBT 722.531.2.101; pedidosQuadro `diferencial_tipo_a`).
+ * carro elétrico tem sempre diferencial próprio de 30 mA: tipo A com a deteção de 6 mA CC da wallbox, ou tipo B
+ * (manual de instalações BT, 13.6; pedidosQuadro: já vai na linha dedicada do carregador).
  * @returns {{n:number, circuitos:number[], carregador:boolean}[]}
  */
 export function gruposDiferenciais(circuitos) {
@@ -182,7 +189,11 @@ function gruposParcial(circuitos) {
 // ------------------------------------------------------------ módulos e tamanho do quadro
 
 export const TAMANHOS_QUADRO = [12, 18, 24, 36, 48];
-export const FRACAO_LIVRE = 0.25;             // pelo menos 25 % de módulos livres
+// Reserva: os módulos ocupados × 1,2 (mais 20 %), arredondado ao quadro seguinte (manual de instalações BT, 3.3; exemplo
+// 3.1: 20 ocupados → 24). Era "pelo menos 25 % livres" (critério nosso).
+export const RESERVA_QUADRO = 0.2;
+/** Módulos que um quadro de `t` leva ocupados no máximo, com a reserva (24 → 20; 48 → 40). */
+export const maxOcupados = (t) => Math.floor(t / (1 + RESERVA_QUADRO) + 1e-9);
 /** Módulos de cada aparelho em monofásico; em trifásico os tetrapolares ocupam o dobro. */
 export const MODULOS = { geral: 2, diferencial: 2, descarregador: 2, rele_tensao: 2, medidor_geral: 2, disjuntor: 1, afdd: 2, sy: MODULOS_SY1, tetrapolar: 4 };
 
@@ -268,9 +279,9 @@ export function afddExistentes(estado) {
   return [...porPiso.values()].reduce((s, n) => s + 1 + Math.ceil(n / 4), 0);
 }
 
-/** Menor quadro com ≥ 25 % livres; null se nem o de 48 chega. */
+/** Menor quadro com a reserva de 20 %; null se nem o de 48 chega. */
 export function tamanhoQuadro(ocupados) {
-  return TAMANHOS_QUADRO.find((t) => ocupados <= Math.floor(t * (1 - FRACAO_LIVRE))) ?? null;
+  return TAMANHOS_QUADRO.find((t) => ocupados <= maxOcupados(t)) ?? null;
 }
 
 /**
@@ -303,10 +314,10 @@ export function resumoQuadro(estado) {
   let novos = 0;   // módulos a mais num quadro que fica (o geral, o 1.º diferencial e os disjuntores já lá estão)
   const linha = (chave, nome, qtd, modulos) => { if (qtd > 0) linhas.push({ chave, nome, qtd, modulos }); };
   linha("geral", prot.geral_wifi ? "Disjuntor geral Wi-Fi (com medição)" : "Disjuntor geral", 1, MODULOS.geral * P);
-  // O do carregador VE é sempre tipo A (RTIEBT 722): linha à parte (os módulos são os mesmos).
+  // O do carregador VE: linha à parte (os módulos são os mesmos), tipo A com a deteção de 6 mA CC da wallbox ou tipo B.
   const gVe = gruposGeral.filter((g) => g.carregador).length;
-  linha("diferencial", `Diferencial 40 A / 30 mA${prot.idr_wifi ? " Wi-Fi" : ""}`, gruposGeral.length - gVe, (gruposGeral.length - gVe) * MODULOS.diferencial * P);
-  linha("diferencial_tipo_a", "Diferencial 40 A / 30 mA tipo A (carregador VE; RTIEBT 722)", gVe, gVe * MODULOS.diferencial * P);
+  linha("diferencial", `Diferencial 40 A / 30 mA${prot.idr_wifi ? " Wi-Fi" : " tipo A"}`, gruposGeral.length - gVe, (gruposGeral.length - gVe) * MODULOS.diferencial * P);
+  linha("diferencial_tipo_a", "Diferencial 40 A / 30 mA do carregador VE (tipo A com deteção de 6 mA CC, ou tipo B)", gVe, gVe * MODULOS.diferencial * P);
   novos += Math.max(0, gruposGeral.length - 1) * MODULOS.diferencial * P;
   // Artigos (disjuntores, AFDD, inteligentes): todos os circuitos; módulos e linhas: só os do quadro geral.
   let disj = 0, disjVe = 0, nAfdd = 0, sy2 = 0, sy1 = 0;
@@ -342,14 +353,14 @@ export function resumoQuadro(estado) {
   const ocupados = linhas.reduce((s, l) => s + l.modulos, 0);
   const tamanho = tamanhoQuadro(ocupados);
   const t = tamanho ?? TAMANHOS_QUADRO[TAMANHOS_QUADRO.length - 1];
-  // Nem o de 48 deixa 25 % livres: vários quadros de 48 (cada um com 36 módulos ocupados no máximo).
-  const quadros = tamanho !== null ? 1 : Math.ceil(ocupados / Math.floor(t * (1 - FRACAO_LIVRE)));
+  // Nem o de 48 chega com a reserva: vários quadros de 48 (cada um com 40 módulos ocupados no máximo).
+  const quadros = tamanho !== null ? 1 : Math.ceil(ocupados / maxOcupados(t));
   return {
     pacote: normalizarProtecoes(q).pacote, protecoes: prot, para_raios: q.para_raios ?? null, quadro_novo: q.quadro_novo ?? null,
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
     disjuntores: disj, disjuntores_ve: disjVe, sy2, sy1, tetrapolares: tetraT, tetrapolares_ve: tetraVe, circuitos_existentes: existentes, afdd_existentes: afddEx,
     parciais, pisos_quadros: pisosQ,
-    potencia: potenciaSugerida(circuitos, compartimentosRtiebt(estado)),
+    potencia: potenciaSugerida(circuitos, compartimentosRtiebt(estado), perfilCasa(casa.tipo) === "habitacao"),
   };
 }
 
@@ -371,10 +382,10 @@ export function pedidosQuadro(estado) {
   const p = r.protecoes;
   const out = [];
   const add = (chave, qtd) => { if (qtd > 0) out.push({ chave, qtd }); };
-  // Ronda regras: o grupo do carregador VE leva sempre o diferencial tipo A (RTIEBT 722.531.2.101), nunca o AC nem o
-  // Wi-Fi — incluído na linha dedicada do carregador (ronda dinheiro).
+  // Os diferenciais são tipo A (manual de instalações BT, 11.3: o padrão em habitação e serviços; o AC já não). O grupo do
+  // carregador VE leva o seu, nunca o Wi-Fi — incluído na linha dedicada do carregador (ronda dinheiro).
   const ve = r.grupos.filter((g) => g.carregador).length;
-  add(p.idr_wifi ? "diferencial_wifi" : "diferencial", r.grupos.length - ve);
+  add(p.idr_wifi ? "diferencial_wifi" : "diferencial_tipo_a", r.grupos.length - ve);
   add("descarregador", p.descarregador ? 1 : 0);
   add("rele_tensao", p.rele_tensao ? 1 : 0);
   add("afdd", r.afdd.length + r.afdd_existentes);
@@ -396,22 +407,30 @@ export function pedidosQuadro(estado) {
 
 // ------------------------------------------------------------ potência sugerida (E-Redes)
 
-/** Escalões de potência contratada (kVA): monofásica até 13,8; acima, trifásica (BTN até 41,4). */
+/**
+ * Escalões de potência contratada (kVA; BTN até 41,4). Sem recetores trifásicos, até 10,35 kVA a instalação é
+ * monofásica; acima deve ser trifásica — monofásica só com acordo do distribuidor (manual de instalações BT, 2.5;
+ * RTIEBT 801.1.1.3.3). Era "monofásica até 13,8".
+ */
 export const ESCALOES_KVA = [3.45, 4.6, 5.75, 6.9, 10.35, 13.8, 17.25, 20.7, 27.6, 34.5, 41.4];
-export const MAX_MONO_KVA = 13.8;
-export const W_LUZ = 20;          // ponto de luz LED
-export const W_TOMADA = 100;      // uso diverso por tomada
-/** Fator de uso da placa: nunca tem as zonas todas no máximo (7 200 W → 3 600 W). */
+export const MAX_MONO_KVA = 10.35;
+/** Previsão de cargas da habitação (manual de instalações BT, 2.2, 2.3 e exemplo 2.1). */
+export const W_LUZ = 100;               // VA por ponto de luz (reserva para trocas de luminária; o LED gasta menos)
+export const W_CIRCUITO_TOMADAS = 1500; // VA por circuito de tomadas de uso geral (potência convencional simultânea)
+export const COEF_SIMULTANEIDADE = 0.4; // habitação: c ≈ 0,3–0,45 (exemplo 2.1: 0,4) sobre a potência instalada
+/** Serviços e industrial (o manual não dá coeficiente): luzes 20 W, tomadas 100 W, a maior máquina a 100 %, a 2.ª a 50 %, as outras a 25 %, o resto a 40 %. */
+export const W_LUZ_NEGOCIO = 20;
+export const W_TOMADA = 100;
+/** Fator de uso da placa: nunca tem as zonas todas no máximo (7 200 W → 3 600 W). Só fora da habitação. */
 const USO = { placa: 0.5 };
-/** Simultaneidade: a maior máquina a 100 %, a 2.ª a 50 %, as outras a 25 %; luzes, tomadas e máquinas pequenas a 40 %. */
 export const SIMULTANEIDADE = { maior: 1, segunda: 0.5, outras: 0.25, geral: 0.4 };
 
 /**
- * Mínimo de dimensionamento da RTIEBT 801.5.2.2 (habitação): 6,9 kVA com 2 a 6 compartimentos, 10,35 kVA com mais de
- * 6; null com 1 compartimento, sem compartimentos ou fora da habitação.
+ * Mínimo de dimensionamento da RTIEBT 801.5.2.2 (habitação; manual de instalações BT, 2.5): 3,45 kVA com 1
+ * compartimento, 6,9 kVA com 2 a 6, 10,35 kVA com mais de 6; null sem compartimentos ou fora da habitação.
  */
-export const MINIMO_KVA_RTIEBT = { ate6: 6.9, mais6: 10.35 };
-export const minimoRtiebt = (compartimentos) => (compartimentos > 6 ? MINIMO_KVA_RTIEBT.mais6 : compartimentos >= 2 ? MINIMO_KVA_RTIEBT.ate6 : null);
+export const MINIMO_KVA_RTIEBT = { um: 3.45, ate6: 6.9, mais6: 10.35 };
+export const minimoRtiebt = (compartimentos) => (compartimentos > 6 ? MINIMO_KVA_RTIEBT.mais6 : compartimentos >= 2 ? MINIMO_KVA_RTIEBT.ate6 : compartimentos === 1 ? MINIMO_KVA_RTIEBT.um : null);
 /** Tipos de divisão que não contam como compartimento (circulações e exterior). */
 const NAO_COMPARTIMENTO = ["corredor", "entrada", "escadas", "varanda", "jardim"];
 /**
@@ -430,27 +449,43 @@ export function compartimentosRtiebt(estado) {
 }
 
 /**
- * Potência a contratar pela soma das cargas do quadro com fatores de simultaneidade (§4.1, orientativo):
- * das máquinas com circuito próprio (placa a 50 % da nominal), a maior a 100 %, a segunda a 50 % e as
- * restantes a 25 %; luzes (20 W), tomadas (100 W) e máquinas pequenas a 40 %. Escalão E-Redes = o
- * primeiro ≥ carga (kVA ≈ kW, fator de potência ≈ 1). Com `compartimentos` (habitação) nunca abaixo do mínimo de
- * dimensionamento da RTIEBT 801.5.2.2 (minimoRtiebt): `minimo_rtiebt` = true quando foi o mínimo que valeu.
+ * Potência a contratar pela soma das cargas do quadro com simultaneidade (§4.1, orientativo). Habitação (`habitacao`;
+ * manual de instalações BT, 2.5 e exemplo 2.1): potência instalada = 100 VA por ponto de luz + 1 500 VA por circuito de
+ * tomadas (ou as máquinas pequenas dele, se somarem mais) + a nominal das máquinas com circuito próprio; × 0,4.
+ * Serviços e industrial: das máquinas com circuito próprio (placa a 50 % da nominal), a
+ * maior a 100 %, a segunda a 50 % e as restantes a 25 %; luzes (20 W), tomadas (100 W) e máquinas pequenas a 40 %.
+ * Escalão E-Redes = o primeiro ≥ carga (kVA ≈ kW, fator de potência ≈ 1). Com `compartimentos` (habitação) nunca abaixo
+ * do mínimo de dimensionamento da RTIEBT 801.5.2.2 (minimoRtiebt): `minimo_rtiebt` = true quando foi o mínimo que valeu.
  * @returns {{carga_w:number, kva:number|null, trifasica:boolean, minimo_kva:number|null, minimo_rtiebt:boolean}} kva null = acima de 41,4 kVA
  */
-export function potenciaSugerida(circuitos, compartimentos = null) {
-  const S = SIMULTANEIDADE;
-  let geral = 0;
-  const grandes = [];
-  for (const c of circuitos) {
-    geral += (Number(c.itens?.luzes) || 0) * W_LUZ + (Number(c.itens?.tomadas) || 0) * W_TOMADA;
-    for (const m of c.itens?.maquinas ?? []) {
-      if (circuitoProprio(m)) grandes.push(watts(m) * (USO[m.modelo] ?? 1));
-      else geral += watts(m);
+export function potenciaSugerida(circuitos, compartimentos = null, habitacao = false) {
+  let carga;
+  if (habitacao) {
+    let instalada = 0;
+    for (const c of circuitos) {
+      instalada += (Number(c.itens?.luzes) || 0) * W_LUZ;
+      let pequenas = 0;
+      for (const m of c.itens?.maquinas ?? []) {
+        if (circuitoProprio(m)) instalada += watts(m); else pequenas += watts(m);
+      }
+      instalada += c.tipo === "tomadas" || (Number(c.itens?.tomadas) || 0) > 0 ? Math.max(W_CIRCUITO_TOMADAS, pequenas) : pequenas;
     }
+    carga = Math.round(instalada * COEF_SIMULTANEIDADE);
+  } else {
+    const S = SIMULTANEIDADE;
+    let geral = 0;
+    const grandes = [];
+    for (const c of circuitos) {
+      geral += (Number(c.itens?.luzes) || 0) * W_LUZ_NEGOCIO + (Number(c.itens?.tomadas) || 0) * W_TOMADA;
+      for (const m of c.itens?.maquinas ?? []) {
+        if (circuitoProprio(m)) grandes.push(watts(m) * (USO[m.modelo] ?? 1));
+        else geral += watts(m);
+      }
+    }
+    grandes.sort((a, b) => b - a);
+    const maquinas = grandes.reduce((s, w, i) => s + w * (i === 0 ? S.maior : i === 1 ? S.segunda : S.outras), 0);
+    carga = Math.round(maquinas + geral * S.geral);
   }
-  grandes.sort((a, b) => b - a);
-  const maquinas = grandes.reduce((s, w, i) => s + w * (i === 0 ? S.maior : i === 1 ? S.segunda : S.outras), 0);
-  const carga = Math.round(maquinas + geral * S.geral);
   const pelaCarga = ESCALOES_KVA.find((k) => carga <= k * 1000) ?? null;
   const minimo = compartimentos === null ? null : minimoRtiebt(Number(compartimentos) || 0);
   const minimoVale = minimo !== null && pelaCarga !== null && pelaCarga < minimo;
@@ -471,12 +506,12 @@ export function avisosProtecoes(estado) {
   const casa = estado.casa ?? {};
   const out = [];
   const a = (t) => out.push(`${t}${FIM_AVISO}`);
-  if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea).");
+  if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea). Com para-raios tem de ser de tipo 1 na origem da instalação (manual de instalações BT, 11.7 e 18.4): o preço mostrado é o do tipo 2 e o do tipo 1 confirma-se na visita.");
   else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver para-raios ou for alimentada por linha aérea, o descarregador de sobretensões é recomendado (RTIEBT 801.5.10).");
-  if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio tipo A — tipo A exigido (RTIEBT 722); já vai na linha dedicada do carregador.");
+  if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio de 30 mA: tipo A com a deteção de 6 mA CC da wallbox, ou tipo B (manual de instalações BT, 13.6); já vai na linha dedicada do carregador.");
   if (r.circuitos_existentes) a(`Quadro novo com os circuitos que a casa já tem: contámos ${r.circuitos_existentes} (1 de iluminação por piso, 1 de tomadas por cada 2 divisões, a cozinha e as casas de banho à parte), cada um com um disjuntor 1P+N — o n.º de circuitos a confirmar na visita.`);
-  if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos deixa 25 % livres — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);
-  // Quadro novo: um de N módulos, ou vários de 48 quando nem esse deixa 25 % livres (r.cabe, r.quadros).
+  if (!r.cabe) a(`São ${r.ocupados} módulos: nem um quadro de 48 módulos chega com 20 % de reserva — contámos ${r.quadros} quadros de 48 (ou um armário maior).`);
+  // Quadro novo: um de N módulos, ou vários de 48 quando nem esse chega com a reserva (r.cabe, r.quadros).
   const novo = r.cabe ? `um quadro novo de ${r.tamanho} módulos` : `${r.quadros} quadros novos de ${r.tamanho} módulos`;
   if (!levaQuadroNovo(q) && r.novos > 0) {
     a(`O quadro atual tem de ter espaço para ${r.novos} módulos novos${r.novos > MAX_MODULOS ? " (acrescentámos a ampliação do quadro)" : ""}; se não tiver, é preciso ${novo}.`);
@@ -488,7 +523,7 @@ export function avisosProtecoes(estado) {
   if (pot.kva === null) a(`As cargas do quadro somam cerca de ${formatarW(pot.carga_w)} (com simultaneidade): acima de 41,4 kVA é preciso um contrato especial.`);
   else if (contratada && pot.kva > contratada) a(`A potência contratada (${kvaTxt(contratada)}) pode ser curta: ${pot.minimo_rtiebt ? `o mínimo da RTIEBT (801.5.2.2) para a casa é ${kvaTxt(pot.kva)}` : `pelas cargas do quadro sugerimos ${kvaTxt(pot.kva)}`}.`);
   else if (pot.minimo_rtiebt) a(`Potência sugerida ${kvaTxt(pot.kva)}: o mínimo da RTIEBT (801.5.2.2) para o dimensionamento da casa, acima do que as cargas pedem.`);
-  if (pot.kva !== null && pot.trifasica && casa.fases !== "tri") a(`Para ${kvaTxt(pot.kva)} é preciso ligação trifásica (a monofásica vai até ${kvaTxt(MAX_MONO_KVA)}).`);
+  if (pot.kva !== null && pot.trifasica && casa.fases !== "tri") a(`Para ${kvaTxt(pot.kva)} a ligação deve ser trifásica: acima de ${kvaTxt(MAX_MONO_KVA)} só é monofásica com acordo da E-REDES.`);
   return out;
 }
 

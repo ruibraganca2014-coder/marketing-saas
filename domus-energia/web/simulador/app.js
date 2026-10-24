@@ -2371,7 +2371,7 @@ function acertarPedido() {
 // (a partir da planta ou da casa) e vão no pedido para o relatório técnico do eletricista.
 /** "Que proteção quer?": os 3 pacotes (quadro.js PACOTES) em palavras simples, sem siglas. */
 const PROTECAO_SIMPLES = {
-  essencial: ["Básica", "Diferencial obrigatório (RTIEBT); 30 mA recomendado."],
+  essencial: ["Básica", "Diferenciais de 30 mA tipo A (obrigatórios, RTIEBT)."],
   recomendado: ["Recomendada", "+ descarregador de sobretensões e relé de tensão."],
   completo: ["Completa", "+ AFDD nos quartos e sala e geral Wi-Fi."],
 };

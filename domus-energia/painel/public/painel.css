@@ -663,6 +663,15 @@ details.material-artigos > summary { min-height: 48px; padding: 12px 0; box-sizi
 .ajuda-tecnica .perigo-medio { color: var(--argila-texto); font-weight: 800; }
 .ajuda-tecnica .perigo-baixo { color: var(--musgo-texto); font-weight: 800; }
 .ajuda-tecnica .fontes { margin-top: 18px; }
+/* Manual de instalações BT (2026-10-24): nota, "Abrir o manual (PDF)" e o índice; cada capítulo, uma ligação de 48 px */
+.ajuda-tecnica + .ajuda-tecnica { margin-top: 16px; }
+.manual-nota { margin: 8px 0; }
+.ajuda-tecnica .indice-manual { list-style: none; padding: 0; gap: 2px; }
+.indice-manual a { display: grid; grid-template-columns: 2.4em minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 48px; padding: 6px 6px; color: var(--texto); text-decoration: none; border-radius: 10px; }
+.indice-manual a:hover { background: var(--musgo-claro); }
+.indice-manual .n { font-weight: 800; color: var(--musgo-texto); }
+.indice-manual .t { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.indice-manual .p { color: var(--texto-suave); font-size: .9rem; white-space: nowrap; }
 @media print {
   .ajuda-tecnica { max-width: none; border: 0; box-shadow: none; padding: 0; }
   .ajuda-tecnica h3 { break-after: avoid; page-break-after: avoid; }

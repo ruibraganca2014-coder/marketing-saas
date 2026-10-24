@@ -256,6 +256,18 @@ details.sec > .corpo { padding: 2px 14px 16px; display: grid; gap: 14px; min-wid
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
 /* Procedimentos (docs/PROCEDIMENTOS.md): a lista na Ajuda técnica, a leitura de um procedimento e as checklists da obra */
 .lista-proc { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+/* Manual de instalações BT (Ajuda técnica): cada parte abre; cada capítulo é uma ligação de 48 px que abre o PDF na página */
+details.parte-manual { border-top: 1px solid var(--borda); }
+details.parte-manual > summary { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; font-weight: 800; list-style: none; }
+details.parte-manual > summary::-webkit-details-marker { display: none; }
+details.parte-manual > summary::after { content: ""; width: 8px; height: 8px; border-right: 2.5px solid currentColor; border-bottom: 2.5px solid currentColor; transform: rotate(45deg); margin: 0 6px; flex: none; }
+details.parte-manual[open] > summary::after { transform: rotate(-135deg); }
+.indice-manual { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; }
+.indice-manual a { display: grid; grid-template-columns: 2.4em minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 48px; padding: 6px 4px; color: var(--texto); text-decoration: none; border-radius: 10px; }
+.indice-manual a:hover { background: var(--musgo-claro); }
+.indice-manual .n { font-weight: 800; color: var(--musgo-texto); }
+.indice-manual .t { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.indice-manual .p { color: var(--texto-suave); font-size: .9rem; white-space: nowrap; }
 .link-proc { width: 100%; min-height: 56px; display: grid; gap: 2px; justify-items: start; align-content: center; text-align: left; padding: 8px 14px; border: 2px solid var(--borda-forte); border-radius: 12px; background: var(--fundo); color: var(--texto); font: inherit; cursor: pointer; }
 .passos-ler { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: .96rem; overflow-wrap: anywhere; }
 .passo-texto { font-weight: 600; }

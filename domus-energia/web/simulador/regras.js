@@ -7,7 +7,9 @@ export const MAX_DIVISOES = 40;
 export const MAX_ELEMENTOS = 400;
 export const MAX_LADO_CM = 10_000;
 export const TENSAO = 230;
-export const FRACAO_SEGURA = 0.8;         // 80 % de amperes × 230 V
+// IB ≤ In (manual de instalações BT, 6.2): a carga pode chegar à corrente do disjuntor (16 A × 230 V = 3 680 W, a
+// potência convencional de um circuito de tomadas, manual 2.3). Era 0,8 (80 %), critério nosso que o manual não usa.
+export const FRACAO_SEGURA = 1;
 export const MAX_PONTOS = 8;              // luzes ou tomadas por circuito
 export const POTENCIA_DEDICADA = 2000;    // W: carga perigosa; frigorífico/outra máquina com circuito próprio
 export const MAX_MODULOS = 12;            // módulos novos antes de ampliar o quadro
@@ -26,10 +28,15 @@ export const MODELOS_DEDICADOS = [
   "esquentador", "hidromassagem",   // esquentador instantâneo (monofásico, ~5,5 kW) e hidromassagem: sempre o seu circuito
   // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
   "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
+  // Iluminação exterior / jardim: circuito próprio com diferencial de 30 mA (manual de instalações BT, 2.2 e 3.2).
+  "iluminacao_jardim",
 ];
-// Placa e forno (C3, critério Domus — a RTIEBT não fixa este calibre; a secção sai de 433.2): circuito de 25 A com
-// cabo de 6 mm². A placa (7 200 W) nunca tira a potência toda ao mesmo tempo (simultaneidade): não entra na conta dos 80 %.
+// Placa (C3; manual de instalações BT, 3.2, circuito C10): circuito de 25 A com cabo de 4 mm² (o conjunto fogão + forno
+// pode justificar 6 mm² / 32 A). O forno tem o seu circuito de 16 A / 2,5 mm² (C9 do manual). A placa (7 200 W) nunca
+// tira a potência toda ao mesmo tempo (simultaneidade): não entra na conta da carga do circuito.
 export const AMPERES_PLACA = 25;
+/** Iluminação exterior: circuito de iluminação (10 A, 1,5 mm²). */
+export const AMPERES_LUZ = 10;
 export const AMPERES_VE = 40;             // carregador VE: carrega a 32 A e limita a própria corrente → disjuntor de 40 A
 export const FIM_AVISO = " (orientativo — confirmamos na visita)";
 /** Fora da área servida não há visita técnica: o mesmo aviso termina em "(orientativo — a confirmar)" (estado.js avisosEstado). */
@@ -263,7 +270,7 @@ export const MODELOS = {
   forno: { nome: "Forno", w: 2500 },
   maquina_lavar: { nome: "Máquina de lavar roupa", w: 2000 },
   maquina_secar: { nome: "Máquina de secar roupa", w: 2500 },
-  maquina_loica: { nome: "Máquina de lavar loiça", w: 1800 },
+  maquina_loica: { nome: "Máquina de lavar loiça", w: 2000 },   // manual de instalações BT, 2.4: 2 000–2 400 W
   frigorifico: { nome: "Frigorífico", w: 150 },
   televisao: { nome: "Televisão", w: 150 },
   bomba_calor: { nome: "Bomba de calor", w: 3000 },
@@ -304,7 +311,7 @@ export const MODELOS = {
   campainha_video: { nome: "Campainha com vídeo", w: 10 },
   carregador_bicicleta: { nome: "Carregador de bicicleta / trotinete", w: 100 },
   toalheiro: { nome: "Aquecedor de toalhas", w: 500 },
-  secador: { nome: "Secador de cabelo", w: 1800 },   // ronda sinalizar: carga normal da tomada da casa de banho
+  secador: { nome: "Secador de cabelo", w: 1600 },   // ronda sinalizar: carga normal da tomada da casa de banho (manual 2.4: 400–1 600 W)
   aspirador_robo: { nome: "Aspirador robô", w: 40 },
   impressora: { nome: "Impressora", w: 500 },
   terminal_pagamento: { nome: "Caixa / terminal de pagamento", w: 50 },
@@ -740,7 +747,7 @@ export function divisaoVazia(nome = "") {
 
 // ------------------------------------------------------------ circuitos (§4)
 
-/** Potência que a carga pode tirar a 80 % (W, inteiro: evita 1104,0000000000002). */
+/** Potência que a carga pode tirar do disjuntor (IB ≤ In: FRACAO_SEGURA × amperes × 230 V; W, inteiro). */
 export const limiteW = (amperes) => Math.round(FRACAO_SEGURA * amperes * TENSAO);
 
 /** Máquina acima de 7,4 kW (costuma ser trifásica). */
@@ -752,7 +759,7 @@ export const watts = (m) => {
   return Number.isFinite(w) && w > 0 ? w : 0;
 };
 
-/** Menor disjuntor (16/20/25/32/40 A) que aguenta a potência a 80 %; 40 A se nenhum chegar. */
+/** Menor disjuntor (16/20/25/32/40 A) que aguenta a potência (IB ≤ In); 40 A se nenhum chegar. */
 export function amperesPara(w) {
   return AMPERES_MAQUINA.find((a) => w <= limiteW(a)) ?? AMPERES_MAQUINA[AMPERES_MAQUINA.length - 1];
 }
@@ -766,14 +773,15 @@ export const cargaPerigosa = (m) => watts(m) >= POTENCIA_DEDICADA;
 const ehCarregador = (m) => m?.modelo === "carregador_ve" || m?.modelo === "carregador_ve_22";
 
 /**
- * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A e forno pelo menos 25 A (C3, critério
- * Domus, cabo de 6 mm²); carregador VE 40 A; resto pelos 80 %. Numa casa trifásica (`fases` "tri") uma máquina
- * trifásica (> 7,4 kW) reparte a potência pelas 3 fases: o disjuntor (tetrapolar) é o de um terço dela.
+ * Disjuntor sugerido para o circuito próprio de uma máquina: placa 25 A (cabo de 4 mm²; manual de instalações BT, 3.2);
+ * carregador VE 40 A; iluminação exterior 10 A; o resto (o forno também: 16 A com 2 500 W) pela potência, IB ≤ In.
+ * Numa casa trifásica (`fases` "tri") uma máquina trifásica (> 7,4 kW) reparte a potência pelas 3 fases: o disjuntor
+ * (tetrapolar) é o de um terço dela.
  */
 export function amperesMaquina(m, fases = null) {
   if (ehCarregador(m)) return AMPERES_VE;
   if (m?.modelo === "placa") return AMPERES_PLACA;
-  if (m?.modelo === "forno") return Math.max(AMPERES_PLACA, amperesPara(watts(m)));
+  if (m?.modelo === "iluminacao_jardim") return AMPERES_LUZ;
   if (fases === "tri" && trifasica(m)) return amperesPara(watts(m) / 3);
   return amperesPara(watts(m));
 }
@@ -782,9 +790,11 @@ export function amperesMaquina(m, fases = null) {
  * Circuitos tipo C1–C5 (critério Domus, inspirado no REBT espanhol; a RTIEBT não codifica circuitos mínimos — pede
  * ≤ 8 pontos por circuito, 801.5.3, e secções ≥ 1,5 mm² na iluminação e ≥ 2,5 mm² nas tomadas, 801.5.8). Habitação;
  * em serviços e industrial usamos o equivalente (§4): C1 iluminação 10 A / 1,5 mm²; C2 tomadas 16 A / 2,5 mm²;
- * C3 placa e forno 25 A / 6 mm²; C4 máquinas de lavar e termoacumulador 16 A / 2,5 mm²; C5 tomadas das zonas húmidas
- * (cozinha, casas de banho, lavandaria) 16 A / 2,5 mm², atrás de um diferencial de 30 mA (exigido nas casas de banho
- * e no exterior, 701.53; na cozinha e lavandaria é critério Domus). O nome `RTIEBT` fica por compatibilidade.
+ * C3 placa 25 A / 4 mm² e forno 16 A / 2,5 mm²; C4 máquinas de lavar e termoacumulador 16 A / 2,5 mm²; C5 tomadas das
+ * zonas húmidas 16 A / 2,5 mm² — a cozinha num circuito só dela, as casas de banho e a lavandaria noutro (manual de
+ * instalações BT, 3.2). Todos atrás de diferenciais de 30 mA (o manual pede-os nas tomadas de uso geral, casas de banho
+ * e exterior; 3.2, 11.3). Os valores seguem o manual (quadro da configuração-tipo, 3.2). O nome `RTIEBT` fica por
+ * compatibilidade.
  */
 export const RTIEBT = {
   C1: "Iluminação",
@@ -806,12 +816,15 @@ export function codigoCircuito(c) {
   }
   return null;
 }
-/** Secção mínima do cabo (mm², cobre, em tubo) para o disjuntor do circuito. */
-export const SECCOES_MM2 = { 6: 1.5, 10: 1.5, 16: 2.5, 20: 4, 25: 6, 32: 6, 40: 10 };
+/**
+ * Secção mínima do cabo (mm², cobre H07V em tubo embebido, comprimentos usuais) para o disjuntor do circuito — manual de
+ * instalações BT, 3.2 (25 A → 4 mm², 32 A → 6 mm²) e 13.6 (carregador de 7,4 kW: 40 A com 6 mm², Iz 41 A).
+ */
+export const SECCOES_MM2 = { 6: 1.5, 10: 1.5, 16: 2.5, 20: 4, 25: 4, 32: 6, 40: 6 };
 export const seccaoCabo = (amperes) => SECCOES_MM2[amperes] ?? null;
 export const formatarMm2 = (s) => `${String(s).replace(".", ",")} mm²`;
 
-/** Máquinas que não entram na conta dos 80 %: a placa (simultaneidade) e o carregador VE (limita a corrente). */
+/** Máquinas que não entram na conta da carga do circuito: a placa (simultaneidade) e o carregador VE (limita a corrente). */
 const semSobrecarga = (m) => m?.modelo === "placa" || ehCarregador(m);
 
 
@@ -825,7 +838,7 @@ export function circuitoVazio(n, tipo = "misto") {
 /**
  * Agrupa "pontos" por divisão em circuitos de até 8, sem partir uma divisão
  * que caiba inteira num circuito novo. `peso` (W) não passa de `limite` por
- * circuito (máquinas pequenas nas tomadas: 80 % de 16 A), salvo um ponto sozinho.
+ * circuito (máquinas pequenas nas tomadas: os 16 A do disjuntor), salvo um ponto sozinho.
  */
 function agrupar(porDivisao, criar, somar, peso = () => 0, limite = Infinity) {
   const circuitos = [];
@@ -876,15 +889,18 @@ function porZonas(lista, fazer, dividir, noite) {
 /**
  * Circuitos sugeridos a partir da contagem da planta (§4), pelos circuitos tipo C1–C5 (critério Domus):
  * iluminação (até 8 pontos por circuito de 10 A — RTIEBT 801.5.3), tomadas (até 8 por circuito de 16 A, com as máquinas
- * pequenas até 80 %), tomadas das zonas húmidas à parte (C5), circuito próprio para cada máquina grande
- * (placa/forno C3 a 25 A, máquinas de lavar e termoacumulador C4).
- * @param {{fases?: "mono"|"tri"|null, humida?: (nome:string)=>boolean, noite?: (nome:string)=>boolean, dividir?: boolean}} [opcoes]
+ * pequenas até aos 16 A), tomadas das zonas húmidas à parte (C5; as da cozinha num circuito só delas — manual de
+ * instalações BT, 3.2), circuito próprio para cada máquina grande (placa C3 a 25 A, forno C3 a 16 A, máquinas de lavar e
+ * termoacumulador C4) e para a iluminação exterior.
+ * @param {{fases?: "mono"|"tri"|null, humida?: (nome:string)=>boolean, cozinha?: (nome:string)=>boolean, noite?: (nome:string)=>boolean, dividir?: boolean}} [opcoes]
  *   `fases`: numa casa trifásica, a máquina > 7,4 kW fica na proteção trifásica que já tem (sem disjuntor
- *   inteligente, que é 1P+N); `humida`: divisão de zona húmida (as tomadas vão para C5); `noite` e `dividir`:
- *   T3 e mais — iluminação e tomadas repartidas pela zona de dia e de noite (pelo menos 2 de cada).
+ *   inteligente, que é 1P+N); `humida`: divisão de zona húmida (as tomadas vão para C5); `cozinha`: das húmidas, as
+ *   cozinhas (circuito de tomadas exclusivo); `noite` e `dividir`: iluminação e tomadas repartidas pela zona de dia e de
+ *   noite (pelo menos 2 de cada).
  */
 export function sugerirCircuitos(contagem, opcoes = {}) {
   const humida = typeof opcoes.humida === "function" ? opcoes.humida : () => false;
+  const cozinha = typeof opcoes.cozinha === "function" ? opcoes.cozinha : () => false;
   const noite = typeof opcoes.noite === "function" ? opcoes.noite : () => false;
   const luzes = nomear(porZonas(
     contagem.filter((c) => c.luzes > 0).map((c) => ({ nome: c.fora ? null : c.nome, pontos: Array(c.luzes).fill(1) })),
@@ -904,7 +920,9 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
     limiteW(16),
   );
   const tomadas = nomear(porZonas(pontosTomadas.filter((x) => !x.humida), (l) => agruparTomadas(l, false), opcoes.dividir, noite), "Tomadas");
-  const humidas = nomear(agruparTomadas(pontosTomadas.filter((x) => x.humida), true), "Tomadas zonas húmidas");
+  const daCozinha = (x) => x.humida && cozinha(x.nome);
+  const cozinhas = nomear(agruparTomadas(pontosTomadas.filter(daCozinha), true), "Tomadas cozinha");
+  const humidas = [...cozinhas, ...nomear(agruparTomadas(pontosTomadas.filter((x) => x.humida && !daCozinha(x)), true), "Tomadas zonas húmidas")];
   const maquinas = [];
   for (const c of contagem) {
     for (const m of c.maquinas.filter(circuitoProprio)) {
@@ -955,7 +973,7 @@ const kva = (v) => `${String(v).replace(".", ",")} kVA`;
 export function avisosCircuito(c, opcoes = {}) {
   const r = [];
   const maqs = c.itens?.maquinas ?? [];
-  // A placa e o carregador VE não entram na conta dos 80 % (simultaneidade / limita a corrente). As máquinas
+  // A placa e o carregador VE não entram na conta da carga (simultaneidade / limita a corrente). As máquinas
   // trifásicas (> 7,4 kW) também não: numa casa trifásica contam por fase (um terço em cada uma); nas outras
   // já têm o aviso próprio (é preciso ligação trifásica).
   const tri = opcoes.fases === "tri";
@@ -973,8 +991,8 @@ export function avisosCircuito(c, opcoes = {}) {
   if (tomadas > MAX_PONTOS) r.push(aviso(c, `Tem ${tomadas} tomadas: a RTIEBT (801.5.3) pede até ${MAX_PONTOS} por circuito.`));
   if (c.tipo === "iluminacao" && c.amperes !== 10) r.push(aviso(c, "Para iluminação sugerimos um disjuntor de 10 A."));
   if (c.tipo === "tomadas" && c.amperes !== 16) r.push(aviso(c, "Para tomadas sugerimos um disjuntor de 16 A."));
-  if (codigoCircuito(c) === "C3" && Number.isFinite(amperes) && amperes < AMPERES_PLACA) {
-    r.push(aviso(c, `Para a placa e o forno recomendamos um circuito de ${AMPERES_PLACA} A com cabo de ${formatarMm2(seccaoCabo(AMPERES_PLACA))} (critério Domus).`));
+  if (maqs.some((m) => m?.modelo === "placa") && Number.isFinite(amperes) && amperes < AMPERES_PLACA) {
+    r.push(aviso(c, `Para a placa recomendamos um circuito de ${AMPERES_PLACA} A com cabo de ${formatarMm2(seccaoCabo(AMPERES_PLACA))}.`));
   }
   const proprias = maqs.filter(circuitoProprio);
   const partilhado = luzes + tomadas > 0 || maqs.length > 1;
@@ -1026,7 +1044,7 @@ export function avisosQuadro(circuitos, opcoes = {}) {
     const partes = [];
     if (d.sy2) partes.push("O disjuntor inteligente substitui o disjuntor do circuito; só o fazemos se o modelo tiver certificação europeia de proteção (EN 60898) — confirmamos na visita.");
     if (d.sy1) partes.push(`O disjuntor TONGOU-SY1-JWT não tem proteções: nunca substitui o disjuntor do circuito, que fica no quadro${d.sy2 ? " (nos circuitos só com medição)" : ""}.`);
-    partes.push("A instalação tem de ter proteção diferencial (RTIEBT 801.5.9); recomendamos 30 mA.");
+    partes.push("A instalação tem de ter proteção diferencial (RTIEBT 801.5.9), de 30 mA nas tomadas, nas casas de banho e no exterior.");
     r.push(`${partes.join(" ")}${FIM_AVISO}`);
   }
   return r;

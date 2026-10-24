@@ -54,7 +54,7 @@ ${COMUM}
 ${COMUM}
 
 - causas: as causas prováveis, da mais para a menos provável (2 a 5). Em cada uma: causa (curta), probabilidade (alta, media, baixa), porque (o que nos dados aponta para ela) e verificar (como confirmar ou excluir no local).
-- medicoes: o que medir e o valor de referência (ex.: isolamento ≥ 1 MΩ a 500 V; diferencial de 30 mA a disparar em ≤ 300 ms; terra ≤ 100 Ω) (até 8).
+- medicoes: o que medir e o valor de referência (ex.: isolamento ≥ 0,5 MΩ a 500 V, objetivo ≥ 1 MΩ; diferencial de 30 mA a disparar entre ½ IΔn e IΔn, em ≤ 300 ms; terra < 100 Ω) (até 8).
 - material: o que levar na carrinha para resolver à primeira (até 10).
 - seguranca: os cuidados deste caso concreto antes de mexer (até 6). Sinais de aquecimento, cheiro a queimado, faíscas ou choques pedem o corte da corrente ao circuito antes de qualquer ensaio.
 - confianca: alta só se a descrição e os dados do quadro apontam claramente para uma causa; baixa se o pedido diz pouco.

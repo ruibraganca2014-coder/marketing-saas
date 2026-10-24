@@ -157,9 +157,9 @@ test('janela "confirme antes de continuar" dos outros passos: a assinatura muda 
   assert.deepEqual(normalizarEstado({ ...JSON.parse(JSON.stringify(e)), confirmados: 'sim' }).confirmados, {});
 });
 
-test('potência contratada pelo tamanho da casa: T0/T1 3,45 · T2/T3 6,9 · T4/T5+ 10,35 · sem tipologia 6,9; a escolha do cliente fica', async () => {
+test('potência contratada pelo tamanho da casa: T0 3,45 · T1/T2/T3 6,9 (T1 pelo mínimo do manual de instalações BT, 2.5) · T4/T5+ 10,35 · sem tipologia 6,9; a escolha do cliente fica', async () => {
   const { potenciaOmissao, POTENCIA_OMISSAO_KVA } = await import('../../web/simulador/estado.js');
-  assert.deepEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5+'].map((t) => potenciaOmissao({ tipologia: t })), [3.45, 3.45, 6.9, 6.9, 10.35, 10.35]);
+  assert.deepEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5+'].map((t) => potenciaOmissao({ tipologia: t })), [3.45, 6.9, 6.9, 6.9, 10.35, 10.35]);
   for (const casa of [null, {}, { tipologia: null }, { tipo: 'servicos', tipologia: null }, { tipologia: 'T9' }]) assert.equal(potenciaOmissao(casa), POTENCIA_OMISSAO_KVA);
   const e = estadoNovo();
   assert.deepEqual([e.casa.potencia_contratada_kva, e.potenciaEditada], [6.9, false]);

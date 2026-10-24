@@ -36,6 +36,7 @@ import { criarEmailsAuto, PRAZOS_EMAILS, CHAVE_GOOGLE, urlGoogle } from './email
 import { criarNegocio, PERIODOS } from './negocio.js';
 import { criarProcedimentos } from './procedimentos.js';
 import { andamentoDoPedido, proximoPasso, linhasDoHoje } from './proximo-passo.js';
+import { MANUAL_NOME, servirManual, naoExiste } from './manual.js';
 import { servicoFotosDe, SERVICOS_FOTOS, precisaProjeto, precisaFichaIted, textoPredio } from '../public/vendor/servicos-fotos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
@@ -2893,6 +2894,8 @@ export function criarApi(ctx) {
         return catalogoPublico(req, res);
       }
       const resto = caminho.slice(P.length);
+      // Manual de instalações BT (2026-10-24; manual.js): qualquer papel com sessão; sem sessão, 404 como um endereço que não existe.
+      if (resto === MANUAL_NOME) return auth.sessao(req, res) ? await servirManual(req, res) : naoExiste(res);
       const { rota, params, caminhoExiste } = encontrarRota(req.method, resto);
       if (!rota || (!config.eletricistas && ROTAS_ELETRICISTAS.has(rota.nome))) {
         if (!rota && caminhoExiste) return responder(res, 405, { erro: 'Método não permitido.' });

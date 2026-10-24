@@ -285,7 +285,7 @@ function distanciaDivisao(d, x, y) {
 
 /**
  * Potência (W) das máquinas de um circuito e se tem carga perigosa (≥ 2000 W). `sobrecarga`: a soma para a
- * conta dos 80 %, sem a placa (simultaneidade) nem o carregador VE (limita a corrente) — como no simulador.
+ * conta da carga do circuito (IB ≤ In), sem a placa (simultaneidade) nem o carregador VE (limita a corrente) — como no simulador.
  */
 function maquinasDe(c) {
   const m = arr(obj(c.itens).maquinas).filter((x) => x && typeof x === "object");
@@ -512,7 +512,7 @@ function blocoQuadro(q, contratada) {
     ["Quadro", q.no_preco === false ? "Fica como está: não entra neste pedido (abaixo, só o que o simulador calculou para a casa)" : `${QUADRO_NOVO[q.quadro_novo] ?? "Não sabe"}${q.quadro_novo_no_preco === true ? " (quadro novo no preço)" : ""}`],
   ];
   if (numero(m.tamanho) !== null) {
-    linhas.push(["Tamanho do quadro", `${(numero(m.quadros) ?? 1) > 1 ? `${num(numero(m.quadros))} × ` : ""}${num(numero(m.tamanho))} módulos (${num(numero(m.ocupados) ?? 0)} ocupados, ${num(numero(m.livres) ?? 0)} livres)${m.cabe === false && !((numero(m.quadros) ?? 1) > 1) ? " — não chega com 25 % livres" : ""}${q.quadro_novo === "atual" && numero(m.novos) !== null ? ` · ${num(numero(m.novos))} módulos novos no quadro atual` : ""}`]);
+    linhas.push(["Tamanho do quadro", `${(numero(m.quadros) ?? 1) > 1 ? `${num(numero(m.quadros))} × ` : ""}${num(numero(m.tamanho))} módulos (${num(numero(m.ocupados) ?? 0)} ocupados, ${num(numero(m.livres) ?? 0)} livres)${m.cabe === false && !((numero(m.quadros) ?? 1) > 1) ? " — não chega com 20 % de reserva" : ""}${q.quadro_novo === "atual" && numero(m.novos) !== null ? ` · ${num(numero(m.novos))} módulos novos no quadro atual` : ""}`]);
   }
   // Casas com pisos: quadro geral no r/c + um parcial por piso de cima (web/simulador/quadro.js numeroQuadros).
   if ((numero(m.parciais) ?? 0) > 0) linhas.push(["Quadros parciais", `Quadro geral (piso 0) + ${plural(numero(m.parciais), "quadro parcial", "quadros parciais")}${numero(m.tamanho_parcial) !== null ? ` de ${num(numero(m.tamanho_parcial))} módulos` : ""}`]);
@@ -732,10 +732,10 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   else if (d.estado === "sem_localidade") por("Localidade", "O cliente não indicou a localidade: confirmar a morada e o valor da deslocação.");
   else if (d.estado === "fora_area") por("Localidade", `${d.concelho ?? d.localidade ?? "A localidade"}${numero(d.distancia_km) !== null ? ` (${num(numero(d.distancia_km))} km estimados)` : ""} fica fora da área servida: decidir se se faz a obra e o preço da deslocação (não está no total).`);
 
-  // Para-raios / linha aérea (descarregador tipo 2).
+  // Para-raios / linha aérea (descarregador: tipo 1 com para-raios, manual de instalações BT 11.7 e 18.4).
   const desc = obj(q.protecoes).descarregador === true;
-  if (q.para_raios === "sim") por("Para-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões tipo 2 recomendado (RTIEBT 801.5.10 com linha aérea; com para-raios ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
-  else if (quadroNovo && q.para_raios !== "nao") por("Para-raios / linha aérea", `O cliente NÃO SABE: verificar se há para-raios ou alimentação por linha aérea; havendo, o descarregador tipo 2 é recomendado (RTIEBT 801.5.10)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
+  if (q.para_raios === "sim") por("Para-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões recomendado (RTIEBT 801.5.10 com linha aérea); com para-raios tem de ser de TIPO 1 na origem, com ligação equipotencial ao para-raios (manual de instalações BT, 11.7 e 18.4; ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído, ao preço do tipo 2: confirmar o tipo 1)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
+  else if (quadroNovo && q.para_raios !== "nao") por("Para-raios / linha aérea", `O cliente NÃO SABE: verificar se há para-raios ou alimentação por linha aérea; havendo, o descarregador é recomendado (RTIEBT 801.5.10) e com para-raios tem de ser de tipo 1 (manual de instalações BT, 18.4)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
 
   // Quadro antigo / atual / novo.
   const antigo = q.quadro_antigo;
@@ -744,7 +744,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   else if (q.quadro_novo === "novo") por("Quadro elétrico", "Quadro novo no orçamento: confirmar o local, o espaço e a passagem dos circuitos para o quadro novo.");
   else if (q.quadro_novo === "atual") por("Quadro elétrico", `O cliente diz que o quadro atual serve: confirmar o estado e se há espaço para ${novos !== null ? `${num(novos)} módulos novos` : "os módulos novos"}${novos !== null && novos > 12 ? " (acima de 12: ampliação incluída)" : ""}.`);
   else if (quadroNovo) por("Quadro elétrico", `O cliente NÃO SABE se o quadro ${antigo === undefined ? "atual serve" : "é antigo"}: verificar o estado; ${q.quadro_novo_no_preco === false ? "o quadro novo não está no preço" : "o preço inclui quadro novo por precaução — sai se o atual servir"}${novos !== null ? ` (no atual seriam ${num(novos)} módulos novos)` : ""}.`);
-  if ((numero(m.quadros) ?? 1) > 1 || m.cabe === false) por("Quadro elétrico", `Nem um quadro de 48 módulos deixa 25 % livres (${num(numero(m.ocupados) ?? 0)} módulos ocupados): ${plural(numero(m.quadros) ?? 1, "quadro", "quadros")} — confirmar o espaço e a organização.`);
+  if ((numero(m.quadros) ?? 1) > 1 || m.cabe === false) por("Quadro elétrico", `Nem um quadro de 48 módulos chega com 20 % de reserva (${num(numero(m.ocupados) ?? 0)} módulos ocupados): ${plural(numero(m.quadros) ?? 1, "quadro", "quadros")} — confirmar o espaço e a organização.`);
   if (!quadroNovo && arr(q.circuitos).length) por("Quadro elétrico", "Simulação antiga, sem as perguntas do quadro (para-raios, quadro atual, proteções): verificar tudo na visita.");
 
   // Potência contratada e ligação.
@@ -756,7 +756,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   if (quadroNovo && sug === null && carga !== null) por("Potência contratada", `Cargas ≈ ${num(carga)} W: acima de 41,4 kVA (contrato especial).`);
   if (temCasa && casa.fases == null) por("Ligação", "O cliente NÃO SABE se a ligação é monofásica ou trifásica: verificar no contador ou no quadro (muda os módulos e as máquinas trifásicas).");
   else if (casa.fases === "tri") por("Ligação", `Trifásica: confirmar o equilíbrio das fases; geral, diferenciais, descarregador, relé e medidor são tetrapolares (o dobro dos módulos); ${q.quadro_novo_no_preco === true ? "as máquinas trifásicas levam um disjuntor tetrapolar (4P) no quadro novo" : "as máquinas trifásicas ficam na proteção trifásica que já existe"}, sem disjuntor inteligente.`);
-  if (casa.fases !== "tri" && sug !== null && sug > 13.8) por("Ligação", `A potência sugerida (${num2(sug)} kVA) pede ligação trifásica.`);
+  if (casa.fases !== "tri" && sug !== null && sug > 10.35) por("Ligação", `A potência sugerida (${num2(sug)} kVA) pede ligação trifásica (acima de 10,35 kVA, monofásica só com acordo da E-REDES).`);
 
   // Máquinas ≥ 2000 W e carregador do carro.
   const maqs = maquinasDaSimulacao(s, planta);
@@ -772,7 +772,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
   if (carregadores.length || arr(obj(s.quer).maquinas).some(ehCarregador)) {
     const x = carregadores[0], c = x?.circuito;
     const difProprio = arr(q.diferenciais).some((g) => g && g.carregador);
-    por("Carregador do carro", `${x ? `${MODELOS[x.modelo] ?? "Carregador"} ${num(x.w)} W` : "Pedido pelo cliente"}${c ? ` — circuito ${c.n ?? "?"}${numero(c.amperes) !== null ? ` de ${num(numero(c.amperes))} A` : ""}${numero(c.seccao_mm2) !== null ? `, ${num(numero(c.seccao_mm2))} mm²` : ""}` : ""}: circuito próprio (40 A) e diferencial próprio, no mínimo tipo A — tipo A exigido (RTIEBT 722.531.2.101)${difProprio ? " — previsto (IDR tipo A)" : " — NÃO previsto"}; ver se o carregador já o traz, a distância ao quadro e o local.`);
+    por("Carregador do carro", `${x ? `${MODELOS[x.modelo] ?? "Carregador"} ${num(x.w)} W` : "Pedido pelo cliente"}${c ? ` — circuito ${c.n ?? "?"}${numero(c.amperes) !== null ? ` de ${num(numero(c.amperes))} A` : ""}${numero(c.seccao_mm2) !== null ? `, ${num(numero(c.seccao_mm2))} mm²` : ""}` : ""}: circuito próprio (40 A, 6 mm²) e diferencial próprio de 30 mA, tipo A com deteção de 6 mA CC (na wallbox) ou tipo B (manual de instalações BT, 13.6)${difProprio ? " — previsto (IDR tipo A)" : " — NÃO previsto"}; ver se o carregador já o traz, a distância ao quadro e o local.`);
   }
 
   // Pisos com quadro parcial e circuitos que atravessam pisos.

@@ -1,8 +1,11 @@
 // Ajuda técnica (docs/PAINEL-EMPRESA.md "Diagnóstico de avarias"): referência só de leitura para a equipa, feita a partir
 // de ecras/diagnostico-conteudo.js — segurança, sinais, ferramentas, os três passos, as oito técnicas, os quatro tipos de
 // avaria, os valores de referência (RTIEBT ou "referência prática") e quando parar. Rota #/ajuda (ou #/ajuda/diagnostico);
-// imprimível (o @media print do painel esconde o topo e o menu).
+// imprimível (o @media print do painel esconde o topo e o menu). Em cima, o manual de instalações BT da empresa
+// (2026-10-24; vendor/manual-bt.js): a nota da edição provisória, "Abrir o manual (PDF)" e o índice com as páginas — o PDF
+// só sai com sessão (/painel/api/manual-instalacoes-bt.pdf; painel/src/manual.js).
 import { h } from "../ui.js";
+import { MANUAL_BT, ligacaoManual } from "../vendor/manual-bt.js";
 import { SEGURANCA, SINAIS, FERRAMENTAS, PASSOS, TECNICAS, TIPOS_AVARIA, VALORES, PARAR, PROBLEMAS, NOME_TIPO } from "./diagnostico-conteudo.js";
 
 const PERIGO = { alto: "Alto", "médio": "Médio", baixo: "Baixo" };
@@ -13,6 +16,25 @@ function tabela(colunas, linhas, { id } = {}) {
   return h("div", { class: "tabela-rolar" }, h("table", { class: "tabela tabela-cartoes", id },
     h("thead", {}, h("tr", {}, ...colunas.map((c) => h("th", { scope: "col", text: c })))),
     h("tbody", {}, ...linhas.map((l) => h("tr", {}, ...l.map((celula, i) => h("td", { dataset: { rotulo: colunas[i] } }, celula)))))));
+}
+
+/** O manual de instalações BT: nota, ligação ao PDF e o índice (cada capítulo abre o PDF nessa página). */
+export function manualInstalacoes() {
+  const pdf = `/painel/api/${MANUAL_BT.ficheiro}`;
+  const nova = { target: "_blank", rel: "noopener" };
+  return [
+    h("h2", { id: "ajuda-manual-titulo", text: "Manual de instalações elétricas" }),
+    h("p", { class: "manual-nota" }, h("span", { class: "selo-p aviso", text: "Edição provisória" }), " ", MANUAL_BT.nota),
+    h("p", { class: "ajuda", text: `${MANUAL_BT.titulo} (${MANUAL_BT.edicao}, ${MANUAL_BT.paginas} páginas). ${MANUAL_BT.resumo}` }),
+    h("p", { class: "nao-imprimir" }, h("a", { class: "btn pequeno", id: "manual-abrir", href: pdf, ...nova, text: "Abrir o manual (PDF)" })),
+    ...MANUAL_BT.partes.map((p) => h("section", { class: "manual-parte" },
+      h("h3", { text: `${p.titulo} · p. ${p.pagina}` }),
+      h("ul", { class: "indice-manual" }, ...p.capitulos.map((c) => h("li", {},
+        h("a", { href: ligacaoManual(pdf, c.pagina), ...nova },
+          h("span", { class: "n", text: c.n }),
+          h("span", { class: "t" }, h("strong", { text: c.titulo }), c.resumo ? h("span", { class: "ajuda", text: c.resumo }) : null),
+          h("span", { class: "p", text: `p. ${c.pagina}` }))))))),
+  ];
 }
 
 /** O guia inteiro (elementos). */
@@ -53,7 +75,7 @@ export function guiaDiagnostico() {
     h("h3", { id: "ajuda-parar", text: "9. Quando parar e pedir ajuda" }),
     h("ul", {}, ...PARAR.map((x) => h("li", { text: x }))),
 
-    h("p", { class: "ajuda fontes", text: "Fontes usadas só como referência (dois infográficos sobre diagnóstico e tipos de avaria e um artigo sobre os passos e as técnicas), com textos nossos; valores regulamentares da RTIEBT (Portaria n.º 949-A/2006, consolidada em 2015): 611.1, 612.1, 612.2, 612.3 e Quadro 61A, Anexo B, 413.1.4.2, 801.5.6.1. Não substitui a regulamentação nem a formação do técnico." }),
+    h("p", { class: "ajuda fontes", text: "Fontes usadas só como referência (dois infográficos sobre diagnóstico e tipos de avaria e um artigo sobre os passos e as técnicas), com textos nossos, conferidos com o manual de instalações BT da empresa (2026); valores regulamentares da RTIEBT (Portaria n.º 949-A/2006, consolidada em 2015): 611.1, 612.1, 612.2, 612.3 e Quadro 61A, Anexo B, 413.1.4.2, 801.5.6.1. Não substitui a regulamentação nem a formação do técnico." }),
   ];
 }
 
@@ -61,6 +83,7 @@ export default function ajuda(el) {
   const imprimir = h("button", { class: "btn sec pequeno", type: "button", id: "imprimir-ajuda", text: "Imprimir / guardar PDF", onclick: () => window.print() });
   el.append(
     h("div", { class: "ecra-topo nao-imprimir" }, h("h1", { text: "Ajuda técnica" }), h("div", { class: "form-botoes" }, imprimir)),
+    h("article", { class: "cartao ajuda-tecnica", id: "ajuda-manual", "aria-labelledby": "ajuda-manual-titulo" }, ...manualInstalacoes()),
     h("article", { class: "cartao ajuda-tecnica", id: "ajuda-diagnostico", "aria-labelledby": "ajuda-diag-titulo" }, ...guiaDiagnostico()));
   return { rota() {} };
 }

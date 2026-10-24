@@ -1273,6 +1273,11 @@ export const MIGRACOES = [
       ALTER TABLE orcamentos ADD COLUMN predio_decisao_por TEXT;
     `);
   },
+  // 58: manual de instalações BT da empresa (2026-10-24): os diferenciais do quadro passam a ser tipo A (o padrão do
+  // manual, 11.3), o mesmo artigo do carregador VE. O nome deixa de dizer "(carregador VE)" — só se o CEO não o mudou.
+  (db) => {
+    db.prepare("UPDATE catalogo SET nome = 'Interruptor diferencial 2P 40 A 30 mA tipo A' WHERE sku = 'IDR-2P-40A-30MA-A' AND nome = 'Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)'").run();
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

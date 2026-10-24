@@ -26,6 +26,7 @@ import { desenharQuadroCliente, normalizarEsquema, esquemaVazio, esquemaTemAlgo,
 import { analiseDaCasa, diferencasQuadro } from "./simulador/relatorio-casa.js";
 import { reduzirFoto } from "./simulador/fotos.js";
 import { confirmarEmDoisToques } from "./confirmar.js";
+import { MANUAL_BT, ligacaoManual } from "./manual-bt.js";
 
 const cfg = window.DOMUS ?? {};
 const base = String(cfg.apiBase ?? "").trim().replace(/\/+$/, "");
@@ -1566,8 +1567,8 @@ const ENSAIOS = [
   // Teste de 2026-10-14: o contador diz "x/3 obrigatórios" e este, que não conta para concluir, diz "(opcional)".
   { k: "continuidade_pe", nome: "Continuidade do PE", opcional: true, un: "Ω", dica: () => "Valor medido, da tomada ao quadro.", fora: () => false },
   { k: "isolamento", nome: "Resistência de isolamento", un: "MΩ", dica: (l) => `Mínimo ${decimal(l.isolamento_min)} MΩ (500 V c.c.).`, fora: (n, l) => n < l.isolamento_min },
-  { k: "terra", nome: "Resistência de terra", un: "Ω", dica: (l) => `Até ${decimal(l.terra_max)} Ω.`, fora: (n, l) => n > l.terra_max },
-  { k: "diferencial", nome: "Disparo do diferencial", un: "ms", dica: (l) => `Tempo medido a IΔn: até ${decimal(l.diferencial_max)} ms.`, fora: (n, l) => n > l.diferencial_max },
+  { k: "terra", nome: "Resistência de terra", un: "Ω", dica: (l) => `Abaixo de ${decimal(l.terra_max)} Ω.`, fora: (n, l) => n >= l.terra_max },
+  { k: "diferencial", nome: "Disparo do diferencial", un: "ms", dica: (l) => `Dispara entre ½ IΔn e IΔn; tempo medido a IΔn: até ${decimal(l.diferencial_max)} ms.`, fora: (n, l) => n > l.diferencial_max },
 ];
 const numeroDe = (txt) => { const s = String(txt).trim().replace(",", "."); return s === "" ? null : Number.isFinite(Number(s)) ? Number(s) : NaN; };
 function parteEnsaios(t) {
@@ -1997,22 +1998,54 @@ async function listaProcedimentos() {
   return s;
 }
 
+// ---------------------------------------------------------------- Manual de instalações BT (2026-10-24; manual-bt.js)
+/**
+ * O manual da empresa: a nota da edição provisória, "Abrir o manual (PDF)" e o índice — cada parte num bloco que abre,
+ * cada capítulo uma ligação que abre o PDF nessa página. O PDF só sai com sessão (a API dá 404 sem ela).
+ */
+function seccaoManual() {
+  const pdf = `${API}${MANUAL_BT.ficheiro}`;
+  const abrir = el("a", "btn mini", "Abrir o manual (PDF)");
+  abrir.href = pdf;
+  abrir.target = "_blank";
+  abrir.rel = "noopener";
+  abrir.id = "manual-abrir";
+  const partes = MANUAL_BT.partes.map((p) => {
+    const ul = el("ul", "indice-manual");
+    for (const c of p.capitulos) {
+      const a = com(el("a"), el("span", "n", c.n), com(el("span", "t"), el("b", null, c.titulo), c.resumo ? el("span", "pequeno suave", c.resumo) : null), el("span", "p", `p. ${c.pagina}`));
+      a.href = ligacaoManual(pdf, c.pagina);
+      a.target = "_blank";
+      a.rel = "noopener";
+      ul.append(com(el("li"), a));
+    }
+    const d = com(el("details", "parte-manual"), el("summary", null, p.titulo), ul);
+    return d;
+  });
+  const s = seccao("Manual de instalações elétricas", selo("PDF"), el("p", "nota calma", MANUAL_BT.nota),
+    el("p", "pequeno suave", `${MANUAL_BT.titulo} (${MANUAL_BT.edicao}, ${MANUAL_BT.paginas} páginas). ${MANUAL_BT.resumo}`), abrir,
+    el("p", "pequeno suave", "Índice: toque num capítulo para abrir o manual nessa página."), ...partes);
+  s.id = "aj-manual";
+  return s;
+}
+
 // ---------------------------------------------------------------- Ajuda técnica (guia rápido; textos nossos)
 async function ajuda() {
   const procedimentos = await listaProcedimentos();
   const li = (itens) => com(el("ul", "simples"), itens.map((x) => (Array.isArray(x) ? com(el("li"), el("b", null, x[0]), ` ${x[1]}`) : el("li", null, x))));
   const dl = el("dl", "dados");
-  for (const [k, v] of [["Isolamento", "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados"], ["Terra", "≤ 100 Ω em habitação"], ["Diferencial", "dispara a ≤ IΔn; referência de tempo ≤ 300 ms"],
+  for (const [k, v] of [["Isolamento", "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados (objetivo ≥ 1 MΩ)"], ["Terra", "< 100 Ω em habitação"], ["Diferencial", "dispara entre ½ IΔn e IΔn; referência de tempo ≤ 300 ms"],
     ["PE", "registar o valor medido, tomada → quadro"], ["Tensão", "230 V ± 10 %"]]) dl.append(el("dt", null, k), el("dd", null, v));
   const fechada = (...a) => { const s = seccao(...a); s.open = false; return s; };
-  const primeira = seccao("Segurança, antes de tudo", null, li(["Cortar o circuito no quadro e sinalizar o disjuntor.", "Confirmar a ausência de tensão no ponto de trabalho.",
-    "Nunca trabalhar com tensão; medir só com pontas isoladas.", "Fumo, faíscas ou cheiro a queimado: cortar o geral e não religar."]));
+  const primeira = seccao("Segurança, antes de tudo", null, li(["Cortar o circuito no quadro e sinalizar o disjuntor.", "Confirmar a ausência de tensão no ponto de trabalho com um detetor bipolar testado antes e depois.",
+    "Nunca trabalhar com tensão; medir só com pontas isoladas.", "Fumo, faíscas ou cheiro a queimado: cortar o geral e não religar.", "Nunca aumentar o calibre do disjuntor nem fazer ponte ao diferencial."]));
   primeira.id = "aj-seguranca";
   return [el("h2", null, "Ajuda técnica"), el("p", "suave pequeno", "Guia rápido para a obra. Em caso de dúvida, ligue à Domus Energia."),
     procedimentos,
+    seccaoManual(),
     primeira,
     fechada("Valores de referência", null, dl),
-    fechada("Ordem dos ensaios", null, li(["Inspeção visual.", "Continuidade do PE.", "Resistência de isolamento.", "Terra e diferencial.", "Polaridade e ensaio funcional com carga."])),
+    fechada("Ordem dos ensaios", null, li(["Inspeção visual.", "Continuidade do PE.", "Resistência de isolamento.", "Terra e diferencial.", "Polaridade e ensaio funcional com carga.", "Quedas de tensão nos pontos mais afastados."])),
     fechada("Tipos de avaria", null, li([["Circuito aberto:", "não há corrente no ponto. Testar a continuidade, sem tensão."],
       ["Curto-circuito:", "o disjuntor dispara logo. Isolar por partes; não religar sem a causa."],
       ["Fuga à terra:", "o diferencial dispara. Medir o isolamento circuito a circuito."],

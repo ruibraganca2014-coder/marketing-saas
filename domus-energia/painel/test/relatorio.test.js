@@ -15,7 +15,7 @@ test('"Não sei" (para-raios, quadro, potência, ligação), localidade não rec
     deslocacao: { estado: 'visita', localidade: 'Aldeia X', valor_iva: 10 },
     avisos: ['Este circuito pode não aguentar. (orientativo — confirmamos na visita)'],
   });
-  assert.match(texto(l, 'Para-raios / linha aérea'), /NÃO SABE.*recomendado \(RTIEBT 801\.5\.10\) \(já está incluído\)/);
+  assert.match(texto(l, 'Para-raios / linha aérea'), /NÃO SABE.*recomendado \(RTIEBT 801\.5\.10\) e com para-raios tem de ser de tipo 1 \(manual de instalações BT, 18\.4\) \(já está incluído\)/);
   assert.match(texto(l, 'Quadro elétrico'), /NÃO SABE se o quadro atual serve.*quadro novo por precaução.*6 módulos novos/);
   assert.match(texto(l, 'Potência contratada'), /NÃO SABE.*sugerida 6,9 kVA/);
   assert.match(texto(l, 'Ligação'), /NÃO SABE se a ligação é monofásica ou trifásica/);
@@ -55,7 +55,7 @@ test('para-raios "sim", potência curta, trifásica, máquinas ≥ 2000 W, carre
   assert.match(texto(l, 'Ligação'), /^Trifásica/);
   assert.match(texto(l, 'Máquina ≥ 2000 W'), /^Placa 7200 W — circuito 2 \(C3\): 25 A, cabo 6 mm², diferencial 1, inteligente/);
   assert.ok(!/Carregador/.test(texto(l, 'Máquina ≥ 2000 W')), 'o carregador tem linha própria');
-  assert.match(texto(l, 'Carregador do carro'), /circuito 3 de 40 A, 10 mm².*diferencial próprio, no mínimo tipo A — tipo A exigido \(RTIEBT 722.*previsto \(IDR tipo A\)/);
+  assert.match(texto(l, 'Carregador do carro'), /circuito 3 de 40 A, 10 mm².*diferencial próprio de 30 mA, tipo A com deteção de 6 mA CC \(na wallbox\) ou tipo B \(manual de instalações BT, 13\.6\) — previsto \(IDR tipo A\)/);
   assert.match(texto(l, 'Quadros parciais'), /1 quadro parcial de 12 módulos \(Piso 1\)/);
   assert.match(texto(l, 'Quadros parciais'), /Circuito 1 \(Iluminação\) serve Piso 0 \(r\/c\) e Piso 1/);
   assert.match(texto(l, 'Planta'), /forma livre.*Cozinha \(14 m², Piso 0 \(r\/c\)\)/);

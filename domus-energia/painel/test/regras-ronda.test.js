@@ -196,7 +196,9 @@ test('tomada dupla e campainha: artigos próprios (55 € e campainha + botão) 
   assert.ok(cont.some((c) => c.maquinas.some((m) => m.modelo === 'campainha')));
 });
 
-test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), dentro da linha dedicada (ronda dinheiro), com a nota "tipo A exigido (RTIEBT 722)"', () => {
+// Manual de instalações BT (2026-10-24, 11.3 e 13.6): todos os diferenciais do quadro são tipo A (o artigo IDR-2P-40A-30MA-A; o AC
+// já não entra); o do carregador VE (tipo A com a deteção de 6 mA CC da wallbox, ou tipo B) vai na linha dedicada.
+test('carregador VE: diferencial próprio dentro da linha dedicada (ronda dinheiro), com a nota "tipo A com a deteção de 6 mA CC da wallbox, ou tipo B"; os outros diferenciais são tipo A', () => {
   const e = casaT2(['nova'], ['carregador_ve']);
   assert.ok(e.quadro.circuitos.some((c) => c.itens.maquinas.some((m) => m.modelo === 'carregador_ve')));
   const grupos = gruposDiferenciais(e.quadro.circuitos);
@@ -204,24 +206,27 @@ test('carregador VE: diferencial tipo A sempre (nunca o AC nem o Wi-Fi), dentro 
   for (const wifi of [false, true]) {
     e.quadro.protecoes = { ...e.quadro.protecoes, idr_wifi: wifi };
     const ped = pedidosQuadro(e);
-    assert.equal(qtd(ped, 'diferencial_tipo_a'), 0, `wifi=${wifi}: o tipo A vai na linha dedicada do carregador, não à parte`);
-    assert.equal(qtd(ped, wifi ? 'diferencial_wifi' : 'diferencial'), grupos.length - 1);
-    assert.equal(qtd(ped, wifi ? 'diferencial' : 'diferencial_wifi'), 0);
+    assert.equal(qtd(ped, wifi ? 'diferencial_wifi' : 'diferencial_tipo_a'), grupos.length - 1, `wifi=${wifi}: o do carregador vai na linha dedicada, não à parte`);
+    assert.equal(qtd(ped, wifi ? 'diferencial_tipo_a' : 'diferencial_wifi'), 0);
+    assert.equal(qtd(ped, 'diferencial'), 0, 'o AC já não entra');
   }
   const r = resumoQuadro(e);
   const l = r.linhas.find((x) => x.chave === 'diferencial_tipo_a');
   assert.equal(l.qtd, 1);
   assert.equal(r.linhas.find((x) => x.chave === 'diferencial').qtd, grupos.length - 1);
-  assert.ok(avisosProtecoes(e).some((a) => /tipo A exigido \(RTIEBT 722\)/.test(a)));
+  assert.ok(avisosProtecoes(e).some((a) => /tipo A com a deteção de 6 mA CC da wallbox, ou tipo B/.test(a)));
   const preco = calcularPreco(pedidosDaSelecao(e), CATALOGO, null);
-  assert.equal(preco.linhas.find((x) => x.sku === 'IDR-2P-40A-30MA-A'), undefined, 'sem linha à parte');
+  assert.equal(preco.linhas.find((x) => x.sku === 'IDR-2P-40A-30MA'), undefined, 'nunca o AC');
   assert.equal(preco.linhas.find((x) => x.sku === 'LINHA-DEDICADA-VE').preco_iva, 390);
-  // Sem carregador: nenhum tipo A.
-  assert.equal(qtd(pedidosQuadro(casaT2(['nova'])), 'diferencial_tipo_a'), 0);
+  // Sem carregador: todos os grupos com o tipo A, nenhum AC.
+  const semVe = casaT2(['nova']);
+  assert.equal(qtd(pedidosQuadro(semVe), 'diferencial_tipo_a'), resumoQuadro(semVe).grupos.length);
+  assert.equal(qtd(pedidosQuadro(semVe), 'diferencial'), 0);
 });
 
-test('potência sugerida nunca abaixo do mínimo da RTIEBT 801.5.2.2 (6,9 kVA com 2–6 compartimentos; 10,35 com mais de 6)', () => {
-  assert.equal(minimoRtiebt(1), null);
+test('potência sugerida nunca abaixo do mínimo da RTIEBT 801.5.2.2 (3,45 kVA com 1 compartimento; 6,9 com 2–6; 10,35 com mais de 6)', () => {
+  assert.equal(minimoRtiebt(1), 3.45, 'manual de instalações BT, 2.5');
+  assert.equal(minimoRtiebt(0), null);
   assert.equal(minimoRtiebt(2), 6.9);
   assert.equal(minimoRtiebt(6), 6.9);
   assert.equal(minimoRtiebt(7), 10.35);

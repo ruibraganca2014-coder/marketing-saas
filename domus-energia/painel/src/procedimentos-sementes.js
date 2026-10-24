@@ -2,12 +2,13 @@
 // corrigir e publicar. Nascem `rascunho` e `por_rever` (a equipa e os eletricistas não os veem). Textos nossos, pela
 // ordem em que um eletricista trabalha: preparar, tornar seguro, fazer, ensaiar, fotografar, limpar, explicar ao cliente
 // e registar no painel. Os termos de segurança e de diagnóstico são os de public/ecras/diagnostico-conteudo.js; os
-// limites dos ensaios são os que o painel já usa (config_orcamento: isolamento ≥ 0,5 MΩ, terra ≤ 100 Ω, diferencial
-// ≤ 300 ms) — aqui não se citam artigos nem se inventam valores. `s`: passo de segurança (sempre obrigatório);
+// limites dos ensaios são os que o painel já usa (config_orcamento: isolamento ≥ 0,5 MΩ, terra < 100 Ω, diferencial
+// ≤ 300 ms; coerentes com o manual de instalações BT da empresa, que também manda verificar a ausência de tensão com um
+// detetor bipolar testado antes e depois) — aqui não se citam artigos nem se inventam valores. `s`: passo de segurança (sempre obrigatório);
 // `o`: obrigatório.
 
-const LIMITES = 'Limites usados no painel: isolamento ≥ 0,5 MΩ (a 500 V c.c., aparelhos desligados), terra ≤ 100 Ω, diferencial ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.';
-const TESTAR_APARELHO = 'Testar o aparelho de medida antes num ponto com tensão conhecida.';
+const LIMITES = 'Limites usados no painel: isolamento ≥ 0,5 MΩ (a 500 V c.c., aparelhos desligados), terra < 100 Ω, diferencial a disparar entre ½ IΔn e IΔn, em ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.';
+const TESTAR_APARELHO = 'Usar um detetor de tensão bipolar (ou o multímetro), testado antes e depois num ponto com tensão conhecida.';
 
 /** [texto, marcas ("s" segurança, "o" obrigatório, "" nenhuma), nota?] */
 export const SEMENTES_PROCEDIMENTOS = [
@@ -41,7 +42,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Fumo, faíscas ou cheiro a queimado: parar, cortar o geral e não religar até encontrar a causa.', 's', 'Não se insiste num disjuntor que dispara logo.'],
       ['Olhar para o quadro: o que está disparado, calibres dos disjuntores e diferenciais, sinais de aquecimento; carregar no botão de teste do diferencial.', 'o'],
       ['Cortar e bloquear a alimentação do circuito em causa no quadro e sinalizar o disjuntor para ninguém o voltar a ligar.', 's'],
-      ['Verificar a ausência de tensão no ponto de trabalho com o multímetro ou o detetor, testado antes num ponto com tensão conhecida.', 's'],
+      ['Verificar a ausência de tensão no ponto de trabalho com o detetor bipolar (ou o multímetro), testado antes e depois num ponto com tensão conhecida.', 's'],
       ['Usar o EPI: luvas isolantes e óculos nas medições com tensão e junto ao quadro; pontas e ferramentas isoladas.', 's'],
       ['Inspeção visual do quadro, das caixas e da aparelhagem em causa: bornes soltos, condutores escurecidos, humidade, cabos esmagados ou furados.', 'o'],
       ['Localizar a avaria: com os disjuntores de saída desligados, religar um a um até o defeito aparecer; depois desligar os aparelhos desse circuito um a um.', ''],
@@ -66,7 +67,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Identificar e etiquetar cada circuito do quadro antigo (o que alimenta, secção do cabo, calibre atual) antes de desligar qualquer condutor.', 'o'],
       ['Cortar e bloquear a alimentação a montante do quadro e sinalizar para ninguém a voltar a ligar.', 's',
         'Os condutores de entrada do quadro só ficam sem tensão com o corte a montante (o aparelho de corte de entrada, junto ao contador). Se esse corte não for possível ou não estiver acessível, parar e ligar à Domus Energia.'],
-      ['Verificar a ausência de tensão nos bornes de entrada e em todos os circuitos, com o aparelho testado antes num ponto com tensão conhecida.', 's'],
+      ['Verificar a ausência de tensão nos bornes de entrada e em todos os circuitos, com o detetor bipolar (ou o multímetro) testado antes e depois num ponto com tensão conhecida.', 's'],
       ['Usar o EPI (luvas isolantes e óculos) e ferramentas isoladas durante todo o trabalho no quadro.', 's'],
       ['Desligar e retirar o quadro antigo, mantendo a identificação de cada condutor.', ''],
       ['Verificar o estado dos condutores: isolamento escurecido ou quebradiço e secção compatível com o calibre da proteção de cada circuito.', 'o',
@@ -78,7 +79,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Antes de pôr em tensão: confirmar que não ficam condutores soltos nem ferramentas no quadro, pôr tampas e obturadores e avisar quem está em casa.', 's'],
       ['Ensaios sem tensão: continuidade do PE e resistência de isolamento; registar os valores.', 'o', 'Limite usado no painel: isolamento ≥ 0,5 MΩ (a 500 V c.c., aparelhos desligados).'],
       ['Religar e fazer os ensaios com tensão: terra e disparo de cada diferencial (botão de teste e testador); registar os valores.', 'o',
-        'Limites usados no painel: terra ≤ 100 Ω, diferencial ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.'],
+        'Limites usados no painel: terra < 100 Ω, diferencial a disparar entre ½ IΔn e IΔn, em ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.'],
       ['Ensaio funcional: ligar circuito a circuito e confirmar com o cliente que tudo funciona (luzes, tomadas, máquinas).', 'o'],
       ['Fotografar o quadro novo, aberto e fechado, com as etiquetas visíveis.', 'o'],
       ['Limpar o local e levar o quadro antigo e os restos de material.', ''],
@@ -96,7 +97,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Confirmar que há módulos livres na calha e que a corrente de cada circuito é compatível com a corrente máxima do aparelho a instalar.', 'o',
         'Carga acima do que o relé suporta: não a ligar diretamente ao relé. Em caso de dúvida, parar e ligar à Domus Energia.'],
       ['Cortar e bloquear a alimentação do quadro (ou dos circuitos a intervir) e sinalizar para ninguém a voltar a ligar.', 's'],
-      ['Verificar a ausência de tensão nos bornes onde se vai trabalhar, com o aparelho testado antes num ponto com tensão conhecida.', 's'],
+      ['Verificar a ausência de tensão nos bornes onde se vai trabalhar, com o detetor bipolar (ou o multímetro) testado antes e depois num ponto com tensão conhecida.', 's'],
       ['Usar o EPI (luvas isolantes e óculos) e ferramentas isoladas.', 's'],
       ['Montar os aparelhos na calha e ligar fase, neutro e saída segundo o esquema do fabricante; apertar e conferir os bornes.', 'o'],
       ['Medidores: montar os transformadores de corrente no condutor certo e com o sentido indicado pelo fabricante.', ''],
@@ -121,7 +122,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Confirmar a potência contratada, se é monofásico ou trifásico e se o quadro tem espaço para as proteções do circuito novo.', 'o',
         'A potência do carregador e as proteções são as da proposta e das instruções do fabricante. Se o que se encontra não bate com a proposta (potência contratada, espaço no quadro, distância), parar e ligar à Domus Energia.'],
       ['Cortar e bloquear a alimentação do quadro e sinalizar para ninguém a voltar a ligar.', 's'],
-      ['Verificar a ausência de tensão nos bornes onde se vai trabalhar, com o aparelho testado antes num ponto com tensão conhecida.', 's'],
+      ['Verificar a ausência de tensão nos bornes onde se vai trabalhar, com o detetor bipolar (ou o multímetro) testado antes e depois num ponto com tensão conhecida.', 's'],
       ['Usar o EPI (luvas isolantes e óculos) e ferramentas isoladas; nas furações, óculos, e em altura, escada estável.', 's'],
       ['Fixar o carregador à altura indicada pelo fabricante, em parede firme e fora da passagem do carro.', ''],
       ['Passar o cabo do circuito próprio, em tubo ou calha e sem emendas, do quadro ao carregador; antes de furar, confirmar que não há canalizações na parede.', 'o'],
@@ -131,7 +132,7 @@ export const SEMENTES_PROCEDIMENTOS = [
       ['Antes de pôr em tensão: confirmar que não ficam condutores soltos e que o quadro e o carregador estão fechados.', 's'],
       ['Ensaios sem tensão: continuidade do PE e resistência de isolamento do circuito novo; registar os valores.', 'o', 'Limite usado no painel: isolamento ≥ 0,5 MΩ (a 500 V c.c., aparelhos desligados).'],
       ['Religar e ensaiar com tensão: terra e disparo do diferencial do carregador (botão de teste e testador); registar os valores.', 'o',
-        'Limites usados no painel: terra ≤ 100 Ω, diferencial ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.'],
+        'Limites usados no painel: terra < 100 Ω, diferencial a disparar entre ½ IΔn e IΔn, em ≤ 300 ms. Um valor fora do limite regista-se com uma nota a explicar.'],
       ['Configurar o carregador (corrente máxima e, se o modelo tiver, o limite pela potência contratada) conforme a proposta.', 'o'],
       ['Ensaio funcional: carregar o carro do cliente alguns minutos e confirmar que nada aquece nem dispara.', 'o'],
       ['Etiquetar o circuito no quadro e fotografar: carregador instalado, percurso do cabo e quadro aberto e fechado.', 'o'],

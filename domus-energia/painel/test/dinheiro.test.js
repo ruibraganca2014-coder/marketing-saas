@@ -52,7 +52,9 @@ const preco = (e, localidade = 'Lisboa', catalogo = CATALOGO, config = {}) => ca
 test('pontos de preço fechado: o total do T1 e do T2 fica igual ao cêntimo; as horas sobem com as dos pontos', () => {
   // Decisão do dono (2026-10-03): a casa já não desenha pontos de luz — saem 4 (T1) e 5 (T2) pontos a 45 € e o circuito
   // de iluminação que eles davam (73,90 €; 0,5 h): 1 538,10 → 1 284,20 € e 1 698,10 → 1 399,20 €.
-  for (const [c, total, horasAntes, horas, dias] of [[T1, 1284.2, 7.5, 14.9, 2], [T2, 1399.2, 7.5, 16.6, 3]]) {
+  // Manual de instalações BT (2026-10-24): diferenciais tipo A (45 € em vez de 49,90 €) e quadro com 20 % de reserva (T1: caixa de
+  // 18 em vez de 24, menos 0,5 h): 1 284,20 → 1 243,40 € e 1 399,20 → 1 358,40 €.
+  for (const [c, total, horasAntes, horas, dias] of [[T1, 1243.4, 7, 14.4, 2], [T2, 1358.4, 7, 16.1, 3]]) {
     const e = casa(c, ['nova']);
     const antes = preco(e, 'Lisboa', CATALOGO_ANTES), agora = preco(e);
     assert.equal(antes.total, total, `${c.tipologia} antes`);
@@ -118,11 +120,12 @@ test('deslocação: ida e volta por dia de obra (Almada 0 €, Sintra 7,20 €/d
   // base; decisão do dono de 2026-10-03: sem os 5 pontos de luz nem o circuito deles — eram 25,6 h, 4 dias, 2 202,80 €).
   const e = casa(T2, ['nova'], MAQ);
   const lx = preco(e), alm = preco(e, 'Almada'), sintra = preco(e, 'Sintra'), tv = preco(e, 'Torres Vedras');
-  assert.deepEqual([lx.horas, lx.dias, lx.total], [21.35, 3, 1903.9]);
-  assert.deepEqual([alm.deslocacao_iva, alm.total], [0, 1903.9]);
-  assert.deepEqual([sintra.deslocacao_iva, sintra.deslocacao.dias, sintra.deslocacao.limitado, sintra.total], [21.6, 3, false, 1925.5]);
-  assert.deepEqual([tv.deslocacao_iva, tv.deslocacao.dias, tv.total], [79.2, 3, 1983.1]);
-  assert.equal(preco(e, 'Sintra', CATALOGO, { horas_por_dia: 10 }).deslocacao_iva, 21.6, '21,35 h a 10 h por dia = 3 dias');
+  // Manual de instalações BT (2026-10-24): diferenciais tipo A e quadro de 24 em vez de 36 (20 % de reserva): 20,35 h, 1 821,10 €.
+  assert.deepEqual([lx.horas, lx.dias, lx.total], [20.35, 3, 1821.1]);
+  assert.deepEqual([alm.deslocacao_iva, alm.total], [0, 1821.1]);
+  assert.deepEqual([sintra.deslocacao_iva, sintra.deslocacao.dias, sintra.deslocacao.limitado, sintra.total], [21.6, 3, false, 1842.7]);
+  assert.deepEqual([tv.deslocacao_iva, tv.deslocacao.dias, tv.total], [79.2, 3, 1900.3]);
+  assert.equal(preco(e, 'Sintra', CATALOGO, { horas_por_dia: 10 }).deslocacao_iva, 21.6, '20,35 h a 10 h por dia = 3 dias');
   // Obra longa (4 h por dia = 6 dias): a deslocação fica nos 5 dias; os dias de obra continuam 6.
   const longa = preco(e, 'Sintra', CATALOGO, { horas_por_dia: 4 });
   assert.deepEqual([longa.dias, longa.deslocacao.dias, longa.deslocacao.limitado, longa.deslocacao_iva], [6, 5, true, 36]);
@@ -135,7 +138,7 @@ test('deslocação: ida e volta por dia de obra (Almada 0 €, Sintra 7,20 €/d
   const sim = montarSimulacao(e, sintra, 'base', []);
   assert.deepEqual(sim.deslocacao, { estado: 'estimada', localidade: 'Sintra', concelho: 'Sintra', distrito: 'Lisboa', distancia_km: 29, valor_iva: 21.6, dias: 3, limitado: false });
   assert.equal(montarSimulacao(e, longa, 'base', []).deslocacao.limitado, true);
-  assert.deepEqual(sim.mao_obra, { horas: 21.35, valor_iva: sintra.mao_obra_iva, incluida_iva: sintra.mao_obra_incluida_iva, dias: 3 });
+  assert.deepEqual(sim.mao_obra, { horas: 20.35, valor_iva: sintra.mao_obra_iva, incluida_iva: sintra.mao_obra_incluida_iva, dias: 3 });
   assert.equal(sim.obra_minima_iva, null);
   const ponto = sim.itens.find((i) => i.sku === 'TOMADA-NOVA');
   assert.equal(ponto.fechado, true);
@@ -170,7 +173,7 @@ test('linha dedicada até 15 m: 140 € ao juntar uma máquina a uma casa que j�
   const p = preco(e);
   assert.equal(qtd(pedidosDaSelecao(e), 'linha_dedicada_nova'), 3);
   assert.equal(qtd(pedidosDaSelecao(e), 'linha_dedicada'), 0);
-  assert.equal(p.total, 1903.9);
+  assert.equal(p.total, 1821.1);
   const lista = montarSimulacao(e, p, 'base', [], (chave) => ({ sku: encontrarArtigo(chave, CATALOGO).sku, horas: 0 })).trabalho.flatMap((g) => g.acoes.flatMap((a) => a.material));
   assert.equal(lista.filter((m) => m.sku === 'LINHA-DEDICADA-NOVA').reduce((s, m) => s + m.qtd, 0), 3, 'a lista de trabalho leva a mesma linha do preço');
   // A mesma casa já feita, a juntar as 3 máquinas (automatizar, Novo): 3 × 140 €.
@@ -178,7 +181,7 @@ test('linha dedicada até 15 m: 140 € ao juntar uma máquina a uma casa que j�
   assert.equal(qtd(pedidosDaSelecao(junta), 'linha_dedicada'), 3);
   assert.equal(preco(junta).linhas.find((l) => l.sku === 'LINHA-DEDICADA').total, 420);
   assert.equal(preco(e, 'Lisboa', CATALOGO_ANTES).completo, false, 'servidor sem a migração 24: fica "há artigos sem preço"');
-  assert.equal(cent(p.total - 3 * 70), 1693.9, 'o total sem as linhas dedicadas');
+  assert.equal(cent(p.total - 3 * 70), 1611.1, 'o total sem as linhas dedicadas');
   assert.equal(qtd(pedidosDaSelecao(casa(T2, ['nova'])), 'linha_dedicada_nova'), 0);
   // Carregador novo sem "Instalação nova" (o anúncio): só a linha, 390 € com tudo; a medição no telemóvel é opcional.
   const evCasa = { tipo: 'moradia', tipologia: 'T3', quartos: 3, casas_banho: 2, salas: 1, extras: { garagem: true } };
@@ -208,7 +211,9 @@ test('linha dedicada até 15 m: 140 € ao juntar uma máquina a uma casa que j�
   const nova = casa({ ...T2, tipo: 'moradia' }, ['nova'], ['carregador_ve'], (s) => { s.quadro.quadro_novo = 'novo'; });
   for (const c of nova.quadro.circuitos) { c.inteligente = false; c.medir = false; }
   const pq = pedidosQuadro(nova);
-  assert.equal(qtd(pq, 'diferencial_tipo_a'), 0);
+  // Manual de instalações BT (2026-10-24): os diferenciais dos grupos são tipo A (o artigo do tipo A); o do carregador não entra à parte.
+  assert.equal(qtd(pq, 'diferencial_tipo_a'), resumoQuadro(nova).grupos.filter((g) => !g.carregador).length);
+  assert.equal(qtd(pq, 'diferencial'), 0);
   assert.equal(qtd(pq, 'disjuntor_circuito'), nova.quadro.circuitos.length - 1, 'todos menos o do carregador');
   assert.equal(qtd(pedidosDaSelecao(nova), 'linha_dedicada_ve'), 1);
   // Carregador de 22 kW numa casa trifásica com quadro novo: o tetrapolar também vai dentro da linha.
@@ -267,14 +272,14 @@ test('obra mínima: abaixo de 100 € cobra-se 100 €; o intervalo nunca fica a
 test('intervalo (QA final): −10 %/+20 % só nos trabalhos, arredondado uma vez a 5 €; a deslocação soma fixa por cima', () => {
   const e = casa(T2, ['nova'], MAQ);
   const lx = preco(e), sintra = preco(e, 'Sintra');
-  // Trabalhos 1903,90 € → 1715 € – 2285 € em qualquer localidade; Sintra (3 dias) soma 21,60 € sem intervalo.
-  assert.deepEqual([lx.trabalhos_min, lx.trabalhos_max, lx.min, lx.max], [1715, 2285, 1715, 2285]);
-  assert.deepEqual([sintra.trabalhos_min, sintra.trabalhos_max], [1715, 2285]);
-  assert.deepEqual([sintra.min, sintra.max], [1736.6, 2306.6]);
-  assert.deepEqual(intervaloEstimativa(1903.9, {}), { min: 1715, max: 2285 }, 'o mesmo intervalo do relatório básico da conta');
-  assert.equal(textoIntervalo(lx), '1 715 € – 2 285 €');
-  assert.equal(textoIntervalo(sintra), '1 736,60 € – 2 306,60 €');
-  assert.equal(textoIntervaloTrabalhos(sintra), '1 715 € – 2 285 €');
+  // Trabalhos 1821,10 € (manual de instalações BT, 2026-10-24; eram 1903,90 €) → 1640 € – 2185 € em qualquer localidade; Sintra (3 dias) soma 21,60 € sem intervalo.
+  assert.deepEqual([lx.trabalhos_min, lx.trabalhos_max, lx.min, lx.max], [1640, 2185, 1640, 2185]);
+  assert.deepEqual([sintra.trabalhos_min, sintra.trabalhos_max], [1640, 2185]);
+  assert.deepEqual([sintra.min, sintra.max], [1661.6, 2206.6]);
+  assert.deepEqual(intervaloEstimativa(1821.1, {}), { min: 1640, max: 2185 }, 'o mesmo intervalo do relatório básico da conta');
+  assert.equal(textoIntervalo(lx), '1 640 € – 2 185 €');
+  assert.equal(textoIntervalo(sintra), '1 661,60 € – 2 206,60 €');
+  assert.equal(textoIntervaloTrabalhos(sintra), '1 640 € – 2 185 €');
   // Com a obra mínima o mesmo: o mínimo nos trabalhos, a deslocação por cima.
   const m = comObraMinima(calcularPreco([{ chave: 'aparelho_normal', qtd: 5, acao: 'substituir' }], CATALOGO, {}, calcularDeslocacao('Sintra', {})));
   assert.deepEqual([m.trabalhos_min, m.trabalhos_max, m.min, m.max], [100, 115, 107.2, 122.2]);
