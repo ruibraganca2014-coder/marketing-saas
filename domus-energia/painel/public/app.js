@@ -1,7 +1,7 @@
 // Painel da empresa (docs/PAINEL-EMPRESA.md §4): entrar, navegação por papel e ecrãs.
 // Rotas no endereço: #/inicio (o ecrã "Hoje"), #/tarefas, #/tarefas/<id>, #/tarefas/nova, #/crm, #/crm/<id> (ficha do cliente), #/clientes, #/clientes/<codigo> (ecrã "Casas e planos"), #/alertas, #/orcamentos, #/orcamentos/<id>,
 // #/obras, #/obras/<id>, #/catalogo, #/stock, #/pagamentos, #/equipa, #/contas, #/eletricistas, #/auditoria, #/procedimentos, #/procedimentos/<id>,
-// #/procedimentos/<id>/editar, #/procedimentos/novo, #/ajuda (Ajuda técnica: diagnóstico de avarias).
+// #/procedimentos/<id>/editar, #/procedimentos/novo, #/ajuda (Ajuda técnica: diagnóstico de avarias), #/diagnosticos, #/diagnosticos/<id>.
 import { pedir, aoTerminarSessao, campo, lista, lerPedido, ErroApi } from "./api.js";
 import { h, PAPEIS, semAcesso, avisar, mostrarPalavraPasse, janela, campoForm, mensagem } from "./ui.js";
 import inicio from "./ecras/inicio.js";
@@ -22,6 +22,7 @@ import crm from "./ecras/crm.js";
 import tarefas from "./ecras/tarefas.js";
 import procedimentos from "./ecras/procedimentos.js";
 import ativacoes from "./ecras/ativacoes.js";
+import diagnosticos from "./ecras/diagnosticos.js";
 
 // Quem vê o quê (§1). O servidor verifica sempre; aqui só se esconde o que não se pode usar.
 const ECRAS = [
@@ -52,6 +53,8 @@ const ECRAS = [
   // Procedimentos (docs/PROCEDIMENTOS.md): todos leem os publicados; só o CEO vê os rascunhos, edita e publica.
   { id: "procedimentos", nome: "Procedimentos", papeis: ["ceo", "tecnico", "comercial"], m: procedimentos },
   { id: "ajuda", nome: "Ajuda técnica", papeis: ["ceo", "tecnico", "comercial"], m: ajuda },
+  // App de diagnóstico (decisões do dono, 2026-10-24; web/diagnostico.html): o CEO vê todos; os outros os seus.
+  { id: "diagnosticos", nome: "Diagnósticos", papeis: ["ceo", "tecnico", "comercial"], m: diagnosticos },
 ];
 
 // Menu curto (decisão do dono, 2026-10-04: "simplifica o painel"; 2026-10-14: com o Hoje à frente): por omissão o menu

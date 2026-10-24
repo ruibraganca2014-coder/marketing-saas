@@ -82,7 +82,9 @@ export function guiaDiagnostico() {
 export default function ajuda(el) {
   const imprimir = h("button", { class: "btn sec pequeno", type: "button", id: "imprimir-ajuda", text: "Imprimir / guardar PDF", onclick: () => window.print() });
   el.append(
-    h("div", { class: "ecra-topo nao-imprimir" }, h("h1", { text: "Ajuda técnica" }), h("div", { class: "form-botoes" }, imprimir)),
+    h("div", { class: "ecra-topo nao-imprimir" }, h("h1", { text: "Ajuda técnica" }), h("div", { class: "form-botoes" },
+      // App de diagnóstico (2026-10-24): passo a passo, no telemóvel, também sem rede; os registos ficam em "Diagnósticos".
+      h("a", { class: "btn sec pequeno", href: "/diagnostico.html", target: "_blank", rel: "noopener", id: "ajuda-app-diagnostico", text: "App de diagnóstico" }), imprimir)),
     h("article", { class: "cartao ajuda-tecnica", id: "ajuda-manual", "aria-labelledby": "ajuda-manual-titulo" }, ...manualInstalacoes()),
     h("article", { class: "cartao ajuda-tecnica", id: "ajuda-diagnostico", "aria-labelledby": "ajuda-diag-titulo" }, ...guiaDiagnostico()));
   return { rota() {} };

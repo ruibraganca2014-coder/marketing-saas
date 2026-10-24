@@ -792,3 +792,12 @@ details.material-artigos > summary { min-height: 48px; padding: 12px 0; box-sizi
 .entrar-dupla { display: grid; gap: 24px; width: 100%; max-width: 420px; margin: 0 auto; }
 .entrar-dupla > .caixa-login { margin: 0; max-width: none; }
 @media (min-width: 900px) { .entrar-dupla:has(> .caixa-login:not([hidden])) { grid-template-columns: minmax(0, 1fr) minmax(0, 420px); max-width: 900px; gap: 48px; align-items: center; } .entrar-dupla > .entrar-info { order: -1; } }
+
+/* Diagnósticos da app de diagnóstico (ecras/diagnosticos.js) */
+.caixa-linha { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.caixa-linha input { width: 22px; height: 22px; accent-color: var(--musgo); }
+#ficha-diagnostico h3 { margin: 18px 0 6px; }
+#ficha-diagnostico .pre { white-space: pre-line; }
+#tabela-percurso .selo-p { margin-left: 6px; }
+.fotos-diagnostico { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.fotos-diagnostico img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; border: 1px solid var(--borda); }

@@ -131,6 +131,8 @@ export function lerConfig(env = process.env) {
     fotosDir: env.FOTOS_DIR || join(dados, 'painel', 'fotos'),
     // Documentos dos eletricistas externos (seguro de responsabilidade civil; docs/ELETRICISTAS.md): fora da pasta pública.
     eletricistasDir: env.ELETRICISTAS_DIR || join(dados, 'painel', 'eletricistas'),
+    // Fotos da app de diagnóstico (src/diagnosticos.js): fora da pasta pública, uma pasta por diagnóstico.
+    diagnosticosDir: env.DIAGNOSTICOS_DIR || join(dados, 'painel', 'diagnosticos'),
     limiteFotosHora: Number(env.LIMITE_FOTOS_HORA || 120),         // fotos por hora, por IP
     limiteFotosConsultasHora: Number(env.LIMITE_FOTOS_CONSULTAS_HORA || 3000),   // fotos pelo telemóvel: sondagens e tokens por hora, por IP
     limiteFotosTokensHora: Number(env.LIMITE_FOTOS_TOKENS_HORA || 30),           // fotos pelo telemóvel: tokens NOVOS por hora, por IP

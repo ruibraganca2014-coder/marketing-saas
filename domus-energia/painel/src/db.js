@@ -1281,6 +1281,51 @@ export const MIGRACOES = [
   // 59: manual de instalações BT (decisões do dono, 2026-10-24): o diferencial 2P 63 A 30 mA tipo A (10,35 kVA ou mais) e o
   // descarregador de tipo 1+2 (para-raios), com preço provisório — só os que ainda não existem (nunca mexe num artigo do CEO).
   (db) => semear(db, SEMENTES_QUADRO.filter((s) => SKUS_MIGRACAO_59.includes(s.sku)), true),
+  // 60: app de diagnóstico (decisões do dono, 2026-10-24; src/diagnosticos.js, web/diagnostico.html). Cada diagnóstico é
+  // feito no telemóvel e chega aqui quando há rede: o `id` (32 hex) é gerado no telemóvel e é a chave da sincronização (o
+  // mesmo id duas vezes = a mesma linha). Autor: um eletricista aprovado OU um utilizador do painel. Ligação opcional a um
+  // trabalho do eletricista (e ao pedido dele) ou, no painel, a um pedido. O percurso (passos, respostas, valores) e a
+  // barreira de segurança ficam em JSON com os textos, para se lerem sem a árvore. Fotos em diagnosticos_fotos.
+  (db) => {
+    db.exec(`
+      CREATE TABLE diagnosticos (
+        id TEXT PRIMARY KEY CHECK (length(id) = 32),
+        origem TEXT NOT NULL CHECK (origem IN ('eletricista', 'painel')),
+        eletricista_id INTEGER REFERENCES eletricistas(id) ON DELETE SET NULL,
+        utilizador_id INTEGER REFERENCES utilizadores(id) ON DELETE SET NULL,
+        trabalho_id INTEGER REFERENCES trabalhos_eletricista(id) ON DELETE SET NULL,
+        orcamento_id INTEGER REFERENCES orcamentos(id) ON DELETE SET NULL,
+        arvore TEXT NOT NULL,
+        arvore_versao INTEGER NOT NULL,
+        titulo TEXT NOT NULL,
+        estado TEXT NOT NULL CHECK (estado IN ('em_curso', 'concluido', 'parado')),
+        seguranca TEXT NOT NULL,                  -- JSON {epi: [chaves], regras: [chaves], quando}
+        passos TEXT NOT NULL DEFAULT '[]',        -- JSON [{no, pergunta, resposta, chave, valor?, unidade?, avaliacao?, limite?, tensao, quando}]
+        causa TEXT,
+        acao TEXT,
+        tipo TEXT,                                -- tipo de avaria (aberto, curto, terra, sobrecarga, outro)
+        perigo TEXT,                              -- sinal de perigo que parou o diagnóstico ("Parar e isolar")
+        nota TEXT,                                -- nota livre do autor (sai no RGPD)
+        iniciado TEXT NOT NULL,
+        terminado TEXT,
+        ficha_enviada TEXT,                       -- quando foi para a ficha da avaria (ou do pedido)
+        criado TEXT NOT NULL,
+        atualizado TEXT NOT NULL
+      );
+      CREATE INDEX diagnosticos_eletricista ON diagnosticos(eletricista_id);
+      CREATE INDEX diagnosticos_utilizador ON diagnosticos(utilizador_id);
+      CREATE INDEX diagnosticos_trabalho ON diagnosticos(trabalho_id);
+      CREATE INDEX diagnosticos_orcamento ON diagnosticos(orcamento_id);
+      CREATE TABLE diagnosticos_fotos (
+        id TEXT PRIMARY KEY CHECK (length(id) = 24),   -- gerado no telemóvel (também o nome do ficheiro)
+        diagnostico_id TEXT NOT NULL REFERENCES diagnosticos(id) ON DELETE CASCADE,
+        tipo_mime TEXT NOT NULL CHECK (tipo_mime IN ('image/jpeg', 'image/png')),
+        bytes INTEGER NOT NULL,
+        criado TEXT NOT NULL
+      );
+      CREATE INDEX diagnosticos_fotos_diagnostico ON diagnosticos_fotos(diagnostico_id);
+    `);
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

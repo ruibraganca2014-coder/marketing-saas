@@ -128,6 +128,14 @@ const MATRIZ = [
   ['GET', 'obras/999/checklists', TODOS],
   ['POST', 'obras/999/checklists', [C, T], {}],
   ['POST', 'obras/999/checklists/998', [C, T], {}],
+  // App de diagnóstico (2026-10-24; diagnostico-app.test.js): todos guardam e veem os seus (o CEO todos); ligar a um pedido e
+  // "Enviar para a ficha" do pedido só o CEO e o comercial.
+  ['GET', 'diagnosticos', TODOS],
+  ['POST', 'diagnosticos', TODOS, {}],
+  ['GET', 'diagnosticos/999', TODOS],
+  ['POST', 'diagnosticos/999/ficha', [C, M], {}],
+  ['GET', 'diagnosticos/999/fotos/0123456789abcdef01234567', TODOS],
+  ['POST', 'diagnosticos/999/fotos/0123456789abcdef01234567', TODOS, {}],
 ];
 const PUBLICAS = [['POST', 'entrar'], ['POST', 'sair']];
 
@@ -155,11 +163,14 @@ test('a matriz cobre exatamente as rotas do servidor', () => {
   }
 });
 
+// App de diagnóstico (decisão do dono, 2026-10-24): sem sessão ou sem o papel, 404 como um endereço que não existe.
+const ESCONDIDA = (caminho) => caminho.startsWith('diagnosticos');
+
 for (const [metodo, caminho, papeis, corpo] of MATRIZ) {
-  test(`${metodo} ${caminho}: anónimo 401, ${papeis.join('/')} com acesso, outros 403`, async () => {
+  test(`${metodo} ${caminho}: anónimo ${ESCONDIDA(caminho) ? 404 : 401}, ${papeis.join('/')} com acesso, outros ${ESCONDIDA(caminho) ? 404 : 403}`, async () => {
     const url = `/painel/api/${caminho}`;
     const anon = await p.pedir(metodo, url, { corpo });
-    assert.equal(anon.estado, 401, `anónimo: ${anon.texto}`);
+    assert.equal(anon.estado, ESCONDIDA(caminho) ? 404 : 401, `anónimo: ${anon.texto}`);
     assert.equal(typeof anon.json.erro, 'string');
     for (const papel of TODOS) {
       const antes = p.app.db.prepare('SELECT COUNT(*) AS n FROM auditoria WHERE utilizador_id = ?').get(p.u[papel].id).n;
@@ -168,8 +179,8 @@ for (const [metodo, caminho, papeis, corpo] of MATRIZ) {
         assert.ok(![401, 403].includes(r.estado), `${papel} devia ter acesso: ${r.estado} ${r.texto}`);
         assert.ok(r.estado < 500, `${papel}: ${r.estado} ${r.texto}`);
       } else {
-        assert.equal(r.estado, 403, `${papel} não devia ter acesso: ${r.estado} ${r.texto}`);
-        assert.equal(r.json.erro, 'Não tem acesso a esta área.');
+        assert.equal(r.estado, ESCONDIDA(caminho) ? 404 : 403, `${papel} não devia ter acesso: ${r.estado} ${r.texto}`);
+        assert.equal(r.json.erro, ESCONDIDA(caminho) ? 'Endereço desconhecido.' : 'Não tem acesso a esta área.');
         const depois = p.app.db.prepare('SELECT COUNT(*) AS n FROM auditoria WHERE utilizador_id = ?').get(p.u[papel].id).n;
         assert.equal(depois, antes, 'recusado sem efeitos');
       }

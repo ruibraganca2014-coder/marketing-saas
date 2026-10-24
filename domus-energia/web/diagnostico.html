@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Diagnóstico de avarias | Domus Energia</title>
+  <meta name="description" content="Diagnóstico de avarias para os eletricistas e a equipa da Domus Energia: passo a passo, com os valores do manual de instalações, também sem rede.">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#606c38">
+  <link rel="manifest" href="diagnostico.json">
+  <link rel="apple-touch-icon" href="icones/icone-apple-180.png">
+  <script src="tema.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@700;800&family=Nunito+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="eletricista.css">
+  <link rel="stylesheet" href="diagnostico.css">
+</head>
+<body>
+  <!-- App de diagnóstico (decisões do dono, 2026-10-24; docs/ELETRICISTAS.md "App de diagnóstico"): para o eletricista em
+       obra e para a equipa do painel, com as contas que já têm. Funciona sem rede (diagnostico-sw.js e IndexedDB). -->
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+  <div class="app">
+    <header class="app-topo">
+      <span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.9 4 7 13.5h4.6L10 20l7-10h-4.8z" fill="currentColor"/></svg></span>
+      <div class="quem"><b>Diagnóstico</b><span id="dg-quem">Domus Energia</span></div>
+      <span class="dg-rede" id="dg-rede" role="status" hidden>Sem rede</span>
+      <button id="tema" type="button" aria-label="Mudar tema"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
+    </header>
+    <main id="conteudo" class="app-rolo" tabindex="-1">
+      <p class="vazio" id="dg-a-carregar" role="status">A abrir…</p>
+      <div class="pilha" id="dg-vista" aria-live="polite"></div>
+    </main>
+  </div>
+  <div id="aviso" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script type="module" src="diagnostico.js"></script>
+</body>
+</html>

@@ -433,3 +433,24 @@ Publicar o módulo (ver "Para publicar"), quando o dono decidir.
 ## Pedir proposta só a um eletricista
 
 Num pedido com planta ainda sem proposta aceite (com `PROPOSTAS_BOLSA` ligado), "atribuir" a um eletricista já não lhe entrega os dados do cliente nem pede visita (decisão do dono, 2026-10-11): pede-lhe a proposta. O trabalho vai para a bolsa com `so_para` = esse eletricista (migração 48), e só ele o vê; propõe horas e material pela planta, o CEO escolhe e envia a proposta, e só depois de o cliente aceitar é que ele vê o nome e a morada. Para abrir o pedido a todos, retira-se e põe-se na bolsa. Nas avarias e nas obras já aceites a atribuição direta continua como era.
+
+## App de diagnóstico (decisões do dono, 2026-10-24)
+
+Endereço próprio: `/diagnostico.html` (web/diagnostico.html, .js, .css; manifesto `diagnostico.json`; service worker
+`diagnostico-sw.js` com âmbito `/diagnostico` — o `web/sw.js` do resto do site não muda). Para os eletricistas aprovados
+(sessão da área do eletricista, só com `ELETRICISTAS=1`) e para a equipa do painel (qualquer papel), com as contas que já
+têm. Funciona sem rede: a casca e as árvores ficam no telemóvel; os diagnósticos ficam no IndexedDB e sincronizam com
+rede e sessão válida (`POST …/diagnosticos`, o id gerado no telemóvel é a chave: o mesmo id = a mesma linha).
+
+- Árvores em `web/diagnostico/arvores-*.js` (formato em `web/diagnostico/motor.js`; limites e páginas do manual em
+  `limites.js`); cada nó com a referência ao manual (capítulo e página impressa). Ronda 1: diferencial, disjuntor, sem
+  corrente, casa sem energia, luzes, aquecimento, choque, terra, isolamento, motor. Teste estrutural em
+  `painel/test/diagnostico-app.test.js`.
+- Barreira de segurança obrigatória (EPI e as cinco regras de ouro, manual B4.4/B5.1), também verificada no servidor;
+  passos com tensão a vermelho; "Sinal de perigo" em qualquer passo → "Parar e isolar"; "Não sei" → parar e chamar apoio.
+- Rotas: `/api/eletricista/diagnosticos*` e `/painel/api/diagnosticos*` (src/diagnosticos.js; migração 60). Sem sessão,
+  com a sessão de outra área ou sem o papel: 404. Cada um vê os seus; o CEO vê todos no ecrã "Diagnósticos" do painel.
+- Ligar a um trabalho seu (eletricista) ou a um pedido (CEO e comercial) e "Enviar para a ficha": preenche o diagnóstico
+  da avaria pela mesma lógica e validação da ficha. Fotos JPEG/PNG até 1 MB, até 6 por diagnóstico.
+- RGPD: apagar um eletricista apaga os diagnósticos dele sem trabalho (e as fotos) e tira a nota dos outros; apagar a
+  conta de um cliente tira dos diagnósticos ligados aos pedidos dele as fotos, a nota e a ligação.

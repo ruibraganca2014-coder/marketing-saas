@@ -1686,6 +1686,7 @@ function seccaoDiagnostico(t) {
   });
   return seccao("Diagnóstico da avaria", a.conclusao ? selo("Feito", "bom") : selo("Por fazer", "aviso"),
     el("p", "pequeno suave", "O que verificou, o que mediu e a causa encontrada. Fica no relatório do cliente."),
+    t.editavel ? com(el("p", "pequeno"), "Passo a passo, com os valores do manual: ", Object.assign(el("a", null, "app de diagnóstico"), { href: "diagnostico.html" }), " (ligue o diagnóstico a este trabalho e use «Enviar para a ficha»).") : null,
     com(el("ul", "lista-diag"), itens.map((x) => x.no)),
     com(el("label", "campo"), el("span", null, "Tipo de avaria"), tipo),
     com(el("label", "campo"), el("span", null, "Causa encontrada e o que fez"), conclusao),
@@ -2043,6 +2044,7 @@ async function ajuda() {
     "Nunca trabalhar com tensão; medir só com pontas isoladas.", "Fumo, faíscas ou cheiro a queimado: cortar o geral e não religar.", "Nunca aumentar o calibre do disjuntor nem fazer ponte ao diferencial."]));
   primeira.id = "aj-seguranca";
   return [el("h2", null, "Ajuda técnica"), el("p", "suave pequeno", "Guia rápido para a obra. Em caso de dúvida, ligue à Domus Energia."),
+    ligacaoAppDiagnostico(),
     procedimentos,
     seccaoManual(),
     primeira,
@@ -2054,6 +2056,14 @@ async function ajuda() {
       ["Sobrecarga:", "o disjuntor dispara com carga. Pinça amperimétrica e somar potências."]])),
     fechada("Quando parar e ligar à Domus", null, li(["Avaria antes do contador: é do distribuidor.", "Quadro com sinais de aquecimento generalizado.",
       "Fuga à terra que não se localiza em canalização embebida.", "Trabalho diferente do que está no relatório."]))].filter(Boolean);
+}
+
+/** A app de diagnóstico (decisões do dono, 2026-10-24): passo a passo, com o manual, também sem rede (diagnostico.html). */
+function ligacaoAppDiagnostico() {
+  const a = el("a", "btn mini", "Abrir a app de diagnóstico");
+  a.href = "diagnostico.html";
+  a.id = "abrir-app-diagnostico";
+  return seccao("Diagnóstico de avarias (app)", null, el("p", "pequeno suave", "Escolha a anomalia e siga os passos: segurança primeiro, o que medir, os valores do manual e a causa provável. Funciona sem rede na obra; ligado a uma avaria sua, envia o diagnóstico para a ficha."), a);
 }
 
 // ---------------------------------------------------------------- contagem das 48 h

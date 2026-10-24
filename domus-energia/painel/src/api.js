@@ -37,6 +37,7 @@ import { criarNegocio, PERIODOS } from './negocio.js';
 import { criarProcedimentos } from './procedimentos.js';
 import { andamentoDoPedido, proximoPasso, linhasDoHoje } from './proximo-passo.js';
 import { MANUAL_NOME, servirManual, naoExiste } from './manual.js';
+import { criarDiagnosticos } from './diagnosticos.js';
 import { servicoFotosDe, SERVICOS_FOTOS, precisaProjeto, precisaFichaIted, textoPredio } from '../public/vendor/servicos-fotos.js';
 
 const TODOS = ['ceo', 'tecnico', 'comercial'];
@@ -235,6 +236,14 @@ export const ROTAS = [
   ['GET', 'obras/:id/checklists', TODOS, 'checklistsObra'],
   ['POST', 'obras/:id/checklists', ['ceo', 'tecnico'], 'iniciarChecklist'],
   ['POST', 'obras/:id/checklists/:lista', ['ceo', 'tecnico'], 'marcarPassoChecklist'],
+  // App de diagnóstico (2026-10-24; diagnosticos.js, web/diagnostico.html): cada um os seus; o CEO vê todos. Ligar a um
+  // pedido e "Enviar para a ficha" do pedido: só o CEO e o comercial (os que mexem no diagnóstico da ficha do pedido).
+  ['GET', 'diagnosticos', TODOS, 'diagnosticosApp'],
+  ['POST', 'diagnosticos', TODOS, 'guardarDiagnosticoApp'],
+  ['GET', 'diagnosticos/:id', TODOS, 'diagnosticoApp'],
+  ['POST', 'diagnosticos/:id/ficha', ['ceo', 'comercial'], 'fichaDiagnosticoApp'],
+  ['GET', 'diagnosticos/:id/fotos/:foto', TODOS, 'fotoDiagnosticoApp'],
+  ['POST', 'diagnosticos/:id/fotos/:foto', TODOS, 'receberFotoDiagnosticoApp'],   // o corpo são os bytes (JPEG/PNG)
 ].map(([metodo, caminho, papeis, nome]) => {
   const partes = caminho.split('/');
   return { metodo, caminho, papeis, nome, partes };
@@ -247,6 +256,9 @@ export const ROTAS = [
 const ROTAS_ELETRICISTAS = new Set(['eletricistas', 'eletricista', 'atualizarEletricista', 'seguroEletricista', 'atribuicaoEletricista', 'atribuirEletricista',
   'apagarEletricista', 'fotoTrabalhoEletricista', 'pagamentosEletricistas', 'pagoEletricista', 'faturaEletricista', 'enviarExtra', 'naoAvancarExtra', 'confirmarIda', 'anularIda', 'indicarTecnico',
   'propostasPrecos', 'aprovarPropostaPreco', 'recusarPropostaPreco']);
+
+/** Rotas da app de diagnóstico: quem não tem sessão ou o papel recebe 404 (como um endereço desconhecido), não 401/403. */
+const ROTAS_ESCONDIDAS = new Set(['diagnosticosApp', 'guardarDiagnosticoApp', 'diagnosticoApp', 'fichaDiagnosticoApp', 'fotoDiagnosticoApp', 'receberFotoDiagnosticoApp']);
 
 /** Horas de mão de obra da simulação do cliente (mao_obra.horas), ou null se não houver/for inválida. */
 function horasDaSimulacao(json) {
@@ -331,9 +343,10 @@ export function criarApi(ctx) {
   let pagPed = null;
   let eletricistas = null;   // criado mais abaixo (precisa dos pagamentos do pedido)
   let crm = null;            // idem (CRM: a conta apagada leva as notas e os contactos da ficha, RGPD)
+  let diagnosticos = null;   // idem (app de diagnóstico: a conta apagada tira as fotos e a ligação dos diagnósticos)
   let emailsAuto = null;     // idem (emails automáticos: a avaliação na conta e o registo dos envios na ficha do CRM)
   const contas = criarContas({ db, config, registo, relogio, auditar, fotos, correio, pagamentos: () => pagPed,
-    aoApagarPedido: (id) => eletricistas.apagarFotosDoPedido(id), eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm,
+    aoApagarPedido: async (id) => { await eletricistas.apagarFotosDoPedido(id); await diagnosticos.aoApagarPedido(id); }, eletricistas: () => (config.eletricistas ? eletricistas : null), crm: () => crm,
     emails: () => emailsAuto, tarefas: () => tarefas });
   // Stock simples (stock.js, migração 22): reserva com o sinal pago, saída com a obra concluída, custo do material.
   const stock = criarStock({ db, relogio });
@@ -356,7 +369,10 @@ export function criarApi(ctx) {
   // Os aparelhos e os chips ficam definidos mais abaixo (camposAparelho, guardarChip): a área do eletricista chega-lhes por aqui.
   let aparelhosCtx = null;
   eletricistas = criarEletricistas({ db, config, registo, relogio, auditar, correio, aparelhos: () => aparelhosCtx, pagamentos: () => pagPed,
-    concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos, fotos });
+    concluirObra: (o, u, ip) => concluirObra(o, u, ip), procedimentos, fotos, diagnosticos: () => diagnosticos });
+  // App de diagnóstico (diagnosticos.js): os diagnósticos sincronizados do telemóvel (eletricistas e equipa do painel).
+  diagnosticos = criarDiagnosticos({ db, config, relogio, auditar, eletricistas: () => (config.eletricistas ? eletricistas : null),
+    gravarDiagnosticoPedido: (id, valor, u, ip) => gravarDiagnosticoPedido(id, valor, u, ip) });
   /** Os concelhos onde há pelo menos um eletricista aprovado que faz avarias fora de horas (só os nomes); vazio sem o módulo. */
   const concelhosForaHoras = () => (config.eletricistas ? eletricistas.concelhosForaHoras() : []);
   // CRM e quadro de tarefas (crm.js, tarefas.js; docs/CRM-TAREFAS.md): lembretes automáticos ao ler e de 15 em 15 min.
@@ -1838,14 +1854,26 @@ export function criarApi(ctx) {
   // o fez; `null` apaga. O relatório técnico mostra-o; o cliente vê-o só no relatório completo.
   h.guardarDiagnostico = async ({ req, res, u, params, ip }) => {
     const v = await lerJson(req, ['diagnostico']);
-    const o = naoArquivado(obterOrcamento(params.id));
+    gravarDiagnosticoPedido(params.id, v.diagnostico, u, ip);
+    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
+  };
+  /** O diagnóstico da ficha do pedido (`null` apaga); também o "Enviar para a ficha" da app de diagnóstico (diagnosticos.js). */
+  function gravarDiagnosticoPedido(idPedido, valor, u, ip) {
+    const o = naoArquivado(obterOrcamento(String(idPedido)));
     const agora = agoraIso();
-    const guardado = v.diagnostico === undefined || v.diagnostico === null ? null : { ...validarDiagnostico(v.diagnostico), data: agora, por: u.email };
+    const guardado = valor === undefined || valor === null ? null : { ...validarDiagnostico(valor), data: agora, por: u.email };
     db.prepare('UPDATE orcamentos SET diagnostico = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
     auditar(u, 'diagnostico_atualizado', `orcamento:${o.id}`, guardado
       ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao) } : { apagado: true }, ip);
-    responder(res, 200, formatarOrcamento(obterOrcamento(params.id), true, u.papel));
-  };
+  }
+
+  // App de diagnóstico (diagnosticos.js): as rotas do painel; a autorização do papel está em ROTAS e o resto lá.
+  h.diagnosticosApp = (ctx) => diagnosticos.painel.lista(ctx);
+  h.guardarDiagnosticoApp = (ctx) => diagnosticos.painel.guardar(ctx);
+  h.diagnosticoApp = (ctx) => diagnosticos.painel.ver(ctx);
+  h.fichaDiagnosticoApp = (ctx) => diagnosticos.painel.ficha(ctx);
+  h.fotoDiagnosticoApp = (ctx) => diagnosticos.painel.foto(ctx);
+  h.receberFotoDiagnosticoApp = (ctx) => diagnosticos.painel.receberFoto(ctx);
 
   // Assistente (IA) do pedido (assistente.js; docs/ASSISTENTE-IA.md): ao modelo vão só os dados técnicos (sem nome,
   // contactos nem morada; da localidade só o concelho). O resultado fica em `orcamentos.ia` e não mexe em mais nada.
@@ -2901,10 +2929,15 @@ export function criarApi(ctx) {
         if (!rota && caminhoExiste) return responder(res, 405, { erro: 'Método não permitido.' });
         return responder(res, 404, { erro: 'Endereço desconhecido.' });
       }
+      // App de diagnóstico (2026-10-24): sem sessão ou sem o papel, 404 como um endereço que não existe (decisão do dono).
+      if (ROTAS_ESCONDIDAS.has(rota.nome)) {
+        const quem = auth.sessao(req, res);
+        if (!quem || !rota.papeis.includes(quem.papel)) return responder(res, 404, { erro: 'Endereço desconhecido.' });
+      }
       if (rota.metodo === 'POST') {
         // CSRF: só pedidos do próprio site, e sempre JSON.
         if (!verificarOrigem(req, config.origens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
-        if (!tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
+        if (rota.nome !== 'receberFotoDiagnosticoApp' && !tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
       }
       let u = null;
       if (rota.papeis !== 'publico') {
@@ -2921,6 +2954,6 @@ export function criarApi(ctx) {
     }
   }
 
-  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas, emailsAuto, procedimentos };
+  return { tratar, auditar, fotos, fotosRemotas, contas, correio, pagamentosPedido: pagPed, eletricistas, crm, tarefas, emailsAuto, procedimentos, diagnosticos };
 }
 

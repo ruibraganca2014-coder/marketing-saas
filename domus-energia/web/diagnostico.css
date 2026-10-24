@@ -1,0 +1,53 @@
+/* App de diagnóstico (web/diagnostico.html): por cima do eletricista.css (os mesmos tokens, botões, cartões e campos da
+   área do eletricista, para se ler ao sol e em obra). Só o que é próprio do diagnóstico: as árvores, o passo, o aviso de
+   tensão a vermelho, o "Parar e isolar" e o registo. */
+.app-rolo { padding-bottom: 32px; }
+.dg-titulo { font-size: 1.6rem; overflow-wrap: anywhere; }
+.dg-rede { padding: 4px 10px; border-radius: 999px; background: var(--alarme); color: var(--sobre-alarme); font-weight: 800; font-size: .82rem; white-space: nowrap; }
+
+/* Início: as anomalias por grupo e as linhas dos diagnósticos */
+.dg-grupo { gap: 10px; }
+.app-rolo .dg-grupo h2.rotulo { font-size: .85rem; margin-top: 6px; }
+.dg-arvore, .dg-linha { display: grid; gap: 4px; width: 100%; min-height: 64px; text-align: left; font: inherit; color: inherit; cursor: pointer; border-left: 8px solid var(--musgo); overflow-wrap: anywhere; }
+.dg-arvore b, .dg-linha b { font: 800 1.12rem/1.2 var(--letra-titulos); }
+.dg-arvore:hover, .dg-linha:hover { border-color: var(--musgo); }
+
+/* Barreira de segurança */
+.dg-seguranca h2 { font-size: 1.15rem; margin-top: 6px; }
+.dg-marcar { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.dg-marcar li { border-bottom: 1px solid var(--borda); }
+.dg-marcar li:last-child { border-bottom: 0; }
+
+/* O passo */
+.dg-pergunta { font-size: 1.4rem; line-height: 1.2; overflow-wrap: anywhere; }
+.dg-fazer { font-size: .98rem; }
+.dg-ref { color: var(--texto-suave); }
+.dg-ref a { font-weight: 700; }
+.dg-respostas { display: grid; gap: 12px; }
+.dg-respostas.dois { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.dg-respostas .btn { width: 100%; }
+.dg-opcao { justify-content: flex-start; text-align: left; border-radius: 16px; }
+.dg-esperado { padding: 10px 12px; border-radius: 12px; background: var(--musgo-claro); font-size: .96rem; overflow-wrap: anywhere; }
+.dg-nav { justify-content: space-between; }
+.dg-passo.tensao { border: 3px solid var(--alarme); box-shadow: 0 0 0 4px var(--alarme-suave), var(--sombra); }
+.dg-tensao { display: grid; gap: 4px; margin: -4px -4px 4px; padding: 12px 14px; border-radius: 12px; background: var(--alarme); color: var(--sobre-alarme); font-weight: 800; }
+.dg-tensao span { font-weight: 600; font-size: .92rem; }
+.dg-ultimo { font-weight: 700; }
+#dg-perigo { min-height: 56px; }
+
+/* Percurso feito */
+.dg-percurso { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: .94rem; overflow-wrap: anywhere; }
+.dg-percurso li.tensao::marker { color: var(--alarme-texto); font-weight: 800; }
+.dg-percurso .selo { margin-left: 4px; font-size: .76rem; padding: 1px 8px; }
+
+/* Parar e isolar; fim com "parar" */
+.dg-parar, .dg-fim.parar, .dg-perigo { border: 3px solid var(--alarme); background: var(--alarme-suave); }
+.dg-parar .rotulo, .dg-fim.parar .rotulo, .dg-parar .dg-titulo { color: var(--alarme-texto); }
+.dg-passos-parar { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-weight: 600; }
+.dg-causa { font: 800 1.15rem/1.3 var(--letra-titulos); }
+
+/* Registo: nota, fotos, ligação e ficha */
+.dg-registo h2 { font-size: 1.2rem; }
+.campo-titulo { font-weight: 800; font-size: .95rem; }
+.dg-fotos label.btn { justify-self: start; }
+.dg-ligacao .fila input { flex: 1 1 8em; width: auto; min-height: 54px; padding: 10px 14px; border: 2px solid var(--borda-forte); border-radius: 12px; background: var(--fundo); font-weight: 700; }

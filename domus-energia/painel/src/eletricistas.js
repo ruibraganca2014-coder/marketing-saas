@@ -210,8 +210,9 @@ function hostLocal(req) {
  *   `pagamentos()`: os pagamentos do pedido (pagamentos-pedido.js): visita paga, proposta em partes, relatório.
  *   `concluirObra(o, u, ip)`: a ação "Obra concluída" do painel (api.js), usada ao aprovar o trabalho de uma obra.
  *   `fotos`: as fotos do pedido (fotos.js), para quem está a propor na bolsa ver as que o cliente enviou.
+ *   `diagnosticos()`: a app de diagnóstico (diagnosticos.js): as rotas diagnosticos* e o RGPD ao apagar um eletricista.
  */
-export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {}, procedimentos = null, aparelhos = () => null, fotos = null }) {
+export function criarEletricistas({ db, config, registo, relogio, auditar, correio, pagamentos, concluirObra = () => {}, procedimentos = null, aparelhos = () => null, fotos = null, diagnosticos = () => null }) {
   const agoraIso = () => iso(relogio());
   const lim = (n, ms) => new LimiteTaxa(n, ms, relogio);
   const L = {
@@ -1364,17 +1365,24 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
   // Diagnóstico da avaria (só nos trabalhos de avaria): a mesma validação do painel; `null` apaga.
   h.diagnostico = async ({ req, res, e, params, ip }) => {
     const v = await lerJson(req, ['diagnostico']);
+    responder(res, 200, fichaAtual(gravarDiagnostico(e, params.id, v.diagnostico, ip)));
+  };
+  /**
+   * Grava o diagnóstico da avaria no pedido do trabalho `idTexto` (do eletricista `e`, editável, de avaria); `null` apaga.
+   * Também usado pela app de diagnóstico ("Enviar para a ficha", diagnosticos.js): a mesma validação. Devolve o trabalho.
+   */
+  function gravarDiagnostico(e, idTexto, valor, ip) {
     esperar([[L.ficha, String(e.id)]]);
     contar([[L.ficha, String(e.id)]]);
     expirar();
-    const { t, o } = meuEditavel(e, params.id);
+    const { t, o } = meuEditavel(e, idTexto);
     if (t.tipo !== 'avaria') throw new ErroApi(409, 'Só os trabalhos de avaria têm diagnóstico.');
     const agora = agoraIso();
-    const guardado = v.diagnostico === undefined || v.diagnostico === null ? null : { ...validarDiagnostico(v.diagnostico), data: agora, por: `eletricista:${e.id}` };
+    const guardado = valor === undefined || valor === null ? null : { ...validarDiagnostico(valor), data: agora, por: `eletricista:${e.id}` };
     db.prepare('UPDATE orcamentos SET diagnostico = ?, atualizado = ? WHERE id = ?').run(guardado ? JSON.stringify(guardado) : null, agora, o.id);
     auditar(quem(e), 'diagnostico_atualizado', `orcamento:${o.id}`, guardado ? { verificacoes: guardado.verificacoes.length, tipo: guardado.tipo, conclusao: Boolean(guardado.conclusao), trabalho: t.id } : { apagado: true, trabalho: t.id }, ip);
-    responder(res, 200, fichaAtual(t));
-  };
+    return t;
+  }
 
   // Foto da obra: os bytes (JPEG ou PNG, até 1 MB, verificados pelos primeiros bytes) no corpo; o grupo no endereço.
   h.receberFoto = async ({ req, res, e, params }) => {
@@ -2741,6 +2749,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     const historico = Boolean(db.prepare(`SELECT 1 FROM trabalhos_eletricista WHERE eletricista_id = ?1 UNION ALL SELECT 1 FROM trabalhos_eletricista_eventos WHERE eletricista_id = ?1
       UNION ALL SELECT 1 FROM trabalhos_eletricista_fotos WHERE eletricista_id = ?1 LIMIT 1`).get(e.id));
     const agora = agoraIso();
+    let pastasDiagnosticos = [];
     db.exec('BEGIN IMMEDIATE');
     try {
       db.prepare('DELETE FROM eletricistas_sessoes WHERE eletricista_id = ?').run(e.id);
@@ -2748,6 +2757,8 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       db.prepare('DELETE FROM trabalhos_eletricista_avisos WHERE eletricista_id = ?').run(e.id);
       db.prepare('DELETE FROM propostas_bolsa WHERE eletricista_id = ?').run(e.id);
       db.prepare('DELETE FROM propostas_precos WHERE eletricista_id = ?').run(e.id);   // as propostas de preços (a nota é texto dele; o aprovado já está no catálogo)   // as propostas da bolsa (notas e disponibilidade são texto dele)
+      // App de diagnóstico: os diagnósticos dele sem trabalho ligado saem (com as fotos); os ligados a um trabalho ficam, sem a nota livre.
+      pastasDiagnosticos = diagnosticos()?.aoApagarEletricista(e.id) ?? [];
       db.prepare('DELETE FROM auditoria WHERE alvo = ?').run(`eletricista:${e.id}`);
       db.prepare('UPDATE auditoria SET ip = NULL WHERE email = ?').run(`eletricista:${e.id}`);
       if (historico) {
@@ -2761,6 +2772,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       throw erro;
     }
     await rm(pasta(e.id), { recursive: true, force: true });
+    await diagnosticos()?.apagarPastas(pastasDiagnosticos);
     auditar(u, 'eletricista_apagado', `eletricista:${e.id}`, { modo: historico ? 'anonimizado (fica o histórico de trabalhos)' : 'apagado' }, ip);
     return { eletricista: e.id, modo: historico ? 'anonimizado' : 'apagado' };
   }
@@ -3201,9 +3213,19 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     ['GET', 'obras-assino/:id/fotos/:foto', true, 'fotoAssino'],
     ['GET', 'precos', true, 'precos'],         // tabela de preços da especialidade (só parceiros; 2026-10-14): artigos, o que recebe e as suas propostas
     ['POST', 'precos', true, 'proporPreco'],   // {artigo_id | nome + especialidade, horas, material, custo, nota}: proposta ao CEO
+    // App de diagnóstico (2026-10-24; diagnosticos.js, web/diagnostico.html): os diagnósticos do próprio, sincronizados do telemóvel.
+    ['GET', 'diagnosticos', true, 'diagnosticosLista'],
+    ['POST', 'diagnosticos', true, 'diagnosticoGuardar'],               // {id, arvore, …}: o mesmo id = o mesmo registo
+    ['GET', 'diagnosticos/:id', true, 'diagnosticoVer'],
+    ['POST', 'diagnosticos/:id/ficha', true, 'diagnosticoFicha'],       // {diagnostico}: preenche o diagnóstico da avaria ligada
+    ['GET', 'diagnosticos/:id/fotos/:foto', true, 'diagnosticoFoto'],
+    ['POST', 'diagnosticos/:id/fotos/:foto', true, 'diagnosticoReceberFoto'],   // :foto = id gerado no telemóvel; o corpo são os bytes
   ].filter(([, , , nome]) => config.propostasBolsa || !['proporBolsa', 'fotoBolsa'].includes(nome))   // com PROPOSTAS_BOLSA=0 estas rotas não existem (404, como antes)
     .map(([metodo, caminho, sessaoPrecisa, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao: sessaoPrecisa, nome }));
   h.candidatura = candidatura;
+  for (const nome of ['diagnosticosLista', 'diagnosticoGuardar', 'diagnosticoVer', 'diagnosticoFicha', 'diagnosticoFoto', 'diagnosticoReceberFoto']) {
+    h[nome] = (ctx) => diagnosticos().eletricista[nome](ctx);
+  }
   // As páginas perguntam se o módulo existe (com ELETRICISTAS desligado isto dá 404 e elas mostram só uma linha).
   // Leva a percentagem da mão de obra em vigor (configuração), para a página "Trabalhe connosco" não a ter escrita à mão.
   h.aberta = ({ res }) => responder(res, 200, { aberta: true, percentagem: percentagemOmissao() });
@@ -3223,9 +3245,11 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
       if (r.metodo === req.method || (req.method === 'HEAD' && r.metodo === 'GET')) { rota = r; params = p; break; }
     }
     if (!rota) return responder(res, existe ? 405 : 404, { erro: existe ? 'Método não permitido.' : 'Endereço desconhecido.' });
+    // App de diagnóstico (2026-10-24): sem sessão de eletricista aprovado, 404 como um endereço que não existe (decisão do dono).
+    if (rota.nome.startsWith('diagnostico') && !sessao(req, res)) return responder(res, 404, { erro: 'Endereço desconhecido.' });
     if (rota.metodo === 'POST') {
       if (!verificarOrigemPublica(req, config.origens, config.siteOrigens)) throw new ErroApi(403, 'Pedido recusado (origem desconhecida).');
-      if (rota.nome !== 'receberFoto' && !tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
+      if (rota.nome !== 'receberFoto' && rota.nome !== 'diagnosticoReceberFoto' && !tipoJson(req)) throw new ErroApi(415, 'O pedido tem de ser JSON (Content-Type: application/json).');
     }
     let e = null;
     if (rota.sessao) {
@@ -3246,5 +3270,6 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     concelhosForaHoras,   // avarias fora de horas (2026-10-13): onde há quem as faça (só os nomes dos concelhos)
     propostasPrecos, precosPorRever, propostaPrecoPendente, decidirPropostaPreco,   // tabela de preços da especialidade (2026-10-14)
     abrirSessao, publico,   // só para o acesso rápido de testes (acesso-rapido.js)
+    gravarDiagnostico,      // a app de diagnóstico: "Enviar para a ficha" (diagnosticos.js)
   };
 }
