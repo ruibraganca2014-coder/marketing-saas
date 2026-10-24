@@ -2195,7 +2195,9 @@ function mudarACasa() {
   irPara(P.casa);
 }
 $("planta-fechar").addEventListener("click", () => fecharPlanta());
-ecraLargo.addEventListener("change", () => { if (ecraLargo.matches) fecharPlanta({ foco: false }); });
+ecraLargo.addEventListener("change", () => { if (ecraLargo.matches) fecharPlanta({ foco: false }); editor.definirUmaDivisao(!ecraLargo.matches); });
+// Telemóvel (decisão do dono, 2026-10-24): a planta mostra uma divisão de cada vez (tocar aproxima; "Ver a casa toda" volta).
+editor.definirUmaDivisao(!ecraLargo.matches);
 document.addEventListener("keydown", (ev) => {
   // Com uma janela do editor aberta (Opções) as teclas são dela.
   if (!plantaAberta() || document.querySelector("dialog[open]")) return;

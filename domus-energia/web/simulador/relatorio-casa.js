@@ -6,7 +6,7 @@ import {
   pontosDivisao, areaPoligono, caixasDe, maquinaDaPlanta, contarPlanta, sugerirCircuitos, codigoCircuito, seccaoCabo,
   circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA, PROPRIOS_LEVES,
 } from "./regras.js";
-import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA, ESCALOES_KVA, amperesDiferencial } from "./quadro.js";
+import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA, ESCALOES_KVA, amperesDiferencial, USO } from "./quadro.js";
 import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
 
 /**
@@ -82,14 +82,19 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
   const grandes = proprias.filter((m) => !PROPRIOS_LEVES.includes(m.modelo));
   const leves = [...new Set(proprias.filter((m) => PROPRIOS_LEVES.includes(m.modelo)).map((m) => nomeModelo(m.modelo)))];
   const somaGrandes = grandes.reduce((s, m) => s + m.potencia_w, 0);
-  // Decisão do dono (2026-10-24): uma máquina com circuito próprio acima da potência contratada — ou as máquinas grandes
-  // todas ligadas ao mesmo tempo — e o relatório nunca diz "chega": a potência é curta e sugere-se o escalão que as
-  // aguenta (nunca abaixo da sugerida pelas cargas). Acima de 41,4 kVA é um contrato especial.
-  const excede = somaGrandes > contratada * 1000;
-  const pelasGrandes = excede ? ESCALOES_KVA.find((k) => somaGrandes <= k * 1000) ?? null : undefined;
-  const sugerida = sugeridaKva === null || pelasGrandes === null ? null : sugeridaKva === undefined ? (excede ? pelasGrandes : undefined) : Math.max(sugeridaKva, pelasGrandes ?? 0);
+  // Decisões do dono (2026-10-24): uma máquina com circuito próprio, SOZINHA, acima da potência contratada e o relatório
+  // nunca diz "chega" — é curta e sugere-se o escalão que a aguenta (nunca abaixo da sugerida pelas cargas). A soma das
+  // grandes segue a simultaneidade do manual (a sugerida pelas cargas): pode chegar mesmo que todas juntas não caibam.
+  // A placa conta com o fator de uso (quadro.js USO: nunca tem as zonas todas no máximo, 7 200 W → 3 600 W).
+  const usoDe = (m) => m.potencia_w * (USO[m.modelo] ?? 1);
+  const maior = grandes.reduce((m, x) => (!m || usoDe(x) > usoDe(m) ? x : m), null);
+  const excede = !!maior && usoDe(maior) > contratada * 1000;
+  const pelaMaior = excede ? ESCALOES_KVA.find((k) => usoDe(maior) <= k * 1000) ?? null : undefined;
+  const sugerida = sugeridaKva === null || pelaMaior === null ? null : sugeridaKva === undefined ? (excede ? pelaMaior : undefined) : Math.max(sugeridaKva, pelaMaior ?? 0);
   const estado = sugerida === null ? "especial" : sugerida === undefined ? "sem_dados" : contratada >= sugerida && !excede ? "chega" : "curta";
   const umaGrande = grandes.length === 1;
+  const somaExcede = somaGrandes > contratada * 1000;
+  const nomeMaior = maior ? nomeModelo(maior.modelo).toLowerCase() : "";
   const potencia = {
     estado, contratada_kva: contratada, sugerida_kva: sugerida ?? null,
     // `assumida`: o cliente não escolheu a potência (é a que sugerimos pela casa): o texto di-lo (decisão do dono, 2026-10-10).
@@ -97,7 +102,12 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     titulo: { chega: "A potência contratada chega", curta: "A potência contratada pode ser curta", especial: "Esta casa pede um contrato especial", sem_dados: "Potência contratada" }[estado],
     texto: [
       `${assumida ? `Assumimos ${kvaTxt(contratada)} contratados, o habitual numa casa assim` : `Tem ${kvaTxt(contratada)} contratados`}${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugerida)}.` : estado === "chega" && sugerida !== contratada ? `; o que a casa tem pede ${kvaTxt(sugerida)}.` : "."}`,
-      grandes.length ? `${umaGrande ? "A máquina grande" : `As ${plural(grandes.length, "máquina grande", "máquinas grandes")}`} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) ${umaGrande ? "tem" : "somam"} ${wTxt(somaGrandes)}${excede ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${umaGrande ? "ligada, a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
+      !grandes.length ? null
+        : umaGrande ? `A máquina grande (${nomeMaior}) tem ${wTxt(somaGrandes)}${excede ? `${usoDe(maior) < somaGrandes ? ` (em uso, cerca de ${wTxt(usoDe(maior))})` : ""}, mais do que os ${wTxt(contratada * 1000)} do contrato: ligada, a luz vai abaixo.` : `; o contrato dá ${wTxt(contratada * 1000)}.`}`
+          : `As ${plural(grandes.length, "máquina grande", "máquinas grandes")} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) somam ${wTxt(somaGrandes)}${excede
+            ? `; a maior, ${nomeMaior}, pede sozinha ${wTxt(usoDe(maior))}, mais do que os ${wTxt(contratada * 1000)} do contrato: ligada, a luz vai abaixo.`
+            : somaExcede ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${estado === "chega" ? "chega para o dia a dia, mas com todas ligadas ao mesmo tempo a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}`
+              : `; o contrato dá ${wTxt(contratada * 1000)}.`}`,
     ].filter(Boolean),
   };
 

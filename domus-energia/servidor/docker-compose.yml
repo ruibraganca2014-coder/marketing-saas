@@ -235,7 +235,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"    # HTTP/3
     environment:
       DOMUS_HOST: ${DOMUS_HOST}
       PAGAMENTOS_MODO: ${PAGAMENTOS_MODO:-}       # só "simulado" deixa servir web/pagamento-simulado.html (Caddyfile)

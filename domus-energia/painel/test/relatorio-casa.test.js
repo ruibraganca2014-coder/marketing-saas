@@ -28,14 +28,14 @@ test('a potência chega? compara a contratada com a sugerida e soma as máquinas
   assert.deepEqual([chega.estado, chega.titulo], ['chega', 'A potência contratada chega']);
   const curta = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9).potencia;
   assert.equal(curta.estado, 'curta');
-  // A placa e o forno somam 9 700 W: sugere-se o escalão que os aguenta ligados ao mesmo tempo (10,35 kVA), não só os 6,9 das cargas.
-  assert.match(curta.texto[0], /Tem 3,45 kVA contratados; para o que a casa tem sugerimos 10,35 kVA\./);
-  assert.match(curta.texto[1], /2 máquinas grandes \(placa de cozinha, forno\) somam \d+ \d{3} W, mais do que os 3 450 W do contrato/);
+  // A placa (em uso 3 600 W, quadro.js USO) sozinha passa os 3 450 W: sugere-se o maior entre o escalão que a aguenta (4,6 kVA) e o das cargas (6,9 kVA).
+  assert.match(curta.texto[0], /Tem 3,45 kVA contratados; para o que a casa tem sugerimos 6,9 kVA./);
+  assert.match(curta.texto[1], /2 máquinas grandes \(placa de cozinha, forno\) somam 9 700 W; a maior, placa de cozinha, pede sozinha 3 600 W, mais do que os 3 450 W do contrato: ligada, a luz vai abaixo\./);
   assert.equal(analiseDaCasa(PLANTA, {}, null).potencia.estado, 'especial');
   assert.equal(analiseDaCasa(PLANTA, {}, 6.9).potencia.contratada_kva, 6.9, 'sem potência escolhida: 6,9 kVA');
 });
 
-test('decisão do dono (2026-10-24): uma máquina acima do contrato, ou as grandes todas juntas, nunca "chega"', () => {
+test('decisão do dono (2026-10-24): uma máquina sozinha acima do contrato nunca "chega"; a soma segue a simultaneidade do manual', () => {
   // Carregador de 7 400 W com 6,9 kVA contratados e as cargas a pedirem 6,9: curta, sugere 10,35 kVA.
   const ve = { divisoes: [div('g', 'Garagem', 0)], elementos: [el('c', 'maquina', 'g', { modelo: 'carregador_ve' })] };
   const p = analiseDaCasa(ve, { potencia_contratada_kva: 6.9 }, 6.9).potencia;
@@ -43,8 +43,10 @@ test('decisão do dono (2026-10-24): uma máquina acima do contrato, ou as grand
   assert.match(p.texto[0], /sugerimos 10,35 kVA\./);
   assert.equal(p.texto[1], 'A máquina grande (carregador de carro elétrico) tem 7 400 W, mais do que os 6 900 W do contrato: ligada, a luz vai abaixo.');
   assert.doesNotMatch(p.texto.join(' '), /chega/);
-  // A placa e o forno (9 700 W) com 6,9 kVA: também curta; com 10,35 kVA chega.
-  assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 6.9 }, 6.9).potencia.estado, 'curta');
+  // A placa e o forno (9 700 W) com 6,9 kVA: nenhuma passa sozinha e as cargas pedem 6,9 → chega (todas juntas, a luz vai abaixo).
+  const pf = analiseDaCasa(PLANTA, { potencia_contratada_kva: 6.9 }, 6.9).potencia;
+  assert.equal(pf.estado, 'chega');
+  assert.match(pf.texto[1], /somam 9 700 W, mais do que os 6 900 W do contrato: chega para o dia a dia, mas com todas ligadas ao mesmo tempo a luz vai abaixo\./);
   assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).potencia.estado, 'chega');
   // Sem a sugestão das cargas (sem dados), a máquina acima do contrato já dá "curta".
   assert.equal(analiseDaCasa(ve, { potencia_contratada_kva: 6.9 }, undefined).potencia.estado, 'curta');
@@ -72,7 +74,7 @@ test('pontos a rever: mais aparelhos do que tomadas, zonas húmidas, circuito pr
   assert.ok(a.rever.some((t) => /^Cozinha: 2 aparelhos para 1 ponto de tomada/.test(t)));
   assert.ok(a.rever.some((t) => /^Casa de banho: é zona húmida/.test(t)));
   assert.ok(a.rever.some((t) => /^Placa de cozinha, Forno: cada máquina precisa de um circuito próprio no quadro\.$/.test(t)));
-  assert.ok(a.rever.some((t) => /^Potência contratada: 3,45 kVA para uma casa que pede 10,35 kVA\.$/.test(t)));
+  assert.ok(a.rever.some((t) => /^Potência contratada: 3,45 kVA para uma casa que pede 6,9 kVA.$/.test(t)));
   assert.ok(!a.rever.some((t) => /^Sala/.test(t)), 'a sala não tem nada a assinalar');
   const vazia = analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45);
   assert.deepEqual([vazia.circuitos, vazia.rever, vazia.numeros[0][1]], [[], [], '0 m²']);

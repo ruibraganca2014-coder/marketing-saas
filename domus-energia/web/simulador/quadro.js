@@ -440,8 +440,9 @@ export const COEF_SIMULTANEIDADE = 0.4; // habitação: c ≈ 0,3–0,45 (exempl
 /** Serviços e industrial (o manual não dá coeficiente): luzes 20 W, tomadas 100 W, a maior máquina a 100 %, a 2.ª a 50 %, as outras a 25 %, o resto a 40 %. */
 export const W_LUZ_NEGOCIO = 20;
 export const W_TOMADA = 100;
-/** Fator de uso da placa: nunca tem as zonas todas no máximo (7 200 W → 3 600 W). Só fora da habitação. */
-const USO = { placa: 0.5 };
+/** Fator de uso da placa: nunca tem as zonas todas no máximo (7 200 W → 3 600 W). Fora da habitação e na regra da máquina
+ * sozinha acima do contrato (relatorio-casa.js). */
+export const USO = { placa: 0.5 };
 export const SIMULTANEIDADE = { maior: 1, segunda: 0.5, outras: 0.25, geral: 0.4 };
 
 /**

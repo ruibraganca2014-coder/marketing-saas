@@ -64,11 +64,11 @@ ssh root@51.38.10.20        # Hetzner (utilizador "root")
 
 ## 2. Abrir as portas (firewall)
 
-Portas necessárias: **80** e **443** (HTTPS, TCP; 443 também UDP para HTTP/3) e **1883** (MQTT dos aparelhos, TCP). A porta **22** (SSH) tem de continuar aberta.
+Portas necessárias: **80** e **443** (HTTPS, TCP) e **1883** (MQTT dos aparelhos, TCP). O HTTP/3 (UDP 443) está desligado no Caddyfile (`servers { protocols h1 h2 }`, decisão do dono de 2026-10-24: com o UDP sem resposta, a primeira página chegava a demorar ~10 s); a regra UDP 443 já não é precisa e pode ser fechada. A porta **22** (SSH) tem de continuar aberta.
 
 **No painel do fornecedor:**
-- Oracle: *Networking → Virtual Cloud Networks → (a tua VCN) → Security Lists → Default → Add Ingress Rules*: origem `0.0.0.0/0`, TCP, portas `80,443,1883`; e outra regra com origem `0.0.0.0/0`, **UDP**, porta `443` (HTTP/3).
-- Hetzner: *Firewalls → Create Firewall*: regras de entrada TCP 22, 80, 443, 1883 (e UDP 443) → aplicar ao servidor.
+- Oracle: *Networking → Virtual Cloud Networks → (a tua VCN) → Security Lists → Default → Add Ingress Rules*: origem `0.0.0.0/0`, TCP, portas `80,443,1883`.
+- Hetzner: *Firewalls → Create Firewall*: regras de entrada TCP 22, 80, 443, 1883 → aplicar ao servidor.
 
 **No próprio servidor.** A imagem Ubuntu da Oracle traz regras `iptables` que bloqueiam tudo; abre as portas assim:
 

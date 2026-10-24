@@ -464,7 +464,13 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   svg.setAttribute("aria-roledescription", "planta");
   svg.setAttribute("aria-label", "Planta da casa");
   svg.setAttribute("aria-describedby", "editor-ajuda-teclado");
-  area.append(svg, estadoLinha, acoesLado);
+  // Telemóvel (decisão do dono, 2026-10-24): uma divisão de cada vez — com a casa toda à vista, tocar numa divisão
+  // aproxima a planta a ela (ícones grandes e separados); "Ver a casa toda" volta. No computador fica como estava.
+  let umaDivisao = false;    // definirUmaDivisao (app.js: ecrãs estreitos)
+  let divisaoVista = null;   // a divisão a que a vista está aproximada; null = a casa toda
+  const bCasaToda = botao("Ver a casa toda", "btn sec pequeno editor-casa-toda");
+  bCasaToda.hidden = true;
+  area.append(svg, estadoLinha, acoesLado, bCasaToda);
   const ajudaTeclado = el("p", "editor-ajuda", "Com o teclado: nas barras as setas passam de botão em botão; escolha uma ferramenta e carregue em Enter para a pôr no centro; na planta as setas movem o que está selecionado (Shift para mover mais), Enter abre as opções, Delete apaga, Ctrl+Z anula.");
   ajudaTeclado.id = "editor-ajuda-teclado";
 
@@ -862,6 +868,24 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     vista = { cx: c.x + c.w / 2, cy: c.y + c.h / 2, w: limitar(Math.max(c.w, c.h / razao) * MARGEM_VISTA, 150, maxW()) };
     ajusteAuto = true;
     focoAuto = null;
+    divisaoVista = null;
+    acertarCasaToda();
+  }
+  function acertarCasaToda() { bCasaToda.hidden = !(umaDivisao && divisaoVista); }
+  /** Uma divisão de cada vez: aproxima a vista à divisão debaixo do ponto (da casa toda). Devolve true se aproximou. */
+  function aproximarDivisao(x, y) {
+    if (!umaDivisao || divisaoVista || !planta) return false;
+    const d = obterDivisao(divisaoMenorEm(x, y));
+    if (!d) return false;
+    verDivisao(d);
+    // Mais perto do que o "focar" dos separadores: a divisão ocupa quase a planta toda (mínimo 3 m de largura de vista).
+    const rr = rectSvg();
+    const razao = rr.width > 0 && rr.height > 0 ? rr.height / rr.width : 0.75;
+    vista = { ...vista, w: limitar(Math.max(d.largura_cm, d.altura_cm / razao) * 1.12, 300, vista.w) };
+    divisaoVista = d.id;
+    acertarCasaToda();
+    desenhar();
+    return true;
   }
   /**
    * Centra a vista na divisão `d` e aproxima até ela caber com margem (MARGEM_FOCO: as vizinhas continuam em parte à
@@ -1379,8 +1403,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   function definirModo(m) {
     if (m?.tipo === "elemento" && !podeAparelhos) m = null;   // o passo não deixa pôr aparelhos (ex.: "A casa")
-    // Escolheu uma ferramenta com um aparelho a seguir o rato: o aparelho volta ao sítio e fica à espera.
-    if (m && seguir?.mexeu) { const s = seguir; pararSeguir(); seguir = { ...s, mexeu: false }; svg.classList.add("a-seguir"); }
     modo = m;
     // Calibração a meio (só o 1.º ponto) cancelada com Esc ou outra ferramenta: o marcador sai da planta.
     if (m?.tipo !== "calibrar" && calibracao && (calibracao.pontos?.length ?? 0) < 2) calibracao = null;
@@ -1410,6 +1432,7 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   bMais.addEventListener("click", () => zoom(1 / 1.4));
   bMenos.addEventListener("click", () => zoom(1.4));
   bTudo.addEventListener("click", () => { verTudo(); desenhar(); });
+  bCasaToda.addEventListener("click", () => { verTudo(); desenhar(); svg.focus({ preventScroll: true }); });
   bImprimir.addEventListener("click", () => { if (planta) imprimirPlanta(planta, nPisos(), acoesOmissao); });
   bPdf.addEventListener("click", async () => {
     if (!planta || bPdf.disabled) return;
@@ -1466,48 +1489,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
   // ---------------------------------------------------------------- ponteiro
   const pararToqueLongo = () => { clearTimeout(toqueLongo); toqueLongo = null; };
 
-  // "A seguir o rato" (seguirElemento; passo "Equipamentos", decisão do dono 2026-10-10): o aparelho acabado de marcar
-  // acompanha o rato sobre a planta, sem carregar em nada, até um clique o largar. Se o rato sair da planta sem
-  // clicar, volta ao sítio onde estava. Só com rato (com o dedo não há "passar por cima").
-  let seguir = null;   // { id, x0, y0, mexeu, aoLargar }
-  function pararSeguir({ repor = true } = {}) {
-    const s = seguir;
-    seguir = null;
-    svg.classList.remove("a-seguir");
-    const e = s ? obterElemento(s.id) : null;
-    if (!e || !s.mexeu) return;
-    if (repor) { e.x_cm = s.x0; e.y_cm = s.y0; }
-    desenhar();
-  }
-  svg.addEventListener("pointermove", (ev) => {
-    // Com uma ferramenta escolhida (porta, tomada…) quem manda é ela: o aparelho não segue o rato.
-    if (!seguir || modo || ev.pointerType !== "mouse" || ponteiros.size) return;
-    const e = obterElemento(seguir.id);
-    if (!e) { seguir = null; return; }
-    seguir.mexeu = true;   // (o anular só se memoriza ao largar: passar o rato não mexe no histórico)
-    const p = paraPlanta(ev.clientX, ev.clientY);
-    e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
-    e.y_cm = limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm);
-    desenhar();
-  });
-  svg.addEventListener("pointerleave", () => {
-    if (!seguir?.mexeu) return;
-    const s = seguir;
-    pararSeguir();
-    seguir = { ...s, mexeu: false };   // continua à espera: volta a seguir quando o rato regressar à planta
-    svg.classList.add("a-seguir");
-  });
-  // Esc: com uma ferramenta escolhida larga só a ferramenta (o aparelho por confirmar continua à espera do rato); sem
-  // ferramenta, o aparelho volta ao sítio onde estava e continua à espera — só o clique ou "Está bem aqui" o confirmam.
-  svg.addEventListener("keydown", (ev) => {
-    if (ev.key !== "Escape" || !seguir || modo) return;
-    const s = seguir;
-    pararSeguir();
-    seguir = { ...s, mexeu: false };
-    svg.classList.add("a-seguir");
-  });
   // Ferramenta escolhida (porta, janela, tomada…; decisão do dono, 2026-10-10): uma marca acompanha o rato sobre a
-  // planta, para se ver onde o clique a vai pôr — como os equipamentos de "Equipamentos". Só com rato.
+  // planta, para se ver onde o clique a vai pôr. Só com rato.
   let fantasma = null;   // { x, y } em cm
   svg.addEventListener("pointermove", (ev) => {
     if (ev.pointerType !== "mouse" || ponteiros.size) return;
@@ -1527,28 +1510,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
 
   svg.addEventListener("pointerdown", (ev) => {
     if (ev.button !== undefined && ev.button > 0) return;
-    if (seguir && !modo && ev.pointerType === "mouse") {
-      // O clique larga o aparelho onde o rato está: um só passo de anular (a planta como estava antes de ele seguir
-      // o rato), e quem o pediu fica a saber.
-      ev.preventDefault();
-      const s = seguir;
-      const e = obterElemento(s.id);
-      if (e) { e.x_cm = s.x0; e.y_cm = s.y0; memorizar(); }
-      const p = paraPlanta(ev.clientX, ev.clientY);
-      if (e) {
-        e.x_cm = limitar(ajustar(p.x, PASSO_ELEMENTO), 0, planta.largura_cm);
-        e.y_cm = limitar(ajustar(p.y, PASSO_ELEMENTO), 0, planta.altura_cm);
-      }
-      seguir = null;
-      svg.classList.remove("a-seguir");
-      if (!e) return;
-      selecionado = e.id;
-      confirmar();
-      desenharTudo();
-      s.aoLargar?.(s.id);
-      // Não acaba aqui: se o cliente ficar com o botão carregado e arrastar, o aparelho acabado de largar arrasta-se
-      // como qualquer outro (antes ficava preso no ponto onde se carregou).
-    }
     svg.setPointerCapture?.(ev.pointerId);
     // O 1.º dedo (ou o rato) de um gesto novo: esquece ponteiros cujo "pointerup" não chegou à planta
     // (ex.: o toque longo abriu a janela por cima e o dedo foi levantado nela) — senão parecia uma pinça.
@@ -1731,6 +1692,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (eraPinca) { arrasto = null; return; }
     if (arrasto && arrasto.id === ev.pointerId) {
       if (ev.type === "pointercancel") { arrasto = null; ultimoToque = null; desenhar(); return; }
+      // Telemóvel, com a casa toda à vista: o toque aproxima a divisão (a ferramenta escolhida fica para o toque seguinte).
+      if (!arrasto.mexeu && aproximarDivisao(arrasto.p0.x, arrasto.p0.y)) { arrasto = null; ultimoToque = null; return; }
       const a = arrasto;
       terminarArrasto(ev);
       if (!a.mexeu && a.tipo !== "colocar") toqueSimples(ev);
@@ -2523,7 +2486,6 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       const nova = planta !== p;
       planta = p;
       if (nova) { desfazer = []; refazer = []; selecionado = null; calibracao = null; ultimoToque = null; lerAspeto(); pisoAtual = 0; }
-      if (nova) { seguir = null; svg.classList.remove("a-seguir"); }   // outra planta: os ids já não são os mesmos
       if (pisoAtual >= nPisos()) pisoAtual = 0;
       if (nova) ajustarFolha();   // plantas antigas com quadrícula vazia à volta ficam à medida
       if (reiniciarVista || nova) verTudo();
@@ -2809,30 +2771,22 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
       if (pisoDe(d) !== pisoAtual) mudarPiso(pisoDe(d), { anunciar: false });
       selecionado = d.id;
       verDivisao(d);
+      if (umaDivisao) { divisaoVista = d.id; acertarCasaToda(); }
       desenhar();
       desenharSelecao();
       return true;
+    },
+    /** Telemóvel (decisão do dono, 2026-10-24): uma divisão de cada vez (tocar aproxima; "Ver a casa toda" volta). */
+    definirUmaDivisao(sim) {
+      umaDivisao = !!sim;
+      if (!umaDivisao) divisaoVista = null;
+      acertarCasaToda();
     },
     /**
      * Localiza um aparelho (decisão do dono, 2026-10-05: tocar em "Tomada 1" na lista das Divisões): mostra o piso
      * dele, seleciona-o (aro a piscar) e, se estiver fora do que se vê, desloca a vista para o centrar, sem mudar a
      * ampliação. Devolve false se não existir.
      */
-    /**
-     * Passo "Equipamentos": o aparelho `id` passa a seguir o rato sobre a planta até um clique o largar (`aoLargar(id)`).
-     * Sem `id` (ou um que não existe) deixa de seguir, e o aparelho volta ao sítio onde estava.
-     */
-    /** Há um aparelho a acompanhar o rato neste momento (a posição dele ainda não é a final)? */
-    get aSeguir() { return !!seguir?.mexeu; },
-    seguirElemento(id, { aoLargar = null } = {}) {
-      if (seguir && seguir.id === id) { seguir.aoLargar = aoLargar; return true; }
-      pararSeguir();
-      const e = planta && id ? obterElemento(id) : null;
-      if (!e) return false;
-      seguir = { id: e.id, x0: e.x_cm, y0: e.y_cm, mexeu: false, aoLargar };
-      svg.classList.add("a-seguir");
-      return true;
-    },
     focarElemento(id) {
       const e = planta ? obterElemento(id) : null;
       if (!e) return false;

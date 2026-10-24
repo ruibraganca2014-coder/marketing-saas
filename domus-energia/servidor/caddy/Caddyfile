@@ -24,6 +24,15 @@
 # (ntfy.51-38-10-20.sslip.io aponta para 51.38.10.20); com domínio próprio é
 # preciso um registo DNS para ntfy.<domínio> (ver README).
 
+# Opções globais (decisão do dono, 2026-10-24): HTTP/3 desligado — só HTTP/1.1 e HTTP/2 (TCP). Com o Alt-Svc: h3 e o
+# UDP 443 sem resposta, os navegadores que tentavam o QUIC primeiro chegavam a esperar ~10 s (auditoria de 2026-10-24;
+# Chrome forçado ao QUIC: ERR_QUIC_PROTOCOL_ERROR). O docker-compose.yml já não publica a 443/udp.
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 {$DOMUS_HOST} {
 	@mqtt path /mqtt /mqtt/*
 	handle @mqtt {
