@@ -11,6 +11,8 @@
 //                de onde vem o limite (o manual, ou "referência prática" quando o manual não fixa número).
 //   - "dado":    { texto, fazer?, ref, tensao?, unidade, casas, max, define, seguinte, naoSei? } — um valor sem limite
 //                (ex. a corrente da chapa de um motor) que os passos seguintes comparam.
+//   - "lista":   { texto, fazer?, ref, itens: [{ chave, texto }], sim, nao, ficha? } — uma lista de verificação (ex.:
+//                manutenção preventiva, manual 20.3): todos os itens feitos → `sim`; algum por fazer → `nao`.
 //   - "fim":     { causa, acao, tipoAvaria, ref, parar?, seguir? } — causa provável e o que fazer; `parar` = deixar
 //                seguro e chamar apoio; `seguir` = o id de outra árvore que continua o diagnóstico.
 // `ref` = { cap: "20.2", pagina: 116 } (ou uma lista): o capítulo/secção e a página IMPRESSA do manual de instalações BT
@@ -84,10 +86,11 @@ export const FICHA_VALORES = { rcd: "ms", tensao: "V", continuidade: "Ω", isola
 export const TIPOS_AVARIA = ["aberto", "curto", "terra", "sobrecarga", "outro"];
 export const MAX_CONCLUSAO = 2000;
 
-const TIPOS_NO = ["simnao", "escolha", "valor", "dado", "fim"];
+const TIPOS_NO = ["simnao", "escolha", "valor", "dado", "lista", "fim"];
 const RE_ID = /^[a-z][a-z0-9_-]{0,39}$/;
 const RE_VAR = /^[A-Za-z][A-Za-z0-9_]{0,19}$/;
-const UNIDADES = ["V", "A", "Ω", "MΩ", "ms", "%"];
+// As unidades aceites (também em painel/src/diagnosticos.js UNIDADES; o teste compara-as). "un." = uma contagem.
+export const UNIDADES = ["V", "kV", "A", "kA", "mA", "Ω", "MΩ", "ms", "%", "m", "h", "kVA", "lx", "un."];
 
 // ---------------------------------------------------------------- números
 const fmt = (n, casas = 2) => new Intl.NumberFormat("pt-PT", { maximumFractionDigits: casas, useGrouping: true }).format(n);
@@ -138,6 +141,7 @@ export const NOME_AVALIACAO = { dentro: "Dentro do limite", aviso: "Abaixo do ob
 export function seguinte(no, resposta, vars = {}) {
   if (resposta.chave === "nao_sei") return no.naoSei ?? ID_APOIO;
   if (no.tipo === "simnao") return resposta.chave === "sim" ? no.sim : resposta.chave === "nao" ? no.nao : null;
+  if (no.tipo === "lista") return resposta.chave === "lt" ? no.sim : resposta.chave === "lf" ? no.nao : null;
   if (no.tipo === "escolha") {
     const i = /^o(\d+)$/.exec(resposta.chave)?.[1];
     return i !== undefined && no.opcoes[Number(i)] ? no.opcoes[Number(i)].seguinte : null;
@@ -191,12 +195,23 @@ export function responder(arvore, passos, resposta, quando = new Date().toISOStr
   const no = noDe(arvore, id);
   if (!no || no.tipo === "fim") throw new Error("O diagnóstico já chegou ao fim.");
   const vars = variaveis(arvore, passos);
+  // Lista de verificação: a resposta são os itens feitos (`feitos`); fica a chave "lt" (todos) ou "lf" (falta algum).
+  let feitos = null;
+  if (no.tipo === "lista" && resposta.chave !== "nao_sei") {
+    feitos = no.itens.filter((x) => (resposta.feitos ?? []).includes(x.chave));
+    resposta = { chave: feitos.length === no.itens.length ? "lt" : "lf" };
+  }
   const prox = seguinte(no, resposta, vars);
   if (!prox) throw new Error(no.tipo === "valor" || no.tipo === "dado" ? "Escreva um número (0 ou mais)." : "Escolha uma resposta.");
   const passo = { no: id, pergunta: no.texto, chave: resposta.chave, tensao: Boolean(no.tensao), quando };
   if (resposta.chave === "nao_sei") passo.resposta = no.tipo === "valor" || no.tipo === "dado" ? "Não consigo medir" : "Não sei";
   else if (no.tipo === "simnao") passo.resposta = resposta.chave === "sim" ? "Sim" : "Não";
   else if (no.tipo === "escolha") passo.resposta = no.opcoes[Number(resposta.chave.slice(1))].texto;
+  else if (no.tipo === "lista") {
+    const falta = no.itens.filter((x) => !feitos.includes(x));
+    const t = `${feitos.length} de ${no.itens.length} feitos${falta.length ? `; em falta: ${falta.map((x) => x.texto).join("; ")}` : ""}`;
+    passo.resposta = t.length > 160 ? `${t.slice(0, 159)}…` : t;
+  }
   else {
     passo.valor = resposta.valor;
     passo.unidade = no.unidade;
@@ -226,7 +241,7 @@ export function paraFicha(arvore, diag) {
   for (const p of diag.passos ?? []) {
     const no = arvore?.nos?.[p.no];
     if (p.chave === "nao_sei") continue;
-    if (no?.ficha?.verificacao) verificacoes.add(no.ficha.verificacao);
+    if (no?.ficha?.verificacao && p.chave !== "lf") verificacoes.add(no.ficha.verificacao);   // lista com algo em falta: não conta como verificada
     if (no?.ficha?.valor && Number.isFinite(p.valor)) { valores[no.ficha.valor] = p.valor; verificacoes.add(no.ficha.valor); }
     else if (Number.isFinite(p.valor)) outros.push(`${p.pergunta.replace(/[?:.]\s*$/, "")}: ${p.resposta}${p.avaliacao && p.avaliacao !== "dentro" ? ` (${NOME_AVALIACAO[p.avaliacao].toLowerCase()})` : ""}`);
   }
@@ -274,12 +289,13 @@ export function validarArvore(a, { manual, arvores = [] } = {}) {
   if (!RE_ID.test(a.id ?? "")) e("id inválido");
   if (!Number.isInteger(a.versao) || a.versao < 1) e("versão inválida");
   for (const k of ["titulo", "grupo", "sintoma"]) if (typeof a[k] !== "string" || !a[k].trim()) e(`falta ${k}`);
+  if (a.palavras !== undefined && typeof a.palavras !== "string") e("palavras (para a procura) têm de ser texto");
   if (!a.nos || typeof a.nos !== "object") return [...erros, `${a.id}: sem nós`];
   if (!a.nos[a.inicio]) e("o início não existe");
   if (a.nos[a.inicio]?.tipo === "fim") e("começa num fim");
   const caps = manual ? capitulosDoManual(manual) : null;
   const ligacoes = (no) => {
-    if (no.tipo === "simnao") return [no.sim, no.nao];
+    if (no.tipo === "simnao" || no.tipo === "lista") return [no.sim, no.nao];
     if (no.tipo === "escolha") return (no.opcoes ?? []).map((o) => o.seguinte);
     if (no.tipo === "valor") return [no.dentro, no.fora, no.aviso, no.abaixo, no.acima].filter((x) => x !== undefined);
     if (no.tipo === "dado") return [no.seguinte];
@@ -299,6 +315,12 @@ export function validarArvore(a, { manual, arvores = [] } = {}) {
     }
     if (typeof no.texto !== "string" || no.texto.trim().length < 5) m("sem texto");
     for (const s of [...ligacoes(no), ...(no.naoSei !== undefined ? [no.naoSei] : [])]) if (!a.nos[s]) m(`liga a um nó que não existe (${s})`);
+    if (no.tipo === "lista") {
+      if (!Array.isArray(no.itens) || no.itens.length < 2) m("lista com menos de 2 itens");
+      const ks = (no.itens ?? []).map((x) => x?.chave);
+      if (ks.some((k) => !RE_ID.test(k ?? "")) || new Set(ks).size !== ks.length) m("lista com chaves inválidas ou repetidas");
+      for (const x of no.itens ?? []) if (typeof x?.texto !== "string" || x.texto.trim().length < 3) m("item da lista sem texto");
+    }
     if (no.tipo === "escolha") {
       if (!Array.isArray(no.opcoes) || no.opcoes.length < 2) m("escolha com menos de 2 opções");
       for (const o of no.opcoes ?? []) if (typeof o.texto !== "string" || !o.texto.trim()) m("opção sem texto");

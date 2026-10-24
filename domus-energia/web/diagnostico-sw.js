@@ -7,12 +7,15 @@
 // e a cópia guardada é atualizada; sem rede usa-se a cópia. A API (/api/…, /painel/api/…) nunca é guardada: os dados
 // do diagnóstico ficam no IndexedDB do telemóvel (diagnostico.js) e sincronizam quando há rede e sessão.
 
-const VERSAO = "domus-diagnostico-v1";
+const VERSAO = "domus-diagnostico-v2";   // sobe sempre que se acrescentam ficheiros (ronda 2: as árvores do resto do manual)
 const CASCA = [
   "diagnostico.html", "diagnostico.css", "diagnostico.js", "diagnostico.json", "eletricista.css", "tema.js", "config.js", "favicon.svg",
   "manual-bt.js", "confirmar.js", "simulador/fotos.js", "simulador/fundo.js",
   "diagnostico/motor.js", "diagnostico/limites.js", "diagnostico/arvores.js",
   "diagnostico/arvores-protecoes.js", "diagnostico/arvores-alimentacao.js", "diagnostico/arvores-terra.js", "diagnostico/arvores-aparelhos.js",
+  "diagnostico/construir.js", "diagnostico/arvores-projeto.js", "diagnostico/arvores-protecoes2.js", "diagnostico/arvores-locais.js",
+  "diagnostico/arvores-edificios.js", "diagnostico/arvores-manutencao.js", "diagnostico/arvores-motores.js", "diagnostico/arvores-sinalizacao.js",
+  "diagnostico/arvores-energia.js", "diagnostico/arvores-domotica.js",
   "icones/icone-192.png", "icones/icone-512.png", "icones/icone-mascara-512.png", "icones/icone-apple-180.png",
 ];
 

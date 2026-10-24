@@ -7,7 +7,8 @@
 
 /* Início: as anomalias por grupo e as linhas dos diagnósticos */
 .dg-grupo { gap: 10px; }
-.app-rolo .dg-grupo h2.rotulo { font-size: .85rem; margin-top: 6px; }
+.dg-grupo > summary .selo { margin-left: auto; }
+#dg-procurar { width: 100%; min-height: 54px; padding: 10px 14px; border: 2px solid var(--borda-forte); border-radius: 12px; background: var(--fundo); font-weight: 700; }
 .dg-arvore, .dg-linha { display: grid; gap: 4px; width: 100%; min-height: 64px; text-align: left; font: inherit; color: inherit; cursor: pointer; border-left: 8px solid var(--musgo); overflow-wrap: anywhere; }
 .dg-arvore b, .dg-linha b { font: 800 1.12rem/1.2 var(--letra-titulos); }
 .dg-arvore:hover, .dg-linha:hover { border-color: var(--musgo); }

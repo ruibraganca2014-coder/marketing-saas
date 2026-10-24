@@ -11,7 +11,7 @@
 // - No fim: nota, fotos (reduzidas no telemóvel, até 1 MB, até 6), ligar a um trabalho (eletricista) ou a um pedido (CEO
 //   e comercial) e "Enviar para a ficha" (o diagnóstico da avaria, com a mesma validação da ficha).
 // Rotas no endereço: #/ (início), #/nova/<árvore> (barreira de segurança), #/d/<id> (um diagnóstico). Só textContent.
-import { ARVORES, GRUPOS, arvorePorId, VERSAO_ARVORES } from "./diagnostico/arvores.js";
+import { ARVORES, GRUPOS, arvorePorId, VERSAO_ARVORES, procurar } from "./diagnostico/arvores.js";
 import {
   EPI, REGRAS_OURO, REF_SEGURANCA, AVISO_TENSAO, SINAIS_PERIGO, PARAR_ISOLAR, NOME_AVALIACAO,
   atual, noDe, responder, fimDe, variaveis, textoLimite, lerNumero, paraFicha, novoId,
@@ -304,14 +304,42 @@ async function ecraInicio() {
   instalar.hidden = !pedidoInstalar;
   const sinc = el("div", "pilha");
   sinc.id = "dg-sinc";
-  const grupos = GRUPOS.map((g) => com(el("section", "pilha dg-grupo"), el("h2", "rotulo", g),
-    ...ARVORES.filter((a) => a.grupo === g).map((a) => {
-      const b = com(el("button", "cartao dg-arvore"), el("b", null, a.titulo), el("span", "pequeno suave", a.sintoma));
-      b.type = "button";
-      b.dataset.arvore = a.id;
-      b.addEventListener("click", () => { location.hash = `#/nova/${a.id}`; });
-      return b;
-    })));
+  // Mais de 60 anomalias (ronda 2): procura por palavras (sem acentos) e as áreas em blocos que abrem e fecham.
+  const cartao = (a) => {
+    const b = com(el("button", "cartao dg-arvore"), el("b", null, a.titulo), el("span", "pequeno suave", a.sintoma));
+    b.type = "button";
+    b.dataset.arvore = a.id;
+    b.addEventListener("click", () => { location.hash = `#/nova/${a.id}`; });
+    return b;
+  };
+  const busca = el("input");
+  busca.type = "search";
+  busca.id = "dg-procurar";
+  busca.placeholder = "Procurar: diferencial, piscina, KNX…";
+  busca.setAttribute("aria-label", "Procurar anomalia");
+  busca.autocomplete = "off";
+  const resultados = el("div", "pilha");
+  resultados.id = "dg-resultados";
+  resultados.setAttribute("aria-live", "polite");
+  const areas = el("div", "pilha");
+  areas.id = "dg-areas";
+  for (const g of GRUPOS) {
+    const desta = ARVORES.filter((a) => a.grupo === g);
+    if (!desta.length) continue;
+    const d = com(el("details", "sec dg-grupo"), com(el("summary"), el("span", null, g), selo(String(desta.length))), com(el("div", "corpo"), ...desta.map(cartao)));
+    d.dataset.grupo = g;
+    areas.append(d);
+  }
+  const filtrar = () => {
+    const t = busca.value.trim();
+    areas.hidden = Boolean(t);
+    if (!t) { resultados.replaceChildren(); return; }
+    const achadas = procurar(t);
+    resultados.replaceChildren(...[el("p", "pequeno suave", `${achadas.length} ${achadas.length === 1 ? "anomalia" : "anomalias"}`), ...achadas.map(cartao),
+      achadas.length ? null : el("p", "vazio", "Nada com estas palavras. Experimente outra (ex.: «terra», «motor»).")].filter(Boolean));
+  };
+  busca.addEventListener("input", filtrar);
+  const grupos = [com(el("label", "campo"), el("span", null, "Procurar"), busca), resultados, areas];
   const linha = (d) => {
     const b = com(el("button", "cartao dg-linha"), com(el("span", "selos"), estadoSelo(d), d.sincronizado ? null : selo("Por enviar", "aviso"), d.ficha_enviada ? selo("Na ficha", "bom") : null),
       el("b", null, d.titulo), el("span", "pequeno suave", `${dataTxt(d.iniciado)}${d.causa ? ` · ${d.causa}` : ""}`));
@@ -324,9 +352,9 @@ async function ecraInicio() {
       el("p", "suave", `Escolha a anomalia. Cada diagnóstico começa pela segurança e segue o manual de instalações (${MANUAL_BT.edicao}).`),
       sinc, instalar),
     emCurso.length ? com(el("section", "pilha"), el("h2", null, "Em curso"), ...emCurso.map(linha)) : null,
-    com(el("section", "pilha"), el("h2", null, "Novo diagnóstico"), ...grupos),
+    com(el("section", "pilha"), el("h2", null, "Novo diagnóstico"), el("p", "pequeno suave", `${ARVORES.length} anomalias em ${GRUPOS.length} áreas.`), ...grupos),
     feitos.length ? com(el("section", "pilha"), el("h2", null, "Histórico neste telemóvel"), ...feitos.map(linha)) : null,
-    el("p", "pequeno suave", `Árvores: ronda ${VERSAO_ARVORES} · ${ARVORES.length} anomalias.`),
+    el("p", "pequeno suave", `Árvores: versão ${VERSAO_ARVORES} · ${ARVORES.length} anomalias.`),
   );
   desenharEstadoSinc();
 }
@@ -421,6 +449,21 @@ function ecraPasso(d, arvore, no) {
     respostas.classList.add("dois");
   } else if (no.tipo === "escolha") {
     no.opcoes.forEach((o, i) => respostas.append(botao(o.texto, "btn sec dg-opcao", () => responderCom({ chave: `o${i}` }))));
+  } else if (no.tipo === "lista") {
+    // Lista de verificação: marca-se o que está feito / conforme; "Seguinte" segue com o que ficou por marcar.
+    const caixas = no.itens.map((x) => {
+      const c = el("input");
+      c.type = "checkbox";
+      c.value = x.chave;
+      c.id = `dg-item-${x.chave}`;
+      const l = com(el("label", "caixa"), c, el("span", null, x.texto));
+      l.htmlFor = c.id;
+      respostas.append(l);
+      return c;
+    });
+    const ok = botao("Seguinte", "btn", () => responderCom({ chave: "l", feitos: caixas.filter((c) => c.checked).map((c) => c.value) }));
+    ok.id = "dg-seguinte";
+    respostas.append(ok);
   } else {
     const campo = el("input");
     campo.id = "dg-valor";
@@ -439,7 +482,7 @@ function ecraPasso(d, arvore, no) {
     if (no.tipo === "valor") respostas.append(com(el("p", "dg-esperado"), el("b", null, "Esperado: "), textoLimite(no, vars), el("span", "pequeno suave", ` — ${no.limite.fonte}`)));
     respostas.append(ok);
   }
-  const naoSei = botao(no.tipo === "valor" || no.tipo === "dado" ? "Não consigo medir" : "Não sei", "link-botao", () => responderCom({ chave: "nao_sei" }));
+  const naoSei = botao(no.tipo === "valor" || no.tipo === "dado" ? "Não consigo medir" : no.tipo === "lista" ? "Não consigo verificar" : "Não sei", "link-botao", () => responderCom({ chave: "nao_sei" }));
   naoSei.id = "dg-nao-sei";
   const voltar = botao("Voltar", "btn sec mini", async () => { d.passos.pop(); await guardarDiag(d); ecraDiagnostico(d.id); });
   voltar.disabled = !d.passos.length;

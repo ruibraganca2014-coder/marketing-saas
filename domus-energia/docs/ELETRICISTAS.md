@@ -442,10 +442,16 @@ Endereço próprio: `/diagnostico.html` (web/diagnostico.html, .js, .css; manife
 têm. Funciona sem rede: a casca e as árvores ficam no telemóvel; os diagnósticos ficam no IndexedDB e sincronizam com
 rede e sessão válida (`POST …/diagnosticos`, o id gerado no telemóvel é a chave: o mesmo id = a mesma linha).
 
-- Árvores em `web/diagnostico/arvores-*.js` (formato em `web/diagnostico/motor.js`; limites e páginas do manual em
-  `limites.js`); cada nó com a referência ao manual (capítulo e página impressa). Ronda 1: diferencial, disjuntor, sem
-  corrente, casa sem energia, luzes, aquecimento, choque, terra, isolamento, motor. Teste estrutural em
-  `painel/test/diagnostico-app.test.js`.
+- Árvores em `web/diagnostico/arvores-*.js` (formato em `web/diagnostico/motor.js`, atalhos em `construir.js`; limites e
+  páginas do manual em `limites.js`); cada nó com a referência ao manual (capítulo e página impressa). Ronda 1: diferencial,
+  disjuntor, sem corrente, casa sem energia, luzes, aquecimento, choque, terra, isolamento, motor. Ronda 2 (o resto do
+  manual, caps. 1 a 22): 53 árvores em 12 áreas, com procura na app; a manutenção preventiva e a verificação periódica
+  usam o nó "lista" (lista de verificação). Teste estrutural em `painel/test/diagnostico-app.test.js`. Cada módulo novo
+  entra em `diagnostico-sw.js` (e a versão da cache sobe).
+- **Valores a pôr no manual** (na próxima edição do PDF): o manual não dá número e a app usa uma referência prática,
+  marcada "Referência prática" — tensão da rede 230 V ± 10 % (207–253 V); tempo de disparo do diferencial ≤ 300 ms a IΔn;
+  continuidade do PE tomada → quadro ≤ 0,5 Ω; isolamento de aparelhos e motores ≥ 0,5 MΩ (o valor dos circuitos);
+  tensão do bus KNX nos aparelhos 21–30 V CC.
 - Barreira de segurança obrigatória (EPI e as cinco regras de ouro, manual B4.4/B5.1), também verificada no servidor;
   passos com tensão a vermelho; "Sinal de perigo" em qualquer passo → "Parar e isolar"; "Não sei" → parar e chamar apoio.
 - Rotas: `/api/eletricista/diagnosticos*` e `/painel/api/diagnosticos*` (src/diagnosticos.js; migração 60). Sem sessão,

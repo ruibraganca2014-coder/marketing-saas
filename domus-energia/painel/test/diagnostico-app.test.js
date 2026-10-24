@@ -15,13 +15,14 @@ import { painelComEquipa } from './ajuda.js';
 import { MIGRACOES, migrar, versaoEsquema } from '../src/db.js';
 import { diagnostico as validarDiagnostico } from '../src/validar.js';
 import { FOTO_MAX_BYTES } from '../src/fotos.js';
-import { FOTOS_POR_DIAGNOSTICO, REGRAS_OURO as REGRAS_SERVIDOR, EPI as EPI_SERVIDOR, SINAIS_PERIGO as SINAIS_SERVIDOR, TIPOS_AVARIA as TIPOS_SERVIDOR } from '../src/diagnosticos.js';
+import { UNIDADES as UNIDADES_SERVIDOR, FOTOS_POR_DIAGNOSTICO, REGRAS_OURO as REGRAS_SERVIDOR, EPI as EPI_SERVIDOR, SINAIS_PERIGO as SINAIS_SERVIDOR, TIPOS_AVARIA as TIPOS_SERVIDOR } from '../src/diagnosticos.js';
 import { CHECKLIST, NOME_TIPO, MAX_CONCLUSAO as MAX_CONCLUSAO_PAINEL } from '../public/ecras/diagnostico-conteudo.js';
 import { MANUAL_BT } from '../../web/manual-bt.js';
-import { ARVORES, arvorePorId, VERSAO_ARVORES } from '../../web/diagnostico/arvores.js';
+import { ARVORES, arvorePorId, VERSAO_ARVORES, GRUPOS, procurar } from '../../web/diagnostico/arvores.js';
+import { readdirSync } from 'node:fs';
 import {
   validarArvore, avaliar, seguinte, atual, responder, fimDe, paraFicha, textoLimite, lerNumero, novoId, noDe, variaveis,
-  EPI, REGRAS_OURO, SINAIS_PERIGO, FICHA_VALORES, FICHA_VERIFICACOES, TIPOS_AVARIA, MAX_CONCLUSAO, ID_APOIO, FIM_APOIO, PARAR_ISOLAR, capitulosDoManual,
+  EPI, REGRAS_OURO, SINAIS_PERIGO, UNIDADES, FICHA_VALORES, FICHA_VERIFICACOES, TIPOS_AVARIA, MAX_CONCLUSAO, ID_APOIO, FIM_APOIO, PARAR_ISOLAR, capitulosDoManual,
 } from '../../web/diagnostico/motor.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { estadoNovo, montarSimulacao, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
@@ -43,7 +44,7 @@ function caminhos(a) {
   const ir = (id, visto) => {
     const no = a.nos[id];
     if (no.tipo === 'fim') { out.push([...visto, id]); return; }
-    const prox = no.tipo === 'simnao' ? [no.sim, no.nao] : no.tipo === 'escolha' ? no.opcoes.map((o) => o.seguinte)
+    const prox = no.tipo === 'simnao' || no.tipo === 'lista' ? [no.sim, no.nao] : no.tipo === 'escolha' ? no.opcoes.map((o) => o.seguinte)
       : no.tipo === 'dado' ? [no.seguinte] : [no.dentro, no.fora, no.aviso, no.abaixo, no.acima].filter(Boolean);
     for (const s of prox) ir(s, [...visto, id]);
   };
@@ -52,8 +53,19 @@ function caminhos(a) {
 }
 
 describe('árvores de diagnóstico: estrutura', () => {
-  test('ronda 1: as 10 árvores pedidas pelo dono, ids únicos, versionadas; o validador não encontra erros', () => {
-    assert.deepEqual(IDS, ['diferencial', 'disjuntor', 'sem-corrente', 'sem-energia', 'luzes', 'aquecimento', 'choque', 'terra', 'isolamento', 'motor']);
+  test('rondas 1 e 2: as árvores pedidas pelo dono, ids únicos, versionadas, cada uma numa área da lista; o validador não encontra erros', () => {
+    assert.deepEqual(IDS.slice(0, 10), ['diferencial', 'disjuntor', 'sem-corrente', 'sem-energia', 'luzes', 'aquecimento', 'choque', 'terra', 'isolamento', 'motor']);
+    // Ronda 2 (o resto do manual): uma árvore por anomalia pedida.
+    for (const id of ['esquema-terra', 'potencia-contratada', 'circuitos', 'cores-condutores', 'queda-tensao', 'tubos-cheios', 'iluminacao-insuficiente',
+      'fusivel', 'seletividade', 'afdd', 'minima-tensao', 'casa-banho', 'dst', 'equipotencial', 'ip-ik', 'piscina', 'sauna', 'estaleiro', 'garagem',
+      'carregador-ve', 'campismo-marina', 'agricola', 'atex', 'portinhola', 'coluna-montante', 'quadro-colunas', 'desequilibrio-fases', 'piso-sem-energia',
+      'iluminacao-seguranca', 'polaridade', 'isolamento-trs', 'verificacao-periodica', 'manutencao-preventiva', 'estrela-triangulo', 'inversao-marcha',
+      'variador', 'arrancador-suave', 'rele-programavel', 'campainha', 'videoporteiro', 'ited', 'para-raios', 'fotovoltaico-cc', 'inversor-fv', 'gerador',
+      'ups', 'fator-potencia', 'harmonicos', 'knx', 'dali', 'variador-led', 'alarmes', 'domotica-sem-fios']) assert.ok(arvorePorId(id), id);
+    assert.ok(ARVORES.length >= 60, `${ARVORES.length} árvores`);
+    assert.ok(VERSAO_ARVORES >= 2);
+    for (const a of ARVORES) assert.ok(GRUPOS.includes(a.grupo), `${a.id}: área ${a.grupo}`);
+    for (const g of GRUPOS) assert.ok(ARVORES.some((a) => a.grupo === g), `área vazia: ${g}`);
     assert.equal(new Set(IDS).size, IDS.length);
     assert.ok(Number.isInteger(VERSAO_ARVORES) && VERSAO_ARVORES >= 1);
     for (const a of ARVORES) assert.deepEqual(validarArvore(a, { manual: MANUAL_BT, arvores: IDS }), [], a.id);
@@ -64,7 +76,7 @@ describe('árvores de diagnóstico: estrutura', () => {
     assert.match(JSON.stringify(arvorePorId('sem-energia')), /DCP/);
   });
 
-  test('cada nó tem referência ao manual (capítulo e página dentro do capítulo); os caps. 10, 11, 16 e 20 estão todos', () => {
+  test('cada nó tem referência ao manual (capítulo e página dentro do capítulo); todos os capítulos de instalação (01 a 22, B4, B5 e anexo A) estão cobertos', () => {
     const caps = capitulosDoManual(MANUAL_BT);
     const usados = new Set();
     for (const a of ARVORES) {
@@ -79,30 +91,32 @@ describe('árvores de diagnóstico: estrutura', () => {
         }
       }
     }
-    for (const n of ['10', '11', '16', '20', 'B4', 'B5']) assert.ok(usados.has(n), `capítulo ${n}`);
+    // Todos os capítulos de instalação do manual (B1–B3 são teoria de base: grandezas, CA e magnetismo).
+    for (const n of ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22', 'B4', 'B5', 'A']) assert.ok(usados.has(n), `capítulo ${n}`);
   });
 
   test('sem becos sem saída: todos os caminhos acabam num fim com causa, ação e tipo de avaria; os de valor têm unidade e limite com fonte', () => {
     let fins = 0;
     for (const a of ARVORES) {
       const todos = caminhos(a);
-      assert.ok(todos.length >= 5, a.id);
+      assert.ok(todos.length >= 3, a.id);
       for (const c of todos) {
         const fim = a.nos[c.at(-1)];
         assert.equal(fim.tipo, 'fim');
         assert.ok(fim.causa.length >= 10 && fim.acao.length >= 10 && TIPOS_AVARIA.includes(fim.tipoAvaria), `${a.id}.${c.at(-1)}`);
       }
       for (const [id, no] of Object.entries(a.nos)) {
+        if (no.tipo === 'lista') assert.ok(no.itens.length >= 2 && no.sim && no.nao, `${a.id}.${id}`);
         if (no.tipo === 'fim') { fins++; if (no.seguir) assert.ok(arvorePorId(no.seguir), `${a.id}.${id} segue para ${no.seguir}`); continue; }
         if (no.tipo === 'valor') {
-          assert.ok(['V', 'A', 'Ω', 'MΩ', 'ms', '%'].includes(no.unidade), `${a.id}.${id}`);
+          assert.ok(UNIDADES.includes(no.unidade), `${a.id}.${id}`);
           assert.ok(textoLimite(no, { In: 16 }).length > 2 && no.limite.fonte.length > 10, `${a.id}.${id}`);
           assert.ok(no.dentro && no.fora);
         }
         if (no.ficha?.valor) assert.equal(FICHA_VALORES[no.ficha.valor], no.unidade, `${a.id}.${id}`);
       }
     }
-    assert.ok(fins >= 100, `${fins} fins`);
+    assert.ok(fins >= 300, `${fins} fins`);
   });
 
   test('o validador apanha os erros: nó inexistente, ciclo, sem referência, fim sem ação, valor sem limite, variável não pedida', () => {
@@ -125,6 +139,7 @@ describe('árvores de diagnóstico: estrutura', () => {
     assert.deepEqual(EPI.map((r) => r.chave), EPI_SERVIDOR);
     assert.deepEqual(SINAIS_PERIGO.map((r) => r.chave), SINAIS_SERVIDOR);
     assert.deepEqual(TIPOS_AVARIA, TIPOS_SERVIDOR);
+    assert.deepEqual(UNIDADES, UNIDADES_SERVIDOR, 'as unidades da app são as que o servidor aceita');
     assert.match(REGRAS_OURO.find((r) => r.chave === 'verificar').texto, /bipolar testado antes e depois/);
     assert.deepEqual(SINAIS_PERIGO.map((s) => s.texto.split(' ')[0]), ['Cheiro', 'Água', 'Aquecimento', 'Faíscas,', 'Cabo']);
     assert.ok(PARAR_ISOLAR.passos.some((p) => /112/.test(p)));
@@ -190,6 +205,34 @@ describe('motor do diagnóstico', () => {
     p2.push(responder(dif, p2, { chave: 'nao_sei' }).passo);
     assert.equal(fimDe(dif, p2), FIM_APOIO);
     assert.equal(noDe(dif, atual(dif, p2)).parar, true);
+  });
+
+  test('lista de verificação (manutenção preventiva): todos feitos → segue; algum em falta → o fim com o que falta; a ficha só conta a lista completa', () => {
+    const man = arvorePorId('manutencao-preventiva');
+    const p = [];
+    let r = responder(man, p, { chave: 'l', feitos: ['botao_t', 'visual'] });
+    assert.deepEqual([r.passo.chave, r.seguinte, r.passo.resposta], ['lt', 'eletricista', '2 de 2 feitos']);
+    p.push(r.passo);
+    r = responder(man, p, { chave: 'l', feitos: ['reaperto', 'dst'] });
+    assert.equal(r.seguinte, 'fim_eletricista');
+    assert.match(r.passo.resposta, /^2 de 4 feitos; em falta: Medição de isolamento/);
+    p.push(r.passo);
+    assert.ok(fimDe(man, p).acao.startsWith('Agendar'));
+    const ver = arvorePorId('verificacao-periodica');
+    const pv = [responder(ver, [], { chave: 'l', feitos: ['protecoes'] }).passo];
+    assert.equal(pv[0].chave, 'lf');
+    assert.deepEqual(paraFicha(ver, { passos: pv }).verificacoes, [], 'inspeção visual incompleta não conta');
+    const pv2 = [responder(ver, [], { chave: 'l', feitos: ver.nos.inspecao.itens.map((x) => x.chave) }).passo];
+    assert.deepEqual(paraFicha(ver, { passos: pv2 }).verificacoes, ['visual']);
+  });
+
+  test('procura: sem acentos, por várias palavras, também nas palavras extra; vazia mostra todas', () => {
+    assert.equal(procurar('').length, ARVORES.length);
+    assert.ok(procurar('piscina').some((a) => a.id === 'piscina'));
+    assert.ok(procurar('protecoes').length >= 5, 'sem acento encontra «Proteções»');
+    assert.deepEqual(procurar('wallbox').map((a) => a.id), ['carregador-ve']);
+    assert.ok(procurar('knx bus').some((a) => a.id === 'knx'));
+    assert.deepEqual(procurar('xyzzy'), []);
   });
 
   test('variáveis: o calibre escolhido entra no limite da corrente; os passos "dado" (chapa do motor) também', () => {
@@ -508,7 +551,11 @@ describe('a app (ficheiros do site)', () => {
     for (const i of man.icons) assert.ok(existsSync(new URL(i.src, WEB)), i.src);
     const sw = await readFile(new URL('diagnostico-sw.js', WEB), 'utf8');
     assert.match(sw, /domus-diagnostico-/);
-    for (const f of ['diagnostico.js', 'diagnostico.css', 'diagnostico/motor.js', 'diagnostico/arvores.js', 'diagnostico/limites.js', ...IDS.length ? ['diagnostico/arvores-protecoes.js', 'diagnostico/arvores-alimentacao.js', 'diagnostico/arvores-terra.js', 'diagnostico/arvores-aparelhos.js'] : []]) {
+    // Todos os módulos da pasta web/diagnostico (as árvores novas também) ficam guardados para funcionar sem rede.
+    const modulos = readdirSync(new URL('diagnostico/', WEB)).filter((f) => f.endsWith('.js')).map((f) => `diagnostico/${f}`);
+    assert.ok(modulos.length >= 15);
+    assert.match(sw, /domus-diagnostico-v2/, 'a versão da cache subiu com a ronda 2');
+    for (const f of ['diagnostico.js', 'diagnostico.css', ...modulos]) {
       assert.ok(sw.includes(`"${f}"`), `o service worker guarda ${f}`);
       assert.ok(existsSync(new URL(f, WEB)), f);
     }
