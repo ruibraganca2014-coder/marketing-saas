@@ -384,7 +384,7 @@ export function blocosRelatorio(d) {
     nota,
   ];
 }
-const COR_CIRCUITO = { luz: "#e0b100", tomadas: "#6a994e", humida: "#3a86c8", maquina: "#d9853b" };
+const COR_CIRCUITO = { luz: "#e0b100", tomadas: "#6a994e", humida: "#3a86c8", maquina: "#d9853b", proprio: "#8d6e63" };
 
 /**
  * O desenho do quadro para o PDF: o <svg> de quadro-desenho.js com as cores claras postas nos próprios elementos (uma
@@ -402,7 +402,7 @@ function svgQuadroPdf(esquema) {
     "qd-alavanca": { fill: C["--texto"] },
     "qd-teste": { fill: C["--superficie"], stroke: C["--texto"], "stroke-width": 1 },
     "qd-visor": { fill: C["--musgo-claro"], stroke: C["--texto"], "stroke-width": 1 },
-    "qd-cor-luz": { fill: "#e0b100" }, "qd-cor-tomadas": { fill: "#6a994e" }, "qd-cor-humida": { fill: "#3a86c8" }, "qd-cor-maquina": { fill: "#d9853b" },
+    "qd-cor-luz": { fill: "#e0b100" }, "qd-cor-tomadas": { fill: "#6a994e" }, "qd-cor-humida": { fill: "#3a86c8" }, "qd-cor-maquina": { fill: "#d9853b" }, "qd-cor-proprio": { fill: "#8d6e63" },
   };
   for (const e of svg.querySelectorAll("*")) {
     const cl = e.classList;

@@ -65,7 +65,7 @@ export const PASSOS = [
     titulo: "Reparar, substituir e verificar",
     passos: [
       "Corrigir a causa, não o sintoma: apertar ou refazer a ligação, substituir o troço de cabo ou o aparelho, redistribuir cargas ou criar um circuito.",
-      "Repetir os ensaios depois da reparação (continuidade do PE, isolamento, diferencial) e os anteriores que ela possa ter afetado (RTIEBT 612.1).",
+      "Repetir os ensaios depois da reparação (continuidade do PE, isolamento, diferencial) e os anteriores que ela possa ter afetado (pela ordem do manual de instalações BT, 16.2).",
       "Ensaio funcional com carga real e, se possível, nas condições em que a avaria aparecia (aparelho ligado, hora do dia, chuva).",
       "Registar o que se encontrou, o que se fez e os valores medidos (a ficha do pedido tem o lugar para isto).",
     ],
@@ -134,7 +134,7 @@ export const VALORES = [
   { medicao: "Resistência de isolamento (cada condutor ativo à terra)", valor: "≥ 0,5 MΩ a 500 V c.c., aparelhos desligados", fonte: "RTIEBT 612.3 (Quadro 61A)", nota: "Circuitos até 500 V; TRS/TRP ≥ 0,25 MΩ a 250 V. Objetivo da Domus Energia: ≥ 1 MΩ (manual de instalações, anexo A)." },
   { medicao: "Disparo do diferencial", valor: "dispara entre ½ IΔn e IΔn (não dispara abaixo de ½ IΔn)", fonte: "RTIEBT Anexo B", nota: "A RTIEBT não fixa tempo; os ≤ 300 ms a IΔn (tipo geral) são das normas de produto EN 61008/61009 (referência prática)." },
   { medicao: "Resistência de terra das massas (habitação com disjuntor de entrada diferencial)", valor: "< 100 Ω; e RA × IΔn ≤ 50 V", fonte: "RTIEBT 801.5.6.1 e 413.1.4.2", nota: "Com 30 mA o limite da fórmula é 1667 Ω; os 100 Ω são a exigência explícita para habitações." },
-  { medicao: "Ordem dos ensaios", valor: "inspeção visual; depois continuidade do PE → isolamento → separação de circuitos → corte automático (terra, malha, diferencial) → polaridade → funcionais → quedas de tensão", fonte: "RTIEBT 611.1 e 612.1", nota: "Um ensaio que falha repete-se depois da correção, com os anteriores que possa ter afetado." },
+  { medicao: "Ordem dos ensaios", valor: "inspeção visual; depois continuidade do PE → isolamento → separação de circuitos → polaridade → terra / impedância da malha → diferenciais → quedas de tensão → ensaios funcionais", fonte: "manual de instalações BT, 16.2", nota: "A ordem é a do manual da Domus Energia (a polaridade antes da terra e dos diferenciais; a RTIEBT 612.1 põe-na depois do corte automático). Um ensaio que falha repete-se depois da correção, com os anteriores que possa ter afetado." },
 ];
 
 /** Quando parar e pedir ajuda ou outra equipa. */

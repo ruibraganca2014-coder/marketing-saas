@@ -123,7 +123,7 @@ const TOPO = 12;
 const FILA = 108;          // altura de uma fila
 const ALTO = 78;           // altura de um componente
 const LETRA_ETIQUETA = 4.9; // altura por letra da etiqueta (na vertical) por baixo de um disjuntor
-export const CORES_CIRCUITO = { luz: "Iluminação", tomadas: "Tomadas", humida: "Tomadas de zonas húmidas", maquina: "Máquinas grandes" };
+export const CORES_CIRCUITO = { luz: "Iluminação", tomadas: "Tomadas", humida: "Tomadas de zonas húmidas", maquina: "Máquinas grandes", proprio: "Estores e portão" };
 
 const svgEl = (tag, attrs = {}, texto = null) => {
   const e = document.createElementNS(NS, tag);

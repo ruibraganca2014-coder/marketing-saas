@@ -240,9 +240,9 @@ test('potência sugerida nunca abaixo do mínimo da RTIEBT 801.5.2.2 (3,45 kVA c
   const m = potenciaSugerida(muita, 4);
   assert.equal(m.kva, 10.35);
   assert.equal(m.minimo_rtiebt, false);
-  // T2 (sala, cozinha, 2 quartos, casa de banho = 5 compartimentos; o corredor não conta): 6,9 kVA, "mínimo RTIEBT".
+  // T2 (sala, cozinha e 2 quartos = 4 compartimentos; casa de banho e corredor não contam — decisão do dono, 2026-10-24): 6,9 kVA, "mínimo RTIEBT".
   const e = casaT2(['nova']);
-  assert.equal(compartimentosRtiebt(e), 5);
+  assert.equal(compartimentosRtiebt(e), 4);
   const r = resumoQuadro(e);
   assert.equal(r.potencia.kva, 6.9);
   assert.equal(r.potencia.minimo_rtiebt, true);

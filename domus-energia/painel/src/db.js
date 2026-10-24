@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO, SEMENTES_SERVICOS_FOTOS } from './catalogo-sementes.js';
+import { SEMENTES_CATALOGO, SEMENTES_QUADRO, SKUS_MIGRACAO_6, SKUS_MIGRACAO_59, SEMENTES_ACOES, SEMENTES_PONTOS, SEMENTES_PONTOS_20, HORAS_PONTOS, SEMENTES_DINHEIRO, SEMENTES_SERVICOS_FOTOS } from './catalogo-sementes.js';
 import { SEMENTES_PROCEDIMENTOS } from './procedimentos-sementes.js';
 import { iso } from './util.js';
 
@@ -1278,6 +1278,9 @@ export const MIGRACOES = [
   (db) => {
     db.prepare("UPDATE catalogo SET nome = 'Interruptor diferencial 2P 40 A 30 mA tipo A' WHERE sku = 'IDR-2P-40A-30MA-A' AND nome = 'Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE)'").run();
   },
+  // 59: manual de instalações BT (decisões do dono, 2026-10-24): o diferencial 2P 63 A 30 mA tipo A (10,35 kVA ou mais) e o
+  // descarregador de tipo 1+2 (para-raios), com preço provisório — só os que ainda não existem (nunca mexe num artigo do CEO).
+  (db) => semear(db, SEMENTES_QUADRO.filter((s) => SKUS_MIGRACAO_59.includes(s.sku)), true),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

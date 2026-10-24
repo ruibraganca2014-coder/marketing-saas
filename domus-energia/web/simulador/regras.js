@@ -28,9 +28,17 @@ export const MODELOS_DEDICADOS = [
   "esquentador", "hidromassagem",   // esquentador instantâneo (monofásico, ~5,5 kW) e hidromassagem: sempre o seu circuito
   // Serviços e industrial: frio comercial, café, servidor, oficina, portão e o carregador de 22 kW.
   "arca_frigorifica", "maquina_cafe", "servidor", "compressor", "soldadura", "maquina_trifasica", "portao_industrial", "carregador_ve_22",
-  // Iluminação exterior / jardim: circuito próprio com diferencial de 30 mA (manual de instalações BT, 2.2 e 3.2).
-  "iluminacao_jardim",
+  // Iluminação exterior / jardim: circuito próprio com diferencial de 30 mA (manual de instalações BT, 2.2 e 3.2); portão
+  // automático: circuito próprio de 16 A / 2,5 mm² (manual, C14; decisão do dono, 2026-10-24).
+  "iluminacao_jardim", "portao",
 ];
+/**
+ * Circuitos próprios que não são "máquinas grandes" (relatório da casa: não somam na potência das grandes nem vão para a
+ * cor delas): a iluminação exterior, o portão automático e os estores elétricos (circuito C13, sugerirCircuitos).
+ */
+export const PROPRIOS_LEVES = ["iluminacao_jardim", "portao", "estores"];
+/** Potência por motor de estore (W), para o circuito dos estores. */
+export const W_ESTORE = 150;
 // Placa (C3; manual de instalações BT, 3.2, circuito C10): circuito de 25 A com cabo de 4 mm² (o conjunto fogão + forno
 // pode justificar 6 mm² / 32 A). O forno tem o seu circuito de 16 A / 2,5 mm² (C9 do manual). A placa (7 200 W) nunca
 // tira a potência toda ao mesmo tempo (simultaneidade): não entra na conta da carga do circuito.
@@ -109,7 +117,7 @@ export const EXTRAS_CASA = {
  * `MAQUINAS_QUER`, `PEQUENAS_QUER` e `OBJETIVOS` (todas as chaves) servem para validar.
  */
 export const MAQUINAS_GRANDES = {
-  habitacao: ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "esquentador", "radiador", "hidromassagem", "ar_condicionado", "carregador_ve", "carregador_ve_22"],
+  habitacao: ["placa", "forno", "maquina_lavar", "maquina_loica", "maquina_secar", "termoacumulador", "esquentador", "radiador", "hidromassagem", "ar_condicionado", "carregador_ve", "carregador_ve_22", "portao"],
   servicos: ["ar_condicionado", "arca_frigorifica", "maquina_cafe", "forno", "placa", "maquina_loica", "termoacumulador", "servidor", "carregador_ve", "carregador_ve_22"],
   industrial: ["compressor", "soldadura", "maquina_trifasica", "portao_industrial", "ar_condicionado", "termoacumulador", "carregador_ve", "carregador_ve_22"],
 };
@@ -304,7 +312,8 @@ export const MODELOS = {
   repetidor_wifi: { nome: "Repetidor Wi-Fi", w: 10 },
   nas: { nome: "NAS (discos em rede)", w: 40 },
   camara: { nome: "Câmara de vigilância", w: 10 },
-  portao: { nome: "Portão automático", w: 300 },              // legado (portão, rega, repetidor e NAS já não estão na escolha das casas)
+  portao: { nome: "Portão automático", w: 300 },              // de novo na escolha das casas (2026-10-24: circuito próprio, C14); rega, repetidor e NAS não
+  estores: { nome: "Estores elétricos", w: W_ESTORE },        // só o circuito dos estores motorizados (C13; sugerirCircuitos), não se escolhe
   rega: { nome: "Rega automática (programador)", w: 20 },
   iluminacao_jardim: { nome: "Iluminação exterior", w: 150 },
   campainha: { nome: "Campainha", w: 10 },   // ronda regras: campainha normal com transformador + botão
@@ -939,7 +948,16 @@ export function sugerirCircuitos(contagem, opcoes = {}) {
       });
     }
   }
-  return numerar([...luzes, ...tomadas, ...humidas, ...maquinas]);
+  // Estores motorizados (manual de instalações BT, C13; decisão do dono, 2026-10-24): um circuito próprio de 10 A / 1,5 mm²
+  // para todos os motores da casa (as divisões onde estão), sem disjuntor inteligente (os estores comandam-se pelos seus).
+  const comEstores = contagem.filter((c) => (Number(c.estores) || 0) > 0);
+  const nEstores = comEstores.reduce((s, c) => s + Number(c.estores), 0);
+  const estores = nEstores ? [{
+    ...circuitoVazio(0, "maquina"), amperes: AMPERES_LUZ, inteligente: false, medir: false, nome: nomeModelo("estores"),
+    divisoes: comEstores.filter((c) => !c.fora).map((c) => c.nome),
+    itens: { luzes: 0, tomadas: 0, maquinas: [{ modelo: "estores", potencia_w: nEstores * W_ESTORE }] },
+  }] : [];
+  return numerar([...luzes, ...tomadas, ...humidas, ...maquinas, ...estores]);
 }
 
 export function numerar(circuitos) {

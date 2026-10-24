@@ -2465,7 +2465,7 @@ function desenharQuadroMelhorias() {
   }
   const partes = [];
   if (seguro) partes.push("Com o Quadro seguro: Completa e diferenciais Wi-Fi. Escolher outra proteção tira o Quadro seguro.");
-  if (q.para_raios === "sim") partes.push("Com para-raios: descarregador de sobretensões incluído.");
+  if (q.para_raios === "sim") partes.push("Com para-raios: descarregador de sobretensões de tipo 1+2 incluído.");
   partes.push(q.quadro_novo === "atual"
     ? "Aproveitamos o seu quadro."
     : q.quadro_novo === "novo" ? "Quadro novo incluído." : comProposta("Só na visita sabemos se o seu quadro serve. Se servir, tiramos este valor.", "Vemos pela foto se o seu quadro serve. Se servir, tiramos este valor na proposta."));

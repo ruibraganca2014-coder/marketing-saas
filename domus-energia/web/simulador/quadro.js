@@ -297,6 +297,9 @@ export function resumoQuadro(estado) {
   const tri = casa.fases === "tri";
   const P = tri ? 2 : 1;
   const prot = protecoesEfetivas(q);
+  const potencia = potenciaSugerida(circuitos, compartimentosRtiebt(estado), perfilCasa(casa.tipo) === "habitacao");
+  const ampDif = amperesDiferencial(casa, potencia);
+  const descTipo1 = q.para_raios === "sim";
   // Com quadros parciais (casas com pisos) cada circuito fica no quadro do seu piso (`piso` do circuito: o piso
   // do quadro; sem ele, no geral): o geral só conta os módulos dos seus circuitos, mais o geral de cada parcial
   // (a saída do piso). Com um só quadro fica tudo no geral, como sempre.
@@ -316,7 +319,7 @@ export function resumoQuadro(estado) {
   linha("geral", prot.geral_wifi ? "Disjuntor geral Wi-Fi (com medição)" : "Disjuntor geral", 1, MODULOS.geral * P);
   // O do carregador VE: linha à parte (os módulos são os mesmos), tipo A com a deteção de 6 mA CC da wallbox ou tipo B.
   const gVe = gruposGeral.filter((g) => g.carregador).length;
-  linha("diferencial", `Diferencial 40 A / 30 mA${prot.idr_wifi ? " Wi-Fi" : " tipo A"}`, gruposGeral.length - gVe, (gruposGeral.length - gVe) * MODULOS.diferencial * P);
+  linha("diferencial", `Diferencial ${prot.idr_wifi ? "40" : ampDif} A / 30 mA${prot.idr_wifi ? " Wi-Fi" : " tipo A"}`, gruposGeral.length - gVe, (gruposGeral.length - gVe) * MODULOS.diferencial * P);
   linha("diferencial_tipo_a", "Diferencial 40 A / 30 mA do carregador VE (tipo A com deteção de 6 mA CC, ou tipo B)", gVe, gVe * MODULOS.diferencial * P);
   novos += Math.max(0, gruposGeral.length - 1) * MODULOS.diferencial * P;
   // Artigos (disjuntores, AFDD, inteligentes): todos os circuitos; módulos e linhas: só os do quadro geral.
@@ -347,7 +350,7 @@ export function resumoQuadro(estado) {
   linha("saida_parcial", "Geral de cada quadro parcial (saída do piso)", parciais, parciais * MODULOS.geral * P);
   for (const k of ["descarregador", "rele_tensao", "medidor_geral"]) {
     if (!prot[k]) continue;
-    linha(k, PROTECOES[k].nome, 1, MODULOS[k] * P);
+    linha(k, k === "descarregador" && descTipo1 ? NOME_DESCARREGADOR_T1 : PROTECOES[k].nome, 1, MODULOS[k] * P);
     novos += MODULOS[k] * P;
   }
   const ocupados = linhas.reduce((s, l) => s + l.modulos, 0);
@@ -360,8 +363,22 @@ export function resumoQuadro(estado) {
     grupos, afdd, linhas, ocupados, tamanho: t, quadros, livres: quadros * t - ocupados, cabe: tamanho !== null, novos,
     disjuntores: disj, disjuntores_ve: disjVe, sy2, sy1, tetrapolares: tetraT, tetrapolares_ve: tetraVe, circuitos_existentes: existentes, afdd_existentes: afddEx,
     parciais, pisos_quadros: pisosQ,
-    potencia: potenciaSugerida(circuitos, compartimentosRtiebt(estado), perfilCasa(casa.tipo) === "habitacao"),
+    potencia, amperes_diferencial: ampDif, descarregador_tipo1: descTipo1 && !!prot.descarregador,
   };
+}
+
+/** Com para-raios ou linha aérea: o descarregador da origem é de tipo 1+2 (manual de instalações BT, 11.7 e 18.4). */
+export const NOME_DESCARREGADOR_T1 = "Descarregador de sobretensões (tipo 1+2, para-raios ou linha aérea)";
+/** A partir desta potência (kVA) os diferenciais são de 63 A (manual de instalações BT, anexo A.2: 10,35 kVA → 63 A). */
+export const KVA_DIFERENCIAL_63 = 10.35;
+/**
+ * Amperes dos diferenciais do quadro: 63 A quando a potência contratada ou a sugerida chega a 10,35 kVA (ou passa os
+ * 41,4 kVA: `kva` null); 40 A abaixo. O geral (GERAL-2P-63A, 40–63 A) já serve nos dois casos.
+ */
+export function amperesDiferencial(casa, potencia) {
+  const contratada = Number(casa?.potencia_contratada_kva) || 0;
+  const sugerida = potencia?.kva === null ? Infinity : Number(potencia?.kva) || 0;
+  return Math.max(contratada, sugerida) >= KVA_DIFERENCIAL_63 ? 63 : 40;
 }
 
 /** O preço leva a caixa de um quadro novo? Sim com "Quero quadro novo" e com "Não sei" (por precaução). */
@@ -385,8 +402,10 @@ export function pedidosQuadro(estado) {
   // Os diferenciais são tipo A (manual de instalações BT, 11.3: o padrão em habitação e serviços; o AC já não). O grupo do
   // carregador VE leva o seu, nunca o Wi-Fi — incluído na linha dedicada do carregador (ronda dinheiro).
   const ve = r.grupos.filter((g) => g.carregador).length;
-  add(p.idr_wifi ? "diferencial_wifi" : "diferencial_tipo_a", r.grupos.length - ve);
-  add("descarregador", p.descarregador ? 1 : 0);
+  // Com 10,35 kVA ou mais (a contratada ou a sugerida), os diferenciais passam a 63 A (manual de instalações BT, anexo A.2).
+  add(p.idr_wifi ? "diferencial_wifi" : r.amperes_diferencial === 63 ? "diferencial_63" : "diferencial_tipo_a", r.grupos.length - ve);
+  // Com para-raios (ou linha aérea): o descarregador de tipo 1+2 na origem (manual 11.7 e 18.4), em vez do tipo 2.
+  add(r.descarregador_tipo1 ? "descarregador_t1" : "descarregador", p.descarregador ? 1 : 0);
   add("rele_tensao", p.rele_tensao ? 1 : 0);
   add("afdd", r.afdd.length + r.afdd_existentes);
   add("medidor_geral", p.medidor_geral ? 1 : 0);
@@ -431,12 +450,15 @@ export const SIMULTANEIDADE = { maior: 1, segunda: 0.5, outras: 0.25, geral: 0.4
  */
 export const MINIMO_KVA_RTIEBT = { um: 3.45, ate6: 6.9, mais6: 10.35 };
 export const minimoRtiebt = (compartimentos) => (compartimentos > 6 ? MINIMO_KVA_RTIEBT.mais6 : compartimentos >= 2 ? MINIMO_KVA_RTIEBT.ate6 : compartimentos === 1 ? MINIMO_KVA_RTIEBT.um : null);
-/** Tipos de divisão que não contam como compartimento (circulações e exterior). */
-const NAO_COMPARTIMENTO = ["corredor", "entrada", "escadas", "varanda", "jardim"];
+/**
+ * Tipos de divisão que contam como compartimento (decisão do dono, 2026-10-24): só quartos, salas e cozinha — um T3 tem 5
+ * (manual de instalações BT, exemplo 14.1). Casas de banho, corredores, entradas, escadas, lavandaria, despensa, escritório,
+ * garagem, arrecadação, varanda e exterior não contam. A sala com cozinha (kitchenette) é uma divisão: conta 1.
+ */
+const COMPARTIMENTOS = ["quarto", "sala", "sala_cozinha", "cozinha"];
 /**
  * N.º de compartimentos da habitação para a RTIEBT 801.5.2.2 — aproximação pelos dados da casa (confirma-se na
- * visita): as divisões da planta (ou, sem planta, as do pedido, senão as que a casa gera) sem corredores, entradas,
- * escadas, varandas e exterior. null em serviços e industrial (a 801 é só para habitação) ou sem divisões.
+ * visita): os quartos, as salas e a cozinha da planta (ou, sem planta, do pedido, senão os que a casa gera). null em serviços e industrial (a 801 é só para habitação) ou sem divisões.
  */
 export function compartimentosRtiebt(estado) {
   const casa = estado?.casa ?? {};
@@ -444,7 +466,7 @@ export function compartimentosRtiebt(estado) {
   const p = estado?.planta;
   const daPlanta = !!p && !estado.plantaSaltada && (p.divisoes?.length ?? 0) > 0;
   const divs = daPlanta ? p.divisoes : (estado?.divisoes?.length ? estado.divisoes : divisoesDaCasa(casa, []));
-  const n = divs.filter((d) => d && typeof d === "object" && !NAO_COMPARTIMENTO.includes(tipoDivisao(d.nome))).length;
+  const n = divs.filter((d) => d && typeof d === "object" && COMPARTIMENTOS.includes(tipoDivisao(d.nome))).length;
   return n || null;
 }
 
@@ -506,7 +528,7 @@ export function avisosProtecoes(estado) {
   const casa = estado.casa ?? {};
   const out = [];
   const a = (t) => out.push(`${t}${FIM_AVISO}`);
-  if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões (recomendado pela RTIEBT 801.5.10 com linha aérea). Com para-raios tem de ser de tipo 1 na origem da instalação (manual de instalações BT, 11.7 e 18.4): o preço mostrado é o do tipo 2 e o do tipo 1 confirma-se na visita.");
+  if (q.para_raios === "sim") a("Com para-raios ou linha aérea incluímos sempre o descarregador de sobretensões, de tipo 1+2 na origem da instalação (recomendado pela RTIEBT 801.5.10 com linha aérea; com para-raios, obrigatório de tipo 1 — manual de instalações BT, 11.7 e 18.4).");
   else if (q.para_raios !== "nao" && !r.protecoes.descarregador) a("Se a casa tiver para-raios ou for alimentada por linha aérea, o descarregador de sobretensões é recomendado (RTIEBT 801.5.10).");
   if (r.grupos.some((g) => g.carregador)) a("O carregador do carro elétrico fica com diferencial próprio de 30 mA: tipo A com a deteção de 6 mA CC da wallbox, ou tipo B (manual de instalações BT, 13.6); já vai na linha dedicada do carregador.");
   if (r.circuitos_existentes) a(`Quadro novo com os circuitos que a casa já tem: contámos ${r.circuitos_existentes} (1 de iluminação por piso, 1 de tomadas por cada 2 divisões, a cozinha e as casas de banho à parte), cada um com um disjuntor 1P+N — o n.º de circuitos a confirmar na visita.`);

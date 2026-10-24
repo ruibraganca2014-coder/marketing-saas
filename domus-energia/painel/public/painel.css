@@ -604,6 +604,7 @@ textarea.codigo { font: .9rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, mono
 .qd-cor-tomadas { fill: #6a994e; }
 .qd-cor-humida { fill: #3a86c8; }
 .qd-cor-maquina { fill: #d9853b; }
+.qd-cor-proprio { fill: #8d6e63; }
 .qd-alavanca { fill: var(--texto); }
 .qd-teste { fill: var(--superficie); stroke: var(--texto); stroke-width: 1; }
 .qd-teste-t { fill: var(--texto); font: 700 7px var(--letra); }

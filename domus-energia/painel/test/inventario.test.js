@@ -59,19 +59,18 @@ test('uma divisão fica por responder até os interruptores E as tomadas estarem
   // Nada se assume: os que a planta traz são sugestões (nenhum respondido), nem o "1 botão" de omissão conta.
   let inv = inventarioDivisao(e, e.planta, sala);
   assert.equal(inv.interruptor.els.length, 1);
-  assert.deepEqual([inv.interruptor.falta, inv.interruptor.respondido, inv.tomada.falta, inv.tomada.respondido, inv.respondida], [1, false, 3, false, false]);
+  assert.deepEqual([inv.interruptor.falta, inv.interruptor.respondido, inv.tomada.falta, inv.tomada.respondido, inv.respondida], [1, false, 5, false, false]);   // sala: 5 tomadas (mínimo do manual, 2026-10-24)
   assert.equal(divisoesPorInventariar(e, e.planta).length, e.planta.divisoes.length, 'todas por responder ao chegar ao passo');
   // Só os interruptores respondidos: ainda falta.
   for (const x of doTipo(e, sala, 'interruptor')) { x.props.botoes = 2; x.confirmado = true; }
   inv = inventarioDivisao(e, e.planta, sala);
   assert.deepEqual([inv.interruptor.respondido, inv.tomada.respondido, inv.respondida], [true, false, false]);
-  // Duas das três tomadas: falta uma.
+  // Quatro das cinco tomadas: falta uma.
   const toms = doTipo(e, sala, 'tomada');
-  toms[0].confirmado = true;
-  toms[1].confirmado = true;
+  for (const t of toms.slice(0, 4)) t.confirmado = true;
   assert.deepEqual([inventarioDivisao(e, e.planta, sala).tomada.falta, inventarioDivisao(e, e.planta, sala).respondida], [1, false]);
-  toms[2].props.caixas = 3;
-  toms[2].confirmado = true;
+  toms[4].props.caixas = 3;
+  toms[4].confirmado = true;
   assert.equal(inventarioDivisao(e, e.planta, sala).respondida, true);
   assert.equal(divisoesPorInventariar(e, e.planta).some((d) => d.id === sala.id), false);
   // Decisão do dono (2026-10-10): as tomadas põem-se na planta ("Interruptores e tomadas"); uma divisão sem nenhuma não
@@ -98,7 +97,9 @@ test('uma divisão fica por responder até os interruptores E as tomadas estarem
 test('botões e tipos de tomada: ida e volta no estado guardado e no pedido enviado (planta e inventário)', () => {
   const e = casaT2();
   const [sala, cozinha, ...resto] = e.planta.divisoes;
-  const ints = doTipo(e, sala, 'interruptor'), toms = doTipo(e, sala, 'tomada');
+  const ints = doTipo(e, sala, 'interruptor'), toms = doTipo(e, sala, 'tomada').slice(0, 3);
+  // A sala nasce com 5 tomadas (mínimo do manual, 2026-10-24): o teste fica com 3, de 1, 2 e 3 caixas.
+  e.planta.elementos = e.planta.elementos.filter((x) => !(x.tipo === 'tomada' && x.divisao === sala.id && !toms.includes(x)));
   Object.assign(ints[0], { confirmado: true }).props.botoes = 3;
   [1, 2, 3].forEach((c, i) => { toms[i].props.caixas = c; toms[i].props.dupla = c === 2; toms[i].confirmado = true; });
   // Cozinha: os interruptores respondidos e "Não tem" tomadas.

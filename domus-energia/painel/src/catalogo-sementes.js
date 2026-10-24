@@ -102,6 +102,13 @@ const caixa = (m, filas, preco, horas) => ({
 });
 /** SKUs de SEMENTES_QUADRO acrescentados depois da migração 3: entram nas bases já existentes pela migração 6. */
 export const SKUS_MIGRACAO_6 = ['MCB-4P-C'];
+/**
+ * Manual de instalações BT (decisões do dono, 2026-10-24): o diferencial de 63 A (10,35 kVA ou mais, anexo A.2) e o
+ * descarregador de tipo 1+2 (com para-raios, 11.7 e 18.4). Preços PROVISÓRIOS (referência de mercado, com IVA) para o dono
+ * confirmar no Catálogo; visíveis no catálogo público como os outros artigos do quadro, porque entram no preço do
+ * simulador. Entram nas bases já existentes pela migração 59.
+ */
+export const SKUS_MIGRACAO_59 = ['IDR-2P-63A-30MA-A', 'SPD-T12-1PN'];
 export const SEMENTES_QUADRO = [
   { sku: 'IDR-2P-40A-30MA', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo AC', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 49.9, horas_instalacao: 0.5,
@@ -112,6 +119,12 @@ export const SEMENTES_QUADRO = [
   { sku: 'SPD-T2-1PN-40KA', nome: 'Descarregador de sobretensões tipo 2 (1P+N, 40 kA)', categoria: 'acessorio',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 89.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'descarregador', tipo: 'T2', imax_ka: 40, modulos: 2 } },
+  { sku: 'IDR-2P-63A-30MA-A', nome: 'Interruptor diferencial 2P 63 A 30 mA tipo A', categoria: 'disjuntor',
+    fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 69, horas_instalacao: 0.5,
+    especificacoes: { funcao: 'diferencial', amperes: 63, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
+  { sku: 'SPD-T12-1PN', nome: 'Descarregador de sobretensões tipo 1+2 (1P+N, Iimp 12,5 kA) — para-raios ou linha aérea', categoria: 'acessorio',
+    fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 189, horas_instalacao: 0.75,
+    especificacoes: { funcao: 'descarregador', tipo: 'T1+T2', iimp_ka: 12.5, modulos: 2, nota: PROVISORIO } },
   { sku: 'RELE-TENSAO-WIFI', nome: 'Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou)', categoria: 'acessorio',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 59.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'rele_tensao', religacao: true, amperes_max: 63, rede: 'wifi', modulos: 2 } },

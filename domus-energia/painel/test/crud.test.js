@@ -158,8 +158,8 @@ test('migração 3 (catálogo do quadro): base existente recebe os artigos novos
     const a = db.prepare('SELECT preco_venda_iva_cent AS c, especificacoes AS e, ativo FROM catalogo WHERE sku = ?').get(s.sku);
     assert.equal(a.c, Math.round(s.preco_venda_iva * 100), s.sku);
     assert.equal(a.ativo, 1);
-    // Preços aprovados pelo dono: só o AFDD continua com a nota "preço provisório — confirmar".
-    if (s.sku === 'AFDD-1PN-16A') assert.match(JSON.parse(a.e).nota, /provisório — confirmar/, s.sku);
+    // Preços aprovados pelo dono: só o AFDD e os dois do manual de instalações BT (migração 59, 2026-10-24) têm a nota "preço provisório — confirmar".
+    if (['AFDD-1PN-16A', 'IDR-2P-63A-30MA-A', 'SPD-T12-1PN'].includes(s.sku)) assert.match(JSON.parse(a.e).nota, /provisório — confirmar/, s.sku);
     else assert.doesNotMatch(JSON.parse(a.e).nota ?? '', /provisório/, s.sku);
   }
   // Correr outra vez não faz nada (a versão já é a última).

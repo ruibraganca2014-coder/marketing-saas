@@ -327,7 +327,9 @@ function divisoesPorPiso(pp, tipologia) {
  * (2026-10-03): o ponto de luz também saiu — o passo "Divisões" só levanta os interruptores e as tomadas que a casa
  * já tem; a luz (como os sensores e os estores) só entra quando o cliente a pede como trabalho novo.
  */
-const TOMADAS_TIPO = { quarto: 2, sala: 3, sala_cozinha: 3, cozinha: 3, escritorio: 2, wc: 1, garagem: 1, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2, outra: 2 };
+// Mínimos do manual de instalações BT (2.3; decisão do dono, 2026-10-24): sala ≥ 5, quarto 4 (4–6), cozinha ≥ 4,
+// garagem 2, corredor 1; casa de banho 1 (1–2). Eram sala 3, quarto 2, cozinha 3, garagem 1, corredor 0.
+const TOMADAS_TIPO = { quarto: 4, sala: 5, sala_cozinha: 5, cozinha: 4, corredor: 1, escritorio: 2, wc: 1, garagem: 2, jardim: 1, loja: 4, rececao: 2, montra: 1, nave: 4, armazem: 2, outra: 2 };
 
 /** Divisões de passagem (ronda regras): 2 portas e a luz comandada de 2 sítios (comando "escada" nos 2 interruptores). */
 const PASSAGEM = ["corredor", "entrada", "escadas"];
@@ -368,7 +370,8 @@ export function aparelhosOmissao(nome, { x_cm: x, y_cm: y, largura_cm: w, altura
   }
   // QA final: as das paredes da esquerda/direita a alturas diferentes (h/3 e 2h/3) e a de cima mais para dentro do
   // que a de baixo: duas divisões encostadas não ficam com tomadas umas por cima das outras na parede partilhada.
-  const tomadas = [[10, h / 3, 90], [w - 10, (2 * h) / 3, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.35), 10, 0]];
+  // A 5.ª (salas): na parede de cima, à esquerda — longe das da parede de baixo de uma divisão por cima (essas ficam à direita).
+  const tomadas = [[10, h / 3, 90], [w - 10, (2 * h) / 3, 90], [w - Math.max(40, w * 0.2), h - 10, 0], [w - Math.max(90, w * 0.35), 10, 0], [Math.max(50, w * 0.2), 10, 0]];
   for (const [dx, dy, rot] of tomadas.slice(0, TOMADAS_TIPO[tipoDivisao(nome)] ?? 0)) add("tomada", dx, dy, rot);
   return r;
 }
@@ -503,6 +506,7 @@ export function plantaDaCasa(casa, maquinas = []) {
   for (const d of p.divisoes) {
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (p.elementos.length >= MAX_ELEMENTOS) break;
+      if (a.tipo === "tomada") afastarTomada(a, d, p.elementos.filter((q) => q.piso === d.piso));
       p.elementos.push({ id: `e${++e}`, ...a, piso: d.piso });
     }
   }
@@ -521,6 +525,30 @@ export function plantaDaCasa(casa, maquinas = []) {
   atualizarDivisoes(p);
   marcarPortaDaRua(p);
   return p;
+}
+
+/** Distância mínima (cm) de uma tomada automática a outro aparelho do mesmo piso (também do outro lado da parede). */
+const AFASTAMENTO_TOMADA_CM = 50;
+/**
+ * Com mais tomadas por divisão (mínimos do manual, 2026-10-24) uma tomada pode cair encostada a uma da divisão do lado,
+ * do outro lado da parede partilhada (divisões de larguras diferentes). Desliza-a ao longo da sua parede, até 1,5 m para
+ * cada lado e sem sair da divisão (30 cm dos cantos), até ficar a 50 cm de tudo; sem sítio, fica onde estava.
+ * A altura não muda (a do tipo de divisão, regras.js alturaTipica). Muda `a`.
+ */
+function afastarTomada(a, d, outros) {
+  const longe = (x, y) => outros.every((o) => Math.hypot((Number(o.x_cm) || 0) - x, (Number(o.y_cm) || 0) - y) >= AFASTAMENTO_TOMADA_CM);
+  if (longe(a.x_cm, a.y_cm)) return a;
+  const vertical = a.rot === 90;
+  const [min, max] = vertical ? [d.y_cm + 30, d.y_cm + d.altura_cm - 30] : [d.x_cm + 30, d.x_cm + d.largura_cm - 30];
+  for (let passo = 10; passo <= 150; passo += 10) {
+    for (const sinal of [1, -1]) {
+      const v = (vertical ? a.y_cm : a.x_cm) + sinal * passo;
+      if (v < min || v > max) continue;
+      const [x, y] = vertical ? [a.x_cm, v] : [v, a.y_cm];
+      if (longe(x, y)) { a.x_cm = Math.round(x); a.y_cm = Math.round(y); return a; }
+    }
+  }
+  return a;
 }
 
 /** Ordem das divisões onde costuma estar a porta da rua (a 1.ª porta da 1.ª que a planta tiver, no r/c). */
@@ -711,6 +739,7 @@ export function acertarPlantaMexida(p, antes, depois, { casa = null } = {}) {
     if (p.elementos.some((e) => e.divisao === d.id && e.tipo !== "maquina")) return;
     for (const a of aparelhosOmissao(d.nome, d)) {
       if (p.elementos.length >= MAX_ELEMENTOS) break;
+      if (a.tipo === "tomada") afastarTomada(a, d, p.elementos.filter((q) => (q.piso ?? 0) === (d.piso ?? 0)));
       p.elementos.push({ ...a, id: novoId("e", p.elementos), piso: d.piso ?? 0, divisao: d.id });
     }
   };

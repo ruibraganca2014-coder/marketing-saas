@@ -552,7 +552,7 @@ describe('modo simulado', () => {
     assert.deepEqual(basico.acoes, rel.acoes);
   });
 
-  test('relatório completo — conteúdo técnico: planta (sem fundo), esquema por luz (comando por divisão), terra e ensaios (ordem 612.1, referência da configuração); o básico não os tem', async () => {
+  test('relatório completo — conteúdo técnico: planta (sem fundo), esquema por luz (comando por divisão), terra e ensaios (ordem do manual de instalações BT, referência da configuração); o básico não os tem', async () => {
     const c = await p.contaConfirmada();
     const planta = {
       escala_cm: 50, largura_cm: 1000, altura_cm: 600, fundo: { imagem: 'data:image/jpeg;base64,AAAA', x_cm: 0, y_cm: 0, largura_cm: 1000, opacidade: 0.5 },
@@ -592,7 +592,7 @@ describe('modo simulado', () => {
     assert.equal(rel.esquemas[0].luzes[0].texto, 'Comando: escada (2 comutadores)');
     assert.match(rel.esquemas[2].luzes[0].texto, /simples \(1 interruptor\) — sem interruptor na planta, a confirmar na visita/);
     assert.equal(rel.terra_nota, 'Verificar terra (PE) nas tomadas na visita.');
-    // Ensaios pela ordem 612.1 com os valores de referência por omissão; nada medido ainda.
+    // Ensaios pela ordem do manual (16.2) com os valores de referência por omissão; nada medido ainda.
     assert.deepEqual(rel.ensaios.lista.map((e) => [e.chave, e.referencia, e.medido]), [
       ['continuidade_pe', 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', null],
       ['isolamento', '≥ 0,5 MΩ, a 500 V DC', null],

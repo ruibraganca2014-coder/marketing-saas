@@ -1624,7 +1624,9 @@ function parteEnsaios(t) {
   });
   const nFeitos = ["isolamento", "diferencial", "terra"].filter((k) => e[k] !== null && e[k] !== undefined).length;
   return [seccao("Ensaios", (e.fora ?? []).length ? selo("Fora do limite", "mau") : selo(`${nFeitos}/3 obrigatórios`, nFeitos === 3 ? "bom" : "aviso"),
-    ...linhas, com(el("label", "campo"), el("span", null, (e.fora ?? []).length ? "Nota (obrigatória: há valores fora do limite)" : "Nota (opcional)"), notas),
+    // Pela ordem do manual de instalações BT (16.2; decisão do dono, 2026-10-24): a polaridade antes da terra e dos diferenciais.
+    el("p", "pequeno suave", "Pela ordem do manual: continuidade, isolamento, polaridade, terra e diferenciais."),
+    ...linhas.slice(0, 2), el("p", "nota calma", "Polaridade: confirme que os aparelhos de corte unipolares (interruptores, disjuntores 1P) cortam a fase, antes de medir a terra e os diferenciais."), ...linhas.slice(2), com(el("label", "campo"), el("span", null, (e.fora ?? []).length ? "Nota (obrigatória: há valores fora do limite)" : "Nota (opcional)"), notas),
     msg, t.editavel ? guardar : null, e.data ? el("p", "pequeno suave", `Guardados em ${dataCurta(e.data)}.`) : null)];
 }
 
@@ -2045,7 +2047,7 @@ async function ajuda() {
     seccaoManual(),
     primeira,
     fechada("Valores de referência", null, dl),
-    fechada("Ordem dos ensaios", null, li(["Inspeção visual.", "Continuidade do PE.", "Resistência de isolamento.", "Terra e diferencial.", "Polaridade e ensaio funcional com carga.", "Quedas de tensão nos pontos mais afastados."])),
+    fechada("Ordem dos ensaios", null, li(["Inspeção visual.", "Continuidade do PE.", "Resistência de isolamento.", "Polaridade (os aparelhos de corte unipolares na fase).", "Terra.", "Disparo dos diferenciais.", "Quedas de tensão nos pontos mais afastados.", "Ensaio funcional com carga."])),
     fechada("Tipos de avaria", null, li([["Circuito aberto:", "não há corrente no ponto. Testar a continuidade, sem tensão."],
       ["Curto-circuito:", "o disjuntor dispara logo. Isolar por partes; não religar sem a causa."],
       ["Fuga à terra:", "o diferencial dispara. Medir o isolamento circuito a circuito."],

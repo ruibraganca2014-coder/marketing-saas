@@ -38,7 +38,7 @@ const MODELOS = {
   // Máquinas pequenas (circuito das tomadas).
   arca_congeladora: "Arca congeladora", micro_ondas: "Micro-ondas", exaustor: "Exaustor", cafeteira: "Cafeteira/chaleira", computador: "Computador", consola: "Consola",
   desumidificador: "Desumidificador", aquecedor_portatil: "Aquecedor portátil", box_router: "Box/router", repetidor_wifi: "Repetidor Wi-Fi", nas: "NAS",
-  camara: "Câmara", portao: "Portão automático", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
+  camara: "Câmara", portao: "Portão automático", estores: "Estores elétricos", rega: "Rega", iluminacao_jardim: "Iluminação exterior", aspirador_robo: "Aspirador robô", impressora: "Impressora",
   terminal_pagamento: "Terminal de pagamento", reclamo: "Reclamo luminoso", ferramentas: "Ferramentas elétricas", aspirador_industrial: "Aspirador industrial",
   carregador_baterias: "Carregador de baterias",
   air_fryer: "Air fryer", torradeira: "Torradeira", cafe_expresso: "Máquina de café expresso", campainha: "Campainha", campainha_video: "Campainha com vídeo",
@@ -734,7 +734,7 @@ export function aVerificarNaVisita(sim, catalogo = {}, leitura = null) {
 
   // Para-raios / linha aérea (descarregador: tipo 1 com para-raios, manual de instalações BT 11.7 e 18.4).
   const desc = obj(q.protecoes).descarregador === true;
-  if (q.para_raios === "sim") por("Para-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões recomendado (RTIEBT 801.5.10 com linha aérea); com para-raios tem de ser de TIPO 1 na origem, com ligação equipotencial ao para-raios (manual de instalações BT, 11.7 e 18.4; ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído, ao preço do tipo 2: confirmar o tipo 1)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
+  if (q.para_raios === "sim") por("Para-raios / linha aérea", `O cliente diz que SIM: descarregador de sobretensões recomendado (RTIEBT 801.5.10 com linha aérea); com para-raios tem de ser de TIPO 1 na origem, com ligação equipotencial ao para-raios (manual de instalações BT, 11.7 e 18.4; ligado com ≥ 10 mm², 534.2.11)${desc ? " (está incluído, de tipo 1+2)" : " (NÃO está incluído — acrescentar)"}; verificar a terra e a ligação equipotencial.`);
   else if (quadroNovo && q.para_raios !== "nao") por("Para-raios / linha aérea", `O cliente NÃO SABE: verificar se há para-raios ou alimentação por linha aérea; havendo, o descarregador é recomendado (RTIEBT 801.5.10) e com para-raios tem de ser de tipo 1 (manual de instalações BT, 18.4)${desc ? " (já está incluído)" : " (não está incluído)"}.`);
 
   // Quadro antigo / atual / novo.

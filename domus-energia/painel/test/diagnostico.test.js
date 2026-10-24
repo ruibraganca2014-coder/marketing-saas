@@ -30,8 +30,11 @@ test('conteúdo: 3 passos, 8 técnicas, 4 tipos, os 7 problemas do simulador, li
   assert.ok(SEGURANCA.length >= 4 && SINAIS.length >= 4 && FERRAMENTAS.length >= 4 && PARAR.length >= 3);
   assert.equal(new Set(CHAVES_CHECKLIST).size, CHECKLIST.length);
   assert.deepEqual(CHAVES_VALOR, ['rcd', 'tensao', 'continuidade', 'isolamento']);
-  // Valores: os da RTIEBT citam o artigo; os outros vão marcados "referência prática".
-  for (const v of VALORES) assert.ok(/^RTIEBT /.test(v.fonte) || v.fonte === 'referência prática', v.medicao);
+  // Valores: os da RTIEBT citam o artigo; a ordem dos ensaios cita o manual de instalações BT (16.2: a polaridade antes da
+  // terra e dos diferenciais — decisão do dono, 2026-10-24); os outros vão marcados "referência prática".
+  for (const v of VALORES) assert.ok(/^(RTIEBT |manual de instalações BT)/.test(v.fonte) || v.fonte === 'referência prática', v.medicao);
+  const ordem = VALORES.find((v) => v.medicao === 'Ordem dos ensaios').valor;
+  assert.ok(ordem.indexOf('polaridade') < ordem.indexOf('terra') && ordem.indexOf('terra') < ordem.indexOf('diferenciais'), ordem);
   const fonte = (re) => VALORES.find((v) => re.test(v.medicao)).fonte;
   assert.match(fonte(/isolamento/), /612\.3/);
   assert.match(fonte(/condutor de proteção/), /612\.2/);

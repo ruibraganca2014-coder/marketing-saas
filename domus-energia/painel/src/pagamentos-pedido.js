@@ -1299,8 +1299,8 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   }
 
   /**
-   * Lista de ensaios do relatório completo (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem da RTIEBT
-   * 612.1: continuidade do PE (612.2, valor medido), isolamento (612.3, ≥ `ensaio_isolamento_mohm` a 500 V DC), terra
+   * Lista de ensaios do relatório completo (decisões 7 e 12; verificacao/rtiebt-valores.md), pela ordem do manual de
+   * instalações BT, 16.2 (decisão do dono, 2026-10-24: a polaridade antes da terra e dos diferenciais): continuidade do PE (612.2, valor medido), isolamento (612.3, ≥ `ensaio_isolamento_mohm` a 500 V DC), terra
    * (801.5.6.1, < `ensaio_terra_ohm` em habitação com disjuntor de entrada diferencial; RA × IΔn ≤ 50 V, 413.1.4.2) e o
    * diferencial (Anexo B; manual de instalações BT, 16.2: disparo entre ½ IΔn e IΔn; os ≤ `ensaio_diferencial_ms` são só
    * referência EN 61008/61009). Os valores de
@@ -1312,7 +1312,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const iso = numCfg(cfg, 'ensaio_isolamento_mohm', 0.5), dif = numCfg(cfg, 'ensaio_diferencial_ms', 300), terra = numCfg(cfg, 'ensaio_terra_ohm', 100);
     const m = medidos ?? {};
     return {
-      introducao: 'Ensaios a fazer na visita ou no fim da obra, pela ordem habitual (RTIEBT 612.1): primeiro sem tensão, depois com tensão. O valor medido fica registado por nós.',
+      introducao: 'Ensaios a fazer na visita ou no fim da obra, pela ordem do nosso manual de instalações: primeiro sem tensão (continuidade e isolamento), depois a polaridade e, com tensão, a terra e os diferenciais. O valor medido fica registado por nós.',
       lista: [
         { chave: 'continuidade_pe', nome: 'Continuidade do condutor de proteção (PE) e das ligações equipotenciais', referencia: 'valor medido (sem limite fixado; fonte de 4 a 24 V, ≥ 0,2 A)', unidade: 'Ω', norma: 'RTIEBT 612.2', medido: m.continuidade_pe ?? null },
         { chave: 'isolamento', nome: 'Resistência de isolamento, entre cada condutor ativo e a terra, com os aparelhos desligados', referencia: `≥ ${fmt(iso)} MΩ, a 500 V DC`, unidade: 'MΩ', norma: 'RTIEBT 612.3 (Quadro 61A)', medido: m.isolamento ?? null },

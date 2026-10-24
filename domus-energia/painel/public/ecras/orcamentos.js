@@ -995,7 +995,7 @@ export default function orcamentos(el, ctx) {
     const entrada = (nome, rotulo, ajuda) => campoForm(rotulo, h("input", { name: nome, type: "number", min: "0", max: "1000000", step: "0.001", inputmode: "decimal", value: campo(e, nome) ?? "" }), ajuda);
     const f = h("form", { class: "form-grelha", id: "form-ensaios", novalidate: true },
       h("h3", { text: "Ensaios medidos" }),
-      h("p", { class: "ajuda", text: "Valores medidos na visita ou no fim da obra (ordem RTIEBT 612.1). Aparecem na lista de ensaios do relatório completo do cliente; em branco = a medir." }),
+      h("p", { class: "ajuda", text: "Valores medidos na visita ou no fim da obra (pela ordem do manual de instalações BT: continuidade, isolamento, polaridade, terra, diferenciais). Aparecem na lista de ensaios do relatório completo do cliente; em branco = a medir." }),
       h("div", { class: "duas" },
         entrada("continuidade_pe", "Continuidade do PE (Ω)", "612.2: valor medido"),
         entrada("isolamento", "Isolamento (MΩ)", "612.3: ≥ referência, a 500 V DC")),

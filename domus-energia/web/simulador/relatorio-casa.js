@@ -4,7 +4,7 @@
 
 import {
   pontosDivisao, areaPoligono, caixasDe, maquinaDaPlanta, contarPlanta, sugerirCircuitos, codigoCircuito, seccaoCabo,
-  circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA,
+  circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA, PROPRIOS_LEVES,
 } from "./regras.js";
 import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA } from "./quadro.js";
 import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
@@ -76,7 +76,11 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
 
   // ---- 2. A potência chega?
   const contratada = POTENCIAS_KVA.includes(casa?.potencia_contratada_kva) ? casa.potencia_contratada_kva : 6.9;
-  const grandes = maquinas.map((e) => maquinaDaPlanta(e.props)).filter(circuitoProprio);
+  // As "máquinas grandes": com circuito próprio, sem a iluminação exterior e o portão (também têm circuito próprio, mas
+  // não são máquinas de potência; decisão do dono, 2026-10-24) — esses vão à parte em "Pontos a rever".
+  const proprias = maquinas.map((e) => maquinaDaPlanta(e.props)).filter(circuitoProprio);
+  const grandes = proprias.filter((m) => !PROPRIOS_LEVES.includes(m.modelo));
+  const leves = [...new Set(proprias.filter((m) => PROPRIOS_LEVES.includes(m.modelo)).map((m) => nomeModelo(m.modelo)))];
   const somaGrandes = grandes.reduce((s, m) => s + m.potencia_w, 0);
   const estado = sugeridaKva === null ? "especial" : sugeridaKva === undefined ? "sem_dados" : contratada >= sugeridaKva ? "chega" : "curta";
   const potencia = {
@@ -128,7 +132,10 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
       const ms = c.itens?.maquinas ?? [];
       const ds = c.divisoes ?? [];
       const nome = c.tipo === "maquina" && ms.length ? ms.map((m) => nomeModelo(m.modelo)).join(", ") : ds.length ? ds.join(", ") : (TIPOS_CIRCUITO[c.tipo] ?? "");
-      return { texto: curto(nome.trim()), cor: c.tipo === "iluminacao" ? "luz" : c.tipo === "maquina" ? "maquina" : c.zona_humida ? "humida" : "tomadas" };
+      // Iluminação exterior: cor da iluminação; estores e portão: a cor dos circuitos próprios (não "Máquinas grandes").
+      const leve = ms.length && ms.every((m) => PROPRIOS_LEVES.includes(m.modelo));
+      const cor = c.tipo === "iluminacao" || (leve && ms.every((m) => m.modelo === "iluminacao_jardim")) ? "luz" : leve ? "proprio" : c.tipo === "maquina" ? "maquina" : c.zona_humida ? "humida" : "tomadas";
+      return { texto: curto(nome.trim()), cor };
     };
     grupos.forEach((g, i) => {
       ordem.push(`diferencial:${i}`);
@@ -178,6 +185,9 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     if (pontos > 0 && pequenas > pontos) rever.push(`${nome}: ${plural(pequenas, "aparelho", "aparelhos")} para ${plural(pontos, "ponto de tomada", "pontos de tomada")}. Costuma acabar em extensões e fichas triplas.`);
     if (pontos > 0 && zonaHumida(nome)) rever.push(`${nome}: é zona húmida. As tomadas devem estar num circuito só para elas, com diferencial de 30 mA.`);
   }
+  // Estores elétricos: o circuito vem da contagem (janelas com estore motorizado), não de uma máquina da planta.
+  if (circuitos.some((c) => /^Estores/.test(c.nome))) leves.push(nomeModelo("estores"));
+  if (leves.length) rever.push(`${leves.join(", ")}: ${leves.length === 1 ? "tem" : "têm"} circuito próprio no quadro (manual de instalações).`);
   if (grandes.length) rever.push(`${grandes.map((m) => nomeModelo(m.modelo)).join(", ")}: ${grandes.length === 1 ? "deve ter um circuito só para ela" : "cada uma deve ter um circuito só para ela"} no quadro.`);
   if (estado === "curta") rever.push(`Potência contratada: ${kvaTxt(contratada)} para uma casa que pede ${kvaTxt(sugeridaKva)}.`);
 
