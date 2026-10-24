@@ -102,6 +102,18 @@
 		file_server
 	}
 
+	# Página de pagamento simulado (web/pagamento-simulado.html + .js; docs/PAGAMENTOS-PEDIDO.md): só existe com
+	# PAGAMENTOS_MODO=simulado (passado ao caddy pelo docker-compose.yml). Em produção (stripe, ou pagamentos desligados)
+	# responde 404, como uma página que não existe (auditoria de 2026-10-24). No computador (local/iniciar.js) o site não
+	# passa pelo Caddy e a página continua a funcionar.
+	@pagamentosimulado {
+		path /pagamento-simulado.html /pagamento-simulado.js
+		expression `{env.PAGAMENTOS_MODO} != "simulado"`
+	}
+	handle @pagamentosimulado {
+		error 404
+	}
+
 	# Site estático. Sem build nem nomes com hash, o HTML, o JS (módulos ES que se importam uns aos outros) e o CSS
 	# revalidam-se sempre (no-cache + ETag → 304 baratos): depois de publicar, ninguém fica com um módulo antigo e
 	# outro novo. O que tem nome estável (ícones, imagens, fontes) fica uma semana em cache.
@@ -129,9 +141,11 @@
 
 	# Segurança do site e da área de cliente:
 	# - ninguém pode pôr as páginas dentro de um <iframe> (clickjacking);
-	# - CSP: scripts só do próprio site e do cdn.jsdelivr.net (mqtt.js e o
-	#   pdf.js do simulador); estilos próprios + Google Fonts ('unsafe-inline'
-	#   porque há atributos style="" e variáveis CSS postas pelo JavaScript);
+	# - CSP: scripts só do próprio site e, do cdn.jsdelivr.net, só a pasta do pdf.js do simulador na versão usada
+	#   (web/simulador/fundo.js PDFJS_VERSAO = 4.10.38: pdf.min.mjs e o worker; o mqtt.js é do próprio site,
+	#   web/vendor/mqtt.min.js). SE MUDAR A VERSÃO DO PDF.JS, MUDE-A TAMBÉM AQUI (script-src e worker-src);
+	#   estilos próprios + Google Fonts ('unsafe-inline' porque há atributos style="" e variáveis CSS postas pelo
+	#   JavaScript);
 	#   ligações só ao próprio site (inclui o /api dos pagamentos e o
 	#   /api/orcamento do painel) e ao MQTT (wss://HOST/mqtt). O Stripe Checkout e o Customer
 	#   Portal abrem por navegação (location.href), que a CSP não restringe: não
@@ -139,12 +153,19 @@
 	#   própria CSP, mais apertada (sem CDN nem MQTT no navegador); o navegador
 	#   aplica as duas.
 	#   Se mudar de CDN ou de fontes, atualize esta linha.
+	# - Permissions-Policy: o site não usa microfone, localização, pagamentos no browser, USB nem sensores. A câmara fica
+	#   só para o próprio site (as fotos do simulador, de foto.html pelo QR e da app de diagnóstico abrem a câmara pelo
+	#   <input type="file" capture>; se um dia usarem getUserMedia continua a funcionar). O ecrã inteiro (editor da planta)
+	#   também só o próprio site.
+	# - HSTS sem includeSubDomains: o domínio (opancas.pt) pode ter outros subdomínios fora deste servidor;
+	#   www e ntfy já têm HTTPS aqui. Só juntar includeSubDomains depois de confirmar que nenhum subdomínio precisa de HTTP.
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), fullscreen=(self)"
 	}
 
 	# Registo de acessos sem os cabeçalhos sensíveis: os tokens das fotos (X-Foto-Token, 24 h, fotos pelo

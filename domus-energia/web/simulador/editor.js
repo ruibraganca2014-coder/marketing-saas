@@ -1781,7 +1781,8 @@ export function criarEditor(raiz, { aoMudar, anunciar = null, aoSelecionar = nul
     if (ev.key === "Escape") {
       // Esc usado aqui (cancelar a ferramenta, tirar a seleção) não fecha a planta aberta por cima (app.js).
       if (modo) { ev.preventDefault(); definirModo(null); }
-      else if (selecionado) { ev.preventDefault(); selecionado = null; desenharTudo(); }
+      // Tirar a seleção não "gasta" o Esc (auditoria de 2026-10-24): a planta aberta por cima (telemóvel) fecha também.
+      else if (selecionado) { selecionado = null; desenharTudo(); }
     }
   });
   // Esc com o foco na linha das ferramentas ou na barra das ações (logo depois de escolher a ferramenta): cancela-a,

@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cookies | Domus Energia</title>
-  <meta name="description" content="Que cookies e dados guardados no browser usa o site da Domus Energia: só a sessão da conta e a simulação guardada; sem publicidade nem analytics.">
+  <meta name="description" content="Que cookies e dados guardados no browser usa o site da Domus Energia: as sessões, a simulação guardada e as preferências; sem publicidade nem analytics.">
   <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://opancas.pt/cookies.html">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
   <script src="tema.js"></script>
@@ -47,7 +48,7 @@
           <li><a href="cookies.html" aria-current="page">Cookies</a></li>
         </ul>
         <h1>Cookies</h1>
-        <p class="legal-data">Última atualização: <span id="legal-data" data-atualizado="2026-10-02">2 de outubro de 2026</span></p>
+        <p class="legal-data">Última atualização: <span id="legal-data" data-atualizado="2026-10-24">24 de outubro de 2026</span></p>
         <p class="msg info" id="legal-aviso" role="note" hidden>Há dados da empresa por preencher (assinalados). O dono preenche-os uma vez em <code>web/config.js</code> (<code>empresa</code>) e as três páginas legais atualizam-se.</p>
 
         <p>Esta página explica o que o site da Domus Energia guarda no seu browser. A resposta curta: <strong>só o necessário para o site funcionar</strong>. Não há cookies de publicidade nem de análise de tráfego (analytics), por isso <strong>não precisamos de lhe pedir consentimento nem de mostrar um aviso de cookies</strong> (os cookies estritamente necessários estão dispensados de consentimento pela Lei n.º 41/2004).</p>
@@ -58,32 +59,51 @@
             <thead><tr><th>Nome</th><th>Para quê</th><th>Duração</th><th>Tipo</th></tr></thead>
             <tbody>
               <tr><td><code>domus_conta</code></td><td>A sessão da sua conta de cliente (conta, simulador e área de cliente). É HttpOnly (o código da página não lhe chega), SameSite=Lax e Secure. No servidor fica só a impressão digital (SHA-256) do código.</td><td>renovada enquanto usar o site; expira por inatividade e tem um limite máximo de duração; sai ao carregar em "Sair"</td><td>necessário</td></tr>
+              <tr><td><code>domus_eletricista</code></td><td>A sessão da área do eletricista (só para os eletricistas parceiros, em <code>eletricista.html</code> e na app de diagnóstico). HttpOnly, SameSite=Lax e Secure.</td><td>renovada enquanto usar a área; expira por inatividade; sai ao carregar em "Sair"</td><td>necessário</td></tr>
               <tr><td><code>domus_painel</code></td><td>A sessão do painel da empresa (só para a equipa da Domus Energia, em <code>/painel/</code>). Nunca é criado a quem visita o site.</td><td>sessão</td><td>necessário</td></tr>
             </tbody>
           </table>
         </div>
         <p>Os pagamentos abrem no site da Stripe (checkout.stripe.com), que usa os seus próprios cookies: ver a <a href="https://stripe.com/pt/privacy" rel="noopener" target="_blank">política da Stripe</a>.</p>
 
-        <h2 id="armazenamento">Dados guardados no browser (localStorage e sessionStorage)</h2>
-        <p>Não são cookies: ficam só no seu aparelho, nunca são enviados automaticamente para o servidor e pode apagá-los nas definições do browser ("limpar dados do site").</p>
+        <h2 id="armazenamento">Dados guardados no browser (localStorage, sessionStorage e IndexedDB)</h2>
+        <p>Não são cookies: ficam só no seu aparelho, nunca são enviados automaticamente para o servidor e pode apagá-los nas definições do browser ("limpar dados do site"). São todos necessários para o que pediu (ou só guardam uma escolha sua) e não servem para o seguir.</p>
         <div class="tabela-caixa">
           <table class="tabela">
             <thead><tr><th>Chave</th><th>Para quê</th><th>Até quando</th></tr></thead>
             <tbody>
-              <tr><td><code>domus.simulador</code></td><td>A simulação em curso (respostas, planta, escolhas), para a retomar quando voltar a abrir o simulador neste browser. As fotos que ainda não enviou ficam também aqui.</td><td>até a enviar, "Começar de novo" ou limpar os dados do site</td></tr>
+              <tr><td><code>domus.simulador</code></td><td>A simulação em curso (respostas, planta, escolhas), para a retomar quando voltar a abrir o simulador neste browser.</td><td>até a enviar, "Começar de novo" ou limpar os dados do site</td></tr>
               <tr><td><code>domus.simulador.casa</code></td><td>A planta e os dados da sua casa, para não os desenhar de novo numa simulação seguinte.</td><td>até limpar os dados do site</td></tr>
               <tr><td><code>domus.simulador.casa-id</code></td><td>Qual das suas casas está aberta (contas com mais de uma casa), para a simulação guardada ser a da casa certa.</td><td>até limpar os dados do site</td></tr>
+              <tr><td><code>domus-simulador-fotos</code> (IndexedDB)</td><td>As fotos da simulação que ainda não enviou (quadro, avarias, aparelhos), reduzidas, para não se perderem se fechar a página.</td><td>até as enviar, as apagar, "Começar de novo" ou limpar os dados do site</td></tr>
               <tr><td><code>domus.simulador.codigo</code> (sessionStorage)</td><td>O código de cliente, quando abre o simulador a partir da área de cliente.</td><td>até fechar o separador</td></tr>
               <tr><td><code>domus.origem</code> (sessionStorage)</td><td>Só a categoria de onde chegou ao site (Google, Facebook, Instagram ou outro), para a juntar ao pedido se o enviar noutra página. Nunca o endereço de onde veio.</td><td>até fechar o separador</td></tr>
               <tr><td><code>domus.tema</code></td><td>O tema que escolheu (claro, escuro ou automático).</td><td>até voltar a "automático"</td></tr>
-              <tr><td><code>domus_conta_sessao</code></td><td>Uma marca (sim/não) de que tem sessão aberta, para a página não perguntar ao servidor quando não há sessão. Não contém dados pessoais.</td><td>até sair ou a sessão expirar</td></tr>
-              <tr><td>Área de cliente da casa</td><td>Preferências de visualização da sua casa e as credenciais da casa enquanto a sessão estiver aberta.</td><td>até sair</td></tr>
+              <tr><td><code>domus.musica</code></td><td>Se desligou (ou voltou a ligar) a música de fundo da página inicial e das páginas de serviço.</td><td>até limpar os dados do site</td></tr>
+              <tr><td><code>domus_conta_sessao</code></td><td>Uma marca (sim/não) de que tem sessão aberta na conta, para a página não perguntar ao servidor quando não há sessão. Não contém dados pessoais.</td><td>até sair ou a sessão expirar</td></tr>
+              <tr><td><code>domus.cliente</code></td><td>Área de cliente da casa, só se escolher "Lembrar-me": o código da casa e a palavra-passe, esta cifrada (AES-GCM) com a chave guardada em <code>domus-chaves</code>.</td><td>até carregar em "Sair" ou limpar os dados do site</td></tr>
+              <tr><td><code>domus-chaves</code> (IndexedDB)</td><td>A chave de cifra do "Lembrar-me" da área de cliente. É criada no próprio browser e não pode ser copiada para fora dele.</td><td>até limpar os dados do site</td></tr>
+              <tr><td><code>domus-apagar-tudo-oculto:</code>&lt;código&gt;</td><td>Área de cliente da casa: se tirou o botão "Apagar tudo" do topo.</td><td>até o voltar a pôr ou limpar os dados do site</td></tr>
+              <tr><td><code>domus_eletricista_sessao</code></td><td>Só para os eletricistas parceiros: uma marca (sim/não) de sessão aberta na área do eletricista. Não contém dados pessoais.</td><td>até sair ou a sessão expirar</td></tr>
+              <tr><td><code>domus-diagnostico</code> (IndexedDB)</td><td>Só para os eletricistas parceiros (app de diagnóstico): os diagnósticos, as medições, as fotos e as notas da obra, guardados no telemóvel para funcionar sem rede, até serem enviados.</td><td>até serem enviados e apagados, ou limpar os dados do site</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="service-workers">Service workers</h2>
+        <p>Um service worker é um pequeno programa do site que o browser guarda. Não lê os seus dados nem segue o que faz noutros sites.</p>
+        <div class="tabela-caixa">
+          <table class="tabela">
+            <thead><tr><th>Ficheiro</th><th>Para quê</th><th>Até quando</th></tr></thead>
+            <tbody>
+              <tr><td><code>sw.js</code></td><td>Área de cliente da casa: só para os avisos no telemóvel (alarmes e avisos da casa). Só fica instalado se carregar em "Ativar avisos neste telemóvel". Não guarda páginas nem dados.</td><td>até desativar os avisos ou limpar os dados do site</td></tr>
+              <tr><td><code>diagnostico-sw.js</code></td><td>Só para os eletricistas parceiros: guarda no telemóvel (Cache Storage <code>domus-diagnostico-…</code>) as páginas da app de diagnóstico (<code>/diagnostico</code>), para a obra sem rede.</td><td>até limpar os dados do site</td></tr>
             </tbody>
           </table>
         </div>
 
         <h2 id="terceiros">Pedidos a terceiros</h2>
-        <p>Ao abrir o site, o seu browser descarrega os tipos de letra da Google Fonts e, só quando carrega uma planta em PDF ou entra na área de cliente, uma biblioteca do CDN jsDelivr. Esses serviços recebem o seu endereço IP, mas não colocam cookies no nosso domínio. Mais em <a href="privacidade.html#subcontratantes">Política de Privacidade — subcontratantes</a>.</p>
+        <p>Ao abrir o site, o seu browser descarrega os tipos de letra da Google Fonts e, só quando carrega uma planta em PDF, o leitor de PDF (pdf.js) do CDN jsDelivr. Esses serviços recebem o seu endereço IP, mas não colocam cookies no nosso domínio. Mais em <a href="privacidade.html#subcontratantes">Política de Privacidade — subcontratantes</a>.</p>
 
         <h2 id="futuro">Se um dia juntarmos análise de tráfego ou publicidade</h2>
         <p class="msg info" role="note">Hoje não há analytics nem anúncios. Se a Domus Energia passar a usar ferramentas de análise de tráfego (ex.: Google Analytics, Plausible) ou de publicidade, <strong>é obrigatório</strong> mostrar um aviso de cookies que peça o consentimento <em>antes</em> de os ativar, com a opção de recusar tão fácil como a de aceitar, e atualizar esta página e a Política de Privacidade.</p>
@@ -113,6 +133,9 @@
       </nav>
       <a href="conta.html">A minha conta</a>
       <a href="cliente.html">Área de cliente</a>
+      <!-- Livro de Reclamações, resolução alternativa de litígios (Lei n.º 144/2015) e identificação da empresa (CSC, art. 171.º;
+           valores do config.js `empresa`, postos também pelo site.js/legal.js). Auditoria de 2026-10-24. -->
+      <p class="rodape-empresa"><a class="rodape-reclamacoes" href="https://www.livroreclamacoes.pt" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10.5a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3z"/><path d="M5 16.5a3 3 0 0 1 3-3h10.5M9 8.5h6"/></svg>Livro de Reclamações</a> <span>Resolução alternativa de litígios: <a href="https://www.cniacc.pt" rel="noopener" target="_blank">CNIACC</a></span> <span><span data-empresa="nome">Estação Nómada, Unipessoal Lda.</span> · Capital social: <span data-empresa="capital">200,00 €</span> · Matriculada na <span data-empresa="registo">Conservatória do Registo Comercial de Lisboa</span>, NIPC <span data-empresa="nif">519 588 533</span></span></p>
     </div>
   </footer>
 

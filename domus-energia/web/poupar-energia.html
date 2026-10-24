@@ -12,7 +12,11 @@
   <meta property="og:title" content="Poupar energia em casa | Domus Energia">
   <meta property="og:description" content="Descubra onde gasta eletricidade em casa, na Grande Lisboa e até 100 km: medidor no quadro e medição nas máquinas grandes, vistos no telemóvel. A partir de 342 € com IVA.">
   <meta property="og:url" content="https://opancas.pt/poupar-energia.html">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="https://opancas.pt/partilha.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Domus Energia: eletricista na Grande Lisboa e até 100 km">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#fefae0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1a2310" media="(prefers-color-scheme: dark)">
   <script src="tema.js"></script>
@@ -117,7 +121,8 @@
             <a class="btn" href="simulador.html?pacote=poupar-energia">Simular grátis</a>
             <a class="btn sec js-whatsapp" href="#">Falar no WhatsApp</a>
           </div>
-          <p class="hero-ou">Enviar o pedido não custa nada. O relatório completo (<span class="js-preco-relatorio">29 €</span>) é opcional e desconta na obra.</p>
+          <p class="msg info lista-espera" data-lista-espera>As obras começam em setembro de 2027. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos ficam em lista de espera, sem pagar nada. Se tem uma avaria urgente, chame já um eletricista.</p>
+          <p class="hero-ou">Enviar o pedido não custa nada.<span class="js-relatorio-pago" hidden> O relatório completo (<span class="js-preco-relatorio">29 €</span>) é opcional e desconta na obra.</span></p>
         </div>
         <div class="cartao anuncio-preco-caixa">
           <p class="anuncio-preco-rotulo">A partir de</p>
@@ -153,7 +158,7 @@
     <section class="alt" aria-labelledby="como-titulo">
       <div class="wrap">
         <h2 id="como-titulo">Como funciona</h2>
-        <p class="sub">Enviar o pedido não custa nada. O relatório completo (<span class="js-preco-relatorio">29 €</span>) é opcional e desconta na obra.</p>
+        <p class="sub">Enviar o pedido não custa nada.<span class="js-relatorio-pago" hidden> O relatório completo (<span class="js-preco-relatorio">29 €</span>) é opcional e desconta na obra.</span></p>
         <div class="grelha passos anuncio-tres">
           <div class="cartao"><h3>Descreva a casa</h3><p>No simulador, em cerca de 7 minutos, com as máquinas grandes: termoacumulador, placa, forno, máquinas de lavar. No fim tem um relatório grátis da casa.</p></div>
           <div class="cartao"><h3>Peça o serviço</h3><p>Escolhe "Poupar energia" nas melhorias e vê a estimativa do preço. Depois enviamos-lhe a proposta com o preço.</p></div>
@@ -229,6 +234,9 @@
       </nav>
       <a href="conta.html">A minha conta</a>
       <a href="cliente.html">Área de cliente</a>
+      <!-- Livro de Reclamações, resolução alternativa de litígios (Lei n.º 144/2015) e identificação da empresa (CSC, art. 171.º;
+           valores do config.js `empresa`, postos também pelo site.js/legal.js). Auditoria de 2026-10-24. -->
+      <p class="rodape-empresa"><a class="rodape-reclamacoes" href="https://www.livroreclamacoes.pt" rel="noopener" target="_blank"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h10.5a3 3 0 0 1 3 3v12H8a3 3 0 0 1-3-3z"/><path d="M5 16.5a3 3 0 0 1 3-3h10.5M9 8.5h6"/></svg>Livro de Reclamações</a> <span>Resolução alternativa de litígios: <a href="https://www.cniacc.pt" rel="noopener" target="_blank">CNIACC</a></span> <span><span data-empresa="nome">Estação Nómada, Unipessoal Lda.</span> · Capital social: <span data-empresa="capital">200,00 €</span> · Matriculada na <span data-empresa="registo">Conservatória do Registo Comercial de Lisboa</span>, NIPC <span data-empresa="nif">519 588 533</span></span></p>
     </div>
   </footer>
 

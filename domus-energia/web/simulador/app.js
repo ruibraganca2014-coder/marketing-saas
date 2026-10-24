@@ -13,6 +13,7 @@ import {
 import {
   plantaDaCasa, assinaturaCasa, dicasObjetivos, quartosDe, casasBanhoOmissao, salasOmissao, AREA_OMISSAO, ESPACOS_OMISSAO,
   acertarPisos, temPorPiso, resumoPiso, divisoesDaCasa, tipoDivisao, acertarPlantaMexida, nomesOutras, LIMITES_OUTRAS,
+  porMaquinaNova,
 } from "./casa.js";
 import {
   pedidosDaSelecao, calcularPreco, planoSugerido, TEXTO_ESTIMATIVA, formatarEuro, formatarEuroRedondo,
@@ -47,7 +48,7 @@ import { resumoQuadro as resumoDoQuadro } from "./quadro.js";
 import { analiseDaCasa, passosDoPedido } from "./relatorio-casa.js";
 import { desenharQuadroCliente } from "./quadro-desenho.js";
 import { lerFundo, ErroFundo } from "./fundo.js";
-import { sugerirConcelhos, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
+import { sugerirConcelhos, procurarConcelho, calcularDeslocacao, DESLOCACAO_OMISSAO } from "./deslocacao.js";
 import {
   MAX_FOTOS, MAX_BYTES_FOTO, ErroFoto, reduzirFoto, guardarFoto, apagarFoto, lerFotos, limparFotos, novoIdFotos, legendaCabecalho,
 } from "./fotos.js";
@@ -168,7 +169,6 @@ const editor = criarEditor($("editor"), {
     estado.plantaAuto = plantaAutoJson !== null && JSON.stringify(p) === plantaAutoJson;
     // Máquinas postas ou tiradas na planta: os cartões de "Equipamentos" seguem-na (querDaPlanta).
     if (querDaPlanta()) { sugerirLigacao(); if (estado.passo === P.quer) desenharQuer(); }
-    sitioArrastado();
     dicaPlanta = "";
     desenharPlantaOrigem();
     desenharPlantaVazia();
@@ -356,6 +356,7 @@ function desenharProgresso() {
         if (estado.passo === P.casa && ordemPasso(i) > ordemPasso(P.casa) && confirmarCasa(i)) return;
         // Sair para a frente pela barra passa pela mesma confirmação do Seguinte (confirmarPasso).
         if (ordemPasso(i) > ordemPasso(estado.passo) && confirmarPasso(i)) return;
+        if (posicao(i) < posicao(estado.passo) && voltarNaHistoria(i)) return;   // para trás: recua no histórico
         irPara(i);
       });
       li.append(b);
@@ -423,14 +424,13 @@ function podeIrPara(i) {
   if (funilAvaria()) return !(i === P.enviar && bloquearAvaria());
   if (funilServico()) return !(i === P.enviar && bloquearServicoFotos());
   if (i > P.casa && !funilPlanta() && bloquearCasa()) return false;
-  if (estado.passo === P.quer && posicao(i) > posicao(P.quer) && bloquearSitios()) return false;
   if (posicao(P.quadro) >= 0 && posicao(i) > posicao(P.quadro) && bloquearQuadro()) return false;   // a foto do quadro
   if (bloquearInventario(i) || bloquearPorVer(P.trocar, i)) return false;   // o inventário das Divisões; divisão a divisão
   if (ordemPasso(i) > ordemPasso(P.trocar) && bloquearTrocar()) return false;
   return !(ordemPasso(i) > ordemPasso(P.melhorias) && bloquearMelhorias());
 }
 
-function irPara(i, { foco = true } = {}) {
+function irPara(i, { foco = true, historia = true } = {}) {
   const de = estado.passo;
   // Ao passar de "Equipamentos" para a frente (também a saltar pela barra): planta (se ainda é a nossa), divisões,
   // quadro e termóstatos pré-preenchidos (só o que o cliente ainda não mudou à mão).
@@ -452,6 +452,73 @@ function irPara(i, { foco = true } = {}) {
   if (estado.passo === P.planta && estado.passo !== de && editor.planta === estado.planta) editor.ajustar();
   agendarGravacao();
   guardarNaConta();   // com sessão: a simulação fica também na conta (retomar noutro aparelho)
+  if (historia && estado.passo !== de) marcarHistoria();
+}
+
+/*
+ * Botão "Voltar" do navegador e do Android (decisão do dono, 2026-10-24): o histórico acompanha os passos (pushState,
+ * sem mudar o endereço) — "Voltar" recua um passo; no primeiro passo sai da página, como antes; recarregar fica no passo.
+ * `historiaN` é a posição da entrada atual no histórico desta simulação e `pilha[n]` o passo de cada entrada criada nesta
+ * página: o "Anterior" (e a barra, para trás) recuam no histórico quando o passo está lá, para o "Voltar" seguinte
+ * continuar a recuar (sem voltas). Entradas de passos que já não são deste caso, ou a que ainda não chegou, saltam-se.
+ */
+let historiaN = 0;
+let pilha = [];
+const estadoHistoria = () => ({ simPasso: estado.passo, n: historiaN });
+function marcarHistoria() {
+  historiaN++;
+  pilha = pilha.slice(0, historiaN);
+  pilha[historiaN] = estado.passo;
+  try { history.pushState(estadoHistoria(), ""); } catch { /* sem histórico */ }
+}
+function historiaAtual() {
+  pilha[historiaN] = estado.passo;
+  try { history.replaceState({ ...(history.state ?? {}), ...estadoHistoria() }, ""); } catch { /* sem histórico */ }
+}
+/** Recua no histórico até à entrada do passo `alvo` (criada nesta página); devolve false se não está lá. */
+function voltarNaHistoria(alvo) {
+  const j = pilha.lastIndexOf(alvo, historiaN - 1);
+  if (j < 0) return false;
+  history.go(j - historiaN);
+  return true;
+}
+/** O navegador foi a outra entrada: vai para o passo dela (sem nova entrada), se puder. */
+function irParaDaHistoria(st) {
+  const alvo = st?.simPasso;
+  if (!Number.isInteger(alvo)) return;
+  const atras = !Number.isInteger(st.n) || st.n < historiaN;
+  if (Number.isInteger(st.n)) historiaN = st.n;
+  if (enviado || aEnviar || !$("passo-fim").hidden) return;
+  for (const d of document.querySelectorAll("dialog[open]")) d.close();
+  fecharPlanta({ foco: false });
+  if (alvo === estado.passo) { historiaAtual(); return; }
+  if (!sequencia().includes(alvo) || (atras && !chegou(alvo))) { if (atras && historiaN > 0) history.back(); else historiaAtual(); return; }
+  // Para a frente passa pelos mesmos bloqueios e perguntas do "Seguinte".
+  if (posicao(alvo) > posicao(estado.passo) && (!podeIrPara(alvo) || (estado.passo === P.casa && confirmarCasa(alvo)) || confirmarPasso(alvo))) { historiaAtual(); return; }
+  pilha[historiaN] = alvo;
+  irPara(alvo, { historia: false });
+}
+addEventListener("popstate", (ev) => irParaDaHistoria(ev.state));
+/**
+ * Arranque: numa entrada que já é nossa (recarregar, ou voltar a ela) fica o passo dela, se for para trás; numa entrada
+ * nova (vindo do site) monta-se o caminho do primeiro passo até ao atual, para o "Voltar" recuar passo a passo.
+ */
+function iniciarHistoria() {
+  const st = history.state;
+  if (Number.isInteger(st?.n) && Number.isInteger(st?.simPasso)) {
+    historiaN = st.n;
+    if (!regressoPagamento && !enviado && sequencia().includes(st.simPasso) && posicao(st.simPasso) < posicao(estado.passo)) irPara(st.simPasso, { foco: false, historia: false });
+    historiaAtual();
+    return;
+  }
+  const caminho = [estado.passo];
+  for (let p = passoAo(estado.passo, -1); posicao(p) >= 0 && posicao(p) < posicao(caminho[0]); p = passoAo(p, -1)) caminho.unshift(p);
+  historiaN = 0;
+  pilha = [caminho[0]];
+  try {
+    history.replaceState({ ...(st ?? {}), simPasso: caminho[0], n: 0 }, "");
+    for (const p of caminho.slice(1)) { historiaN++; pilha[historiaN] = p; history.pushState({ simPasso: p, n: historiaN }, ""); }
+  } catch { /* sem histórico */ }
 }
 /**
  * Ponto de luz obrigatório (decisão do dono, 2026-10-10): cada divisão de dentro tem pelo menos um. As de fora (jardim,
@@ -529,7 +596,14 @@ function mostrarPasso(foco = true) {
     // página rolar até lá; senão, fica inteira à vista.
     const comportamento = reduzido() ? "auto" : "smooth";
     const passos = document.querySelector(".sim-progresso:not([hidden])");
-    const yEscondida = passos && passoDaPlanta(p) ? scrollY + passos.getBoundingClientRect().bottom - (document.querySelector(".topo")?.getBoundingClientRect().bottom ?? 0) : null;
+    let yEscondida = passos && passoDaPlanta(p) ? scrollY + passos.getBoundingClientRect().bottom - (document.querySelector(".topo")?.getBoundingClientRect().bottom ?? 0) : null;
+    // Telemóvel (auditoria de 2026-10-24): a planta inteira acima da barra de baixo — as divisões ficavam por baixo dela.
+    // A planta (com a altura do ecrã menos o topo e a barra, simulador.css) fica logo por baixo do topo, com a barra a seguir.
+    if (yEscondida !== null && !ecraLargo.matches) {
+      const topo = document.querySelector(".topo");
+      const preso = topo && ["sticky", "fixed"].includes(getComputedStyle(topo).position) ? topo.getBoundingClientRect().bottom : 0;
+      yEscondida = Math.max(0, scrollY + $("sim-planta").getBoundingClientRect().top - preso);
+    }
     if (yEscondida !== null && yEscondida <= document.documentElement.scrollHeight - innerHeight) scrollTo({ top: yEscondida, behavior: comportamento });
     else (passos ?? t).scrollIntoView({ block: "start", behavior: comportamento });
   }
@@ -566,6 +640,7 @@ async function registarCasaNaConta() {
   } catch { /* fica guardada no navegador; a conta recebe-a no passo seguinte (guardarNaConta) */ }
 }
 function concluirCasa() {
+  const depois = TEXTOS_CAMINHO[estado.servicoDepois] ? estado.servicoDepois : null;
   gravar();
   const registo = registarCasaNaConta();
   const j = janelaDeConfirmar();
@@ -581,10 +656,12 @@ function concluirCasa() {
       gravar();
       registo.finally(() => { location.href = codigoCliente ? "cliente.html" : "index.html"; });
     }),
-    botao("btn", "Pedir um serviço agora", "casa-fim-servico", () => {
+    // O serviço que escolheu antes de descrever a casa (decisão do dono, 2026-10-24) volta já escolhido.
+    botao("btn", depois ? `Continuar: ${TEXTOS_CAMINHO[depois][0]}` : "Pedir um serviço agora", "casa-fim-servico", () => {
       estado.funil = "planta";
       estado.caminho = null;
       irPara(P.inicio);
+      if (depois) escolherCaminho(depois);
       desenharInicio();
     }),
   );
@@ -596,7 +673,11 @@ function concluirCasa() {
 const bloquearTudo = () => bloquearInicio() || (funilAvaria() ? bloquearAvaria() : funilServico() ? bloquearServicoFotos() : bloquearCasa() || bloquearInventario() || bloquearQuadro() || bloquearTrocar() || bloquearMelhorias());
 
 $("sim-form").addEventListener("submit", (ev) => ev.preventDefault());
-$("sim-anterior").addEventListener("click", () => irPara(passoAo(estado.passo, -1)));
+$("sim-anterior").addEventListener("click", () => {
+  const alvo = passoAo(estado.passo, -1);
+  // O passo anterior está no histórico: recua nele (o "Voltar" do navegador a seguir continua a recuar).
+  if (!voltarNaHistoria(alvo)) irPara(alvo);
+});
 $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.enviar) { if (!bloquearTudo()) enviar(); return; }
   // Do Início só com o caso (e, na primeira vez, um serviço); de "Trocar e reparar" só com o que fazer a cada aparelho
@@ -605,7 +686,6 @@ $("sim-seguinte").addEventListener("click", () => {
   if (estado.passo === P.inicio && bloquearInicio()) return;
   if (estado.passo === P.casa && confirmarCasa()) return;
   if (estado.passo === P.quadro && bloquearQuadro()) return;   // a foto do quadro é obrigatória
-  if (estado.passo === P.quer && bloquearSitios()) return;     // o sítio de cada equipamento confirmado na planta
   if (estado.passo === P.tomadas && bloquearLuz()) return;     // um ponto de luz em cada divisão de dentro
   // Para lá das Divisões com o inventário por responder (um estado de antes da regra): volta a elas.
   if (estado.passo !== P.divisoes && bloquearInventario(passoAo(estado.passo, 1))) return;
@@ -725,7 +805,8 @@ function montarServico() {
   // Serviços com preço depois das fotos (decisão do dono, 2026-10-14): em "Pedir um serviço", com ou sem casa guardada.
   $("servicos-fotos").append(...TIPOS_SERVICO_FOTOS.map((k) => {
     const d = SERVICOS_FOTOS[k];
-    const l = escolha("radio", "caminho", `servico:${k}`, d.nome, d.projeto ? `${d.ajuda} ${NOTA_PRECO_FOTOS}.` : `${NOTA_PRECO_FOTOS}.`, (sim) => { if (sim) escolherServicoFotos(k); }, iconeDe(ICONES_SERVICO_FOTOS[k]));
+    // O "preço depois de ver as fotos" já está no título do grupo (auditoria de 2026-10-24: repetia-se em cada cartão).
+    const l = escolha("radio", "caminho", `servico:${k}`, d.nome, d.ajuda, (sim) => { if (sim) escolherServicoFotos(k); }, iconeDe(ICONES_SERVICO_FOTOS[k]));
     l.id = `servico-fotos-${k}`;
     return l;
   }));
@@ -772,6 +853,7 @@ function escolherFunil(k) {
   // Duas partes (2026-10-04): "Pedir um serviço" sem casa guardada leva primeiro a "Descrever a minha casa" — mas só ao
   // escolher o que precisa (escolherCaminho): os serviços com preço depois das fotos (2026-10-14) não precisam da casa.
   semCasaParaServico = false;
+  estado.servicoDepois = null;   // escolheu outro cartão: o serviço lembrado deixa de valer (escolherCaminho volta a pô-lo)
   if (k === "planta") {
     if (estado.funil !== "planta" && estado.funil !== "servico") { estado.funil = "planta"; estado.caminho = null; }
   } else {
@@ -813,11 +895,14 @@ function escolherCaminho(k) {
   if (k === "carregar") { $("planta-ficheiro").click(); return; }
   const c = casaParaPlanta();
   // Sem casa guardada: primeiro "Descrever a minha casa" (duas partes, 2026-10-04), com a frase que o explica.
-  if (!c) { escolherFunil("primeira"); semCasaParaServico = true; desenharInicio(); return; }
+  if (!c) { escolherFunil("primeira"); estado.servicoDepois = k; semCasaParaServico = true; desenharInicio(); agendarGravacao(); return; }
   casaPreEscolhida = false;   // o cliente escolheu o que precisa: passa a ser uma simulação em curso
+  estado.servicoDepois = null;
   if (estado.funil === "servico") estado.funil = "planta";   // vinha de um serviço com fotos
   usarCasa(estado, c);
   estado.plantaAuto = false;   // a casa guardada nunca é redesenhada sozinha
+  // Entrada pelo anúncio do carregador (entrada.js): o carregador novo na planta, na garagem ou no jardim, como Novo.
+  for (const m of estado.maquinasNovas ?? []) porMaquinaNova(estado.planta, m);
   const caminhoAntes = estado.caminho;
   estado.caminho = k;
   estado.servico = [k === "obras" ? "nova" : k === "quadro" ? "reparar" : k];   // duas partes (2026-10-04): as obras também seguem na parte do serviço
@@ -972,7 +1057,10 @@ function desenharInicio() {
   cartao.querySelector("small").textContent = c ? `Com a sua casa: ${resumoCasa(c)} · ~${minutosFunil("planta")} min` : "Obras, automatizar, videoporteiro, antenas, portões e mais";
   cartao.classList.toggle("destaque-casa", !!c && (!estado.funil || casaPreEscolhida));
   // Cliente que regressa (2026-10-04): a frase da casa encontrada, por cima dos cartões (fica até recomeçar: não salta ao escolher).
-  const frase = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.` : semCasaParaServico && !c ? `Para pedir um serviço, descreva primeiro a sua casa (~${minutosFunil("primeira")} min).` : "";
+  const depois = estado.funil === "primeira" ? TEXTOS_CAMINHO[estado.servicoDepois]?.[0] : null;
+  const fraseCasa = casaEncontrada && c ? `Encontrámos a sua casa: ${resumoCasa(c)}.`
+    : (semCasaParaServico || depois) && !c ? `Para pedir ${depois ? `"${depois}"` : "um serviço"}, descreva primeiro a sua casa (~${minutosFunil("primeira")} min).${depois ? " No fim, o pedido continua daí." : ""}` : "";
+  const frase = [avisoCarregador(), fraseCasa].filter(Boolean).join(" ");
   if ($("inicio-casa").textContent !== frase) $("inicio-casa").textContent = frase;
   $("inicio-casa").hidden = !frase;
   const caso = estado.funil;
@@ -992,6 +1080,15 @@ function desenharInicio() {
   for (const i of document.querySelectorAll("#inicio-problema input")) i.checked = problemasAvaria().includes(i.value);
   desenharPerigo();
   desenharComo();
+}
+/**
+ * Entrada pelo anúncio do carregador (decisão do dono, 2026-10-24): o preço logo no Início — a instalação (a linha
+ * dedicada do carregador, preço fechado do catálogo) e que o carregador (a wallbox) é à parte.
+ */
+function avisoCarregador() {
+  if (!(estado.maquinasNovas ?? []).includes("carregador_ve") || !["primeira", "planta"].includes(estado.funil)) return "";
+  const p = catalogo ? calcularPreco([{ chave: "linha_dedicada_ve", qtd: 1 }], catalogo, configOrc, { valor_iva: 0 }) : null;
+  return `Carregador de carro: instalação desde ${p?.total ? formatarEuroRedondo(p.total) : "390 €"} (linha dedicada até 15 m, com disjuntor e diferencial); o carregador (wallbox) é à parte.`;
 }
 /**
  * "Como fazer a simulação · ~N min" e os passos numerados do funil escolhido (sem nenhum, os da primeira vez), com as
@@ -1067,33 +1164,19 @@ const botaoDaJanela = (dlg) => (classe, texto, id, acao) => {
 };
 
 /*
- * "Seguinte" nos passos em que o cliente preenche alguma coisa (decisão do dono, 2026-10-04; estado.js
- * PASSOS_A_CONFIRMAR): a mesma janela de "A casa" pergunta se está certo antes de avançar — "Ainda não, vou ajustar"
- * fica no passo, "Sim, continuar" avança. A resposta fica no estado (`estado.confirmados`) e vale enquanto o que foi
- * confirmado não mudar (assinaturaPasso): andar para trás e para a frente não volta a perguntar.
+ * Antes do Relatório (decisão do dono, 2026-10-24: menos confirmações; estado.js PASSOS_A_CONFIRMAR): uma só janela no
+ * fim de "Descrever a minha casa", com o resumo do que pôs — "Ainda não, vou ajustar" fica no passo, "Sim, continuar"
+ * avança. A resposta fica no estado (`estado.confirmados`) e vale enquanto o que foi confirmado não mudar
+ * (assinaturaPasso): andar para trás e para a frente não volta a perguntar.
  */
-const TEXTOS_CONFIRMAR = {
-  [P.quer]: { titulo: "As máquinas marcadas são as da sua casa?",
-    pontos: ["Estão marcadas todas as máquinas que tem hoje.", "A quantidade de cada uma está certa.", "O que quer pôr de novo escolhe mais à frente."] },
-  [P.divisoes]: { titulo: "Está certo o que cada divisão tem hoje?",
-    pontos: ["Os interruptores e as tomadas de cada divisão.", "Os que já são inteligentes estão marcados."] },
-  [P.planta]: { titulo: "As portas, as janelas e o quadro estão no sítio certo?",
-    pontos: ["Cada porta e cada janela está na parede certa.", "O quadro elétrico está onde fica em sua casa.", "Apagou as que não existem e acrescentou as que faltavam."] },
-  [P.tomadas]: { titulo: "Pôs todos os interruptores e tomadas?",
-    pontos: ["Cada divisão tem os interruptores e as tomadas que tem em sua casa.", "Estão na parede certa.", "Como é cada um (botões, simples ou dupla) diz-se mais à frente."] },
-  [P.quadro]: { titulo: "A foto do quadro está boa?",
-    pontos: ["Mostra o quadro de frente, com a porta aberta.", "As etiquetas leem-se."] },
-  [P.trocar]: { titulo: "Está certo o que quer fazer?",
-    pontos: ["O que não mexeu fica em Manter e não entra no preço.", "Disse o que se passa em cada aparelho avariado."] },
-  [P.melhorias]: { titulo: "Escolheu as melhorias que quer?",
-    pontos: ["Os pacotes marcados entram no orçamento.", "Pode continuar sem nenhum."] },
-};
+const TEXTO_CONFIRMAR = { titulo: "Está tudo certo para o relatório?",
+  pontos: ["As portas, as janelas e o quadro estão no sítio certo.", "Pôs os interruptores, as tomadas e as luzes de cada divisão.", "Marcou as máquinas que tem hoje.", "A foto do quadro mostra-o de frente e as etiquetas leem-se."] };
 /**
- * O que o cliente pôs e o que parece faltar, para a janela de confirmação dos passos "Portas e janelas", "Interruptores
- * e tomadas" e "Divisões" (decisão do dono, 2026-10-10): contagens e faltas por divisão. É aviso: não bloqueia.
+ * O que o cliente pôs e o que parece faltar em "Portas e janelas" e em "Interruptores e tomadas", para a janela antes do
+ * Relatório (decisão do dono, 2026-10-10): contagens e faltas por divisão. É aviso: não bloqueia.
  */
 function resumoConfirmar(passo) {
-  if (![P.planta, P.tomadas, P.divisoes].includes(passo)) return [];
+  if (![P.planta, P.tomadas].includes(passo)) return [];
   const p = estado.planta;
   const n = (t) => p.elementos.filter((e) => e.tipo === t).length;
   const txt = (k, um, varios) => (k === 1 ? `1 ${um}` : `${k} ${varios}`);
@@ -1104,42 +1187,40 @@ function resumoConfirmar(passo) {
     r.push(`Pôs ${txt(n("porta"), "porta", "portas")} e ${txt(n("janela"), "janela", "janelas")}.${n("quadro") ? "" : " Falta o quadro elétrico."}`);
     const sp = sem("porta");
     if (sp.length && n("porta")) r.push(`Sem porta: ${listaPt(sp)}.`);
-  } else if (passo === P.tomadas) {
+  } else {
     r.push(`Pôs ${txt(n("tomada"), "tomada", "tomadas")}, ${txt(n("interruptor"), "interruptor", "interruptores")} e ${txt(n("luz"), "ponto de luz", "pontos de luz")}.`);
     const st = sem("tomada"), si = sem("interruptor");
     if (st.length && n("tomada")) r.push(`Sem tomadas: ${listaPt(st)}.`);
     if (si.length && n("interruptor")) r.push(`Sem interruptor: ${listaPt(si)}.`);
-  } else {
-    const smart = p.elementos.filter((e) => (e.tipo === "tomada" || e.tipo === "interruptor") && e.props?.inteligente === true).length;
-    r.push(`Respondeu a ${txt(n("interruptor"), "interruptor", "interruptores")} e ${txt(n("tomada"), "tomada", "tomadas")}${smart ? `; ${smart === 1 ? "1 já é inteligente" : `${smart} já são inteligentes`}` : ""}.`);
-    const st = sem("tomada"), si = sem("interruptor");
-    if (st.length) r.push(`Sem tomadas: ${listaPt(st)}.`);
-    if (si.length) r.push(`Sem interruptor: ${listaPt(si)}.`);
   }
   return r;
 }
 const assinaturaDoPasso = (passo) => assinaturaPasso(estado, passo, fotos.get("quadro")?.miniatura?.length ?? null);
-/** Abre a janela do passo atual se ainda não foi confirmado como está; devolve true se a abriu (não se avança). */
+/** Vai do passo atual para o Relatório (ou para lá dele) sem o ter confirmado como está? Abre a janela; devolve true se a abriu (não se avança). */
 function confirmarPasso(destino = null) {
   const passo = estado.passo;
-  const T = TEXTOS_CONFIRMAR[passo];
-  if (!T) return false;
-  const agora = assinaturaDoPasso(passo);
-  if (estado.confirmados?.[passo] === agora) return false;
+  const alvo = destino ?? passoAo(passo, 1);
+  const rel = posicao(P.relatorio);
+  if (rel < 0 || posicao(passo) >= rel || posicao(alvo) < rel) return false;
+  const T = TEXTO_CONFIRMAR;
+  const agora = assinaturaDoPasso(P.relatorio);
+  if (estado.confirmados?.[P.relatorio] === agora) return false;
   const dlg = janelaDeConfirmar();
   const botao = botaoDaJanela(dlg);
   const lista = el("ul", "janela-casa-lista");
   for (const t of T.pontos) lista.append(el("li", null, t));
   // "Interruptores e tomadas" sem nenhum posto: a pergunta diz-o (senão a casa chegava ao relatório sem tomadas).
-  const semNada = passo === P.tomadas && !estado.planta.elementos.some((e) => e.tipo === "interruptor" || e.tipo === "tomada");
+  const semNada = !estado.planta.elementos.some((e) => e.tipo === "interruptor" || e.tipo === "tomada");
   $("casa-janela-titulo").textContent = semNada ? "Não pôs nenhum interruptor nem tomada. Continuar assim?" : T.titulo;
-  $("casa-janela-corpo").replaceChildren(...resumoConfirmar(passo).map((t) => el("p", "janela-resumo", t)), el("p", null, "Antes de continuar, confirme:"), lista);
+  const maquinas = estado.planta.elementos.filter((e) => e.tipo === "maquina").length;
+  const resumo = [...resumoConfirmar(P.planta), ...resumoConfirmar(P.tomadas), `Marcou ${maquinas === 1 ? "1 máquina" : `${maquinas} máquinas`}.`];
+  $("casa-janela-corpo").replaceChildren(...resumo.map((t) => el("p", "janela-resumo", t)), el("p", null, "Antes de ver o relatório, confirme:"), lista);
   $("casa-janela-botoes").replaceChildren(
     botao("btn sec", "Ainda não, vou ajustar", "passo-janela-ajustar", () => focar(`titulo-${passo}`)),
     botao("btn", "Sim, continuar", "passo-janela-sim", () => {
-      estado.confirmados = { ...(estado.confirmados ?? {}), [passo]: assinaturaDoPasso(passo) };
+      estado.confirmados = { ...(estado.confirmados ?? {}), [P.relatorio]: assinaturaDoPasso(P.relatorio) };
       agendarGravacao();
-      irPara(destino ?? passoAo(passo, 1));
+      irPara(alvo);
     }),
   );
   dlg.showModal();
@@ -1382,6 +1463,8 @@ function desenharCasa() {
       $("casa-extras").append(escolha("checkbox", `casa-extra-${k}`, k, texto, EXTRAS_AJUDA[k], (sim) => {
         const pp = porPisoCasa();
         if (pp) { pp[pisoCasa].extras[k] = sim; acertarPisos(estado.casa); desenharPisosCasa(); } else estado.casa.extras[k] = sim;
+        // T0: com ou sem kitchenette muda a potência por omissão (estado.js potenciaOmissao, auditoria de 2026-10-24).
+        if (k === "kitnet" && !estado.potenciaEditada) { estado.casa.potencia_contratada_kva = potenciaOmissao(estado.casa); $("casa-potencia").value = String(estado.casa.potencia_contratada_kva); }
         agendarGravacao();
       }));
     }
@@ -1403,7 +1486,7 @@ function desenharCasa() {
 /** Tipologia (ou área e espaços), contadores, extras e ligação no ecrã a partir do estado. */
 function sincronizarCasa() {
   const c = estado.casa;
-  // Potência contratada pelo tamanho da casa (T0/T1 3,45 · T2/T3 6,9 · T4/T5+ 10,35), enquanto o cliente não escolher outra.
+  // Potência contratada pelo tamanho da casa (T0 com kitchenette 3,45 · T0 com cozinha, T1, T2, T3 6,9 · T4/T5+ 10,35), enquanto o cliente não escolher outra.
   if (!estado.potenciaEditada) { c.potencia_contratada_kva = potenciaOmissao(c); $("casa-potencia").value = String(c.potencia_contratada_kva); }
   const neg = negocio();
   acertarPisos(c);   // valores por piso (2 ou mais pisos) e os totais da casa a partir deles
@@ -1606,7 +1689,7 @@ function ligarLocalidade(input) {
     fechar();
   };
   const abrir = () => {
-    const s = sugerirConcelhos(input.value);
+    const s = sugerirConcelhos(input.value, 8, procurarConcelho(baseDeslocacao()));
     // Já escrito por inteiro (ex. escolhido antes): não volta a abrir só com o próprio nome.
     if (!s.length || (s.length === 1 && s[0].nome === input.value.trim())) { fechar(); return; }
     lista.replaceChildren(...s.map((c, i) => {
@@ -1661,144 +1744,8 @@ function acertarQuer() {
  * máquina marca-a ou desmarca-a nesse piso. A planta desenhada põe-nas nesses pisos (casa.js plantaDaCasa).
  * Os objetivos são da casa toda.
  */
-// ---- Equipamentos: o sítio de cada equipamento confirma-se na planta (decisão do dono, 2026-10-10) ----
-// Ao marcar um cartão (ou "+") o site põe o equipamento numa divisão; por cima da planta aparece "Está no sítio certo?"
-// com "Está bem aqui" — arrastá-lo na planta também confirma. "Seguinte" só avança com todos confirmados. No telemóvel
-// a planta não está à vista: confirmam-se no fim, quando "Seguinte" a abre por cima.
-let sitioVisto = null;   // { chave, id, x, y } do equipamento que está a ser confirmado
-const comRato = matchMedia("(hover: hover) and (pointer: fine)");
-/** Marcou mais um (`d` = 1) ou mudou a quantidade (`d` = 0): quantos falta confirmar nesse piso, nunca mais do que há. */
-function sitioPorVer(k, d) {
-  const chave = `${k}|${pisoQuer}`;
-  const n = Math.min(quantidadeNoPiso(estado.quer, k, pisoQuer), Math.max(0, (estado.sitiosPorVer[chave] ?? 0) + d));
-  const s = { ...estado.sitiosPorVer };
-  if (n > 0) s[chave] = n; else delete s[chave];
-  estado.sitiosPorVer = s;
-}
-/** Os que falta confirmar: [{chave, k, piso, n, el}] (`el` = o equipamento na planta; null enquanto a planta não o tem). */
-function sitiosPendentes() {
-  const r = [];
-  for (const [chave, falta] of Object.entries(estado.sitiosPorVer ?? {})) {
-    const [k, pisoTxt] = chave.split("|");
-    const piso = Number(pisoTxt);
-    const n = Math.min(falta, quantidadeNoPiso(estado.quer, k, piso));
-    if (n <= 0 || !MODELOS[k]) continue;
-    const els = (estado.planta?.elementos ?? []).filter((e) => e.tipo === "maquina" && e.props?.modelo === k && pisoDe(e) === piso);
-    r.push({ chave, k, piso, n, el: els[els.length - Math.min(n, els.length)] ?? null });
-  }
-  return r;
-}
-const nomeSitio = (k) => (k === "outro" ? "Outro equipamento" : MODELOS[k].nome);
-/** A caixa por cima da planta: o primeiro por confirmar, a piscar na planta, e "Está bem aqui". */
-/**
- * Um de cada vez (decisão do dono, 2026-10-10): com um equipamento por confirmar, os outros cartões e os "+" ficam
- * apagados; o dele continua a poder ser desmarcado. Voltam quando o equipamento é largado na planta.
- */
-function acertarCartoesSitio() {
-  const pend = estado.passo === P.quer && !enviado ? sitiosPendentes().filter((x) => x.piso === pisoQuer) : [];
-  const deles = new Set(pend.map((x) => x.k));
-  for (const item of document.querySelectorAll("#passo-2 .quer-item")) {
-    const k = item.dataset.maquina;
-    const espera = pend.length > 0 && !deles.has(k);
-    item.classList.toggle("em-espera", espera);
-    const i = item.querySelector("input[type=checkbox]");
-    if (i) i.disabled = espera;
-    const mais = $(`quer-qtd-${k}-mais`);
-    if (mais) mais.disabled = pend.length > 0 || quantidadeNoPiso(estado.quer, k, pisoQuer) >= MAX_QUANTIDADE;
-  }
-  // No telemóvel, com a planta fechada, os cartões apagados ficavam sem explicação (revisão de 2026-10-10): o passo diz
-  // o que falta confirmar e leva à planta.
-  let falta = $("quer-falta");
-  const todos = estado.passo === P.quer && !enviado ? sitiosPendentes() : [];
-  const mostrar = todos.length > 0 && !ecraLargo.matches && !plantaAberta();
-  if (mostrar && !falta) {
-    falta = el("div", "msg info quer-falta");
-    falta.id = "quer-falta";
-    falta.setAttribute("role", "status");
-    $("titulo-2").after(falta);
-  }
-  if (falta) {
-    falta.hidden = !mostrar;
-    if (mostrar) {
-      const b = el("button", "btn pequeno", "Confirmar na planta");
-      b.type = "button";
-      b.id = "quer-falta-abrir";
-      b.addEventListener("click", () => { abrirPlanta(b); desenharSitio(); });
-      falta.replaceChildren(`Falta confirmar onde está: ${listaPt([...new Set(todos.map((x) => nomeSitio(x.k).toLowerCase()))])}. `, b);
-    }
-  }
-}
-/** Acabou de marcar um equipamento: a planta já com ele, à vista (no telemóvel abre por cima), e a pergunta do sítio. */
-function mostrarSitio(origem) {
-  atualizarPlanta();
-  if (!ecraLargo.matches && sitiosPendentes().length) abrirPlanta(origem);
-  desenharSitio();
-}
-function desenharSitio() {
-  acertarCartoesSitio();
-  const caixa = $("planta-sitio");
-  const pend = estado.passo === P.quer && !enviado && (ecraLargo.matches || plantaAberta()) ? sitiosPendentes() : [];
-  const p = pend.find((x) => x.el);
-  if (!p) { caixa.hidden = true; caixa.replaceChildren(); sitioVisto = null; editor.seguirElemento(null); return; }
-  // (Numa planta refeita os ids repetem-se: o mesmo id noutro sítio, sem estar a seguir o rato, é outro equipamento.)
-  const outro = sitioVisto?.id !== p.el.id || (!editor.aSeguir && (sitioVisto.x !== p.el.x_cm || sitioVisto.y !== p.el.y_cm));
-  if (outro) {
-    if (sitioVisto?.id === p.el.id) editor.seguirElemento(null);
-    sitioVisto = { chave: p.chave, id: p.el.id, x: p.el.x_cm, y: p.el.y_cm };
-    if (editor.planta === estado.planta) {
-      editor.focarElemento(p.el.id);
-      // Com rato: o equipamento segue-o sobre a planta e um clique larga-o no sítio (e fica confirmado).
-      editor.seguirElemento(p.el.id, { aoLargar: (id) => { if (sitioVisto?.id === id) confirmarSitio(); } });
-    }
-  }
-  const divisao = estado.planta.divisoes.find((d) => d.id === p.el.divisao)?.nome;
-  const falta = pend.reduce((s, x) => s + x.n, 0);
-  const b = el("button", "btn pequeno", "Está bem aqui");
-  b.type = "button";
-  b.id = "planta-sitio-ok";
-  b.addEventListener("click", confirmarSitio);
-  caixa.replaceChildren(
-    el("p", null, `${nomeSitio(p.k)}: ${comRato.matches ? "leve o rato à planta e clique onde está." : "arraste na planta para onde está."} ${divisao ? `Ficou em ${divisao}: se` : "Se"} já está certo, confirme.`),
-    b, ...(falta > 1 ? [el("small", "ajuda", `Faltam ${falta} por confirmar.`)] : []));
-  caixa.hidden = false;
-}
-/** "Está bem aqui" (ou o equipamento arrastado na planta): um a menos por confirmar; segue para o seguinte. */
-function confirmarSitio() {
-  const v = sitioVisto;
-  if (!v) return;
-  const n = (estado.sitiosPorVer[v.chave] ?? 0) - 1;
-  const s = { ...estado.sitiosPorVer };
-  if (n > 0) s[v.chave] = n; else delete s[v.chave];
-  estado.sitiosPorVer = s;
-  sitioVisto = null;
-  $("planta-sitio").classList.remove("em-falta");
-  agendarGravacao(false);
-  desenharSitio();
-  if (!sitiosPendentes().length) {
-    if (plantaAberta()) fecharPlanta({ foco: false });
-    $("sim-seguinte").focus({ preventScroll: true });
-  } else $("planta-sitio-ok")?.focus({ preventScroll: true });
-}
-/** A planta mudou: se o equipamento que se está a confirmar foi arrastado (ou mudou de divisão), está confirmado. */
-function sitioArrastado() {
-  if (!sitioVisto || estado.passo !== P.quer || editor.aSeguir) return;   // a seguir o rato: ainda não foi largado
-  const e = estado.planta.elementos.find((x) => x.id === sitioVisto.id);
-  if (e && (e.x_cm !== sitioVisto.x || e.y_cm !== sitioVisto.y)) confirmarSitio();
-  else if (!e) { sitioVisto = null; desenharSitio(); }
-}
-/** "Seguinte" (e a barra dos passos) em "Equipamentos": com sítios por confirmar não avança. Devolve true se bloqueou. */
-function bloquearSitios() {
-  const pend = sitiosPendentes();
-  if (!pend.length) return false;
-  if (!ecraLargo.matches) abrirPlanta($("sim-seguinte"));
-  atualizarPlanta();   // (a planta já com o que se acabou de marcar)
-  desenharSitio();
-  const caixa = $("planta-sitio");
-  if (caixa.hidden) return false;   // a planta ainda não os tem (não devia acontecer): não prende o cliente
-  assinalar(caixa, `Falta confirmar na planta: ${listaPt([...new Set(pend.map((x) => nomeSitio(x.k).toLowerCase()))])}.`, $("planta-sitio-ok"));
-  return true;
-}
-
+// ---- Equipamentos (decisão do dono, 2026-10-24): cada máquina marcada vai para a divisão habitual (casa.js) sem prender
+// a lista — já não há "Está bem aqui" a confirmar uma a uma; se estiver noutro sítio, o cliente arrasta-a na planta.
 /**
  * Todas as máquinas do perfil ficam à vista, por grupos, e o passo abre sem nada marcado: o cliente marca só o que tem.
  */
@@ -1815,12 +1762,11 @@ function desenharQuer() {
       if (sim) m[pisoQuer] = m[pisoQuer] || 1; else delete m[pisoQuer];
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
       acertarQuer();
-      sitioPorVer(k, sim ? 1 : 0);
       sugerirLigacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
       agendarGravacao();
-      mostrarSitio($(`quer-extra-${k}`)?.parentElement.querySelector("input"));
+      atualizarPlanta();   // a planta já com ela, na divisão habitual
     };
     const maquina = (lista) => (k) => {
       const caixaM = el("div", "quer-item");
@@ -1943,7 +1889,6 @@ function desenharExtraQuer(k) {
         delete m[pisoQuer];
         estado.quer.porPiso = { ...estado.quer.porPiso, [k]: m };
         acertarQuer();
-        sitioPorVer(k, 0);
         sugerirLigacao();
         agendarGravacao();
         desenharQuer();
@@ -1952,11 +1897,10 @@ function desenharExtraQuer(k) {
       }
       estado.quer.porPiso = { ...estado.quer.porPiso, [k]: { ...estado.quer.porPiso[k], [pisoQuer]: Math.min(MAX_QUANTIDADE, Math.max(1, qtd + d)) } };
       acertarQuer();
-      sitioPorVer(k, d > 0 && qtd < MAX_QUANTIDADE ? 1 : 0);
       agendarGravacao();
       desenharExtraQuer(k);
       desenharPisosQuer();
-      mostrarSitio($(`quer-qtd-${k}-menos`));
+      atualizarPlanta();
       // No mínimo (1) ou no máximo o botão carregado fica desativado: o foco passa para o outro (não cai no body).
       const mesmo = $(`quer-qtd-${k}-${d > 0 ? "mais" : "menos"}`);
       (mesmo && !mesmo.disabled ? mesmo : $(`quer-qtd-${k}-${d > 0 ? "menos" : "mais"}`))?.focus();
@@ -2164,7 +2108,6 @@ function atualizarPlanta() {
     if (estado.passo === P.divisoes) desenharDivisoes();
     if (estado.passo === P.trocar) desenharTrocar();
   }
-  desenharSitio();
 }
 
 /** O cliente mexeu na planta (há o que refazer a partir da casa)? */
@@ -2203,7 +2146,6 @@ function abrirPlanta(origem = document.activeElement) {
   // Ronda A: aberta por cima, ajustada e centrada; nos passos com separadores, já centrada na divisão do separador.
   if (!centrarNaDivisao()) editor.verTudo();
   s.querySelector(".editor-svg")?.focus({ preventScroll: true });
-  desenharSitio();   // "Equipamentos": com a planta à vista, o que falta confirmar
   return true;
 }
 function fecharPlanta({ foco = true } = {}) {
@@ -2214,7 +2156,6 @@ function fecharPlanta({ foco = true } = {}) {
   s.removeAttribute("aria-modal");
   document.documentElement.classList.remove("planta-aberta");
   $("ver-planta").setAttribute("aria-expanded", "false");
-  if (estado.passo === P.quer) acertarCartoesSitio();   // (o aviso "Falta confirmar onde está…")
   const v = plantaVolta;
   plantaVolta = null;
   if (!v) return;
@@ -2703,6 +2644,9 @@ async function carregarFotosDoEstado() {
   if (estado.passo === P.divisoes) desenharDivisoes();
   if (estado.passo === P.quadro) desenharQuadro();
   if (estado.passo === P.trocar) desenharTrocar();
+  // Avaria e serviço com fotos (auditoria de 2026-10-24: depois de recarregar as fotos não se viam, mas eram enviadas).
+  if (estado.passo === P.avaria) desenharAvaria();
+  if (estado.passo === P.servico) desenharServicoFotos();
   if (estado.passo === P.enviar) desenharFotoQuadroEnviar();
 }
 
@@ -3807,7 +3751,7 @@ function controloAcoes(d, l, els, base, onde, temFoto) {
   // dedicada de 390 € já traz tudo; com "Sim" junta-se o disjuntor inteligente).
   const medicao = (e) => perguntaMedicao(e.tipo, e.props) && acaoDe(e, sv) === "novo";
   const pergunta = (e) => medicao(e) || (perguntaInteligente(e.tipo) && ["substituir", "novo"].includes(acaoDe(e, sv)));
-  const textoPergunta = (e) => (medicao(e) ? "Com medição no telemóvel?" : "Por um inteligente?");
+  const textoPergunta = (e) => (medicao(e) ? "Com medição no telemóvel?" : "Pôr um inteligente?");
   // O rótulo da pergunta: no "Por um inteligente?" leva o símbolo do Wi-Fi (o mesmo do botão "Inteligente" das Divisões).
   const rotuloPergunta = (e, texto) => {
     const s = el("span", "com-simbolo", texto);
@@ -4596,6 +4540,7 @@ function cartaoMelhoria(m) {
   const l = escolha("checkbox", "melhoria", m.id, m.nome, m.incluido ? "Já incluído" : m.vazio ? "Nada a acrescentar nesta casa" : m.resumo, (sim) => {
     mudarMelhoria(estado, m.id, sim);
     desenharMelhorias();
+    desenharEstimativaProvisoria();   // a estimativa da barra conta os pacotes aceites (auditoria de 2026-10-24)
     agendarGravacao();
     guardarNaConta();
   });
@@ -4638,8 +4583,10 @@ async function carregarCatalogo() {
   }
   if (estado.passo === P.preco && !$(`passo-${P.preco}`).hidden) desenharPreco();
   if (estado.passo === P.melhorias && !$(`passo-${P.melhorias}`).hidden) desenharMelhorias();
-  if (estado.passo === P.relatorio && !$(`passo-${P.relatorio}`).hidden) desenharCompleto();
+  // O relatório inteiro (auditoria de 2026-10-24: depois de recarregar ficavam os textos da "visita" de antes do catálogo).
+  if (estado.passo === P.relatorio && !$(`passo-${P.relatorio}`).hidden) { desenharRelatorio(); desenharCompleto(); }
   if (estado.passo === P.enviar && !$(`passo-${P.enviar}`).hidden) desenharDeslocacao();
+  if (estado.passo === P.inicio && !$(`passo-${P.inicio}`).hidden) desenharInicio();   // o preço do carregador (avisoCarregador)
   desenharEstimativaProvisoria();   // a estimativa por baixo da barra precisa dos preços
 }
 
@@ -4755,7 +4702,8 @@ function listaInclui(pedidos) {
   add(q("ponto_interruptor"), `1 interruptor novo${comandos.length ? ` (${comandos.join(", ")})` : ""}`, `interruptores novos${comandos.length ? ` (${comandos.join(", ")})` : ""}`);
   add(q("campainha"), "1 campainha com botão de pressão", "campainhas com botão de pressão");
   // Ronda dinheiro: a linha dedicada (até 15 m) de cada máquina nova com circuito próprio; a do carregador com o diferencial tipo A.
-  add(q("linha_dedicada_ve"), "1 linha dedicada para o carregador (até 15 m, com diferencial tipo A)", "linhas dedicadas para carregadores (até 15 m, com diferencial tipo A)");
+  // Decisão do dono (2026-10-24): diz-se que o carregador (a wallbox) não está incluído.
+  add(q("linha_dedicada_ve"), "1 linha dedicada para o carregador (até 15 m, com diferencial tipo A); o carregador (wallbox) não está incluído", "linhas dedicadas para carregadores (até 15 m, com diferencial tipo A); os carregadores (wallbox) não estão incluídos");
   add(q("linha_dedicada") - q("linha_dedicada_ve"), "1 linha dedicada para máquina (até 15 m)", "linhas dedicadas para máquinas (até 15 m)");
   add(q("interruptor"), "1 interruptor inteligente (luzes pelo telemóvel)", "interruptores inteligentes (luzes pelo telemóvel)");
   add(q("estore"), "1 estore automático", "estores automáticos");
@@ -4791,7 +4739,7 @@ function desenharPreco() {
     total.append(el("p", "sim-intervalo", "Ainda nada para instalar, reparar ou trocar."));
   } else if (semDesloc.min !== null) {
     // Sem deslocação: essa vem da localidade do contacto e mostra-se no passo 7.
-    total.append(el("p", "sim-rotulo", "Estimativa com instalação"));
+    total.append(el("p", "sim-rotulo", "Estimativa (material e mão de obra)"));
     total.append(el("p", "sim-intervalo num", textoIntervalo(semDesloc)));
     // Ronda dinheiro: abaixo da obra mínima cobra-se o mínimo; as horas dizem-se em dias de obra.
     if (semDesloc.obra_minima) total.append(el("p", "ajuda", `Obra mínima: ${formatarEuroRedondo(semDesloc.obra_minima)}`));
@@ -5363,6 +5311,7 @@ async function oferecerSimulacaoDaConta(eu) {
   $("sim-form").hidden = false;
   if (contaEu?.conta) estado.contacto.email = contaEu.conta.email;
   mostrarPasso(false);
+  historiaAtual();   // a entrada do histórico passa a ser a deste passo (senão recarregar voltava ao Início)
   agendarGravacao();
   carregarFotosDoEstado();
   $("sim-guardado").textContent = "Continuámos a simulação guardada na sua conta";
@@ -5389,7 +5338,10 @@ function desenharDeslocacao() {
   const km = d.distancia_km ? ` (cerca de ${d.distancia_km} km)` : "";
   if (d.estado === "fora_area") {
     caixa.append(el("p", null, `${d.concelho}${km}: ${foraAreaTexto()}, sem deslocação.`),
-      el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.` : "Fora da área não fazemos visitas: falamos consigo para combinar."));
+      el("p", "sim-aviso-area", funilAvaria() && pagamentosAtivos ? `Não enviamos técnico tão longe. Fale connosco${meiosContacto() ? ` ${meiosContacto()}` : ""}.`
+        // Como nos Termos (auditoria de 2026-10-24): fora da área não há visitas nem obras; o pedido pode ir na mesma e,
+        // na verificação, dizemos-lhe por email (com a lista de espera, fica nela e contactamo-lo).
+        : `Fora da área servida não fazemos visitas nem obras. ${listaEspera ? "Se enviar o pedido, fica na lista de espera e contactamo-lo." : "Se enviar o pedido, verificamos a morada e respondemos-lhe por email."}`));
   }
   else if (d.estado === "visita") caixa.append(el("p", null, visitaAParte && !listaEspera ? "Não reconhecemos o concelho: a deslocação é confirmada na visita. Escolha o concelho da lista para marcar a visita." : "Não reconhecemos o concelho. Escolha-o da lista para calcularmos a deslocação."));
   // Ronda dinheiro: ida e volta por dia de obra ("Deslocação a Sintra (cerca de 29 km): 28,80 € (ida e volta, 4 dias)").
@@ -5476,8 +5428,9 @@ function mostrarEnvio(texto, tipo, comContactos = false) {
 let TEXTO_ENVIAR = "Enviar pedido";   // segue a compra escolhida (textosPagamento)
 let pagamentosAtivos = !listaEspera;  // GET /api/catalogo `pagamentos.ativo`: desligados (ou em lista de espera), não se compra nada
 // A visita técnica ainda se vende à parte? GET /api/catalogo `pagamentos.visita_a_parte` (false com as propostas na bolsa:
-// decisão do dono, 2026-10-11). Até o catálogo chegar, e num servidor sem o campo, fica como sempre.
-let visitaAParte = true;
+// decisão do dono, 2026-10-11). Até o catálogo chegar (ou sem catálogo) vale o fluxo dos Termos: a visita vem depois da
+// proposta (auditoria de 2026-10-24: ao recarregar via-se "valor final após a visita" até o catálogo chegar).
+let visitaAParte = false;
 // A estimativa continua a ser estimativa; o preço certo é o da proposta (já não "após a visita").
 const TEXTO_ESTIMATIVA_PROPOSTA = "Estimativa; o preço certo vem na proposta.";
 /** Localidade do contacto fora da área servida: não há visita técnica (nem nos textos, nem "A visita", nem no pedido). */
@@ -5494,7 +5447,7 @@ function comProposta(antigo, novo) { return visitaAParte ? antigo : novo; }
 function quadroSeguroTexto(t) { return comProposta(t, t.replace("O eletricista vê", "Vemos").replace("o eletricista vê", "vemos").replace("diz-lhe na visita", "dizemos-lhe na proposta").replace("e diz-lhe se", "e dizemos-lhe se")); }
 function notaRever() { return comProposta("Orientativo, pelo que descreveu. Confirmamos na visita.", "Orientativo, pelo que descreveu. Confirmamos quando virmos a planta e as fotos."); }
 /** A nota da estimativa: fora da área, sem a visita. */
-const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação; valor final combinado consigo." : visitaAParte ? TEXTO_ESTIMATIVA : TEXTO_ESTIMATIVA_PROPOSTA);
+const textoEstimativa = () => (foraDaArea() ? "Estimativa sem deslocação. Fora da área servida não fazemos visitas nem obras." : visitaAParte ? TEXTO_ESTIMATIVA : TEXTO_ESTIMATIVA_PROPOSTA);
 /** Avaria rápida: o preço é sempre o do diagnóstico, fixo (sem intervalo): "Diagnóstico: 44,00 € + deslocação" (25 € + 0,5 h × tarifa de 38 €). */
 // Em lista de espera não se paga nada (decisão do dono, 2026-10-10): o preço do diagnóstico não aparece; volta sozinho ao desligá-la.
 const textoDiagnostico = (valor) => (listaEspera ? "Lista de espera: sem pagar nada" : `Diagnóstico: ${formatarEuro(valor)}${foraDaArea() ? "" : " + deslocação"}`);
@@ -5734,6 +5687,7 @@ async function retomarDoPagamento(guardado) {
   estado.passo = P.enviar;
   contaVista = true;   // não trocar pela simulação da conta a meio do pagamento
   mostrarPasso(false);
+  historiaAtual();
   await carregarFotosDoEstado();
   const botao = $("sim-seguinte");
   aEnviar = true;
@@ -5965,6 +5919,7 @@ function concluido(preco, semFundo, resultadoFotos = null, pagamento = null) {
   $("sim-planta").hidden = true;
   $("sim-navegacao").hidden = true;
   document.querySelector(".sim-progresso").hidden = true;
+  $("sim-passo-atual").textContent = "";   // "Pedido enviado!" não é um passo (auditoria de 2026-10-24: ficava "Passo 3 de 3")
   $("passo-fim").hidden = false;
   $("fim-resumo").textContent = funilServico() ? `${textoServicoFotos({ funil: "servico", servico_fotos: estado.servicoFotos })}. ${NOTA_PRECO_FOTOS}: o valor vem na proposta.`
     : preco?.min == null ? "Vamos enviar-lhe o preço depois de analisarmos a simulação."
@@ -6032,6 +5987,7 @@ function recomecar({ manterFotos = false } = {}) {
   $("contacto-website").value = "";
   $("sim-guardado").textContent = "";
   $("quer-maquinas").dataset.perfil = "";   // "Equipamentos" refeito do zero
+  historiaAtual();   // o histórico fica no Início desta simulação nova
 }
 
 /** Depois de recomeçar: o Início, com a barra dos passos (lote 8: já não há "Antes de começar"). */
@@ -6055,26 +6011,55 @@ $("fim-nova").addEventListener("click", () => {
 });
 
 /*
- * "Começar de novo" sempre à mão (à direita dos passos), sem confirmação (decisão do dono): recomeça logo (no passo 1,
+ * "Começar de novo" sempre à mão (à direita dos passos), com a pergunta de 2026-10-24 (perguntarRecomecar): recomeça (no passo 1,
  * lote 8) e mostra "Simulação apagada · Anular" durante 4 s, com um X para fechar logo (decisão do dono, 2026-10-10). "Anular" repõe tudo como estava: o estado
  * (e o que estava gravado no navegador e na conta), as fotos (só saem do IndexedDB no fim do prazo; em memória
  * guarda-se uma cópia), o passo e a planta. Passado o prazo, ou ao tocar no primeiro serviço, fica apagada de vez.
  */
 const PRAZO_ANULAR = 4_000;
 let anular = null;   // { estado, visitado, fotos, temporizador } enquanto "Anular" está à vista
-function recomecarComAnular() {
+/*
+ * Decisão do dono (2026-10-24): "Começar de novo" pergunta primeiro — "Recomeçar a simulação?" — com a opção, por
+ * marcar, "Apagar também a casa guardada na conta". Por omissão só a simulação recomeça: a casa guardada fica (no
+ * navegador e na conta). O "Anular" continua durante 4 s.
+ */
+function perguntarRecomecar() {
+  const dlg = janelaDeConfirmar();
+  const botao = botaoDaJanela(dlg);
+  $("casa-janela-titulo").textContent = "Recomeçar a simulação?";
+  const corpo = [el("p", null, "A simulação volta ao início.")];
+  let apagar = null;
+  if (casaGuardada) {
+    const l = el("label", "janela-opcao");
+    apagar = document.createElement("input");
+    apagar.type = "checkbox";
+    apagar.id = "recomecar-apagar-casa";
+    l.append(apagar, ` Apagar também a casa guardada ${contaEu?.conta ? "na conta" : "neste navegador"}`);
+    corpo.push(l, el("p", "ajuda", "Sem marcar, a casa fica guardada para pedir serviços sem a descrever outra vez."));
+  }
+  $("casa-janela-corpo").replaceChildren(...corpo);
+  $("casa-janela-botoes").replaceChildren(
+    botao("btn sec", "Cancelar", "recomecar-cancelar", () => $("sim-recomecar-topo").focus({ preventScroll: true })),
+    botao("btn", "Recomeçar", "recomecar-sim", () => recomecarComAnular({ apagarCasa: !!apagar?.checked })),
+  );
+  dlg.showModal();
+  $("recomecar-cancelar").focus();
+}
+function recomecarComAnular({ apagarCasa = false } = {}) {
   acabarAnular();
   const arm = armazem ?? semArmazem;
   let casaBruta = null;
   try { casaBruta = arm.getItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
   const antes = { estado: structuredClone(estado), visitado, fotos: new Map(fotos), casaPreEscolhida, casaEncontrada, recusouCasa, casaGuardada, casaBruta };
-  // Decisão do dono (2026-10-05): "Começar de novo" apaga também a casa guardada neste navegador — "Pedir um serviço"
-  // volta a pedir para descrever a casa primeiro. O "Anular" repõe-a. Com sessão, sai também da conta (decisão do dono,
-  // 2026-10-09: voltava ao recarregar): sem casa guardada, o recomecar() manda `null` para a conta.
-  casaGuardada = null;
-  try { arm.removeItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
+  // Com "Apagar também a casa guardada": sai deste navegador e da conta (o recomecar() manda `null` para a conta). O
+  // "Anular" repõe-a. Sem a opção, a casa fica e o Início volta com ela escolhida (como "Fazer outra simulação").
+  if (apagarCasa) {
+    casaGuardada = null;
+    try { arm.removeItem(CHAVE_CASA); } catch { /* sem armazenamento */ }
+  }
   recomecar({ manterFotos: true });
-  recusouCasa = true;
+  recusouCasa = apagarCasa;
+  if (!apagarCasa) preEscolher();
   mostrarInicio();
   const a = $("sim-anular");
   const b = el("button", "btn sec pequeno", "Anular");
@@ -6085,7 +6070,7 @@ function recomecarComAnular() {
   x.type = "button";
   x.setAttribute("aria-label", "Fechar o aviso");
   x.addEventListener("click", acabarAnular);
-  a.replaceChildren(el("span", null, antes.casaGuardada ? "Simulação e casa apagadas" : "Simulação apagada"), el("span", "sim-anular-sep", " · "), b, x);
+  a.replaceChildren(el("span", null, apagarCasa && antes.casaGuardada ? "Simulação e casa apagadas" : "Simulação apagada"), el("span", "sim-anular-sep", " · "), b, x);
   a.querySelector(".sim-anular-sep").setAttribute("aria-hidden", "true");
   posicionarAnular();
   antes.temporizador = setTimeout(acabarAnular, PRAZO_ANULAR);
@@ -6113,6 +6098,7 @@ function anularRecomecar() {
   if (a.casaBruta !== null) { try { (armazem ?? semArmazem).setItem(CHAVE_CASA, a.casaBruta); } catch { /* quota */ } }
   for (const [k, v] of a.fotos) fotos.set(k, v);
   mostrarInicio();
+  historiaAtual();      // o histórico volta ao passo reposto
   gravar();             // volta a ficar gravada neste navegador…
   guardarNaConta(0);    // …e na conta (com sessão)
 }
@@ -6145,7 +6131,7 @@ function medirBarra() {
   posicionarAnular();
 }
 if (typeof ResizeObserver === "function") new ResizeObserver(medirBarra).observe($("sim-navegacao"));
-$("sim-recomecar-topo").addEventListener("click", recomecarComAnular);
+$("sim-recomecar-topo").addEventListener("click", perguntarRecomecar);
 addEventListener("pagehide", acabarAnular);
 
 /** O passo mais adiantado de um estado lido (na avaria o que conta é o da primeira vez, que ela não muda). */
@@ -6192,6 +6178,8 @@ function iniciar() {
     estado = guardado;
     visitado = visitadoDe(estado);
     if (depoisDe(estado.passo, P.quer) && !semPlantaFunil()) acertarPedido();   // estados antigos: o pedido segue as regras de agora (sem aparelhos dos objetivos)
+    // Voltou depois de "Fico por aqui" com um serviço lembrado (decisão do dono, 2026-10-24): volta já escolhido.
+    if (estado.funil === "planta" && estado.passo === P.inicio && !estado.caminho && estado.servicoDepois && casaParaPlanta()) escolherCaminho(estado.servicoDepois);
     preEscolherPacote();
     mostrarPasso(false);
     carregarFotosDoEstado();
@@ -6199,6 +6187,8 @@ function iniciar() {
     // Sem simulação para continuar: o Início (com a casa guardada, se houver, no cartão "Já tenho a planta").
     if (guardado?.soCasa && temCasa(guardado) && !casaGuardada) { guardarCasa(armazem ?? semArmazem, guardado); casaGuardada = carregarCasa(armazem ?? semArmazem); }
     aplicarEntrada(estado, params);   // páginas de anúncio: `?servico=` (entrada.js), antes do `?pacote=`
+    // O anúncio do carregador com a casa já descrita: segue logo para "Pedir um serviço" com o serviço escolhido.
+    if (estado.servicoDepois && casaParaPlanta()) { estado.funil = "planta"; escolherCaminho(estado.servicoDepois); }
     preEscolherPacote();
     preEscolher();   // cliente que regressa: a casa guardada já escolhida (sem `?servico=`, que já escolhe o caso)
     mostrarPasso(false);
@@ -6213,6 +6203,7 @@ function iniciar() {
     if (estado.funil !== caso || casaPreEscolhida) escolherFunil(caso);
   }
   blocoConta.atualizar();   // sessão da conta: passo Enviar e simulação guardada na conta
+  iniciarHistoria();   // o "Voltar" do navegador recua um passo (decisão do dono, 2026-10-24)
 }
 
 // Exposto só para os testes automáticos (não é usado pela página).

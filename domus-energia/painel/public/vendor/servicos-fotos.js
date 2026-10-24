@@ -31,7 +31,7 @@ export const SERVICOS_FOTOS = {
     opcoes: {
       antena: { nome: "Antena de TV (TDT): instalar ou orientar", sku: "ANTENA-TDT" },
       tomadas: { nome: "Tomadas de TV ou de rede novas", sku: "TOMADA-TV-REDE", ited: true },
-      reparar: { nome: "Reparar a TV, o telefone ou a rede da casa", sku: "ITED-REPARAR" },
+      reparar: { nome: "Reparar as tomadas e os cabos de TV, telefone ou rede", sku: "ITED-REPARAR" },
     },
   },
   portoes: {

@@ -33,10 +33,12 @@ document.querySelectorAll(".js-contactos-frase").forEach((x) => {
 });
 document.getElementById("ano").textContent = new Date().getFullYear();
 
-// Música de fundo (config.js `musica`; decisão do dono, 2026-10-10): começa ao primeiro toque ou tecla (antes disso os
-// navegadores não deixam), em repetição e baixinho; pára com o separador escondido. O botão do topo cala-a e a escolha
-// fica guardada neste navegador ("domus.musica" = "0").
-if (cfg.musica?.ficheiro) {
+// Música de fundo (config.js `musica`; decisão do dono, 2026-10-10): só na página inicial e nas páginas de serviço.
+// Começa ao primeiro clique ou toque do visitante (antes disso os navegadores não deixam) — nunca com o teclado: quem
+// navega com Tab, Enter ou as setas não a põe a tocar (auditoria de 2026-10-24) —, em repetição e baixinho; pára com o
+// separador escondido. O botão do topo cala-a e a escolha fica guardada neste navegador ("domus.musica" = "0").
+const PAGINAS_MUSICA = ["", "index.html", "carregador-carro.html", "quadro-eletrico.html", "casa-inteligente.html", "poupar-energia.html"];
+if (cfg.musica?.ficheiro && PAGINAS_MUSICA.includes(location.pathname.split("/").pop())) {
   const CHAVE = "domus.musica";
   const ler = () => { try { return localStorage.getItem(CHAVE); } catch { return null; } };
   const som = new Audio(cfg.musica.ficheiro);
@@ -64,28 +66,42 @@ if (cfg.musica?.ficheiro) {
   });
   desenhar();
   document.getElementById("tema")?.before(botao);
-  for (const ev of ["pointerdown", "keydown"]) document.addEventListener(ev, tocar, { once: true });
+  // Só um clique de rato ou um toque: um "click" feito com o teclado (Enter, espaço) chega com detail 0.
+  const primeiroToque = (e) => {
+    if (!e.isTrusted || e.detail === 0) return;
+    document.removeEventListener("click", primeiroToque, true);
+    tocar();
+  };
+  document.addEventListener("click", primeiroToque, true);
   document.addEventListener("visibilitychange", () => { if (document.hidden) som.pause(); else if (!som.paused || som.currentTime > 0) tocar(); });
 }
 
 // Lista de espera (config.js `listaEspera`; decisão do dono, 2026-10-10): o aviso por baixo dos botões do topo e por cima
-// do formulário "Pedir contacto".
-if (cfg.listaEspera?.ativa) {
-  const quando = String(cfg.listaEspera.arranque ?? "").trim();
-  const aviso = () => {
-    const p = document.createElement("p");
-    p.className = "msg info lista-espera";
-    p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Até lá pode descrever a casa e ver o relatório grátis. Os pedidos ficam em lista de espera, sem pagar nada. Se tem uma avaria urgente, chame já um eletricista.`;
-    return p;
-  };
-  document.querySelector(".acoes")?.after(aviso());
-  document.getElementById("form-orcamento")?.before(aviso());
+// do formulário "Pedir contacto". O aviso já vem escrito no HTML (p.lista-espera[data-lista-espera]), para a página não
+// saltar quando o JavaScript corre (auditoria de 2026-10-24, CLS): aqui só se acerta a data de arranque, ou sai com a
+// lista fechada. O relatório completo pago (.js-relatorio-pago, escondido no HTML) só aparece com a lista fechada: em
+// lista de espera não se compra nada.
+{
+  const ativa = !!cfg.listaEspera?.ativa;
+  const quando = String(cfg.listaEspera?.arranque ?? "").trim();
+  const inicio = `As obras começam ${quando ? `em ${quando}` : "em breve"}.`;
+  for (const p of document.querySelectorAll(".lista-espera[data-lista-espera]")) {
+    if (!ativa) { p.remove(); continue; }
+    p.textContent = p.dataset.listaEspera === "candidatos"
+      ? `${inicio} Pode candidatar-se já: avisamos por email quando houver trabalhos.`
+      : `${inicio} Até lá pode descrever a casa e ver o relatório grátis. Os pedidos ficam em lista de espera, sem pagar nada. Se tem uma avaria urgente, chame já um eletricista.`;
+  }
+  for (const x of document.querySelectorAll(".js-relatorio-pago")) x.hidden = ativa;
   // Em lista de espera não se paga o diagnóstico (index.html .como-preco): sem preço, como no simulador.
   const precoAvaria = document.querySelector(".como-preco");
-  if (precoAvaria) precoAvaria.textContent = "Ainda não fazemos reparações. Pode deixar o pedido em lista de espera.";
-  // Candidatos a eletricista (trabalhe-connosco.html): também só há trabalhos quando as obras começarem.
-  const regra = document.getElementById("cand-regra");
-  if (regra) { const p = document.createElement("p"); p.className = "msg info lista-espera"; p.textContent = `As obras começam ${quando ? `em ${quando}` : "em breve"}. Pode candidatar-se já: avisamos por email quando houver trabalhos.`; regra.after(p); }
+  if (ativa && precoAvaria) precoAvaria.textContent = "Ainda não fazemos reparações. Pode deixar o pedido em lista de espera.";
+}
+
+// Identificação da empresa no rodapé (config.js `empresa`; Código das Sociedades Comerciais, art. 171.º): o HTML já traz os
+// valores, para quem não tem JavaScript; aqui ficam iguais aos do config.js.
+for (const el of document.querySelectorAll("footer [data-empresa]")) {
+  const v = String(cfg.empresa?.[el.dataset.empresa] ?? "").trim();
+  if (v) el.textContent = v;
 }
 
 // ---------- Botão do topo (index.html #hero-simular): segue quem regressa ----------
@@ -324,10 +340,12 @@ function mostrar(texto, ok, dados = null) {
 // Preço do diagnóstico de avaria (index.html #preco-diagnostico): o do catálogo do servidor, igual ao do simulador
 // (DIAG-AVARIA: preço + horas × tarifa). Sem servidor fica o valor escrito na página.
 // Preço do relatório completo (.js-preco-relatorio, decisão do dono 2026-10-09): o do painel (`preco_relatorio_iva`).
+// Preço de um artigo instalado ([data-preco-sku], ex.: a medição do carregador): preço + horas × tarifa, como no simulador.
 {
   const alvo = document.getElementById("preco-diagnostico");
   const relatorio = document.querySelectorAll(".js-preco-relatorio");
-  if (alvo || relatorio.length) {
+  const porSku = document.querySelectorAll("[data-preco-sku]");
+  if (alvo || relatorio.length || porSku.length) {
     const base = (window.DOMUS?.apiBase || "") + "/api/catalogo";
     fetch(base, { headers: { Accept: "application/json" } }).then((r) => (r.ok ? r.json() : null)).then((d) => {
       const a = (d?.artigos ?? d?.itens ?? []).find((x) => x.sku === "DIAG-AVARIA");
@@ -336,6 +354,11 @@ function mostrar(texto, ok, dados = null) {
       if (alvo && Number.isFinite(v) && v > 0) alvo.textContent = v.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
       const r = Number((d?.config ?? d)?.preco_relatorio_iva);
       if (Number.isFinite(r) && r > 0) for (const x of relatorio) x.textContent = r.toLocaleString("pt-PT", { minimumFractionDigits: Number.isInteger(r) ? 0 : 2, maximumFractionDigits: 2 }) + " €";
+      for (const x of porSku) {
+        const art = (d?.artigos ?? d?.itens ?? []).find((y) => y.sku === x.dataset.precoSku);
+        const vs = art && Number.isFinite(tarifa) ? Number(art.preco_venda_iva) + Number(art.horas_instalacao || 0) * tarifa : NaN;
+        if (Number.isFinite(vs) && vs > 0) x.textContent = vs.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+      }
     }).catch(() => {});
   }
 }

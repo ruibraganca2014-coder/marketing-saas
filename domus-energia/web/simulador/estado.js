@@ -305,7 +305,9 @@ export const POTENCIA_OMISSAO_KVA = 6.9;
  * (manual de instalações BT, 2.5; RTIEBT 801.5.2.2).
  */
 export const POTENCIA_POR_TIPOLOGIA = { T0: 3.45, T1: 6.9, T2: 6.9, T3: 6.9, T4: 10.35, "T5+": 10.35 };
-export const potenciaOmissao = (casa) => POTENCIA_POR_TIPOLOGIA[casa?.tipologia] ?? POTENCIA_OMISSAO_KVA;
+// O T0 segue a mesma regra dos compartimentos (auditoria de 2026-10-24; quadro.js minimoRtiebt): com a cozinha à parte
+// são 2 (o estúdio e a cozinha) → 6,9 kVA; só com kitchenette ("Kitnet" em "A casa tem…") é 1 → 3,45 kVA.
+export const potenciaOmissao = (casa) => (casa?.tipologia === "T0" && !casa.extras?.kitnet ? POTENCIA_OMISSAO_KVA : POTENCIA_POR_TIPOLOGIA[casa?.tipologia] ?? POTENCIA_OMISSAO_KVA);
 
 /**
  * Casa por omissão: tipo de imóvel e tipologia por escolher (decisão do dono: também no site, onde o "Seguinte"
@@ -331,10 +333,12 @@ export function casaNova() {
 }
 
 /**
- * Janela "confirme antes de continuar" (decisão do dono, 2026-10-04): os passos em que o cliente preenche alguma coisa
- * — Equipamentos, Divisões, Planta, Quadro elétrico, Trocar e reparar e Melhorias ("A casa" tem a sua, plantaConfirmada).
+ * Janela "confirme antes de continuar": menos confirmações (decisão do dono, 2026-10-24) — fica só a de "A casa" (a sua,
+ * plantaConfirmada) e uma no fim de "Descrever a minha casa", antes do Relatório (guardada na chave do Relatório). Os
+ * outros passos (Equipamentos, Portas e janelas, Interruptores e tomadas, Divisões, Quadro, Trocar e reparar e
+ * Melhorias) já não perguntam.
  */
-export const PASSOS_A_CONFIRMAR = [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias];
+export const PASSOS_A_CONFIRMAR = [PASSO.relatorio];
 
 /** Resumo curto de um texto (djb2, base 36): chega para saber se o que o cliente confirmou ainda é o que lá está. */
 function resumoTexto(s) {
@@ -344,21 +348,14 @@ function resumoTexto(s) {
 }
 
 /**
- * O que o cliente confirma em cada passo, resumido: a janela só volta a aparecer se isto mudar. `fotoQuadro`: o que
- * identifica a foto do quadro que está posta (o passo Quadro é só a foto), ou null.
+ * O que o cliente confirma antes do Relatório, resumido: a janela só volta a aparecer se isto mudar — as máquinas, os
+ * aparelhos da planta (sítio, o que são e o que já foi respondido), os "Não tem" das Divisões e a foto do quadro.
+ * `fotoQuadro`: o que identifica a foto do quadro que está posta, ou null. null nos passos sem janela.
  */
 export function assinaturaPasso(estado, passo, fotoQuadro = null) {
-  const els = estado.planta?.elementos ?? [];
-  const de = {
-    [PASSO.quer]: () => estado.quer,
-    [PASSO.divisoes]: () => [els.filter((e) => e.tipo === "interruptor" || e.tipo === "tomada").map((e) => [e.id, e.divisao ?? null, e.tipo, e.props ?? null, e.confirmado === true, e.acao ?? null, e.inteligente ?? null]), estado.naoTem],
-    [PASSO.planta]: () => els.filter((e) => ["porta", "janela", "quadro"].includes(e.tipo)).map((e) => [e.id, e.tipo, e.divisao ?? null, e.x_cm ?? null, e.y_cm ?? null]),   // sem `props`: o que cada aparelho é diz-se nas Divisões
-    [PASSO.tomadas]: () => els.filter((e) => ["interruptor", "tomada", "luz"].includes(e.tipo)).map((e) => [e.id, e.tipo, e.divisao ?? null]),
-    [PASSO.quadro]: () => fotoQuadro,
-    [PASSO.trocar]: () => [els.map((e) => [e.id, e.acao ?? null, e.avaria ?? null, e.inteligente ?? null]), estado.quadroAvaria, estado.quadroProblemas, estado.mexerQuadro],
-    [PASSO.melhorias]: () => estado.melhorias,
-  }[passo];
-  return de ? resumoTexto(JSON.stringify(de()) ?? "") : null;
+  if (passo !== PASSO.relatorio) return null;
+  const els = (estado.planta?.elementos ?? []).map((e) => [e.id, e.tipo, e.divisao ?? null, e.x_cm ?? null, e.y_cm ?? null, e.props ?? null, e.confirmado === true]);
+  return resumoTexto(JSON.stringify([estado.quer, els, estado.naoTem ?? null, fotoQuadro]) ?? "");
 }
 
 /**
@@ -421,12 +418,12 @@ export function estadoNovo() {
     // Fase 3 (monetização): o que o cliente compra ao enviar — relatório pormenorizado e/ou visita técnica (nada: só o
     // relatório básico, grátis). Um só sítio: outro passo pode escolhê-lo antes; o passo Enviar mostra-o e muda-o.
     compras: { relatorio: false, visita: false },
-    // Equipamentos (decisão do dono, 2026-10-10): o sítio de cada equipamento marcado confirma-se na planta. Por
-    // "modelo|piso", quantos ainda falta confirmar (app.js sitioPorVer). Estados antigos: nada por confirmar.
-    sitiosPorVer: {},
     // Ronda dinheiro: máquinas (modelos) que entram como "Novo" mesmo sem "Instalação nova" — a entrada pelo anúncio do
     // carregador (entrada.js): a linha dedicada conta no preço desde o início (app.js marcarNovas).
     maquinasNovas: [],
+    // "Pedir um serviço" sem casa descrita (decisão do dono, 2026-10-24): o que escolheu fica lembrado enquanto descreve a
+    // casa e volta escolhido no fim (app.js escolherCaminho, concluirCasa). null = nenhum.
+    servicoDepois: null,
   };
 }
 
@@ -686,8 +683,9 @@ export function normalizarEstado(v) {
     if (passo === PASSO_REFORMADO) passo = PASSO.relatorio;
     // Duas partes (2026-10-04): "Pedir um serviço" já não tem Relatório — quem lá estava segue para o Orçamento.
     if (e.funil === "planta" && passo === PASSO.relatorio) passo = PASSO.preco;
-    // Nunca volta direto ao "Enviar" (volta ao Orçamento; na avaria, ao passo Avaria); um passo fora do funil volta ao Início.
-    if (passo === PASSO.enviar) passo = e.funil === "avaria" ? PASSO.avaria : e.funil === "servico" ? PASSO.servico : PASSO.preco;
+    // Recarregar fica no passo (decisão do dono, 2026-10-24: também no "Enviar"); só os estados de ordens antigas voltam
+    // ao Orçamento (na avaria, ao passo Avaria). Um passo fora do funil volta ao Início.
+    if (passo === PASSO.enviar && !deAgora) passo = e.funil === "avaria" ? PASSO.avaria : e.funil === "servico" ? PASSO.servico : PASSO.preco;
     // O passo Planta saiu do funil da primeira vez (2026-10-04): quem lá estava segue para o Quadro (o passo a seguir).
     const semPlanta = (i) => (i === PASSO.planta && e.funil === "primeira" && !seq.includes(i) ? PASSO.quadro : i);
     passo = semPlanta(passo);
@@ -846,11 +844,8 @@ export function normalizarEstado(v) {
   e.horario = v.horario === "fora_horas" ? "fora_horas" : "normal";
   const cp = v.compras && typeof v.compras === "object" ? v.compras : {};
   e.compras = { relatorio: bool(cp.relatorio), visita: bool(cp.visita) };
-  const sv = v.sitiosPorVer && typeof v.sitiosPorVer === "object" && !Array.isArray(v.sitiosPorVer) ? v.sitiosPorVer : {};
-  e.sitiosPorVer = Object.fromEntries(Object.entries(sv).slice(0, 200)
-    .filter(([k, n]) => Object.hasOwn(MODELOS, k.split("|")[0]) && /^[^|]+\|\d$/.test(k) && Number.isInteger(n) && n > 0)
-    .map(([k, n]) => [k, Math.min(n, MAX_QUANTIDADE)]));
   e.maquinasNovas = [...new Set(lista(v.maquinasNovas, 20).filter((k) => typeof k === "string" && Object.hasOwn(MODELOS, k)))];
+  e.servicoDepois = CAMINHOS.includes(v.servicoDepois) && v.servicoDepois !== "carregar" ? v.servicoDepois : null;
   return e;
 }
 
@@ -1204,7 +1199,7 @@ const FOTO_ACOES = ["reparar", "substituir"];   // as ações que pedem a foto d
  * {sku, horas} por unidade (app.js, a partir do catálogo); `fotos`: chaves das fotos tiradas ("d1:tomada"), só nos
  * grupos que as pedem (Reparar, Substituir); `objetivos`: para os Novos inteligentes, como no preço (acoes.js inteligenteDe).
  */
-export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], objetivos = []) {
+export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], objetivos = [], caminho = null) {
   if (!planta || !plantaTemConteudo(planta)) return [];
   const p = normalizarPlanta(planta);
   const tem = new Set(fotos);
@@ -1234,7 +1229,7 @@ export function trabalhoParaEnvio(planta, servicos, linhaArtigo, fotos = [], obj
     if (acao === "reparar") item.avarias.push(textoSeguro(e.avaria, MAX_AVARIA));
     if (acao === "substituir" && perguntaInteligente(e.tipo) && e.inteligente === true) item.inteligentes++;
     // Ronda regras: no Novo, os pontos com preço fechado e a aparelhagem do comando (acoes.js pontosDoElemento) e o inteligente.
-    for (const chave of pedidosDoElemento(e, acao, objetivos, servicos)) {
+    for (const chave of pedidosDoElemento(e, acao, objetivos, servicos, caminho)) {
       const a = linhaArtigo(chave, acao);
       const m = item.material.find((x) => x.sku === a.sku);
       if (m) m.qtd++; else item.material.push({ sku: a.sku, qtd: 1 });
@@ -1279,7 +1274,10 @@ export function casaParaEnvio(estado) {
   const tipologia = !negocio && TIPOLOGIAS.includes(c.tipologia) ? c.tipologia : null;
   return {
     tipo: TIPOS_CASA[c.tipo] ? c.tipo : null,
-    divisoes: tipologia || negocio ? divisoesDaCasa(c, maquinasEscolhidas(estado.quer)).length : c.divisoes ?? (estado.divisoes.length || null),
+    // Com a planta desenhada, as divisões dela (auditoria de 2026-10-24: um T2 de 5 divisões ia com 6, o "Exterior" que as
+    // máquinas acrescentam e que a planta não tem).
+    divisoes: !estado.plantaSaltada && estado.planta?.divisoes?.length ? Math.min(40, estado.planta.divisoes.length)
+      : tipologia || negocio ? divisoesDaCasa(c, maquinasEscolhidas(estado.quer)).length : c.divisoes ?? (estado.divisoes.length || null),
     localidade: textoSeguro(estado.contacto.localidade, 80) || null,   // o local da obra: a localidade do contacto (passo "Enviar")
     potencia_contratada_kva: potenciaContratada(c.potencia_contratada_kva),
     fases: FASES[c.fases] ? c.fases : null,
@@ -1370,7 +1368,7 @@ export function montarSimulacao(estado, preco, plano, fotos = [], linhaArtigo = 
     inventario: inventarioParaEnvio(estado, planta),
     // Lote 8: `avaria` = o que o cliente disse do quadro com problemas ("Trocar e reparar"); null sem problemas.
     quadro: { ...quadroParaEnvio(estado, circuitos), foto: fotos.some((f) => f.chave === "quadro") ? "quadro" : null, no_preco: quadroNoPedido({ ...estado, servico }), avaria: quadroAvaria },
-    trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? []),
+    trabalho: trabalhoParaEnvio(planta, servico, linhaArtigo ?? semArtigo, fotos.map((f) => f.chave), estado.quer?.objetivos ?? [], estado.caminho ?? null),
     totais_acao: totais,
     // Lote 8 (passo Enviar): disponibilidade para a visita e urgência; null fora da área servida (não há visita).
     visita: foraArea ? null : normalizarVisita(estado.visita),

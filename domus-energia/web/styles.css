@@ -1074,7 +1074,12 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 .legal .legal-nav a[aria-current="page"] { color: var(--texto); text-decoration: none; }
 /* Rodapé de todas as páginas: Privacidade · Termos · Cookies. */
 .rodape-legal { display: flex; flex-wrap: wrap; gap: 4px 14px; }
-.rodape-legal a { color: var(--musgo-texto); }
+.rodape-legal a { color: var(--musgo-texto); display: inline-block; padding: 4px 0; }
+/* Livro de Reclamações, RAL e identificação da empresa (auditoria de 2026-10-24): última linha do rodapé, a toda a largura. */
+.rodape-empresa { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 4px 0 0; font-size: .85rem; overflow-wrap: anywhere; }
+.rodape-empresa a { color: var(--musgo-texto); display: inline-block; padding: 4px 0; }
+.rodape-empresa .rodape-reclamacoes { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; font-weight: 700; }
+.rodape-reclamacoes svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .rodape-legal a[aria-current="page"] { color: var(--texto); font-weight: 700; text-decoration: none; }
 /* Linha de consentimento junto aos campos de contacto (simulador) e ao "Criar conta" (conta-comum.js). */
 .consentimento { margin: 0; font-size: .9rem; color: var(--texto-suave); }
@@ -1121,21 +1126,23 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 
 /* Lista de espera (site.js): o aviso por baixo dos botões do topo e por cima do formulário de contacto. */
 .lista-espera { margin: 16px 0; max-width: 60ch; font-weight: 500; }
+/* Telemóvel: o botão fixo do WhatsApp (58 px, a 16 px da margem) não tapa o texto do aviso (auditoria de 2026-10-24). */
+@media (max-width: 599.98px) { body:has(.whatsapp-flutuante:not([hidden])) .lista-espera { padding-right: 64px; } }
 
 /* Ecrãs de toque (decisão do dono, 2026-10-10): as ligações de texto ficam com 44 px de zona de toque. */
-@media (pointer: coarse) {
-  .hero .hero-ou a, footer .wrap > a, .rodape-servicos a, .rodape-legal a, #servicos h3 a { display: inline-flex; align-items: center; min-height: 44px; }
+/* Também em janelas estreitas sem toque (telemóvel emulado, ecrã partido): auditoria de 2026-10-24. */
+@media (pointer: coarse), (max-width: 599.98px) {
+  .hero .hero-ou a, footer .wrap > a, .rodape-servicos a, .rodape-legal a, .rodape-empresa a, #servicos h3 a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 /* Acesso da empresa no topo da página inicial (decisão do dono, 2026-10-10): só em ecrãs largos. */
 .acesso-equipa { display: none; }
 @media (min-width: 1180px) { .acesso-equipa { display: inline-flex; } a.botao-tema.acesso-equipa { display: grid; } }
-/* O cadeado do painel (2026-10-13): no cabeçalho usa o desenho redondo do botão de tema; no menu do telemóvel, só o ícone. */
+/* O cadeado do painel (2026-10-13): no cabeçalho usa o desenho redondo do botão de tema. No menu do telemóvel não há
+   "Equipa" nem cadeado (auditoria de 2026-10-24: só em ecrãs largos, como diz o index.html). */
 a.botao-tema { text-decoration: none; }
 /* "Equipa" é uma ligação do menu (nav .link aparece aos 1000 px), mas só cabe a partir dos 1180 px, como o cadeado. */
 nav .link.acesso-equipa { display: none; }
 @media (min-width: 1180px) { nav .link.acesso-equipa { display: inline-flex; } }
-.menu-cadeado { display: inline-grid; place-items: center; width: 44px; height: 44px; }
-.menu-cadeado svg { width: 20px; height: 20px; }
 .conta-correcao { display: grid; gap: 8px; }
 .conta-correcao p { margin: 0; }
 .conta-recusar { margin-top: 10px; }

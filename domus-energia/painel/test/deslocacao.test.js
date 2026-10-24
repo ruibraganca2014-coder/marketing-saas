@@ -43,6 +43,9 @@ test('procurar e sugerir: sem acentos, texto livre, nomes ambíguos', () => {
   assert.equal(sugerirConcelhos('vila').length, 8);
   assert.ok(sugerirConcelhos('foz').some((s) => s.nome === 'Vila Nova de Foz Côa'), 'palavra a meio');
   assert.deepEqual(sugerirConcelhos(''), []);
+  // Auditoria de 2026-10-24: com a base (Lisboa), os mais perto primeiro — "Sin" dá Sintra antes de Sines.
+  assert.deepEqual(sugerirConcelhos('Sin', 8, procurarConcelho('Lisboa')).map((s) => s.nome), ['Sintra', 'Sines']);
+  assert.equal(sugerirConcelhos('vila', 8, procurarConcelho('Lisboa'))[0].nome, 'Vila Franca de Xira');
 });
 
 test('distância: haversine × 1,3; Lisboa→Sintra, Lisboa→Porto, ilhas', () => {

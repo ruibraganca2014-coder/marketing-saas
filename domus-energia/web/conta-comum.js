@@ -213,6 +213,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
       if (emailRepor) email.i.value = emailRepor;
       const criar = botao("Continuar", "criar", () => ocupado(criar, async () => {
         const e = email.i.value.trim();
+        if (!e) { invalido(email, "Escreva o seu email."); return; }
         if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
         const r = await pedirConta("continuar", { corpo: { email: e } });
         if (r?.existe) {
@@ -281,6 +282,7 @@ export function criarBlocoConta(caixa, { prefixo = "conta", aoMudar = () => {}, 
       const s = campo("Palavra-passe", "senha", { type: "password", maxlength: "200", autocomplete: "current-password" });
       const entrar = botao("Entrar", "entrar", () => ocupado(entrar, async () => {
         const e = email.i.value.trim();
+        if (!e) { invalido(email, "Escreva o seu email."); return; }
         if (!RE_EMAIL.test(e)) { invalido(email, "O email não parece certo (ex.: nome@exemplo.pt)."); return; }
         if (!s.i.value) { invalido(s, "Escreva a palavra-passe."); return; }
         const r = await pedirConta("entrar", { corpo: { email: e, password: s.i.value } });

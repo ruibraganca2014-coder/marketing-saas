@@ -62,9 +62,9 @@ test('migração: o passo "Serviço" passa a Início; estados de 9 passos ficam 
     const e = normalizarEstado(v9({ passo: antes, visitado: antes, servico: ['nova'] }));
     assert.deepEqual([e.passo, e.funil], [depois, FUNIS.planta.passos.includes(depois) && depois !== PASSO.inicio ? 'planta' : 'primeira'], `passo ${antes} → ${depois}`);
   }
-  // Estados de agora: nunca volta direto ao Enviar (avaria → Avaria); um passo fora do funil volta ao Início.
-  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'avaria', passo: PASSO.enviar }).passo, PASSO.avaria);
-  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'planta', passo: PASSO.enviar }).passo, PASSO.preco);
+  // Estados de agora: recarregar fica no Enviar (decisão do dono, 2026-10-24); um passo fora do funil volta ao Início.
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'avaria', passo: PASSO.enviar }).passo, PASSO.enviar);
+  assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'planta', passo: PASSO.enviar }).passo, PASSO.enviar);
   assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'planta', passo: PASSO.planta }).passo, PASSO.inicio);
   assert.equal(normalizarEstado({ ...estadoNovo(), funil: 'x', passo: 3 }).funil, 'primeira');
   const av = normalizarEstado({ ...estadoNovo(), funil: 'avaria', passo: 9, avaria: { onde: 'cozinha', problema: 'fogo', descricao: 'x'.repeat(300) } });
@@ -177,6 +177,8 @@ test('PDF do orçamento: blocos sem preços de compra e um PDF válido (uma pág
   assert.match(txt, /Conforto: 9,99 € por mês \(sugerido\)/);
   assert.equal(b.at(-1).texto, 'Estimativa; valor final após a visita.');
   assert.doesNotMatch(txt, /compra|fornecedor|SKU|DIAG-|TONGOU/i);
+  // Auditoria de 2026-10-24: sem planos (o simulador já não os mostra) não fica o título "Planos mensais" vazio.
+  assert.ok(!blocosOrcamento({ casa: 'x', inclui: [] }).some((x) => x.texto === 'Planos mensais'));
   // O PDF (pdf.js): cabeçalho, 3 páginas, a tabela de referências aponta para cada objeto.
   const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
   const pag = { jpeg, largura_px: 10, altura_px: 10, largura_pt: 595.28, altura_pt: 841.89 };

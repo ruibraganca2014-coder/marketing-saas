@@ -1,5 +1,5 @@
 // Páginas legais (privacidade.html, termos.html, cookies.html): a identificação da empresa vem de config.js
-// (window.DOMUS.empresa + email/telefone). Cada <span data-empresa="nome|nif|morada|ral|email|telefone"> recebe o
+// (window.DOMUS.empresa + email/telefone). Cada <span data-empresa="nome|nif|morada|capital|registo|ral|email|telefone"> recebe o
 // valor; enquanto um valor for "[A PREENCHER]" fica assinalado (classe .por-preencher) e aparece o aviso no topo
 // (#legal-aviso), para o dono ver o que falta antes de publicar. A data em #legal-data vem do data-atualizado da página.
 const cfg = window.DOMUS ?? {};
@@ -9,6 +9,8 @@ const valores = {
   nome: empresa.nome,
   nif: empresa.nif,
   morada: empresa.morada,
+  capital: empresa.capital,
+  registo: empresa.registo,
   ral: empresa.ral,
   email: cfg.email,
   telefone: cfg.telefoneVisivel,

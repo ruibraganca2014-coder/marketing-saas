@@ -20,12 +20,6 @@ export const SKU_SY1 = "TONGOU-SY1-JWT";
 /** Horas de troca (Substituir) de um artigo sem `horas_troca` no catálogo: esta fração das horas de instalação. */
 export const FRACAO_TROCA = 0.5;
 
-export const PLANOS = {
-  base: { nome: "Base", preco: 4.99 },
-  conforto: { nome: "Conforto", preco: 9.99 },
-  premium: { nome: "Premium", preco: 19.99 },
-};
-
 const temProtecoes = (e) => Array.isArray(e?.protecoes) ? e.protecoes.length > 0 : e?.protecoes === true;
 /** Artigos do quadro (diferencial, AFDD, caixa…) têm `especificacoes.funcao`: nunca passam por disjuntor inteligente nem ampliação. */
 const funcao = (a) => (typeof a?.especificacoes?.funcao === "string" ? a.especificacoes.funcao : null);
@@ -189,7 +183,7 @@ export function pedidosDaSelecao(s) {
   // Ronda regras: os pontos novos normais (luz, tomada, interruptor e a aparelhagem do comando) com preço fechado.
   // `plantaPontos` (app.js): a planta que conta — a desenhada pela casa quando o cliente saltou a planta.
   const pp = s.plantaPontos ?? s.planta;
-  if (pp) for (const p of pedidosPontosNovos(pp, s.servico)) add(p.chave, p.qtd);
+  if (pp) for (const p of pedidosPontosNovos(pp, s.servico, s.caminho)) add(p.chave, p.qtd);
   // Lote 8: o quadro com problemas ("Trocar e reparar") é mais um diagnóstico de avaria.
   if (typeof s.quadroAvaria === "string") {
     const d = r.find((p) => p.chave === "diagnostico" && p.acao === "reparar");

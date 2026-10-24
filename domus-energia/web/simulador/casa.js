@@ -881,3 +881,19 @@ export function dicasObjetivos(nome, objetivos = [], { temTomadas = false } = {}
   if ((quer("poupar") || quer("energia")) && temTomadas) r.push("Para poupar energia, troque tomadas por inteligentes (Substituir).");
   return r;
 }
+
+/**
+ * Máquina NOVA numa planta já feita (decisão do dono, 2026-10-24; entrada pelo anúncio do carregador, entrada.js): se a
+ * planta ainda não tem nenhuma máquina `modelo`, põe uma na divisão habitual (DESTINO: o carregador na garagem ou no
+ * jardim; senão a maior divisão), num lugar livre, com a ação "Novo". Devolve true se a pôs.
+ */
+export function porMaquinaNova(p, modelo) {
+  if (!p?.divisoes?.length || !MODELOS[modelo] || p.elementos.length >= MAX_ELEMENTOS) return false;
+  if (p.elementos.some((e) => e.tipo === "maquina" && e.props?.modelo === modelo)) return false;
+  const certa = (DESTINO[modelo] ?? []).flatMap((t) => p.divisoes.filter((d) => tipoDivisao(d.nome) === t))[0];
+  const d = certa ?? p.divisoes.reduce((a, b) => (areaDe(b) > areaDe(a) ? b : a));
+  const piso = d.piso ?? 0;
+  const [x_cm, y_cm] = lugarLivre(d, p.elementos.filter((q) => (q.piso ?? 0) === piso), p.divisoes.filter((q) => (q.piso ?? 0) === piso));
+  p.elementos.push({ id: novoId("e", p.elementos), tipo: "maquina", x_cm, y_cm, rot: 0, piso, divisao: d.id, props: propsOmissao("maquina", modelo), acao: "novo" });
+  return true;
+}

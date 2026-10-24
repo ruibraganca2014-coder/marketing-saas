@@ -225,8 +225,8 @@ export function blocosOrcamento(d) {
     { tipo: "seccao", texto: "O que inclui" },
     ...((d.inclui ?? []).length ? d.inclui : ["Ainda nada."]).map((t) => ({ tipo: "item", texto: String(t) })),
     ...((d.melhorias ?? []).length ? [{ tipo: "seccao", texto: "Melhorias" }, ...d.melhorias.map((t) => ({ tipo: "item", texto: String(t) }))] : []),
-    { tipo: "seccao", texto: "Planos mensais" },
-    ...(d.planos ?? []).map((p) => ({ tipo: "item", texto: `${p.nome}: ${p.preco}${p.sugerido ? " (sugerido)" : ""}` })),
+    // Sem planos (o simulador já não os mostra) não fica o título "Planos mensais" sozinho (auditoria de 2026-10-24).
+    ...((d.planos ?? []).length ? [{ tipo: "seccao", texto: "Planos mensais" }, ...d.planos.map((p) => ({ tipo: "item", texto: `${p.nome}: ${p.preco}${p.sugerido ? " (sugerido)" : ""}` }))] : []),
     { tipo: "nota", texto: d.nota || "Estimativa; valor final após a visita." },
   ];
   return b;

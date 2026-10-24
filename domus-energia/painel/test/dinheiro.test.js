@@ -182,6 +182,16 @@ test('linha dedicada até 15 m: 140 € ao juntar uma máquina a uma casa que j�
   const junta = casa(T2, ['automatizar'], MAQ, (s) => { for (const x of s.planta.elementos) if (x.tipo === 'maquina') x.acao = 'novo'; });
   assert.equal(qtd(pedidosDaSelecao(junta), 'linha_dedicada'), 3);
   assert.equal(preco(junta).linhas.find((l) => l.sku === 'LINHA-DEDICADA').total, 420);
+  // Decisão do dono (2026-10-24): "Obras ou instalação nova" (caminho `obras`, serviço "nova") junta a uma casa que já
+  // existe — 140 €; os 70 € ficam só para a instalação nova toda. O preço e a lista de trabalho dizem o mesmo.
+  assert.deepEqual(pedidosDoElemento(maq('forno'), 'novo', [], ['nova'], 'obras'), ['linha_dedicada']);
+  assert.deepEqual(pedidosPontosNovos(planta, ['nova'], 'obras'), [{ chave: 'linha_dedicada', qtd: 1 }, { chave: 'linha_dedicada_ve', qtd: 1 }]);
+  const obras = { ...e, caminho: 'obras' };
+  assert.equal(qtd(pedidosDaSelecao(obras), 'linha_dedicada'), 3);
+  assert.equal(qtd(pedidosDaSelecao(obras), 'linha_dedicada_nova'), 0);
+  assert.equal(preco(obras).linhas.find((l) => l.sku === 'LINHA-DEDICADA').total, 420);
+  const listaObras = montarSimulacao(obras, preco(obras), 'base', [], (chave) => ({ sku: encontrarArtigo(chave, CATALOGO).sku, horas: 0 })).trabalho.flatMap((g) => g.acoes.flatMap((a) => a.material));
+  assert.equal(listaObras.filter((m) => m.sku === 'LINHA-DEDICADA').reduce((s, m) => s + m.qtd, 0), 3);
   assert.equal(preco(e, 'Lisboa', CATALOGO_ANTES).completo, false, 'servidor sem a migração 24: fica "há artigos sem preço"');
   assert.equal(cent(p.total - 3 * 70), 2038, 'o total sem as linhas dedicadas');
   assert.equal(qtd(pedidosDaSelecao(casa(T2, ['nova'])), 'linha_dedicada_nova'), 0);
@@ -227,12 +237,26 @@ test('linha dedicada até 15 m: 140 € ao juntar uma máquina a uma casa que j�
   assert.equal(qtd(pedidosDaSelecao(tri), 'disjuntor_protecoes'), nova.quadro.circuitos.length - 1, 'sem disjuntor inteligente no circuito do carregador');
 });
 
-test('entrada ?servico=carregador: o carregador fica marcado como Novo no estado (e sobrevive à gravação)', () => {
+test('entrada ?servico=carregador: o carregador fica marcado como Novo no estado (e sobrevive à gravação)', async () => {
   const e = estadoNovo();
   assert.deepEqual(e.maquinasNovas, []);
   assert.equal(aplicarEntrada(e, new URLSearchParams('servico=carregador')), true);
   assert.deepEqual(e.maquinasNovas, ['carregador_ve']);
-  assert.deepEqual(e.servico, ['automatizar']);
+  // Decisão do dono (2026-10-24): o carregador é novo — não entra nos Equipamentos (o que a casa já tem); segue para
+  // "Obras ou instalação nova" (lembrado enquanto descreve a casa) e é posto na planta como Novo.
+  assert.equal(e.servicoDepois, 'obras');
+  assert.ok(!JSON.stringify(e.quer).includes('carregador_ve'));
+  assert.equal(normalizarEstado(JSON.parse(JSON.stringify(e))).servicoDepois, 'obras');
+  assert.equal(normalizarEstado({ ...JSON.parse(JSON.stringify(e)), servicoDepois: 'carregar' }).servicoDepois, null);
+  const { porMaquinaNova, plantaDaCasa } = await import('../../web/simulador/casa.js');
+  const planta = plantaDaCasa({ ...estadoNovo().casa, tipo: 'moradia', tipologia: 'T2', quartos: 2, extras: { ...estadoNovo().casa.extras, garagem: true } });
+  assert.equal(porMaquinaNova(planta, 'carregador_ve'), true);
+  const ve = planta.elementos.filter((x) => x.props?.modelo === 'carregador_ve');
+  assert.equal(ve.length, 1);
+  assert.equal(ve[0].acao, 'novo');
+  assert.equal(planta.divisoes.find((d) => d.id === ve[0].divisao)?.nome, 'Garagem');
+  assert.equal(porMaquinaNova(planta, 'carregador_ve'), false, 'não põe outro');
+  assert.deepEqual(pedidosPontosNovos(planta, ['nova'], 'obras').find((x) => x.chave === 'linha_dedicada_ve'), { chave: 'linha_dedicada_ve', qtd: 1 });
   assert.deepEqual(normalizarEstado(JSON.parse(JSON.stringify(e))).maquinasNovas, ['carregador_ve']);
   assert.deepEqual(normalizarEstado(JSON.parse(JSON.stringify({ ...e, maquinasNovas: ['xpto', 3, 'placa', 'placa'] }))).maquinasNovas, ['placa']);
   const q = estadoNovo();

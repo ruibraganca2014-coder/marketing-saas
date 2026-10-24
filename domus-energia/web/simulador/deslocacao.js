@@ -49,13 +49,15 @@ export function procurarConcelho(texto) {
 
 /**
  * Sugestões para o que o cliente escreve (sem acentos): primeiro os que começam pelo texto, depois
- * os que têm uma palavra a começar por ele. Até `max`.
+ * os que têm uma palavra a começar por ele. Até `max`. Com `perto` ({lat, lon}: a base das deslocações), em cada grupo
+ * os mais perto primeiro (auditoria de 2026-10-24: "Sin" dava Sines antes de Sintra).
  */
-export function sugerirConcelhos(texto, max = 8) {
+export function sugerirConcelhos(texto, max = 8, perto = null) {
   const k = chave(texto);
   if (!k) return [];
-  const inicio = LISTA.filter((c) => c.k.startsWith(k));
-  const palavra = LISTA.filter((c) => !c.k.startsWith(k) && c.k.includes(` ${k}`));
+  const ordem = (l) => (perto ? l.map((c) => [c, haversineKm(perto, c)]).sort((a, b) => a[1] - b[1]).map(([c]) => c) : l);
+  const inicio = ordem(LISTA.filter((c) => c.k.startsWith(k)));
+  const palavra = ordem(LISTA.filter((c) => !c.k.startsWith(k) && c.k.includes(` ${k}`)));
   return [...inicio, ...palavra].slice(0, max).map((c) => ({ nome: c.nome, distrito: c.distrito }));
 }
 

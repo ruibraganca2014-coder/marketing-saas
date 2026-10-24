@@ -41,17 +41,21 @@ window.DOMUS = {
   seguros: { ativo: false, agente: "", mediador: "" },
 
   // Música de fundo (decisão do dono, 2026-10-10): só na página inicial e nas páginas de serviço. Começa ao primeiro
-  // toque do visitante (os navegadores não deixam antes) e há um botão no topo para a calar; o site lembra-se.
+  // clique ou toque do visitante (nunca com o teclado; os navegadores não deixam antes) e há um botão no topo para a
+  // calar; o site lembra-se.
   // Ponha o MP3 em web/sons/ e escreva aqui o caminho, ex.: "sons/fundo.mp3". Vazio = sem música.
   // Use só música que a empresa possa usar (livre de direitos ou com licença). volume: 0 a 1.
   musica: { ficheiro: "sons/fundo.mp3", volume: 0.1 },
 
-  // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js).
+  // Identificação da empresa nas páginas legais (privacidade.html, termos.html, cookies.html; web/legal.js) e no rodapé de
+  // todas as páginas públicas (site.js).
   // Preencha uma vez aqui: as três páginas atualizam-se sozinhas. Enquanto estiver "[A PREENCHER]" aparece assinalado.
   empresa: {
     nome: "Estação Nómada, Unipessoal Lda.",       // nome legal (certidão permanente; marca Domus Energia)
     nif: "519 588 533",                              // NIPC
     morada: "Rua 1.º de Maio, n.º 2, 2730-144 Barcarena (Oeiras)",   // sede
+    capital: "200,00 €",                             // capital social (art. 171.º do Código das Sociedades Comerciais)
+    registo: "Conservatória do Registo Comercial de Lisboa",   // onde está matriculada (com o NIPC acima)
     ral: "CNIACC — Centro Nacional de Informação e Arbitragem de Conflitos de Consumo, www.cniacc.pt",
   },
 };

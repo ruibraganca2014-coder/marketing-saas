@@ -6,7 +6,7 @@ import {
   pontosDivisao, areaPoligono, caixasDe, maquinaDaPlanta, contarPlanta, sugerirCircuitos, codigoCircuito, seccaoCabo,
   circuitoProprio, nomeModelo, TIPOS_CIRCUITO, POTENCIAS_KVA, PROPRIOS_LEVES,
 } from "./regras.js";
-import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA } from "./quadro.js";
+import { opcoesCircuitos, zonaHumida, gruposDiferenciais, circuitoComAfdd, TAMANHOS_QUADRO, tamanhoQuadro, MAX_MONO_KVA, ESCALOES_KVA, amperesDiferencial } from "./quadro.js";
 import { AMPERES_GERAL, AMPERES_DIFERENCIAL, MODULOS_ESQUEMA, MAX_LIVRES_ORDEM, CHAVES_PROTECOES_ESQUEMA, PROTECOES_ESQUEMA, CORES_CIRCUITO } from "./quadro-desenho.js";
 
 /**
@@ -82,15 +82,22 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
   const grandes = proprias.filter((m) => !PROPRIOS_LEVES.includes(m.modelo));
   const leves = [...new Set(proprias.filter((m) => PROPRIOS_LEVES.includes(m.modelo)).map((m) => nomeModelo(m.modelo)))];
   const somaGrandes = grandes.reduce((s, m) => s + m.potencia_w, 0);
-  const estado = sugeridaKva === null ? "especial" : sugeridaKva === undefined ? "sem_dados" : contratada >= sugeridaKva ? "chega" : "curta";
+  // Decisão do dono (2026-10-24): uma máquina com circuito próprio acima da potência contratada — ou as máquinas grandes
+  // todas ligadas ao mesmo tempo — e o relatório nunca diz "chega": a potência é curta e sugere-se o escalão que as
+  // aguenta (nunca abaixo da sugerida pelas cargas). Acima de 41,4 kVA é um contrato especial.
+  const excede = somaGrandes > contratada * 1000;
+  const pelasGrandes = excede ? ESCALOES_KVA.find((k) => somaGrandes <= k * 1000) ?? null : undefined;
+  const sugerida = sugeridaKva === null || pelasGrandes === null ? null : sugeridaKva === undefined ? (excede ? pelasGrandes : undefined) : Math.max(sugeridaKva, pelasGrandes ?? 0);
+  const estado = sugerida === null ? "especial" : sugerida === undefined ? "sem_dados" : contratada >= sugerida && !excede ? "chega" : "curta";
+  const umaGrande = grandes.length === 1;
   const potencia = {
-    estado, contratada_kva: contratada, sugerida_kva: sugeridaKva ?? null,
+    estado, contratada_kva: contratada, sugerida_kva: sugerida ?? null,
     // `assumida`: o cliente não escolheu a potência (é a que sugerimos pela casa): o texto di-lo (decisão do dono, 2026-10-10).
     assumida,
     titulo: { chega: "A potência contratada chega", curta: "A potência contratada pode ser curta", especial: "Esta casa pede um contrato especial", sem_dados: "Potência contratada" }[estado],
     texto: [
-      `${assumida ? `Assumimos ${kvaTxt(contratada)} contratados, o habitual numa casa assim` : `Tem ${kvaTxt(contratada)} contratados`}${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugeridaKva)}.` : estado === "chega" && sugeridaKva !== contratada ? `; o que a casa tem pede ${kvaTxt(sugeridaKva)}.` : "."}`,
-      grandes.length ? `As ${plural(grandes.length, "máquina grande", "máquinas grandes")} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) somam ${wTxt(somaGrandes)}${somaGrandes > contratada * 1000 ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${estado === "chega" ? "chega para o dia a dia, mas com todas ligadas ao mesmo tempo a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
+      `${assumida ? `Assumimos ${kvaTxt(contratada)} contratados, o habitual numa casa assim` : `Tem ${kvaTxt(contratada)} contratados`}${estado === "curta" ? `; para o que a casa tem sugerimos ${kvaTxt(sugerida)}.` : estado === "chega" && sugerida !== contratada ? `; o que a casa tem pede ${kvaTxt(sugerida)}.` : "."}`,
+      grandes.length ? `${umaGrande ? "A máquina grande" : `As ${plural(grandes.length, "máquina grande", "máquinas grandes")}`} (${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}) ${umaGrande ? "tem" : "somam"} ${wTxt(somaGrandes)}${excede ? `, mais do que os ${wTxt(contratada * 1000)} do contrato: ${umaGrande ? "ligada, a luz vai abaixo." : "com todas ligadas ao mesmo tempo, a luz vai abaixo."}` : `; o contrato dá ${wTxt(contratada * 1000)}.`}` : null,
     ].filter(Boolean),
   };
 
@@ -120,6 +127,10 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     const amperes = (kva * 1000) / (tri ? 690 : 230);
     const acima = (l, a) => l.find((x) => x >= a) ?? l[l.length - 1];
     const geral = acima(AMPERES_GERAL, amperes);
+    // Os diferenciais como no pedido (quadro.js amperesDiferencial: 40 A, ou 63 A a partir de 10,35 kVA), nunca abaixo do
+    // geral; o do carregador é o seu, de 40 A (manual de instalações BT, 13.6). Auditoria de 2026-10-24: o desenho tinha
+    // 25 A no industrial e 63 A no grupo do carregador, e o pedido 40 A.
+    const ampDif = Math.max(acima(AMPERES_DIFERENCIAL, geral), amperesDiferencial(casa, { kva: typeof sugeridaKva === "number" ? sugeridaKva : sugeridaKva === null ? null : 0 }));
     const grupos = gruposDiferenciais(brutos).filter((g) => g.circuitos.length);
     const protecoes = [...CHAVES_PROTECOES_ESQUEMA];
     const ordem = ["geral", ...protecoes];
@@ -157,7 +168,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     for (let i = 0; i < Math.min(livres, MAX_LIVRES_ORDEM); i++) ordem.push("livre");
     esquema = {
       disjuntor_geral: { amperes: geral, wifi: true },
-      diferenciais: grupos.map(() => ({ sensibilidade_ma: 30, amperes: acima(AMPERES_DIFERENCIAL, geral) })),
+      diferenciais: grupos.map((g) => ({ sensibilidade_ma: 30, amperes: g.carregador ? 40 : ampDif })),
       disjuntores, modulos_livres: livres, estado: null, fusiveis: null, sinais_aquecimento: null, notas: "", protecoes, ordem,
       tamanho, grande, polos: P, etiquetas, fila_por_diferencial: true,
       // O que é cada peça, em português simples, e as cores dos circuitos que este quadro tem.
@@ -187,9 +198,9 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
   }
   // Estores elétricos: o circuito vem da contagem (janelas com estore motorizado), não de uma máquina da planta.
   if (circuitos.some((c) => /^Estores/.test(c.nome))) leves.push(nomeModelo("estores"));
-  if (leves.length) rever.push(`${leves.join(", ")}: ${leves.length === 1 ? "tem" : "têm"} circuito próprio no quadro (manual de instalações).`);
-  if (grandes.length) rever.push(`${grandes.map((m) => nomeModelo(m.modelo)).join(", ")}: ${grandes.length === 1 ? "deve ter um circuito só para ela" : "cada uma deve ter um circuito só para ela"} no quadro.`);
-  if (estado === "curta") rever.push(`Potência contratada: ${kvaTxt(contratada)} para uma casa que pede ${kvaTxt(sugeridaKva)}.`);
+  if (leves.length) rever.push(`${leves.join(", ")}: ${leves.length === 1 ? "tem" : "têm"} circuito próprio no quadro.`);
+  if (grandes.length) rever.push(`${grandes.map((m) => nomeModelo(m.modelo)).join(", ")}: ${grandes.length === 1 ? "precisa de um circuito próprio" : "cada máquina precisa de um circuito próprio"} no quadro.`);
+  if (estado === "curta") rever.push(`Potência contratada: ${kvaTxt(contratada)} para uma casa que pede ${kvaTxt(sugerida)}.`);
 
   // ---- 5. O que pode ligar ao mesmo tempo (as máquinas de 1 000 W ou mais, uma de cada, contra o contrato)
   const limiteW = contratada * 1000;
@@ -239,7 +250,7 @@ export function analiseDaCasa(planta, casa, sugeridaKva, { assumida = false } = 
     grandes.length ? `Circuito só para ${grandes.length === 1 ? "a máquina grande" : "cada máquina grande"}: ${grandes.map((m) => nomeModelo(m.modelo).toLowerCase()).join(", ")}.` : null,
     comPoucasTomadas.length ? `Mais tomadas em: ${comPoucasTomadas.join(", ")}.` : null,
     rever.some((t) => /zona húmida/.test(t)) ? "Circuito próprio para as tomadas das zonas húmidas." : null,
-    estado === "curta" ? `Rever a potência contratada: a casa pede ${kvaTxt(sugeridaKva)}.` : null,
+    estado === "curta" ? `Rever a potência contratada: a casa pede ${kvaTxt(sugerida)}.` : null,
   ].filter(Boolean).slice(0, 3);
 
   const semLuzes = !elementos.some((e) => e.tipo === "luz");

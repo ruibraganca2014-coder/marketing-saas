@@ -28,10 +28,32 @@ test('a potência chega? compara a contratada com a sugerida e soma as máquinas
   assert.deepEqual([chega.estado, chega.titulo], ['chega', 'A potência contratada chega']);
   const curta = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9).potencia;
   assert.equal(curta.estado, 'curta');
-  assert.match(curta.texto[0], /Tem 3,45 kVA contratados; para o que a casa tem sugerimos 6,9 kVA\./);
+  // A placa e o forno somam 9 700 W: sugere-se o escalão que os aguenta ligados ao mesmo tempo (10,35 kVA), não só os 6,9 das cargas.
+  assert.match(curta.texto[0], /Tem 3,45 kVA contratados; para o que a casa tem sugerimos 10,35 kVA\./);
   assert.match(curta.texto[1], /2 máquinas grandes \(placa de cozinha, forno\) somam \d+ \d{3} W, mais do que os 3 450 W do contrato/);
   assert.equal(analiseDaCasa(PLANTA, {}, null).potencia.estado, 'especial');
   assert.equal(analiseDaCasa(PLANTA, {}, 6.9).potencia.contratada_kva, 6.9, 'sem potência escolhida: 6,9 kVA');
+});
+
+test('decisão do dono (2026-10-24): uma máquina acima do contrato, ou as grandes todas juntas, nunca "chega"', () => {
+  // Carregador de 7 400 W com 6,9 kVA contratados e as cargas a pedirem 6,9: curta, sugere 10,35 kVA.
+  const ve = { divisoes: [div('g', 'Garagem', 0)], elementos: [el('c', 'maquina', 'g', { modelo: 'carregador_ve' })] };
+  const p = analiseDaCasa(ve, { potencia_contratada_kva: 6.9 }, 6.9).potencia;
+  assert.deepEqual([p.estado, p.titulo, p.sugerida_kva], ['curta', 'A potência contratada pode ser curta', 10.35]);
+  assert.match(p.texto[0], /sugerimos 10,35 kVA\./);
+  assert.equal(p.texto[1], 'A máquina grande (carregador de carro elétrico) tem 7 400 W, mais do que os 6 900 W do contrato: ligada, a luz vai abaixo.');
+  assert.doesNotMatch(p.texto.join(' '), /chega/);
+  // A placa e o forno (9 700 W) com 6,9 kVA: também curta; com 10,35 kVA chega.
+  assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 6.9 }, 6.9).potencia.estado, 'curta');
+  assert.equal(analiseDaCasa(PLANTA, { potencia_contratada_kva: 10.35 }, 6.9).potencia.estado, 'chega');
+  // Sem a sugestão das cargas (sem dados), a máquina acima do contrato já dá "curta".
+  assert.equal(analiseDaCasa(ve, { potencia_contratada_kva: 6.9 }, undefined).potencia.estado, 'curta');
+  // O desenho do quadro com os diferenciais do pedido: o do carregador de 40 A (manual 13.6) mesmo com 10,35 kVA (63 A nos
+  // outros); num industrial trifásico de 6,9 kVA (geral 16 A) os diferenciais são de 40 A, como no preço (não 25 A).
+  const q = analiseDaCasa({ ...ve, elementos: [...ve.elementos, el('t', 'tomada', 'g')] }, { potencia_contratada_kva: 10.35 }, 10.35).esquema;
+  assert.deepEqual(q.diferenciais.map((d) => d.amperes).sort((a, b) => a - b), [40, 63]);
+  const ind = analiseDaCasa({ divisoes: [div('n', 'Nave', 0, 1700, 1300)], elementos: [el('t', 'tomada', 'n')] }, { tipo: 'industrial', fases: 'tri', potencia_contratada_kva: 6.9 }, 3.45).esquema;
+  assert.deepEqual([ind.disjuntor_geral.amperes, ind.diferenciais.map((d) => d.amperes)], [16, [40]]);
 });
 
 // Manual de instalações BT (2026-10-24, 3.2): as tomadas da cozinha num circuito só delas; placa 25 A / 4 mm², forno 16 A / 2,5 mm².
@@ -49,8 +71,8 @@ test('pontos a rever: mais aparelhos do que tomadas, zonas húmidas, circuito pr
   const a = analiseDaCasa(PLANTA, { potencia_contratada_kva: 3.45 }, 6.9);
   assert.ok(a.rever.some((t) => /^Cozinha: 2 aparelhos para 1 ponto de tomada/.test(t)));
   assert.ok(a.rever.some((t) => /^Casa de banho: é zona húmida/.test(t)));
-  assert.ok(a.rever.some((t) => /^Placa de cozinha, Forno: cada uma deve ter um circuito só para ela/.test(t)));
-  assert.ok(a.rever.some((t) => /^Potência contratada: 3,45 kVA para uma casa que pede 6,9 kVA\.$/.test(t)));
+  assert.ok(a.rever.some((t) => /^Placa de cozinha, Forno: cada máquina precisa de um circuito próprio no quadro\.$/.test(t)));
+  assert.ok(a.rever.some((t) => /^Potência contratada: 3,45 kVA para uma casa que pede 10,35 kVA\.$/.test(t)));
   assert.ok(!a.rever.some((t) => /^Sala/.test(t)), 'a sala não tem nada a assinalar');
   const vazia = analiseDaCasa({ divisoes: [], elementos: [] }, {}, 3.45);
   assert.deepEqual([vazia.circuitos, vazia.rever, vazia.numeros[0][1]], [[], [], '0 m²']);

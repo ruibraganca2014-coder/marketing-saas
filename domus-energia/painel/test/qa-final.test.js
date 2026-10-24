@@ -118,48 +118,40 @@ test('planta automática: a porta da rua numa parede de fora; tomadas de divisõ
   }
 });
 
-test('janela "confirme antes de continuar" dos outros passos: a assinatura muda só com o que o passo confirma; o estado guarda-a', async () => {
+test('menos confirmações (decisão do dono, 2026-10-24): só uma janela antes do Relatório; a assinatura muda com o que se confirma; o estado guarda-a', async () => {
   const { assinaturaPasso, PASSOS_A_CONFIRMAR, PASSO } = await import('../../web/simulador/estado.js');
-  assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias]);
+  assert.deepEqual(PASSOS_A_CONFIRMAR, [PASSO.relatorio]);
   const e = estadoNovo();
   e.planta = { ...e.planta, divisoes: [{ id: 'd1', nome: 'Sala' }], elementos: [{ id: 'e1', tipo: 'tomada', divisao: 'd1', x: 10, y: 10, props: { caixas: 1 } }, { id: 'e2', tipo: 'luz', divisao: 'd1', x: 50, y: 50, props: {} }, { id: 'e3', tipo: 'porta', divisao: 'd1', x_cm: 100, y_cm: 0, props: {} }] };
-  const de = (passo, foto = null) => assinaturaPasso(e, passo, foto);
-  const antes = Object.fromEntries(PASSOS_A_CONFIRMAR.map((k) => [k, de(k)]));
-  assert.ok(PASSOS_A_CONFIRMAR.every((k) => typeof antes[k] === 'string' && antes[k].length <= 40));
-  for (const k of [PASSO.inicio, PASSO.casa, PASSO.relatorio, PASSO.preco, PASSO.enviar]) assert.equal(de(k), null, `sem janela no passo ${k}`);
-  // Marcar uma máquina muda só os Equipamentos.
+  const de = (foto = null) => assinaturaPasso(e, PASSO.relatorio, foto);
+  const antes = de();
+  assert.ok(typeof antes === 'string' && antes.length <= 40);
+  for (const k of [PASSO.inicio, PASSO.casa, PASSO.quer, PASSO.divisoes, PASSO.planta, PASSO.tomadas, PASSO.quadro, PASSO.trocar, PASSO.melhorias, PASSO.preco, PASSO.enviar]) assert.equal(assinaturaPasso(e, k), null, `sem janela no passo ${k}`);
+  // Marcar uma máquina, mudar uma tomada, mudar uma porta de sítio ou a foto do quadro: volta a perguntar.
   e.quer.maquinas.push('placa');
-  assert.notEqual(de(PASSO.quer), antes[PASSO.quer]);
-  for (const k of [PASSO.divisoes, PASSO.planta, PASSO.trocar, PASSO.melhorias]) assert.equal(de(k), antes[k]);
-  // "Inteligente" numa tomada do inventário (a tomada que a casa já tem): muda só as Divisões.
+  const m = de();
+  assert.notEqual(m, antes);
   e.planta.elementos[0].props = { caixas: 1, inteligente: true };
-  assert.notEqual(de(PASSO.divisoes), antes[PASSO.divisoes]);
-  assert.equal(de(PASSO.trocar), antes[PASSO.trocar]);
-  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
-  // Escolher o que fazer a um aparelho: muda Trocar e reparar (e as Divisões, que mostram o mesmo aparelho); a Planta não.
-  e.planta.elementos[0].acao = 'substituir'; e.planta.elementos[0].inteligente = true;
-  assert.notEqual(de(PASSO.trocar), antes[PASSO.trocar]);
-  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
-  // "Portas e janelas" (decisão do dono, 2026-10-10) confirma só as portas, as janelas e o quadro, com o sítio: mexer
-  // numa luz não muda nada; mudar uma porta de sítio muda.
-  e.planta.elementos[1].x_cm = 80;
-  assert.equal(de(PASSO.planta), antes[PASSO.planta]);
+  assert.notEqual(de(), m);
+  const t = de();
   e.planta.elementos[2].x_cm = 180;
-  assert.notEqual(de(PASSO.planta), antes[PASSO.planta]);
-  // Quadro: é a foto que se confirma.
-  assert.notEqual(de(PASSO.quadro, 1234), de(PASSO.quadro, 99));
-  assert.equal(de(PASSO.quadro, 1234), de(PASSO.quadro, 1234));
-  // O estado guarda as confirmações (só as dos passos com janela, texto curto) e recarregar mantém-nas.
+  assert.notEqual(de(), t);
+  assert.notEqual(de(1234), de(99));
+  assert.equal(de(1234), de(1234));
+  // O estado guarda a confirmação (só a do Relatório, texto curto) e recarregar mantém-na.
   assert.deepEqual(estadoNovo().confirmados, {});
-  e.confirmados = { [PASSO.quer]: de(PASSO.quer), [PASSO.casa]: 'x', [PASSO.trocar]: 'y'.repeat(60), [PASSO.melhorias]: 7 };
+  e.confirmados = { [PASSO.relatorio]: de(), [PASSO.quer]: 'x', [PASSO.casa]: 'x', [PASSO.trocar]: 'y'.repeat(60) };
   const n = normalizarEstado(JSON.parse(JSON.stringify(e)));
-  assert.deepEqual(n.confirmados, { [PASSO.quer]: de(PASSO.quer) });
+  assert.deepEqual(n.confirmados, { [PASSO.relatorio]: de() });
   assert.deepEqual(normalizarEstado({ ...JSON.parse(JSON.stringify(e)), confirmados: 'sim' }).confirmados, {});
 });
 
 test('potência contratada pelo tamanho da casa: T0 3,45 · T1/T2/T3 6,9 (T1 pelo mínimo do manual de instalações BT, 2.5) · T4/T5+ 10,35 · sem tipologia 6,9; a escolha do cliente fica', async () => {
   const { potenciaOmissao, POTENCIA_OMISSAO_KVA } = await import('../../web/simulador/estado.js');
-  assert.deepEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5+'].map((t) => potenciaOmissao({ tipologia: t })), [3.45, 6.9, 6.9, 6.9, 10.35, 10.35]);
+  assert.deepEqual(['T0', 'T1', 'T2', 'T3', 'T4', 'T5+'].map((t) => potenciaOmissao({ tipologia: t, extras: { kitnet: t === 'T0' } })), [3.45, 6.9, 6.9, 6.9, 10.35, 10.35]);
+  // T0 com a cozinha à parte: 2 compartimentos (estúdio e cozinha) → 6,9 kVA, o mínimo do manual (auditoria de 2026-10-24).
+  assert.equal(potenciaOmissao({ tipologia: 'T0', extras: { kitnet: false } }), 6.9);
+  assert.equal(potenciaOmissao({ tipologia: 'T0' }), 6.9);
   for (const casa of [null, {}, { tipologia: null }, { tipo: 'servicos', tipologia: null }, { tipologia: 'T9' }]) assert.equal(potenciaOmissao(casa), POTENCIA_OMISSAO_KVA);
   const e = estadoNovo();
   assert.deepEqual([e.casa.potencia_contratada_kva, e.potenciaEditada], [6.9, false]);

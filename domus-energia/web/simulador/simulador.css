@@ -165,6 +165,9 @@ input, select { min-height: 44px; }
 .janela-casa .editor-mais-corpo { gap: 14px; padding: 14px 24px 20px; line-height: 1.5; }
 .janela-casa p { margin: 0; }
 .janela-casa-lista { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
+/* "Recomeçar a simulação?" (app.js perguntarRecomecar): a opção de apagar também a casa guardada, por marcar. */
+.janela-opcao { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.janela-opcao input { flex: none; width: 22px; height: 22px; margin: 0; accent-color: var(--musgo); }
 .editor-dialogo.janela-casa > .form-botoes { position: static; justify-content: center; gap: 10px; padding: 14px 24px 20px; }
 .editor-mais > h2 { margin: 0; padding: 18px 16px 0; }
 .editor-mais-corpo { display: grid; align-content: start; gap: 14px; padding: 12px 16px; }
@@ -505,6 +508,10 @@ html.editor-sem-rolar, html.editor-sem-rolar body { overflow: hidden; }
   .quer-item > .escolha { min-height: 0; padding: 10px 12px 12px; }
   .quer-item > .escolha > span { grid-template-rows: auto minmax(40px, auto); }
   .quer-item > .escolha > span > small { align-self: center; margin-right: 122px; white-space: nowrap; }
+  /* Auditoria de 2026-10-24 (375 px): o − n + (botões de 48 px) tapava "cerca de 7200 W" — marcada, o contador fica
+     numa linha só dele, por baixo da potência. */
+  .quer-item:has(> .quer-extra:not([hidden])) > .escolha { padding-bottom: 64px; }
+  .quer-item:has(> .quer-extra:not([hidden])) > .escolha > span > small { margin-right: 0; }
 }
 .quer-extra .contador-caixa { gap: 4px; }
 .quer-extra .contador-caixa .btn { width: 40px; min-width: 40px; min-height: 40px; }
@@ -919,21 +926,11 @@ html { scroll-padding-top: 72px; scroll-padding-bottom: calc(var(--sim-barra-h, 
 #sim-form.barra-so-icones .editor-elementos .ferramenta svg { width: 30px; height: 30px; }
 #sim-form.barra-so-icones .editor-elementos .ferramenta-nome { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* Passo "Equipamentos": "Está no sítio certo?" por cima da planta (app.js desenharSitio). */
-.sim-planta-sitio { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: var(--raio); background: var(--areia-suave); color: var(--texto); font-weight: 600; }
-.sim-planta-sitio[hidden] { display: none; }
-.sim-planta-sitio p { flex: 1 1 16em; margin: 0; }
-.sim-planta-sitio small { flex-basis: 100%; }
 .editor-svg.a-seguir { cursor: grabbing; }
 
-/* Equipamentos: com um por confirmar na planta, os outros cartões ficam apagados (app.js acertarCartoesSitio). */
-.quer-item.em-espera { opacity: .45; }
-.quer-item.em-espera .escolha { cursor: not-allowed; }
 /* "Guardado às HH:MM": a vermelho quando não foi possível gravar (decisão do dono, 2026-10-10). */
 .sim-guardado.falhou { color: var(--alarme-texto); font-weight: 700; }
-/* Revisão de 2026-10-10: aviso "Falta confirmar onde está…" (Equipamentos, telemóvel), contagens nas janelas de
-   confirmação e a potência escolhida dentro do relatório. */
-.quer-falta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+/* Revisão de 2026-10-10: contagens na janela de confirmação e a potência escolhida dentro do relatório. */
 .janela-resumo { margin: 0 0 6px; font-weight: 700; }
 .sim-potencia-escolher { display: grid; gap: 6px; margin-top: 10px; font-weight: 700; }
 .sim-potencia-escolher select { max-width: 260px; }
@@ -1052,7 +1049,7 @@ html:has(.pagina-simulador) { font-size: 106.25%; }   /* 17 px */
   /* Nos passos da planta ela ocupa o ecrã todo entre o topo fixo (64 px) e a barra "Anterior / Seguinte" (a altura
      real dela, app.js medirBarra): é a maior altura que cabe sem a barra a tapar. */
   #sim-form.passo-planta > .sim-planta { margin-inline: -16px; height: calc(100dvh - 64px - var(--sim-barra-h, 81px) - 12px); min-height: 420px; }
-  .sim-planta :is(.editor-ferramentas-caixa, .editor-pisos, .sim-planta-cabeca, .sim-planta-presa, .sim-planta-acao, .sim-planta-sitio, .editor-legenda-acoes) { margin-inline: 8px; }
+  .sim-planta :is(.editor-ferramentas-caixa, .editor-pisos, .sim-planta-cabeca, .sim-planta-presa, .sim-planta-acao, .editor-legenda-acoes) { margin-inline: 8px; }
   .sim-planta .editor-area { padding-right: 0; border-inline: 0; border-radius: 0; }
   .sim-planta .editor-acoes-lado { display: none; }
   /* Nos passos da planta o título "A sua planta" não faz falta (o do passo está logo por cima): mais altura para ela. */

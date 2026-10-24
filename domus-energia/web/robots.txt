@@ -1,12 +1,11 @@
 # Domus Energia — opancas.pt
+# As páginas que não devem aparecer nas pesquisas (conta, área de cliente, área do eletricista, fotos pelo QR,
+# simulador, pagamento simulado, 404) levam <meta name="robots" content="noindex">: não ficam aqui em Disallow, senão o
+# Google não as lê e não vê o noindex (auditoria de 2026-10-24). Aqui só o que não é página do site: o painel da empresa
+# e a API.
 User-agent: *
 Allow: /
 Disallow: /painel/
 Disallow: /api/
-Disallow: /pagamento-simulado.html
-Disallow: /foto.html
-Disallow: /conta.html
-Disallow: /cliente.html
-Disallow: /eletricista.html
 
 Sitemap: https://opancas.pt/sitemap.xml

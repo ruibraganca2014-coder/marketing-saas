@@ -3,20 +3,18 @@
 // As páginas "Casa inteligente" e "Poupar energia" usam o `?pacote=` que já existe (app.js preEscolherPacote).
 // Os parâmetros `utm_*` não são lidos nem mexidos aqui.
 
-import { normalizarQuer, fasesSugeridas, pisosDaCasa } from "./estado.js";
 import { QUADRO_SEGURO, acertarMelhorias } from "./melhorias.js";
 
 const ENTRADAS = {
-  /** Carregador de carro: obras ou automatizar, "Automatizar o que já tenho", com o carregador (7,4 kW) em Equipamentos, como Novo. */
+  /**
+   * Carregador de carro (decisão do dono, 2026-10-24): o carregador é NOVO — não entra em "Equipamentos" (o que a casa
+   * já tem). Segue para "Pedir um serviço" → "Obras ou instalação nova" (`servicoDepois`; sem casa descrita, descreve-a
+   * primeiro e volta lá), onde o carregador aparece na planta como Novo (casa.js porMaquinaNova; app.js
+   * escolherCaminho) e a linha dedicada (LINHA-DEDICADA-VE) conta no preço.
+   */
   carregador(estado) {
     estado.funil = "primeira";
-    estado.servico = ["automatizar"];
-    // Como o passo Equipamentos ao marcar a máquina: 1 no r/c; o circuito dela (disjuntor de 40 A) sai do pedido.
-    const porPiso = { ...estado.quer.porPiso, carregador_ve: { 0: 1 } };
-    estado.quer = normalizarQuer({ ...estado.quer, porPiso }, estado.casa.tipo, { pisos: pisosDaCasa(estado.casa) });
-    if (!estado.fasesEditadas) estado.casa.fases = fasesSugeridas(estado);
-    // Ronda dinheiro: quem vem do anúncio quer um carregador NOVO — nasce "Novo" na planta (app.js marcarNovas) e a
-    // linha dedicada (LINHA-DEDICADA-VE) conta no preço desde a primeira estimativa.
+    estado.servicoDepois = "obras";
     estado.maquinasNovas = ["carregador_ve"];
   },
   /** Quadro antigo: "Automatizar o que já tenho", "Melhorar o quadro? Sim" e o pacote "Quadro seguro". */

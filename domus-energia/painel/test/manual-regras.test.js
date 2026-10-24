@@ -45,7 +45,8 @@ test('quadro com 20 % de reserva (3.3, exemplo 3.1: 20 ocupados → 24 módulos)
 test('potência (2.5): monofásica até 10,35 kVA; 3,45 kVA com 1 compartimento; T1 sugere 6,9 kVA; exemplo 2.1 do T2 → 10,35 kVA', () => {
   assert.equal(MAX_MONO_KVA, 10.35);
   assert.equal(minimoRtiebt(1), 3.45);
-  assert.deepEqual([potenciaOmissao({ tipologia: 'T0' }), potenciaOmissao({ tipologia: 'T1' })], [3.45, 6.9]);
+  // T0 só com kitchenette é 1 compartimento (3,45); com a cozinha à parte são 2 (6,9; auditoria de 2026-10-24).
+  assert.deepEqual([potenciaOmissao({ tipologia: 'T0', extras: { kitnet: true } }), potenciaOmissao({ tipologia: 'T0' }), potenciaOmissao({ tipologia: 'T1' })], [3.45, 6.9, 6.9]);
   // Exemplo 2.1: 12 pontos de luz, 3 circuitos de tomadas, placa 7 200, forno 3 000, lavar 2 200, loiça 2 200, termo 2 000, ar
   // condicionado 1 200 (o manual divide-o por 0,9; aqui kVA ≈ kW) × 0,4 → ≈ 9,4 kVA → 10,35 kVA.
   const m = (modelo, w) => ({ modelo, potencia_w: w });

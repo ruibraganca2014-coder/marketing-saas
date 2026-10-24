@@ -168,11 +168,13 @@ export function pedidoDoElemento(e, acao, objetivos = []) {
  * Ronda dinheiro (decisão 5 do dono): uma máquina NOVA com circuito próprio (regras.js circuitoProprio) leva a linha
  * dedicada até 15 m, preço fechado — a do carregador VE (LINHA-DEDICADA-VE 390 €, já com o disjuntor e o diferencial
  * tipo A do circuito; igual com ou sem "Instalação nova"); a das outras: LINHA-DEDICADA (140 €) ao juntar a máquina a
- * uma casa que já existe, LINHA-DEDICADA-NOVA (70 €) numa "Instalação nova" (`servicos`: a obra já está aberta).
+ * uma casa que já existe, LINHA-DEDICADA-NOVA (70 €) numa "Instalação nova" (`linhaNova`: a obra já está aberta).
+ * Decisão do dono (2026-10-24): "Obras ou instalação nova" (caminho `obras`) é juntar a uma casa que já existe — 140 €;
+ * os 70 € só quando o cliente escolheu a instalação nova toda (linhaNovaDe).
  * Mantida ou trocada fica no circuito que já tem: sem linha.
  * Lista vazia nos outros (máquinas pequenas, sensores, janelas: sem ponto fechado).
  */
-export function pontosDoElemento(e, servicos = []) {
+export function pontosDoElemento(e, servicos = [], { linhaNova = linhaNovaDe(servicos) } = {}) {
   if (!e) return [];
   const p = e.props ?? {};
   if (e.tipo === "luz") return ["ponto_luz"];
@@ -183,14 +185,16 @@ export function pontosDoElemento(e, servicos = []) {
   }
   if (e.tipo === "maquina" && p.modelo === "campainha") return ["campainha", "botao_pressao"];
   if (e.tipo === "maquina" && circuitoProprio(maquinaDaPlanta(p))) {
-    return [CARREGADORES_VE.includes(p.modelo) ? "linha_dedicada_ve" : (servicos ?? []).includes("nova") ? "linha_dedicada_nova" : "linha_dedicada"];
+    return [CARREGADORES_VE.includes(p.modelo) ? "linha_dedicada_ve" : linhaNova ? "linha_dedicada_nova" : "linha_dedicada"];
   }
   return [];
 }
+/** A linha dedicada é a da instalação nova (70 €)? Só com "Instalação nova" escolhida e fora do caminho "Obras ou instalação nova". */
+export const linhaNovaDe = (servicos, caminho = null) => (servicos ?? []).includes("nova") && caminho !== "obras";
 
 /** Todos os pedidos de um elemento para a ação: no Novo, os pontos (pontosDoElemento) e o aparelho inteligente; no resto, pedidoDoElemento. */
-export function pedidosDoElemento(e, acao, objetivos = [], servicos = []) {
-  const r = acao === "novo" ? pontosDoElemento(e, servicos) : [];
+export function pedidosDoElemento(e, acao, objetivos = [], servicos = [], caminho = null) {
+  const r = acao === "novo" ? pontosDoElemento(e, servicos, { linhaNova: linhaNovaDe(servicos, caminho) }) : [];
   const chave = pedidoDoElemento(e, acao, objetivos);
   if (chave) r.push(chave);
   return r;
@@ -200,11 +204,11 @@ export function pedidosDoElemento(e, acao, objetivos = [], servicos = []) {
  * Pedidos dos pontos novos (ronda regras): [{chave, qtd}] dos aparelhos com ação Novo na planta (pontosDoElemento);
  * as linhas dos inteligentes continuam a sair das divisões (pedidosDaSelecao).
  */
-export function pedidosPontosNovos(planta, servicos) {
+export function pedidosPontosNovos(planta, servicos, caminho = null) {
   const m = new Map();
   for (const e of planta?.elementos ?? []) {
     if (!temAcao(e.tipo, e.props) || acaoDe(e, servicos) !== "novo") continue;
-    for (const chave of pontosDoElemento(e, servicos)) m.set(chave, (m.get(chave) ?? 0) + 1);
+    for (const chave of pontosDoElemento(e, servicos, { linhaNova: linhaNovaDe(servicos, caminho) })) m.set(chave, (m.get(chave) ?? 0) + 1);
   }
   return [...m].map(([chave, qtd]) => ({ chave, qtd }));
 }
