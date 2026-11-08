@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<title>Lista para a fábrica (China): aparelhos Wi-Fi com OpenBeken</title>
+<style>
+  @page { size: A4; margin: 15mm 14mm; }
+  body { font: 11pt/1.42 "Segoe UI", Arial, sans-serif; color: #111; max-width: 182mm; margin: 0 auto; padding: 10mm 0; }
+  h1 { font-size: 20pt; margin: 0 0 2mm; }
+  h2 { font-size: 13.5pt; margin: 7mm 0 2mm; border-bottom: 1.5px solid #111; padding-bottom: 1mm; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 4mm 0 1.5mm; break-after: avoid; }
+  p { margin: 0 0 2.2mm; }
+  ul, ol { margin: 0 0 2.5mm; padding-left: 6mm; }
+  li { margin-bottom: 1.1mm; }
+  .sub { color: #444; margin-bottom: 4mm; }
+  .aviso { border: 2px solid #111; padding: 3mm 4mm; margin: 3.5mm 0; break-inside: avoid; }
+  .aviso strong { display: block; margin-bottom: 1mm; }
+  .nota { border-left: 3px solid #777; padding-left: 3mm; color: #333; margin: 2.5mm 0; break-inside: avoid; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 3mm; }
+  tr { break-inside: avoid; }
+  th, td { border: 1px solid #777; padding: 1.5mm 2.4mm; text-align: left; vertical-align: top; }
+  th { background: #eee; }
+  td.en { font-size: 10pt; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 10pt; }
+  .cx { display: inline-block; width: 3.8mm; height: 3.8mm; border: 1.2px solid #111; margin-right: 2.4mm; vertical-align: -0.6mm; }
+  ul.lista { list-style: none; padding-left: 0; }
+  .linha { display: inline-block; min-width: 60mm; border-bottom: 1px solid #111; }
+  .quebra { break-before: page; }
+  section { break-inside: avoid-page; }
+  @media screen { body { padding-inline: 8mm; } }
+</style>
+</head>
+<body>
+  <h1>Lista para a fábrica: aparelhos Wi-Fi com OpenBeken</h1>
+  <p class="sub">Domus Energia. Para a viagem à China: o que pedir a uma fábrica de aparelhos Tuya para receber os aparelhos já com o OpenBeken gravado, prontos a ligar ao servidor da Domus, sem soldar na bancada. Parte A em português, para si. Parte B em português e inglês, para entregar à fábrica. Versão 1, de 8 de novembro de 2026.</p>
+
+  <div class="aviso">
+    <strong>Três regras antes de comprar</strong>
+    <ul>
+      <li><b>Amostras primeiro.</b> Nenhuma encomenda grande sem 2 ou 3 amostras de cada modelo testadas em Portugal (Parte A, secção 3).</li>
+      <li><b>O chip tem de ser Beken</b> (BK7231N ou BK7231T). O servidor da Domus só fala com o OpenBeken (e com o Shelly). Um aparelho com outro chip não serve, mesmo que pareça igual por fora.</li>
+      <li><b>Sem CE a sério, não.</b> A fábrica tem de dar a declaração de conformidade e os relatórios de ensaio. A Domus fica importadora e responde pelo que instala.</li>
+    </ul>
+  </div>
+
+  <h2>Parte A — Para si</h2>
+
+  <section>
+    <h3>1. Pela ordem</h3>
+    <ol>
+      <li>Falar com 2 ou 3 fábricas (feiras, Alibaba, ou visita). Entregar a Parte B e pedir resposta por escrito, ponto a ponto.</li>
+      <li>Escolher a que responde a tudo: chip Beken, OpenBeken gravado, CE com relatórios, etiqueta com o MAC.</li>
+      <li>Pedir as amostras (2 ou 3 de cada modelo) e trazê-las ou mandá-las vir.</li>
+      <li>Testá-las em Portugal com o servidor da Domus (secção 3). Só depois a encomenda.</li>
+      <li>Na encomenda: as mesmas condições por escrito no contrato ou na fatura proforma, com o modelo exato, o chip e a versão do firmware.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h3>2. O que tem de ficar respondido antes de sair da fábrica</h3>
+    <ul class="lista">
+      <li><span class="cx"></span>Chip de cada modelo, por escrito (BK7231N ou BK7231T; módulo CB2S, CB3S, CBU, WB2S, WB3S…)</li>
+      <li><span class="cx"></span>Gravam o OpenBeken de fábrica, sem o firmware Tuya e sem a nuvem Tuya</li>
+      <li><span class="cx"></span>Dão a configuração dos pinos de cada modelo (o "template" do OpenBeken: relés, botões, LED, medidor)</li>
+      <li><span class="cx"></span>Medidor de cada modelo com medição (BL0942, BL0937 ou CSE7766) e se o calibram na fábrica</li>
+      <li><span class="cx"></span>Módulos atrás do interruptor: há versão <b>sem neutro</b>? (muitas casas em Portugal não têm neutro na caixa)</li>
+      <li><span class="cx"></span>Interruptores de vidro: formato europeu, para a caixa redonda de 60 mm (não a caixa chinesa 86)</li>
+      <li><span class="cx"></span>Declaração de conformidade CE e relatórios de ensaio (rádio, baixa tensão, compatibilidade eletromagnética, RoHS)</li>
+      <li><span class="cx"></span>Etiqueta em cada aparelho com o MAC (e um código QR com ele)</li>
+      <li><span class="cx"></span>Sem marca Tuya/Smart Life no aparelho e na caixa (marca branca), com espaço para o nome da Domus como importador</li>
+      <li><span class="cx"></span>Preço por quantidade, encomenda mínima, prazo, garantia de 2 anos, troca de aparelhos que chegam avariados</li>
+      <li><span class="cx"></span>Condições de envio (Incoterms: EXW, FOB ou DDP) e de pagamento</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>3. Teste das amostras em Portugal</h3>
+    <p>Com cada amostra, na bancada e com a caixa fechada antes de ligar aos 230 V:</p>
+    <ul class="lista">
+      <li><span class="cx"></span>Ao ligar pela primeira vez, abre a rede Wi-Fi do OpenBeken (OpenBeken_…) e a página <code>http://192.168.4.1</code> abre</li>
+      <li><span class="cx"></span>O chip na página do aparelho é o que a fábrica disse; o MAC é o da etiqueta</li>
+      <li><span class="cx"></span>Liga ao servidor da Domus com o utilizador e a palavra-passe criados no painel, e aparece na app</li>
+      <li><span class="cx"></span>O relé liga e desliga pela app e pelo botão do próprio aparelho, também com a internet desligada</li>
+      <li><span class="cx"></span>Depois de um corte de luz fica <b>desligado</b> (a regra da Domus por omissão)</li>
+      <li><span class="cx"></span>A medição bate certo com um medidor de referência (uma carga conhecida, por exemplo um aquecedor de 2000 W): erro menor que 2 a 3 %</li>
+      <li><span class="cx"></span>Uma hora à carga máxima indicada: sem aquecer demais nem cheirar a queimado</li>
+      <li><span class="cx"></span>Sem neutro: com lâmpadas LED de pouca potência não piscam nem ficam a brilhar desligadas</li>
+      <li><span class="cx"></span>Estores: sobe, desce, para e a posição em % acerta depois de calibrar</li>
+      <li><span class="cx"></span>Alcance do Wi-Fi razoável dentro de uma caixa de parede e dentro do quadro</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>4. Na viagem e na alfândega</h3>
+    <ul>
+      <li>Para a empresa não é bagagem pessoal: acima de cerca de 430 € declara-se na alfândega, pagam-se direitos e IVA, e a Domus precisa de <b>número EORI</b>. Confirmar com o despachante ou o advogado antes de comprar em quantidade.</li>
+      <li>Como importadora, a Domus guarda a documentação CE e põe o nome e a morada no produto ou na embalagem.</li>
+      <li>Aparelhos com pilhas ou baterias de lítio (sensores) têm regras próprias no avião: melhor virem por transporte.</li>
+      <li>Trazer a fatura e a declaração de conformidade de cada modelo.</li>
+    </ul>
+    <p class="nota">Informação geral para preparar a viagem, não um parecer jurídico nem aduaneiro.</p>
+  </section>
+
+  <h2 class="quebra">Parte B — Pedido à fábrica / Request to the factory</h2>
+  <p>Empresa / Company: <b>Domus Energia</b> (Portugal) &nbsp;·&nbsp; Contacto / Contact: <span class="linha"></span></p>
+  <p>Fábrica / Factory: <span class="linha"></span> &nbsp;·&nbsp; Data / Date: <span class="linha" style="min-width:30mm"></span></p>
+
+  <section>
+    <h3>B1. Produtos / Products</h3>
+    <table>
+      <tr><th style="width:24%">Produto</th><th style="width:38%">Requisitos</th><th>Product requirements</th></tr>
+      <tr><td>Disjuntor de calha DIN com medição</td><td>1 polo + neutro, 16 / 20 / 32 / 40 / 63 A, com medição (potência, tensão, corrente, energia)</td><td class="en">DIN-rail Wi-Fi circuit breaker / switch, 1P+N, 16 / 20 / 32 / 40 / 63 A, with energy metering (power, voltage, current, energy)</td></tr>
+      <tr><td>Módulo atrás do interruptor</td><td>1, 2, 3 e 4 canais; versão sem neutro e versão com neutro; entrada para o interruptor de parede existente</td><td class="en">In-wall relay module behind an existing wall switch, 1 / 2 / 3 / 4 gang; no-neutral version and neutral version; input for the existing wall switch</td></tr>
+      <tr><td>Interruptor de vidro</td><td>1 a 4 teclas, formato europeu para caixa redonda de 60 mm; versão sem neutro e com neutro</td><td class="en">Glass touch wall switch, 1–4 gang, EU type for round 60 mm wall box (not 86 box); no-neutral and neutral versions</td></tr>
+      <tr><td>Tomada com medição</td><td>Tomada europeia tipo F (Schuko), 16 A, com medição</td><td class="en">EU plug socket type F (Schuko), 16 A, with energy metering</td></tr>
+      <tr><td>Módulo de estore</td><td>Motor de estore de 230 V (sobe / desce / para), com posição em %</td><td class="en">Roller-shutter / curtain module for 230 V motors (up / down / stop), with position in %</td></tr>
+    </table>
+    <p>Amostras / Samples: <b>2 ou 3 de cada modelo / 2–3 of each model</b>. Quantidades previstas / Expected quantities: <span class="linha"></span></p>
+  </section>
+
+  <section>
+    <h3>B2. Chip e firmware / Chip and firmware</h3>
+    <table>
+      <tr><th style="width:50%">Português</th><th>English</th></tr>
+      <tr><td>Chip <b>Beken BK7231N ou BK7231T</b> (módulos CB2S, CB3S, CBU, WB2S, WB3S ou equivalentes). Não serve outro chip (ESP, Realtek, BL602…).</td><td class="en">Wi-Fi chip <b>Beken BK7231N or BK7231T</b> (modules CB2S, CB3S, CBU, WB2S, WB3S or equivalent). No other chip (no ESP, Realtek, BL602…).</td></tr>
+      <tr><td>Firmware <b>OpenBeken</b> (projeto aberto OpenBK7231T_App) gravado de fábrica, versão a combinar. Sem o firmware Tuya, sem a nuvem Tuya, sem a app Smart Life.</td><td class="en">Factory-flashed <b>OpenBeken</b> firmware (open-source project OpenBK7231T_App), version to be agreed. No Tuya firmware, no Tuya cloud, no Smart Life app.</td></tr>
+      <tr><td>A configuração dos pinos de cada modelo já guardada (relés, botões, LED, medidor), e enviada por escrito.</td><td class="en">Pin configuration (OpenBeken template) of each model saved in the device (relays, buttons, LED, metering chip), and sent to us in writing.</td></tr>
+      <tr><td>Sem Wi-Fi nem servidor configurados: ao ligar pela primeira vez abre a rede do OpenBeken (192.168.4.1). Nós configuramos o resto na instalação.</td><td class="en">No Wi-Fi network and no MQTT server set: at first power-on the device opens the OpenBeken access point (192.168.4.1). We configure the rest at installation.</td></tr>
+      <tr><td>Medidor BL0942, BL0937 ou CSE7766, <b>calibrado na fábrica</b> (tensão, corrente, potência), com os valores guardados.</td><td class="en">Metering chip BL0942, BL0937 or CSE7766, <b>calibrated in the factory</b> (voltage, current, power), calibration saved in the device.</td></tr>
+      <tr><td>Depois de um corte de luz, o relé fica <b>desligado</b>.</td><td class="en">After a power cut, the relay stays <b>OFF</b>.</td></tr>
+      <tr><td>Indicar o tipo de relé (normal ou de retenção) e a corrente máxima real.</td><td class="en">State the relay type (standard or latching) and the real maximum current.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h3>B3. Elétrico, certificação e documentos / Electrical, certification and documents</h3>
+    <table>
+      <tr><th style="width:50%">Português</th><th>English</th></tr>
+      <tr><td>230 V AC, 50 Hz; Wi-Fi 2,4 GHz.</td><td class="en">230 V AC, 50 Hz; Wi-Fi 2.4 GHz.</td></tr>
+      <tr><td>Marcação CE com <b>declaração de conformidade UE</b> de cada modelo: diretiva de rádio 2014/53/UE (RED), baixa tensão, compatibilidade eletromagnética e RoHS.</td><td class="en">CE marking with an <b>EU Declaration of Conformity</b> for each model: Radio Equipment Directive 2014/53/EU (RED), LVD, EMC and RoHS.</td></tr>
+      <tr><td><b>Relatórios de ensaio</b> de laboratório acreditado, com o número do modelo.</td><td class="en"><b>Test reports</b> from an accredited laboratory, showing the model number.</td></tr>
+      <tr><td>Ficha técnica e esquema de ligações de cada modelo.</td><td class="en">Datasheet and wiring diagram of each model.</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h3>B4. Etiquetas, embalagem e testes / Labels, packaging and testing</h3>
+    <table>
+      <tr><th style="width:50%">Português</th><th>English</th></tr>
+      <tr><td>Etiqueta em cada aparelho com o modelo, as características elétricas, a marca CE e o <b>endereço MAC</b> (também em código QR).</td><td class="en">Label on each unit with model, electrical ratings, CE mark and the <b>MAC address</b> (also as a QR code).</td></tr>
+      <tr><td>Marca branca: sem Tuya / Smart Life no aparelho, na caixa e no manual. Espaço para o nome e a morada do importador (Domus Energia).</td><td class="en">White label: no Tuya / Smart Life branding on device, box or manual. Space for importer name and address (Domus Energia).</td></tr>
+      <tr><td>Teste de cada aparelho na fábrica (relé, botão, Wi-Fi, medição) antes de embalar.</td><td class="en">100 % factory test of each unit (relay, button, Wi-Fi, metering) before packing.</td></tr>
+      <tr><td>Lista de envio com o MAC de cada aparelho (ficheiro Excel ou CSV).</td><td class="en">Packing list with the MAC address of every unit (Excel or CSV file).</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h3>B5. Condições comerciais / Commercial terms</h3>
+    <table>
+      <tr><th style="width:50%">Português</th><th>English</th></tr>
+      <tr><td>Preço por unidade a 100, 500 e 1000 unidades de cada modelo.</td><td class="en">Unit price at 100, 500 and 1000 pcs per model.</td></tr>
+      <tr><td>Encomenda mínima e custo da gravação do OpenBeken, se houver.</td><td class="en">MOQ and any extra cost for flashing OpenBeken.</td></tr>
+      <tr><td>Custo e prazo das amostras.</td><td class="en">Sample cost and lead time.</td></tr>
+      <tr><td>Prazo de produção.</td><td class="en">Production lead time.</td></tr>
+      <tr><td>Garantia de 2 anos; troca dos aparelhos que cheguem avariados.</td><td class="en">2-year warranty; replacement of dead-on-arrival units.</td></tr>
+      <tr><td>Envio (EXW, FOB ou DDP para Portugal) e pagamento.</td><td class="en">Shipping terms (EXW, FOB or DDP Portugal) and payment terms.</td></tr>
+    </table>
+  </section>
+
+  <p class="nota">Antes de vender aparelhos com o OpenBeken: confirmar a licença do projeto OpenBK7231T_App (o que permite e o que obriga numa venda).</p>
+</body>
+</html>

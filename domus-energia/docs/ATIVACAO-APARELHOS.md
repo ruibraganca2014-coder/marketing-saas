@@ -2,6 +2,14 @@
 
 Decisões do dono (2026-10-09). Objetivo: só a Domus põe aparelhos a funcionar no programa, e fica registado que chip está em que casa. É a camada de segurança que vive no servidor (ver `relatorio-seguranca-aparelhos.html`).
 
+## Ligar os aparelhos por Wi-Fi (decisões do dono, 2026-11-08; ainda não feito)
+
+- **Compra:** na China, a uma **fábrica Tuya, com o OpenBeken já gravado** e sem a nuvem Tuya (sem soldar na bancada). Chips Beken (BK7231N/T: módulos CB2S, CB3S, WB2S…), porque o servidor só fala OpenBeken e Shelly. Pedir amostras antes da encomenda grande, a ficha técnica com o chip e a declaração de conformidade CE (RED, baixa tensão, compatibilidade eletromagnética); 230 V/50 Hz, Wi-Fi 2,4 GHz, formato europeu. A Domus fica importador (EORI, IVA e direitos, nome no produto ou na embalagem) — confirmar com o advogado ou o despachante.
+- **Tipos:** disjuntores com medição, módulos atrás do interruptor (sem neutro, se as casas não o tiverem na caixa), interruptores de vidro, tomadas com medição e módulos de estore.
+- **Configuração na obra pelo telemóvel do eletricista:** na área do eletricista, por aparelho, o botão "Configurar": o telemóvel liga-se à rede do aparelho novo e uma só ligação a `http://192.168.4.1` envia o Wi-Fi da casa, o servidor, o utilizador e a palavra-passe MQTT; o chip fica registado (regras abaixo).
+- **A palavra-passe do Wi-Fi do cliente não fica guardada:** o eletricista escreve-a na obra e ela só vai para os aparelhos.
+- **Router novo:** quando os aparelhos de uma casa deixam de responder, a app avisa o cliente e a Domus; o cliente escolhe marcar uma visita.
+
 ## Regras
 1. **Quem cria aparelhos e lhes dá credenciais é só o painel** (CEO ou técnico da casa: `POST clientes/:c/aparelhos`, que pede ao `domus.sh` o utilizador MQTT). Nada disto muda. Um aparelho sem credenciais da Domus não entra no servidor.
 2. **Cada aparelho tem um chip registado**: o endereço MAC que o aparelho mostra na sua página, e opcionalmente o número de série ou do selo. Regista-o o CEO, na ficha da casa ou ao pedir o aparelho.
