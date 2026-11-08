@@ -18,13 +18,11 @@ Contratos: [`../docs/PROTOCOLO-MQTT.md`](../docs/PROTOCOLO-MQTT.md) (v1), [`../d
 Num VPS novo com **Ubuntu 22.04/24.04 ou Debian 12** (ver §1 para escolher um), entre por SSH e corra:
 
 ```bash
-BRANCH=claude/kind-babbage-gdmaij
+BRANCH=master
 curl -fsSL "https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/$BRANCH/domus-energia/servidor/instalar.sh" \
   | sudo bash -s -- --branch "$BRANCH" --email o-seu-email@exemplo.pt
 ```
 
-> Depois de fazer merge para `master`, trocar o branch no comando (`BRANCH=master`).
->
 > **Debian só com root** (sem `sudo` instalado): entre como root e use `| bash -s -- --branch "$BRANCH" --email …` (sem `sudo`).
 
 O [`instalar.sh`](instalar.sh) faz, por esta ordem: verifica o sistema; espera que as atualizações automáticas de um VPS acabado de criar (cloud-init, unattended-upgrades) libertem o apt; instala o git e o Docker se faltarem; copia o código para `/opt/domus`; descobre o IP público e propõe `DOMUS_HOST=<ip-com-hífenes>.sslip.io`; cria o `servidor/.env` com todas as palavras-passe geradas (`openssl rand`); cria as pastas `dados/` com os donos certos; abre as portas no `ufw` (se estiver ativo) e no `iptables` das imagens Oracle; cria os utilizadores internos (`./domus.sh admin`, que cria também `motor`, `pagamentos` e `painel`); arranca tudo (`docker compose up -d --build`) e espera pelo HTTPS; instala os temporizadores (planos a cada minuto, pedidos do painel a cada 5 s); cria o CEO do painel com uma palavra-passe gerada. No fim mostra os endereços e **a palavra-passe do CEO, uma única vez**.
@@ -98,7 +96,7 @@ Confirma: `docker compose version` deve mostrar uma versão.
 ## 4. Copiar o projeto
 
 ```bash
-BRANCH=claude/kind-babbage-gdmaij      # depois do merge para master: BRANCH=master
+BRANCH=master
 cd ~
 git clone --branch "$BRANCH" https://github.com/ruibraganca2014-coder/marketing-saas.git
 cd ~/marketing-saas/domus-energia/servidor

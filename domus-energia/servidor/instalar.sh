@@ -9,7 +9,7 @@
 # Corre como root (ou com sudo). Pode ser corrido de novo: não apaga nada, não
 # muda o .env existente e só cria o que falta.
 #
-#   BRANCH=claude/kind-babbage-gdmaij     # depois do merge para master: BRANCH=master
+#   BRANCH=master
 #   curl -fsSL "https://raw.githubusercontent.com/ruibraganca2014-coder/marketing-saas/$BRANCH/domus-energia/servidor/instalar.sh" \
 #     | sudo bash -s -- --branch "$BRANCH" --email ceo@exemplo.pt
 #   (Debian só com root, sem sudo: "| bash -s -- ..." em vez de "| sudo bash -s -- ...")
@@ -20,9 +20,9 @@
 set -euo pipefail
 
 REPO_OMISSAO="https://github.com/ruibraganca2014-coder/marketing-saas.git"
-# Branch por omissão (o único sítio deste script onde está escrito). Depois de
-# fazer merge para master, trocar aqui e o BRANCH= do comando nos README.
-BRANCH_OMISSAO="claude/kind-babbage-gdmaij"
+# Branch por omissão (o único sítio deste script onde está escrito). Sem --branch, o
+# --atualizar mantém o branch em que o servidor já está.
+BRANCH_OMISSAO="master"
 DIR_OMISSAO="/opt/domus"
 UID_SERVICOS=1000                 # utilizador "node" dos contentores (motor, pagamentos, painel)
 SERVICOS="caddy mosquitto motor ntfy pagamentos painel"
