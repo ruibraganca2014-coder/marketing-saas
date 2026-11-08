@@ -139,6 +139,7 @@
 
         <div class="separadores" role="tablist" aria-label="Secções">
           <button class="separador" role="tab" id="tab-casa" aria-controls="sec-casa" aria-selected="true" data-sec="casa">Casa</button>
+          <button class="separador" role="tab" id="tab-divisoes" aria-controls="sec-divisoes" aria-selected="false" data-sec="divisoes" tabindex="-1" hidden>Divisões</button>
           <button class="separador" role="tab" id="tab-automacoes" aria-controls="sec-automacoes" aria-selected="false" data-sec="automacoes" tabindex="-1">Automações</button>
           <button class="separador" role="tab" id="tab-aparelhos" aria-controls="sec-aparelhos" aria-selected="false" data-sec="aparelhos" tabindex="-1">Aparelhos</button>
           <button class="separador" role="tab" id="tab-historico" aria-controls="sec-historico" aria-selected="false" data-sec="historico" tabindex="-1">Histórico</button>
@@ -201,7 +202,29 @@
             </div>
           </div>
 
-          <!-- Divisões: um mosaico por luz, tomada ou estore; um toque liga e desliga (decisão do dono, 2026-10-14). -->
+          <!-- A planta como ecrã inicial (decisão do dono, 2026-11-08; docs/APP-CLIENTE.md): as divisões da planta da casa,
+               acesas quando há luz ligada; tocar numa divisão abre aqui os mosaicos dela. Os mosaicos de todas as
+               divisões passam para o separador Divisões. Sem planta, o cartão fica escondido e os mosaicos ficam aqui. -->
+          <div class="cartao planta-casa" id="planta-casa" hidden>
+            <div class="seccao-topo">
+              <h2 id="planta-titulo">A sua casa</h2>
+              <div class="planta-pisos" id="planta-pisos" role="group" aria-label="Pisos da casa" hidden></div>
+            </div>
+            <p class="ajuda" id="planta-ajuda">Toque numa divisão para ver e ligar os aparelhos dela.</p>
+            <svg class="planta-casa-svg" id="planta-svg" aria-labelledby="planta-titulo"></svg>
+            <p class="ajuda" id="planta-fora" hidden></p>
+            <div class="planta-divisao" id="planta-divisao" hidden>
+              <div class="seccao-topo">
+                <h3 id="planta-divisao-titulo" tabindex="-1"></h3>
+                <button class="btn sec pequeno" id="planta-fechar" type="button">Fechar</button>
+              </div>
+              <p class="ajuda" id="planta-divisao-vazia" hidden>Ainda não há aparelhos nesta divisão.</p>
+              <div class="aparelhos" id="planta-divisao-aparelhos"></div>
+            </div>
+          </div>
+
+          <!-- Divisões: um mosaico por luz, tomada ou estore; um toque liga e desliga (decisão do dono, 2026-10-14).
+               Com planta, a lista vai para o separador Divisões (cliente.js prepararPlanta). -->
           <div class="aparelhos" id="lista"></div>
 
           <!-- Receber avisos no telemóvel (docs/APP-CLIENTE.md). Fechado ocupa uma linha, para não empurrar o resumo; só
@@ -247,6 +270,11 @@
             <button class="btn sec pequeno" id="abrir-relatorio" type="button" aria-controls="sec-relatorio">Relatório da casa</button>
             <a class="btn sec pequeno" id="ampliar" href="simulador.html?cliente=1">Ampliar a instalação</a>
           </div>
+        </section>
+
+        <!-- Divisões (só com planta): os mosaicos de todas as divisões; cliente.js põe aqui o #lista. -->
+        <section class="seccao" id="sec-divisoes" role="tabpanel" aria-labelledby="tab-divisoes" hidden>
+          <h2>Divisões</h2>
         </section>
 
         <!-- Automações -->

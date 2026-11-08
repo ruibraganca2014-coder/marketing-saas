@@ -889,6 +889,29 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
     responder(res, 200, { pedido: o.id, planta, inventario });
   };
 
+  /**
+   * A planta como ecrã inicial da app (decisão do dono, 2026-11-08; docs/APP-CLIENTE.md): a planta da casa aberta — a
+   * do pedido mais recente que deu origem à casa instalada (`orcamentos.cliente` = o código da casa) e, sem esse, a casa
+   * descrita na conta. Só o desenho (o filtro do relatório); `planta: null` sem planta nenhuma (a app fica nos mosaicos).
+   */
+  h.plantaCasa = ({ res, c }) => {
+    const plantaDe = (texto) => {
+      let s = null;
+      try { s = texto ? JSON.parse(texto) : null; } catch { return null; }
+      return s && s.funil !== 'avaria' && Array.isArray(s.planta?.divisoes) && s.planta.divisoes.length > 0 ? s.planta : null;
+    };
+    const r = db.prepare('SELECT casa_codigo, simulacao FROM contas WHERE id = ?').get(c.id);
+    let planta = null;
+    if (r?.casa_codigo) {
+      for (const o of db.prepare('SELECT simulacao FROM orcamentos WHERE conta_id = ? AND cliente = ? AND simulacao IS NOT NULL ORDER BY id DESC LIMIT 20').all(c.id, r.casa_codigo)) {
+        planta = plantaDe(o.simulacao);
+        if (planta) break;
+      }
+    }
+    planta ??= plantaDe(r?.simulacao);
+    responder(res, 200, { planta: planta ? pagamentos()?.plantaParaCliente(planta) ?? null : null });
+  };
+
   /** Pedido desta conta (404 para os outros — o cliente nem fica a saber que existe). */
   function pedidoDaConta(c, idTexto) {
     const o = db.prepare('SELECT * FROM orcamentos WHERE id = ? AND conta_id = ?').get(idNum(idTexto), c.id);
@@ -1383,6 +1406,7 @@ export function criarContas({ db, config, registo, relogio, auditar, fotos, corr
       ['POST', 'pedidos/:id/extras/:extra/aceitar', 'confirmada', 'aceitarExtra'],     // trabalho a mais: aceito
       ['POST', 'pedidos/:id/extras/:extra/recusar', 'confirmada', 'recusarExtra']] : []),   // … ou não aceito {texto?}
     ['GET', 'casa', 'confirmada', 'casa'],
+    ['GET', 'casa/planta', 'confirmada', 'plantaCasa'],
     ['POST', 'casa-registada', 'confirmada', 'registarCasa'],
     ['POST', 'apagar', 'sessao', 'apagarConta'],
   ].map(([metodo, caminho, sessao, nome]) => ({ metodo, partes: caminho.split('/'), caminho, sessao, nome }));

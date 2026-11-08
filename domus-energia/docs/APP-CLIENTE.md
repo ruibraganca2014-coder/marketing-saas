@@ -9,6 +9,17 @@ A "app" do cliente é a área de cliente do site (`web/cliente.html`), instaláv
 3. **Avisos da própria app por web push, como canal principal (2026-10-14).** O ntfy fica como alternativa e continua a receber tudo o que recebia. Os mesmos avisos que o ntfy (alarme disparado com prioridade máxima, porta aberta com o alarme ligado, aparelho sem ligação, pilhas a acabar, ações "Enviar notificação" das automações) e a mesma regra do plano. No iPhone só funciona com a app instalada no ecrã principal (iOS 16.4 ou mais recente), e a app explica-o.
 4. **App Android nativa ao lado do site (2026-11-08; ainda não feito).** O site instalável continua (iPhone e computador) e o APK (`android/`, parado desde 2026-09-28) volta a ser mantido. Instala-se pelo **APK descarregado do site** (sem Google Play; o Android avisa "origem desconhecida" e as atualizações são à mão). Avisos pela **app ntfy** (sem Firebase). Ordem: (1) pô-lo igual à app do site — entrar com email ou código, várias casas por conta, mosaicos, "Apagar tudo", favoritas, sem mensalidades à vista; (2) a casa na planta, com os aparelhos no sítio e tocar para ligar/desligar; a deteção de chegar e sair de casa, que o APK já tem, acompanha; os atalhos fora da app (widget, barra de notificações) ficam para depois. Cada novidade passa a fazer-se nas duas.
 
+## O programa e as funcionalidades (decisões do dono, 2026-11-08; ainda não feito)
+
+Valem para a app do site e para o APK (decisão 4). Por esta ordem:
+
+1. **A planta da casa é o ecrã inicial — feito (2026-11-08).** Os aparelhos instalados só sabem a divisão, não o ponto exato da planta, e o dono escolheu **"por divisão"**: o cartão "A sua casa" (separador Casa, a seguir aos modos e às cenas) desenha só as divisões da planta (sem os aparelhos desenhados no simulador, que não são os instalados), com um botão por piso. Uma divisão com luz acesa fica cor de areia; com os aparelhos todos sem ligação, contorno tracejado. Tocar numa divisão (ou Enter/espaço) abre por baixo, no mesmo cartão, os mosaicos dela, com "Fechar". Os mosaicos de todas as divisões passam para o separador novo **Divisões**; os aparelhos de divisões que a planta não tem ficam lá, e o cartão diz quais. Cada divisão é um botão com o nome e o que se passa ("Sala: 1 luz acesa · 1 ligado · 3 aparelhos", `estado.js` `divisoesDaPlanta`/`textoDivisaoPlanta`; a divisão do aparelho compara-se com o nome da divisão sem acentos nem maiúsculas). **De onde vem a planta:** `GET /api/conta/casa/planta` (sessão da conta com o email confirmado) — a do pedido mais recente que deu origem à casa instalada (`orcamentos.cliente` = o código da casa) e, sem esse, a casa descrita na conta; só o desenho (o filtro do relatório). **Sem planta** (entrada só com o código da casa, ou casa sem planta): tudo como antes — os mosaicos no separador Casa e sem o separador Divisões. Testes: `painel/test/app-cliente.test.js` (por divisão) e `painel/test/conta.test.js` (a rota); verificado no navegador local com a casa `demo` (telemóvel, temas claro e escuro).
+2. **Energia:** custo em euros (o cliente põe o preço do kWh ou a tarifa bi-horária: hoje, o mês e a previsão da fatura), gráficos por hora, dia e mês e por aparelho ou circuito, avisos de poupança (consumo acima do normal, aparelhos esquecidos ligados, horas de vazio) e aviso antes de passar a potência contratada.
+3. **Família com permissões:** o titular convida pessoas por email; cada uma com "tudo" ou "só controlar" (sem alarme nem automações). O Histórico diz quem fez o quê.
+4. **Equipamentos novos:** clima (termóstato, ar condicionado, aquecimento), portões e garagem, câmaras e videoporteiro, carregador do carro.
+
+Ficam de fora, por agora: controlo por voz (Google e Alexa), atalhos fora da app (widget, barra de notificações, atalhos no ícone) e funcionamento sem internet (sem internet só funcionam os interruptores na parede; a app avisa que a casa está sem ligação).
+
 ## Acesso da equipa às casas (decisões do dono, 2026-11-08; ainda não feito)
 
 - **Quem:** os técnicos do painel e os eletricistas parceiros.
@@ -29,7 +40,7 @@ A mesma conta dos pedidos ([CONTA-CLIENTE.md](CONTA-CLIENTE.md)): email com pala
 
 ## No telemóvel
 
-- **Separadores** Casa, Automações, Aparelhos e Histórico. Até 620 px de largura ficam presos em baixo, com 48 px de altura; em ecrãs largos ficam no cimo, como antes. A Subscrição, as Definições e o Relatório da casa não têm separador (abrem-se pelos botões do cabeçalho da casa e do separador Casa); a barra continua à vista para voltar.
+- **Separadores** Casa, Divisões (só com planta), Automações, Aparelhos e Histórico. Até 620 px de largura ficam presos em baixo, com 48 px de altura; em ecrãs largos ficam no cimo, como antes. A Subscrição, as Definições e o Relatório da casa não têm separador (abrem-se pelos botões do cabeçalho da casa e do separador Casa); a barra continua à vista para voltar.
 - **Entalhe e barra inferior do iPhone:** `viewport-fit=cover` e `env(safe-area-inset-*)` no cabeçalho, nos separadores e no aviso (toast). Num ecrã sem entalhe nada muda.
 - **Religar:** o sistema suspende a página em segundo plano e a ligação cai. Ao voltar (`visibilitychange`, `online`, e `pageshow` quando a página volta da memória do navegador no iPhone) liga-se logo, no máximo uma vez em cada 3 segundos.
 

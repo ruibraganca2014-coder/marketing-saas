@@ -32,7 +32,11 @@ let aparelhos = [];    // lerAparelhos(_aparelhos)
 let estados = {};      // id → estado bruto (estado.js)
 let pendentes = {};    // "id:n" → { esperado, qualquer, timer }
 let cartoes = {};      // id → { canais: { n → linha (um mosaico) } }
-let alarme = null;     // lerAlarme(_alarme): v2 { ativo, desde } ou v3 { estado, tipo, ate, ignorados, … }
+// A planta como ecrã inicial (desenharPlantaCasa): a planta, o piso à vista, a divisão aberta, o <svg> desenhado e o
+// número do último pedido (uma resposta atrasada de outra casa não se usa).
+const planta = { dados: null, piso: 0, aberta: null, desenho: null, pedido: 0 };
+const chaveDivisao = (t) => String(t ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+let alarme = null;    // lerAlarme(_alarme): v2 { ativo, desde } ou v3 { estado, tipo, ate, ignorados, … }
 let modo = null;       // lerModo(_modo) — só com o motor v3
 let modoPendente = null; // { modo, forcar, timer }
 let recusa = null;     // { modo, texto } — "Não armado: …" à espera de "Armar mesmo assim"
@@ -297,15 +301,18 @@ for (const s of separadores) {
   s.addEventListener("click", () => mostrarSeccao(s.dataset.sec));
   s.addEventListener("keydown", (e) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const i = separadores.indexOf(s) + (e.key === "ArrowRight" ? 1 : -1);
-    const alvo = separadores[(i + separadores.length) % separadores.length];
+    const visiveis = separadores.filter((x) => !x.hidden);   // o separador Divisões só existe com planta
+    const i = visiveis.indexOf(s) + (e.key === "ArrowRight" ? 1 : -1);
+    const alvo = visiveis[(i + visiveis.length) % visiveis.length];
     mostrarSeccao(alvo.dataset.sec);
     alvo.focus();
   });
 }
-const SECCOES = ["casa", "automacoes", "aparelhos", "historico", "relatorio", "definicoes", "subscricao"];
+const SECCOES = ["casa", "divisoes", "automacoes", "aparelhos", "historico", "relatorio", "definicoes", "subscricao"];
 function mostrarSeccao(nome) {
   secao = nome;
+  // A divisão aberta na planta tem os mosaicos dela no cartão da planta: no separador Divisões voltam todos para a lista.
+  if (nome === "divisoes" && planta.aberta) fecharDivisao(false);
   // O relatório pertence à Casa; as Definições e a Subscrição não têm separador.
   const tab = nome === "relatorio" ? "casa" : nome;
   const semSeparador = nome === "definicoes" || nome === "subscricao";
@@ -417,6 +424,7 @@ function entrar(cod, password, { lembrar, automatico = false }) {
       mostrarVista(true);
       repor();
       desenhar();
+      carregarPlanta();
       desenharAlarme();
       desenharHistorico();
       automacoes.desenhar();
@@ -505,6 +513,17 @@ function terminar() {
   automacoes.limpar();
   cenas.limpar();
   definicoes.limpar();
+  // A planta da casa anterior sai (a próxima casa pede a sua).
+  planta.pedido += 1;
+  planta.dados = null;
+  planta.aberta = null;
+  $("planta-divisao").hidden = true;
+  $("planta-casa").hidden = true;
+  $("tab-divisoes").hidden = true;
+  $("planta-svg").replaceChildren();
+  planta.desenho = null;
+  $("planta-casa").after($("lista"));
+  $("planta-divisao-aparelhos").replaceChildren();
   $("lista-saude").replaceChildren();
   $("relatorio-conteudo").replaceChildren();
   $("lista").replaceChildren();
@@ -806,7 +825,9 @@ function pedirEstadoShelly() {
 // tomadas um toque em qualquer sítio do mosaico liga e desliga; brilho e posição abrem-se num botão à parte.
 function desenhar() {
   const lista = $("lista");
+  const daDivisao = $("planta-divisao-aparelhos");
   lista.replaceChildren();
+  daDivisao.replaceChildren();
   cartoes = {};
 
   if (aparelhos.length === 0) {
@@ -814,15 +835,127 @@ function desenhar() {
   }
 
   for (const g of E.agruparPorDivisao(aparelhos)) {
+    // A divisão aberta na planta: os mosaicos dela vão para o cartão da planta (sem o título, que já lá está).
+    const naPlanta = planta.aberta != null && g.nome != null && chaveDivisao(g.nome) === chaveDivisao(planta.aberta);
     const bloco = el("div", "divisao");
-    if (g.nome) bloco.appendChild(el("h3", "divisao-titulo", g.nome));
+    if (g.nome && !naPlanta) bloco.appendChild(el("h3", "divisao-titulo", g.nome));
     const grelha = el("div", "mosaicos");
     for (const a of g.itens) desenharAparelho(grelha, a);
     bloco.append(grelha);
-    lista.appendChild(bloco);
+    (naPlanta ? daDivisao : lista).appendChild(bloco);
   }
+  $("planta-divisao-vazia").hidden = planta.aberta == null || daDivisao.childElementCount > 0;
   resumo();
 }
+
+// ---------- A planta como ecrã inicial (decisão do dono, 2026-11-08; docs/APP-CLIENTE.md) ----------
+// A planta da casa aberta (GET /api/conta/casa/planta, só com a sessão da conta): as divisões, acesas quando há luz
+// ligada; tocar numa divisão abre os mosaicos dela no cartão. Os aparelhos não têm o ponto exato na planta, só a
+// divisão (decisão do dono: "por divisão"). Sem planta (entrada só com o código, ou casa sem planta), fica como antes.
+// (O estado `planta` e `chaveDivisao` estão no topo do ficheiro.)
+
+async function carregarPlanta() {
+  const pedido = ++planta.pedido;
+  let dados = null;
+  try { dados = (await pedirConta("casa/planta")).planta ?? null; } catch { dados = null; }   // sem conta (só o código): sem planta
+  if (pedido !== planta.pedido || !entrou) return;
+  planta.dados = dados && Array.isArray(dados.divisoes) && dados.divisoes.length ? dados : null;
+  planta.piso = 0;
+  planta.aberta = null;
+  prepararPlanta();
+}
+
+/** Com planta: o cartão no topo da Casa e a lista no separador Divisões; sem ela, a lista volta à Casa. */
+function prepararPlanta() {
+  const com = !!planta.dados;
+  $("planta-casa").hidden = !com;
+  $("tab-divisoes").hidden = !com;
+  if (com) $("sec-divisoes").append($("lista"));
+  else $("planta-casa").after($("lista"));
+  if (!com && secao === "divisoes") mostrarSeccao("casa");
+  if (com) desenharPlantaCasa();
+  else { $("planta-svg").replaceChildren(); planta.desenho = null; }
+  desenhar();
+}
+
+/** Desenha a planta do piso escolhido (só as divisões: os aparelhos desenhados no simulador não são os instalados). */
+async function desenharPlantaCasa() {
+  if (!planta.dados) return;
+  const { desenharPlanta, pisosDaPlanta, pisoDe, nomePiso } = await import("./simulador/planta-svg.js");
+  if (!planta.dados) return;
+  const pisos = pisosDaPlanta({ divisoes: planta.dados.divisoes });
+  if (!pisos.includes(planta.piso)) planta.piso = pisos[0];
+  const caixa = $("planta-pisos");
+  caixa.hidden = pisos.length < 2;
+  caixa.replaceChildren(...pisos.map((p) => {
+    const b = el("button", `btn sec pequeno${p === planta.piso ? " ativo" : ""}`, nomePiso(p));
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(p === planta.piso));
+    b.addEventListener("click", () => { planta.piso = p; desenharPlantaCasa(); });
+    return b;
+  }));
+  const svg = $("planta-svg");
+  // Letra pelo tamanho da planta (~1/22 do lado maior): os nomes leem-se no telemóvel, onde a planta fica com ~340 px.
+  const letra = Math.max(planta.dados.largura_cm ?? 0, planta.dados.altura_cm ?? 0) / 22;
+  desenharPlanta(svg, { ...planta.dados, elementos: [] }, { soLeitura: true, grelha: false, ...(letra > 0 ? { letra } : {}), ...(pisos.length > 1 ? { piso: planta.piso } : {}) });
+  // O desenho da planta é só uma imagem; cada divisão passa a ser um botão (toque, Enter ou espaço).
+  svg.removeAttribute("role");
+  for (const g of svg.querySelectorAll("g[data-divisao]")) {
+    const d = planta.dados.divisoes.find((x) => x.id === g.dataset.divisao && pisoDe(x) === planta.piso) ?? planta.dados.divisoes.find((x) => x.id === g.dataset.divisao);
+    if (!d) continue;
+    g.setAttribute("role", "button");
+    g.setAttribute("tabindex", "0");
+    g.dataset.nome = String(d.nome ?? "");
+    g.classList.add("planta-divisao-botao");
+    const abrir = () => abrirDivisao(String(d.nome ?? ""));
+    g.addEventListener("click", abrir);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrir(); } });
+  }
+  planta.desenho = svg;
+  pintarPlanta();
+}
+
+/** Acende as divisões com luz ligada e diz o que se passa em cada uma (chamado em cada atualização do resumo). */
+function pintarPlanta() {
+  if (!planta.dados || !planta.desenho) return;
+  const agora = Date.now();
+  const r = E.divisoesDaPlanta(planta.dados, aparelhos, aparelhos.map((a) => modeloDe(a, agora)));
+  const porId = new Map(r.divisoes.map((x) => [x.id, x]));
+  for (const g of planta.desenho.querySelectorAll("g[data-divisao]")) {
+    const x = porId.get(g.dataset.divisao);
+    if (!x) continue;
+    const texto = E.textoDivisaoPlanta(x);
+    g.setAttribute("aria-label", `${x.nome}: ${texto}`);
+    const t = g.querySelector("title");
+    if (t) t.textContent = `${x.nome}: ${texto}`;
+    g.classList.toggle("acesa", x.luzes > 0);
+    g.classList.toggle("sem-ligacao", x.semLigacao > 0 && x.semLigacao === x.aparelhos);
+    g.classList.toggle("aberta", planta.aberta != null && chaveDivisao(planta.aberta) === chaveDivisao(x.nome));
+  }
+  const fora = $("planta-fora");
+  fora.hidden = !r.fora.length || !aparelhos.length;
+  fora.textContent = r.fora.length ? `${r.fora.join(", ")}: ${r.fora.length === 1 ? "está" : "estão"} no separador Divisões.` : "";
+}
+
+function abrirDivisao(nome) {
+  planta.aberta = nome;
+  $("planta-divisao").hidden = false;
+  $("planta-divisao-titulo").textContent = nome;
+  desenhar();
+  $("planta-divisao-titulo").focus({ preventScroll: true });
+  $("planta-divisao").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function fecharDivisao(focar = true) {
+  const nome = planta.aberta;
+  planta.aberta = null;
+  $("planta-divisao").hidden = true;
+  desenhar();
+  if (focar && nome != null) {
+    const g = [...$("planta-svg").querySelectorAll("g[data-nome]")].find((x) => chaveDivisao(x.dataset.nome) === chaveDivisao(nome));
+    g?.focus();
+  }
+}
+$("planta-fechar").addEventListener("click", () => fecharDivisao());
 
 function desenharAparelho(grelha, a) {
   const canais = {};
@@ -1109,6 +1242,7 @@ function resumo() {
   painel.dataset.calor = f.calor.toFixed(2);
   painel.dataset.luzes = f.luzes.toFixed(2);
   if (secao === "relatorio") redesenharRelatorio();
+  pintarPlanta();
 }
 
 function redesenharSaude() {

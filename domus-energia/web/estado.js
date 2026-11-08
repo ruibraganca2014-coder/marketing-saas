@@ -1037,6 +1037,49 @@ export function agruparPorDivisao(itens, divisaoDe = (x) => x.divisao) {
   return r;
 }
 
+/**
+ * A planta como ecrã inicial (decisão do dono, 2026-11-08; docs/APP-CLIENTE.md): para cada divisão da planta, os
+ * aparelhos que lá estão (a divisão do aparelho comparada com o nome da divisão, sem acentos nem maiúsculas) e, deles,
+ * os canais ligados, as luzes acesas e os aparelhos sem ligação. `fora`: as divisões dos aparelhos que a planta não tem
+ * (ou "Outros", sem divisão), para a app dizer que esses estão no separador Divisões.
+ * @param modelos saída de modelo() para cada aparelho (mesma ordem de `aparelhos`)
+ */
+export function divisoesDaPlanta(planta, aparelhos, modelos) {
+  const chave = (t) => semAcentos(t).trim();
+  const porNome = new Map();
+  const divisoes = (Array.isArray(planta?.divisoes) ? planta.divisoes : []).map((d) => {
+    const x = { id: d.id, nome: String(d.nome ?? ""), aparelhos: 0, ligados: 0, luzes: 0, semLigacao: 0 };
+    if (x.nome && !porNome.has(chave(x.nome))) porNome.set(chave(x.nome), x);
+    return x;
+  });
+  const fora = [];
+  aparelhos.forEach((a, i) => {
+    const x = porNome.get(chave(a.divisao));
+    if (!x) { const nome = a.divisao || SEM_DIVISAO; if (!fora.includes(nome)) fora.push(nome); return; }
+    x.aparelhos += 1;
+    const m = modelos[i];
+    if (!m || !disponivel(m)) { x.semLigacao += 1; return; }
+    for (const c of m.canais) {
+      if (!c.ligado) continue;
+      x.ligados += 1;
+      if (ehLuz(aparelhos, a.id, c.n)) x.luzes += 1;
+    }
+  });
+  return { divisoes, fora };
+}
+
+/** O que a divisão diz na planta e aos leitores de ecrã: "2 luzes acesas · 5 aparelhos", "Sem aparelhos". */
+export function textoDivisaoPlanta(x) {
+  if (!x.aparelhos) return "Sem aparelhos";
+  const partes = [];
+  if (x.luzes) partes.push(x.luzes === 1 ? "1 luz acesa" : `${x.luzes} luzes acesas`);
+  const outros = x.ligados - x.luzes;
+  if (outros) partes.push(outros === 1 ? "1 ligado" : `${outros} ligados`);
+  if (x.semLigacao) partes.push(x.semLigacao === 1 ? "1 sem ligação" : `${x.semLigacao} sem ligação`);
+  partes.push(x.aparelhos === 1 ? "1 aparelho" : `${x.aparelhos} aparelhos`);
+  return partes.join(" · ");
+}
+
 // ---------- v3: saúde dos aparelhos (§5) ----------
 export const BATERIA_FRACA = 15;
 export const BATERIA_DIAS_POUCOS = 21;

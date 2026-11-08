@@ -60,6 +60,27 @@ test('potência agora: com contador geral conta só ele, e sem ligação não se
   assert.equal(relatorio(semGeral).consumo.agoraW, null);
 });
 
+test('planta como ecrã inicial: cada divisão da planta com os seus aparelhos (nome sem acentos nem maiúsculas), luzes acesas, ligados e sem ligação; os de fora da planta à parte', () => {
+  const planta = { divisoes: [{ id: 'd1', nome: 'Sala' }, { id: 'd2', nome: 'Cozinha' }, { id: 'd3', nome: 'Escritório' }] };
+  const luz = (id, divisao) => ({ id, nome: `Luz ${id}`, tipo: 'openbeken', divisao, canais: [{ n: 1, funcao: 'interruptor', nome: 'Luz', carga: 'luz' }] });
+  const c = casa([luz('teto', 'sala'), luz('candeeiro', 'Sala'), tomada('tv', { divisao: 'SALA' }), luz('bancada', 'Cozinha'), tomada('garagem', { divisao: 'Garagem' }), tomada('solta', { canais: [{ n: 1, funcao: 'interruptor', nome: 'solta' }] })], [
+    ['teto', 'connected', 'online'], ['teto', '1/get', '1'],
+    ['candeeiro', 'connected', 'online'], ['candeeiro', '1/get', '0'],
+    ['tv', 'connected', 'online'], ['tv', '1/get', '1'],
+    ['bancada', 'connected', 'offline'], ['bancada', '1/get', '1'],
+  ]);
+  const r = E.divisoesDaPlanta(planta, c.aparelhos, c.modelos);
+  const [sala, cozinha, escritorio] = r.divisoes;
+  assert.deepEqual({ ...sala }, { id: 'd1', nome: 'Sala', aparelhos: 3, ligados: 2, luzes: 1, semLigacao: 0 });
+  assert.deepEqual([cozinha.aparelhos, cozinha.ligados, cozinha.semLigacao], [1, 0, 1], 'sem ligação não conta como acesa');
+  assert.equal(escritorio.aparelhos, 0);
+  assert.deepEqual(r.fora, ['Garagem', E.SEM_DIVISAO]);
+  assert.equal(E.textoDivisaoPlanta(sala), '1 luz acesa · 1 ligado · 3 aparelhos');
+  assert.equal(E.textoDivisaoPlanta(cozinha), '1 sem ligação · 1 aparelho');
+  assert.equal(E.textoDivisaoPlanta(escritorio), 'Sem aparelhos');
+  assert.deepEqual(E.divisoesDaPlanta(null, c.aparelhos, c.modelos).divisoes, [], 'sem planta');
+});
+
 // ------------------------------------------------------------ cenas: confirmação do servidor
 /** Uma espera com o relógio do teste; devolve o que foi dito ao cliente. */
 function espera(t) {

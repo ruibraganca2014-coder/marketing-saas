@@ -470,6 +470,18 @@ describe('conta de cliente', () => {
     // Com a casa ligada nada muda: tem_casa e as credenciais (a área de cliente de sempre).
     p.app.db.prepare("UPDATE contas SET casa_codigo = 'casa-previsao' WHERE email = ?").run(a.email);
     assert.equal((await conta('GET', 'eu', { cookie: a.cookie })).json.tem_casa, true);
+    // A planta como ecrã inicial (2026-11-08): sem pedido instalado, a casa descrita na conta; depois, a do pedido que
+    // deu origem à casa (mesmo sem a casa descrita); só o desenho; a outra conta e sem sessão não a veem.
+    const plantaCasa = (cookie) => conta('GET', 'casa/planta', { cookie });
+    assert.deepEqual((await plantaCasa(a.cookie)).json.planta.divisoes.map((d) => d.nome), ['Sala', 'Quarto'], 'a casa descrita na conta');
+    p.app.db.prepare('UPDATE orcamentos SET cliente = ? WHERE id = ?').run('casa-previsao', id);
+    p.app.db.prepare('UPDATE contas SET simulacao = NULL WHERE email = ?').run(a.email);
+    const pc = await plantaCasa(a.cookie);
+    assert.equal(pc.estado, 200, pc.texto);
+    assert.deepEqual(pc.json.planta.divisoes.map((d) => [d.id, d.nome]), [['d1', 'Sala'], ['d2', 'Quarto']], 'a do pedido instalado');
+    assert.equal(/fundo|base64|avaria|acao/.test(pc.texto), false);
+    assert.deepEqual((await plantaCasa(b.cookie)).json, { planta: null });
+    assert.equal((await plantaCasa()).estado, 401);
   });
 
   test('acesso cruzado: cada conta só vê os seus pedidos, fotos e propostas; conta ≠ painel', async () => {

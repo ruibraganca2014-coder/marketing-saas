@@ -1169,3 +1169,26 @@ nav .link.acesso-equipa { display: none; }
 .app-cliente .btn.pequeno { min-height: 48px; }
 .app-cliente .modo-desc { font-size: .8rem; }
 .app-cliente .separador { font-size: .95rem; }
+
+/* A planta como ecrã inicial (decisão do dono, 2026-11-08; cliente.js desenharPlantaCasa): as divisões são botões; a
+   acesa (luz ligada) fica cor de areia, a sem ligação tracejada, a aberta com o contorno de argila. Os mosaicos da
+   divisão aberta aparecem por baixo, no mesmo cartão. */
+.planta-casa { display: grid; gap: 10px; min-width: 0; }
+.planta-casa h2, .planta-casa h3, .planta-casa p { margin: 0; }
+.planta-casa-svg { display: block; width: 100%; height: auto; max-height: 62vh; border: 1px solid var(--borda); border-radius: 12px; background: var(--superficie); touch-action: manipulation; }
+.planta-pisos { display: flex; flex-wrap: wrap; gap: 6px; }
+.planta-pisos .btn[aria-pressed="true"] { background: var(--musgo); border-color: var(--musgo); color: var(--sobre-musgo); }
+.planta-divisao-botao { cursor: pointer; outline: none; }
+.planta-divisao-botao polygon { transition: fill .25s ease; }
+.planta-divisao-botao.acesa polygon { fill: color-mix(in srgb, var(--areia) 80%, var(--superficie)) !important; }
+.planta-divisao-botao.sem-ligacao polygon { stroke-dasharray: 8 6; }
+.planta-divisao-botao.aberta polygon, .planta-divisao-botao:focus-visible polygon { stroke: var(--argila) !important; stroke-width: 5px !important; }
+.planta-divisao-botao:hover polygon { fill: color-mix(in srgb, var(--musgo-claro) 85%, transparent) !important; }
+.planta-divisao-botao.acesa:hover polygon { fill: color-mix(in srgb, var(--areia) 92%, var(--superficie)) !important; }
+.planta-divisao { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--borda); }
+.planta-divisao h3:focus { outline: none; }
+@media (prefers-reduced-motion: reduce) { .planta-divisao-botao polygon { transition: none; } }
+/* Cinco separadores (com Divisões) num telemóvel estreito: letra mais pequena para "Automações" caber. */
+@media (max-width: 479px) {
+  .app-cliente .separador { font-size: .78rem; padding: 8px 2px; }
+}
