@@ -11,6 +11,7 @@ import { tmpdir, userInfo } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { createHmac } from 'node:crypto';
 import { lerConfig } from '../src/config.js';
 import { criarApp } from '../src/app.js';
 import { registoMudo, iso } from '../src/util.js';
@@ -25,11 +26,47 @@ export const SENHA = 'senha-de-teste-1';
 /** Cabeçalhos de um pedido "do próprio site" (navegador). */
 export const DO_SITE = { Origin: ORIGEM, 'Sec-Fetch-Site': 'same-origin' };
 
+/** Env de um painel com pagamentos reais pela Airwallex (falsa: `airwallexFalsa().fetch` como `fetchPagamentos`). */
+export const ENV_AIRWALLEX = { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'airwallex', AIRWALLEX_CLIENT_ID: 'cli_teste', AIRWALLEX_API_KEY: 'chave_teste',
+  AIRWALLEX_WEBHOOK_SECRET: 'segredo_webhook_teste', SITE_URL: 'https://site.teste' };
+
+/**
+ * Airwallex falsa ao nível do fetch (docs/PAGAMENTOS-PEDIDO.md): login, criar/ler/cancelar PaymentIntents e reembolsos.
+ * `pagar(id, metodo)` põe um PaymentIntent como pago; `chamadas` guarda {url, corpo}; `assinar(corpo)` dá os cabeçalhos
+ * de um webhook assinado com o segredo de ENV_AIRWALLEX.
+ */
+export function airwallexFalsa() {
+  const chamadas = [];
+  const intents = new Map();
+  let n = 0;
+  const resp = (j, status = 200) => new Response(JSON.stringify(j), { status, headers: { 'Content-Type': 'application/json' } });
+  const fetch = async (url, op = {}) => {
+    const corpo = op.body ? JSON.parse(op.body) : null;
+    chamadas.push({ url, corpo, cabecalhos: op.headers ?? {} });
+    if (url.endsWith('/api/v1/authentication/login')) return resp({ token: 'token_teste', expires_at: '2099-01-01T00:00:00+0000' });
+    if (url.endsWith('/api/v1/pa/payment_intents/create')) {
+      const id = `int_teste_${++n}`;
+      const pi = { id, client_secret: `segredo_${n}`, amount: corpo.amount, currency: corpo.currency, merchant_order_id: corpo.merchant_order_id, metadata: corpo.metadata, status: 'REQUIRES_PAYMENT_METHOD' };
+      intents.set(id, pi);
+      return resp(pi);
+    }
+    if (url.endsWith('/api/v1/pa/refunds/create')) return resp({ id: `rfd_${++n}`, status: 'RECEIVED', amount: corpo.amount, payment_intent_id: corpo.payment_intent_id });
+    let m = /\/api\/v1\/pa\/payment_intents\/([^/]+)\/cancel$/.exec(url);
+    if (m) { const pi = intents.get(decodeURIComponent(m[1])); if (pi && pi.status !== 'SUCCEEDED') pi.status = 'CANCELLED'; return resp(pi ?? {}); }
+    m = /\/api\/v1\/pa\/payment_intents\/([^/]+)$/.exec(url);
+    if (m) return intents.has(decodeURIComponent(m[1])) ? resp(intents.get(decodeURIComponent(m[1]))) : resp({ code: 'resource_not_found' }, 404);
+    return resp({ code: 'not_found' }, 404);
+  };
+  const pagar = (id, metodo = 'card') => Object.assign(intents.get(id), { status: 'SUCCEEDED', latest_payment_attempt: { payment_method: { type: metodo } } });
+  const assinar = (corpo, t = String(Date.now())) => ({ 'x-timestamp': t, 'x-signature': createHmac('sha256', ENV_AIRWALLEX.AIRWALLEX_WEBHOOK_SECRET).update(t + corpo).digest('hex') });
+  return { fetch, chamadas, intents, pagar, assinar };
+}
+
 /**
  * Painel de teste. `env` acrescenta/substitui variáveis de ambiente; `fetch` simula a API da
  * Anthropic (leitura da foto do quadro). Devolve {url, app, dados, relogio, pedir, entrar, criarUtilizador, fechar}.
  */
-export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch, fetchStripe } = {}) {
+export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, fetch, fetchPagamentos } = {}) {
   // Emails das contas de cliente: ficam aqui (o último código enviado a cada email em `codigo(email)`).
   const emails = [];
   const correio = { enviar: async (m) => { emails.push(m); return true; }, ligado: false };
@@ -57,7 +94,7 @@ export async function iniciarPainel({ env = {}, mqtt = false, dados: dadosDir, f
     ...env,
   });
   const relogio = { desvio: 0, agora() { return Date.now() + this.desvio; }, avancar(ms) { this.desvio += ms; } };
-  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, correio, ...(fetch ? { fetch } : {}), ...(fetchStripe ? { fetchStripe } : {}) });
+  const app = await criarApp({ config, registo: registoMudo, relogio: () => relogio.agora(), mqtt, correio, ...(fetch ? { fetch } : {}), ...(fetchPagamentos ? { fetchPagamentos } : {}) });
   await new Promise((r) => app.servidor.listen(0, '127.0.0.1', r));
   const porta = app.servidor.address().port;
   let ipSeq = 0;

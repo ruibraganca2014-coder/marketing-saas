@@ -5666,10 +5666,10 @@ const regressoPagamento = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") 
   ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
 let pagamentoEmCurso = Boolean(regressoPagamento);   // a meio do pagamento a simulação não vai para a conta
 
-/** Vai pagar: a página simulada do site ou o Stripe Checkout (nada mais). */
+/** Vai pagar: a página simulada do site ou a pagar.html (Airwallex) desta referência (nada mais). */
 function irPagar(pagamento) {
   const url = pagamento?.url;
-  if (typeof url === "string" && (/^pagamento-simulado\.html\?ref=pp_[A-Za-z0-9_-]{22}$/.test(url) || url.startsWith("https://checkout.stripe.com/"))) {
+  if (typeof url === "string" && /^(pagamento-simulado|pagar)\.html\?ref=pp_[A-Za-z0-9_-]{22}$/.test(url)) {
     location.assign(url);
     return true;
   }
@@ -5718,7 +5718,7 @@ async function retomarDoPagamento(guardado) {
   botao.disabled = false;
   botao.textContent = TEXTO_ENVIAR;
   const texto = erro ? `Não foi possível confirmar o pagamento (${erro.message}) Veja o estado na sua conta antes de pagar outra vez.`
-    : p.estado === "pendente" ? (p.modo === "stripe" ? "O pagamento ainda não está confirmado. Se pagou por Multibanco pode demorar: o pedido aparece na sua conta quando for pago." : `O pagamento não foi feito. Carregue em "${TEXTO_ENVIAR}" para continuar.`)
+    : p.estado === "pendente" ? (p.modo === "airwallex" ? "O pagamento ainda não está confirmado. Se pagou por MB WAY pode demorar uns minutos: o pedido aparece na sua conta quando for pago." : `O pagamento não foi feito. Carregue em "${TEXTO_ENVIAR}" para continuar.`)
       : p.estado === "falhado" ? `O pagamento falhou. Não foi cobrado nada e a sua simulação está intacta: carregue em "${TEXTO_ENVIAR}" para tentar de novo.`
         : `Cancelou o pagamento. Não foi cobrado nada e a sua simulação está intacta: carregue em "${TEXTO_ENVIAR}" quando quiser.`;
   mostrarEnvio(texto, p?.estado === "pendente" ? "info" : "erro", !erro && p?.estado !== "pendente");

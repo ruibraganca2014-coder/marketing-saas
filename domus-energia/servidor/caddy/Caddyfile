@@ -9,8 +9,8 @@
 #   https://HOST/api/catalogo   -> painel (catálogo público do simulador; idem)
 #   https://HOST/api/fotos-remotas* -> painel (fotos pelo telemóvel via QR, web/foto.html; idem)
 #   https://HOST/api/conta/*    -> painel (conta de cliente, docs/CONTA-CLIENTE.md; idem), incluindo os
-#                                  pagamentos do pedido /api/conta/pagamentos/* e o webhook do Stripe deles
-#                                  /api/conta/pagamentos/stripe-webhook (docs/PAGAMENTOS-PEDIDO.md)
+#                                  pagamentos do pedido /api/conta/pagamentos/* e o webhook da Airwallex deles
+#                                  /api/conta/pagamentos/airwallex-webhook (docs/PAGAMENTOS-PEDIDO.md)
 #   https://HOST/api/eletricista/* -> painel (eletricistas externos, docs/ELETRICISTAS.md; idem): candidatura com o
 #                                  documento do seguro (até 5 MB) e a área do eletricista
 #   https://HOST/painel/...     -> painel da empresa (ecrãs e /painel/api/)
@@ -156,9 +156,10 @@
 	#   estilos próprios + Google Fonts ('unsafe-inline' porque há atributos style="" e variáveis CSS postas pelo
 	#   JavaScript);
 	#   ligações só ao próprio site (inclui o /api dos pagamentos e o
-	#   /api/orcamento do painel) e ao MQTT (wss://HOST/mqtt). O Stripe Checkout e o Customer
-	#   Portal abrem por navegação (location.href), que a CSP não restringe: não
-	#   é preciso acrescentar o stripe.com. O painel (/painel/) envia ainda a sua
+	#   /api/orcamento do painel) e ao MQTT (wss://HOST/mqtt). As páginas de pagamento externas abrem por navegação
+	#   (location.href), que a CSP não restringe. A única exceção é a pagar.html (pagamentos dos pedidos pela Airwallex,
+	#   decisão do dono de 2026-11-08): carrega o SDK da Airwallex (static.airwallex.com), que leva o cliente à página de
+	#   pagamento deles; tem a sua CSP mais abaixo e só ela. O painel (/painel/) envia ainda a sua
 	#   própria CSP, mais apertada (sem CDN nem MQTT no navegador); o navegador
 	#   aplica as duas.
 	#   Se mudar de CDN ou de fontes, atualize esta linha.
@@ -173,9 +174,12 @@
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
-		Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 		Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), fullscreen=(self)"
 	}
+	@pagarAirwallex path /pagar.html
+	header @pagarAirwallex Content-Security-Policy "default-src 'self'; script-src 'self' https://static.airwallex.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.airwallex.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+	@naoPagarAirwallex not path /pagar.html
+	header @naoPagarAirwallex Content-Security-Policy "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; worker-src 'self' blob: https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/; connect-src 'self' wss://{$DOMUS_HOST}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 
 	# Registo de acessos sem os cabeçalhos sensíveis: os tokens das fotos (X-Foto-Token, 24 h, fotos pelo
 	# telemóvel; X-Fotos-Token, 30 min, fotos do pedido), o Cookie (sessões do painel e da conta) e o Authorization.

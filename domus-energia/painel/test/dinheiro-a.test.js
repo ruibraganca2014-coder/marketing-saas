@@ -6,7 +6,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { painelComEquipa } from './ajuda.js';
+import { painelComEquipa, airwallexFalsa, ENV_AIRWALLEX } from './ajuda.js';
 import { MIGRACOES, migrar, versaoEsquema } from '../src/db.js';
 
 /** Simulação só com disjuntores Tongou (custo de compra conhecido nas sementes: 14,30 €). */
@@ -324,22 +324,22 @@ describe('decisões do dinheiro (modo simulado)', () => {
     assert.equal((await conta(c, 'POST', `pedidos/${id2}/cancelar-visita`, {})).estado, 409);
   });
 
-  test('acima de 500 € só Multibanco ou MB Way (os métodos vão no pagamento; o limite muda no painel)', async () => {
+  test('acima de 500 € também MB WAY, abaixo só cartão (decisão de 2026-11-08; os métodos vão no pagamento; o limite muda no painel)', async () => {
     const c = await p.contaConfirmada();
     const id = await enviar(c);
     await painel('POST', `orcamentos/${id}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 2000 });   // 2460 € → sinal 738 €
     const l = await pedidoConta(c, id);
     assert.equal(l.cartao_max, 500);
     const ac = await conta(c, 'POST', `pedidos/${id}/aceitar`, { valor: 2000, plano: 'base' });
-    assert.deepEqual([ac.json.pagamento.valor, ac.json.pagamento.metodos], [738, ['MB Way', 'Multibanco']]);
-    // Um pagamento pequeno (relatório, 29 €) continua com cartão.
+    assert.deepEqual([ac.json.pagamento.valor, ac.json.pagamento.metodos], [738, ['Cartão', 'MB Way']]);
+    // Um pagamento pequeno (relatório, 29 €) só com cartão.
     const id2 = await enviar(c);
     const rel = await conta(c, 'POST', `pedidos/${id2}/pagar`, { fase: 'relatorio_pormenorizado' });
-    assert.deepEqual(rel.json.pagamento.metodos, ['Cartão', 'MB Way', 'Multibanco']);
+    assert.deepEqual(rel.json.pagamento.metodos, ['Cartão']);
     // O limite edita-se no painel (e não é público).
     assert.equal((await painel('POST', 'config-orcamento', 'ceo', { cartao_max_iva: 1000 })).estado, 200);
     try {
-      assert.deepEqual((await conta(c, 'GET', `pagamentos/${ac.json.pagamento.ref}`)).json.pagamento.metodos, ['Cartão', 'MB Way', 'Multibanco']);
+      assert.deepEqual((await conta(c, 'GET', `pagamentos/${ac.json.pagamento.ref}`)).json.pagamento.metodos, ['Cartão']);
       assert.equal((await p.pedir('GET', '/api/catalogo')).json.config.cartao_max_iva, undefined);
     } finally { await painel('POST', 'config-orcamento', 'ceo', { cartao_max_iva: 500 }); }
   });
@@ -436,52 +436,35 @@ test('pagamentos desligados: converte-se como antes (sem exigir o restante), com
   } finally { await q.fechar(); }
 });
 
-describe('decisões do dinheiro (modo stripe)', () => {
+describe('decisões do dinheiro (modo airwallex)', () => {
   let p;
-  let stripeMetodo = null;
-  const chamadas = [];
-  const fetchStripe = async (url, op) => {
-    chamadas.push({ url, op });
-    const params = new URLSearchParams(op.body ?? '');
-    if (/checkout\/sessions$/.test(url)) {
-      return new Response(JSON.stringify({ id: `cs_test_${chamadas.length}`, url: `https://checkout.stripe.com/c/pay/cs_test_${chamadas.length}`, amount_total: Number(params.get('line_items[0][price_data][unit_amount]')) }), { status: 200 });
-    }
-    const m = /checkout\/sessions\/(cs_test_\d+)(\?|$)/.exec(url);
-    // Com `expand`, o Stripe devolve o PaymentIntent com o método usado (stripeMetodo: card por omissão).
-    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'complete', payment_status: 'paid',
-      payment_intent: stripeMetodo ? { id: 'pi_teste_1', latest_charge: { payment_method_details: { type: stripeMetodo } } } : 'pi_teste_1' }), { status: 200 });
-    if (/\/refunds$/.test(url)) return new Response(JSON.stringify({ id: 're_teste_1', status: 'succeeded' }), { status: 200 });
-    return new Response('{}', { status: 200 });
-  };
-  before(async () => {
-    p = await painelComEquipa({ fetchStripe, env: { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'stripe', STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x', SITE_URL: 'https://site.teste' } });
-  });
+  const aw = airwallexFalsa();
+  before(async () => { p = await painelComEquipa({ fetchPagamentos: aw.fetch, env: ENV_AIRWALLEX }); });
   after(() => p.fechar());
-  const metodosDe = (c) => { const q = new URLSearchParams(c.op.body); return ['0', '1', '2'].map((i) => q.get(`payment_method_types[${i}]`)); };
+  const metodosDe = async (c, ref) => (await p.pedir('GET', `/api/conta/pagamentos/${ref}`, { cookie: c.cookie })).json.pagamento.airwallex.metodos;
 
-  test('Checkout: acima de 500 € sem cartão (mb_way e multibanco); a visita cancelada com mais de 24 h é reembolsada pela API do Stripe', async () => {
+  test('até 500 € só cartão, acima sem lista (a conta mostra o MB WAY); a visita cancelada com mais de 24 h é reembolsada pela API da Airwallex', async () => {
     const c = await p.contaConfirmada();
     const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
     assert.equal(env.estado, 201, env.texto);
     const id = env.json.pedido;
     const visita = env.json.pagamento;
-    assert.deepEqual(metodosDe(chamadas.at(-1)), ['card', 'mb_way', 'multibanco'], '26,20 €: com cartão');
-    // Pago (evento do Stripe): cancelar com mais de 24 h → GET da sessão (payment_intent) e POST refunds.
-    const sessao = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(visita.ref).stripe_sessao;
-    assert.equal(p.app.api.pagamentosPedido.tratarEvento({ id: 'evt_v', type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: visita.ref, amount_total: 2620, currency: 'eur', payment_status: 'paid' } } }), 'pago');
+    assert.deepEqual(await metodosDe(c, visita.ref), ['card', 'applepay', 'googlepay'], '26,20 €: só cartão');
+    // Pago: cancelar com mais de 24 h → POST refunds sobre o PaymentIntent, em euros.
+    const pi = p.app.db.prepare('SELECT prov_id FROM pagamentos_pedido WHERE ref = ?').get(visita.ref).prov_id;
+    aw.pagar(pi, 'card');
+    assert.equal(p.app.api.pagamentosPedido.tratarEvento({ id: 'evt_v', type: 'checkout.session.completed', data: { object: { id: pi, object: 'checkout.session', client_reference_id: visita.ref, amount_total: 2620, currency: 'eur', payment_status: 'paid' } } }), 'pago');
     const r = await p.pedir('POST', `/api/conta/pedidos/${id}/cancelar-visita`, { cookie: c.cookie, corpo: {} });
     assert.equal(r.estado, 200, r.texto);
-    const reembolso = chamadas.at(-1);
-    assert.match(reembolso.url, /\/v1\/refunds$/);
-    const q = new URLSearchParams(reembolso.op.body);
-    assert.deepEqual([q.get('payment_intent'), q.get('amount'), q.get('metadata[ref]')], ['pi_teste_1', '2620', visita.ref]);
-    assert.equal(reembolso.op.headers['Idempotency-Key'], `domus-reembolso-${visita.ref}`);
+    const reembolso = aw.chamadas.at(-1);
+    assert.match(reembolso.url, /\/api\/v1\/pa\/refunds\/create$/);
+    assert.deepEqual([reembolso.corpo.payment_intent_id, reembolso.corpo.amount, reembolso.corpo.metadata.ref, reembolso.corpo.request_id], [pi, 26.2, visita.ref, `domus-reembolso-${visita.ref}`]);
     assert.equal(p.app.db.prepare('SELECT estado FROM pagamentos_pedido WHERE ref = ?').get(visita.ref).estado, 'devolvido');
-    // Sinal de 738 € (> 500 €): sem cartão.
+    // Sinal de 738 € (> 500 €): sem lista de métodos.
     await p.pedir('POST', `/painel/api/orcamentos/${id}`, { cookie: p.cookies.ceo, corpo: { estado: 'proposta_enviada', valor_proposta: 2000 } });
     const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 2000, plano: 'base' } });
     assert.equal(ac.estado, 200, ac.texto);
     assert.equal(ac.json.pagamento.valor, 738);
-    assert.deepEqual(metodosDe(chamadas.at(-1)), ['mb_way', 'multibanco', null]);
+    assert.equal(await metodosDe(c, ac.json.pagamento.ref), null);
   });
 });

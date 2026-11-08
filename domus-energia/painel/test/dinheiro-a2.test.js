@@ -6,7 +6,7 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { painelComEquipa } from './ajuda.js';
+import { painelComEquipa, airwallexFalsa, ENV_AIRWALLEX } from './ajuda.js';
 import { MIGRACOES, migrar, versaoEsquema } from '../src/db.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { estadoNovo, montarSimulacao, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
@@ -402,51 +402,36 @@ describe('obra, casa, faltas e devoluções (modo simulado)', () => {
   });
 });
 
-describe('devolução manual (modo stripe)', () => {
+describe('devolução manual (modo airwallex)', () => {
   let p;
-  const chamadas = [];
-  let metodo = 'multibanco';
-  const fetchStripe = async (url, op) => {
-    chamadas.push({ url, op });
-    const params = new URLSearchParams(op.body ?? '');
-    if (/checkout\/sessions$/.test(url)) return new Response(JSON.stringify({ id: `cs_test_${chamadas.length}`, url: `https://checkout.stripe.com/c/pay/cs_test_${chamadas.length}`, amount_total: Number(params.get('line_items[0][price_data][unit_amount]')) }), { status: 200 });
-    const m = /checkout\/sessions\/(cs_test_\d+)(\?|$)/.exec(url);
-    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'complete', payment_status: 'paid', payment_intent: { id: 'pi_1', latest_charge: { payment_method_details: { type: metodo } } } }), { status: 200 });
-    return new Response(JSON.stringify({ id: 're_1', status: 'succeeded' }), { status: 200 });
-  };
-  before(async () => { p = await painelComEquipa({ fetchStripe, env: { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'stripe', STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x', SITE_URL: 'https://site.teste' } }); });
+  const aw = airwallexFalsa();
+  before(async () => { p = await painelComEquipa({ fetchPagamentos: aw.fetch, env: ENV_AIRWALLEX }); });
   after(() => p.fechar());
 
-  test('o método vem do Stripe (PaymentIntent): Multibanco → sem POST refunds, fica "à espera do IBAN"; MB Way → reembolso automático; evento assíncrono anota Multibanco', async () => {
-    const pag = p.app.api.pagamentosPedido;
-    async function visitaPaga(c, tipo = 'checkout.session.completed') {
+  test('o método vem do PaymentIntent (lido no regresso): Multibanco → sem refunds, fica "à espera do IBAN"; MB Way → reembolso automático', async () => {
+    async function visitaPaga(c, metodo) {
       const env = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: sim(), compra: 'visita' } });
       assert.equal(env.estado, 201, env.texto);
       const ref = env.json.pagamento.ref;
-      const sessao = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(ref).stripe_sessao;
-      assert.equal(pag.tratarEvento({ id: `evt_${ref}`, type: tipo, data: { object: { id: sessao, object: 'checkout.session', client_reference_id: ref, amount_total: 2620, currency: 'eur', payment_status: 'paid' } } }), 'pago');
+      aw.pagar(p.app.db.prepare('SELECT prov_id FROM pagamentos_pedido WHERE ref = ?').get(ref).prov_id, metodo);
+      // Regresso do cliente: o PaymentIntent pago é lido e o método fica anotado.
+      assert.equal((await p.pedir('GET', `/api/conta/pagamentos/${ref}`, { cookie: c.cookie })).json.pagamento.estado, 'pago');
       return { id: env.json.pedido, ref };
     }
     const c = await p.contaConfirmada();
-    // Multibanco (o PaymentIntent diz o método): nenhuma chamada a /refunds.
-    metodo = 'multibanco';
-    const a = await visitaPaga(c);
-    const n = chamadas.length;
+    // Multibanco (se a conta o oferecer): nenhuma chamada a refunds.
+    const a = await visitaPaga(c, 'multibanco');
+    const n = aw.chamadas.length;
     const r = await p.pedir('POST', `/api/conta/pedidos/${a.id}/cancelar-visita`, { cookie: c.cookie, corpo: {} });
     assert.deepEqual(r.json, { ok: true, devolvido: 26.2, manual: true });
-    assert.deepEqual(chamadas.slice(n).map((x) => [x.op.method, /refunds/.test(x.url)]), [['GET', false]], 'só leu a sessão');
-    assert.match(chamadas.at(-1).url, /expand(\[\]|%5B%5D)=payment_intent\.latest_charge$/);
+    assert.equal(aw.chamadas.slice(n).filter((x) => /refunds/.test(x.url)).length, 0);
     assert.deepEqual(Object.values(p.app.db.prepare('SELECT estado, a_devolver, metodo FROM pagamentos_pedido WHERE ref = ?').get(a.ref)), ['pago', 2620, 'multibanco']);
     assert.equal(p.app.db.prepare("SELECT COUNT(*) AS n FROM devolucoes_pedido WHERE estado = 'pede_iban'").get().n, 1);
-    // MB Way: reembolso automático pelo Stripe.
-    metodo = 'mb_way';
-    const b = await visitaPaga(c);
+    // MB Way: reembolso automático pela Airwallex.
+    const b = await visitaPaga(c, 'mb_way');
     const rb = await p.pedir('POST', `/api/conta/pedidos/${b.id}/cancelar-visita`, { cookie: c.cookie, corpo: {} });
     assert.deepEqual(rb.json, { ok: true, devolvido: 26.2, manual: false });
-    assert.match(chamadas.at(-1).url, /\/v1\/refunds$/);
+    assert.match(aw.chamadas.at(-1).url, /\/api\/v1\/pa\/refunds\/create$/);
     assert.equal(p.app.db.prepare('SELECT estado FROM pagamentos_pedido WHERE ref = ?').get(b.ref).estado, 'devolvido');
-    // Confirmado por evento assíncrono (só o Multibanco confirma depois): fica logo anotado.
-    const d = await visitaPaga(c, 'checkout.session.async_payment_succeeded');
-    assert.equal(p.app.db.prepare('SELECT metodo FROM pagamentos_pedido WHERE ref = ?').get(d.ref).metodo, 'multibanco');
   });
 });

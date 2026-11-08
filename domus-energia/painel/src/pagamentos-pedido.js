@@ -10,11 +10,14 @@
 // Dois modos (PAGAMENTOS_MODO):
 // - "simulado" (só com PAGAMENTOS_MODO=simulado explícito; o lançador local põe-no): nenhum dinheiro real. O
 //   "pagamento" abre a página do site pagamento-simulado.html, que chama POST /api/conta/pagamentos/:ref/simular; daí
-//   sai um evento com o MESMO formato de um webhook do Stripe (checkout.session.*), tratado pela mesma função
+//   sai um evento no formato interno (checkout.session.*, o do Stripe de antes), tratado pela mesma função
 //   (tratarEvento). O site e o painel mostram a faixa "Modo de demonstração — pagamentos simulados".
-// - "stripe" (por omissão com STRIPE_SECRET_KEY): Stripe Checkout (cartão, MB Way, Multibanco) pela API REST;
-//   confirmação pelo webhook assinado (POST /api/conta/pagamentos/stripe-webhook) e, no regresso do cliente, pela
-//   leitura da sessão no Stripe.
+// - "airwallex" (por omissão com AIRWALLEX_API_KEY; decisão do dono, 2026-11-08: a conta Airwallex do GestTVDE, em vez
+//   do Stripe): um PaymentIntent por pagamento (API REST, sem SDK no servidor); o site (pagar.html) leva o cliente à
+//   página de pagamento da Airwallex. Até `cartao_max_iva` só cartão (Apple Pay e Google Pay incluídos); acima, todos os
+//   métodos da conta (o MB WAY, quando a Airwallex o ativar). Confirmação pelo webhook assinado (POST
+//   /api/conta/pagamentos/airwallex-webhook) e, no regresso do cliente, pela leitura do PaymentIntent; os dois passam
+//   pelo mesmo formato interno de evento (o da página simulada) e pela mesma função.
 // Sem modo explícito e sem chave os pagamentos ficam desligados (config.pagamentoPedido = false): envia-se na mesma
 // (grátis), mas não se compra nada online.
 //
@@ -61,7 +64,8 @@ export const VISITA_HORAS = 0.5;                  // visita técnica = deslocaç
 export const FORA_HORAS_PCT_OMISSAO = 50;         // % a mais do diagnóstico e da mão de obra de uma avaria fora de horas (config `fora_horas_pct`)
 export const VALIDADE_MS = 24 * 3600_000;         // um pagamento por pagar expira (e o pedido guardado sai) ao fim de 24 h
 const FOTOS_DEPOIS_MS = 2 * 3600_000;             // token das fotos só nas 2 h a seguir ao pagamento da avaria
-const TOLERANCIA_WEBHOOK_S = 300;
+// A Airwallex reenvia um evento falhado com o x-timestamp original durante dias (o GestTVDE aceita 4).
+const TOLERANCIA_WEBHOOK_MS = 4 * 24 * 3600_000;
 const RE_REF = /^pp_[A-Za-z0-9_-]{22}$/;
 export const PLANOS_MENSAIS = ['base', 'conforto', 'premium'];
 const NOME_PLANO = { base: 'Base', conforto: 'Conforto', premium: 'Premium' };
@@ -177,13 +181,11 @@ export function intervaloEstimativa(total, cfg) {
   return { min: Math.max(0, arredondar5(total * (1 - menos))), max: arredondar5(total * (1 + mais)) };
 }
 /**
- * Métodos de pagamento de um valor (cêntimos c/ IVA): acima de `cartao_max_iva` (500 €) sai o cartão (uma contestação
- * de cartão tira o dinheiro depois da obra feita) e ficam o Multibanco e o MB Way.
+ * Métodos de pagamento de um valor (cêntimos c/ IVA). Decisão do dono (2026-11-08, Airwallex): até `cartao_max_iva`
+ * (500 €) só cartão; acima, cartão e MB WAY (na Airwallex o MB WAY só aparece quando está ativo na conta).
  */
-export function metodosPagamento(valorCent, cfg, metodos) {
-  if (valorCent <= Math.round(numCfg(cfg, 'cartao_max_iva', CARTAO_MAX_OMISSAO) * 100)) return [...metodos];
-  const sem = metodos.filter((m) => m !== 'card');
-  return sem.length ? sem : ['multibanco'];
+export function metodosPagamento(valorCent, cfg) {
+  return valorCent <= Math.round(numCfg(cfg, 'cartao_max_iva', CARTAO_MAX_OMISSAO) * 100) ? ['card'] : ['card', 'mb_way'];
 }
 /** Dias de obra, como o simulador (preco.js diasDeObra): horas ÷ `horas_por_dia` (8), para cima; pelo menos 1. */
 export function diasDeObra(horas, cfg) {
@@ -212,7 +214,7 @@ export const foraHorasPct = (cfg) => Math.min(200, numCfg(cfg, 'fora_horas_pct',
  * @param {{db, config, registo, relogio: () => number, auditar: Function, correio: object, fotos: object,
  *   sessao: (req, res) => object|null, criarOrcamento: (pedido: object, contaId: number) => number, stock?: object, fetch?: typeof fetch}} ctx
  */
-export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchStripe = globalThis.fetch,
+export function criarPagamentosPedido({ db, config, registo, relogio, auditar, correio, fotos, sessao, criarOrcamento, stock = null, criarObra = null, fetch: fetchPagamentos = globalThis.fetch,
   visitaSemDefeito = () => null, clienteConfirmou = () => null, aoAvariaPaga = () => null }) {
   const modo = config.pagamentosModo;
   // Fluxo das propostas na bolsa (docs/ELETRICISTAS.md "Propostas na bolsa"): só com o módulo dos eletricistas e
@@ -222,9 +224,9 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const limitePagar = new LimiteTaxa(30, 3600_000, relogio);   // "Pagar", por conta
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
   const linha = (ref) => db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
-  // Passagem de simulado a Stripe (lacuna 5, 2026-11-08): os simulados por pagar já não se podem pagar (a página simulada
-  // dá 404) e saem; os simulados pagos continuariam a contar como dinheiro recebido — só se avisa, para os limpar antes de abrir.
-  if (modo === 'stripe') {
+  // Passagem de simulado a pagamentos reais (lacuna 5, 2026-11-08): os simulados por pagar já não se podem pagar (a página
+  // simulada dá 404) e saem; os simulados pagos continuariam a contar como dinheiro recebido — só se avisa, para os limpar antes de abrir.
+  if (modo === 'airwallex') {
     db.prepare("UPDATE pagamentos_pedido SET estado = 'cancelado', pedido = NULL WHERE modo = 'simulado' AND estado = 'pendente'").run();
     const n = db.prepare("SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE modo = 'simulado' AND estado IN ('pago', 'devolvido')").get().n;
     if (n) registo.aviso(`pagamentos: há ${n} pagamento(s) SIMULADO(S) dados como pagos nesta base — contam como recebidos nos pedidos e nos totais. Apague os pedidos de demonstração antes de abrir.`);
@@ -259,8 +261,18 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     };
     if (p.estado === 'pendente') {
       r.url = urlPagar(p);
-      // Os métodos oferecidos (acima do limite do cartão: só Multibanco ou MB Way); a página simulada mostra-os.
-      r.metodos = metodosPagamento(p.valor_cent, lerConfigOrc(), config.stripeMetodos ?? []).map((m) => NOME_METODO[m] ?? m);
+      // Os métodos oferecidos (acima do limite do cartão também MB Way); a página simulada mostra-os.
+      const metodos = metodosPagamento(p.valor_cent, lerConfigOrc());
+      r.metodos = metodos.map((m) => NOME_METODO[m] ?? m);
+      // O que a página pagar.html precisa para abrir o pagamento na Airwallex (só a conta dona chega aqui: `daConta`).
+      if (p.modo === 'airwallex' && p.prov_id && p.prov_segredo && config.siteUrl) {
+        r.airwallex = {
+          intent_id: p.prov_id, client_secret: p.prov_segredo, moeda: 'EUR', ambiente: config.airwallexProducao ? 'prod' : 'demo',
+          // Até ao limite, só os métodos de cartão; acima, sem lista: a página mostra todos os da conta (o MB WAY também).
+          metodos: metodos.includes('mb_way') ? null : config.airwallexMetodos,
+          sucesso: `${config.siteUrl}/${voltar(p)}`, cancelar: `${config.siteUrl}/${voltar(p)}&cancelado=1`,
+        };
+      }
     }
     if (p.devolvido_cent) { r.devolvido = deCent(p.devolvido_cent); r.devolvido_em = p.devolvido; }
     if (p.a_devolver) r.a_devolver = deCent(p.a_devolver);
@@ -277,57 +289,82 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return r;
   }
 
-  /** Para onde vai o browser para pagar: a página simulada do site, ou a sessão do Stripe Checkout. */
+  /** Para onde vai o browser para pagar: a página simulada do site, ou a pagar.html (que abre a página da Airwallex). */
   function urlPagar(p) {
     if (p.modo === 'simulado') return `pagamento-simulado.html?ref=${encodeURIComponent(p.ref)}`;
-    return p.stripe_url ?? null;
+    if (p.modo === 'airwallex') return p.prov_id ? `pagar.html?ref=${encodeURIComponent(p.ref)}` : null;
+    return null;
   }
   /** Para onde volta depois do pagamento (sem nada vindo do browser: só o que ficou guardado). */
   const voltar = (p) => `${p.retorno === 'simulador' ? 'simulador.html' : 'conta.html'}?pagamento=${encodeURIComponent(p.ref)}`;
 
-  // ------------------------------------------------------------ Stripe (API REST, sem SDK)
-  async function stripe(metodo, caminho, params, idem) {
-    if (!config.stripeChave) throw new ErroApi(503, 'Os pagamentos ainda não estão configurados neste servidor.');
-    const corpo = params ? new URLSearchParams(params).toString() : undefined;
-    const r = await fetchStripe(`${config.stripeApi}/v1/${caminho}`, {
-      method: metodo,
-      headers: {
-        Authorization: `Bearer ${config.stripeChave}`,
-        ...(corpo ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
-        ...(idem ? { 'Idempotency-Key': idem } : {}),
-      },
-      body: corpo,
+  // ------------------------------------------------------------ Airwallex (API REST, sem SDK; como o GestTVDE)
+  // Os valores na Airwallex são em euros com casas decimais (9.9), não em cêntimos.
+  const emEuros = (cent) => Math.round(cent) / 100;
+  const emCent = (valor) => Math.round(Number(valor) * 100);
+  let token = null;   // dura ~30 min; renova-se 1 min antes
+  async function tokenAirwallex() {
+    if (token && token.expira > relogio() + 60_000) return token.valor;
+    const r = await fetchPagamentos(`${config.airwallexApi}/api/v1/authentication/login`, {
+      method: 'POST', headers: { 'x-client-id': config.airwallexCliente ?? '', 'x-api-key': config.airwallexChave ?? '' }, signal: AbortSignal.timeout(20_000),
+    });
+    const j = await r.json().catch(() => null);
+    if (!r.ok || typeof j?.token !== 'string') {
+      registo.erro(`airwallex login: ${r.status} ${j?.code ?? ''}`);
+      throw new ErroApi(502, 'O serviço de pagamentos não respondeu. Tente de novo daqui a pouco.');
+    }
+    // A Airwallex escreve o fuso sem os dois pontos (`+0000`).
+    const expira = Date.parse(String(j.expires_at ?? '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+    token = { valor: j.token, expira: Number.isFinite(expira) ? expira : relogio() + 25 * 60_000 };
+    return token.valor;
+  }
+  /** GET (sem corpo) ou POST (com corpo). Um erro HTTP lança 502; só o código vai para o registo (a mensagem pode trazer o email). */
+  async function airwallex(caminho, corpo) {
+    if (!config.airwallexChave || !config.airwallexCliente) throw new ErroApi(503, 'Os pagamentos ainda não estão configurados neste servidor.');
+    const r = await fetchPagamentos(`${config.airwallexApi}${caminho}`, {
+      method: corpo === undefined ? 'GET' : 'POST',
+      headers: { Authorization: `Bearer ${await tokenAirwallex()}`, 'Content-Type': 'application/json' },
+      body: corpo === undefined ? undefined : JSON.stringify(corpo),
       signal: AbortSignal.timeout(20_000),
     });
     const j = await r.json().catch(() => null);
     if (!r.ok) {
-      registo.erro(`stripe ${metodo} ${caminho}: ${r.status} ${j?.error?.message ?? ''}`);
+      if (r.status === 401) token = null;
+      registo.erro(`airwallex ${caminho.split('/').slice(0, 5).join('/')}: ${r.status} ${j?.code ?? ''}`);
       throw new ErroApi(502, 'O serviço de pagamentos não respondeu. Tente de novo daqui a pouco.');
     }
-    return j;
+    return j ?? {};
   }
 
-  async function sessaoStripe(p, email) {
+  /** Cria o PaymentIntent do pagamento (a chave de idempotência é a referência: um repetido devolve o mesmo). */
+  async function intentAirwallex(p) {
     if (!config.siteUrl) throw new ErroApi(503, 'Os pagamentos ainda não estão configurados neste servidor (falta o endereço do site).');
-    const params = {
-      mode: 'payment',
-      client_reference_id: p.ref,
-      'metadata[ref]': p.ref,
-      'metadata[fase]': p.fase,
-      'line_items[0][quantity]': '1',
-      'line_items[0][price_data][currency]': 'eur',
-      'line_items[0][price_data][unit_amount]': String(p.valor_cent),
-      'line_items[0][price_data][product_data][name]': p.descricao.slice(0, 250),
-      success_url: `${config.siteUrl}/${voltar(p)}`,
-      cancel_url: `${config.siteUrl}/${voltar(p)}&cancelado=1`,
-      expires_at: String(Math.floor(Math.min(p.expira, relogio() + VALIDADE_MS - 60_000) / 1000)),
-      locale: 'pt',
-    };
-    if (email) params.customer_email = email;
-    metodosPagamento(p.valor_cent, lerConfigOrc(), config.stripeMetodos).forEach((m, i) => { params[`payment_method_types[${i}]`] = m; });
-    const s = await stripe('POST', 'checkout/sessions', params, `domus-${p.ref}`);
-    db.prepare('UPDATE pagamentos_pedido SET stripe_sessao = ?, stripe_url = ?, atualizado = ? WHERE id = ?').run(s.id, s.url, agoraIso(), p.id);
+    const pi = await airwallex('/api/v1/pa/payment_intents/create', {
+      request_id: `domus-${p.ref}`, amount: emEuros(p.valor_cent), currency: 'EUR', merchant_order_id: p.ref,
+      descriptor: 'Domus Energia', return_url: `${config.siteUrl}/${voltar(p)}`, metadata: { ref: p.ref, fase: p.fase },
+    });
+    if (typeof pi.id !== 'string' || typeof pi.client_secret !== 'string') {
+      registo.erro(`airwallex: PaymentIntent de ${p.ref} sem id ou client_secret`);
+      throw new ErroApi(502, 'O serviço de pagamentos não respondeu. Tente de novo daqui a pouco.');
+    }
+    db.prepare('UPDATE pagamentos_pedido SET prov_id = ?, prov_segredo = ?, atualizado = ? WHERE id = ?').run(pi.id, pi.client_secret, agoraIso(), p.id);
     return linha(p.ref);
+  }
+  /**
+   * Um PaymentIntent lido na Airwallex no formato interno de evento (o mesmo da página simulada): pago, cancelado, ou
+   * null (ainda a decorrer). O método usado fica anotado (uma devolução de um Multibanco é manual).
+   */
+  function eventoDoIntent(id, pi, p) {
+    const tipo = pi.status === 'SUCCEEDED' ? 'checkout.session.completed' : pi.status === 'CANCELLED' ? 'checkout.session.expired' : null;
+    if (!tipo) return null;
+    const metodo = pi.latest_payment_attempt?.payment_method?.type;
+    if (tipo === 'checkout.session.completed' && typeof metodo === 'string' && /^[a-z_]{2,40}$/.test(metodo) && !p.metodo) {
+      db.prepare('UPDATE pagamentos_pedido SET metodo = ? WHERE id = ?').run(metodo, p.id);
+    }
+    return { id, type: tipo, data: { object: {
+      id: pi.id, object: 'checkout.session', client_reference_id: pi.merchant_order_id ?? pi.metadata?.ref, amount_total: emCent(pi.amount),
+      currency: String(pi.currency ?? '').toLowerCase(), payment_status: tipo === 'checkout.session.completed' ? 'paid' : 'unpaid',
+    } } };
   }
 
   /** Pagamento da "visita sem defeito" (visitaExtra): fase `visita` sem visita por marcar (`com_visita` = 0) e que não desconta (`faltou`). */
@@ -337,15 +374,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const emailConta = (id) => db.prepare('SELECT email FROM contas WHERE id = ?').get(id)?.email ?? null;
 
   async function novo({ contaId, orcamentoId = null, fase, valorCent, descricao, retorno, comVisita = null, plano = null, pedido = null, ivaPct = null }) {
-    if (modo === 'stripe' && !config.stripeChave) throw new ErroApi(503, 'Os pagamentos ainda não estão configurados neste servidor.');
+    if (modo === 'airwallex' && (!config.airwallexChave || !config.airwallexCliente)) throw new ErroApi(503, 'Os pagamentos ainda não estão configurados neste servidor.');
     const ref = `pp_${randomBytes(16).toString('base64url')}`;
     const agora = agoraIso();
     db.prepare(`INSERT INTO pagamentos_pedido (ref, conta_id, orcamento_id, fase, valor_cent, descricao, estado, modo, retorno, com_visita, plano, pedido, criado, atualizado, expira, iva_pct)
       VALUES (?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(ref, contaId, orcamentoId, fase, valorCent, descricao, modo, retorno, comVisita === null ? null : comVisita ? 1 : 0, plano, pedido, agora, agora, relogio() + VALIDADE_MS, ivaPct ?? ivaAtual());
     let p = linha(ref);
-    if (modo === 'stripe') {
-      try { p = await sessaoStripe(p, emailConta(contaId)); } catch (e) {
+    if (modo === 'airwallex') {
+      try { p = await intentAirwallex(p); } catch (e) {
         db.prepare('DELETE FROM pagamentos_pedido WHERE id = ?').run(p.id);
         throw e;
       }
@@ -695,7 +732,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   /**
    * O CEO cancela a obra antes de ela ser feita e devolve o sinal (todo, ou `valorCent`: o sinal menos o material já
-   * encomendado e os serviços prestados): Stripe → reembolso; modo simulado → só fica marcado. Devolve {ref, cent, modo}.
+   * encomendado e os serviços prestados): Airwallex → reembolso; modo simulado → só fica marcado. Devolve {ref, cent, modo}.
    */
   async function devolverSinal(o, valorCent = null) {
     const p = pagoDe(o.id, 'sinal');
@@ -747,29 +784,28 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   }
 
   /**
-   * Devolve `cent` de um pagamento pago. Cartão e MB Way: automático pelo Stripe (API REST, sobre o PaymentIntent da
-   * sessão do Checkout); modo simulado: só fica marcado. Pago por referência Multibanco (o Stripe não devolve sozinho):
+   * Devolve `cent` de um pagamento pago. Cartão e MB Way: automático pela Airwallex (refunds sobre o PaymentIntent; o
+   * MB Way até 120 dias); modo simulado: só fica marcado. Pago por referência Multibanco (se a conta o oferecer):
    * devolução MANUAL por transferência — fica uma linha em `devolucoes_pedido` à espera do IBAN do cliente e o
    * pagamento com `a_devolver`; só conta como devolvido quando o CEO a marca como feita (`marcarDevolvida`).
    * `tiraVisita`: o pagamento deixa de valer como visita paga. Devolve {ref, cent, modo, manual}.
    * `horario` (decisão do dono, 2026-10-13): é a diferença de uma avaria paga fora de horas cuja visita ficou em horário
    * normal — o pagamento continua a valer, fica marcado (`fora_horas_devolvida`: só se devolve uma vez) e tem a sua
-   * própria chave de idempotência no Stripe. É a única devolução que deixa outra vir por cima: se o cliente cancelar
+   * própria chave de idempotência na Airwallex. É a única devolução que deixa outra vir por cima: se o cliente cancelar
    * depois o diagnóstico, devolve-se o resto (as somas juntam-se; o UPDATE só muda a linha se ninguém lhe mexeu entretanto).
    */
   async function devolver(p, cent, motivo, { tiraVisita = false, horario = false } = {}) {
     let metodo = p.metodo ?? null;
-    let pi = null;
-    if (p.modo === 'stripe') {
-      if (!p.stripe_sessao) throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
-      const s = await stripe('GET', `checkout/sessions/${encodeURIComponent(p.stripe_sessao)}?expand[]=payment_intent.latest_charge`);
-      pi = typeof s.payment_intent === 'string' ? s.payment_intent : s.payment_intent?.id;
-      metodo ??= s.payment_intent?.latest_charge?.payment_method_details?.type ?? null;
-      if (!pi) throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
+    // Os pagamentos antigos do Stripe (nunca ligado a sério) não se devolvem daqui.
+    if (p.modo === 'stripe') throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
+    if (p.modo === 'airwallex') {
+      if (!p.prov_id) throw new ErroApi(409, 'Não foi possível devolver este pagamento automaticamente. Fale connosco.');
+      if (!metodo) metodo = (await airwallex(`/api/v1/pa/payment_intents/${encodeURIComponent(p.prov_id)}`)).latest_payment_attempt?.payment_method?.type ?? null;
     }
     const manual = metodo === 'multibanco';
-    if (!manual && p.modo === 'stripe') {
-      await stripe('POST', 'refunds', { payment_intent: pi, amount: String(cent), reason: 'requested_by_customer', 'metadata[ref]': p.ref }, `domus-reembolso-${p.ref}${horario ? '-horario' : ''}`);
+    if (!manual && p.modo === 'airwallex') {
+      await airwallex('/api/v1/pa/refunds/create', { request_id: `domus-reembolso-${p.ref}${horario ? '-horario' : ''}`, payment_intent_id: p.prov_id,
+        amount: emEuros(cent), reason: 'requested_by_customer', metadata: { ref: p.ref } });
     }
     const agora = agoraIso();
     const visita = tiraVisita ? ', com_visita = 0' : '';
@@ -856,7 +892,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   }
 
   /**
-   * O cliente cancela a visita técnica com mais de 24 h de antecedência: a visita é devolvida (Stripe: reembolso; modo
+   * O cliente cancela a visita técnica com mais de 24 h de antecedência: a visita é devolvida (Airwallex: reembolso; modo
    * simulado: só fica marcada), a data sai e o pedido volta a "contactado". A visita comprada com o relatório devolve
    * só a parte da visita (o pagamento continua `pago`, com `devolvido_cent`).
    */
@@ -1053,7 +1089,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   function cancelar(p, motivo) {
     db.prepare('UPDATE pagamentos_pedido SET estado = \'cancelado\', pedido = NULL, atualizado = ? WHERE id = ? AND estado = \'pendente\'').run(agoraIso(), p.id);
     auditar(null, 'pagamento_cancelado', p.orcamento_id ? `orcamento:${p.orcamento_id}` : `conta:${p.conta_id}`, { ref: p.ref, fase: p.fase, motivo });
-    if (p.modo === 'stripe' && p.stripe_sessao) stripe('POST', `checkout/sessions/${p.stripe_sessao}/expire`).catch(() => {});
+    if (p.modo === 'airwallex' && p.prov_id) airwallex(`/api/v1/pa/payment_intents/${encodeURIComponent(p.prov_id)}/cancel`, { request_id: `domus-cancelar-${p.ref}` }).catch(() => {});
   }
 
   /** O painel mudou a proposta de um pedido aceite a aguardar o sinal: o sinal por pagar sai e o cliente aceita de novo. */
@@ -1063,13 +1099,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     db.prepare('UPDATE orcamentos SET proposta_aceite = NULL WHERE id = ? AND estado = \'proposta_enviada\'').run(orcamentoId);
   }
 
-  // ------------------------------------------------------------ eventos (webhook do Stripe e simulação)
+  // ------------------------------------------------------------ eventos (webhook da Airwallex e simulação)
   const eventoVisto = db.prepare('SELECT 1 FROM pagamentos_eventos WHERE id = ?');
   const marcarEvento = db.prepare('INSERT OR IGNORE INTO pagamentos_eventos (id, recebido) VALUES (?, ?)');
 
   /**
-   * Trata um evento no formato do Stripe ({id, type, data: {object: checkout.session}}), venha do webhook, do
-   * regresso do cliente (sessão lida no Stripe) ou da página simulada. Idempotente: o mesmo id não é tratado duas
+   * Trata um evento no formato interno ({id, type, data: {object: checkout.session}}, o do Stripe de antes), venha do
+   * webhook ou do regresso do cliente (o PaymentIntent lido na Airwallex: eventoDoIntent) ou da página simulada. Idempotente: o mesmo id não é tratado duas
    * vezes e um pagamento pago não volta a ser pago. Devolve 'pago' | 'falhado' | 'cancelado' | 'repetido' | 'ignorado'.
    */
   function tratarEvento(ev) {
@@ -1079,16 +1115,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     const ref = s?.client_reference_id ?? s?.metadata?.ref;
     const p = typeof ref === 'string' && RE_REF.test(ref) ? linha(ref) : null;
     if (!p || !s || s.object !== 'checkout.session') { marcarEvento.run(ev.id, agoraIso()); return 'ignorado'; }
-    // Só vale para o pagamento certo: mesma sessão (Stripe), mesmo valor e em euros.
-    if ((p.modo === 'stripe' && s.id !== p.stripe_sessao) || s.amount_total !== p.valor_cent || String(s.currency).toLowerCase() !== 'eur') {
+    // Só vale para o pagamento certo: o mesmo PaymentIntent (Airwallex), o mesmo valor e em euros.
+    if ((p.modo !== 'simulado' && s.id !== p.prov_id) || s.amount_total !== p.valor_cent || String(s.currency).toLowerCase() !== 'eur') {
       registo.aviso(`pagamento ${p.ref}: evento ${ev.id} não corresponde (sessão, valor ou moeda) — ignorado`);
       marcarEvento.run(ev.id, agoraIso());
       return 'ignorado';
     }
     let r = 'ignorado';
-    // O Multibanco é o único método que confirma depois (evento assíncrono): fica anotado para uma devolução futura.
-    if (ev.type === 'checkout.session.async_payment_succeeded' && !p.metodo) db.prepare("UPDATE pagamentos_pedido SET metodo = 'multibanco' WHERE id = ?").run(p.id);
-    if ((ev.type === 'checkout.session.completed' && s.payment_status === 'paid') || ev.type === 'checkout.session.async_payment_succeeded') r = confirmar(p);
+    // O método usado já vem anotado (eventoDoIntent, ou a página simulada).
+    if (ev.type === 'checkout.session.completed' && s.payment_status === 'paid') r = confirmar(p);
     else if (ev.type === 'checkout.session.async_payment_failed') r = falhar(p, 'falhado');
     else if (ev.type === 'checkout.session.expired') r = falhar(p, 'cancelado');
     marcarEvento.run(ev.id, agoraIso());
@@ -1130,11 +1165,11 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       correio.enviar({ para: email, assunto, resumo: assunto, texto: ['Olá,', '',
         `Entrou um pagamento de ${euro(p.valor_cent)} (${p.descricao}) que o programa não aplicou: ${TEXTO_POR_TRATAR[motivo]}.`,
         `Referência: ${p.ref}${p.orcamento_id ? ` · pedido n.º ${p.orcamento_id}` : ''}`, '',
-        'Decida no Stripe (devolver, ou acertar com o cliente) e marque-o como tratado no painel, em Pagamentos.', ...painel, '', 'Domus Energia'].join('\n') });
+        'Decida na Airwallex (devolver, ou acertar com o cliente) e marque-o como tratado no painel, em Pagamentos.', ...painel, '', 'Domus Energia'].join('\n') });
     }
     return 'por_tratar';
   }
-  /** O CEO tratou um pagamento por tratar (devolveu-o no Stripe ou acertou com o cliente). */
+  /** O CEO tratou um pagamento por tratar (devolveu-o na Airwallex ou acertou com o cliente). */
   function marcarTratado(ref, por) {
     const u = db.prepare('UPDATE pagamentos_pedido SET tratado = ?, tratado_por = ?, atualizado = ? WHERE ref = ? AND por_tratar IS NOT NULL AND tratado IS NULL').run(agoraIso(), por, agoraIso(), ref);
     if (!u.changes) throw new ErroApi(404, 'Este pagamento não está por tratar.');
@@ -1149,7 +1184,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     db.exec('BEGIN IMMEDIATE');
     let orcamentoId = p.orcamento_id;
     try {
-      // Um pagamento que o Stripe confirma depois de expirado (ex.: Multibanco pago tarde) também conta: o dinheiro entrou.
+      // Um pagamento que a Airwallex confirma depois de expirado aqui (ex.: pago tarde) também conta: o dinheiro entrou.
       const u = db.prepare(`UPDATE pagamentos_pedido SET estado = 'pago', pago = ?, atualizado = ? WHERE id = ? AND estado != 'pago'`).run(agoraIso(), agoraIso(), p.id);
       if (!u.changes) { db.exec('ROLLBACK'); return 'repetido'; }
       // A avaria (e os 19 € antigos por pagar) guardam o pedido no pagamento: só agora passa a orçamento.
@@ -1210,16 +1245,15 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
       texto: texto.join('\n'), resumo: `pagamento ${tipo} ${p.ref} (${p.fase}, ${euro(p.valor_cent)}${p.modo === 'simulado' ? ', simulado' : ''})` });
   }
 
-  /** Stripe: no regresso do cliente, lê a sessão e trata-a como um evento (o webhook pode chegar depois). */
+  /** Airwallex: no regresso do cliente, lê o PaymentIntent e trata-o como um evento (o webhook pode chegar depois). */
   async function sincronizar(p) {
-    if (p.modo !== 'stripe' || p.estado !== 'pendente' || !p.stripe_sessao || !config.stripeChave) return p;
+    if (p.modo !== 'airwallex' || p.estado !== 'pendente' || !p.prov_id || !config.airwallexChave) return p;
     try {
-      const s = await stripe('GET', `checkout/sessions/${encodeURIComponent(p.stripe_sessao)}`);
-      const tipo = s.status === 'complete' && s.payment_status === 'paid' ? 'checkout.session.completed'
-        : s.status === 'expired' ? 'checkout.session.expired' : null;
-      if (tipo) tratarEvento({ id: `ret_${s.id}_${s.status}_${s.payment_status}`, type: tipo, data: { object: s } });
+      const pi = await airwallex(`/api/v1/pa/payment_intents/${encodeURIComponent(p.prov_id)}`);
+      const ev = eventoDoIntent(`ret_${pi.id}_${pi.status}`, pi, p);
+      if (ev) tratarEvento(ev);
     } catch (e) {
-      registo.aviso(`pagamento ${p.ref}: não foi possível ler a sessão no Stripe (${e.message})`);
+      registo.aviso(`pagamento ${p.ref}: não foi possível ler o pagamento na Airwallex (${e.message})`);
     }
     return linha(p.ref);
   }
@@ -1789,7 +1823,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
 
   // ------------------------------------------------------------ rotas (/api/conta/pagamentos/*, pedidos/:id/pagar|relatorio)
   const ROTAS = [
-    ['POST', /^\/api\/conta\/pagamentos\/stripe-webhook$/, 'webhook'],
+    ['POST', /^\/api\/conta\/pagamentos\/airwallex-webhook$/, 'webhook'],
     ['GET', /^\/api\/conta\/pagamentos\/(pp_[A-Za-z0-9_-]{22})$/, 'ver'],
     ['POST', /^\/api\/conta\/pagamentos\/(pp_[A-Za-z0-9_-]{22})\/simular$/, 'simular'],
     ['POST', /^\/api\/conta\/pedidos\/(\d+)\/pagar$/, 'pagar'],
@@ -1816,7 +1850,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   h.ver = async ({ res, c, m, url }) => {
     expirar();
     let p = daConta(c, m[1]);
-    if (url.searchParams.get('cancelado') === '1' && p.estado === 'pendente' && p.modo === 'stripe') {
+    if (url.searchParams.get('cancelado') === '1' && p.estado === 'pendente' && p.modo === 'airwallex') {
       p = await sincronizar(p);
       if (p.estado === 'pendente') { cancelar(p, 'cliente_desistiu'); p = linha(p.ref); }
     } else {
@@ -1831,7 +1865,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     responder(res, 200, r);
   };
 
-  // Página simulada: só no modo simulado (no modo stripe responde como se não existisse).
+  // Página simulada: só no modo simulado (no modo airwallex responde como se não existisse).
   h.simular = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido || modo !== 'simulado') throw new ErroApi(404, 'Endereço desconhecido.');
     const v = await lerJson(req, ['resultado', 'metodo']);
@@ -1864,7 +1898,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   // Sinal, restante e (fase 3) as compras do pedido: relatório completo, visita técnica ou os dois.
   h.pagar = async ({ req, res, c, m, ip }) => {
     if (!config.pagamentoPedido) throw new ErroApi(404, 'Endereço desconhecido.');
-    // Por conta: cada pedido pode criar (ou trocar) uma sessão no Stripe — sem limite, uma conta gastava a quota de todos.
+    // Por conta: cada pedido pode criar (ou trocar) um pagamento na Airwallex — sem limite, uma conta gastava a quota de todos.
     const s = limitePagar.espera(String(c.id));
     if (s) throw new ErroApi(429, `Demasiadas tentativas. Tente de novo dentro de ${s > 90 ? `${Math.ceil(s / 60)} min` : `${s} s`}.`, { 'Retry-After': String(s) });
     limitePagar.registar(String(c.id));
@@ -1909,32 +1943,44 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     responder(res, 200, { relatorio: r });
   };
 
+  /**
+   * Webhook da Airwallex (payment_intent.succeeded | payment_intent.cancelled). A conta é a do GestTVDE: os pagamentos
+   * que não são daqui (sem referência pp_…) ficam só marcados. Dos nossos, o PaymentIntent é lido na Airwallex (a ordem
+   * dos eventos não é garantida e o que manda é o estado de agora) e passa pelo formato interno (eventoDoIntent).
+   */
   async function webhook(req, res) {
-    if (modo !== 'stripe') return responder(res, 404, { erro: 'Endereço desconhecido.' });
-    if (!config.stripeWebhookSegredo) return responder(res, 503, { erro: 'Os pagamentos ainda não estão configurados neste servidor.' });
+    if (modo !== 'airwallex') return responder(res, 404, { erro: 'Endereço desconhecido.' });
+    if (!config.airwallexWebhookSegredo) return responder(res, 503, { erro: 'Os pagamentos ainda não estão configurados neste servidor.' });
     const bruto = await lerCorpo(req, 512 * 1024);
-    if (!assinaturaValida(bruto, req.headers['stripe-signature'])) return responder(res, 400, { erro: 'Assinatura inválida.' });
+    if (!assinaturaValida(bruto, req.headers['x-timestamp'], req.headers['x-signature'])) return responder(res, 400, { erro: 'Assinatura inválida.' });
     let ev;
     try { ev = JSON.parse(bruto.toString('utf8')); } catch { return responder(res, 400, { erro: 'JSON inválido.' }); }
+    if (!ev || typeof ev.id !== 'string' || typeof ev.name !== 'string') return responder(res, 400, { erro: 'Evento inválido.' });
     try {
-      const r = tratarEvento(ev);
-      responder(res, 200, { recebido: true, resultado: r });
+      if (eventoVisto.get(ev.id)) return responder(res, 200, { recebido: true, resultado: 'repetido' });
+      const obj = ev.data?.object ?? ev.data ?? {};
+      const ref = obj.merchant_order_id ?? obj.metadata?.ref;
+      const p = ['payment_intent.succeeded', 'payment_intent.cancelled'].includes(ev.name) && typeof ref === 'string' && RE_REF.test(ref) ? linha(ref) : null;
+      if (!p || p.modo !== 'airwallex' || typeof obj.id !== 'string' || obj.id !== p.prov_id) {
+        marcarEvento.run(ev.id, agoraIso());
+        return responder(res, 200, { recebido: true, resultado: 'ignorado' });
+      }
+      const pi = await airwallex(`/api/v1/pa/payment_intents/${encodeURIComponent(p.prov_id)}`);
+      const interno = eventoDoIntent(ev.id, pi, p);
+      responder(res, 200, { recebido: true, resultado: interno ? tratarEvento(interno) : 'ignorado' });
     } catch {
-      responder(res, 500, { erro: 'Erro temporário.' });   // o Stripe repete
+      responder(res, 500, { erro: 'Erro temporário.' });   // a Airwallex repete
     }
   }
 
-  /** Stripe-Signature: t=<s>,v1=<hex> — HMAC-SHA256 de "<t>.<corpo>" com o segredo do webhook, até 5 min. */
-  function assinaturaValida(bruto, cab) {
-    if (typeof cab !== 'string') return false;
-    const partes = cab.split(',').map((x) => x.split('='));
-    const t = Number(partes.find(([k]) => k === 't')?.[1]);
-    if (!Number.isFinite(t) || Math.abs(relogio() / 1000 - t) > TOLERANCIA_WEBHOOK_S) return false;
-    const esperado = createHmac('sha256', config.stripeWebhookSegredo).update(`${t}.`).update(bruto).digest();
-    return partes.filter(([k]) => k === 'v1').some(([, v]) => {
-      const b = Buffer.from(String(v), 'hex');
-      return b.length === esperado.length && timingSafeEqual(b, esperado);
-    });
+  /** x-signature = HMAC-SHA256 hex de "<x-timestamp><corpo cru>" com o segredo do webhook (como no GestTVDE). */
+  function assinaturaValida(bruto, quando, assinatura) {
+    if (typeof quando !== 'string' || typeof assinatura !== 'string') return false;
+    const t = Number(quando);
+    if (!Number.isFinite(t) || Math.abs(relogio() - t) > TOLERANCIA_WEBHOOK_MS) return false;
+    const esperado = createHmac('sha256', config.airwallexWebhookSegredo).update(quando).update(bruto).digest();
+    const b = Buffer.from(assinatura.trim().toLowerCase(), 'hex');
+    return b.length === esperado.length && timingSafeEqual(b, esperado);
   }
 
   /** Trata a rota (true) ou devolve false (não é daqui). */

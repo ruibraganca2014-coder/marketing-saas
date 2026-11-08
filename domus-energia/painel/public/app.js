@@ -95,7 +95,7 @@ function normalizarEu(r) {
 function faixaPagamentos() {
   $("faixa-pagamentos")?.remove();
   const p = eu?.pagamentos;
-  const texto = p?.demonstracao ? "Modo de demonstração — pagamentos simulados: não é cobrado nada e qualquer pessoa pode \"pagar\". Para pagamentos reais: PAGAMENTOS_MODO=stripe e as chaves do Stripe no .env."
+  const texto = p?.demonstracao ? "Modo de demonstração — pagamentos simulados: não é cobrado nada e qualquer pessoa pode \"pagar\". Para pagamentos reais: PAGAMENTOS_MODO=airwallex e as chaves da Airwallex no .env."
     : p?.desligados_sem_configuracao ? "Pagamentos online ainda desligados: os pedidos chegam na mesma."
       : null;
   if (texto) document.querySelector(".topo-painel").after(h("div", { class: `faixa-pagamentos${p?.demonstracao ? " demonstracao" : ""}`, id: "faixa-pagamentos", role: "note", text: texto }));

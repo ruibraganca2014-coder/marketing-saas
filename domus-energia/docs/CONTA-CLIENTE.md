@@ -126,7 +126,7 @@ Exemplo: o site em `https://domusenergia.pt` (Vercel) e o painel, a API, o MQTT 
 | POST | `pedidos/:id/pagar` | confirmada | `{fase: sinal\|restante}` → `{pagamento}` (PAGAMENTOS-PEDIDO.md) |
 | GET | `pedidos/:id/relatorio` | confirmada | relatório técnico do cliente; 409 em revisão |
 | GET / POST | `pagamentos/:ref`, `pagamentos/:ref/simular` | confirmada (conta dona) | estado e recibo de um pagamento; pagamento simulado (só no modo simulado) |
-| POST | `pagamentos/stripe-webhook` | — (assinatura do Stripe) | só no modo stripe |
+| POST | `pagamentos/airwallex-webhook` | — (assinatura da Airwallex) | só no modo airwallex |
 | GET | `casa` | confirmada | `{codigo, password}` MQTT da casa desta conta (404 sem casa) |
 
 Painel (só CEO): `GET contas`, `POST contas/:id {ativo}`, `POST contas/:id/apagar {email}` (o email da conta, para confirmar). No pedido: `conta` (email e se está confirmado), `morada`, `proposta_texto` e `proposta_aceite`.

@@ -34,7 +34,7 @@ let ctrl = null;
 let emailDaConta = "";
 let casaGuardada = false;   // a casa já está descrita e guardada na conta (o convite da caixa do topo muda)
 const resumosAbertos = new Set(); // pedidos com "A simulação que enviou" aberto (sobrevive ao carregar())
-// Regresso de um pagamento (Stripe ou página simulada): conta.html?pagamento=<ref>[&cancelado=1].
+// Regresso de um pagamento (Airwallex ou página simulada): conta.html?pagamento=<ref>[&cancelado=1].
 const params = new URLSearchParams(location.search);
 let regresso = /^pp_[A-Za-z0-9_-]{22}$/.test(params.get("pagamento") ?? "") ? { ref: params.get("pagamento"), cancelado: params.get("cancelado") === "1" } : null;
 if (regresso) history.replaceState(null, "", location.pathname);
@@ -74,10 +74,10 @@ const bloco = criarBlocoConta($("conta-bloco"), {
   },
 });
 
-/** Para onde se vai pagar: a página simulada do site ou o Stripe Checkout (nada mais). */
+/** Para onde se vai pagar: a página simulada do site ou a pagar.html (Airwallex) desta referência (nada mais). */
 function irPagar(pagamento) {
   const url = pagamento?.url;
-  if (typeof url === "string" && (/^pagamento-simulado\.html\?ref=pp_[A-Za-z0-9_-]{22}$/.test(url) || url.startsWith("https://checkout.stripe.com/"))) {
+  if (typeof url === "string" && /^(pagamento-simulado|pagar)\.html\?ref=pp_[A-Za-z0-9_-]{22}$/.test(url)) {
     location.assign(url);
     return true;
   }
@@ -1157,7 +1157,7 @@ function msgPequena() {
   return m;
 }
 
-/** Compras desligadas no servidor (sem Stripe): diz como pedir. */
+/** Compras desligadas no servidor (sem pagamentos ligados): diz como pedir. */
 const SEM_COMPRAS = "De momento não é possível pagar aqui. Fale connosco.";
 
 function blocoRelatorio(p) {

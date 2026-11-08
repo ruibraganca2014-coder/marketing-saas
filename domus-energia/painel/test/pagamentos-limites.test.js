@@ -1,5 +1,5 @@
-// Proteções dos pagamentos do pedido antes de ligar o Stripe (auditoria de 2026-10-12; docs/PAGAMENTOS-PEDIDO.md):
-// "Pagar" tem limite por conta, e o Stripe sem o segredo do webhook deixa os pagamentos do pedido desligados.
+// Proteções dos pagamentos do pedido antes de ligar os pagamentos reais (auditoria de 2026-10-12; docs/PAGAMENTOS-PEDIDO.md):
+// "Pagar" tem limite por conta, e a Airwallex sem o segredo do webhook deixa os pagamentos do pedido desligados.
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { painelComEquipa } from './ajuda.js';
@@ -25,13 +25,13 @@ describe('pagamentos do pedido: limite por conta', () => {
   });
 });
 
-test('Stripe sem o segredo do webhook: os pagamentos do pedido ficam desligados, com erro no arranque; com o segredo, ligados', () => {
-  const sem = lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' });
+test('Airwallex sem o segredo do webhook: os pagamentos do pedido ficam desligados, com erro no arranque; com o segredo, ligados', () => {
+  const sem = lerConfig({ AIRWALLEX_API_KEY: 'x', AIRWALLEX_CLIENT_ID: 'y' });
   assert.equal(sem.pagamentoPedido, false);
   assert.equal(sem.erros.length, 1);
-  assert.match(sem.erros[0], /STRIPE_PEDIDO_WEBHOOK_SECRET.*DESLIGADOS/);
-  const com = lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x' });
-  assert.deepEqual([com.pagamentoPedido, com.pagamentosModo, com.erros], [true, 'stripe', []]);
+  assert.match(sem.erros[0], /AIRWALLEX_WEBHOOK_SECRET.*DESLIGADOS/);
+  const com = lerConfig({ AIRWALLEX_API_KEY: 'x', AIRWALLEX_CLIENT_ID: 'y', AIRWALLEX_WEBHOOK_SECRET: 'z' });
+  assert.deepEqual([com.pagamentoPedido, com.pagamentosModo, com.erros], [true, 'airwallex', []]);
   // Sem chave nenhuma (produção hoje) e no modo simulado (lançador local): como estava.
   assert.deepEqual([lerConfig({}).pagamentoPedido, lerConfig({}).erros], [false, []]);
   assert.deepEqual([lerConfig({ PAGAMENTOS_MODO: 'simulado' }).pagamentoPedido, lerConfig({ PAGAMENTOS_MODO: 'simulado' }).erros], [true, []]);

@@ -2,6 +2,20 @@
 
 Pagamentos do fluxo simulador → proposta → obra. As subscrições mensais continuam no serviço `pagamentos/` (docs/PROTOCOLO-PLANOS.md).
 
+## Fornecedor: Airwallex em vez do Stripe (decisões do dono, 2026-11-08)
+
+O Stripe nunca chegou a estar ligado a sério e saiu. Onde o resto deste documento diz "Stripe" (Checkout, webhook, reembolso), vale hoje a Airwallex como está aqui.
+
+- **Conta:** a mesma Airwallex do GestTVDE (um só NIF), com uma chave de API só para a Domus.
+- **Métodos:** até `cartao_max_iva` (500 €) só cartão (com Apple Pay e Google Pay); acima, cartão e **MB WAY**. Na Airwallex o MB WAY está em **acesso antecipado**: pede-se ao gestor de conta ou a support@airwallex.com (1 a 3 dias úteis) e só aparece depois disso. A lista do cartão vai na página de pagamento (`methods`); acima do limite não vai lista e a página mostra todos os métodos ativos na conta (como a conta é partilhada, os do GestTVDE também).
+- **Como funciona:** cada pagamento cria um **PaymentIntent** (`POST /api/v1/pa/payment_intents/create`, valores em euros com casas decimais, `merchant_order_id` = a referência `pp_…`, `request_id` = `domus-<ref>`). O `url` do pagamento passa a ser `pagar.html?ref=…`: a página lê o pagamento na conta da sessão (`GET /api/conta/pagamentos/:ref` → `airwallex: {intent_id, client_secret, moeda, ambiente, metodos, sucesso, cancelar}`) e leva o cliente à página da Airwallex com o SDK deles (`static.airwallex.com`, `redirectToCheckout`). É a única página do site com um script de fora: o Caddy dá-lhe uma CSP própria. O regresso é à conta ou ao simulador, como antes (`?pagamento=<ref>`, e `&cancelado=1` quando desiste: o PaymentIntent é cancelado).
+- **Confirmação:** webhook `POST /api/conta/pagamentos/airwallex-webhook` (eventos `payment_intent.succeeded` e `payment_intent.cancelled`), assinado como no GestTVDE (`x-signature` = HMAC-SHA256 de `x-timestamp` + corpo, até 4 dias). Os eventos sem referência da Domus (pagamentos do GestTVDE na mesma conta) só ficam marcados. Dos nossos, o PaymentIntent é **lido na Airwallex** (o estado de agora, não o do evento) e passa pelo formato interno de evento de sempre (`eventoDoIntent` → `tratarEvento`): valor, moeda e o mesmo PaymentIntent conferidos, idempotência e os "pagamentos por tratar" sem mudanças. No regresso do cliente lê-se o mesmo (`sincronizar`). O método usado (`latest_payment_attempt.payment_method.type`) fica anotado.
+- **Devoluções:** `POST /api/v1/pa/refunds/create` sobre o PaymentIntent (`request_id` = `domus-reembolso-<ref>`, e `-horario` na diferença do fora de horas). O MB WAY devolve-se até 120 dias. Um pagamento por Multibanco (se a conta o oferecer) continua a ser devolvido à mão, por transferência.
+- **Migração 62:** o modo `airwallex` na tabela dos pagamentos e as colunas `stripe_sessao`/`stripe_url` passam a `prov_id` (o PaymentIntent) e `prov_segredo` (o `client_secret`).
+- **Configuração (servidor/.env):** `AIRWALLEX_CLIENT_ID`, `AIRWALLEX_API_KEY`, `AIRWALLEX_WEBHOOK_SECRET`, `AIRWALLEX_ENV=prod` na conta real (vazio = sandbox, `api.sandbox.airwallex.com`), `AIRWALLEX_METODOS` (por omissão `card,applepay,googlepay`). Chave sem o segredo do webhook = pagamentos desligados com erro no arranque, como antes.
+- **Ainda por confirmar na sandbox** (escrito pela documentação, sem chaves para testar): o valor de `env` do SDK na sandbox (`demo`; uma página da Airwallex diz `sandbox`), o identificador do MB WAY no `payment_method.type` e se a página mostra o MB WAY sem lista de métodos.
+- **Mensalidades:** continuam no serviço `pagamentos/` com o Stripe; passam para a Airwallex na fase 2.
+
 ## Decisões do dono (fase 3 — monetização)
 
 - **Enviar o pedido é grátis.** O pedido passa logo a orçamento (estado `novo`) e o cliente tem na conta, sem revisão, o **relatório básico**: o intervalo de preço (de–até) e a lista de trabalho por divisão e ação, com os pacotes das Melhorias aceites. Sem material, sem preços por linha e sem plano técnico (`relatorioBasico`, `GET /api/conta/pedidos/:id/relatorio-basico`).
@@ -260,7 +274,7 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 | POST | `/api/orcamento` (com simulação) | conta confirmada | `201 {ok, pedido, fotos_token, pagamento?, pagamento_erro?}` (`compra` opcional); avaria com os pagamentos ligados: `202 {ok, pagamento}` ou `409` fora da área |
 | GET | `/api/conta/pagamentos/:ref[?fotos=1][&cancelado=1]` | conta dona | `{pagamento}`: `ref`, `fase`, `valor`, `descricao`, `estado`, `modo`, `url` se por pagar, `recibo` se pago; mais `fotos_token`/`fotos_max` para a avaria paga há menos de 2 h. Com `cancelado=1` (regresso do Stripe) cancela a sessão por pagar |
 | POST | `/api/conta/pagamentos/:ref/simular` | conta dona, **só no modo simulado** | `{resultado: sucesso\|falha\|cancelar}` → `{pagamento, voltar}` |
-| POST | `/api/conta/pagamentos/stripe-webhook` | Stripe (assinado), **só no modo stripe** | `200 {resultado}` · `400` com assinatura inválida · `500` temporário (o Stripe repete) |
+| POST | `/api/conta/pagamentos/airwallex-webhook` | Airwallex (assinado), **só no modo airwallex** | `200 {resultado}` · `400` com assinatura inválida · `500` temporário (a Airwallex repete) |
 | POST | `/api/conta/pedidos/:id/aceitar` | conta dona | `{valor, plano?, inicio_imediato?}` → `{pedido, pagamento}` (o plano escolhe-se no "Ligar casa") |
 | POST | `/api/conta/pedidos/:id/pagar` | conta dona | `{fase: sinal\|restante\|relatorio_pormenorizado\|visita\|pormenorizado_visita\|visita_sem_defeito, inicio_imediato?}` → `{pagamento}` (`visita_sem_defeito` só com o módulo dos eletricistas) (com `metodos` enquanto está por pagar); `409` se já estiver pago, fora da área (visita) ou ainda não se puder pagar |
 | POST | `/api/conta/pedidos/:id/cancelar-visita` | conta dona | cancela a visita técnica (ou o diagnóstico da avaria) com mais de 24 h de antecedência → `{ok, devolvido, manual}` (`manual`: pagou por Multibanco, a conta pede o IBAN); `409` com menos de 24 h, sem visita paga ou já cancelada |
@@ -295,12 +309,13 @@ No modo stripe, `…/simular` responde **404**. No modo simulado, o webhook resp
 
 | Variável | Por omissão | |
 |---|---|---|
-| `PAGAMENTOS_MODO` | `stripe` com `STRIPE_SECRET_KEY`, senão **desligados** | `simulado` só escrito (demonstração); o `.env.example` deixa-o comentado e o `instalar.sh` avisa num `.env` com `simulado` |
+| `PAGAMENTOS_MODO` | `airwallex` com `AIRWALLEX_API_KEY`, senão **desligados** | `simulado` só escrito (demonstração); o `.env.example` deixa-o comentado e o `instalar.sh` avisa num `.env` com `simulado` |
 | `IVA_TAXA` | `23` | valor inicial de `iva_pct` (depois muda-se no painel) |
-| `STRIPE_SECRET_KEY` | — | a mesma das subscrições |
-| `STRIPE_PEDIDO_WEBHOOK_SECRET` | — | segredo do **endpoint próprio** (ver abaixo) |
-| `STRIPE_PEDIDO_METODOS` | `card,mb_way,multibanco` | |
-| `SITE_URL` | primeira de `SITE_ORIGENS`, `PUBLIC_URL` ou `https://DOMUS_HOST` | para os `success_url`/`cancel_url` do Stripe (obrigatório no modo stripe) |
+| `AIRWALLEX_CLIENT_ID`, `AIRWALLEX_API_KEY` | — | a chave da Domus na conta do GestTVDE |
+| `AIRWALLEX_WEBHOOK_SECRET` | — | segredo do webhook (ver "Como ligar a Airwallex") |
+| `AIRWALLEX_ENV` | sandbox | `prod` = a conta real |
+| `AIRWALLEX_METODOS` | `card,applepay,googlepay` | os métodos até ao limite do cartão (acima: os da conta) |
+| `SITE_URL` | primeira de `SITE_ORIGENS`, `PUBLIC_URL` ou `https://DOMUS_HOST` | para os regressos da página de pagamento (obrigatório no modo airwallex) |
 | `PAGAMENTO_PEDIDO` | `1` | `0` = enviar sem pagar (como antes). Os testes antigos do painel usam `0` |
 
 ## Lacunas por fechar ANTES de ligar o Stripe (auditoria de 2026-10-12)
@@ -324,29 +339,19 @@ Testes: `painel/test/pagamentos-pedido.test.js` "pagamentos por tratar".
 
 Feito em 2026-10-12: limite de 30 "Pagar" por hora e por conta; com `STRIPE_SECRET_KEY` e sem `STRIPE_PEDIDO_WEBHOOK_SECRET` os pagamentos do pedido ficam desligados (erro no arranque).
 
-## Como ligar o Stripe (o que falta para os pagamentos reais)
+## Como ligar a Airwallex (o que falta para os pagamentos reais)
 
-1. No painel do Stripe (primeiro em **modo de teste**), ativar os métodos: **Cartões**, **MB WAY** e **Multibanco** (Settings → Payment methods). MB WAY e Multibanco só existem para contas em euros.
-2. **Developers → Webhooks → Add endpoint** `https://HOST/api/conta/pagamentos/stripe-webhook`, com os eventos:
-   - `checkout.session.completed`
-   - `checkout.session.async_payment_succeeded`
-   - `checkout.session.async_payment_failed`
-   - `checkout.session.expired`
-
-   Copiar o *Signing secret* para `STRIPE_PEDIDO_WEBHOOK_SECRET`.
-3. No `.env`, preencher `PAGAMENTOS_MODO=stripe`, `STRIPE_SECRET_KEY=sk_test_…` e `SITE_URL=https://…`, e fazer `docker compose up -d painel`.
-4. **Testar:**
-   - cartão `4242 4242 4242 4242` → pago;
-   - `4000 0000 0000 0002` → recusado (fica por pagar; o cliente volta com `cancelado=1` ou tenta de novo);
-   - Multibanco em teste → `completed` com `unpaid` e depois `async_payment_succeeded`.
-
-   Confirmar no painel: o pedido aparece depois de pago, os pagamentos têm o estado certo e a auditoria está completa.
-5. Passar a `sk_live_…` e a um webhook live. **Faturação:** falta emitir a fatura-recibo de cada pagamento num programa certificado. Estes pagamentos não vão para o `pagamentos.csv` das subscrições; estão na tabela `pagamentos_pedido`, na ficha de cada pedido e em painel → Pagamentos → "Pagamentos dos pedidos" (com "Exportar CSV": data, referência, descrição, base, IVA, total, estado, pedido).
+1. Na conta Airwallex (a do GestTVDE), primeiro na **sandbox**: **Settings → Developer → API keys**, criar uma chave só para a Domus (Client ID e API key).
+2. **Settings → Developer → Webhooks**, endpoint `https://HOST/api/conta/pagamentos/airwallex-webhook` com os eventos `payment_intent.succeeded` e `payment_intent.cancelled`. Copiar o segredo para `AIRWALLEX_WEBHOOK_SECRET` (é diferente na sandbox e em produção).
+3. Pedir à Airwallex o **MB WAY** (acesso antecipado).
+4. No `.env`: `PAGAMENTOS_MODO=airwallex`, `AIRWALLEX_CLIENT_ID`, `AIRWALLEX_API_KEY`, `AIRWALLEX_WEBHOOK_SECRET`, `SITE_URL=https://…`, e `docker compose up -d painel caddy`.
+5. **Testar** com os cartões de teste da sandbox: pago, recusado (fica por pagar; o cliente volta com `cancelado=1` ou tenta de novo), desistir na página (o PaymentIntent fica cancelado), cancelar a visita com mais de 24 h (reembolso), um valor acima de 500 € (o MB WAY aparece, se já estiver ativo) e os pontos "por confirmar" da secção do topo. Confirmar no painel: o pedido aparece depois de pago, os pagamentos têm o estado certo e a auditoria está completa.
+6. Passar a `AIRWALLEX_ENV=prod` com a chave e o webhook da conta real. **Faturação:** decisão do dono (2026-11-08): à mão, pelo CSV, num programa certificado. Estes pagamentos não vão para o `pagamentos.csv` das subscrições; estão na tabela `pagamentos_pedido`, na ficha de cada pedido e em painel → Pagamentos → "Pagamentos dos pedidos" (com "Exportar CSV": data, referência, descrição, base, IVA, total, estado, pedido).
 
 Ainda não feito:
 
-- a devolução (reembolso) do relatório completo e do restante: faz-se no painel do Stripe e não é refletida aqui (a visita, o diagnóstico e o sinal devolvem-se aqui: "Devoluções");
-- o teste ponta a ponta contra o Stripe real (só um Stripe falso ao nível do `fetch`, nos testes).
+- a devolução (reembolso) do relatório completo e do restante: faz-se no painel da Airwallex e não é refletida aqui (a visita, o diagnóstico e o sinal devolvem-se aqui: "Devoluções");
+- o teste ponta a ponta contra a Airwallex real (só uma Airwallex falsa ao nível do `fetch`, nos testes: `painel/test/ajuda.js` `airwallexFalsa`).
 
 ## Testes
 

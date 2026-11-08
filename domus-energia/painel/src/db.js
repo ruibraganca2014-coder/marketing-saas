@@ -1341,6 +1341,31 @@ export const MIGRACOES = [
       ALTER TABLE pagamentos_pedido ADD COLUMN tratado_por TEXT;
     `);
   },
+  // 62 (decisão do dono, 2026-11-08): os pagamentos passam do Stripe para a Airwallex (a conta do GestTVDE). O modo
+  // `airwallex` entra no CHECK (recria a tabela pelo procedimento da migração 14; os antigos `stripe` ficam válidos) e
+  // as colunas do Stripe passam a ser do fornecedor: `prov_id` (Stripe: a sessão; Airwallex: o PaymentIntent) e
+  // `prov_segredo` (Stripe: o URL do Checkout; Airwallex: o client_secret com que a página pagar.html abre o pagamento).
+  semChaves((db) => {
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pagamentos_pedido'").get().sql;
+    const modos = "modo TEXT NOT NULL CHECK (modo IN ('simulado', 'stripe', 'airwallex'))";
+    const novo = sql.replace(/^CREATE TABLE "?\w+"?/i, 'CREATE TABLE pagamentos_pedido_novo')
+      .replace(/modo TEXT NOT NULL CHECK \(modo IN \([^)]*\)\)/i, modos);
+    if (!novo.includes(modos)) throw new Error('migração 62: não foi possível ler o esquema de pagamentos_pedido');
+    const indices = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'pagamentos_pedido' AND sql IS NOT NULL").all().map((x) => x.sql);
+    const seq = Math.max(db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'pagamentos_pedido'").get()?.seq ?? 0,
+      db.prepare('SELECT MAX(id) AS m FROM pagamentos_pedido').get().m ?? 0);
+    db.exec(novo);
+    db.exec('INSERT INTO pagamentos_pedido_novo SELECT * FROM pagamentos_pedido');
+    db.exec('DROP TABLE pagamentos_pedido');
+    db.exec('ALTER TABLE pagamentos_pedido_novo RENAME TO pagamentos_pedido');
+    for (const i of indices) db.exec(i);
+    db.prepare("DELETE FROM sqlite_sequence WHERE name IN ('pagamentos_pedido', 'pagamentos_pedido_novo')").run();
+    if (seq) db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('pagamentos_pedido', ?)").run(seq);
+    db.exec(`
+      ALTER TABLE pagamentos_pedido RENAME COLUMN stripe_sessao TO prov_id;
+      ALTER TABLE pagamentos_pedido RENAME COLUMN stripe_url TO prov_segredo;
+    `);
+  }),
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

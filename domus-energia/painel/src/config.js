@@ -63,17 +63,19 @@ export function lerConfig(env = process.env) {
   // Leitura automática da foto do quadro: desligada por decisão do dono (2026-10-04: "não quero que a IA gere o quadro";
   // o esquema é desenhado pelo eletricista). Só com LEITURA_QUADRO=1 (e a chave) a foto do quadro vai ao modelo.
   const leituraQuadro = env.LEITURA_QUADRO === '1' && Boolean(anthropicKey);
-  // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "stripe" (por omissão com STRIPE_SECRET_KEY) ou "simulado"
-  // (só com PAGAMENTOS_MODO=simulado explícito: o lançador local põe-no). Sem modo explícito e sem chave, os
-  // pagamentos do pedido ficam DESLIGADOS (o pedido é enviado sem pagar, como antes) e o painel avisa.
-  const stripeChave = String(env.STRIPE_SECRET_KEY || '').trim();
+  // Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): "airwallex" (por omissão com AIRWALLEX_API_KEY; decisão do dono,
+  // 2026-11-08: a mesma conta Airwallex do GestTVDE, em vez do Stripe) ou "simulado" (só com PAGAMENTOS_MODO=simulado
+  // explícito: o lançador local põe-no). Sem modo explícito e sem chave, os pagamentos do pedido ficam DESLIGADOS (o
+  // pedido é enviado sem pagar, como antes) e o painel avisa.
+  const airwallexChave = String(env.AIRWALLEX_API_KEY || '').trim();
+  const airwallexCliente = String(env.AIRWALLEX_CLIENT_ID || '').trim();
   const modoPedido = String(env.PAGAMENTOS_MODO || '').trim().toLowerCase();
-  const modoValido = ['simulado', 'stripe'].includes(modoPedido);
-  if (modoPedido && !modoValido) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): ${stripeChave ? 'usa-se stripe' : 'os pagamentos do pedido ficam desligados'}`);
-  const pagamentosModo = modoValido ? modoPedido : (stripeChave ? 'stripe' : 'simulado');
-  const semModo = !modoValido && !stripeChave;
+  const modoValido = ['simulado', 'airwallex'].includes(modoPedido);
+  if (modoPedido && !modoValido) avisos.push(`PAGAMENTOS_MODO inválido ("${modoPedido}"): ${airwallexChave ? 'usa-se airwallex' : 'os pagamentos do pedido ficam desligados'}`);
+  const pagamentosModo = modoValido ? modoPedido : (airwallexChave ? 'airwallex' : 'simulado');
+  const semModo = !modoValido && !airwallexChave;
   let pagamentoPedido = env.PAGAMENTO_PEDIDO !== '0' && !semModo;
-  if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem STRIPE_SECRET_KEY): enviar é grátis, mas não se compra nada online (relatório, visita) e a avaria vai sem pagar');
+  if (semModo && env.PAGAMENTO_PEDIDO !== '0') avisos.push('pagamentos do pedido DESLIGADOS (sem PAGAMENTOS_MODO nem AIRWALLEX_API_KEY): enviar é grátis, mas não se compra nada online (relatório, visita) e a avaria vai sem pagar');
   if (pagamentoPedido && pagamentosModo === 'simulado') avisos.push('PAGAMENTOS_MODO=simulado: os pagamentos dos pedidos são SIMULADOS (não é cobrado nada; qualquer pessoa pode "pagar"); o site e o painel mostram "Modo de demonstração"');
   // IVA dos pagamentos online (decisão do dono: a proposta é sem IVA e os pagamentos incluem-no). O valor no
   // painel (Catálogo → Configuração, "iva_pct") manda; IVA_TAXA só é o valor inicial.
@@ -81,15 +83,14 @@ export function lerConfig(env = process.env) {
   const ivaEnv = ivaTexto === '' ? 23 : Number(ivaTexto);
   const ivaTaxa = Number.isFinite(ivaEnv) && ivaEnv >= 0 && ivaEnv <= 50 ? ivaEnv : 23;
   if (ivaTaxa !== ivaEnv) avisos.push(`IVA_TAXA inválida ("${env.IVA_TAXA}"): usa-se 23`);
-  if (pagamentoPedido && pagamentosModo === 'stripe' && !stripeChave) avisos.push('PAGAMENTOS_MODO=stripe sem STRIPE_SECRET_KEY: o envio de pedidos com simulação responde 503');
+  if (pagamentoPedido && pagamentosModo === 'airwallex' && (!airwallexChave || !airwallexCliente)) avisos.push('PAGAMENTOS_MODO=airwallex sem AIRWALLEX_API_KEY e AIRWALLEX_CLIENT_ID: o envio de pedidos com simulação responde 503');
   // Acesso rápido (testes; acesso-rapido.js, docs/SEGURANCA.md): só com ACESSO_RAPIDO=1 — que só o lançador local
   // põe — e sem nenhum sinal de servidor a sério (https, DOMUS_HOST, NODE_ENV=production…); senão erro e DESLIGADO.
   const erros = [];
-  // Stripe sem o segredo do webhook (decisão de 2026-10-12): os pagamentos do pedido ficam DESLIGADOS. Sem webhook a
-  // confirmação dependia do regresso do cliente ao site — um Multibanco, ou um separador fechado, ficava pago no Stripe
-  // e por pagar aqui.
-  if (pagamentoPedido && pagamentosModo === 'stripe' && stripeChave && !String(env.STRIPE_PEDIDO_WEBHOOK_SECRET || '').trim()) {
-    erros.push('STRIPE_SECRET_KEY sem STRIPE_PEDIDO_WEBHOOK_SECRET: os pagamentos do pedido ficam DESLIGADOS até o webhook estar configurado (docs/PAGAMENTOS-PEDIDO.md "Como ligar o Stripe")');
+  // Chave sem o segredo do webhook (decisão de 2026-10-12): os pagamentos do pedido ficam DESLIGADOS. Sem webhook a
+  // confirmação dependia do regresso do cliente ao site — um separador fechado ficava pago na Airwallex e por pagar aqui.
+  if (pagamentoPedido && pagamentosModo === 'airwallex' && airwallexChave && !String(env.AIRWALLEX_WEBHOOK_SECRET || '').trim()) {
+    erros.push('AIRWALLEX_API_KEY sem AIRWALLEX_WEBHOOK_SECRET: os pagamentos do pedido ficam DESLIGADOS até o webhook estar configurado (docs/PAGAMENTOS-PEDIDO.md "Como ligar a Airwallex")');
     pagamentoPedido = false;
   }
   let acessoRapido = false;
@@ -167,10 +168,14 @@ export function lerConfig(env = process.env) {
     pagamentosModo,
     pagamentosDesligadosSemModo: semModo,    // desligados porque falta configurar (aviso no painel)
     ivaTaxa,
-    stripeChave: stripeChave || null,
-    stripeWebhookSegredo: String(env.STRIPE_PEDIDO_WEBHOOK_SECRET || '').trim() || null,
-    stripeApi: String(env.STRIPE_API_URL || 'https://api.stripe.com').replace(/\/+$/, ''),
-    stripeMetodos: String(env.STRIPE_PEDIDO_METODOS || 'card,mb_way,multibanco').split(',').map((x) => x.trim()).filter((x) => /^[a-z_]{2,40}$/.test(x)),
+    airwallexChave: airwallexChave || null,
+    airwallexCliente: airwallexCliente || null,
+    airwallexWebhookSegredo: String(env.AIRWALLEX_WEBHOOK_SECRET || '').trim() || null,
+    // AIRWALLEX_ENV=prod: a conta real; outra coisa: a sandbox (como no GestTVDE). AIRWALLEX_API_URL só nos testes.
+    airwallexProducao: env.AIRWALLEX_ENV === 'prod',
+    airwallexApi: String(env.AIRWALLEX_API_URL || (env.AIRWALLEX_ENV === 'prod' ? 'https://api.airwallex.com' : 'https://api.sandbox.airwallex.com')).replace(/\/+$/, ''),
+    // Métodos até ao limite do cartão (`cartao_max_iva`); acima, a página mostra todos os da conta (o MB WAY também).
+    airwallexMetodos: String(env.AIRWALLEX_METODOS || 'card,applepay,googlepay').split(',').map((x) => x.trim()).filter((x) => /^[a-z_]{2,40}$/.test(x)),
     // Endereço do site nos emails (ligação para a conta).
     siteUrl: String(env.SITE_URL || siteOrigens[0] || env.PUBLIC_URL || (env.DOMUS_HOST ? `https://${env.DOMUS_HOST}` : '')).replace(/\/+$/, ''),
     acessoRapido,

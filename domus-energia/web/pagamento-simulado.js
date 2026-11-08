@@ -1,7 +1,7 @@
-// Página de pagamento SIMULADO (docs/PAGAMENTOS-PEDIDO.md): faz o papel do Stripe Checkout quando o servidor está
+// Página de pagamento SIMULADO (docs/PAGAMENTOS-PEDIDO.md): faz o papel da página de pagamento da Airwallex quando o servidor está
 // em PAGAMENTOS_MODO=simulado. Mostra o valor e a descrição que o SERVIDOR calculou (nada vem do endereço além da
 // referência) e envia o resultado escolhido para POST /api/conta/pagamentos/:ref/simular; volta ao simulador ou à
-// conta pelo endereço que o servidor devolve (o mesmo caminho do regresso do Stripe). No modo stripe o servidor
+// conta pelo endereço que o servidor devolve (o mesmo caminho do regresso da Airwallex). No modo airwallex o servidor
 // responde 404 e a página não deixa pagar.
 import { pedirConta, ErroConta } from "./conta-comum.js";
 
@@ -35,11 +35,11 @@ async function carregar() {
   $("pag-valor").textContent = euro(p.valor);
   $("pag-descricao").textContent = p.descricao;
   $("pag-ref").textContent = `Referência: ${p.ref}${p.base != null ? ` · ${euro(p.base)} + IVA ${String(p.iva_pct).replace(".", ",")} % (${euro(p.iva)})` : ""}`;
-  // Os métodos que o Stripe ofereceria para este valor (acima do limite do cartão: só Multibanco ou MB Way).
+  // Os métodos do pagamento real para este valor (acima do limite do cartão também MB Way).
   if (Array.isArray(p.metodos) && p.metodos.length) {
-    $("pag-metodos").textContent = `No pagamento real: ${p.metodos.join(", ")}.${p.metodos.includes("Cartão") ? "" : " Acima do limite do cartão só se paga por Multibanco ou MB Way."}`;
+    $("pag-metodos").textContent = `No pagamento real: ${p.metodos.join(" ou ")}.`;
     $("pag-metodos").hidden = false;
-    // Só os métodos que este valor aceita (acima do limite, sem cartão). Uma devolução de um Multibanco é por transferência.
+    // Só os métodos que este valor aceita. Uma devolução de um Multibanco é por transferência.
     const nomes = { card: "Cartão", mb_way: "MB Way", multibanco: "Multibanco" };
     for (const o of [...$("pag-metodo").options]) if (!p.metodos.includes(nomes[o.value])) o.remove();
   }

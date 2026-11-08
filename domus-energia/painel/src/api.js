@@ -354,7 +354,7 @@ export function criarApi(ctx) {
   pagPed = criarPagamentosPedido({
     db, config, registo, relogio, auditar, correio, fotos, stock, sessao: (req, res) => contas.sessao(req, res),
     criarObra: (o, por) => obraDoPedido(o, { id: null, email: por }),
-    criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchStripe,
+    criarOrcamento: (pedido, contaId) => inserirOrcamentoSite({ ...pedido, contaId }), fetch: ctx.fetchPagamentos,
     // "Visita sem defeito" (eletricistas.js): a data em que o CEO decidiu cobrar a visita ao cliente, ou null.
     visitaSemDefeito: (o) => (config.eletricistas ? eletricistas.visitaSemDefeito(o) : null),
     // O cliente já confirmou a obra feita por um eletricista externo (o "Sim", ou os 7 dias)? A data, ou null: com as
@@ -1640,7 +1640,7 @@ export function criarApi(ctx) {
     for (const [i, a] of aparelhos.entries()) auditar(u, 'pedido_aparelho', `cliente:${codigo}`, { pedido: pedidosAparelhos[i].id, aparelho: a.id, tipo: a.tipo, orcamento: o.id }, ip);
     auditar(u, obraAtual ? 'obra_atualizada' : 'obra_criada', `obra:${obraId}`, { cliente: codigo, data, kit, orcamento: o.id, ...(obraAtual ? { casa_ligada: true } : {}) }, ip);
     // Plano mensal escolhido ao aceitar: no modo simulado a subscrição começa com a casa ligada (pedido-admin
-    // "plano", a seguir ao do cliente); no modo stripe o cliente ativa-a na área de cliente (serviço pagamentos/).
+    // "plano", a seguir ao do cliente); com pagamentos reais o cliente ativa-a na área de cliente (serviço pagamentos/).
     let pedidoPlano = null;
     if (o.plano_escolhido && PLANOS_MENSAIS.includes(o.plano_escolhido) && pagPed.modo === 'simulado' && !pedidoPendente('plano', codigo)) {
       pedidoPlano = await pedidos.criar({ tipo: 'plano', cliente: codigo, utilizador: u, orcamentoId: o.id, dados: { cliente: codigo, plano: o.plano_escolhido, estado: 'ativo' } });
@@ -1758,7 +1758,7 @@ export function criarApi(ctx) {
   // se encontrou impede uma instalação segura — a obra não avança e devolve-se o sinal MENOS o material já encomendado à
   // medida e o trabalho já feito (o CEO indica os dois, em € com IVA; a soma nunca passa o sinal pago). Num pedido aceite,
   // com o sinal pago, a obra por concluir e o restante por pagar. Segue a ordem do "Cancelar obra e devolver sinal", com as
-  // mesmas funções: primeiro a devolução (`devolverSinal`: Stripe, simulada, ou por transferência se pagou por
+  // mesmas funções: primeiro a devolução (`devolverSinal`: Airwallex, simulada, ou por transferência se pagou por
   // Multibanco; com 0 a devolver não há devolução), depois — numa só transação — o registo da paragem, o pedido "perdido",
   // o material reservado libertado, a obra cancelada, os trabalhos a mais e as idas perdidas pendentes fechados e o
   // trabalho do eletricista (eletricistas.js aoPararObra: `eletricista`, € sem IVA, é o que ele recebe pelo que já fez).
@@ -2175,7 +2175,7 @@ export function criarApi(ctx) {
       pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base', 'devolvido_base'), iva: soma('iva', 'devolvido_iva'), total: soma('valor', 'devolvido') },
       // Devoluções por transferência ainda por fazer (pagamentos por Multibanco): valor, IBAN e titular, para o CEO.
       devolucoes_por_fazer: pagPed.devolucoesPorFazer(),
-      // Dinheiro que entrou e o programa não aplicou (migração 61): o CEO trata-o no Stripe e marca-o.
+      // Dinheiro que entrou e o programa não aplicou (migração 61): o CEO trata-o na Airwallex e marca-o.
       por_tratar: pagPed.porTratarAbertos(),
       // Eletricistas externos: o que se deve e o que já se pagou (sem IVA), à parte da receita dos clientes; null sem o módulo.
       eletricistas: config.eletricistas ? { a_pagar: pagEletricistas(mes).a_pagar, pago: pagEletricistas(mes).pago } : null,
@@ -2183,7 +2183,7 @@ export function criarApi(ctx) {
   };
   const pagEletricistas = (mes) => (config.eletricistas ? eletricistas.resumoPagamentos(mes) : { linhas: [], a_pagar: null, pago: null });
 
-  // "Tratado": o CEO resolveu um pagamento por tratar (devolveu-o no Stripe ou acertou com o cliente).
+  // "Tratado": o CEO resolveu um pagamento por tratar (devolveu-o na Airwallex ou acertou com o cliente).
   h.pagamentoTratado = async ({ req, res, u, params, ip }) => {
     await lerJson(req, []);
     if (!/^pp_[A-Za-z0-9_-]{22}$/.test(params.ref)) throw new ErroApi(404, 'Este pagamento não está por tratar.');

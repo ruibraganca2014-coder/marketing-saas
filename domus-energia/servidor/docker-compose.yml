@@ -197,14 +197,16 @@ services:
       EMAIL_RESPOSTAS: ${EMAIL_RESPOSTAS:-}
       SMTP_SEGURANCA: ${SMTP_SEGURANCA:-}           # vazio = pela porta (465 TLS direto, outras STARTTLS)
       SMTP_TIMEOUT_MS: ${SMTP_TIMEOUT_MS:-20000}
-      # Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): stripe (Checkout) ou simulado (só demonstração, explícito);
-      # vazio e sem STRIPE_SECRET_KEY = desligados. IVA_TAXA: valor inicial do IVA dos pagamentos (depois, no painel).
+      # Pagamentos do pedido (docs/PAGAMENTOS-PEDIDO.md): airwallex (a conta do GestTVDE) ou simulado (só demonstração,
+      # explícito); vazio e sem AIRWALLEX_API_KEY = desligados. IVA_TAXA: valor inicial do IVA (depois, no painel).
       PAGAMENTOS_MODO: ${PAGAMENTOS_MODO:-}
       IVA_TAXA: ${IVA_TAXA:-23}
       PAGAMENTO_PEDIDO: ${PAGAMENTO_PEDIDO:-1}
-      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-      STRIPE_PEDIDO_WEBHOOK_SECRET: ${STRIPE_PEDIDO_WEBHOOK_SECRET:-}
-      STRIPE_PEDIDO_METODOS: ${STRIPE_PEDIDO_METODOS:-card,mb_way,multibanco}
+      AIRWALLEX_ENV: ${AIRWALLEX_ENV:-}               # prod = a conta real; vazio = sandbox
+      AIRWALLEX_CLIENT_ID: ${AIRWALLEX_CLIENT_ID:-}
+      AIRWALLEX_API_KEY: ${AIRWALLEX_API_KEY:-}
+      AIRWALLEX_WEBHOOK_SECRET: ${AIRWALLEX_WEBHOOK_SECRET:-}
+      AIRWALLEX_METODOS: ${AIRWALLEX_METODOS:-card,applepay,googlepay}
     expose:
       - "8080"           # só na rede interna (o Caddy faz o HTTPS)
     # Só as pastas de que precisa (nunca a dados/ inteira nem mosquitto/):

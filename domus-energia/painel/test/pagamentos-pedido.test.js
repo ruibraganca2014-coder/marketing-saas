@@ -4,12 +4,11 @@
 // 0,5 h × tarifa; fora da área não há), no passo Enviar (os dois juntos) ou na conta; o CEO marca a visita (data na
 // conta e no email); a avaria rápida paga o diagnóstico e a deslocação ao enviar. Sinal = 30 % − tudo o que já foi pago.
 // Também: sucesso/falha/cancelar simulados, idempotência, valores do servidor, acesso cruzado, expiração, RGPD e o
-// modo stripe (Stripe falso ao nível do fetch; webhook assinado; a página simulada não existe).
+// modo airwallex (Airwallex falsa ao nível do fetch; webhook assinado; a página simulada não existe).
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
-import { painelComEquipa } from './ajuda.js';
+import { painelComEquipa, airwallexFalsa, ENV_AIRWALLEX } from './ajuda.js';
 import {
   calcularSinal, foraDaArea, comIva, partirIva, deslocacaoServidor, intervaloEstimativa, valorVisitaCent, precoRelatorioCent,
   metodosPagamento, diasDeObra,
@@ -60,12 +59,10 @@ test('valores do servidor: sinal = 30 % COM IVA menos TUDO o que foi pago antes;
   assert.equal(calcularSinal(123_000, 5400, 20_000), 31_500, 'material abaixo dos 30 %: vale os 30 %');
   assert.equal(calcularSinal(10_000, 0, 50_000), 10_000, 'nunca acima do total');
   assert.equal(calcularSinal(10_000, 4000, 50_000), 6000, 'nem do que falta pagar');
-  // Decisão 7: acima do limite do cartão (500 €) só Multibanco ou MB Way.
-  const metodos = ['card', 'mb_way', 'multibanco'];
-  assert.deepEqual(metodosPagamento(50_000, {}, metodos), metodos, '500,00 € ainda com cartão');
-  assert.deepEqual(metodosPagamento(50_001, {}, metodos), ['mb_way', 'multibanco']);
-  assert.deepEqual(metodosPagamento(50_001, { cartao_max_iva: 1000 }, metodos), metodos, 'limite configurável');
-  assert.deepEqual(metodosPagamento(50_001, {}, ['card']), ['multibanco'], 'só cartão configurado: fica o Multibanco');
+  // Decisão do dono (2026-11-08, Airwallex): até ao limite do cartão (500 €) só cartão; acima, cartão e MB WAY.
+  assert.deepEqual(metodosPagamento(50_000, {}), ['card'], '500,00 € só cartão');
+  assert.deepEqual(metodosPagamento(50_001, {}), ['card', 'mb_way']);
+  assert.deepEqual(metodosPagamento(50_001, { cartao_max_iva: 1000 }), ['card'], 'limite configurável');
   // Decisão 4: dias de obra = horas ÷ 8 (para cima, mínimo 1); a deslocação é ida e volta por dia.
   assert.deepEqual([diasDeObra(0, {}), diasDeObra(8, {}), diasDeObra(8.1, {}), diasDeObra(26, {}), diasDeObra(26, { horas_por_dia: 10 })], [1, 1, 2, 4, 3]);
   // Intervalo assimétrico (−10 % / +20 %, múltiplos de 5); a configuração antiga (só margem_intervalo_pct) continua a ler-se.
@@ -459,7 +456,7 @@ describe('modo simulado', () => {
     const pag = p.app.api.pagamentosPedido;
     const linhaDe = (ref) => p.app.db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
     let n = 0;
-    const pagoNoStripe = (ref) => pag.tratarEvento({ id: `evt_tratar_${n++}`, type: 'checkout.session.completed',
+    const pagoNaAirwallex = (ref) => pag.tratarEvento({ id: `evt_tratar_${n++}`, type: 'checkout.session.completed',
       data: { object: { id: 'cs_x', object: 'checkout.session', client_reference_id: ref, amount_total: linhaDe(ref).valor_cent, currency: 'eur', payment_status: 'paid' } } });
     const avisos = () => p.emails.filter((e) => /^Pagamento por tratar/.test(e.assunto)).length;
     const c = await p.contaConfirmada();
@@ -470,16 +467,16 @@ describe('modo simulado', () => {
     await simular(c, pg1.ref, 'cancelar');
     await comprado(c, id, 'relatorio_pormenorizado');
     const emailsAntes = avisos();
-    assert.equal(pagoNoStripe(pg1.ref), 'por_tratar');
+    assert.equal(pagoNaAirwallex(pg1.ref), 'por_tratar');
     assert.deepEqual([linhaDe(pg1.ref).estado, linhaDe(pg1.ref).por_tratar], ['cancelado', 'duplicado']);
     assert.equal(avisos(), emailsAntes + 1, 'os CEO recebem um email');
-    assert.equal(pagoNoStripe(pg1.ref), 'repetido', 'outro evento do mesmo pagamento não volta a avisar');
+    assert.equal(pagoNaAirwallex(pg1.ref), 'repetido', 'outro evento do mesmo pagamento não volta a avisar');
 
     // 2. Avaria paga depois de falhar (o pedido guardado já saiu): nenhum pedido nasce.
     const av = await enviarAvaria(c);
     await simular(c, av.ref, 'cancelar');
     const nAntes = nOrc();
-    assert.equal(pagoNoStripe(av.ref), 'por_tratar');
+    assert.equal(pagoNaAirwallex(av.ref), 'por_tratar');
     assert.equal(linhaDe(av.ref).por_tratar, 'sem_pedido');
     assert.equal(nOrc(), nAntes);
 
@@ -489,11 +486,11 @@ describe('modo simulado', () => {
     const s1 = (await p.pedir('POST', `/api/conta/pedidos/${id3}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).json.pagamento;
     await painel('POST', `orcamentos/${id3}`, 'ceo', { valor_proposta: 2000 });
     const s2 = (await p.pedir('POST', `/api/conta/pedidos/${id3}/aceitar`, { cookie: c.cookie, corpo: { valor: 2000 } })).json.pagamento;
-    assert.equal(pagoNoStripe(s1.ref), 'por_tratar');
+    assert.equal(pagoNaAirwallex(s1.ref), 'por_tratar');
     assert.equal(linhaDe(s1.ref).por_tratar, 'proposta_mudou');
     assert.equal((await painel('GET', `orcamentos/${id3}`)).json.estado, 'proposta_enviada');
     assert.equal(linhaDe(s2.ref).estado, 'pendente', 'o sinal da proposta nova continua por pagar');
-    assert.equal(pagoNoStripe(s2.ref), 'pago');
+    assert.equal(pagoNaAirwallex(s2.ref), 'pago');
 
     // 4. Restante pago pelo valor antigo (ex.: um trabalho a mais aceite com a sessão aberta).
     const { pedido: id4 } = await enviar(c);
@@ -503,7 +500,7 @@ describe('modo simulado', () => {
     assert.equal((await painel('POST', `orcamentos/${id4}/obra-concluida`, 'ceo', {})).estado, 200);
     const r4 = (await comprar(c, id4, 'restante')).json.pagamento;
     p.app.db.prepare('UPDATE pagamentos_pedido SET valor_cent = valor_cent - 5000 WHERE ref = ?').run(r4.ref);
-    assert.equal(pagoNoStripe(r4.ref), 'por_tratar');
+    assert.equal(pagoNaAirwallex(r4.ref), 'por_tratar');
     assert.equal(linhaDe(r4.ref).por_tratar, 'valor_mudou');
     assert.equal((await pedidoConta(c, id4)).pode_pagar_restante, true, 'o restante continua por pagar');
 
@@ -942,72 +939,89 @@ describe('modo simulado', () => {
   });
 });
 
-describe('modo stripe', () => {
+describe('modo airwallex', () => {
   let p;
-  const chamadas = [];
-  const SEGREDO = 'whsec_teste_123';
-  const fetchStripe = async (url, op) => {
-    chamadas.push({ url, op });
-    const params = new URLSearchParams(op.body ?? '');
-    if (/checkout\/sessions$/.test(url)) {
-      return new Response(JSON.stringify({ id: `cs_test_${chamadas.length}`, url: `https://checkout.stripe.com/c/pay/cs_test_${chamadas.length}`, amount_total: Number(params.get('line_items[0][price_data][unit_amount]')) }), { status: 200 });
-    }
-    const m = /checkout\/sessions\/(cs_test_\d+)$/.exec(url);
-    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'open', payment_status: 'unpaid', amount_total: 2900, currency: 'eur' }), { status: 200 });
-    return new Response('{}', { status: 200 });
-  };
-  before(async () => {
-    p = await painelComEquipa({ fetchStripe, env: { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'stripe', STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: SEGREDO, SITE_URL: 'https://site.teste' } });
-  });
+  const aw = airwallexFalsa();
+  before(async () => { p = await painelComEquipa({ fetchPagamentos: aw.fetch, env: ENV_AIRWALLEX }); });
   after(() => p.fechar());
 
-  const assinar = (corpo, t = Math.floor(Date.now() / 1000)) => `t=${t},v1=${createHmac('sha256', SEGREDO).update(`${t}.${corpo}`).digest('hex')}`;
-  const webhook = (ev, assinatura) => {
+  const webhook = (ev, cabecalhos) => {
     const corpo = JSON.stringify(ev);
-    return p.pedir('POST', '/api/conta/pagamentos/stripe-webhook', { corpo, site: false, cabecalhos: { 'Stripe-Signature': assinatura ?? assinar(corpo) } });
+    return p.pedir('POST', '/api/conta/pagamentos/airwallex-webhook', { corpo, site: false, cabecalhos: cabecalhos ?? aw.assinar(corpo) });
   };
+  const intentDe = (ref) => p.app.db.prepare('SELECT prov_id FROM pagamentos_pedido WHERE ref = ?').get(ref).prov_id;
 
-  test('Checkout com cartão/MB Way/Multibanco (compra no passo Enviar, volta à conta); a página simulada não existe; webhook assinado confirma (uma vez)', async () => {
+  test('PaymentIntent (compra no passo Enviar, volta à conta) aberto pela pagar.html; a página simulada não existe; webhook assinado confirma (uma vez); pagamentos do GestTVDE ignorados', async () => {
     const c = await p.contaConfirmada();
     const r = await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM, compra: 'pormenorizado' } });
     assert.equal(r.estado, 201, r.texto);
     const pg = r.json.pagamento;
-    assert.equal(pg.modo, 'stripe');
-    assert.match(pg.url, /^https:\/\/checkout\.stripe\.com\//);
-    const criar = new URLSearchParams(chamadas.at(-1).op.body);
-    assert.equal(criar.get('line_items[0][price_data][unit_amount]'), '2900');
-    assert.equal(criar.get('client_reference_id'), pg.ref);
-    assert.equal(criar.get('metadata[fase]'), 'relatorio_pormenorizado');
-    assert.deepEqual(['0', '1', '2'].map((i) => criar.get(`payment_method_types[${i}]`)), ['card', 'mb_way', 'multibanco']);
-    assert.equal(criar.get('success_url'), `https://site.teste/conta.html?pagamento=${pg.ref}`);
-    assert.equal(chamadas.at(-1).op.headers['Idempotency-Key'], `domus-${pg.ref}`);
+    assert.equal(pg.modo, 'airwallex');
+    assert.equal(pg.url, `pagar.html?ref=${pg.ref}`);
+    const criar = aw.chamadas.findLast((x) => x.url.endsWith('/payment_intents/create'));
+    assert.deepEqual([criar.corpo.amount, criar.corpo.currency, criar.corpo.merchant_order_id, criar.corpo.request_id, criar.corpo.metadata.fase],
+      [29, 'EUR', pg.ref, `domus-${pg.ref}`, 'relatorio_pormenorizado'], 'em euros (29), não em cêntimos');
+    assert.equal(criar.corpo.return_url, `https://site.teste/conta.html?pagamento=${pg.ref}`);
+    assert.equal(criar.cabecalhos.Authorization, 'Bearer token_teste');
+    // O que a pagar.html recebe (só a conta dona): até 500 € só os métodos de cartão.
+    const ver = (await p.pedir('GET', `/api/conta/pagamentos/${pg.ref}`, { cookie: c.cookie })).json.pagamento;
+    assert.deepEqual(ver.airwallex, { intent_id: intentDe(pg.ref), client_secret: aw.intents.get(intentDe(pg.ref)).client_secret, moeda: 'EUR', ambiente: 'demo',
+      metodos: ['card', 'applepay', 'googlepay'], sucesso: `https://site.teste/conta.html?pagamento=${pg.ref}`, cancelar: `https://site.teste/conta.html?pagamento=${pg.ref}&cancelado=1` });
+    assert.deepEqual(ver.metodos, ['Cartão']);
     assert.equal((await p.pedir('POST', `/api/conta/pagamentos/${pg.ref}/simular`, { cookie: c.cookie, corpo: { resultado: 'sucesso' } })).estado, 404);
-    const sessao = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(pg.ref).stripe_sessao;
-    const ev = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: pg.ref, amount_total: 2900, currency: 'eur', payment_status: 'paid' } } };
-    assert.equal((await webhook(ev, 't=1,v1=00')).estado, 400, 'assinatura inválida');
-    const w = await webhook(ev);
+    // O evento só diz qual é; o estado vem do PaymentIntent lido na Airwallex.
+    const id = intentDe(pg.ref);
+    const ev = { id: 'evt_1', name: 'payment_intent.succeeded', data: { object: { id, merchant_order_id: pg.ref, amount: 29, currency: 'EUR', status: 'SUCCEEDED' } } };
+    assert.equal((await webhook(ev, { 'x-timestamp': String(Date.now()), 'x-signature': '00' })).estado, 400, 'assinatura inválida');
+    assert.equal((await webhook(ev, aw.assinar(JSON.stringify(ev), String(Date.now() - 5 * 24 * 3600_000)))).estado, 400, 'assinatura velha demais');
+    assert.equal((await webhook(ev)).json.resultado, 'ignorado', 'na Airwallex ainda não está pago');
+    aw.pagar(id, 'card');
+    const w = await webhook({ ...ev, id: 'evt_1b' });
     assert.equal(w.estado, 200, w.texto);
     assert.equal(w.json.resultado, 'pago');
-    assert.equal((await webhook(ev)).json.resultado, 'repetido');
+    assert.equal((await webhook({ ...ev, id: 'evt_1b' })).json.resultado, 'repetido');
+    assert.equal(p.app.db.prepare('SELECT metodo FROM pagamentos_pedido WHERE ref = ?').get(pg.ref).metodo, 'card');
     const l = (await p.pedir('GET', '/api/conta/pedidos', { cookie: c.cookie })).json.pedidos.find((x) => x.id === r.json.pedido);
     assert.equal(l.relatorio, 'em_revisao');
-    // Sessão de outro pagamento (não corresponde): ignorada.
+    // Um pagamento do GestTVDE (mesma conta, sem referência pp_…) e o PaymentIntent de outro pagamento: ignorados, sem ler nada.
+    const antes = aw.chamadas.length;
+    assert.equal((await webhook({ id: 'evt_g', name: 'payment_intent.succeeded', data: { object: { id: 'int_gesttvde', merchant_order_id: 'encomenda-123' } } })).json.resultado, 'ignorado');
     const r2 = await p.pedir('POST', `/api/conta/pedidos/${r.json.pedido}/pagar`, { cookie: c.cookie, corpo: { fase: 'visita' } });
     assert.equal(r2.estado, 200, r2.texto);
-    const ev2 = { ...ev, id: 'evt_2', data: { object: { ...ev.data.object, client_reference_id: r2.json.pagamento.ref } } };
-    assert.equal((await webhook(ev2)).json.resultado, 'ignorado');
-    const v = await p.pedir('GET', `/api/conta/pagamentos/${r2.json.pagamento.ref}`, { cookie: c.cookie });
-    assert.equal(v.json.pagamento.estado, 'pendente');
+    assert.equal((await webhook({ ...ev, id: 'evt_2', data: { object: { ...ev.data.object, merchant_order_id: r2.json.pagamento.ref } } })).json.resultado, 'ignorado');
+    assert.equal(aw.chamadas.slice(antes).filter((x) => /payment_intents\/int_/.test(x.url)).length, 0);
+    assert.equal((await p.pedir('GET', `/api/conta/pagamentos/${r2.json.pagamento.ref}`, { cookie: c.cookie })).json.pagamento.estado, 'pendente');
+    // Regresso do cliente: lê o PaymentIntent (o webhook pode chegar depois).
+    aw.pagar(intentDe(r2.json.pagamento.ref), 'card');
+    assert.equal((await p.pedir('GET', `/api/conta/pagamentos/${r2.json.pagamento.ref}`, { cookie: c.cookie })).json.pagamento.estado, 'pago');
   });
 
-  test('modo: sem PAGAMENTOS_MODO nem chave → pagamentos DESLIGADOS (envia grátis, compras desligadas com aviso; a avaria vai sem pagar); simulado só explícito; só a chave → stripe', async () => {
+  test('acima de 500 €: sem lista de métodos (a página mostra os da conta, MB WAY incluído); desistir cancela o PaymentIntent', async () => {
+    const c = await p.contaConfirmada();
+    const { pedido: id } = (await p.pedir('POST', '/api/orcamento', { cookie: c.cookie, corpo: { nome: 'Cliente', telefone: '912 000 111', servico: 'S', localidade: 'Sintra', morada: 'Rua do Teste, 1', simulacao: SIM } })).json;
+    await p.pedir('POST', `/painel/api/orcamentos/${id}`, { cookie: p.cookies.ceo, corpo: { estado: 'proposta_enviada', valor_proposta: 3000 } });
+    const ac = await p.pedir('POST', `/api/conta/pedidos/${id}/aceitar`, { cookie: c.cookie, corpo: { valor: 3000 } });
+    assert.equal(ac.estado, 200, ac.texto);
+    const sinal = ac.json.pagamento;
+    assert.ok(sinal.valor > 500);
+    const ver = (await p.pedir('GET', `/api/conta/pagamentos/${sinal.ref}`, { cookie: c.cookie })).json.pagamento;
+    assert.equal(ver.airwallex.metodos, null);
+    assert.deepEqual(ver.metodos, ['Cartão', 'MB Way']);
+    const cancelado = (await p.pedir('GET', `/api/conta/pagamentos/${sinal.ref}?cancelado=1`, { cookie: c.cookie })).json.pagamento;
+    assert.equal(cancelado.estado, 'cancelado');
+    assert.ok(aw.chamadas.some((x) => x.url.endsWith(`/payment_intents/${intentDe(sinal.ref)}/cancel`)));
+  });
+
+  test('modo: sem PAGAMENTOS_MODO nem chave → pagamentos DESLIGADOS (envia grátis, compras desligadas com aviso; a avaria vai sem pagar); simulado só explícito; só a chave → airwallex', async () => {
     const semNada = lerConfig({ PAGAMENTO_PEDIDO: '1' });
     assert.equal(semNada.pagamentoPedido, false);
     assert.equal(semNada.pagamentosDesligadosSemModo, true);
     assert.ok(semNada.avisos.some((a) => /DESLIGADOS/.test(a)));
-    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' }).pagamentosModo, 'stripe');
-    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x' }).pagamentoPedido, false, 'só a chave, sem o segredo do webhook: desligados (pagamentos-limites.test.js)');
-    assert.equal(lerConfig({ STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x' }).pagamentoPedido, true);
+    assert.equal(lerConfig({ AIRWALLEX_API_KEY: 'x' }).pagamentosModo, 'airwallex');
+    assert.equal(lerConfig({ AIRWALLEX_API_KEY: 'x' }).pagamentoPedido, false, 'só a chave, sem o segredo do webhook: desligados (pagamentos-limites.test.js)');
+    assert.equal(lerConfig({ AIRWALLEX_API_KEY: 'x', AIRWALLEX_CLIENT_ID: 'y', AIRWALLEX_WEBHOOK_SECRET: 'z' }).pagamentoPedido, true);
+    assert.equal(lerConfig({ AIRWALLEX_API_KEY: 'x' }).airwallexApi, 'https://api.sandbox.airwallex.com', 'sem AIRWALLEX_ENV: a sandbox');
+    assert.equal(lerConfig({ AIRWALLEX_API_KEY: 'x', AIRWALLEX_ENV: 'prod' }).airwallexApi, 'https://api.airwallex.com');
     assert.equal(lerConfig({ PAGAMENTOS_MODO: 'simulado' }).pagamentoPedido, true);
     assert.equal(lerConfig({ PAGAMENTOS_MODO: 'invalido' }).pagamentoPedido, false);
     assert.equal(lerConfig({}).ivaTaxa, 23);
@@ -1042,7 +1056,7 @@ describe('modo stripe', () => {
   test('sem webhook no modo simulado', async () => {
     const q = await painelComEquipa({ env: { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'simulado' } });
     try {
-      assert.equal((await q.pedir('POST', '/api/conta/pagamentos/stripe-webhook', { corpo: '{}', site: false })).estado, 404);
+      assert.equal((await q.pedir('POST', '/api/conta/pagamentos/airwallex-webhook', { corpo: '{}', site: false })).estado, 404);
     } finally { await q.fechar(); }
   });
 });

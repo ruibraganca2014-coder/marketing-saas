@@ -14,7 +14,7 @@
 //   - não há ntfy (as notificações do motor falham e ficam no registo);
 //   - o ./domus.sh não corre: os pedidos do painel (criar clientes, aparelhos) ficam pendentes;
 //   - os emails das contas de cliente (códigos) não saem: aparecem neste terminal, "[painel] [email] para x: código 123456";
-//   - os pagamentos do pedido são simulados (docs/PAGAMENTOS-PEDIDO.md): nenhum dinheiro real, nenhuma chave Stripe.
+//   - os pagamentos do pedido são simulados (docs/PAGAMENTOS-PEDIDO.md): nenhum dinheiro real, nenhuma chave da Airwallex.
 //
 // Acesso rápido (testes): só aqui e só neste computador (localhost; pela rede local não), as páginas ganham a barra "Acesso rápido (testes)" (em baixo, à esquerda) para
 // entrar sem palavra-passe como CEO, Comercial, Técnico, Cliente de teste 1/2 ou Eletricista de teste. Este lançador passa ACESSO_RAPIDO=1

@@ -91,15 +91,15 @@ export default function pagamentos(el, ctx = {}) {
           } }) : null)))));
   }
 
-  // Pagamentos por tratar (migração 61): dinheiro que entrou no Stripe e o programa não aplicou (pagou duas vezes, avaria
-  // paga depois de expirar, sinal de uma proposta que mudou, restante com o valor antigo). O CEO decide no Stripe e marca.
+  // Pagamentos por tratar (migração 61): dinheiro que entrou na Airwallex e o programa não aplicou (pagou duas vezes, avaria
+  // paga depois de expirar, sinal de uma proposta que mudou, restante com o valor antigo). O CEO decide na Airwallex e marca.
   const zonaTratar = h("div", { id: "pagamentos-por-tratar" });
   zonaDev.before(zonaTratar);
   function desenharPorTratar(ps) {
     if (!ps.length) { zonaTratar.replaceChildren(); return; }
     zonaTratar.replaceChildren(h("section", { class: "cartao", "aria-labelledby": "tratar-titulo" },
       h("h2", { id: "tratar-titulo", text: `Pagamentos por tratar (${ps.length})` }),
-      h("p", { class: "ajuda", text: "Entrou dinheiro que o programa não aplicou ao pedido. Devolva-o no Stripe (ou acerte com o cliente) e marque-o como tratado." }),
+      h("p", { class: "ajuda", text: "Entrou dinheiro que o programa não aplicou ao pedido. Devolva-o na Airwallex (ou acerte com o cliente) e marque-o como tratado." }),
       h("ul", { class: "linhas-simples" }, ...ps.map((p) => h("li", { dataset: { ref: campo(p, "ref") } },
         h("strong", { text: `${euros(campo(p, "valor"))} — ${txt(p, "descricao")}` }), " ",
         campo(p, "orcamento_id") ? h("a", { href: `#/orcamentos/${encodeURIComponent(campo(p, "orcamento_id"))}`, text: `pedido n.º ${campo(p, "orcamento_id")}` }) : null, " ",

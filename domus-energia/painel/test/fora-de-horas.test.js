@@ -9,7 +9,7 @@
 
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { painelComEquipa } from './ajuda.js';
+import { painelComEquipa, airwallexFalsa, ENV_AIRWALLEX } from './ajuda.js';
 import { foraDeHoras, feriadosNacionais, pascoa } from '../public/vendor/horario.js';
 import { calcularPreco } from '../../web/simulador/preco.js';
 import { estadoNovo, montarSimulacao, normalizarEstado, PASSO, FOTO_AVARIA } from '../../web/simulador/estado.js';
@@ -501,66 +501,62 @@ describe('avarias fora de horas, com os pagamentos ligados (modo simulado)', () 
   });
 });
 
-describe('avarias fora de horas no modo stripe: o reembolso da diferença sai uma só vez, com a sua chave de idempotência', () => {
+describe('avarias fora de horas no modo airwallex: o reembolso da diferença sai uma só vez, com a sua chave de idempotência', () => {
   let p;
-  const chamadas = [];
+  const aw = airwallexFalsa();
   const a = ajudas(() => p);
-  const fetchStripe = async (url, op) => {
-    chamadas.push({ url, op });
-    const params = new URLSearchParams(op.body ?? '');
-    if (/checkout\/sessions$/.test(url)) return new Response(JSON.stringify({ id: `cs_test_${chamadas.length}`, url: `https://checkout.stripe.com/c/pay/cs_test_${chamadas.length}`, amount_total: Number(params.get('line_items[0][price_data][unit_amount]')) }), { status: 200 });
-    const m = /checkout\/sessions\/(cs_test_\d+)(\?|$)/.exec(url);
-    if (m) return new Response(JSON.stringify({ id: m[1], object: 'checkout.session', status: 'complete', payment_status: 'paid', payment_intent: { id: 'pi_1', latest_charge: { payment_method_details: { type: 'card' } } } }), { status: 200 });
-    return new Response(JSON.stringify({ id: 're_1', status: 'succeeded' }), { status: 200 });
-  };
   before(async () => {
-    p = await painelComEquipa({ fetchStripe, env: { PAGAMENTO_PEDIDO: '1', PAGAMENTOS_MODO: 'stripe', STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PEDIDO_WEBHOOK_SECRET: 'whsec_x', SITE_URL: 'https://site.teste' } });
+    p = await painelComEquipa({ fetchPagamentos: aw.fetch, env: ENV_AIRWALLEX });
     await a.eletricista({ foraHoras: true });
   });
   after(() => p.fechar());
+  const pagoNaAirwallex = (ref) => {
+    const pi = a.pagamento(ref).prov_id;
+    aw.pagar(pi, 'card');
+    return p.app.api.pagamentosPedido.tratarEvento({ id: `evt_${ref}`, type: 'checkout.session.completed', data: { object: { id: pi, object: 'checkout.session', client_reference_id: ref, amount_total: 7320, currency: 'eur', payment_status: 'paid' } } });
+  };
 
-  test('a sessão do Checkout leva o valor de fora de horas; marcar em horário normal faz UM POST /refunds de 22,00 €; cancelar depois devolve o resto com a chave de sempre', async () => {
+  test('o PaymentIntent leva o valor de fora de horas; marcar em horário normal faz UM reembolso de 22,00 €; cancelar depois devolve o resto com a chave de sempre', async () => {
     const c = await p.contaConfirmada();
     const env = await a.enviar(c, 'fora_horas');
     assert.equal(env.estado, 202, env.texto);
     const ref = env.json.pagamento.ref;
-    assert.equal(new URLSearchParams(chamadas.find((x) => /checkout\/sessions$/.test(x.url)).op.body).get('line_items[0][price_data][unit_amount]'), '7320');
-    const sessao = a.pagamento(ref).stripe_sessao;
-    assert.equal(p.app.api.pagamentosPedido.tratarEvento({ id: `evt_${ref}`, type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: ref, amount_total: 7320, currency: 'eur', payment_status: 'paid' } } }), 'pago');
+    assert.equal(aw.chamadas.find((x) => x.url.endsWith('/payment_intents/create')).corpo.amount, 73.2);
+    assert.equal(pagoNaAirwallex(ref), 'pago');
     const id = a.pagamento(ref).orcamento_id;
-    const reembolsos = () => chamadas.filter((x) => /\/refunds$/.test(x.url));
-    // Fora de horas: nenhuma chamada ao Stripe.
-    const n = chamadas.length;
+    const pi = a.pagamento(ref).prov_id;
+    const reembolsos = () => aw.chamadas.filter((x) => x.url.endsWith('/refunds/create'));
+    // Fora de horas: nenhuma chamada à Airwallex.
+    const n = aw.chamadas.length;
     assert.equal((await a.painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: a.data(true, 5) })).estado, 200);
-    assert.equal(chamadas.length, n);
-    // Horário normal: um reembolso de 2200 cêntimos sobre o PaymentIntent, com a chave própria.
+    assert.equal(aw.chamadas.length, n);
+    // Horário normal: um reembolso de 22,00 € sobre o PaymentIntent, com a chave própria.
     assert.equal((await a.painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: a.data(false, 5) })).estado, 200);
     assert.equal(reembolsos().length, 1);
-    const r = reembolsos()[0];
-    assert.deepEqual([new URLSearchParams(r.op.body).get('amount'), new URLSearchParams(r.op.body).get('payment_intent'), r.op.headers['Idempotency-Key']], ['2200', 'pi_1', `domus-reembolso-${ref}-horario`]);
+    const r = reembolsos()[0].corpo;
+    assert.deepEqual([r.amount, r.payment_intent_id, r.request_id], [22, pi, `domus-reembolso-${ref}-horario`]);
     assert.equal(a.pagamento(ref).devolvido_cent, 2200);
     assert.equal((await a.painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: a.data(false, 8) })).estado, 200);
     assert.equal(reembolsos().length, 1, 'a segunda marcação não devolve outra vez');
-    // O cliente cancela o diagnóstico: devolve-se o resto (5120), com a chave das devoluções de sempre.
+    // O cliente cancela o diagnóstico: devolve-se o resto (51,20 €), com a chave das devoluções de sempre.
     assert.deepEqual((await a.conta(c, 'POST', `pedidos/${id}/cancelar-visita`, {})).json, { ok: true, devolvido: NORMAL, manual: false });
     assert.equal(reembolsos().length, 2);
-    assert.deepEqual([new URLSearchParams(reembolsos()[1].op.body).get('amount'), reembolsos()[1].op.headers['Idempotency-Key']], ['5120', `domus-reembolso-${ref}`]);
+    assert.deepEqual([reembolsos()[1].corpo.amount, reembolsos()[1].corpo.request_id], [51.2, `domus-reembolso-${ref}`]);
     assert.deepEqual([a.pagamento(ref).estado, a.pagamento(ref).devolvido_cent], ['devolvido', 7320]);
   });
 
   test('se o serviço de pagamentos falhar ao devolver, a visita não fica marcada em horário normal (tenta-se de novo e devolve)', async () => {
     const c = await p.contaConfirmada();
     const ref = (await a.enviar(c, 'fora_horas')).json.pagamento.ref;
-    const sessao = a.pagamento(ref).stripe_sessao;
-    p.app.api.pagamentosPedido.tratarEvento({ id: `evt_${ref}`, type: 'checkout.session.completed', data: { object: { id: sessao, object: 'checkout.session', client_reference_id: ref, amount_total: 7320, currency: 'eur', payment_status: 'paid' } } });
+    pagoNaAirwallex(ref);
     const id = a.pagamento(ref).orcamento_id;
-    const original = p.app.db.prepare('SELECT stripe_sessao FROM pagamentos_pedido WHERE ref = ?').get(ref).stripe_sessao;
-    p.app.db.prepare('UPDATE pagamentos_pedido SET stripe_sessao = NULL WHERE ref = ?').run(ref);   // o Stripe não tem como devolver
+    const original = a.pagamento(ref).prov_id;
+    p.app.db.prepare('UPDATE pagamentos_pedido SET prov_id = NULL WHERE ref = ?').run(ref);   // a Airwallex não tem como devolver
     const falhou = await a.painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: a.data(false, 5) });
     assert.equal(falhou.estado, 409, falhou.texto);
     assert.equal((await a.painel('GET', `orcamentos/${id}`)).json.data_visita, null);
     assert.deepEqual([a.pagamento(ref).devolvido_cent, a.pagamento(ref).fora_horas_devolvida], [null, null]);
-    p.app.db.prepare('UPDATE pagamentos_pedido SET stripe_sessao = ? WHERE ref = ?').run(original, ref);
+    p.app.db.prepare('UPDATE pagamentos_pedido SET prov_id = ? WHERE ref = ?').run(original, ref);
     assert.equal((await a.painel('POST', `orcamentos/${id}/marcar-visita`, 'ceo', { data_visita: a.data(false, 5) })).estado, 200);
     assert.equal(a.pagamento(ref).devolvido_cent, 2200);
   });
