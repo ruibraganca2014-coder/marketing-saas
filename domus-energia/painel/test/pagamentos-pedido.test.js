@@ -455,6 +455,69 @@ describe('modo simulado', () => {
     assert.equal(ac2.json.pagamento.valor, 709, '30 % × 2460 − 29');
   });
 
+  test('pagamentos por tratar (lacunas 1 a 4, decisão de 2026-11-08): o dinheiro que já não se aplica fica registado, o CEO é avisado e marca-o como tratado', async () => {
+    const pag = p.app.api.pagamentosPedido;
+    const linhaDe = (ref) => p.app.db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
+    let n = 0;
+    const pagoNoStripe = (ref) => pag.tratarEvento({ id: `evt_tratar_${n++}`, type: 'checkout.session.completed',
+      data: { object: { id: 'cs_x', object: 'checkout.session', client_reference_id: ref, amount_total: linhaDe(ref).valor_cent, currency: 'eur', payment_status: 'paid' } } });
+    const avisos = () => p.emails.filter((e) => /^Pagamento por tratar/.test(e.assunto)).length;
+    const c = await p.contaConfirmada();
+
+    // 1. Pagou duas vezes a mesma fase: a 1.ª tentativa (cancelada) é paga depois de a 2.ª já estar paga.
+    const { pedido: id } = await enviar(c);
+    const pg1 = (await comprar(c, id, 'relatorio_pormenorizado')).json.pagamento;
+    await simular(c, pg1.ref, 'cancelar');
+    await comprado(c, id, 'relatorio_pormenorizado');
+    const emailsAntes = avisos();
+    assert.equal(pagoNoStripe(pg1.ref), 'por_tratar');
+    assert.deepEqual([linhaDe(pg1.ref).estado, linhaDe(pg1.ref).por_tratar], ['cancelado', 'duplicado']);
+    assert.equal(avisos(), emailsAntes + 1, 'os CEO recebem um email');
+    assert.equal(pagoNoStripe(pg1.ref), 'repetido', 'outro evento do mesmo pagamento não volta a avisar');
+
+    // 2. Avaria paga depois de falhar (o pedido guardado já saiu): nenhum pedido nasce.
+    const av = await enviarAvaria(c);
+    await simular(c, av.ref, 'cancelar');
+    const nAntes = nOrc();
+    assert.equal(pagoNoStripe(av.ref), 'por_tratar');
+    assert.equal(linhaDe(av.ref).por_tratar, 'sem_pedido');
+    assert.equal(nOrc(), nAntes);
+
+    // 3. Sinal de uma proposta que mudou: o cliente já aceitou a nova; o sinal antigo não aceita o pedido.
+    const { pedido: id3 } = await enviar(c);
+    await painel('POST', `orcamentos/${id3}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000 });
+    const s1 = (await p.pedir('POST', `/api/conta/pedidos/${id3}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).json.pagamento;
+    await painel('POST', `orcamentos/${id3}`, 'ceo', { valor_proposta: 2000 });
+    const s2 = (await p.pedir('POST', `/api/conta/pedidos/${id3}/aceitar`, { cookie: c.cookie, corpo: { valor: 2000 } })).json.pagamento;
+    assert.equal(pagoNoStripe(s1.ref), 'por_tratar');
+    assert.equal(linhaDe(s1.ref).por_tratar, 'proposta_mudou');
+    assert.equal((await painel('GET', `orcamentos/${id3}`)).json.estado, 'proposta_enviada');
+    assert.equal(linhaDe(s2.ref).estado, 'pendente', 'o sinal da proposta nova continua por pagar');
+    assert.equal(pagoNoStripe(s2.ref), 'pago');
+
+    // 4. Restante pago pelo valor antigo (ex.: um trabalho a mais aceite com a sessão aberta).
+    const { pedido: id4 } = await enviar(c);
+    await painel('POST', `orcamentos/${id4}`, 'ceo', { estado: 'proposta_enviada', valor_proposta: 1000 });
+    const s4 = (await p.pedir('POST', `/api/conta/pedidos/${id4}/aceitar`, { cookie: c.cookie, corpo: { valor: 1000 } })).json.pagamento;
+    await simular(c, s4.ref, 'sucesso');
+    assert.equal((await painel('POST', `orcamentos/${id4}/obra-concluida`, 'ceo', {})).estado, 200);
+    const r4 = (await comprar(c, id4, 'restante')).json.pagamento;
+    p.app.db.prepare('UPDATE pagamentos_pedido SET valor_cent = valor_cent - 5000 WHERE ref = ?').run(r4.ref);
+    assert.equal(pagoNoStripe(r4.ref), 'por_tratar');
+    assert.equal(linhaDe(r4.ref).por_tratar, 'valor_mudou');
+    assert.equal((await pedidoConta(c, id4)).pode_pagar_restante, true, 'o restante continua por pagar');
+
+    // O CEO vê-os em Pagamentos e marca-os; o comercial não.
+    const lista = (await painel('GET', 'pagamentos-pedido')).json.por_tratar;
+    assert.deepEqual(lista.map((x) => [x.ref, x.motivo]), [[pg1.ref, 'duplicado'], [av.ref, 'sem_pedido'], [s1.ref, 'proposta_mudou'], [r4.ref, 'valor_mudou']]);
+    assert.match(lista[0].motivo_texto, /pagou duas vezes/);
+    assert.equal((await painel('POST', `pagamentos-pedido/${pg1.ref}/tratado`, 'comercial', {})).estado, 403);
+    const t = await painel('POST', `pagamentos-pedido/${pg1.ref}/tratado`, 'ceo', {});
+    assert.equal(t.estado, 200, t.texto);
+    assert.equal(t.json.por_tratar.length, 3);
+    assert.equal((await painel('POST', `pagamentos-pedido/${pg1.ref}/tratado`, 'ceo', {})).estado, 404, 'já tratado');
+  });
+
   test('pedidos antigos (19 € pagos, fase "relatorio"): contam como relatório e visita comprados e descontam no sinal', async () => {
     const c = await p.contaConfirmada();
     const { pedido: id } = await enviar(c);

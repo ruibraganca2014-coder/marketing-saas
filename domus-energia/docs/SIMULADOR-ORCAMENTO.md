@@ -359,14 +359,14 @@ Configuração: `tarifa_hora_iva` (38 € por omissão numa base nova; `db.js` m
 | RPI-CENTRAL | Central local Raspberry Pi (UPS, sirene) — plano Premium | central | (a definir) | — | 149,00 | 2 | — |
 | QUADRO-AMPLIACAO | Ampliação do quadro (calha DIN, módulos) | acessorio | armazenista | — | 25,00 | 1 | — |
 
-**Artigos do quadro elétrico** (§4.1; `painel/src/catalogo-sementes.js` `SEMENTES_QUADRO`, **migração 3**: entram numa base nova e numa base já existente com `INSERT OR IGNORE` pelo SKU — nunca duplicam nem mexem num artigo que o CEO já tenha, com preço editado ou o mesmo SKU criado à mão). Preços de venda **aprovados pelo dono (setembro 2026)**, sem nota, exceto o AFDD-1PN-16A, que continua com `especificacoes.nota` = "preço provisório — confirmar" (as caixas têm só a nota das horas); `preco_compra` vazio. Os preços novos entram nas bases novas (sementes); nas já existentes o CEO muda-os no painel. `especificacoes.funcao` diz ao simulador e ao painel o que o artigo é (as procuras de reserva do SY1/SY2 e da ampliação ignoram artigos com `funcao`); `modulos` = largura em monofásico.
+**Artigos do quadro elétrico** (§4.1; `painel/src/catalogo-sementes.js` `SEMENTES_QUADRO`, **migração 3**: entram numa base nova e numa base já existente com `INSERT OR IGNORE` pelo SKU — nunca duplicam nem mexem num artigo que o CEO já tenha, com preço editado ou o mesmo SKU criado à mão). Preços de venda **aprovados pelo dono (setembro 2026)**, sem nota, o AFDD-1PN-16A confirmado em 2026-11-08 (migração 61 tira a nota "preço provisório — confirmar" dos 9 artigos confirmados nesse dia: AFDD, diferenciais tipo A de 40 e 63 A, descarregador tipo 1+2, troca de máquina, comutador, inversor, botão de pressão e campainha) (as caixas têm só a nota das horas); `preco_compra` vazio. Os preços novos entram nas bases novas (sementes); nas já existentes o CEO muda-os no painel. `especificacoes.funcao` diz ao simulador e ao painel o que o artigo é (as procuras de reserva do SY1/SY2 e da ampliação ignoram artigos com `funcao`); `modulos` = largura em monofásico.
 | sku | nome | categoria | venda c/ IVA | horas | especificações |
 |---|---|---|---|---|---|
 | IDR-2P-40A-30MA | Interruptor diferencial 2P 40 A 30 mA tipo AC | disjuntor | 49,90 | 0,5 | funcao diferencial, 2 módulos |
 | RCBO-WIFI-TOSMR1 | Diferencial Wi-Fi com religação automática (RCBO Tongou TOSMR1, 30 mA) | disjuntor | 119,00 | 0,75 | funcao diferencial, wifi, religacao |
 | SPD-T2-1PN-40KA | Descarregador de sobretensões tipo 2 (1P+N, 40 kA) | acessorio | 89,90 | 0,5 | funcao descarregador |
 | RELE-TENSAO-WIFI | Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou) | acessorio | 59,90 | 0,5 | funcao rele_tensao |
-| AFDD-1PN-16A | Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A) | disjuntor | 339,90 (provisório) | 0,5 | funcao afdd, com_disjuntor |
+| AFDD-1PN-16A | Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A) | disjuntor | 339,90 | 0,5 | funcao afdd, com_disjuntor |
 | MEDIDOR-DIN-WIFI | Medidor de energia geral Wi-Fi (calha DIN, até 63 A) | acessorio | 49,90 | 0,5 | funcao medidor_geral |
 | GERAL-WIFI-2P-63A | Disjuntor geral Wi-Fi com medição e corte remoto (2P, 63 A) | disjuntor | 69,90 | 0,75 | funcao geral_wifi |
 | MCB-1PN-C | Disjuntor 1P+N curva C (6–40 A) — quadro novo | disjuntor | 21,90 | 0,25 | funcao disjuntor_circuito, 1 módulo |
@@ -385,11 +385,11 @@ Configuração: `tarifa_hora_iva` (38 € por omissão numa base nova; `db.js` m
 | LINHA-DEDICADA-VE | Linha dedicada do carregador até 15 m (cabo, tubo, disjuntor, diferencial tipo A e mão de obra; ronda dinheiro, `SEMENTES_DINHEIRO`, migração 24; sempre com um carregador novo) | outro | 390,00 | 4 | funcao linha_dedicada_ve, preco_fechado, metros_max 15 |
 | LINHA-DEDICADA | Linha dedicada da máquina até 15 m (cabo, tubo e mão de obra; ronda dinheiro, migração 24; máquina nova numa casa que já existe) | outro | 140,00 | 1,5 | funcao linha_dedicada, preco_fechado, metros_max 15 |
 | LINHA-DEDICADA-NOVA | Linha dedicada da máquina em instalação nova, até 15 m (cabo, tubo e mão de obra; ronda dinheiro, migração 24; máquina nova numa "Instalação nova") | outro | 70,00 | 0,75 | funcao linha_dedicada_nova, preco_fechado, metros_max 15 |
-| COMUTADOR-ESCADA | Comutador de escada (um por interruptor "escada") | outro | 14,00 (provisório) | 0,15 | funcao comutador_escada |
-| INVERSOR | Inversor de grupo (um por interruptor "inversor") | outro | 18,00 (provisório) | 0,15 | funcao inversor |
-| BOTAO-PRESSAO | Botão de pressão (campainha, telerruptor) | outro | 12,00 (provisório) | 0,15 | funcao botao_pressao |
-| CAMPAINHA | Campainha com transformador (ligação e mão de obra; o botão à parte) | outro | 39,00 (provisório) | 0,5 | funcao campainha |
-| IDR-2P-40A-30MA-A | Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE; ronda dinheiro: já não entra à parte no orçamento — vai dentro da LINHA-DEDICADA-VE) | disjuntor | 45,00 (provisório) | 0,5 | funcao diferencial, tipo A, 2 módulos |
+| COMUTADOR-ESCADA | Comutador de escada (um por interruptor "escada") | outro | 14,00 | 0,15 | funcao comutador_escada |
+| INVERSOR | Inversor de grupo (um por interruptor "inversor") | outro | 18,00 | 0,15 | funcao inversor |
+| BOTAO-PRESSAO | Botão de pressão (campainha, telerruptor) | outro | 12,00 | 0,15 | funcao botao_pressao |
+| CAMPAINHA | Campainha com transformador (ligação e mão de obra; o botão à parte) | outro | 39,00 | 0,5 | funcao campainha |
+| IDR-2P-40A-30MA-A | Interruptor diferencial 2P 40 A 30 mA tipo A (carregador VE; ronda dinheiro: já não entra à parte no orçamento — vai dentro da LINHA-DEDICADA-VE) | disjuntor | 45,00 | 0,5 | funcao diferencial, tipo A, 2 módulos |
 
 Referências de mercado usadas nos primeiros preços (provisórios, antes da aprovação do dono): diferencial 2P 40 A 30 mA AC de marca a ~42 € na Leroy Merlin (Hager); descarregadores T2 1P+N de 70 a 119 € (Leroy Merlin); RCBO Tongou TOSMR1 Wi-Fi ~80 USD na loja do fabricante; AFDD de marca (Hager ARC, Schneider Acti9 Arc) ~150–200 €; caixas de embutir TEV/Efapel/Hager por filas. O CEO confirma no painel.
 

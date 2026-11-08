@@ -1326,6 +1326,21 @@ export const MIGRACOES = [
       CREATE INDEX diagnosticos_fotos_diagnostico ON diagnosticos_fotos(diagnostico_id);
     `);
   },
+  // 61 (decisões do dono, 2026-11-08): (1) os 9 preços provisórios do quadro e dos comandos ficam confirmados como estão —
+  // sai a nota "preço provisório — confirmar" só onde ela ainda é a das sementes (um artigo que o CEO editou já não a tem).
+  // (2) Pagamentos por tratar (docs/PAGAMENTOS-PEDIDO.md "Lacunas"): dinheiro que entrou e o programa não pode aplicar
+  // (fase já paga, avaria sem o pedido guardado, sinal de uma proposta que mudou, restante com o valor antigo). O
+  // pagamento fica no estado que tinha (nunca `pago`), com o motivo em `por_tratar`; o CEO trata-o no Stripe e marca-o.
+  (db) => {
+    db.prepare(`UPDATE catalogo SET especificacoes = json_remove(especificacoes, '$.nota')
+      WHERE sku IN ('IDR-2P-63A-30MA-A', 'SPD-T12-1PN', 'AFDD-1PN-16A', 'TROCA-MAQUINA', 'COMUTADOR-ESCADA', 'INVERSOR', 'BOTAO-PRESSAO', 'CAMPAINHA', 'IDR-2P-40A-30MA-A')
+        AND json_extract(especificacoes, '$.nota') = 'preço provisório — confirmar'`).run();
+    db.exec(`
+      ALTER TABLE pagamentos_pedido ADD COLUMN por_tratar TEXT;     -- duplicado | sem_pedido | proposta_mudou | valor_mudou
+      ALTER TABLE pagamentos_pedido ADD COLUMN tratado TEXT;        -- quando o CEO o deu por tratado (ISO)
+      ALTER TABLE pagamentos_pedido ADD COLUMN tratado_por TEXT;
+    `);
+  },
 ];
 
 /** Migração que recria tabelas: corre com as chaves estrangeiras desligadas (senão o DROP apagava em cascata). */

@@ -314,7 +314,13 @@ O dono decidiu deixar estas para quando o Stripe for ligado. Não ligar pagament
 5. **Pagamentos simulados antigos continuam a contar** como pagos depois de mudar para Stripe (os totais não filtram por `modo`); e `PAGAMENTOS_MODO=simulado` num servidor a sério só gera um aviso (é o "Modo de demonstração", deliberado).
 6. Menores: um evento tardio com outro id volta a pôr `pago` um pagamento `devolvido`; falha entre o reembolso e o UPDATE repetida depois das 24 h da chave de idempotência permite segundo reembolso; valores abaixo de 0,50 € dão 502 genérico.
 
-Decisão em aberto para 1 a 4: registar como "pagamento por tratar" e avisar o CEO (recomendado), ou devolver sozinho.
+**Resolvido em 2026-11-08 (decisão do dono: registar e avisar, não devolver sozinho; migração 61):**
+
+- **1 a 4 — pagamentos por tratar.** Antes de aplicar um pagamento, `confirmar` vê se ele ainda vale (`motivoPorTratar`): `duplicado` (a mesma fase já está paga noutro pagamento), `sem_pedido` (avaria ou 19 € antigos pagos depois de o pedido guardado sair), `proposta_mudou` (sinal num pedido em "proposta enviada" sem `proposta_aceite`, ou com um sinal mais recente) e `valor_mudou` (restante cujo valor já não é `valores(o).restante`). Se não vale, **nada muda no pedido**: o pagamento fica no estado que tinha (por pagar → `cancelado`; nunca `pago`, por isso não conta nos totais), com o motivo em `por_tratar`, a auditoria `pagamento_por_tratar`, um erro no registo e um email a cada CEO ativo ("Pagamento por tratar: X €", com a referência e o pedido). O evento responde 200 (`por_tratar`): o Stripe não repete. Painel → Pagamentos → **"Pagamentos por tratar"** (valor, descrição, pedido, motivo, referência) e **"Tratado"** → "Confirmar: já tratei" (`POST /painel/api/pagamentos-pedido/:ref/tratado`, só CEO; `tratado`, `tratado_por`, auditoria `pagamento_tratado`). A devolução faz-se no painel do Stripe. Um pedido posto em "aceite" à mão no painel continua a receber o sinal, como antes.
+- **5 — simulados no modo Stripe.** No arranque com `PAGAMENTOS_MODO=stripe`, os pagamentos simulados por pagar passam a `cancelado` (já não se podem pagar) e, se houver simulados pagos, o registo avisa quantos são: **contam como recebidos** até se apagarem os pedidos de demonstração. Apagá-los antes de abrir.
+- **6 — menores:** continuam por fazer.
+
+Testes: `painel/test/pagamentos-pedido.test.js` "pagamentos por tratar".
 
 Feito em 2026-10-12: limite de 30 "Pagar" por hora e por conta; com `STRIPE_SECRET_KEY` e sem `STRIPE_PEDIDO_WEBHOOK_SECRET` os pagamentos do pedido ficam desligados (erro no arranque).
 

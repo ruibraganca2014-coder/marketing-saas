@@ -62,6 +62,7 @@ const MATRIZ = [
   ['GET', 'pagamentos', [C]],
   ['GET', 'pagamentos-pedido', [C]],
   ['POST', 'devolucoes/999/devolvida', [C], {}],
+  ['POST', 'pagamentos-pedido/pp_0000000000000000000000/tratado', [C], {}],
   ['GET', 'utilizadores', [C]],
   ['POST', 'utilizadores', [C], {}],
   ['POST', 'utilizadores/999', [C], {}],
@@ -150,7 +151,7 @@ before(async () => {
 after(() => p.fechar());
 
 const padrao = (caminho) => caminho.replace(/^clientes\/joao/, 'clientes/:c').replace(/aparelhos\/sala/, 'aparelhos/:a')
-  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista').replace(/extras\/997/, 'extras/:extra').replace(/idas-perdidas\/996/, 'idas-perdidas/:ida');
+  .replace(/\/(999|p-\d+-0+)(?=\/|$)/, '/:id').replace(/fotos\/[0-9a-f]{24}/, 'fotos/:foto').replace(/checklists\/998/, 'checklists/:lista').replace(/extras\/997/, 'extras/:extra').replace(/idas-perdidas\/996/, 'idas-perdidas/:ida').replace(/pagamentos-pedido\/pp_0+(?=\/)/, 'pagamentos-pedido/:ref');
 
 test('a matriz cobre exatamente as rotas do servidor', () => {
   const doServidor = ROTAS.map((r) => `${r.metodo} ${r.caminho}`).sort();

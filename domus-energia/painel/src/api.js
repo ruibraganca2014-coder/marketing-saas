@@ -167,6 +167,7 @@ export const ROTAS = [
   ['GET', 'pagamentos', ['ceo'], 'pagamentos'],
   ['GET', 'pagamentos-pedido', ['ceo'], 'pagamentosPedido'],
   ['POST', 'devolucoes/:id/devolvida', ['ceo'], 'devolucaoFeita'],
+  ['POST', 'pagamentos-pedido/:ref/tratado', ['ceo'], 'pagamentoTratado'],
   ['GET', 'utilizadores', ['ceo'], 'utilizadores'],
   ['POST', 'utilizadores', ['ceo'], 'criarUtilizador'],
   ['POST', 'utilizadores/:id', ['ceo'], 'atualizarUtilizador'],
@@ -2174,11 +2175,22 @@ export function criarApi(ctx) {
       pagamentos: linhas, total_pago: { pagamentos: pagos.length, base: soma('base', 'devolvido_base'), iva: soma('iva', 'devolvido_iva'), total: soma('valor', 'devolvido') },
       // Devoluções por transferência ainda por fazer (pagamentos por Multibanco): valor, IBAN e titular, para o CEO.
       devolucoes_por_fazer: pagPed.devolucoesPorFazer(),
+      // Dinheiro que entrou e o programa não aplicou (migração 61): o CEO trata-o no Stripe e marca-o.
+      por_tratar: pagPed.porTratarAbertos(),
       // Eletricistas externos: o que se deve e o que já se pagou (sem IVA), à parte da receita dos clientes; null sem o módulo.
       eletricistas: config.eletricistas ? { a_pagar: pagEletricistas(mes).a_pagar, pago: pagEletricistas(mes).pago } : null,
     });
   };
   const pagEletricistas = (mes) => (config.eletricistas ? eletricistas.resumoPagamentos(mes) : { linhas: [], a_pagar: null, pago: null });
+
+  // "Tratado": o CEO resolveu um pagamento por tratar (devolveu-o no Stripe ou acertou com o cliente).
+  h.pagamentoTratado = async ({ req, res, u, params, ip }) => {
+    await lerJson(req, []);
+    if (!/^pp_[A-Za-z0-9_-]{22}$/.test(params.ref)) throw new ErroApi(404, 'Este pagamento não está por tratar.');
+    const p = pagPed.marcarTratado(params.ref, u.email);
+    auditar(u, 'pagamento_tratado', p.orcamento_id ? `orcamento:${p.orcamento_id}` : `conta:${p.conta_id}`, { ref: p.ref, motivo: p.por_tratar }, ip);
+    responder(res, 200, { por_tratar: pagPed.porTratarAbertos() });
+  };
 
   // "Devolvido": o CEO fez a transferência de uma devolução manual (pagamento por referência Multibanco). Fica a data e
   // quem; só agora conta como devolvido nos totais e no CSV. O IBAN não vai para a auditoria.

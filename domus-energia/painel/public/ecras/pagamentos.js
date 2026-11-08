@@ -91,11 +91,39 @@ export default function pagamentos(el, ctx = {}) {
           } }) : null)))));
   }
 
+  // Pagamentos por tratar (migração 61): dinheiro que entrou no Stripe e o programa não aplicou (pagou duas vezes, avaria
+  // paga depois de expirar, sinal de uma proposta que mudou, restante com o valor antigo). O CEO decide no Stripe e marca.
+  const zonaTratar = h("div", { id: "pagamentos-por-tratar" });
+  zonaDev.before(zonaTratar);
+  function desenharPorTratar(ps) {
+    if (!ps.length) { zonaTratar.replaceChildren(); return; }
+    zonaTratar.replaceChildren(h("section", { class: "cartao", "aria-labelledby": "tratar-titulo" },
+      h("h2", { id: "tratar-titulo", text: `Pagamentos por tratar (${ps.length})` }),
+      h("p", { class: "ajuda", text: "Entrou dinheiro que o programa não aplicou ao pedido. Devolva-o no Stripe (ou acerte com o cliente) e marque-o como tratado." }),
+      h("ul", { class: "linhas-simples" }, ...ps.map((p) => h("li", { dataset: { ref: campo(p, "ref") } },
+        h("strong", { text: `${euros(campo(p, "valor"))} — ${txt(p, "descricao")}` }), " ",
+        campo(p, "orcamento_id") ? h("a", { href: `#/orcamentos/${encodeURIComponent(campo(p, "orcamento_id"))}`, text: `pedido n.º ${campo(p, "orcamento_id")}` }) : null, " ",
+        selo("Por tratar", "grav-critica"),
+        h("span", { class: "bloco-ajuda", text: `Motivo: ${txt(p, "motivo_texto")} · referência ${txt(p, "ref")}` }),
+        h("button", { class: "btn sec pequeno", type: "button", text: "Tratado", "aria-label": `Marcar como tratado: ${euros(campo(p, "valor"))}`,
+          onclick: async (e) => {
+            const b = e.currentTarget;
+            if (b.dataset.confirma !== "1") { b.dataset.confirma = "1"; b.textContent = "Confirmar: já tratei"; b.setAttribute("aria-label", `Confirmar: já tratei o pagamento de ${euros(campo(p, "valor"))}`); return; }
+            b.disabled = true;
+            try {
+              await pedir(`pagamentos-pedido/${encodeURIComponent(campo(p, "ref"))}/tratado`, { corpo: {} });
+              avisar("Pagamento marcado como tratado.");
+              carregarPedidos();
+            } catch (erro) { b.disabled = false; avisar(erro.message, "erro"); }
+          } }))))));
+  }
+
   async function carregarPedidos() {
     let r;
     try { r = await pedir("pagamentos-pedido", { sinal: ctrl.signal }); }
     catch (e) { if (e.name !== "AbortError") zonaPed.replaceChildren(erroEcra(e, carregarPedidos)); return; }
     const ls = lista(r, "pagamentos");
+    desenharPorTratar(lista(campo(r, "por_tratar") ?? [], "por_tratar"));
     desenharDevolucoes(lista(campo(r, "devolucoes_por_fazer") ?? [], "devolucoes_por_fazer"));
     exportarPed.disabled = !ls.length;
     if (!ls.length) { zonaPed.replaceChildren(h("p", { class: "vazio", text: "Ainda não há pagamentos de pedidos." })); return; }

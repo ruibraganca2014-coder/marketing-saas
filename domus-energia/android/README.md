@@ -1,5 +1,9 @@
 # App Android da Domus Energia
 
+> **Desatualizada desde 2026-09-28; volta a ser mantida (decisão do dono, 2026-11-08, `docs/APP-CLIENTE.md` decisão 4).**
+> Ainda não acompanha a app do site (entrar com email, várias casas, mosaicos, sem mensalidades à vista). Vai ser
+> distribuída como APK descarregado do site, com os avisos pela app ntfy (o Firebase sai).
+
 App em Kotlin + Jetpack Compose (Material 3, tema "Terra") para os clientes controlarem a casa.
 Liga-se diretamente ao servidor MQTT da Domus Energia (sem clouds de terceiros):
 MQTT 3.1.1 sobre WebSocket seguro, `wss://SERVIDOR/mqtt` (porta 443). Contratos:

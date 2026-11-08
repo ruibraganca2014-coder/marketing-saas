@@ -222,6 +222,13 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   const limitePagar = new LimiteTaxa(30, 3600_000, relogio);   // "Pagar", por conta
   const quem = (contaId) => ({ id: null, email: `conta:${contaId}` });
   const linha = (ref) => db.prepare('SELECT * FROM pagamentos_pedido WHERE ref = ?').get(ref);
+  // Passagem de simulado a Stripe (lacuna 5, 2026-11-08): os simulados por pagar já não se podem pagar (a página simulada
+  // dá 404) e saem; os simulados pagos continuariam a contar como dinheiro recebido — só se avisa, para os limpar antes de abrir.
+  if (modo === 'stripe') {
+    db.prepare("UPDATE pagamentos_pedido SET estado = 'cancelado', pedido = NULL WHERE modo = 'simulado' AND estado = 'pendente'").run();
+    const n = db.prepare("SELECT COUNT(*) AS n FROM pagamentos_pedido WHERE modo = 'simulado' AND estado IN ('pago', 'devolvido')").get().n;
+    if (n) registo.aviso(`pagamentos: há ${n} pagamento(s) SIMULADO(S) dados como pagos nesta base — contam como recebidos nos pedidos e nos totais. Apague os pedidos de demonstração antes de abrir.`);
+  }
   // Consultas preparadas uma só vez por texto (as listas chamam-nas pedido a pedido).
   const preparadas = new Map();
   const prep = (sql) => preparadas.get(sql) ?? preparadas.set(sql, db.prepare(sql)).get(sql);
@@ -1088,7 +1095,57 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
     return r;
   }
 
+  // Pagamentos por tratar (decisão do dono, 2026-11-08; migração 61): dinheiro que entrou mas já não se pode aplicar.
+  const fasePagaOutra = db.prepare(`SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = ? AND id != ? AND estado = 'pago'
+    AND faltou IS NULL AND a_devolver IS NULL LIMIT 1`);
+  const sinalMaisRecente = db.prepare("SELECT 1 FROM pagamentos_pedido WHERE orcamento_id = ? AND fase = 'sinal' AND id > ? LIMIT 1");
+  const TEXTO_POR_TRATAR = {
+    duplicado: 'a mesma fase já estava paga (o cliente pagou duas vezes)',
+    sem_pedido: 'a avaria foi paga depois de expirar: o pedido guardado já tinha saído',
+    proposta_mudou: 'é o sinal de uma proposta que entretanto mudou',
+    valor_mudou: 'é o restante com um valor que já não é o atual',
+  };
+  /** Por que razão este pagamento já não se pode aplicar (null: aplica-se). */
+  function motivoPorTratar(p) {
+    if ((p.fase === 'avaria' || p.fase === 'relatorio') && !p.orcamento_id) return p.pedido ? null : 'sem_pedido';
+    if (!p.orcamento_id) return null;
+    if (p.faltou === null && fasePagaOutra.get(p.orcamento_id, p.fase, p.id)) return 'duplicado';
+    const o = db.prepare('SELECT * FROM orcamentos WHERE id = ?').get(p.orcamento_id);
+    // A proposta mudou (aoMudarProposta limpa `proposta_aceite`) ou o valor mudou: já há um sinal mais recente, e este
+    // já não vale. (Um pedido posto em "aceite" no painel continua a receber o sinal, como antes.)
+    if (p.fase === 'sinal' && (!o || (o.estado === 'proposta_enviada' && (!o.proposta_aceite || sinalMaisRecente.get(p.orcamento_id, p.id))))) return 'proposta_mudou';
+    if (p.fase === 'restante' && (!o || p.valor_cent !== valores(o).restante)) return 'valor_mudou';
+    return null;
+  }
+  function porTratar(p, motivo) {
+    const u = db.prepare(`UPDATE pagamentos_pedido SET estado = CASE estado WHEN 'pendente' THEN 'cancelado' ELSE estado END, por_tratar = ?, atualizado = ?
+      WHERE id = ? AND estado != 'pago' AND por_tratar IS NULL`).run(motivo, agoraIso(), p.id);
+    if (!u.changes) return 'repetido';
+    const alvo = p.orcamento_id ? `orcamento:${p.orcamento_id}` : `conta:${p.conta_id}`;
+    auditar(null, 'pagamento_por_tratar', alvo, { ref: p.ref, fase: p.fase, valor: deCent(p.valor_cent), motivo, modo: p.modo });
+    registo.erro(`pagamento ${p.ref} (${p.fase}, ${euro(p.valor_cent)}): por tratar — ${TEXTO_POR_TRATAR[motivo]}`);
+    const painel = config.origens?.[0] ? ['', `Painel: ${config.origens[0]}/painel/#/pagamentos`] : [];
+    const assunto = `Pagamento por tratar: ${euro(p.valor_cent)} (${NOME_FASE[p.fase] ?? p.fase})`;
+    for (const { email } of db.prepare("SELECT email FROM utilizadores WHERE papel = 'ceo' AND ativo = 1 LIMIT 5").all()) {
+      correio.enviar({ para: email, assunto, resumo: assunto, texto: ['Olá,', '',
+        `Entrou um pagamento de ${euro(p.valor_cent)} (${p.descricao}) que o programa não aplicou: ${TEXTO_POR_TRATAR[motivo]}.`,
+        `Referência: ${p.ref}${p.orcamento_id ? ` · pedido n.º ${p.orcamento_id}` : ''}`, '',
+        'Decida no Stripe (devolver, ou acertar com o cliente) e marque-o como tratado no painel, em Pagamentos.', ...painel, '', 'Domus Energia'].join('\n') });
+    }
+    return 'por_tratar';
+  }
+  /** O CEO tratou um pagamento por tratar (devolveu-o no Stripe ou acertou com o cliente). */
+  function marcarTratado(ref, por) {
+    const u = db.prepare('UPDATE pagamentos_pedido SET tratado = ?, tratado_por = ?, atualizado = ? WHERE ref = ? AND por_tratar IS NOT NULL AND tratado IS NULL').run(agoraIso(), por, agoraIso(), ref);
+    if (!u.changes) throw new ErroApi(404, 'Este pagamento não está por tratar.');
+    return linha(ref);
+  }
+  const porTratarAbertos = () => db.prepare('SELECT * FROM pagamentos_pedido WHERE por_tratar IS NOT NULL AND tratado IS NULL ORDER BY id').all()
+    .map((p) => ({ ...linhaPainel(p), motivo: p.por_tratar, motivo_texto: TEXTO_POR_TRATAR[p.por_tratar] ?? p.por_tratar }));
+
   function confirmar(p) {
+    const motivo = motivoPorTratar(p);
+    if (motivo) return porTratar(p, motivo);
     db.exec('BEGIN IMMEDIATE');
     let orcamentoId = p.orcamento_id;
     try {
@@ -1909,7 +1966,7 @@ export function criarPagamentosPedido({ db, config, registo, relogio, auditar, c
   return {
     modo, ativo: config.pagamentoPedido, tratar, iniciarAvaria, comprar, compras, temRelatorio, temVisita, aoAceitar, pagarFase,
     aoMudarProposta, tratarEvento, listarParaPainel, paraCliente, relatorioCliente, relatorioBasico, ensaiosDe, diagnosticoDe, valores, expirar, iniciar, parar, publico,
-    resumoValores, listarTodos, temTentativaRecente, info, ivaAtual,
+    resumoValores, listarTodos, temTentativaRecente, info, ivaAtual, porTratarAbertos, marcarTratado,
     ligacaoCasa, propostaSugerida, partes, reservaMaterial, definirInicioImediato, visitaCancelar, faltaParaVisita,
     horarioPedido, foraHorasEmVigor, acrescimoForaHoras, foraHoras, aoMarcarVisita,
     marcarFalta, devolverSinal, sinalDevolvivel, obraParada, aoFicarAceite, devolucoesDoPedido, devolucoesPorFazer, marcarDevolvida, ibanPt, ibanMascarado, visitaExtra, visitaExtraPaga, restantePago, emFalta, visitaIncluida, ivaDoPedido,

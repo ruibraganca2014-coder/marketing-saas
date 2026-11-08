@@ -91,7 +91,7 @@ export const SEMENTES_CATALOGO = [
 
 // Quadro elétrico (docs/SIMULADOR-ORCAMENTO.md §3 e §4.1): proteções, extras e caixas de quadro.
 // Entram pela migração 3 (INSERT OR IGNORE): uma base já existente recebe-os sem duplicar e sem mexer
-// nos artigos que o CEO já editou. Preços aprovados pelo dono (setembro 2026; o AFDD ainda provisório) — o CEO
+// nos artigos que o CEO já editou. Preços aprovados pelo dono (setembro 2026; o AFDD em 2026-11-08) — o CEO
 // muda-os no painel. `funcao` diz ao simulador e ao painel o que o artigo é (não é um disjuntor
 // inteligente de circuito); `modulos` = largura na calha DIN (monofásico).
 const PROVISORIO = 'preço provisório — confirmar';
@@ -104,8 +104,8 @@ const caixa = (m, filas, preco, horas) => ({
 export const SKUS_MIGRACAO_6 = ['MCB-4P-C'];
 /**
  * Manual de instalações BT (decisões do dono, 2026-10-24): o diferencial de 63 A (10,35 kVA ou mais, anexo A.2) e o
- * descarregador de tipo 1+2 (com para-raios, 11.7 e 18.4). Preços PROVISÓRIOS (referência de mercado, com IVA) para o dono
- * confirmar no Catálogo; visíveis no catálogo público como os outros artigos do quadro, porque entram no preço do
+ * descarregador de tipo 1+2 (com para-raios, 11.7 e 18.4). Preços de referência de mercado, com IVA, confirmados pelo dono
+ * em 2026-11-08 (migração 61); visíveis no catálogo público como os outros artigos do quadro, porque entram no preço do
  * simulador. Entram nas bases já existentes pela migração 59.
  */
 export const SKUS_MIGRACAO_59 = ['IDR-2P-63A-30MA-A', 'SPD-T12-1PN'];
@@ -121,16 +121,16 @@ export const SEMENTES_QUADRO = [
     especificacoes: { funcao: 'descarregador', tipo: 'T2', imax_ka: 40, modulos: 2 } },
   { sku: 'IDR-2P-63A-30MA-A', nome: 'Interruptor diferencial 2P 63 A 30 mA tipo A', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 69, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'diferencial', amperes: 63, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'diferencial', amperes: 63, sensibilidade_ma: 30, tipo: 'A', modulos: 2 } },
   { sku: 'SPD-T12-1PN', nome: 'Descarregador de sobretensões tipo 1+2 (1P+N, Iimp 12,5 kA) — para-raios ou linha aérea', categoria: 'acessorio',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 189, horas_instalacao: 0.75,
-    especificacoes: { funcao: 'descarregador', tipo: 'T1+T2', iimp_ka: 12.5, modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'descarregador', tipo: 'T1+T2', iimp_ka: 12.5, modulos: 2 } },
   { sku: 'RELE-TENSAO-WIFI', nome: 'Relé de proteção de sobretensão/subtensão Wi-Fi com religação (Tongou)', categoria: 'acessorio',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 59.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'rele_tensao', religacao: true, amperes_max: 63, rede: 'wifi', modulos: 2 } },
   { sku: 'AFDD-1PN-16A', nome: 'Detetor de arco elétrico AFDD com disjuntor (1P+N, 16 A)', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Schneider)', preco_compra: null, preco_venda_iva: 339.9, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'afdd', amperes: 16, com_disjuntor: true, modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'afdd', amperes: 16, com_disjuntor: true, modulos: 2 } },
   { sku: 'MEDIDOR-DIN-WIFI', nome: 'Medidor de energia geral Wi-Fi (calha DIN, até 63 A)', categoria: 'acessorio',
     fornecedor: 'Tongou/Changyou (a confirmar)', preco_compra: null, preco_venda_iva: 49.9, horas_instalacao: 0.5,
     especificacoes: { funcao: 'medidor_geral', medicao: true, amperes_max: 63, rede: 'wifi', modulos: 2 } },
@@ -156,8 +156,8 @@ export const SEMENTES_QUADRO = [
 
 // Ações por aparelho (lote 7, docs/SIMULADOR-ORCAMENTO.md §0 e §3; web/simulador/acoes.js): Reparar = diagnóstico por
 // avaria (a peça confirma-se na visita); Substituir uma tomada/interruptor/ponto de luz por um normal; trocar a ligação
-// de uma máquina (a máquina é do cliente). Entram pela migração 10 (INSERT OR IGNORE). A troca da máquina ainda com preço provisório — o CEO
-// confirma no painel. `horas_troca` (coluna nova, migração 10): as horas ao substituir; sem ela, 50 % das de instalação.
+// de uma máquina (a máquina é do cliente). Entram pela migração 10 (INSERT OR IGNORE). A troca da máquina: 0 € + horas, confirmado pelo
+// dono em 2026-11-08. `horas_troca` (coluna nova, migração 10): as horas ao substituir; sem ela, 50 % das de instalação.
 export const SEMENTES_ACOES = [
   { sku: 'DIAG-AVARIA', nome: 'Diagnóstico de avaria (por aparelho; a peça confirma-se na visita)', categoria: 'outro',
     fornecedor: null, preco_compra: null, preco_venda_iva: 25, horas_instalacao: 0.5, horas_troca: 0.5,
@@ -167,7 +167,7 @@ export const SEMENTES_ACOES = [
     especificacoes: { funcao: 'aparelho_normal' } },
   { sku: 'TROCA-MAQUINA', nome: 'Ligar uma máquina no lugar da antiga (troca; a máquina é do cliente)', categoria: 'outro',
     fornecedor: null, preco_compra: null, preco_venda_iva: 0, horas_instalacao: 1, horas_troca: 0.5,
-    especificacoes: { funcao: 'troca_maquina', nota: PROVISORIO } },
+    especificacoes: { funcao: 'troca_maquina' } },
 ];
 
 // Ronda regras (docs/SIMULADOR-ORCAMENTO.md §0 "Ronda regras"; decisões do dono de 2026-10-01). Entram pela migração 15
@@ -195,19 +195,19 @@ export const SEMENTES_PONTOS = [
   ponto('INTERRUPTOR-NOVO', 'Interruptor novo (tubo, cabo, caixa, interruptor simples e mão de obra)', 35, 'ponto_interruptor'),
   { sku: 'COMUTADOR-ESCADA', nome: 'Comutador de escada (luz comandada de 2 sítios; um por interruptor)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 14, horas_instalacao: 0.15,
-    especificacoes: { funcao: 'comutador_escada', nota: PROVISORIO } },
+    especificacoes: { funcao: 'comutador_escada' } },
   { sku: 'INVERSOR', nome: 'Inversor de grupo (luz comandada de 3 ou mais sítios; um por sítio a mais)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 18, horas_instalacao: 0.15,
-    especificacoes: { funcao: 'inversor', nota: PROVISORIO } },
+    especificacoes: { funcao: 'inversor' } },
   { sku: 'BOTAO-PRESSAO', nome: 'Botão de pressão (campainha, telerruptor)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 12, horas_instalacao: 0.15,
-    especificacoes: { funcao: 'botao_pressao', nota: PROVISORIO } },
+    especificacoes: { funcao: 'botao_pressao' } },
   { sku: 'CAMPAINHA', nome: 'Campainha com transformador (ligação e mão de obra; o botão à parte)', categoria: 'outro',
     fornecedor: 'armazenista (a definir)', preco_compra: null, preco_venda_iva: 39, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'campainha', nota: PROVISORIO } },
+    especificacoes: { funcao: 'campainha' } },
   { sku: 'IDR-2P-40A-30MA-A', nome: 'Interruptor diferencial 2P 40 A 30 mA tipo A', categoria: 'disjuntor',
     fornecedor: 'armazenista (Hager/Legrand/Schneider)', preco_compra: null, preco_venda_iva: 45, horas_instalacao: 0.5,
-    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'A', modulos: 2, nota: PROVISORIO } },
+    especificacoes: { funcao: 'diferencial', amperes: 40, sensibilidade_ma: 30, tipo: 'A', modulos: 2 } },
 ];
 // Ronda sinalizar (decisão do dono, 2026-10-01): a tomada tripla (3 na mesma caixa; `props.caixas` = 3) — ponto novo com
 // preço fechado, 65 €. Entra pela migração 20 (INSERT OR IGNORE; o CEO edita o preço no painel).

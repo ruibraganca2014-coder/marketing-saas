@@ -7,6 +7,15 @@ A "app" do cliente é a área de cliente do site (`web/cliente.html`), instaláv
 1. **Web instalável, sem service worker de páginas (2026-10-09).** A área de cliente ganha um ícone no ecrã do telemóvel e abre sem a barra do navegador (`manifest.json`, `display: standalone`). Não há service worker, de propósito: com ele o telemóvel podia ficar a mostrar páginas velhas guardadas em cache depois de uma publicação, e a casa (alarme, luzes) tem de mostrar sempre o estado verdadeiro. O preço é não funcionar sem internet (sem ligação não há estado para mostrar de qualquer maneira). O único service worker é o dos avisos (decisão 3), que não guarda nada.
 2. **Notificações pela app ntfy (2026-10-12).** Continua, agora como alternativa (decisão 3).
 3. **Avisos da própria app por web push, como canal principal (2026-10-14).** O ntfy fica como alternativa e continua a receber tudo o que recebia. Os mesmos avisos que o ntfy (alarme disparado com prioridade máxima, porta aberta com o alarme ligado, aparelho sem ligação, pilhas a acabar, ações "Enviar notificação" das automações) e a mesma regra do plano. No iPhone só funciona com a app instalada no ecrã principal (iOS 16.4 ou mais recente), e a app explica-o.
+4. **App Android nativa ao lado do site (2026-11-08; ainda não feito).** O site instalável continua (iPhone e computador) e o APK (`android/`, parado desde 2026-09-28) volta a ser mantido. Instala-se pelo **APK descarregado do site** (sem Google Play; o Android avisa "origem desconhecida" e as atualizações são à mão). Avisos pela **app ntfy** (sem Firebase). Ordem: (1) pô-lo igual à app do site — entrar com email ou código, várias casas por conta, mosaicos, "Apagar tudo", favoritas, sem mensalidades à vista; (2) a casa na planta, com os aparelhos no sítio e tocar para ligar/desligar; a deteção de chegar e sair de casa, que o APK já tem, acompanha; os atalhos fora da app (widget, barra de notificações) ficam para depois. Cada novidade passa a fazer-se nas duas.
+
+## Acesso da equipa às casas (decisões do dono, 2026-11-08; ainda não feito)
+
+- **Quem:** os técnicos do painel e os eletricistas parceiros.
+- **O quê:** tudo o que o cliente faz — ver os aparelhos e a saúde, ligar e desligar, alarme e modos, automações e cenas.
+- **Quando:** só com trabalho aberto. O eletricista, só na casa do trabalho que tem aberto, até o dar por concluído; o técnico, só nas casas das obras ou avarias em que está atribuído. Fora disso o servidor recusa.
+- **O cliente sabe:** cada ação fica no Histórico da app do cliente com o nome de quem a fez; o alarme e os modos mandam também um aviso ao telemóvel.
+- **Onde:** uma secção "Casa do cliente" na ficha da obra no painel (técnico) e na ficha do trabalho na área do eletricista.
 
 ## Entrar
 
