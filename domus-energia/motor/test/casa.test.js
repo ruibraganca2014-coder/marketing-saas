@@ -18,6 +18,7 @@ test('_config: valores por omissão publicados (retidos) no arranque', () => {
   assert.deepEqual(JSON.parse(p.payload), {
     atraso_saida_s: 30, atraso_entrada_s: 30, silencio: ['23:00', '07:00'], limiar_espera_w: 5,
     offline_min: 30, pausa_manual_min: 60, local: { lat: 38.72, lon: -9.14 }, relatorio_diario: '08:00',
+    personalizar: {},
   });
 });
 
@@ -80,4 +81,19 @@ test('fundirConfig/normalizarConfig', () => {
   assert.equal(n.atraso_saida_s, 30);
   assert.equal(n.offline_min, 5);
   assert.equal('estranho' in n, false);
+});
+
+test('personalizar: o cliente muda nome, divisão e esconde; o resto é recusado', () => {
+  const bom = { 'tomada-3': { divisao: 'Cozinha', canais: { 1: { nome: 'Cafeteira', escondido: true } } } };
+  const r = fundirConfig({ personalizar: bom }, { ...CONFIG_PADRAO });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.config.personalizar, bom);
+  assert.deepEqual(normalizarConfig(null).personalizar, {});
+  for (const mau of [
+    null, [], { 'Tomada!': {} }, { t: { cor: 'x' } }, { t: { divisao: '' } }, { t: { divisao: 'x'.repeat(41) } },
+    { t: { canais: { 0: {} } } }, { t: { canais: { 65: {} } } }, { t: { canais: { 1: { nome: ' a' } } } },
+    { t: { canais: { 1: { escondido: false } } } }, { t: { canais: { 1: { cor: 1 } } } },
+  ]) assert.equal(fundirConfig({ personalizar: mau }, { ...CONFIG_PADRAO }).ok, false, JSON.stringify(mau));
+  // Uma guardada inválida volta a {} (nunca falha).
+  assert.deepEqual(normalizarConfig({ personalizar: { t: { cor: 1 } } }).personalizar, {});
 });

@@ -214,3 +214,50 @@ test('service worker só para os avisos: sem "fetch" e sem cache (decisão de 20
   assert.match(codigo, /addEventListener\("notificationclick"/);
   assert.doesNotMatch(codigo, /addEventListener\(["']fetch["']|onfetch|caches\.|importScripts/);
 });
+
+// Organizar os aparelhos (decisões do dono, 2026-11-10): nome por mosaico, divisão por aparelho, esconder; o nome do
+// painel fica em nomeTecnico e o que é igual ao do painel não se guarda.
+test('organizar: aplicar e mudar o que o cliente personaliza', () => {
+  const duplo = { id: 'int-sala', nome: 'Interruptor sala', tipo: 'openbeken', canais: [
+    { n: 1, funcao: 'luz', nome: 'Teto', divisao: 'Sala' }, { n: 2, funcao: 'luz', divisao: 'Sala' }] };
+  const base = E.lerAparelhos(JSON.stringify([tomada('tomada-3'), duplo]));
+  const pers = { 'tomada-3': { divisao: 'Cozinha', canais: { 1: { nome: 'Cafeteira' } } }, 'int-sala': { canais: { 2: { escondido: true } } } };
+  const [t, d] = E.aplicarPersonalizar(base, pers);
+  assert.equal(t.nome, 'Cafeteira', 'um só canal: o mosaico usa o nome do aparelho');
+  assert.equal(t.nomeTecnico, 'tomada-3');
+  assert.equal(t.divisao, 'Cozinha');
+  assert.equal(t.canais[0].divisao, 'Cozinha', 'o relatório agrupa pela divisão do canal');
+  assert.equal(t.divisaoTecnica, 'Sala');
+  assert.equal(d.nome, 'Interruptor sala');
+  assert.equal(d.canais[1].escondido, true);
+  assert.equal(E.temVisivel(d), true, 'um canal ainda à vista');
+  assert.equal(E.temVisivel(E.aplicarPersonalizar(base, { 'int-sala': { canais: { 1: { escondido: true }, 2: { escondido: true } } } })[1]), false);
+  assert.equal(E.aplicarPersonalizar(base, {})[0], base[0], 'sem alterações: o mesmo objeto');
+  assert.deepEqual(E.lerPersonalizar('{"offline_min":30,"personalizar":{"a":{}}}'), { a: {} });
+  assert.deepEqual(E.lerPersonalizar('{"personalizar":[]}'), {});
+
+  // Igual ao do painel ou vazio não se guarda; repor apaga o aparelho.
+  const tB = base[0];
+  assert.deepEqual(E.mudarPersonalizar({}, tB, { divisao: 'Sala', canais: { 1: { nome: ' tomada-3 ', escondido: false } } }), {});
+  assert.deepEqual(E.mudarPersonalizar({}, tB, { divisao: ' Despensa ', canais: { 1: { nome: 'Arca', escondido: true } } }),
+    { 'tomada-3': { divisao: 'Despensa', canais: { 1: { nome: 'Arca', escondido: true } } } });
+  const r = E.mudarPersonalizar(pers, tB, {});
+  assert.equal('tomada-3' in r, false);
+  assert.ok(r['int-sala'], 'os outros aparelhos ficam');
+  assert.ok(pers['tomada-3'], 'não muda o original');
+});
+
+test('organizar: o painel e o eletricista veem o nome da app ao lado do do quadro', async () => {
+  const { Alertas } = await import('../src/alertas.js');
+  const a = new Alertas({ config: { mqtt: {} }, registo: { info() {}, erro() {}, aviso() {} } });
+  a.receber('domus/joao/_config', Buffer.from(JSON.stringify({ offline_min: 30, personalizar: {
+    'tomada-3': { divisao: 'Cozinha', canais: { 1: { nome: 'Cafeteira' } } },
+    'int-sala': { canais: { 1: { nome: 'Teto' }, 2: { escondido: true } } },
+  } })), true);
+  assert.equal(a.doCliente('joao', 'tomada-3'), 'Cafeteira · Cozinha');
+  assert.equal(a.doCliente('joao', 'int-sala'), 'Teto · 1 escondido');
+  assert.equal(a.doCliente('joao', 'outro'), null);
+  assert.equal(a.doCliente('maria', 'tomada-3'), null);
+  a.receber('domus/joao/_config', Buffer.from(''), true);   // retida apagada
+  assert.equal(a.doCliente('joao', 'tomada-3'), null);
+});

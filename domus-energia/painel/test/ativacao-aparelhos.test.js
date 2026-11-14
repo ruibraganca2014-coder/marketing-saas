@@ -128,7 +128,7 @@ describe('painel e eletricista', () => {
     p.app.db.prepare('UPDATE orcamentos SET codigo_cliente = NULL, cliente = ? WHERE id = ?').run('joao', oid);
     r = await area('GET', `trabalhos/${tid}/aparelhos`);
     assert.deepEqual([r.json.cliente, r.json.casa_criada, r.json.pode_registar, r.json.sem_aprovacao], ['joao', true, true, false]);
-    assert.deepEqual(r.json.aparelhos, [{ id: 'sala', nome: 'Sala grande', divisao: null, chip: 'por_registar' }, { id: 'termo', nome: 'Termoacumulador', divisao: 'Casa de banho', chip: 'por_registar' }]);
+    assert.deepEqual(r.json.aparelhos, [{ id: 'sala', nome: 'Sala grande', divisao: null, do_cliente: null, chip: 'por_registar' }, { id: 'termo', nome: 'Termoacumulador', divisao: 'Casa de banho', do_cliente: null, chip: 'por_registar' }]);
     assert.equal((await p.pedir('GET', `/api/eletricista/trabalhos/${tid}/aparelhos`)).estado, 401);
     assert.equal((await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'de-outra-casa', mac: MAC })).estado, 404);
     assert.equal((await area('POST', `trabalhos/${tid}/chip`, { aparelho: 'termo', mac: '12' })).estado, 400);

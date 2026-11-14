@@ -19,9 +19,11 @@ Regras gerais (mantêm-se): comandos **nunca retidos**; só estado/configuraçã
   "offline_min": 30,           // aviso de aparelho offline (aparelhos sem bateria)
   "pausa_manual_min": 60,      // 0–480: pausa das automações de um canal mexido à mão
   "local": {"lat": 38.72, "lon": -9.14}, // para nascer/pôr do sol (opcional)
-  "relatorio_diario": "08:00"  // envia notificação com o relatório da casa (null = não)
+  "relatorio_diario": "08:00", // envia notificação com o relatório da casa (null = não)
+  "personalizar": {}           // o que o cliente muda nos aparelhos (2026-11-10), abaixo
 }
 ```
+`personalizar` (por omissão `{}`; enviado sempre inteiro): `{"<aparelho>": {"divisao": "Cozinha", "canais": {"1": {"nome": "Cafeteira", "escondido": true}}}}`. Até 200 aparelhos; `divisao` 1–40 caracteres, `nome` 1–80 (sem espaços nas pontas), canal 1–64, `escondido` só `true`. Não muda `_aparelhos`: a app e o APK aplicam-no por cima, e o painel mostra-o ao lado do nome do quadro. Ver APP-CLIENTE.md, "Organizar os aparelhos".
 
 ## 2. Modos da casa e alarme
 `domus/<c>/_modo` (retido): `{"modo":"casa"|"fora"|"noite"|"ferias","desde":"...Z","por":"app"|"web"|"automacao:<id>"|"cena:<id>"}`; pedido em `_modo/set` `{"modo":"fora","forcar":false,"por":"app"}`.

@@ -13,6 +13,13 @@ import { HORA_RE } from './tempo.js';
  * @property {number} pausa_manual_min
  * @property {{lat: number, lon: number}|null} local
  * @property {string|null} relatorio_diario
+ * @property {Record<string, Personalizar>} personalizar
+ */
+
+/**
+ * O que o cliente muda nos seus aparelhos (docs/APP-CLIENTE.md, "Organizar os aparelhos"). Fica à parte de
+ * `_aparelhos`: o nome técnico do painel nunca muda.
+ * @typedef {{divisao?: string, canais?: Record<string, {nome?: string, escondido?: true}>}} Personalizar
  */
 
 /** Valores por omissão (Lisboa como localização). @type {ConfigCasa} */
@@ -25,7 +32,37 @@ export const CONFIG_PADRAO = Object.freeze({
   pausa_manual_min: 60,
   local: { lat: 38.72, lon: -9.14 },
   relatorio_diario: '08:00',
+  personalizar: {},
 });
+
+const ID_APARELHO_RE = /^[a-z0-9-]{1,64}$/;
+const MAX_PERSONALIZAR = 200;
+
+function texto(v, max) {
+  return typeof v === 'string' && v.trim() !== '' && v === v.trim() && v.length <= max;
+}
+
+/** `{"<aparelho>": {"divisao": "Cozinha", "canais": {"1": {"nome": "Cafeteira", "escondido": true}}}}`. */
+function validarPersonalizar(v) {
+  if (!eObjeto(v)) return '"personalizar" tem de ser um objeto.';
+  const ids = Object.keys(v);
+  if (ids.length > MAX_PERSONALIZAR) return `"personalizar": no máximo ${MAX_PERSONALIZAR} aparelhos.`;
+  for (const id of ids) {
+    const p = v[id];
+    if (!ID_APARELHO_RE.test(id) || !eObjeto(p)) return `"personalizar": aparelho "${id}" inválido.`;
+    for (const k of Object.keys(p)) if (k !== 'divisao' && k !== 'canais') return `"personalizar.${id}": campo desconhecido "${k}".`;
+    if ('divisao' in p && !texto(p.divisao, 40)) return `"personalizar.${id}.divisao": texto de 1 a 40 caracteres.`;
+    if (!('canais' in p)) continue;
+    if (!eObjeto(p.canais)) return `"personalizar.${id}.canais" tem de ser um objeto.`;
+    for (const [n, c] of Object.entries(p.canais)) {
+      if (!/^[1-9][0-9]?$/.test(n) || Number(n) > 64 || !eObjeto(c)) return `"personalizar.${id}.canais": canal "${n}" inválido.`;
+      for (const k of Object.keys(c)) if (k !== 'nome' && k !== 'escondido') return `"personalizar.${id}.canais.${n}": campo desconhecido "${k}".`;
+      if ('nome' in c && !texto(c.nome, 80)) return `"personalizar.${id}.canais.${n}.nome": texto de 1 a 80 caracteres.`;
+      if ('escondido' in c && c.escondido !== true) return `"personalizar.${id}.canais.${n}.escondido" só pode ser true.`;
+    }
+  }
+  return null;
+}
 
 /** Cópia nova da configuração por omissão. @returns {ConfigCasa} */
 export function configPadrao() {
@@ -72,6 +109,8 @@ function validarCampo(k, v) {
       if (typeof lon !== 'number' || !Number.isFinite(lon) || lon < -180 || lon > 180) return '"local.lon" tem de ser um número entre -180 e 180.';
       return null;
     }
+    case 'personalizar':
+      return validarPersonalizar(v);
     default:
       return `campo desconhecido "${k}".`;
   }

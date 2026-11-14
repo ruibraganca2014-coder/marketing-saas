@@ -13,7 +13,7 @@ import { RE_ID } from './dados.js';
 import { iso } from './util.js';
 
 export const GRAVIDADES = { critica: 4, alta: 3, media: 2, baixa: 1 };
-const TOPICOS = ['_aparelhos', '_saude', '_alarme', '_modo', '_plano', '_eventos'].map((t) => `domus/+/${t}`)
+const TOPICOS = ['_aparelhos', '_saude', '_alarme', '_modo', '_plano', '_eventos', '_config'].map((t) => `domus/+/${t}`)
   .concat(['domus/+/+/connected', 'domus/+/+/online', 'domus/+/+/mac']);
 
 /** Endereço MAC em "AA:BB:CC:DD:EE:FF" (aceita com ou sem separadores); null se não tiver 12 algarismos hexadecimais. */
@@ -96,7 +96,7 @@ export class Alertas {
     let casa = this.casas.get(c);
     if (!casa) {
       if (this.casas.size >= MAX_CLIENTES) return null;
-      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ligacao: new Map(), eventos: [], macs: new Map() };
+      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ligacao: new Map(), eventos: [], macs: new Map(), personalizar: {} };
       this.casas.set(c, casa);
     }
     return casa;
@@ -140,6 +140,7 @@ export class Alertas {
       if (p[2] === '_aparelhos') casa.aparelhos.clear();
       else if (p[2] === '_saude') casa.saude = {};
       else if (['_alarme', '_modo', '_plano'].includes(p[2])) casa[p[2].slice(1)] = null;
+      else if (p[2] === '_config') casa.personalizar = {};
       return;
     }
     const v = JSON.parse(texto);
@@ -174,6 +175,12 @@ export class Alertas {
           };
         }
         casa.saude = s;
+        return;
+      }
+      case '_config': {
+        // Só o que o cliente mudou nos aparelhos (docs/APP-CLIENTE.md, "Organizar os aparelhos"); o motor já validou.
+        const pz = v?.personalizar;
+        casa.personalizar = pz && typeof pz === 'object' && !Array.isArray(pz) ? pz : {};
         return;
       }
       case '_alarme':
@@ -285,6 +292,23 @@ export class Alertas {
     const casa = this.casas.get(c);
     if (!casa) return null;
     return { alarme: casa.alarme, modo: casa.modo, plano: casa.plano, eventos: casa.eventos, macs: Object.fromEntries([...casa.macs].map(([id, m]) => [id, m.mac])) };
+  }
+
+  /**
+   * O que o cliente mudou num aparelho, em texto para as fichas ("Cafeteira · Cozinha · 1 escondido"), ou null.
+   * O nome técnico continua a ser o do painel (decisão do dono, 2026-11-10: a equipa vê os dois).
+   */
+  doCliente(c, aparelho) {
+    const p = this.casas.get(c)?.personalizar?.[aparelho];
+    if (!p || typeof p !== 'object') return null;
+    const canais = p.canais && typeof p.canais === 'object' ? Object.values(p.canais).filter((x) => x && typeof x === 'object') : [];
+    const escondidos = canais.filter((x) => x.escondido === true).length;
+    const partes = [
+      ...canais.map((x) => txt(x.nome, 80)).filter(Boolean),
+      txt(p.divisao, 40),
+      escondidos ? `${escondidos} ${escondidos === 1 ? 'escondido' : 'escondidos'}` : null,
+    ].filter(Boolean);
+    return partes.length ? partes.join(' · ') : null;
   }
 
   /** Esquece o chip visto de um aparelho (quando o painel o remove da casa). */

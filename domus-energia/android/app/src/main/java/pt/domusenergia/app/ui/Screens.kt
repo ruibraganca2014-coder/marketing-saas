@@ -80,6 +80,7 @@ enum class Separador(val titulo: String) { CASA("Casa"), AUTOMACOES("Automaçõe
 
 /** Ecrãs secundários (menu ⋮ no topo), com "voltar". */
 enum class Secundario(val titulo: String, val chave: String? = null) {
+    APARELHOS("Os meus aparelhos"),
     SAUDE("Saúde dos aparelhos", Planos.SAUDE),
     RELATORIO("Relatório da casa", Planos.RELATORIO),
     CENAS("Cenas", Planos.CENAS),
@@ -289,6 +290,7 @@ fun Principal(state: UiState, acoes: Acoes) {
                             Planos.SAUDE, "Saúde dos aparelhos",
                             "Veja quais aparelhos estão offline, com pilha fraca ou sinal Wi-Fi fraco, e há quanto tempo.",
                         )
+                        Secundario.APARELHOS -> OrganizarScreen(state, acoes)
                         Secundario.RELATORIO -> RelatorioScreen(state)
                         Secundario.CENAS -> CenasScreen(state, acoes)
                         Secundario.DEFINICOES -> DefinicoesScreen(state, acoes)

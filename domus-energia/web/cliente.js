@@ -7,6 +7,7 @@ import { criarIlustracao, atualizarIlustracao, criarIcone } from "./ilustracoes.
 import { criarAutomacoes } from "./automacoes.js";
 import { criarCenas } from "./cenas.js";
 import { desenharSaude, desenharRelatorio, copiarRelatorio, criarDefinicoes } from "./paineis.js";
+import { criarOrganizar } from "./organizar.js";
 import * as PL from "./planos.js";
 import { criarSubscricao, criarBloqueio, iconeCadeado } from "./subscricao.js";
 import { pedirConta, contaAtual } from "./conta-comum.js";
@@ -28,7 +29,9 @@ let cliente = null;    // ligação MQTT atual
 let clientId = null;
 let codigo = null;     // código do cliente com sessão iniciada
 let entrou = false;    // já houve uma ligação aceite nesta sessão
-let aparelhos = [];    // lerAparelhos(_aparelhos)
+let aparelhos = [];    // lerAparelhos(_aparelhos) com o que o cliente mudou (aplicarPersonalizar)
+let aparelhosBase = []; // lerAparelhos(_aparelhos), como o painel os criou
+let personalizar = {}; // _config.personalizar
 let estados = {};      // id → estado bruto (estado.js)
 let pendentes = {};    // "id:n" → { esperado, qualquer, timer }
 let cartoes = {};      // id → { canais: { n → linha (um mosaico) } }
@@ -73,6 +76,12 @@ function abrirSubscricao({ escolher = false } = {}) {
 const bloqueio = (chave, texto) => criarBloqueio(chave, () => abrirSubscricao({ escolher: true }), texto);
 
 const definicoes = criarDefinicoes({ publicar: publicarJson, ligado: ligadoServidor, permite, bloqueio });
+// Organizar os aparelhos (docs/APP-CLIENTE.md): nome, divisão e esconder, guardados em `_config.personalizar`.
+const organizar = criarOrganizar({
+  publicar: publicarJson,
+  ligado: ligadoServidor,
+  divisoes: () => [...(planta.dados?.divisoes ?? []).map((d) => d.nome), ...aparelhos.map((a) => a.divisao)],
+});
 // "Apagar tudo" (decisão do dono, 2026-10-14): desliga as luzes ligadas nesse momento (E.ehLuz), uma a uma, sem passar
 // pelo servidor das automações. Só luzes: nunca tomadas, disjuntores nem o termoacumulador. Tirar do topo fica
 // guardado neste navegador.
@@ -497,6 +506,9 @@ function terminar() {
   subscricao.limpar();
   entrou = false;
   aparelhos = [];
+  aparelhosBase = [];
+  personalizar = {};
+  organizar.limpar();
   estados = {};
   pendentes = {};
   cartoes = {};
@@ -677,7 +689,8 @@ function receber(topico, texto, retido) {
     if (resto !== "" && !(id === "_automacoes" && (resto === "registo" || resto === "avisos"))) return;
     switch (resto ? `${id}/${resto}` : id) {
       case "_aparelhos":
-        aparelhos = E.lerAparelhos(texto);
+        aparelhosBase = E.lerAparelhos(texto);
+        aparelhos = E.aplicarPersonalizar(aparelhosBase, personalizar);
         if (!listaRecebida) {
           // As mensagens retidas dos aparelhos podem chegar antes da lista: aplicá-las agora,
           // pela ordem de chegada, já com a função de cada canal.
@@ -708,11 +721,21 @@ function receber(topico, texto, retido) {
         desenharAlarme();
         break;
       }
-      case "_config":
+      case "_config": {
         definicoes.receber(E.lerConfig(texto));
+        const p = E.lerPersonalizar(texto);
+        organizar.receber(p);
+        if (JSON.stringify(p) !== JSON.stringify(personalizar)) {
+          personalizar = p;
+          aparelhos = E.aplicarPersonalizar(aparelhosBase, personalizar);
+          desenhar();
+          automacoes.desenhar();
+          cenas.desenhar();
+        }
         for (const a of aparelhos) atualizar(a.id, false);
         resumo();
         break;
+      }
       case "_energia":
         energia = E.lerEnergia(texto);
         resumo();
@@ -834,7 +857,8 @@ function desenhar() {
     lista.appendChild(el("div", "cartao vazio", !listaRecebida ? "A carregar os seus aparelhos…" : "A sua casa ainda não tem aparelhos ligados. Isto fica pronto no dia da instalação; se já passou, fale connosco."));
   }
 
-  for (const g of E.agruparPorDivisao(aparelhos)) {
+  // Os escondidos pelo cliente saem da Casa, da planta e das Divisões; continuam no separador Aparelhos.
+  for (const g of E.agruparPorDivisao(aparelhos.filter(E.temVisivel))) {
     // A divisão aberta na planta: os mosaicos dela vão para o cartão da planta (sem o título, que já lá está).
     const naPlanta = planta.aberta != null && g.nome != null && chaveDivisao(g.nome) === chaveDivisao(planta.aberta);
     const bloco = el("div", "divisao");
@@ -845,6 +869,7 @@ function desenhar() {
     (naPlanta ? daDivisao : lista).appendChild(bloco);
   }
   $("planta-divisao-vazia").hidden = planta.aberta == null || daDivisao.childElementCount > 0;
+  organizar.desenhar(aparelhosBase, aparelhos);
   resumo();
 }
 
@@ -919,7 +944,8 @@ async function desenharPlantaCasa() {
 function pintarPlanta() {
   if (!planta.dados || !planta.desenho) return;
   const agora = Date.now();
-  const r = E.divisoesDaPlanta(planta.dados, aparelhos, aparelhos.map((a) => modeloDe(a, agora)));
+  const visiveis = aparelhos.filter(E.temVisivel);
+  const r = E.divisoesDaPlanta(planta.dados, visiveis, visiveis.map((a) => modeloDe(a, agora)));
   const porId = new Map(r.divisoes.map((x) => [x.id, x]));
   for (const g of planta.desenho.querySelectorAll("g[data-divisao]")) {
     const x = porId.get(g.dataset.divisao);
@@ -960,6 +986,7 @@ $("planta-fechar").addEventListener("click", () => fecharDivisao());
 function desenharAparelho(grelha, a) {
   const canais = {};
   for (const c of a.canais) {
+    if (c.escondido) continue;
     const linha = criarLinha(a, c);
     canais[c.n] = linha;
     grelha.append(linha.raiz);
@@ -1422,7 +1449,7 @@ function receberErro(ev) {
     $("modo-forcar").focus();
     return;
   }
-  if (automacoes.receberErro(ev) || cenas.receberErro(ev) || definicoes.receberErro(ev)) return;
+  if (automacoes.receberErro(ev) || cenas.receberErro(ev) || organizar.receberErro(ev) || definicoes.receberErro(ev)) return;
   if (modoPendente) { resolverModo(); mostrarErro(texto || "O servidor recusou a mudança de modo."); desenharAlarme(); }
 }
 $("modo-forcar").addEventListener("click", () => { if (recusa) pedirModo(recusa.modo, true); });

@@ -20,6 +20,20 @@ Valem para a app do site e para o APK (decisão 4). Por esta ordem:
 
 Ficam de fora, por agora: controlo por voz (Google e Alexa), atalhos fora da app (widget, barra de notificações, atalhos no ícone) e funcionamento sem internet (sem internet só funcionam os interruptores na parede; a app avisa que a casa está sem ligação).
 
+## Organizar os aparelhos (decisões do dono, 2026-11-10) — feito
+
+O cliente organiza os aparelhos que já tem (não pede aparelhos novos nem tipos novos aqui).
+
+1. **O quê:** mudar o nome de cada mosaico (canal), mudar a divisão de cada aparelho e esconder mosaicos. Favoritos ficam de fora.
+2. **Os dois nomes:** o nome e a divisão do painel não mudam. O do cliente guarda-se à parte, em `_config.personalizar` (PROTOCOLO-MQTT-v3.md §1; o motor valida em `motor/src/casa.js`). O painel (ficha da casa) e o eletricista (ficha do trabalho, "Aparelhos da casa") veem "na app: Cafeteira · Cozinha · 1 escondido" ao lado do nome do quadro (`painel/src/alertas.js` `doCliente`, que lê o `_config` retido).
+3. **Escondido** sai da Casa, da planta e das Divisões. Continua a funcionar, nas automações, nos avisos, na saúde e no Histórico, e aparece na lista com "Escondido".
+4. **Divisão:** escolhe-se da lista (as da planta e as que a casa já tem) ou escreve-se uma nova. Uma divisão que a planta não tem fica no separador Divisões, como hoje.
+5. **Onde:** no site e no APK ao mesmo tempo. No site, no separador Aparelhos, cartão "Nomes, divisões e escondidos" (`web/organizar.js`; lógica sem DOM em `web/estado.js`: `aplicarPersonalizar`, `mudarPersonalizar`, `temVisivel`). No APK, no menu → "Os meus aparelhos" (`ui/OrganizarScreen.kt`, `data/Organizar.kt`). Vale em todos os planos.
+
+Vazio = o nome ou a divisão do quadro; "Repor o original" apaga o que o cliente mudou nesse aparelho. Testes: `motor/test/casa.test.js` (validação), `painel/test/app-cliente.test.js` (aplicar, mudar e o texto do painel) e `android/app/src/test/.../OrganizarTest.kt`.
+
+Limite conhecido: o `personalizar` vai sempre inteiro; se dois telemóveis guardarem ao mesmo tempo, fica o último.
+
 ## Acesso da equipa às casas (decisões do dono, 2026-11-08; ainda não feito)
 
 - **Quem:** os técnicos do painel e os eletricistas parceiros.

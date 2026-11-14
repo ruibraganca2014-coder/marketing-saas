@@ -19,6 +19,8 @@ data class ConfigCanal(
     val arranque: String? = null,
     val carga: String? = null,
     val divisao: String? = null,
+    /** Escondido pelo cliente da Casa (`_config.personalizar`, ver [Organizar]). */
+    val escondido: Boolean = false,
 )
 
 /** Configuração de um aparelho, tal como vem em `_aparelhos` (v1 sem `canais` → um canal `interruptor` n.º 1). */
@@ -92,7 +94,10 @@ data class Estado(
     /** Aparelhos a mostrar: os da lista, pela ordem da lista. */
     val aparelhos: List<Aparelho> by lazy {
         val noticias = EstadoParser.noticiasDoHistorico(historico)
-        lista.orEmpty().map { EstadoParser.construir(it, brutos[it.id].orEmpty(), EstadoParser.ultimaNoticia(saude[it.id], noticias[it.id])) }
+        val pers = configEfetiva.personalizar
+        lista.orEmpty().map {
+            EstadoParser.construir(Organizar.aplicar(it, pers[it.id]), brutos[it.id].orEmpty(), EstadoParser.ultimaNoticia(saude[it.id], noticias[it.id]))
+        }
     }
 }
 
@@ -335,6 +340,7 @@ object EstadoParser {
             var r = Canal(
                 n = c.n, funcao = c.funcao, nome = c.nome, temNome = c.temNome,
                 entrada = c.entrada, simular = c.simular, arranque = c.arranque, carga = c.carga, divisao = c.divisao,
+                escondido = c.escondido,
             )
             if (shelly) {
                 val id = c.n - 1

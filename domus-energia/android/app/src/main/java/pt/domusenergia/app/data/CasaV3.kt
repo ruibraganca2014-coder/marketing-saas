@@ -29,6 +29,8 @@ data class ConfigCasa(
     val pausaManualMin: Int = 60,
     val local: Local? = null,
     val relatorioDiario: String? = null,
+    /** Nomes, divisões e escondidos do cliente (ver [Organizar]). */
+    val personalizar: Map<String, Personalizacao> = emptyMap(),
 ) {
     companion object {
         val PADRAO = ConfigCasa()
@@ -51,6 +53,7 @@ data class ConfigCasa(
                 o.put("local", JSONObject().put("lat", depois.local.lat).put("lon", depois.local.lon))
             }
             if (antes.relatorioDiario != depois.relatorioDiario) o.put("relatorio_diario", depois.relatorioDiario ?: JSONObject.NULL)
+            if (antes.personalizar != depois.personalizar) o.put("personalizar", Organizar.json(depois.personalizar))
             return o
         }
 
@@ -378,6 +381,7 @@ object V3 {
             pausaManualMin = long(o.opt("pausa_manual_min"))?.toInt() ?: p.pausaManualMin,
             local = local,
             relatorioDiario = o.opt("relatorio_diario") as? String,
+            personalizar = Organizar.ler(o.optJSONObject("personalizar")),
         )
     }
 

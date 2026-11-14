@@ -1026,7 +1026,7 @@ export function criarApi(ctx) {
     if (!existe && !mapa.has(c)) throw new ErroApi(404, 'Cliente não encontrado.');
     const contagem = u.papel === 'comercial' ? new Map() : contagemAlertasPorCliente();
     const r = await resumoCliente(c, u, mapa, contagem, existe);
-    r.aparelhos = existe ? (await dados.aparelhos(c)) ?? [] : [];
+    r.aparelhos = (existe ? (await dados.aparelhos(c)) ?? [] : []).map((a) => ({ ...a, do_cliente: alertas?.doCliente(c, a.id) ?? null }));
     if (u.papel !== 'comercial') r.aparelhos = r.aparelhos.map((a) => ({ ...a, chip: chipPublico(chipDe(c, a.id)) }));
     if (u.papel !== 'comercial') {
       r.alertas_lista = alertas.lista({ cliente: c }).alertas;
@@ -1159,7 +1159,7 @@ export function criarApi(ctx) {
   }
   aparelhosCtx = {
     /** Os aparelhos de uma casa com o estado do chip; null se a casa ainda não existe no servidor. */
-    listar: async (c) => { const aps = await dados.aparelhos(c); return aps ? aps.map((a) => ({ ...a, chip: chipPublico(chipDe(c, a.id)) })) : null; },
+    listar: async (c) => { const aps = await dados.aparelhos(c); return aps ? aps.map((a) => ({ ...a, chip: chipPublico(chipDe(c, a.id)), do_cliente: alertas?.doCliente(c, a.id) ?? null })) : null; },
     registar: guardarChip,
     mac: (v) => (typeof v === 'string' ? normalizarMac(v) : null),
   };

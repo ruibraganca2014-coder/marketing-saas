@@ -74,6 +74,63 @@ export function lerAparelhos(texto) {
   return lista;
 }
 
+// ---------- Organizar os aparelhos (decisões do dono, 2026-11-10; docs/APP-CLIENTE.md) ----------
+// `_config.personalizar` = {"<aparelho>": {"divisao": "Cozinha", "canais": {"1": {"nome": "Cafeteira", "escondido": true}}}}.
+// O nome e a divisão do painel (`_aparelhos`) não mudam: ficam em `nomeTecnico` e `divisaoTecnica`.
+export const MAX_NOME_MOSAICO = 80;
+export const MAX_DIVISAO = 40;
+
+export function lerPersonalizar(texto) {
+  const v = typeof texto === "string" ? json(texto) : texto;
+  const p = v?.personalizar;
+  return p && typeof p === "object" && !Array.isArray(p) ? p : {};
+}
+
+const textoOuNull = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+
+/** A lista de lerAparelhos com o que o cliente mudou. Os aparelhos sem alterações ficam os mesmos objetos. */
+export function aplicarPersonalizar(lista, pers) {
+  return lista.map((a) => {
+    const p = pers?.[a.id];
+    if (!p || typeof p !== "object") return a;
+    const divisao = textoOuNull(p.divisao, MAX_DIVISAO);
+    const canais = a.canais.map((c) => {
+      const q = p.canais?.[c.n];
+      const nome = textoOuNull(q?.nome, MAX_NOME_MOSAICO);
+      return { ...c, nomeTecnico: c.nome, ...(nome ? { nome, temNome: true } : {}), ...(divisao ? { divisao } : {}), ...(q?.escondido === true ? { escondido: true } : {}) };
+    });
+    // Um só canal: o mosaico mostra o nome do aparelho.
+    const nomeUnico = a.canais.length === 1 ? textoOuNull(p.canais?.[a.canais[0].n]?.nome, MAX_NOME_MOSAICO) : null;
+    return { ...a, nomeTecnico: a.nome, divisaoTecnica: a.divisao, nome: nomeUnico ?? a.nome, divisao: divisao ?? a.divisao, canais };
+  });
+}
+
+/** Tem pelo menos um mosaico à vista (Casa, planta e Divisões). */
+export const temVisivel = (a) => a.canais.some((c) => !c.escondido);
+
+/**
+ * O novo `personalizar` depois de o cliente guardar um aparelho. `a` é o aparelho técnico (de lerAparelhos) e
+ * `pedido` = {divisao, canais: {n: {nome, escondido}}}. O que fica igual ao do painel, ou vazio, sai (repor = tudo vazio).
+ */
+export function mudarPersonalizar(pers, a, pedido) {
+  const r = structuredClone(pers ?? {});
+  const p = {};
+  const d = textoOuNull(pedido?.divisao, MAX_DIVISAO);
+  if (d && d !== (a.divisao ?? "")) p.divisao = d;
+  const canais = {};
+  for (const c of a.canais) {
+    const q = pedido?.canais?.[c.n] ?? {};
+    const x = {};
+    const nome = textoOuNull(q.nome, MAX_NOME_MOSAICO);
+    if (nome && nome !== c.nome) x.nome = nome;
+    if (q.escondido === true) x.escondido = true;
+    if (Object.keys(x).length) canais[c.n] = x;
+  }
+  if (Object.keys(canais).length) p.canais = canais;
+  if (Object.keys(p).length) r[a.id] = p; else delete r[a.id];
+  return r;
+}
+
 // ---------- Estado por aparelho ----------
 // estados: id → { online, ultimaNoticia, potenciaW, tensaoV, correnteA, energiaKWh, canais: { n → {...} } }
 function canalEstado(e, n) {

@@ -641,6 +641,15 @@ legend { font-weight: 800; padding: 0 6px; font-family: var(--letra-titulos); fo
 /* Definições */
 .form-config { display: grid; gap: 14px; }
 
+/* Organizar os aparelhos (separador Aparelhos) */
+.lista-organizar { display: grid; gap: 10px; }
+.organizar-topo { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.organizar-texto { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.organizar-nome { font-weight: 700; }
+.organizar-nome .etiqueta { font-size: .8rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--areia-suave); }
+.organizar-form { display: grid; gap: 12px; margin-top: 12px; }
+.organizar-form .acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+
 /* =================== Ilustrações =================== */
 .ilus { overflow: visible; }
 .ilus path, .ilus rect, .ilus circle { fill: none; stroke: var(--musgo); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }

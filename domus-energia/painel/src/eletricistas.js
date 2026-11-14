@@ -1500,7 +1500,7 @@ export function criarEletricistas({ db, config, registo, relogio, auditar, corre
     return {
       cliente: c, casa_criada: Boolean(lista), sem_aprovacao: Boolean(e.ativa_sem_aprovacao),
       pode_registar: Boolean(lista) && EDITAVEIS.includes(t.estado) && aberto(t, o),
-      aparelhos: (lista ?? []).map((a) => ({ id: a.id, nome: a.nome, divisao: a.divisao ?? null, chip: a.chip.estado })),
+      aparelhos: (lista ?? []).map((a) => ({ id: a.id, nome: a.nome, divisao: a.divisao ?? null, do_cliente: a.do_cliente ?? null, chip: a.chip.estado })),
       pedidos: ativacoesDoTrabalho(t),
     };
   }

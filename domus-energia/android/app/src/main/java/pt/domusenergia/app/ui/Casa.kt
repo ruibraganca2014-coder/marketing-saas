@@ -91,7 +91,8 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
     val atencao = remember(estado.aparelhos, estado.saude, agora) {
         SaudeCasa.linhas(estado.aparelhos, estado.saude, agora).count { it.atencao }
     }
-    val grupos = remember(estado.aparelhos) { porDivisao(estado.aparelhos) }
+    // Os escondidos pelo cliente saem da Casa (continuam em "Os meus aparelhos", nas automações e nos avisos).
+    val grupos = remember(estado.aparelhos) { porDivisao(estado.aparelhos.filter { a -> a.canais.any { !it.escondido } }) }
     // Canais que são o disjuntor geral: desligá-los pede confirmação.
     val gerais = remember(estado.aparelhos) {
         estado.aparelhos.flatMap { a -> a.canais.filter { Riscos.ehDisjuntorGeral(estado.aparelhos, a, it.n) }.map { a.id to it.n } }.toSet()
@@ -472,7 +473,7 @@ fun CartaoAparelho(
             }
         }
         if (a.medidor) LinhaMedidor(a)
-        a.canais.forEachIndexed { i, c ->
+        a.canais.filter { !it.escondido }.forEachIndexed { i, c ->
             if (i > 0 || a.medidor) HorizontalDivider(color = t.borda)
             LinhaCanal(a, c, agora, controlavel, acoes, EmEspera.canal(a, c, limiarEsperaW), (a.id to c.n) in gerais)
         }

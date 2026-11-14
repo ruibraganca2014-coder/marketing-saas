@@ -1048,7 +1048,7 @@ function seccaoAparelhos(t) {
     msg.setAttribute("role", "alert");
     const linhas = r.aparelhos.map((a) => {
       const ultimo = r.pedidos.find((p) => p.aparelho === a.id);
-      const li = com(el("li"), el("strong", null, a.nome), el("span", "pequeno suave", ` ${a.divisao ?? ""} · chip ${CHIP[a.chip] ?? a.chip}${ultimo ? ` · o seu registo: ${PEDIDO[ultimo.estado] ?? ultimo.estado}` : ""}`));
+      const li = com(el("li"), el("strong", null, a.nome), el("span", "pequeno suave", ` ${a.divisao ?? ""}${a.do_cliente ? ` · na app do cliente: ${a.do_cliente}` : ""} · chip ${CHIP[a.chip] ?? a.chip}${ultimo ? ` · o seu registo: ${PEDIDO[ultimo.estado] ?? ultimo.estado}` : ""}`));
       if (r.pode_registar) {
         const mac = el("input");
         mac.type = "text"; mac.maxLength = 17; mac.placeholder = "38:1F:8D:12:AB:CD"; mac.id = `chip-mac-${a.id}`;

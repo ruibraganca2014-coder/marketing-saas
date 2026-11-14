@@ -107,6 +107,8 @@ export default function clientes(el, ctx) {
         if (typeof a !== "object") return h("li", { text: String(a) });
         const chip = campo(a, "chip");
         const li = h("li", {}, `${txt(a, "nome", "id")} (${txt(a, "id")}) · ${txt(a, "divisao")}`);
+        // O que o cliente lhe chama na app (nome, divisão, escondidos); o nome do painel não muda.
+        if (campo(a, "do_cliente")) li.append(h("span", { class: "ajuda", text: ` · na app: ${campo(a, "do_cliente")}` }));
         if (chip) {
           const estado = campo(chip, "estado");
           li.append(" ", selo(CHIP[estado] ?? estado, `chip-${estado}`));

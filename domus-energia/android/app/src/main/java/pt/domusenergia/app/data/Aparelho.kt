@@ -62,6 +62,8 @@ data class Canal(
     val carga: String? = null,
     /** v3: divisão do canal (ex.: "Sala"); `null` = a do aparelho. */
     val divisao: String? = null,
+    /** Escondido pelo cliente: sai da Casa; continua nas automações, nos avisos e na saúde. */
+    val escondido: Boolean = false,
 ) {
     val controlavel: Boolean get() = funcao in Funcao.CONTROLAVEIS
 
