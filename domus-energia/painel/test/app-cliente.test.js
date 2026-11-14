@@ -261,3 +261,34 @@ test('organizar: o painel e o eletricista veem o nome da app ao lado do do quadr
   a.receber('domus/joao/_config', Buffer.from(''), true);   // retida apagada
   assert.equal(a.doCliente('joao', 'tomada-3'), null);
 });
+test('caixa de casa: `_ponte` = "0" põe os OpenBeken offline na app (os Shelly não); "1" ou vazio volta ao normal', () => {
+  const lista = [tomada('tv'), { ...tomada('luz'), tipo: 'shelly' }];
+  const aparelhos = E.lerAparelhos(JSON.stringify(lista));
+  const estados = {};
+  for (const [id, resto, texto] of [['tv', 'connected', 'online'], ['tv', 'power/get', '95'], ['luz', 'online', 'true']]) {
+    E.aplicarMensagem(estados, id, aparelhos.find((a) => a.id === id), resto, texto, { agora: AGORA });
+  }
+  const modelos = (caiu) => aparelhos.map((a) => E.modelo(a, estados[a.id], AGORA, undefined, caiu));
+  assert.deepEqual(modelos(false).map((m) => m.online), [true, true]);
+  const caidos = modelos(true);
+  assert.deepEqual(caidos.map((m) => m.online), [false, true], 'o connected retido diz online, mas a caixa caiu');
+  assert.equal(E.disponivel(caidos[0]), false, 'não se pode tocar');
+  assert.equal(E.resumo(caidos, null).potenciaW, 0, 'a potência de um OpenBeken inacessível não conta');
+});
+
+test('caixa de casa: o painel dá um alerta de casa com `_ponte` = "0" e tira-o com "1" ou vazio', async () => {
+  const { Alertas } = await import('../src/alertas.js');
+  const a = new Alertas({ config: { mqtt: {} }, registo: { info() {}, erro() {}, aviso() {} }, relogio: () => AGORA });
+  const doJoao = () => a.lista({ cliente: 'joao' }).alertas.filter((x) => x.tipo === 'caixa_sem_ligacao');
+  a.receber('domus/joao/_ponte', Buffer.from('1'), true);
+  assert.equal(doJoao().length, 0);
+  a.receber('domus/joao/_ponte', Buffer.from('0'));
+  assert.equal(doJoao().length, 1);
+  assert.equal(doJoao()[0].gravidade, 'alta');
+  assert.equal(doJoao()[0].aparelho, null, 'um só alerta, da casa');
+  assert.equal(doJoao()[0].desde, '2026-10-12T12:00:00Z');
+  a.receber('domus/joao/_ponte', Buffer.from(''), true);   // remover-caixa apaga o retido
+  assert.equal(doJoao().length, 0);
+  a.receber('domus/joao/_ponte', Buffer.from('0'), true);   // retido ao arrancar o painel: não se sabe desde quando
+  assert.equal(doJoao()[0].desde, null);
+});

@@ -1,0 +1,14 @@
+# Domus Energia — corre domus-tls.service todas as noites (o Caddy renova o certificado ~30 dias antes de acabar).
+#   sudo cp systemd/domus-tls.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now domus-tls.timer
+[Unit]
+Description=Domus Energia: certificado TLS do MQTT (todas as noites)
+
+[Timer]
+OnCalendar=*-*-* 04:20:00
+RandomizedDelaySec=10min
+Persistent=true
+Unit=domus-tls.service
+
+[Install]
+WantedBy=timers.target

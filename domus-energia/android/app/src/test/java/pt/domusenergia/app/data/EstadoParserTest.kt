@@ -444,4 +444,29 @@ class EstadoParserTest {
         // Não inventa notícias
         assertNull(EstadoParser.comLigado(e, "sala-4g", 1, true).canal("sala-4g", 1).ultimaMudanca)
     }
+
+    @Test
+    fun `caixa de casa - _ponte 0 poe os OpenBeken offline e deixa os Shelly, 1 ou vazio volta ao normal`() {
+        val e = aplica("_aparelhos" to listaV1, "cozinha/connected" to "online", "ac-sala/online" to "true")
+        assertTrue(e.aparelho("cozinha").online)
+        val caiu = aplica("_ponte" to "0", inicial = e)
+        assertFalse("o connected retido diz online, mas a caixa caiu", caiu.aparelho("cozinha").online)
+        assertTrue(caiu.aparelho("ac-sala").online)
+        assertTrue(aplica("_ponte" to "1", inicial = caiu).aparelho("cozinha").online)
+        assertTrue(aplica("_ponte" to "", inicial = caiu).aparelho("cozinha").online)
+    }
+
+    @Test
+    fun `ligada a caixa - o _ponte 0 nao conta e sem servidor os Shelly ficam offline`() {
+        val e = aplica("_aparelhos" to listaV1, "cozinha/connected" to "online", "ac-sala/online" to "true", "_ponte" to "0")
+        assertFalse(e.aparelho("cozinha").online)
+        // Telemóvel no Wi-Fi de casa, a falar com a caixa: os OpenBeken respondem por ela.
+        val comDados = e.copy(naCaixa = true)
+        assertTrue(comDados.aparelho("cozinha").online)
+        assertTrue("com servidor (dados móveis), o Shelly continua como o servidor diz", comDados.aparelho("ac-sala").online)
+        val semServidor = e.copy(naCaixa = true, semServidor = true)
+        assertTrue(semServidor.aparelho("cozinha").online)
+        assertFalse("o Shelly está ligado ao servidor, não à caixa", semServidor.aparelho("ac-sala").online)
+        assertTrue("sem caixa, semServidor sozinho não muda nada", e.copy(semServidor = true, ponteCaiu = false).aparelho("ac-sala").online)
+    }
 }

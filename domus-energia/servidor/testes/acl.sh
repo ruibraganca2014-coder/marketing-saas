@@ -89,11 +89,12 @@ d aparelho joao porta openbeken 'Porta' --bateria --divisao 'Hall "A"' \
   --canais '1:porta:Porta entrada:entrada,2:bateria,3:interruptor:Jardim:simular:arranque=ultimo:divisao=Jardim,4:interruptor:Termo:carga=perigosa' porta-senha-1
 d aparelho joao luz shelly 'Luzes' --canais "1:interruptor,2:interruptor" "$P_LUZ"
 d aparelho maria quadro shelly 'Quadro' --medidor "$P_QUADRO"
+d caixa joao --ip 192.168.1.50 ponte-senha-1   # caixa com Home Assistant (docs/HOME-ASSISTANT.md)
 
 senha_de() {
   case "$1" in
     admin) echo "$P_ADMIN" ;; motor) echo "$P_MOTOR" ;; joao) echo "$P_JOAO" ;; maria) echo "$P_MARIA" ;; pagamentos) echo "$P_PAG" ;;
-    joao-sala) echo "$P_SALA" ;; joao-porta) echo porta-senha-1 ;; joao-luz) echo "$P_LUZ" ;; maria-quadro) echo "$P_QUADRO" ;;
+    joao-sala) echo "$P_SALA" ;; joao-porta) echo porta-senha-1 ;; joao-luz) echo "$P_LUZ" ;; maria-quadro) echo "$P_QUADRO" ;; ponte-joao) echo ponte-senha-1 ;;
   esac
 }
 
@@ -173,6 +174,14 @@ for t in domus/joao/luz/1/get domus/joao/luz/command/switch:0 domus/joao/_aparel
 done
 publicar permitido joao-luz domus/joao/luz/status/switch:1
 publicar negado    joao-luz domus/joao/sala/1/set
+# Ponte da caixa do joao: só os OpenBeken (sala, porta) e o _ponte
+for t in domus/joao/_ponte domus/joao/sala/1/get domus/joao/sala/connected domus/joao/porta/1/get; do
+  publicar permitido ponte-joao "$t"
+done
+for t in domus/joao/luz/status/switch:0 domus/joao/_modo/set domus/joao/_alarme/set domus/joao/_plano \
+         domus/joao/_aparelhos domus/maria/quadro/1/set domus/maria/_ponte; do
+  publicar negado ponte-joao "$t"
+done
 publicar permitido maria-quadro domus/maria/quadro/status/switch:0
 publicar negado    maria-quadro domus/joao/sala/1/set
 # motor e admin: tudo em domus/
@@ -244,6 +253,13 @@ if [[ "$saida" == *domus/maria/quadro/online* && "$saida" == *domus/joao/_alarme
 then passa "motor lê tudo"; else falha "motor leu: $saida"; fi
 saida="$(ler pagamentos 'domus/#')"
 if [[ -z "$saida" ]]; then passa "pagamentos não lê nada"; else falha "pagamentos leu: $saida"; fi
+saida="$(ler ponte-joao 'domus/joao/#')"
+if [[ "$saida" == *"domus/joao/_aparelhos "* && "$saida" == *"domus/joao/sala/1/get retida"* \
+   && "$saida" != *_alarme* && "$saida" != *_ntfy* && "$saida" != *_caixa* ]]
+then passa "ponte-joao lê a lista e os OpenBeken, não o alarme, o _ntfy nem o login da caixa"; else falha "ponte-joao leu: $saida"; fi
+saida="$(ler joao 'domus/joao/_caixa')"
+if [[ "$saida" == *'"endereco":"192.168.1.50"'* && "$saida" == *'"utilizador":"app-joao"'* ]]
+then passa "joao lê o login da caixa (_caixa)"; else falha "joao sem _caixa: $saida"; fi
 
 # --- Conteúdo publicado pelo domus.sh ----------------------------------------------
 echo "Conteúdo:"

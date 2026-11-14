@@ -269,7 +269,8 @@ export function notarSaude(estados, saude) {
 }
 
 // ---------- Modelo normalizado ----------
-export function modelo(a, e = {}, agora = Date.now(), limiarEsperaW = LIMIAR_ESPERA_W) {
+// ponteCaiu: `_ponte` = "0", a caixa de casa (docs/HOME-ASSISTANT.md) perdeu o servidor e os OpenBeken não respondem.
+export function modelo(a, e = {}, agora = Date.now(), limiarEsperaW = LIMIAR_ESPERA_W, ponteCaiu = false) {
   // Com `_saude`, o histórico deixa de contar (só as mensagens ao vivo, que podem ser mais recentes).
   const ultima = (e.ultimaNoticiaSaude != null
     ? Math.max(e.ultimaNoticia ?? 0, e.ultimaNoticiaSaude)
@@ -284,7 +285,7 @@ export function modelo(a, e = {}, agora = Date.now(), limiarEsperaW = LIMIAR_ESP
     geral: !!a.geral,
     temMedicao,
     bateria: a.bateria,
-    online: !!e.online,
+    online: !!e.online && !(ponteCaiu && a.tipo !== "shelly"),
     ultimaNoticia: ultima,
     semNoticias: a.bateria && (ultima == null ? false : agora - ultima > SEM_NOTICIAS_MS),
     potenciaW: temMedicao ? e.potenciaW ?? null : null,

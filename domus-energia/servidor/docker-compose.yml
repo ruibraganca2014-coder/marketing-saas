@@ -39,12 +39,12 @@ services:
         if [ -d /mosquitto/config/certs ]; then
           chown -R mosquitto:mosquitto /mosquitto/config/certs
           chmod 0700 /mosquitto/config/certs
-          chmod 0600 /mosquitto/config/certs/*
+          find /mosquitto/config/certs -type f -exec chmod 0600 {} +   # pasta vazia não pode parar o Mosquitto
         fi
         exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
     ports:
       - "1883:1883"      # MQTT simples para os aparelhos (OpenBeken, Shelly)
-      # - "8883:8883"    # MQTT com TLS (opcional, ver README "MQTT com TLS")
+      - "8883:8883"      # MQTT com TLS (ponte das caixas, Shelly): ./domus.sh mqtt-tls ativa-o (README "MQTT com TLS")
     expose:
       - "9001"           # WebSocket, só na rede interna (o Caddy faz o HTTPS)
     environment:

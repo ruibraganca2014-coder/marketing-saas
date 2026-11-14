@@ -15,6 +15,9 @@
 #              [--canais "1:interruptor:Teto:arranque=ultimo,2:interruptor:Termo:carga=perigosa"] \
 #              [--divisao "Sala"] [--medidor [--geral]] [--bateria] [palavra-passe]
 #   ./domus.sh remover-aparelho <cliente> <id>
+#   ./domus.sh caixa <cliente> [--ip <IP da caixa>] [palavra-passe]   (caixa com Home Assistant: docs/HOME-ASSISTANT.md)
+#   ./domus.sh remover-caixa <cliente>
+#   ./domus.sh mqtt-tls                  (TLS na porta 8883 com o certificado do Caddy; domus-tls.timer)
 #   ./domus.sh listar
 #   ./domus.sh acl            (só regenera o ficheiro acl e recarrega o Mosquitto)
 #   ./domus.sh plano <cliente> <base|conforto|premium> [--estado ativo|teste|em_atraso|suspenso|cancelado]
@@ -34,6 +37,8 @@
 #                                   (entrada/simular 0/1; linhas antigas "n:funcao:nome"
 #                                   e sem a coluna divisao continuam a ser aceites)
 #   dados/clientes/<codigo>.ntfy    segredo do tópico ntfy do cliente
+#   dados/clientes/<codigo>.caixa   existe se a casa tem caixa com Home Assistant
+#                                   (utilizador MQTT ponte-<codigo>)
 #   dados/.pagamentos               existe depois de o utilizador "pagamentos" ser criado
 #   dados/planos/<codigo>.json      subscrição do cliente (uma linha JSON; escrito
 #                                   pelo serviço pagamentos ou por "./domus.sh plano")
@@ -178,6 +183,27 @@ Uso:
 
   ./domus.sh remover-aparelho <cliente> <id>
       Apaga o aparelho, o seu utilizador MQTT e as mensagens retidas dele.
+
+  ./domus.sh caixa <cliente> [--ip <IP da caixa>] [palavra-passe]
+      Caixa de casa com Home Assistant (docs/HOME-ASSISTANT.md): cria (ou muda a
+      palavra-passe de) o utilizador MQTT "ponte-<cliente>", que só pode mexer
+      nos tópicos dos aparelhos OpenBeken do cliente e no seu _ponte (e ler a
+      lista e a config), e imprime o ponte.conf a copiar para a caixa. Sem
+      palavra-passe, gera uma. Com --ip (IP fixo da caixa na rede de casa, só
+      endereços privados), cria também o login "app-<cliente>" da caixa para a
+      app Android usar sem internet, publica-o em domus/<cliente>/_caixa (retido,
+      só o cliente o lê) e imprime as linhas a juntar aos logins do Mosquitto.
+
+  ./domus.sh remover-caixa <cliente>
+      Apaga o utilizador da ponte e o _ponte retido (a casa volta a ser vista
+      como sem caixa).
+
+  ./domus.sh mqtt-tls
+      Ativa (ou renova) o TLS do MQTT na porta 8883: copia o certificado do
+      Caddy para mosquitto/certs/, confere que a chave bate certo e só então
+      reinicia o Mosquitto; se não arrancar, volta ao certificado de antes.
+      Não faz nada se nada mudou. Corre todas as noites (domus-tls.timer).
+      A ponte das caixas (./domus.sh caixa) só liga por aqui.
 
   ./domus.sh listar
       Mostra os clientes e os aparelhos.
@@ -350,6 +376,8 @@ permissoes_tsv() { # <ficheiro>
 }
 
 cliente_existe() { [[ -f "$CLIENTES_DIR/$1.tsv" ]]; }
+caixa_marca() { printf '%s/%s.caixa' "$CLIENTES_DIR" "$1"; }
+tem_caixa() { [[ -f "$(caixa_marca "$1")" ]]; }
 
 listar_clientes() { # imprime os códigos, um por linha, ordenados
   local f
@@ -402,6 +430,7 @@ todos_utilizadores() {
   printf 'admin\nmotor\npagamentos\npainel\n'
   while IFS= read -r c; do
     printf '%s\n' "$c"
+    if tem_caixa "$c"; then printf 'ponte-%s\n' "$c"; fi
     while IFS= read -r id; do
       printf '%s-%s\n' "$c" "$id"
     done < <(ler_aparelhos "$c" | cut -f1)
@@ -721,6 +750,18 @@ EOF
       printf 'user %s-%s\n' "$c" "$id"
       printf 'topic readwrite domus/%s/%s/#\n' "$c" "$id"
     done
+    if tem_caixa "$c"; then
+      # Fora do ramo dos suspensos: como os aparelhos, a ponte continua a funcionar.
+      printf '\n# Caixa de casa de %s (Home Assistant): só os OpenBeken e o _ponte\n' "$c"
+      printf 'user ponte-%s\n' "$c"
+      printf 'topic write domus/%s/_ponte\n' "$c"
+      # a lista e a config descem para a caixa: a app Android lê a casa lá quando não há internet
+      printf 'topic read domus/%s/_aparelhos\n' "$c"
+      printf 'topic read domus/%s/_config\n' "$c"
+      while IFS="$TAB" read -r id t _; do
+        if [[ "$t" == openbeken ]]; then printf 'topic readwrite domus/%s/%s/#\n' "$c" "$id"; fi
+      done < <(ler_aparelhos "$c")
+    fi
   done < <(listar_clientes)
 }
 
@@ -1359,6 +1400,144 @@ cmd_remover_aparelho() {
   info "Aparelho '$id' removido do cliente '$c'."
 }
 
+# IPv4 privado (10/8, 172.16/12, 192.168/16): a app liga-se ao que aqui se publicar.
+ip_privado() {
+  [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  local a="${BASH_REMATCH[1]}" b="${BASH_REMATCH[2]}" x
+  for x in "${BASH_REMATCH[@]:1}"; do (( 10#$x <= 255 )) || return 1; done
+  (( 10#$a == 10 )) || (( 10#$a == 172 && 10#$b >= 16 && 10#$b <= 31 )) || (( 10#$a == 192 && 10#$b == 168 ))
+}
+
+cmd_caixa() {
+  local uso="uso: ./domus.sh caixa <cliente> [--ip <IP da caixa>] [palavra-passe]" ip="" pos=()
+  while (( $# )); do
+    if [[ "$1" == --ip ]]; then (( $# >= 2 )) || erro "$uso"; ip="$2"; shift 2
+    else pos+=("$1"); shift; fi
+  done
+  (( ${#pos[@]} >= 1 && ${#pos[@]} <= 2 )) || erro "$uso"
+  local c="${pos[0]}" senha="${pos[1]:-}" u="ponte-${pos[0]}" modelo="../caixa/ponte.conf" t senha_app
+  validar_id "$c" "código de cliente"
+  if [[ "$MODO" == docker && ! -f "$TLS_CONF" ]]; then
+    erro "o MQTT do servidor ainda não tem TLS (porta 8883) e a ponte da caixa só liga por TLS: corra primeiro ./domus.sh mqtt-tls"
+  fi
+  if [[ -n "$ip" ]]; then ip_privado "$ip" || erro "o IP da caixa tem de ser um endereço privado da rede de casa (ex.: 192.168.1.50), não '$ip'"; fi
+  [[ -f "$modelo" ]] || erro "falta o modelo $modelo"
+  preparar_dados
+  cliente_existe "$c" || erro "o cliente '$c' não existe. Crie-o com: ./domus.sh cliente $c"
+  if ! tem_caixa "$c" && utilizador_ocupado "$u"; then
+    erro "já existe um utilizador MQTT chamado '$u' (um aparelho de outro cliente)"
+  fi
+  [[ -n "$senha" ]] || senha="$(gerar_senha)"
+  validar_senha "$senha"
+  senha_admin >/dev/null
+  verificar_mosquitto
+
+  definir_senha_mqtt "$u" "$senha"
+  ( umask 077; : > "$(caixa_marca "$c")" )
+  aplicar_acl
+  info "Caixa do cliente '$c' guardada (utilizador MQTT '$u')."
+  info "Copie o texto abaixo para /share/mosquitto/ponte.conf na caixa (docs/HOME-ASSISTANT.md):"
+  info ""
+  t="$(< "$modelo")"
+  t="${t//CLIENTE/"$c"}"; t="${t//SERVIDOR/"$(ler_host)"}"; t="${t//SENHA_PONTE/"$senha"}"
+  info "$t"
+  if [[ -n "$ip" ]]; then
+    # Login só da caixa (logins do add-on Mosquitto): a app Android usa-o na rede de casa quando não há internet.
+    senha_app="$(gerar_senha)"
+    publicar_retida "domus/$c/_caixa" "$(printf '{"endereco":"%s","porta":1884,"utilizador":"app-%s","senha":"%s"}' "$ip" "$c" "$senha_app")"
+    info ""
+    info "Junte este login aos \"logins\" do add-on Mosquitto na caixa (a app Android usa-o sem internet):"
+    info "  - username: app-$c"
+    info "    password: $senha_app"
+  fi
+}
+
+cmd_remover_caixa() {
+  (( $# == 1 )) || erro "uso: ./domus.sh remover-caixa <cliente>"
+  local c="$1"
+  validar_id "$c" "código de cliente"
+  preparar_dados
+  tem_caixa "$c" || erro "o cliente '$c' não tem caixa"
+  senha_admin >/dev/null
+  verificar_mosquitto
+
+  apagar_utilizador_mqtt "ponte-$c"
+  rm -f "$(caixa_marca "$c")"
+  aplicar_acl
+  publicar_retida "domus/$c/_ponte" ""   # senão o motor, ao reiniciar, via a casa sem ligação
+  publicar_retida "domus/$c/_caixa" ""   # a app esquece o login da caixa
+  info "Caixa do cliente '$c' removida."
+}
+
+# --- TLS do MQTT (porta 8883) ------------------------------------------------
+TLS_CONF=mosquitto/conf.d/tls.conf
+TLS_DIR=mosquitto/certs
+
+# Espera que o Mosquitto fique a correr (com um certificado mau ele sai logo, e a 1883 também cai).
+mosquitto_de_pe() {
+  local i
+  for i in 1 2 3 4 5; do sleep 2; servico_a_correr mosquitto || return 1; done
+  return 0
+}
+
+cmd_mqtt_tls() {
+  (( $# == 0 )) || erro "uso: ./domus.sh mqtt-tls"
+  local host origem f mudou=0 tinha_conf=0
+  host="$(ler_host)"
+  if [[ "$MODO" == simulacao ]]; then
+    simul "copiar o certificado de $host do caddy para $TLS_DIR, ativar $TLS_CONF e reiniciar o mosquitto"
+    return 0
+  fi
+  [[ "$MODO" == docker ]] || erro "mqtt-tls só no servidor (docker compose)"
+  verificar_mosquitto
+  servico_a_correr caddy || erro "o Caddy não está a correr. Corre primeiro: docker compose up -d"
+  command -v openssl >/dev/null || erro "falta o openssl"
+  origem="$(docker compose exec -T caddy sh -c 'ls -1 /data/caddy/certificates/*/"$1"/"$1".crt 2>/dev/null | head -n 1' sh "$host" | tr -d '\r')"
+  [[ -n "$origem" ]] || erro "o Caddy ainda não tem certificado para $host (o site já responde em https://$host/?)"
+
+  mkdir -p "$TLS_DIR"; chmod 700 "$TLS_DIR"
+  rm -f "$TLS_DIR"/*.novo
+  docker compose cp "caddy:$origem" "$TLS_DIR/fullchain.pem.novo" >/dev/null
+  docker compose cp "caddy:${origem%.crt}.key" "$TLS_DIR/privkey.pem.novo" >/dev/null
+  chmod 600 "$TLS_DIR"/*.novo
+  # O par tem de bater certo antes de chegar ao Mosquitto: com um certificado mau ele não arranca (nem a 1883).
+  if [[ "$(openssl x509 -noout -pubkey -in "$TLS_DIR/fullchain.pem.novo" 2>/dev/null | openssl sha256)" \
+        != "$(openssl pkey -pubout -in "$TLS_DIR/privkey.pem.novo" 2>/dev/null | openssl sha256)" ]] \
+     || ! openssl x509 -noout -checkend 3600 -in "$TLS_DIR/fullchain.pem.novo" >/dev/null 2>&1; then
+    rm -f "$TLS_DIR"/*.novo
+    erro "o certificado do Caddy não serve (a chave não bate certo ou expira dentro de uma hora): o Mosquitto ficou como estava"
+  fi
+  [[ -f "$TLS_CONF" ]] && tinha_conf=1
+  for f in fullchain privkey; do
+    cmp -s "$TLS_DIR/$f.pem.novo" "$TLS_DIR/$f.pem" || mudou=1
+  done
+  if (( ! mudou && tinha_conf )); then
+    rm -f "$TLS_DIR"/*.novo
+    info "TLS do MQTT: o certificado não mudou (porta 8883 ativa)."
+    return 0
+  fi
+  for f in fullchain privkey; do
+    if [[ -f "$TLS_DIR/$f.pem" ]]; then mv -f "$TLS_DIR/$f.pem" "$TLS_DIR/$f.pem.antes"; fi
+    mv -f "$TLS_DIR/$f.pem.novo" "$TLS_DIR/$f.pem"
+  done
+  (( tinha_conf )) || cp mosquitto/conf.d/tls.conf.exemplo "$TLS_CONF"
+  docker compose restart mosquitto >/dev/null 2>&1 || true
+  if mosquitto_de_pe; then
+    info "TLS do MQTT ativo na porta 8883 ($host). Abra a porta 8883/TCP na firewall do fornecedor, se ainda não estiver."
+    return 0
+  fi
+  # Não arrancou: volta ao que estava.
+  for f in fullchain privkey; do
+    if [[ -f "$TLS_DIR/$f.pem.antes" ]]; then mv -f "$TLS_DIR/$f.pem.antes" "$TLS_DIR/$f.pem"; else rm -f "$TLS_DIR/$f.pem"; fi
+  done
+  (( tinha_conf )) || rm -f "$TLS_CONF"
+  docker compose restart mosquitto >/dev/null 2>&1 || true
+  if mosquitto_de_pe; then
+    erro "o Mosquitto não arrancou com o certificado novo: voltou ao de antes e está a correr (ver: docker compose logs mosquitto)"
+  fi
+  erro "o Mosquitto NÃO está a correr, nem com o certificado de antes: ver JÁ docker compose logs mosquitto"
+}
+
 cmd_listar() {
   preparar_dados
   local c id tipo med bat canais nome adiv n=0 extra cn cf cnome ent sim arr carga cdiv linha
@@ -1851,6 +2030,9 @@ main() {
     cliente)          bloquear; cmd_cliente "$@" ;;
     aparelho)         bloquear; cmd_aparelho "$@" ;;
     remover-aparelho) bloquear; cmd_remover_aparelho "$@" ;;
+    caixa)            bloquear; cmd_caixa "$@" ;;
+    remover-caixa)    bloquear; cmd_remover_caixa "$@" ;;
+    mqtt-tls)         bloquear; cmd_mqtt_tls "$@" ;;
     listar)           cmd_listar "$@" ;;
     acl)              bloquear; cmd_acl "$@" ;;
     gerar-acl)        preparar_dados; gerar_acl ;;             # só mostra (diagnóstico)

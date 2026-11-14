@@ -1,0 +1,55 @@
+# Home Assistant de demonstração contra a casa "casa-t1" do lançador local (local/, npm start): a casa do dono
+# (planta da conta dele: quarto, casa de banho, kitchenette e jardim) com os aparelhos Tuya que vão passar a OpenBeken.
+# Arranca com: bash caixa/demo-ha.sh   (ver docs/HOME-ASSISTANT.md, "Demonstração no PC")
+# Os aparelhos estão escritos à mão com os tópicos do local/aparelhos-simulados.js. Numa caixa a sério
+# aparecem sozinhos (descoberta do OpenBeken), por isso este ficheiro não vai para as casas.
+default_config:
+
+homeassistant:
+  name: Casa T1
+  country: PT
+  time_zone: Europe/Lisbon
+  currency: EUR
+  unit_system: metric
+  auth_providers:
+    - type: homeassistant
+    # entra sem palavra-passe a partir deste PC (a porta 8123 só está aberta em 127.0.0.1)
+    - type: trusted_networks
+      trusted_networks: [127.0.0.1/32, 172.16.0.0/12, 192.168.65.0/24]
+      allow_bypass_login: true
+
+lovelace:
+  dashboards:
+    casa-domus:
+      mode: yaml
+      filename: casa.yaml
+      title: Casa Domus
+      icon: mdi:home-lightning-bolt
+      show_in_sidebar: true
+
+# Todos os aparelhos ligam e desligam com "1"/"0" em domus/casa-t1/<aparelho>/<tecla>/set e dizem o estado em .../get.
+mqtt:
+  switch:
+    - { name: Disjuntor geral, unique_id: t1_quadro_1, state_topic: domus/casa-t1/quadro/1/get, command_topic: domus/casa-t1/quadro/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/quadro/connected, payload_available: online, payload_not_available: offline }
+    - { name: Teto do quarto, unique_id: t1_int-quarto_1, state_topic: domus/casa-t1/int-quarto/1/get, command_topic: domus/casa-t1/int-quarto/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-quarto/connected, payload_available: online, payload_not_available: offline }
+    - { name: Segunda luz do quarto, unique_id: t1_int-quarto_2, state_topic: domus/casa-t1/int-quarto/2/get, command_topic: domus/casa-t1/int-quarto/2/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-quarto/connected, payload_available: online, payload_not_available: offline }
+    - { name: Teto da casa de banho, unique_id: t1_int-wc_1, state_topic: domus/casa-t1/int-wc/1/get, command_topic: domus/casa-t1/int-wc/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-wc/connected, payload_available: online, payload_not_available: offline }
+    - { name: Espelho da casa de banho, unique_id: t1_int-wc_2, state_topic: domus/casa-t1/int-wc/2/get, command_topic: domus/casa-t1/int-wc/2/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-wc/connected, payload_available: online, payload_not_available: offline }
+    - { name: Teto da kitchenette, unique_id: t1_int-kitchenette_1, state_topic: domus/casa-t1/int-kitchenette/1/get, command_topic: domus/casa-t1/int-kitchenette/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-kitchenette/connected, payload_available: online, payload_not_available: offline }
+    - { name: Segunda luz da kitchenette, unique_id: t1_int-kitchenette_2, state_topic: domus/casa-t1/int-kitchenette/2/get, command_topic: domus/casa-t1/int-kitchenette/2/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-kitchenette/connected, payload_available: online, payload_not_available: offline }
+    - { name: Iluminação do jardim, unique_id: t1_int-jardim_1, state_topic: domus/casa-t1/int-jardim/1/get, command_topic: domus/casa-t1/int-jardim/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/int-jardim/connected, payload_available: online, payload_not_available: offline }
+    - { name: Televisão do quarto, unique_id: t1_tv-quarto_1, state_topic: domus/casa-t1/tv-quarto/1/get, command_topic: domus/casa-t1/tv-quarto/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/tv-quarto/connected, payload_available: online, payload_not_available: offline }
+    - { name: Televisão da kitchenette, unique_id: t1_tv-kitchenette_1, state_topic: domus/casa-t1/tv-kitchenette/1/get, command_topic: domus/casa-t1/tv-kitchenette/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/tv-kitchenette/connected, payload_available: online, payload_not_available: offline }
+    - { name: Máquina de lavar, unique_id: t1_maquina-lavar_1, state_topic: domus/casa-t1/maquina-lavar/1/get, command_topic: domus/casa-t1/maquina-lavar/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/maquina-lavar/connected, payload_available: online, payload_not_available: offline }
+    - { name: Frigorífico, unique_id: t1_frigorifico_1, state_topic: domus/casa-t1/frigorifico/1/get, command_topic: domus/casa-t1/frigorifico/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/frigorifico/connected, payload_available: online, payload_not_available: offline }
+    - { name: Termoacumulador, unique_id: t1_termo_1, state_topic: domus/casa-t1/termo/1/get, command_topic: domus/casa-t1/termo/1/set, payload_on: "1", payload_off: "0", availability_topic: domus/casa-t1/termo/connected, payload_available: online, payload_not_available: offline }
+  sensor:
+    - { name: Consumo da casa, unique_id: t1_quadro_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/quadro/power/get }
+    - { name: Tensão, unique_id: t1_quadro_voltage, device_class: voltage, state_class: measurement, unit_of_measurement: V, state_topic: domus/casa-t1/quadro/voltage/get }
+    - { name: Corrente da casa, unique_id: t1_quadro_current, device_class: current, state_class: measurement, unit_of_measurement: A, state_topic: domus/casa-t1/quadro/current/get }
+    - { name: Energia da casa, unique_id: t1_quadro_energy, device_class: energy, state_class: total_increasing, unit_of_measurement: Wh, state_topic: domus/casa-t1/quadro/energycounter/get }
+    - { name: Consumo da televisão do quarto, unique_id: t1_tv-quarto_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/tv-quarto/power/get }
+    - { name: Consumo da televisão da kitchenette, unique_id: t1_tv-kitchenette_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/tv-kitchenette/power/get }
+    - { name: Consumo da máquina de lavar, unique_id: t1_maquina-lavar_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/maquina-lavar/power/get }
+    - { name: Consumo do frigorífico, unique_id: t1_frigorifico_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/frigorifico/power/get }
+    - { name: Consumo do termoacumulador, unique_id: t1_termo_power, device_class: power, state_class: measurement, unit_of_measurement: W, state_topic: domus/casa-t1/termo/power/get }

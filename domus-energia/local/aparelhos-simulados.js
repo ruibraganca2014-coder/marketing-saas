@@ -16,7 +16,7 @@ const CLIENTE = (process.argv[2] || 'demo').toLowerCase().replace(/[^a-z0-9-]/g,
 const BASE = `domus/${CLIENTE}`;
 
 // A casa: o que um T2 com quadro inteligente costuma ter. `w` = potência do canal quando ligado (só para o medidor).
-const APARELHOS = [
+const DEMO = [
   { id: 'quadro', nome: 'Quadro geral', tipo: 'openbeken', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral', divisao: 'Quadro', arranque: 'ligado' }] },
   { id: 'sala-2g', nome: 'Interruptor sala', tipo: 'openbeken', canais: [
     { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Sala', simular: true, w: 24 },
@@ -29,11 +29,37 @@ const APARELHOS = [
   { id: 'pir-corredor', nome: 'Movimento corredor', tipo: 'openbeken', bateria: true, canais: [{ n: 1, funcao: 'movimento', nome: 'Movimento', divisao: 'Corredor' }, { n: 2, funcao: 'bateria' }] },
 ];
 
+// A casa do dono (planta da conta no opancas.pt, 2026-11-14): T1 com quarto, casa de banho, kitchenette e jardim. Os
+// aparelhos são os Tuya que ele está a instalar, já como ficarão depois de passarem a OpenBeken (respostas de 2026-11-14):
+// disjuntor que mede no quadro, interruptores de parede (2 teclas; 1 no jardim) e 5 tomadas com medição. `inicial` = estado
+// ao arrancar (por omissão desligado).
+const CASA_T1 = [
+  { id: 'quadro', nome: 'Disjuntor geral', tipo: 'openbeken', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral', divisao: 'Quadro', arranque: 'ligado', inicial: 1 }] },
+  { id: 'int-quarto', nome: 'Interruptor quarto', tipo: 'openbeken', canais: [
+    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Quarto', w: 24 },
+    { n: 2, funcao: 'interruptor', nome: '2.ª luz', divisao: 'Quarto', w: 9 }] },
+  { id: 'int-wc', nome: 'Interruptor casa de banho', tipo: 'openbeken', canais: [
+    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Casa de banho', w: 18 },
+    { n: 2, funcao: 'interruptor', nome: 'Espelho', divisao: 'Casa de banho', w: 12 }] },
+  { id: 'int-kitchenette', nome: 'Interruptor kitchenette', tipo: 'openbeken', canais: [
+    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Kitchenette', w: 24, inicial: 1 },
+    { n: 2, funcao: 'interruptor', nome: '2.ª luz', divisao: 'Kitchenette', w: 12 }] },
+  { id: 'int-jardim', nome: 'Iluminação do jardim', tipo: 'openbeken', canais: [{ n: 1, funcao: 'interruptor', nome: 'Iluminação do jardim', divisao: 'Jardim', w: 150 }] },
+  { id: 'tv-quarto', nome: 'Televisão do quarto', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Televisão', divisao: 'Quarto', w: 150 }] },
+  { id: 'tv-kitchenette', nome: 'Televisão da kitchenette', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Televisão', divisao: 'Kitchenette', w: 150, inicial: 1 }] },
+  { id: 'maquina-lavar', nome: 'Máquina de lavar', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Máquina de lavar', divisao: 'Kitchenette', w: 2000 }] },
+  { id: 'frigorifico', nome: 'Frigorífico', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Frigorífico', divisao: 'Kitchenette', w: 150, inicial: 1 }] },
+  { id: 'termo', nome: 'Termoacumulador', tipo: 'openbeken', medidor: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Termoacumulador', divisao: 'Jardim', carga: 'perigosa', w: 2000 }] },
+];
+
+// Qualquer outro código fica com os aparelhos da "demo".
+const APARELHOS = { 'casa-t1': CASA_T1 }[CLIENTE] ?? DEMO;
+
 // Estado de cada canal (aparelho/n → valor) e o brilho do LED.
-const estado = new Map([
+const estado = new Map(APARELHOS === DEMO ? [
   ['quadro/1', 1], ['sala-2g/1', 1], ['sala-2g/2', 0], ['led-cozinha/1', 0], ['tomada-tv/1', 1], ['termo/1', 0],
   ['estore-quarto/1', 60], ['porta-entrada/1', 0], ['porta-entrada/2', 84], ['pir-corredor/1', 0], ['pir-corredor/2', 71],
-]);
+] : APARELHOS.flatMap((a) => a.canais.map((canal) => [`${a.id}/${canal.n}`, canal.inicial ?? 0])));
 let brilho = 70;
 const energiaWh = new Map(APARELHOS.filter((a) => a.medidor).map((a) => [a.id, a.id === 'quadro' ? 152_340 : 4_210]));
 
@@ -50,7 +76,7 @@ const macDe = (id) => { let h = 0; for (const ch of `${CLIENTE}/${id}`) h = (h *
 
 const c = mqtt.connect('mqtt://127.0.0.1:1883', { clientId: `simulado-${CLIENTE}-${process.pid}`, username: 'admin', password: 'local', reconnectPeriod: 3000 });
 const pub = (topico, valor, retido = true) => c.publish(`${BASE}/${topico}`, String(valor), { retain: retido, qos: 0 });
-const semW = ({ w: _w, ...canal }) => canal;
+const semW = ({ w: _w, inicial: _i, ...canal }) => canal;
 
 /** Potência de um aparelho com medidor: o quadro soma tudo o que está ligado (mais 60 W de base, frigorífico e router). */
 function potencia(id) {
@@ -79,7 +105,7 @@ c.on('connect', () => {
     pub(`${a.id}/mac`, macDe(a.id));
     for (const canal of a.canais) pub(`${a.id}/${canal.n}/get`, estado.get(`${a.id}/${canal.n}`));
   }
-  pub('led-cozinha/led_dimmer/get', brilho);
+  if (APARELHOS === DEMO) pub('led-cozinha/led_dimmer/get', brilho);
   publicarMedidas();
   c.subscribe([`${BASE}/+/+/set`, `${BASE}/+/led_dimmer/set`]);
   console.log(`[aparelhos simulados] casa "${CLIENTE}" com ${APARELHOS.length} aparelhos. Em http://localhost:8080/cliente.html entre com o código "${CLIENTE}" (qualquer palavra-passe).`);
@@ -115,8 +141,10 @@ const pulso = (chave, nome, cadaMs, duraMs) => setInterval(() => {
   estado.set(chave, 1); pub(`${chave}/get`, 1); console.log(`[aparelhos simulados] ${nome}`);
   setTimeout(() => { estado.set(chave, 0); pub(`${chave}/get`, 0); }, duraMs);
 }, cadaMs);
-pulso('porta-entrada/1', 'Porta de entrada: aberta', 120_000, 8000);
-pulso('pir-corredor/1', 'Movimento no corredor', 60_000, 15_000);
+if (APARELHOS === DEMO) {
+  pulso('porta-entrada/1', 'Porta de entrada: aberta', 120_000, 8000);
+  pulso('pir-corredor/1', 'Movimento no corredor', 60_000, 15_000);
+}
 
 c.on('error', (e) => console.error(`[aparelhos simulados] ${e.message} (o lançador local está a correr?)`));
 const sair = () => { for (const a of APARELHOS) pub(`${a.id}/connected`, 'offline'); c.end(false, {}, () => process.exit(0)); };

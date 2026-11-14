@@ -45,6 +45,7 @@ let modoPendente = null; // { modo, forcar, timer }
 let recusa = null;     // { modo, texto } — "Não armado: …" à espera de "Armar mesmo assim"
 let energia = null;    // lerEnergia(_energia)
 let saude = {};        // lerSaude(_saude)
+let ponteCaiu = false; // `_ponte` = "0": a caixa de casa perdeu o servidor (docs/HOME-ASSISTANT.md)
 let secao = "casa";    // secção visível
 let plano = { ...PL.PLANO_OMISSAO }; // lerPlano(_plano) — sem `_plano` retido: conforto/ativo/manual (§2)
 let ntfy = null;       // lerNtfy(_ntfy)
@@ -129,7 +130,7 @@ const automacoes = criarAutomacoes({
   config: () => definicoes.config(),
 });
 const limiarEspera = () => definicoes.config()?.limiar_espera_w ?? E.LIMIAR_ESPERA_W;
-const modeloDe = (a, agora = Date.now()) => E.modelo(a, estados[a.id], agora, limiarEspera());
+const modeloDe = (a, agora = Date.now()) => E.modelo(a, estados[a.id], agora, limiarEspera(), ponteCaiu);
 
 // ---------- Sessão ----------
 $("form-login").addEventListener("submit", (e) => {
@@ -518,6 +519,7 @@ function terminar() {
   recusa = null;
   energia = null;
   saude = {};
+  ponteCaiu = false;
   historico = [];
   vivos = [];
   listaRecebida = false;
@@ -751,6 +753,13 @@ function receber(topico, texto, retido) {
         avaliarMotor();
         break;
       }
+      case "_ponte":
+        ponteCaiu = texto.trim() === "0";
+        for (const a of aparelhos) atualizar(a.id, false);
+        resumo();
+        if (secao === "aparelhos") redesenharSaude();
+        if (secao === "relatorio") redesenharRelatorio();
+        break;
       case "_saude":
         saude = E.lerSaude(texto);
         E.notarSaude(estados, saude);

@@ -280,7 +280,8 @@ fun Principal(state: UiState, acoes: Acoes) {
             },
         ) { padding ->
             Column(Modifier.padding(padding).fillMaxSize()) {
-                if (state.ligacao != Ligacao.LIGADO) EstadoLigacao(state.ligacao)
+                if (state.estado.naCaixa) AvisoCaixa(state.estado.semServidor)
+                else if (state.ligacao != Ligacao.LIGADO) EstadoLigacao(state.ligacao)
                 if (subscricao.emAtraso && secundario != Secundario.SUBSCRICAO) {
                     AvisoAtraso(subscricao, acoes) { secundario = Secundario.SUBSCRICAO }
                 }
@@ -327,6 +328,21 @@ fun EstadoLigacao(ligacao: Ligacao) {
                 color = t.texto,
             )
         }
+    }
+}
+
+/** Barra quando a app fala com a caixa de casa em vez do servidor (docs/HOME-ASSISTANT.md). */
+@Composable
+fun AvisoCaixa(semServidor: Boolean) {
+    val t = LocalTerra.current
+    Surface(color = t.areia.copy(alpha = 0.25f), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            if (semServidor) "Sem internet: ligado à caixa de casa. Os aparelhos da caixa respondem; o alarme, as cenas e as automações voltam com a internet."
+            else "A caixa de casa está sem internet: os aparelhos respondem por ela, porque está no Wi-Fi de casa.",
+            style = MaterialTheme.typography.bodySmall,
+            color = t.texto,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        )
     }
 }
 

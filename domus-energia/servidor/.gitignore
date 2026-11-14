@@ -14,3 +14,5 @@ caddy/data/
 caddy/config/
 # config.js do site gerado pelo instalar.sh (mqttUrl deste servidor)
 config-site/
+# a porta 8883 ativada pelo ./domus.sh mqtt-tls (cópia do tls.conf.exemplo)
+mosquitto/conf.d/tls.conf

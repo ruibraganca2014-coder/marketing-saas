@@ -218,6 +218,9 @@ Outros comandos:
 ```bash
 ./domus.sh listar                        # clientes e aparelhos
 ./domus.sh remover-aparelho joao quadro  # apaga o aparelho e as mensagens retidas dele
+./domus.sh caixa joao --ip 192.168.1.50  # caixa com Home Assistant: utilizador da ponte + ponte.conf + login da app sem internet (docs/HOME-ASSISTANT.md)
+./domus.sh remover-caixa joao
+./domus.sh mqtt-tls                       # TLS na porta 8883 com o certificado do Caddy (a ponte das caixas só liga por aqui)
 ./domus.sh acl                           # regenera as permissões (raramente preciso)
 ./domus.sh ajuda
 ```
@@ -309,7 +312,7 @@ Se os ficheiros de `systemd/` mudaram, copie-os de novo (§16.2) e faça `sudo s
 - **A porta 1883 não é cifrada: o utilizador e a palavra-passe de cada aparelho passam em texto simples** (e também os estados e comandos). Quem conseguir escutar a rede entre a casa e o VPS (Wi-Fi da casa, operador) pode ler essas credenciais e fazer-se passar por esse aparelho. Os disjuntores e interruptores com chip BK7231 (OpenBeken) não têm TLS fiável, por isso usam MQTT simples. Mitigações:
   - cada aparelho tem **utilizador e palavra-passe próprios** e só pode ler/escrever no seu prefixo `domus/<cliente>/<aparelho>/#` (ACL): uma credencial roubada só dá acesso a esse aparelho, nunca à casa nem ao alarme; ninguém anónimo entra;
   - se suspeitar de uma credencial, corra de novo `./domus.sh aparelho …` (gera outra e corta a antiga);
-  - **Shelly: use a porta 8883 com TLS** (ver [MQTT com TLS](#mqtt-com-tls-porta-8883-opcional));
+  - **Shelly: use a porta 8883 com TLS** (ver [MQTT com TLS](#mqtt-com-tls-porta-8883));
   - quando as casas tiverem IP fixo, restrinja a 1883 na firewall a esses IPs (ex. `sudo ufw allow from 85.240.1.2 to any port 1883 proto tcp` em vez de aberta a todos).
 - A app e o site usam sempre **HTTPS/WSS** (porta 443, certificado automático).
 - Permissões (geradas pelo `domus.sh`, nunca editar à mão):
@@ -329,21 +332,13 @@ Se os ficheiros de `systemd/` mudaram, copie-os de novo (§16.2) e faça `sudo s
 - O painel da empresa (§17) não tem as palavras-passe do servidor: só lê o MQTT (utilizador `painel`) e pede alterações por ficheiros que o `./domus.sh processar-pedidos` valida à risca antes de executar.
 - Limites do Mosquitto (`mosquitto/mosquitto.conf`): `max_connections 2000` (ligações simultâneas de aparelhos + app + site; subir se a empresa passar de ~1500 aparelhos) e `max_packet_size` de 1 MB (o motor nunca publica mais de 900 KB, `MQTT_MAX_PAYLOAD`).
 
-### MQTT com TLS (porta 8883, opcional)
+### MQTT com TLS (porta 8883)
 
-Para os aparelhos que suportam TLS (Shelly Gen2/Gen3). Os OpenBeken continuam na 1883. Sem este passo o servidor funciona como antes.
+Para a ponte das caixas com Home Assistant (só liga por aqui, ver `docs/HOME-ASSISTANT.md`) e para os aparelhos que suportam TLS (Shelly Gen2/Gen3). Os OpenBeken continuam na 1883.
 
-1. Certificado: o mais simples é reutilizar o do Caddy (o mesmo `HOST`). Copie-o para `mosquitto/certs/` (a pasta não vai para o git):
-   ```bash
-   cd /opt/domus/domus-energia/servidor   # ou ~/marketing-saas/domus-energia/servidor (manual)
-   sudo mkdir -p mosquitto/certs
-   D=/data/caddy/certificates/acme-v02.api.letsencrypt.org-directory/$DOMUS_HOST
-   docker compose cp caddy:$D/$DOMUS_HOST.crt mosquitto/certs/fullchain.pem
-   docker compose cp caddy:$D/$DOMUS_HOST.key mosquitto/certs/privkey.pem
-   ```
-   (se o Caddy usou a ZeroSSL, a pasta é `acme.zerossl.com-v2-dv90`: veja com `docker compose exec caddy ls /data/caddy/certificates`). O Caddy renova o certificado a cada ~60 dias: repita a cópia uma vez por mês no `crontab` do root, seguida de `docker compose restart mosquitto`.
-2. Ative a porta: `cp mosquitto/conf.d/tls.conf.exemplo mosquitto/conf.d/tls.conf` e, no `docker-compose.yml`, tire o `#` da linha `- "8883:8883"`.
-3. Abra a porta **8883/TCP** na firewall (painel do fornecedor e `ufw`/`iptables`, como no passo 2) e reinicie: `docker compose up -d mosquitto`.
+1. `sudo ./domus.sh mqtt-tls` copia o certificado que o Caddy tem para o site (Let's Encrypt ou ZeroSSL, o mesmo `HOST`) para `mosquitto/certs/` (não vai para o git), confere que a chave bate certo e que não expira dentro de uma hora, ativa `mosquitto/conf.d/tls.conf` e reinicia o Mosquitto. Se ele não arrancar, volta ao certificado (ou à configuração) de antes e diz porquê. Sem mudanças, não faz nada. O `instalar.sh` corre-o sozinho depois de o site responder em HTTPS, e o `domus-tls.timer` todas as noites às 04:20 (o Caddy renova o certificado antes de acabar).
+2. O `docker-compose.yml` já publica a 8883 e o `instalar.sh` abre-a no `ufw`/`iptables` numa instalação nova (com `--atualizar` não mexe na firewall). Falta abrir **8883/TCP** na firewall do fornecedor.
+3. Ver: `systemctl list-timers domus-tls` e `journalctl -u domus-tls`.
 4. No Shelly: *Settings → MQTT*: Server `HOST:8883`, ativar **Use SSL** (com verificação do certificado, "Default CA"). O resto (utilizador, palavra-passe, prefixo) fica igual.
 5. Teste: `mosquitto_sub -h <DOMUS_HOST> -p 8883 --capath /etc/ssl/certs -u joao -P 'SenhaDoJoao' -t 'domus/joao/#' -v`.
 - Mantém o sistema atualizado (`sudo apt-get update && sudo apt-get upgrade`) e usa só login SSH por chave.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { juntarAmostra, estimarDiasBateria } from '../src/saude.js';
-import { motorV3, ultimoJson } from './ajuda.js';
+import { motorV3, ultimoJson, criarMotor, APARELHOS_V3 } from './ajuda.js';
 
 const P = 'domus/joao';
 const H = 3_600_000;
@@ -242,4 +242,71 @@ test('relatório diário às relatorio_diario: texto pt-PT por notificação (fo
   m.msg(`${P}/_config/set`, { relatorio_diario: '23:30', silencio: ['23:00', '07:00'] });
   m.em('2026-06-15T22:30:00Z');
   assert.equal(m.notificacoes.filter((x) => x.titulo === 'Relatório da casa').length, 1);
+});
+
+/** Estado online de um aparelho do joao, lido do motor. */
+const on = (m, id) => m.motor.clientes.get('joao').estado.get(id)?.online;
+
+test('caixa com Home Assistant: _ponte "0" põe os OpenBeken offline; "1" espera pela próxima mensagem', () => {
+  const m = motorV3({ agora: '2026-06-15T10:00:00Z' });
+  for (const id of semBateria) {
+    const shelly = ['estore-quarto', 'led-cozinha', 'termo', 'ac-sala'].includes(id);
+    m.msg(`${P}/${id}/${shelly ? 'online' : 'connected'}`, shelly ? 'true' : 'online');
+  }
+  m.msg(`${P}/_ponte`, '1');
+  m.avancar(1000);
+  assert.equal(on(m, 'quadro'), true);
+  m.msg(`${P}/_ponte`, '0');
+  m.avancar(1000);
+  assert.deepEqual(['quadro', 'sala-4g', 'led-quarto'].map((id) => on(m, id)), [false, false, false]);
+  assert.equal(on(m, 'estore-quarto'), true); // Shelly: ligado ao servidor, não à caixa
+  m.msg(`${P}/_ponte`, '1');
+  m.avancar(1000);
+  assert.equal(on(m, 'quadro'), false);
+  m.msg(`${P}/quadro/1/get`, '1');
+  m.avancar(1000);
+  assert.equal(on(m, 'quadro'), true);
+});
+
+test('caixa: _ponte "0" retido antes do _aparelhos e "online" retido antigo depois', () => {
+  const m = criarMotor({ agora: '2026-06-15T10:00:00Z' });
+  m.retida(`${P}/_ponte`, '0');
+  m.retida(`${P}/_aparelhos`, APARELHOS_V3);
+  m.retida(`${P}/quadro/connected`, 'online');
+  m.retida(`${P}/estore-quarto/online`, 'true');
+  m.motor.aoLigar();
+  m.avancar(1000);
+  assert.equal(on(m, 'quadro'), false);
+  assert.equal(on(m, 'estore-quarto'), true);
+  assert.equal(m.eventos().filter((e) => e.tipo === 'aviso').length, 0); // retido: sem avisos novos
+});
+
+test('casa sem caixa: _ponte vazio não muda nada', () => {
+  const m = motorV3({ agora: '2026-06-15T10:00:00Z' });
+  m.msg(`${P}/quadro/connected`, 'online');
+  m.msg(`${P}/_ponte`, '');
+  m.avancar(1000);
+  assert.equal(on(m, 'quadro'), true);
+});
+
+test('caixa: internet da casa cai (Shelly por testamento, OpenBeken por _ponte) e volta → "Ligação reposta"', () => {
+  const m = motorV3({ agora: '2026-06-15T10:00:00Z' });
+  const shelly = ['estore-quarto', 'led-cozinha', 'termo', 'ac-sala'];
+  const obk = semBateria.filter((id) => !shelly.includes(id));
+  for (const id of shelly) m.msg(`${P}/${id}/online`, 'true');
+  for (const id of obk) m.msg(`${P}/${id}/connected`, 'online');
+  m.msg(`${P}/_ponte`, '1');
+  m.em('2026-06-15T10:10:00Z');
+  for (const id of shelly) m.msg(`${P}/${id}/online`, 'false');
+  m.msg(`${P}/_ponte`, '0');
+  m.em('2026-06-15T11:00:00Z');
+  m.msg(`${P}/_ponte`, '1');
+  for (const id of shelly) m.msg(`${P}/${id}/online`, 'true');
+  m.msg(`${P}/quadro/1/get`, '1');
+  m.msg(`${P}/sala-4g/1/get`, '0');
+  m.msg(`${P}/led-quarto/1/get`, '1');
+  m.avancar(1000);
+  const reposta = m.eventos().filter((e) => e.titulo === 'Ligação reposta');
+  assert.equal(reposta.length, 1);
+  assert.match(reposta[0].mensagem, /sem internet de \d\d:\d\d a \d\d:\d\d/);
 });

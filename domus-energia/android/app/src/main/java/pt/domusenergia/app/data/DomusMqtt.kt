@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.future.await
 import pt.domusenergia.app.BuildConfig
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -40,6 +42,10 @@ class DomusMqtt(
     private val porta: Int = 443,
     private val tls: Boolean = true,
     private val caminho: String = "mqtt",
+    /** Login da caixa de casa guardado da última vez ([Caixa]); usado se a internet já estiver em baixo ao abrir. */
+    private val caixaGuardada: () -> AcessoCaixa? = { null },
+    /** Chamado quando o servidor manda outro `_caixa` (ou o apaga), para o guardar. */
+    private val aoMudarCaixa: (AcessoCaixa?) -> Unit = {},
 ) {
     private val lock = Any()
     private var atual = Estado()
@@ -60,6 +66,14 @@ class DomusMqtt(
     @Volatile private var jaLigou = false
     @Volatile private var insistir = false
     private val rpcIds = AtomicInteger(0)
+
+    // Segunda ligação, à caixa de casa (docs/HOME-ASSISTANT.md): só quando o servidor não responde ou diz que a
+    // caixa perdeu a internet. Só os comandos dos aparelhos passam por ela ([Caixa.passaPelaCaixa]).
+    @Volatile private var caixa: AcessoCaixa? = null
+    @Volatile private var local: Mqtt3AsyncClient? = null
+    private val lockCaixa = Any()
+    private val relogio = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "domus-caixa").apply { isDaemon = true } }
+    @Volatile private var espera: ScheduledFuture<*>? = null
 
     /** Código do cliente com sessão iniciada ("" se nenhuma). */
     val cliente: String get() = codigo
@@ -106,6 +120,10 @@ class DomusMqtt(
         // Todas as mensagens das subscrições vêm por aqui (registado antes de ligar para não perder nenhuma).
         novo.publishes(MqttGlobalPublishFilter.SUBSCRIBED) { recebida(novo, it) }
 
+        // Se o servidor não responder (internet em baixo ao abrir a app), tenta a caixa de casa.
+        caixa = caixaGuardada()
+        agendarCaixa()
+
         try {
             novo.connect().await()
         } catch (e: CancellationException) {
@@ -118,6 +136,9 @@ class DomusMqtt(
     /** Termina a sessão, esquece o estado e deixa de tentar religar. */
     fun desligar() {
         parado = true
+        espera?.cancel(false)
+        desligarCaixa()
+        caixa = null
         synchronized(lock) { publicaEstado(Estado()) }
         val c = client
         client = null
@@ -131,10 +152,18 @@ class DomusMqtt(
      */
     suspend fun enviar(mensagens: List<Publicacao>) {
         if (mensagens.isEmpty()) return
-        val c = client?.takeIf { it.state.isConnected }
-            ?: throw MqttException("Sem ligação ao servidor. A religar…")
+        val servidor = client?.takeIf { it.state.isConnected }
+        val pelaCaixa = local?.takeIf { it.state.isConnected }
+        val shelly = synchronized(lock) { atual.lista.orEmpty().filter { it.tipo == Aparelho.TIPO_SHELLY }.map { it.id }.toSet() }
+        // Com a caixa ligada, os comandos dos OpenBeken vão por ela (chegam em casa mesmo com a caixa sem internet).
+        val destinos = mensagens.map { m ->
+            (if (pelaCaixa != null && Caixa.passaPelaCaixa(m.topico, codigo, shelly)) pelaCaixa else servidor) ?: throw MqttException(
+                if (pelaCaixa != null) "Sem internet: em casa só dá para ligar e desligar os aparelhos. O resto volta com a internet."
+                else "Sem ligação ao servidor. A religar…",
+            )
+        }
         try {
-            for (m in mensagens) {
+            for ((m, c) in mensagens.zip(destinos)) {
                 // Nunca retido: um comando retido voltava a ser executado quando o aparelho reiniciasse.
                 c.publishWith().topic(m.topico).payload(m.payload.toByteArray()).qos(MqttQos.AT_LEAST_ONCE).retain(false)
                     .send().await()
@@ -228,6 +257,8 @@ class DomusMqtt(
         }
         jaLigou = true
         _ligacao.value = Ligacao.LIGADO
+        altera { it.copy(semServidor = false) }
+        avaliarCaixa()
         // Sessão limpa (clean session): subscreve outra vez em cada ligação. As mensagens retidas
         // (_aparelhos, _alarme, _automacoes, _historico, _ntfy, online, ...) chegam logo a seguir;
         // ao chegar a lista pedimos o estado aos Shelly.
@@ -246,6 +277,10 @@ class DomusMqtt(
                 naoReligar -> Ligacao.DESLIGADO
                 else -> Ligacao.A_RELIGAR
             }
+            if (!parado && !recusado) {
+                altera { it.copy(semServidor = true) }
+                agendarCaixa()
+            }
         }
     }
 
@@ -255,6 +290,82 @@ class DomusMqtt(
         val payload = String(publish.payloadAsBytes, Charsets.UTF_8)
         altera { EstadoParser.reduzir(it, codigo, topico, payload, retida = publish.isRetain) }
         if (topico == "domus/$codigo/${EstadoParser.LISTA}") pedirEstado()
+        if (topico == "domus/$codigo/${Caixa.TOPICO}") {
+            val novo = if (payload.isBlank()) null else Caixa.ler(payload)
+            if (novo != caixa) {
+                caixa = novo
+                aoMudarCaixa(novo)
+                desligarCaixa() // outro endereço ou login: a próxima ligação já usa o novo
+            }
+            avaliarCaixa()
+        }
+        if (topico == "domus/$codigo/${EstadoParser.PONTE}") avaliarCaixa()
+    }
+
+    // ---------- caixa de casa ----------
+
+    private fun agendarCaixa() {
+        if (espera?.isDone == false) return // já há uma espera a correr: as tentativas de religar não a adiam
+        espera = relogio.schedule({ avaliarCaixa() }, Caixa.ESPERA_MS, TimeUnit.MILLISECONDS)
+    }
+
+    private fun avaliarCaixa() {
+        if (parado) return
+        val servidor = client?.state?.isConnected == true
+        if (Caixa.precisa(servidor, synchronized(lock) { atual.ponteCaiu })) ligarCaixa() else desligarCaixa()
+    }
+
+    private fun ligarCaixa() {
+        synchronized(lockCaixa) { ligarCaixaJa() }
+    }
+
+    // Chamar sempre dentro de synchronized(lockCaixa).
+    private fun ligarCaixaJa() {
+        val acesso = caixa ?: return
+        if (local != null || parado) return
+        val ref = AtomicReference<Mqtt3AsyncClient>()
+        // A caixa fala por WebSocket sem TLS na porta 1884 (add-on Mosquitto do Home Assistant), só na rede de casa.
+        val c = MqttClient.builder()
+            .useMqttVersion3()
+            .identifier("app-$codigo-caixa-" + UUID.randomUUID().toString().take(8))
+            .serverHost(acesso.endereco)
+            .serverPort(acesso.porta)
+            .webSocketConfig().serverPath("mqtt").applyWebSocketConfig()
+            .simpleAuth().username(acesso.utilizador).password(acesso.senha.toByteArray()).applySimpleAuth()
+            .automaticReconnect()
+            .initialDelay(2, TimeUnit.SECONDS)
+            .maxDelay(30, TimeUnit.SECONDS)
+            .applyAutomaticReconnect()
+            .addConnectedListener {
+                val cl = ref.get()
+                if (cl !== local) return@addConnectedListener
+                altera { it.copy(naCaixa = true) }
+                cl.subscribeWith().topicFilter("domus/$codigo/#").qos(MqttQos.AT_LEAST_ONCE).send()
+            }
+            .addDisconnectedListener { ctx ->
+                // Login recusado (o técnico ainda não pôs o app-<c> novo nos logins da caixa): não insiste.
+                if (eAutenticacao(ctx.cause)) ctx.reconnector.reconnect(false)
+                if (ref.get() === local) altera { it.copy(naCaixa = false) }
+            }
+            .buildAsync()
+        ref.set(c)
+        local = c
+        c.publishes(MqttGlobalPublishFilter.SUBSCRIBED) { recebidaCaixa(c, it) }
+        c.connect() // falhas: o religar automático continua a tentar (a caixa pode ainda estar a arrancar)
+    }
+
+    private fun desligarCaixa() {
+        val c = synchronized(lockCaixa) { local.also { local = null } }
+        if (c != null && c.state.isConnectedOrReconnect) c.disconnect()
+        if (synchronized(lock) { atual.naCaixa }) altera { it.copy(naCaixa = false) }
+    }
+
+    private fun recebidaCaixa(c: Mqtt3AsyncClient, publish: Mqtt3Publish) {
+        if (c !== local) return
+        val topico = publish.topic.toString()
+        if (Caixa.ignorarDaCaixa(topico, codigo)) return
+        val payload = String(publish.payloadAsBytes, Charsets.UTF_8)
+        altera { EstadoParser.reduzir(it, codigo, topico, payload, retida = publish.isRetain) }
     }
 
     // Chamar sempre dentro de synchronized(lock).

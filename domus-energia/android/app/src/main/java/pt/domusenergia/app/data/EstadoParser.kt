@@ -79,6 +79,12 @@ data class Estado(
     val avisos: List<AvisoConflito> = emptyList(),
     /** `_plano` (docs/PROTOCOLO-PLANOS.md §2); `null` = não há (ou ainda não chegou): ver [subscricao]. */
     val plano: Subscricao? = null,
+    /** `_ponte` = "0": a caixa de casa perdeu o servidor e os OpenBeken não respondem (docs/HOME-ASSISTANT.md). */
+    val ponteCaiu: Boolean = false,
+    /** A app está ligada à caixa de casa ([Caixa]): os OpenBeken respondem por ela, com ou sem `_ponte`. */
+    val naCaixa: Boolean = false,
+    /** Sem ligação ao servidor: os Shelly (ligados ao servidor) não se alcançam, mesmo pela caixa. */
+    val semServidor: Boolean = false,
 ) {
     /** Subscrição a usar: a de `_plano` ou, sem ela, Conforto ativo gerido à mão (§2). */
     val subscricao: Subscricao get() = plano ?: Subscricao.PADRAO
@@ -96,7 +102,8 @@ data class Estado(
         val noticias = EstadoParser.noticiasDoHistorico(historico)
         val pers = configEfetiva.personalizar
         lista.orEmpty().map {
-            EstadoParser.construir(Organizar.aplicar(it, pers[it.id]), brutos[it.id].orEmpty(), EstadoParser.ultimaNoticia(saude[it.id], noticias[it.id]))
+            EstadoParser.construir(Organizar.aplicar(it, pers[it.id]), brutos[it.id].orEmpty(), EstadoParser.ultimaNoticia(saude[it.id], noticias[it.id]),
+                ponteCaiu = ponteCaiu && !naCaixa, shellySemServidor = naCaixa && semServidor)
         }
     }
 }
@@ -113,6 +120,7 @@ object EstadoParser {
     const val EVENTOS = "_eventos"
     const val HISTORICO = "_historico"
     const val NTFY = "_ntfy"
+    const val PONTE = "_ponte"
     const val MAX_EVENTOS = 100
 
     private val ID_RE = Regex("^[a-z0-9-]+$")
@@ -173,6 +181,7 @@ object EstadoParser {
                     )
                 }
                 NTFY -> estado.copy(ntfyUrl = lerNtfy(payload))
+                PONTE -> estado.copy(ponteCaiu = payload.trim() == "0")
                 Subscricao.TOPICO -> if (payload.isBlank()) estado.copy(plano = null) else Subscricao.ler(payload)?.let { estado.copy(plano = it) } ?: estado
                 else -> estado
             }
@@ -307,13 +316,19 @@ object EstadoParser {
 
     /** Constrói o [Aparelho] a partir da configuração e das últimas mensagens de cada tópico. */
     /** @param noticiaMotor última notícia segundo o motor ([ultimaNoticia]); junta-se às recebidas em direto. */
-    fun construir(cfg: ConfigAparelho, brutos: Map<String, Bruto>, noticiaMotor: Instant? = null): Aparelho {
+    fun construir(
+        cfg: ConfigAparelho,
+        brutos: Map<String, Bruto>,
+        noticiaMotor: Instant? = null,
+        ponteCaiu: Boolean = false,
+        shellySemServidor: Boolean = false,
+    ): Aparelho {
         val shelly = cfg.tipo == Aparelho.TIPO_SHELLY
         fun texto(sub: String) = brutos[sub]?.payload
         fun json(sub: String) = texto(sub)?.let(::objeto)
 
-        val online = if (shelly) texto("online").equals("true", ignoreCase = true)
-        else texto("connected").equals("online", ignoreCase = true)
+        val online = if (shelly) !shellySemServidor && texto("online").equals("true", ignoreCase = true)
+        else !ponteCaiu && texto("connected").equals("online", ignoreCase = true)
 
         var potencia: Double? = null
         var tensao: Double? = null

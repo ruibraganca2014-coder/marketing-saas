@@ -1,0 +1,57 @@
+# Dashboard "Casa Domus" da demonstração (Home Assistant em modo YAML): a casa do dono, por divisão como na planta
+# (quarto, casa de banho, kitchenette, jardim) e na app Domus.
+title: Casa Domus
+views:
+  - title: Casa
+    path: casa
+    icon: mdi:home
+    cards:
+      - type: gauge
+        name: Consumo agora
+        entity: sensor.consumo_da_casa
+        min: 0
+        max: 7000   # 6,9 kVA contratados
+        severity: { green: 0, yellow: 4000, red: 6000 }
+      - type: entities
+        title: Quadro
+        entities:
+          - { entity: switch.disjuntor_geral, name: Disjuntor geral }
+          - { entity: sensor.tensao, name: Tensão }
+          - { entity: sensor.corrente_da_casa, name: Corrente }
+          - { entity: sensor.energia_da_casa, name: Energia total }
+      - type: entities
+        title: Kitchenette
+        entities:
+          - { entity: switch.teto_da_kitchenette, name: Teto }
+          - { entity: switch.segunda_luz_da_kitchenette, name: 2.ª luz }
+          - { entity: switch.televisao_da_kitchenette, name: Televisão }
+          - { entity: sensor.consumo_da_televisao_da_kitchenette, name: Consumo da televisão }
+          - { entity: switch.maquina_de_lavar, name: Máquina de lavar }
+          - { entity: sensor.consumo_da_maquina_de_lavar, name: Consumo da máquina }
+          - { entity: switch.frigorifico, name: Frigorífico }
+          - { entity: sensor.consumo_do_frigorifico, name: Consumo do frigorífico }
+      - type: entities
+        title: Quarto
+        entities:
+          - { entity: switch.teto_do_quarto, name: Teto }
+          - { entity: switch.segunda_luz_do_quarto, name: 2.ª luz }
+          - { entity: switch.televisao_do_quarto, name: Televisão }
+          - { entity: sensor.consumo_da_televisao_do_quarto, name: Consumo da televisão }
+      - type: entities
+        title: Casa de banho
+        entities:
+          - { entity: switch.teto_da_casa_de_banho, name: Teto }
+          - { entity: switch.espelho_da_casa_de_banho, name: Espelho }
+      - type: entities
+        title: Jardim
+        entities:
+          - { entity: switch.iluminacao_do_jardim, name: Iluminação do jardim }
+          - { entity: switch.termoacumulador, name: Termoacumulador }
+          - { entity: sensor.consumo_do_termoacumulador, name: Consumo do termoacumulador }
+      - type: history-graph
+        title: Consumo (última hora)
+        hours_to_show: 1
+        entities:
+          - { entity: sensor.consumo_da_casa, name: Casa }
+          - { entity: sensor.consumo_do_termoacumulador, name: Termoacumulador }
+          - { entity: sensor.consumo_da_maquina_de_lavar, name: Máquina de lavar }

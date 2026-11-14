@@ -68,6 +68,9 @@ data class UiState(
     val abrirUrl: String? = null,
 ) {
     val ligado: Boolean get() = ligacao == Ligacao.LIGADO
+
+    /** Os aparelhos também se comandam pela caixa de casa, sem servidor (o resto precisa do servidor). */
+    val podeComandarAparelhos: Boolean get() = ligado || estado.naCaixa
 }
 
 /** Operações em curso no serviço de pagamentos ([UiState.pagamento]). */

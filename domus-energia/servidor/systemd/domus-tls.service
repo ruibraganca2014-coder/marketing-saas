@@ -1,0 +1,16 @@
+# Domus Energia — TLS do MQTT (porta 8883), todas as noites: copia o certificado que o
+#   Caddy renovou para o Mosquitto e reinicia-o só se mudou (docs/HOME-ASSISTANT.md:
+#   a ponte das caixas liga por TLS). Corrido por domus-tls.timer.
+# O instalar.sh instala isto sozinho. À mão: trocar /home/ubuntu/domus-energia/servidor
+# pela pasta servidor/ do seu VPS (nas duas linhas abaixo).
+[Unit]
+Description=Domus Energia: certificado TLS do MQTT
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/domus-energia/servidor
+ExecStart=/home/ubuntu/domus-energia/servidor/domus.sh mqtt-tls
+TimeoutStartSec=180
+Nice=10

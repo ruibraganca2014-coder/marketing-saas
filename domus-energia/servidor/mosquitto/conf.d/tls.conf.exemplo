@@ -1,8 +1,7 @@
-# Porta MQTT com TLS (8883) para os aparelhos que a suportam (Shelly Gen2/Gen3).
-# Opcional: para ativar, copie este ficheiro para "tls.conf" (nesta pasta),
-# ponha os certificados em mosquitto/certs/ (ver README, "MQTT com TLS"),
-# abra a porta 8883 (firewall + docker-compose.yml) e reinicie o Mosquitto:
-#   docker compose restart mosquitto
+# Porta MQTT com TLS (8883): ponte das caixas com Home Assistant e Shelly Gen2/Gen3.
+# Não copiar à mão: o ./domus.sh mqtt-tls põe os certificados do Caddy em
+# mosquitto/certs/, copia este ficheiro para "tls.conf" e reinicia o Mosquitto
+# (ver README, "MQTT com TLS"). A porta 8883 tem de estar aberta no fornecedor.
 # As mesmas contas e permissões (passwd/acl) valem para todas as portas.
 listener 8883
 protocol mqtt

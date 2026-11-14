@@ -280,7 +280,7 @@ Domus Energia a correr localmente
   Painel:         ${ORIGEM}/painel/        (credenciais do CEO em local/dados/local.json)
   Acesso rápido:  ${ACESSO_RAPIDO ? 'ligado — barra "Acesso rápido (testes)" em baixo, à esquerda: entra sem palavra-passe; só neste computador, não pela rede local (ACESSO_RAPIDO=0 desliga)' : 'desligado (ACESSO_RAPIDO=0)'}
   MQTT:           mqtt://localhost:${PORTA_MQTT}  e  ws://localhost:${PORTA_SITE}/mqtt
-  Casa de teste:  ${process.env.APARELHOS !== '0' ? `${ORIGEM}/cliente.html com o código "demo" (8 aparelhos simulados; APARELHOS=0 desliga)` : 'desligada (APARELHOS=0)'}
+  Casa de teste:  ${process.env.APARELHOS !== '0' ? `${ORIGEM}/cliente.html com o código "demo" (8 aparelhos simulados) ou "casa-t1" (a casa do dono, 10 aparelhos); APARELHOS=0 desliga` : 'desligada (APARELHOS=0)'}
   Rede local:     ${ORIGENS_REDE.join('  ') || '(desligada)'}   (telemóvel no mesmo Wi-Fi; QR das fotos; REDE_LOCAL=0 desliga)
 Ctrl+C para parar.
 `);
@@ -296,10 +296,13 @@ process.on('SIGINT', parar);
 
 // Aparelhos simulados (decisão do dono, 2026-10-09): a casa "demo" arranca com o lançador, para a área de cliente e a
 // ativação de aparelhos se poderem experimentar sem mais nada. APARELHOS=0 desliga.
+// A "casa-t1" é a casa do dono (planta da conta dele), com os aparelhos Tuya que vão passar a OpenBeken (2026-11-14).
 if (process.env.APARELHOS !== '0') {
-  const sim = spawn(process.execPath, [join(AQUI, 'aparelhos-simulados.js'), 'demo'], { cwd: AQUI, env: ambiente, stdio: ['ignore', 'pipe', 'pipe'] });
-  sim.stdout.on('data', (b) => process.stdout.write(String(b)));
-  sim.stderr.on('data', (b) => process.stderr.write(String(b)));
-  filhos.push(sim);
+  for (const casa of ['demo', 'casa-t1']) {
+    const sim = spawn(process.execPath, [join(AQUI, 'aparelhos-simulados.js'), casa], { cwd: AQUI, env: ambiente, stdio: ['ignore', 'pipe', 'pipe'] });
+    sim.stdout.on('data', (b) => process.stdout.write(String(b)));
+    sim.stderr.on('data', (b) => process.stderr.write(String(b)));
+    filhos.push(sim);
+  }
 }
 process.on('SIGTERM', parar);

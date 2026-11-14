@@ -149,6 +149,7 @@ export { MAX_EXECUCOES_MINUTO };
  * @property {Record<string, string>} horaDisparos  id da automação → "data hora" do último disparo
  * @property {string|null} relatorioDia
  * @property {boolean} avisoCasaOffline
+ * @property {boolean} ponteCaiu  `_ponte` = "0": a caixa de casa perdeu a ligação
  * @property {boolean} registoSujo
  * @property {boolean} saudeSuja
  * @property {string|null} saudeAssinatura
@@ -245,6 +246,7 @@ export class Motor {
         horaDisparos: {},
         relatorioDia: null,
         avisoCasaOffline: false,
+        ponteCaiu: false,
         registoSujo: false,
         saudeSuja: false,
         saudeAssinatura: null,
@@ -532,6 +534,8 @@ export class Motor {
           return this.aoNtfy(codigo, payload);
         case '_plano':
           return this.aoPlano(codigo, payload);
+        case '_ponte':
+          return this.aoPonte(codigo, payload, retida);
         case '_fcm/registar':
           return !retida && this.aoFcm(codigo, payload);
         case '_webpush/registar':
@@ -570,6 +574,7 @@ export class Motor {
     }
     if (removidos) this.guardar();
     c.saudeSuja = true;
+    if (c.ponteCaiu) this.aplicarPonteCaiu(c, true); // o _ponte retido pode chegar antes do _aparelhos
     this.log.info(`[aparelhos] ${codigo}: ${aparelhos.size} aparelho(s)`);
     if (novo) this.porSincronizar.add(codigo);
   }
@@ -606,6 +611,26 @@ export class Motor {
     c.avisouSemNtfy = false;
   }
 
+  /**
+   * `_ponte` (retido, testamento da ponte da caixa com Home Assistant;
+   * docs/HOME-ASSISTANT.md): "1" ligada, "0" a casa perdeu a ligação. Os
+   * OpenBeken ligam-se à caixa, por isso os seus testamentos não chegam cá:
+   * com "0" passam todos a offline. Com "1" não se faz nada — cada aparelho
+   * volta a online na próxima mensagem dele. Vazio = casa sem caixa.
+   */
+  aoPonte(codigo, payload, retida) {
+    const c = this.cliente(codigo);
+    c.ponteCaiu = texto(payload) === '0';
+    if (c.ponteCaiu) this.aplicarPonteCaiu(c, retida);
+  }
+
+  /** @param {Cliente} c @param {boolean} retida */
+  aplicarPonteCaiu(c, retida) {
+    for (const ap of c.aparelhos?.values() ?? []) {
+      if (ap.tipo === 'openbeken') this.definirOnline(c, ap, false, retida);
+    }
+  }
+
   // ---------------------------------------------------------------- aparelhos
 
   /** Marca notícias de um aparelho (não conta valores retidos nem "offline"). */
@@ -628,7 +653,8 @@ export class Motor {
     const t = texto(payload);
     if (sub === 'connected') {
       if (t === 'online') {
-        if (retida) this.definirOnline(c, ap, true, true);
+        // com a ponte em baixo, o "online" retido no servidor é antigo
+        if (retida) { if (!c.ponteCaiu) this.definirOnline(c, ap, true, true); }
         else this.noticia(c, ap, false);
       } else if (t === 'offline') {
         this.definirOnline(c, ap, false, retida);

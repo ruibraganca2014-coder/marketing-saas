@@ -4,7 +4,7 @@
 //
 // Fontes (retidas, exceto _eventos): _aparelhos, _saude (PROTOCOLO-MQTT-v3 §5),
 // _alarme, _modo, _plano, _eventos, <aparelho>/connected (OpenBeken) e
-// <aparelho>/online (Shelly). E <aparelho>/mac (o chip que o OpenBeken anuncia): comparado com o registado no
+// <aparelho>/online (Shelly), _ponte (caixa de casa, docs/HOME-ASSISTANT.md). E <aparelho>/mac (o chip que o OpenBeken anuncia): comparado com o registado no
 // painel (`this.chips`, posto pelo api.js), dá os alertas "chip diferente" e "chip por registar".
 
 import mqtt from 'mqtt';
@@ -13,7 +13,7 @@ import { RE_ID } from './dados.js';
 import { iso } from './util.js';
 
 export const GRAVIDADES = { critica: 4, alta: 3, media: 2, baixa: 1 };
-const TOPICOS = ['_aparelhos', '_saude', '_alarme', '_modo', '_plano', '_eventos', '_config'].map((t) => `domus/+/${t}`)
+const TOPICOS = ['_aparelhos', '_saude', '_alarme', '_modo', '_plano', '_eventos', '_config', '_ponte'].map((t) => `domus/+/${t}`)
   .concat(['domus/+/+/connected', 'domus/+/+/online', 'domus/+/+/mac']);
 
 /** Endereço MAC em "AA:BB:CC:DD:EE:FF" (aceita com ou sem separadores); null se não tiver 12 algarismos hexadecimais. */
@@ -96,7 +96,7 @@ export class Alertas {
     let casa = this.casas.get(c);
     if (!casa) {
       if (this.casas.size >= MAX_CLIENTES) return null;
-      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ligacao: new Map(), eventos: [], macs: new Map(), personalizar: {} };
+      casa = { aparelhos: new Map(), saude: {}, alarme: null, modo: null, plano: null, ponte: null, ligacao: new Map(), eventos: [], macs: new Map(), personalizar: {} };
       this.casas.set(c, casa);
     }
     return casa;
@@ -136,6 +136,10 @@ export class Alertas {
     if (p.length !== 3) return;
     const casa = this.#casa(p[1]);
     if (!casa) return;
+    if (p[2] === '_ponte') { // "1"/"0", não é JSON; vazio = casa sem caixa
+      casa.ponte = texto.trim() === '0' ? (casa.ponte ?? { desde: retida ? null : iso(agora) }) : null;
+      return;
+    }
     if (!texto) { // retida apagada
       if (p[2] === '_aparelhos') casa.aparelhos.clear();
       else if (p[2] === '_saude') casa.saude = {};
@@ -221,6 +225,7 @@ export class Alertas {
     const armado = casa.alarme && ARMADO.has(casa.alarme.estado);
     if (casa.alarme?.estado === 'disparado') add(null, 'alarme_disparado', 'critica', 'Alarme disparado.', { desde: casa.alarme.desde });
     else if (casa.alarme?.estado === 'entrada') add(null, 'alarme_entrada', 'alta', 'Alarme em tempo de entrada (a aguardar desarme).', { desde: casa.alarme.desde });
+    if (casa.ponte) add(null, 'caixa_sem_ligacao', 'alta', 'Caixa de casa sem ligação ao servidor (internet da casa ou caixa avariada): os aparelhos OpenBeken não respondem.', { desde: casa.ponte.desde });
 
     const ids = new Set([...casa.aparelhos.keys(), ...Object.keys(casa.saude), ...casa.ligacao.keys()]);
     for (const id of ids) {

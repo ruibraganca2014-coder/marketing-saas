@@ -467,10 +467,10 @@ gerar_config_site() {
 }
 
 abrir_firewall() {
-  passo "Firewall (portas 22, 80, 443, 443/udp e 1883)"
+  passo "Firewall (portas 22, 80, 443, 443/udp, 1883 e 8883)"
   if tem ufw && ufw status 2>/dev/null | grep -q '^Status: active'; then
     local r
-    for r in 22/tcp 80/tcp 443/tcp 443/udp 1883/tcp; do correr ufw allow "$r"; done
+    for r in 22/tcp 80/tcp 443/tcp 443/udp 1883/tcp 8883/tcp; do correr ufw allow "$r"; done
     info "ufw: portas abertas"
   else
     info "ufw inativo ou ausente (nada a fazer)"
@@ -478,7 +478,7 @@ abrir_firewall() {
   # Imagens Ubuntu da Oracle Cloud: iptables com um REJECT no fim do INPUT.
   if tem iptables && iptables -S INPUT 2>/dev/null | grep -q -- '-j REJECT'; then
     local pos regra proto porta
-    for regra in tcp:80 tcp:443 udp:443 tcp:1883; do
+    for regra in tcp:80 tcp:443 udp:443 tcp:1883 tcp:8883; do
       proto="${regra%%:*}"; porta="${regra##*:}"
       if iptables -C INPUT -p "$proto" -m state --state NEW --dport "$porta" -j ACCEPT 2>/dev/null; then continue; fi
       pos="$(iptables -L INPUT --line-numbers -n | awk '$2 == "REJECT" { print $1; exit }')"
@@ -499,7 +499,7 @@ gravar_regras_v4() {
     aviso "sem $f: as regras abertas agora perdem-se ao reiniciar (ver README §2)"
     return 0
   fi
-  for regra in tcp:80 tcp:443 udp:443 tcp:1883; do
+  for regra in tcp:80 tcp:443 udp:443 tcp:1883 tcp:8883; do
     proto="${regra%%:*}"; porta="${regra##*:}"
     linha="-A INPUT -p $proto -m state --state NEW -m $proto --dport $porta -j ACCEPT"
     grep -qxF -- "$linha" "$f" || novas+="$linha"$'\n'
@@ -560,8 +560,8 @@ instalar_temporizadores() {
     fi
   done
   correr systemctl daemon-reload
-  correr systemctl enable --quiet domus-planos.timer domus-pedidos.timer domus-copia.timer
-  correr systemctl restart domus-planos.timer domus-pedidos.timer domus-copia.timer
+  correr systemctl enable --quiet domus-planos.timer domus-pedidos.timer domus-copia.timer domus-tls.timer
+  correr systemctl restart domus-planos.timer domus-pedidos.timer domus-copia.timer domus-tls.timer
   if [[ -f /etc/cron.d/domus-planos ]]; then
     aviso "existe /etc/cron.d/domus-planos (alternativa em cron): apague-o para não correr duas vezes"
   fi
@@ -654,6 +654,11 @@ arrancar() {
       aviso "https://$HOST/ ainda não responde: portas 80/443 abertas no fornecedor? DNS? (sudo docker compose logs caddy)"
     fi
   fi
+  # TLS do MQTT (porta 8883) com o certificado do Caddy: a ponte das caixas só liga por aqui. Uma falha não pára a
+  # instalação (o domus.sh deixa o Mosquitto como estava); o domus-tls.timer volta a tentar todas as noites.
+  if (( HTTPS_OK || SIMULAR )); then
+    correr ./domus.sh mqtt-tls || aviso "o TLS do MQTT (porta 8883) não ficou ativo: as caixas não ligam (ver: sudo ./domus.sh mqtt-tls)"
+  fi
   if (( ATUALIZAR )); then verificar_site; fi
 }
 
@@ -731,7 +736,7 @@ EOF
   cat <<EOF
 
  Próximos passos
-  1. Firewall do fornecedor: abrir TCP 22, 80, 443, 1883 e UDP 443.
+  1. Firewall do fornecedor: abrir TCP 22, 80, 443, 1883, 8883 e UDP 443.
   2. Pagamentos dos pedidos (relatório, visita, avaria, sinal, restante): até
      haver AIRWALLEX_API_KEY ficam DESLIGADOS (os pedidos chegam sem pagar; o
      painel avisa). Para os ligar: AIRWALLEX_CLIENT_ID, AIRWALLEX_API_KEY,

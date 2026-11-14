@@ -136,7 +136,7 @@ fun CasaScreen(state: UiState, resumo: Resumo, acoes: Acoes, onAbrir: (Secundari
                         )
                     }
                 }
-                items(lista, key = { it.id }) { a -> CartaoAparelho(a, agora, state.ligado, acoes, limiar, gerais) }
+                items(lista, key = { it.id }) { a -> CartaoAparelho(a, agora, state.podeComandarAparelhos, acoes, limiar, gerais) }
             }
         }
     }

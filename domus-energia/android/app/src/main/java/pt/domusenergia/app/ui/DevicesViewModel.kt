@@ -44,7 +44,7 @@ import pt.domusenergia.app.presenca.PresencaWorker
 class DevicesViewModel(app: Application) : AndroidViewModel(app), Acoes {
 
     private val sessao = Sessao(app)
-    private val mqtt = DomusMqtt()
+    private val mqtt = DomusMqtt(caixaGuardada = { sessao.caixa }, aoMudarCaixa = { sessao.caixa = it })
     private val presenca = PresencaControlador(app)
 
     /** Serviço de pagamentos: token pedido com o código e a palavra-passe da sessão (decifrada pelo Keystore). */

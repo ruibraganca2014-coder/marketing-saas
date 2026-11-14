@@ -50,7 +50,18 @@ class Sessao(context: Context) {
         cofre.guardar(password, mapOf("codigo" to codigo))
     }
 
-    fun limpar() = cofre.limpar(mapOf("codigo" to null))
+    fun limpar() {
+        cofre.limpar(mapOf("codigo" to null))
+        cofreCaixa.limpar()
+    }
+
+    // Login da caixa de casa ([AcessoCaixa]): tem uma palavra-passe, por isso fica cifrado como a da sessão.
+    private val cofreCaixa = CofreSenha(Preferencias(context.applicationContext.getSharedPreferences(NOME_CAIXA, Context.MODE_PRIVATE)), ChaveKeystore::obter, AAD_CAIXA)
+
+    /** O último `_caixa` recebido (para a app o ter quando a internet cai); `null` apaga. */
+    var caixa: AcessoCaixa?
+        get() = cofreCaixa.ler()?.let(Caixa::ler)
+        set(v) { if (v == null) cofreCaixa.limpar() else cofreCaixa.guardar(v.json()) }
 
     /** As SharedPreferences como [ArmazemTexto] (escrita síncrona: a migração tem de apagar mesmo o valor antigo). */
     private class Preferencias(private val p: SharedPreferences) : ArmazemTexto {
@@ -65,6 +76,8 @@ class Sessao(context: Context) {
 
     companion object {
         const val NOME = "sessao"
+        const val NOME_CAIXA = "sessao_caixa"
+        private val AAD_CAIXA = "pt.domusenergia.app/sessao/caixa".toByteArray(Charsets.UTF_8)
     }
 }
 

@@ -496,6 +496,54 @@ deve_falhar "painel-utilizador: email inválido" "email inválido" painel-utiliz
 deve_falhar "painel-utilizador: papel inválido" "papel inválido" painel-utilizador a@b.pt admin
 deve_falhar "painel-utilizador: sem papel" "uso: ./domus.sh painel-utilizador" painel-utilizador a@b.pt
 
+echo "Caixa com Home Assistant (docs/HOME-ASSISTANT.md):"
+bloco_ponte() { awk -v u="user ponte-$1" '$0 == u {p = 1; next} p && /^$/ {exit} p' "$acl"; }
+deve_passar "cliente maria" cliente maria maria-senha-1
+deve_passar "maria: OpenBeken luz" aparelho maria luz openbeken "Luz sala" luz-senha-1
+deve_passar "maria: Shelly estore" aparelho maria estore shelly "Estore" --canais "1:estore" estore-senha-1
+cp "$acl" "$TMP/acl-sem-caixa"
+deve_falhar "mqtt-tls com argumentos" "uso: ./domus.sh mqtt-tls" mqtt-tls a
+deve_passar "mqtt-tls (simulação)" mqtt-tls
+if grep -qF "copiar o certificado de teste.local do caddy" "$TMP/erros" "$TMP/saida"; then passa "mqtt-tls copia o certificado do Caddy"; else falha "mqtt-tls: $(cat "$TMP/erros" "$TMP/saida")"; fi
+deve_falhar "caixa de cliente que não existe" "não existe" caixa ninguem
+deve_falhar "remover-caixa sem caixa" "não tem caixa" remover-caixa maria
+deve_passar "caixa maria" caixa maria ponte-senha-1
+saida_tem "ponte.conf: utilizador" "remote_username ponte-maria"
+saida_tem "ponte.conf: servidor por TLS" "address teste.local:8883"
+saida_tem "ponte.conf: verifica o certificado" "bridge_capath /etc/ssl/certs"
+saida_nao_tem "ponte.conf: sem a porta simples" ":1883"
+saida_tem "ponte.conf: palavra-passe" "remote_password ponte-senha-1"
+saida_tem "ponte.conf: tópicos da casa" "topic domus/maria/# both 0"
+saida_tem "ponte.conf: _ponte" "notification_topic domus/maria/_ponte"
+saida_nao_tem "ponte.conf: sem marcadores por trocar" "CLIENTE"
+b="$(bloco_ponte maria)"
+if [[ "$b" == *"topic write domus/maria/_ponte"* && "$b" == *"topic readwrite domus/maria/luz/#"* ]]
+then passa "acl: ponte escreve _ponte e mexe no OpenBeken"; else falha "acl da ponte: $b"; fi
+if [[ "$b" != *estore* ]]; then passa "acl: ponte não mexe no Shelly"; else falha "acl: ponte com o Shelly"; fi
+if [[ "$(grep -c '^topic read ' <<< "$b")" == 2 && "$b" == *"topic read domus/maria/_aparelhos"* && "$b" == *"topic read domus/maria/_config"* \
+   && "$b" != *_modo* && "$b" != *_plano* ]]
+then passa "acl: ponte só lê a lista e a config, não mexe no modo/plano"; else falha "acl da ponte larga: $b"; fi
+if ! grep -qF "domus/maria/_caixa" "$TMP/erros" "$TMP/saida"; then passa "sem --ip não publica o login da caixa"; else falha "sem --ip publicou o _caixa"; fi
+deve_falhar "caixa com IP público" "endereço privado" caixa maria --ip 8.8.8.8 ponte-senha-1
+deve_falhar "caixa com IP mal escrito" "endereço privado" caixa maria --ip 192.168.1.300 ponte-senha-1
+deve_passar "caixa maria com --ip" caixa maria --ip 192.168.1.50 ponte-senha-1
+if grep -qF 'publicar (retida) domus/maria/_caixa {"endereco":"192.168.1.50","porta":1884,"utilizador":"app-maria"' "$TMP/erros" "$TMP/saida"
+then passa "_caixa publicado com o endereço"; else falha "_caixa não publicado: $(grep -h _caixa "$TMP/erros" "$TMP/saida")"; fi
+saida_tem "login da app para o add-on" "username: app-maria"
+deve_passar "plano maria suspenso" plano maria base --estado suspenso
+if [[ "$(bloco_ponte maria)" == "$b" ]]; then passa "acl: cliente suspenso mantém a ponte"; else falha "suspenso perdeu a ponte"; fi
+deve_passar "plano maria ativo" plano maria base
+deve_passar "remover-caixa maria" remover-caixa maria
+if grep -qF "domus/maria/_ponte" "$TMP/erros" "$TMP/saida"; then passa "remover-caixa apaga o _ponte retido"; else falha "remover-caixa não apagou o _ponte"; fi
+if grep -qF "apagar retida domus/maria/_caixa" "$TMP/erros" "$TMP/saida"; then passa "remover-caixa apaga o login da caixa"; else falha "remover-caixa não apagou o _caixa"; fi
+if cmp -s "$acl" "$TMP/acl-sem-caixa"; then passa "acl sem caixa igual à de antes"; else falha "acl mudou: $(diff "$TMP/acl-sem-caixa" "$acl")"; fi
+deve_passar "caixa maria outra vez" caixa maria ponte-senha-2
+deve_passar "cliente ponte" cliente ponte ponte-cliente-1
+deve_falhar "aparelho 'maria' do cliente 'ponte' (mesmo utilizador da ponte da maria)" "já existe" aparelho ponte maria openbeken "X" x-senha-123
+deve_passar "aparelho 'joana' do cliente 'ponte'" aparelho ponte joana openbeken "X" x-senha-123
+deve_passar "cliente joana" cliente joana joana-senha-1
+deve_falhar "caixa da joana (utilizador ponte-joana já é um aparelho)" "já existe" caixa joana
+
 echo
 echo "Resultado: $OK ok, $FALHAS falhas"
 (( FALHAS == 0 ))
