@@ -118,8 +118,8 @@ Abre http://localhost:8123/casa-domus/casa e carrega em **Trusted Networks** (en
 | Aparelho | Divisão | Comanda |
 |---|---|---|
 | disjuntor que mede (quadro, no quarto) | Quadro | casa toda + consumo, tensão, corrente, energia |
-| interruptor 2 teclas | Quarto | teto, 2.ª luz |
-| interruptor 2 teclas | Casa de banho | teto, espelho |
+| interruptor 1 tecla | Quarto | teto (a 2.ª luz fica fora do programa) |
+| interruptor 1 tecla | Casa de banho | teto (o espelho fica fora do programa) |
 | interruptor 2 teclas | Kitchenette | teto, 2.ª luz |
 | interruptor 1 tecla | Jardim | iluminação do jardim |
 | 5 tomadas com medição | Quarto, Kitchenette, Jardim | televisão do quarto, televisão da kitchenette, máquina de lavar, frigorífico, termoacumulador (carga perigosa) |
@@ -132,14 +132,22 @@ Visto a funcionar em 2026-11-14 (Home Assistant em pt), primeiro com a casa `dem
 - a integração Shelly não aparece (as casas de teste só têm aparelhos OpenBeken a fingir);
 - as proteções das cenas e automações da app para o quadro geral e as cargas perigosas (confirmação, máximo 4 h ligada) não existem no HA: lá, uma automação pode deixar o termoacumulador ligado sem limite. Entra na regra "HA e motor" por decidir.
 
-## Aparelhos Tuya Bluetooth (casa do dono, 2026-11-14)
+## Aparelhos da casa do dono (2026-11-14)
 
-O dono tem hubs Tuya / Smart Life e os aparelhos que está a instalar em casa (interruptores de parede, tomadas, o disjuntor que mede no quadro e sensores) são **Bluetooth**: fora de casa só funcionam porque o hub Tuya faz a ponte. Isto **muda** a decisão de os trocar para OpenBeken (o OpenBeken só existe para aparelhos Wi-Fi).
+O dono tem hubs Tuya / Smart Life. Primeiro ficou que os aparelhos eram todos Bluetooth (e iam ligar à caixa por
+Bluetooth); depois o dono corrigiu: **só a fechadura é Bluetooth, o resto é Wi-Fi**. Decisões (uma pergunta de cada vez):
 
-Decisão (uma pergunta de cada vez): **Bluetooth direto da caixa**. O Home Assistant do Raspberry Pi fala com os aparelhos por Bluetooth, com as chaves tiradas uma vez da conta Tuya; depois não precisa da nuvem nem de internet. Preferido a: Tuya pela nuvem (sem internet não havia controlo) e trocar os aparelhos por Wi-Fi ou Zigbee (custa aparelhos novos).
+- **Aparelhos Wi-Fi** (interruptores de parede, tomadas, o disjuntor que mede no quadro): **trocar para OpenBeken**,
+  como no Chayo, e ligá-los à caixa. Volta a decisão de antes; a de "Bluetooth direto da caixa" deixa de valer para eles.
+  Perde-se a garantia; alguns modelos só se trocam abrindo o aparelho (ver na bancada, um a um).
+- **Fechadura Bluetooth**: **só mostrar o estado** (trancada/aberta e bateria) na app Domus, com avisos. Abrir e
+  trancar continua na app Tuya ou na chave: o programa nunca abre a porta.
 
 Ainda por fazer e por saber:
-- **Que modelos são**: nem todos os aparelhos Tuya Bluetooth funcionam sem a nuvem; experimentar na bancada aparelho a aparelho.
-- O Bluetooth do Pi tem alcance curto: aparelhos longe da caixa podem precisar de um repetidor Bluetooth (ex.: ESP32 com ESPHome) perto deles.
-- Como estes aparelhos chegam aos tópicos `domus/<c>/<aparelho>/...` para a app Domus e o motor os verem (hoje só os OpenBeken e os Shelly falam MQTT).
-- A casa a fingir `casa-t1` continua a servir para ver as divisões e o dashboard; os ids dos aparelhos ficam os mesmos quando houver os verdadeiros.
+- Os modelos Wi-Fi: que chip têm (decide se a troca para OpenBeken se faz pelo Wi-Fi ou abrindo o aparelho).
+- O modelo da fechadura: se o Home Assistant da caixa a consegue ler por Bluetooth sem a nuvem Tuya (com as chaves
+  tiradas uma vez da conta), e o alcance do Bluetooth do Pi até à porta.
+- Como o estado da fechadura chega a `domus/<c>/<aparelho>/...` para a app Domus e o motor (hoje só os OpenBeken e
+  os Shelly falam MQTT); só leitura, sem tópico de comando.
+- A casa a fingir `casa-t1` continua a servir para ver as divisões e o dashboard; os ids dos aparelhos ficam os mesmos
+  quando houver os verdadeiros.

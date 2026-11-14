@@ -31,16 +31,14 @@ const DEMO = [
 
 // A casa do dono (planta da conta no opancas.pt, 2026-11-14): T1 com quarto, casa de banho, kitchenette e jardim. Os
 // aparelhos são os Tuya que ele está a instalar, já como ficarão depois de passarem a OpenBeken (respostas de 2026-11-14):
-// disjuntor que mede no quadro, interruptores de parede (2 teclas; 1 no jardim) e 5 tomadas com medição. `inicial` = estado
+// disjuntor que mede no quadro, interruptores de parede ATOMANT (2 teclas só na kitchenette, 1 no quarto, casa de banho e jardim; 2026-11-14) e 5 tomadas com medição. `inicial` = estado
 // ao arrancar (por omissão desligado).
 const CASA_T1 = [
   { id: 'quadro', nome: 'Disjuntor geral', tipo: 'openbeken', medidor: true, geral: true, canais: [{ n: 1, funcao: 'interruptor', nome: 'Geral', divisao: 'Quadro', arranque: 'ligado', inicial: 1 }] },
   { id: 'int-quarto', nome: 'Interruptor quarto', tipo: 'openbeken', canais: [
-    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Quarto', w: 24 },
-    { n: 2, funcao: 'interruptor', nome: '2.ª luz', divisao: 'Quarto', w: 9 }] },
+    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Quarto', w: 24 }] },
   { id: 'int-wc', nome: 'Interruptor casa de banho', tipo: 'openbeken', canais: [
-    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Casa de banho', w: 18 },
-    { n: 2, funcao: 'interruptor', nome: 'Espelho', divisao: 'Casa de banho', w: 12 }] },
+    { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Casa de banho', w: 18 }] },
   { id: 'int-kitchenette', nome: 'Interruptor kitchenette', tipo: 'openbeken', canais: [
     { n: 1, funcao: 'interruptor', nome: 'Teto', divisao: 'Kitchenette', w: 24, inicial: 1 },
     { n: 2, funcao: 'interruptor', nome: '2.ª luz', divisao: 'Kitchenette', w: 12 }] },

@@ -34,14 +34,12 @@ views:
         title: Quarto
         entities:
           - { entity: switch.teto_do_quarto, name: Teto }
-          - { entity: switch.segunda_luz_do_quarto, name: 2.ª luz }
           - { entity: switch.televisao_do_quarto, name: Televisão }
           - { entity: sensor.consumo_da_televisao_do_quarto, name: Consumo da televisão }
       - type: entities
         title: Casa de banho
         entities:
           - { entity: switch.teto_da_casa_de_banho, name: Teto }
-          - { entity: switch.espelho_da_casa_de_banho, name: Espelho }
       - type: entities
         title: Jardim
         entities:
